@@ -46,11 +46,11 @@ struct AgentReplyPullRequestsQuotaTests {
             guard arguments.prefix(2) == ["api", "graphql"],
                   let query = arguments.first(where: { $0.hasPrefix("query=") }) else { return nil }
             let probe = !query.contains("fragment f on PullRequest")
-            let numbers = query.components(separatedBy: "pullRequest(number: ").dropFirst().compactMap { part in Int(part.prefix(while: \.isNumber)) }
+            let numbers = query.components(separatedBy: "issueOrPullRequest(number: ").dropFirst().compactMap { part in Int(part.prefix(while: \.isNumber)) }
             log.append(Call(probe: probe, numbers: numbers))
             var members = numbers.enumerated().map { index, number in
                 let node = pulls[number].map { probe ? Self.probeNode($0) : Self.fullNode(number, $0) } ?? "null"
-                return "\"p\(index)\":{\"pullRequest\":\(node)}"
+                return "\"p\(index)\":{\"issueOrPullRequest\":\(node)}"
             }
             members.append("\"rateLimit\":{\"limit\":5000,\"remaining\":\(remaining),\"resetAt\":\"\(resetAt)\",\"cost\":1}")
             return Data("{\"data\":{\(members.joined(separator: ","))}}".utf8)
@@ -217,11 +217,11 @@ struct AgentReplyPullRequestsQuotaTests {
         let open = try #require(AgentChatPullRequestReader.Target(url: "https://github.com/o/r/pull/1"))
         let merged = try #require(AgentChatPullRequestReader.Target(url: "https://github.com/o/r/pull/2"))
         let query = AgentChatPullRequestReader.probeQuery([(open, true), (merged, false)])
-        #expect(query.contains("p0: repository(owner: \"o\", name: \"r\") { pullRequest(number: 1) { updatedAt state isDraft mergeable commits(last: 1)"))
-        #expect(query.contains("p1: repository(owner: \"o\", name: \"r\") { pullRequest(number: 2) { updatedAt state isDraft mergeable } }"))
+        #expect(query.contains("p0: repository(owner: \"o\", name: \"r\") { issueOrPullRequest(number: 1) { __typename ... on PullRequest { updatedAt state isDraft mergeable commits(last: 1)"))
+        #expect(query.contains("p1: repository(owner: \"o\", name: \"r\") { issueOrPullRequest(number: 2) { __typename ... on PullRequest { updatedAt state isDraft mergeable } ... on Issue { updatedAt state stateReason } } }"))
         #expect(query.contains(AgentChatPullRequestReader.rateLimitField))
         // The rollup's sum and its counts by state, never the checks themselves.
-        #expect(query.contains("__typename") == false, "the probe reads the rollup's sum and counts, never its checks")
+        #expect(query.contains("contexts(first: 1) { checkRunCountsByState") && !query.contains("nodes { __typename"), "the probe reads the rollup's sum and counts, never its checks")
         #expect(query.contains("checkRunCountsByState"))
         #expect(query.contains("baseRef"), "an open one's base tip is asked too")
         #expect(query.filter { $0 == "{" }.count == query.filter { $0 == "}" }.count)

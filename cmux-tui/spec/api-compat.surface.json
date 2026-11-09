@@ -929,6 +929,9 @@
         "values": [
           "\"daemon-shutdown\""
         ]
+      },
+      "/restart": {
+        "ty": "boolean"
       }
     },
     "event:detached": {
@@ -3962,6 +3965,19 @@
         "required": true
       },
       "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:stash-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"stash-changed\""
+        ]
+      },
+      "/revision": {
         "ty": "uint64",
         "required": true
       }
@@ -10762,6 +10778,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/filename": {
+        "ty": "string",
+        "nullable": true
+      },
       "/lease": {
         "ty": "string",
         "required": true
@@ -12019,6 +12039,10 @@
       "/pid": {
         "ty": "uint32",
         "required": true
+      },
+      "/restart": {
+        "ty": "boolean",
+        "nullable": true
       }
     },
     "request:sidebar-plugin": {
@@ -12065,6 +12089,9 @@
       }
     },
     "request:split": {
+      "/before": {
+        "ty": "boolean"
+      },
       "/cols": {
         "ty": "uint16",
         "nullable": true
@@ -17314,6 +17341,17 @@
       "/data/agents/*/state": {
         "ty": "enum",
         "required": true,
+        "values": [
+          "blocked",
+          "done",
+          "idle",
+          "unknown",
+          "working"
+        ]
+      },
+      "/data/agents/*/status": {
+        "ty": "enum",
+        "nullable": true,
         "values": [
           "blocked",
           "done",

@@ -21,7 +21,7 @@ or protocol changed.
 
 Checked and correct already: closing an unfocused column left of the strip viewport
 (focused column kept its screen x), closing an unfocused visible column, the tab
-successor (right, else left), an unselected tab closed by the CLI, the workspace successor
+successor (then right, else left; now left, else right), an unselected tab closed by the CLI, the workspace successor
 order (next, else previous). Closing the last column springs back to the clamp, which is
 forced (no empty space past the last column).
 
@@ -50,15 +50,19 @@ the strip's scroll function (column-scroll.md).
   the newest surviving pane of this window's history on that screen, else the default.
   Closing the right docked column focuses the strip's last column; the left one, the
   strip's first.
-- Tab: a browser link tab with a live opener relation (`BrowserTabOpeners`) goes back to
-  its family first, in Chrome's order (`DetermineNewSelectedIndex`): its next child, else
-  a sibling (the next tab with the same opener), else the opener. "Next" means the nearest
-  after the closed tab, else the nearest before it. Otherwise, and for terminal and agent
-  tabs, which have no openers: the next shown tab, else the previous shown one. Members of
-  a collapsed group are skipped while a shown tab survives, so a hidden opener or sibling
-  is passed over. Relations end where Chrome ends them: a switch to an unrelated tab or a
-  typed navigation forgets them all (except a typed navigation in a New Tab page at the end
-  of the strip). Rule changed 2026-10-18 (manaflow-ai/cmux#21805 row 1).
+- Tab: closing the selected tab selects the shown tab BEFORE it in its pane (left in a
+  strip, above in a vertical list), else the shown tab after it when it was the first.
+  Closing a tab that is not selected keeps the selection. One rule for every tab kind
+  (terminal, browser, agent, page) and every way a tab closes (Cmd-W, the close button, a
+  middle click, the context menu, Close Others, Close Tabs to the Right or Left, a group
+  close, the CLI or MCP, a terminal that exits): `cmux-focus-core` `close_focus::tab`, which
+  the app (`FocusAfterClose.tab`), the daemon's active tab (`tree_edit::remove_surface`) and
+  the cmux-tui client call. Pinned tabs come first in the strip, so closing the first
+  unpinned tab selects the last pinned one; the tab before may be in another group; members
+  of a collapsed group are skipped while a shown tab survives. No opener, most recently used
+  or "next to the right" step. Rule changed 2026-11-08 (Lawrence: "it should always focus
+  the tab before it if it exists"); before, a link tab went back to its opener family
+  (Chrome's `DetermineNewSelectedIndex`), then the next tab, else the previous one.
 - Workspace: the next workspace below, else the one above (`WindowRegistry.repairedSelection`).
 - A rejected close (the tab or pane comes back) does not move focus back.
 
@@ -158,7 +162,7 @@ pill and animation smoothness (screenshots are settled frames).
 2. Entering the left column after a column closes lands on that column's most recently
    focused pane, else its first (each column keeps an active tile), not the
    geometrically nearest pane.
-3. Tabs keep their own rule (opener family for link tabs, then right, else left) and do
+3. Tabs keep their own rule (the tab before, else the one after; 2026-11-08) and do
    not follow `layout.closeFocus`.
    Workspaces keep next-below, else above.
 4. The sidebar reveals the active row only when it changed or was visible; it does not

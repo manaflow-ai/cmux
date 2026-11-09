@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextFocusUI
 import Foundation
 import Testing
@@ -169,6 +170,15 @@ import CmuxNextTestSupport
         #expect(windows.registry.value.owner(of: "mw-b2") == harness.a.state.id, "the workspace stayed in window B")
         #expect(harness.a.state.workspaceID == "mw-b2", "window A does not show the workspace picked in it")
         #expect(harness.b.state.workspaceID == bShown, "window B changed its shown workspace for a click in window A")
+    }
+
+    /// cmux#37371: after a sidebar pick's claim the workspace may still be another window's (the claim refused, as
+    /// for an incognito window's workspace). That window, which may be on another macOS Space, does not come forward;
+    /// only a window the claim just opened does. A request from elsewhere still brings its window forward.
+    @Test func aSidebarPickNeverBringsAnotherOpenWindowForward() {
+        #expect(!ShowOrigin.thisWindow.raisesOwner(ownerWasOpen: true), "a click in window A raised window B")
+        #expect(ShowOrigin.thisWindow.raisesOwner(ownerWasOpen: false), "the window the claim opened stayed behind")
+        #expect(ShowOrigin.anywhere.raisesOwner(ownerWasOpen: true))
     }
 
     /// A request from elsewhere (a notification, the CLI) still shows the workspace where it lives.

@@ -290,6 +290,8 @@ impl Hub {
             }
         }
         command.envs(super::person::caller_env(&run.owner_session_id));
+        // The runner may outlive this daemon run: the next one knows it by this token too.
+        self.caller_issued(&run.owner_session_id);
         command.env("ACPMUX_SESSION_ID", &run.owner_session_id);
         command.env(crate::agent_tools::AGENT_SESSION_ENV, &run.owner_session_id);
         command.env(crate::workflow_runs::RUNNER_TOKEN_ENV, token);

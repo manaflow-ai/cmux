@@ -273,9 +273,7 @@ test("with the account state kept from an earlier page, the menu's first rows ar
 // sign-in row).
 test("an absent Cloud account state shows Cloud, not sign-in; only an explicit signed-out answer offers sign-in", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
-  for (const account of [undefined, true]) {
-    setCloudMachinesForTestAccount(account);
-    await mount(true, { cloudMachines: [], onConnect: () => undefined });
+  const rows = async () => {
     await openPicker();
     return [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].filter((item) =>
       item.querySelector(".acpmux-location-name"),

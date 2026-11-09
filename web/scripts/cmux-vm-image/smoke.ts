@@ -4,7 +4,7 @@
  * Usage (from web/):
  *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--browser-probe]
  *       [--idle-seconds 120] [--out-dir <dir>] [--lock <path>]
- *       [--expect-capabilities <json>] [--team-vm] [--native-receiver]
+ *       [--expect-capabilities <json>] [--team-vm]
  *
  * Creates N clones (cmuxnp-dev-vmimg-<tag>-smoke-<i>) and measures create ->
  * first exec and create -> daemon listening. On two of them it checks: the
@@ -27,7 +27,7 @@
  * The daemon handshake (identify.ts) must serve REQUIRED_IMAGE_CAPABILITIES and, with
  * --expect-capabilities, every listed capability; --team-vm also checks /srv/team.
  * The session host stays up 60 s after boot and after one forced rebind, with no legacy or migration
- * error, and UDP 4101 bound on a Cloud-bound Native clone (daemon-uptime.ts). No agent sign-in
+ * error (daemon-uptime.ts). No agent sign-in
  * (~/.claude/.credentials.json, ~/.codex/auth.json) or daemon identity comes from the image.
  * Checks that need the bind agent are reported as PENDING.
  * Every clone is deleted whatever happens.
@@ -46,7 +46,7 @@ import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, 
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
-import { HOST_CLI, NATIVE_RECEIVER_SMOKE, SELF_UPDATE_OFF } from "./host-agent";
+import { HOST_CLI, SELF_UPDATE_OFF } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
@@ -358,26 +358,26 @@ async function resolverChecks(vm: Vm, report: Report): Promise<void> {
  * The session host stays up HOLD_SECONDS after boot and again after one forced rebind (daemon-uptime.ts).
  * Last on its clone: the rebind restarts the session host and rewrites the bound id.
  */
-async function daemonUptimeChecks(vm: Vm, report: Report, nativeReceiver: boolean): Promise<void> {
-  await daemonBootHold(vm, report, nativeReceiver);
-  await daemonRebindHold(vm, report, nativeReceiver);
+async function daemonUptimeChecks(vm: Vm, report: Report): Promise<void> {
+  await daemonBootHold(vm, report);
+  await daemonRebindHold(vm, report);
 }
 
 const HOLD_TIMEOUT_MS = (HOLD_SECONDS + 60) * 1000;
 
-async function daemonBootHold(vm: Vm, report: Report, nativeReceiver: boolean): Promise<void> {
+async function daemonBootHold(vm: Vm, report: Report): Promise<void> {
   const boot = await run(vm, daemonHoldCommand(), HOLD_TIMEOUT_MS);
-  const bootProblems = daemonUptimeProblems(boot.stdout, nativeReceiver);
+  const bootProblems = daemonUptimeProblems(boot.stdout);
   check(report, "daemon-stays-up", boot.code === 0 && bootProblems.length === 0, bootProblems.join("\n") || daemonUptimeDetail(boot.stdout));
 }
 
 /** Last on its clone: the rebind restarts the session host and rewrites the bound id. */
-async function daemonRebindHold(vm: Vm, report: Report, nativeReceiver: boolean): Promise<void> {
+async function daemonRebindHold(vm: Vm, report: Report): Promise<void> {
   const hold = HOLD_TIMEOUT_MS;
   const rebind = await run(vm, forcedRebindCommand(), 120_000);
   const rebound = /^rebound=1$/m.test(rebind.stdout);
   const after = rebound ? await run(vm, daemonHoldCommand(), hold) : undefined;
-  const afterProblems = after ? daemonUptimeProblems(after.stdout, nativeReceiver) : [`forced rebind did not finish: ${rebind.stdout.trim() || rebind.stderr.slice(-200)}`];
+  const afterProblems = after ? daemonUptimeProblems(after.stdout) : [`forced rebind did not finish: ${rebind.stdout.trim() || rebind.stderr.slice(-200)}`];
   check(report, "daemon-stays-up-after-rebind", after?.code === 0 && afterProblems.length === 0, afterProblems.join("\n") || daemonUptimeDetail(after?.stdout ?? ""));
 }
 
@@ -390,7 +390,7 @@ function summarize(rows: Array<Record<string, number | string>>): Record<string,
   return { createApi: stat("createApiMs"), createToFirstExec: stat("createToFirstExecMs"), createToListening: stat("createToListeningMs"), createToReady: stat("createToReadyMs"), guestWait: stat("guestWaitMs") };
 }
 
-export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean; nativeReceiver?: boolean }): Promise<Report> {
+export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean }): Promise<Report> {
   mkdirSync(options.outDir, { recursive: true });
   const lock = readInputsLock(options.lockPath);
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
@@ -406,10 +406,6 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       rows.push(row);
       // Track the clone before the extra probe so a refused/failed exec still cleans it up.
       kept.push(clone);
-      if (options.nativeReceiver) {
-        const receiver = await run(clone.vm, NATIVE_RECEIVER_SMOKE);
-        check(report, `native-receiver-root-${i}`, receiver.code === 0, receiver.stdout.trim() || receiver.stderr.slice(-200));
-      }
       console.log(`clone ${i} ${clone.vmId}: ${JSON.stringify(row)}`);
       // Clones 1 and 2 carry the identity and idle checks; a third, when there is one, takes the rebind hold.
       if (kept.length > 3) {
@@ -456,13 +452,13 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
         report.browser = { timings: browser.timings, idle: browser.idle, pending: browser.pending };
         for (const [name, c] of Object.entries(browser.checks)) check(report, `browser-${name}`.replace(/^browser-browser-/, "browser-"), c.ok, c.detail);
       }
-      if (rebindClone) await daemonBootHold(kept[1].vm, report, Boolean(options.nativeReceiver));
-      else await daemonUptimeChecks(kept[1].vm, report, Boolean(options.nativeReceiver));
+      if (rebindClone) await daemonBootHold(kept[1].vm, report);
+      else await daemonUptimeChecks(kept[1].vm, report);
     };
     const phases: Record<string, number> = {};
     const timed = (label: string, f: () => Promise<void>) => async () => { const t = Date.now(); await f(); phases[label] = Date.now() - t; };
     await Promise.all([timed("idleClone1Ms", () => idlePhase(kept[0].vm, report, options.idleSeconds))(), timed("checksClone2Ms", onClone2)(),
-      ...(rebindClone ? [timed("rebindClone3Ms", () => daemonRebindHold(rebindClone.vm, report, Boolean(options.nativeReceiver)))()] : [])]);
+      ...(rebindClone ? [timed("rebindClone3Ms", () => daemonRebindHold(rebindClone.vm, report))()] : [])]);
     report.phasesMs = phases;
     if (options.resizeProbe) {
       report.resize = await resizeProbe(kept[0].vm);
@@ -516,7 +512,6 @@ export async function main(argv = process.argv): Promise<number> {
     browserProbe: argv.includes("--browser-probe"),
     expectCapabilities: expectedCapabilities(argValue("--expect-capabilities", argv)),
     teamVm: argv.includes("--team-vm"),
-    nativeReceiver: argv.includes("--native-receiver"),
   });
   return report.passed ? 0 : 1;
 }

@@ -54,10 +54,10 @@ describe("cmux VM image guest commands", () => {
 
   // Bake run 41701438675 passed with a session host that crash-looped after any rebind (cmux#34128).
   test("daemon uptime parsing: a crash loop, a fence without auth/ and the migration error fail", () => {
-    const up = "pid=812\nalive=1\npid-after=812\nudp4101=0\ncloud-bound=0";
-    expect(daemonUptimeProblems(up, true)).toEqual([]);
-    expect(daemonUptimeProblems("pid=\nalive=0\npid-after=\nudp4101=0\ncloud-bound=0", false)).toEqual(["no session host at the start of the hold"]);
-    expect(daemonUptimeProblems("pid=812\nalive=0\npid-after=901\nudp4101=0\ncloud-bound=0", false)).toEqual(["session host 812 did not stay up 60 s (now 901)"]);
+    const up = "pid=812\nalive=1\npid-after=812";
+    expect(daemonUptimeProblems(up)).toEqual([]);
+    expect(daemonUptimeProblems("pid=\nalive=0\npid-after=")).toEqual(["no session host at the start of the hold"]);
+    expect(daemonUptimeProblems("pid=812\nalive=0\npid-after=901")).toEqual(["session host 812 did not stay up 60 s (now 901)"]);
     const crashLoop = [
       "pid=812",
       "alive=0",
@@ -66,11 +66,7 @@ describe("cmux VM image guest commands", () => {
       "legacy-error=cmux-tui: previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains",
       "host-exit=cmux-host: session host 2840 exited after 94 ms",
     ].join("\n");
-    expect(daemonUptimeProblems(crashLoop, false)).toHaveLength(4);
-    // UDP 4101 is required once the clone is bound to Cloud (the Native receiver binds after a Cloud bind).
-    expect(daemonUptimeProblems(up.replace("cloud-bound=0", "cloud-bound=1"), true)).toEqual(["UDP 4101 not bound on a Cloud-bound Native receiver clone"]);
-    expect(daemonUptimeProblems(up.replace("cloud-bound=0", "cloud-bound=1").replace("udp4101=0", "udp4101=1"), true)).toEqual([]);
-    expect(daemonUptimeProblems(up.replace("cloud-bound=0", "cloud-bound=1"), false)).toEqual([]);
+    expect(daemonUptimeProblems(crashLoop)).toHaveLength(4);
   });
 
   test("program check parsing: exit code, store path and version", () => {

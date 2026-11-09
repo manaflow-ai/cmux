@@ -1,8 +1,10 @@
 //! The focus successor rules for every close kind
 //! (plans/cmux-next/close-focus.md; formal model closefocus.tla): one pure
 //! function per kind. The focus reducer runs the pane rule ([`pane`]); the
-//! app's tab selection runs [`tab`] (with [`live_openers`]), and window and
-//! sidebar selection run [`workspace`]. Nothing else decides a successor.
+//! app's tab selection, the daemon's active tab and the cmux-tui client run
+//! [`tab`], and window and sidebar selection run [`workspace`]. Nothing else
+//! decides a successor. ([`live_openers`] keeps the browser's opener tree for
+//! where a link's new tab goes; it no longer picks a close successor.)
 //!
 //! Shared contract (the model checks in this crate's tests):
 //! - C1 a focus that survives stays (closing an unfocused item, or a close
@@ -104,25 +106,24 @@ pub fn pane<T: Eq + Hash + Clone>(
     entry(next, history).cloned()
 }
 
-/// The tab a pane selects after `selected` closed: the next shown tab after
-/// it, else the previous shown one. `old` is the strip order before the
-/// close, `shown` the tabs that survive and are not hidden (a collapsed
-/// group's members are hidden). When no shown tab survives, the first
-/// surviving tab (its group then expands).
-///
-/// `opener` maps a link tab to the tab that opened it (live relations only,
-/// among `old`: [`live_openers`]). A closed tab in that tree goes back to
-/// its family first, in Chrome's order (`DetermineNewSelectedIndex`): its
-/// next child, else a sibling (the next tab with its opener), else its
-/// opener. Only shown, surviving tabs count. Tabs without relations
-/// (terminals, agents, a browser tab after an unrelated switch) keep
-/// next-else-previous.
+/// The tab a pane selects after `selected` closed: the shown tab before it
+/// in strip order (left in a strip, above in a vertical list), else the
+/// shown tab after it (Lawrence 2026-11-08: "it should always focus the tab
+/// before it if it exists"). One rule for every tab kind and every way a tab
+/// closes (Cmd-W, the close button, a middle click, the menus, the CLI, a
+/// terminal that exits, a batch close): the app's tab selection, the
+/// daemon's active tab and the cmux-tui client all call this. `old` is the
+/// strip order before the close (pinned tabs first, so closing the first
+/// unpinned tab selects the last pinned one), `surviving` the tabs left and
+/// `shown` the surviving tabs that are not hidden (a collapsed group's
+/// members are hidden and skipped). When no shown tab survives, the
+/// surviving tab before it, else after it (its group then expands). A
+/// surviving selection stays.
 pub fn tab<T: Eq + Hash + Clone>(
     selected: Option<&T>,
     old: &[T],
     surviving: &[T],
     shown: &HashSet<T>,
-    opener: &HashMap<T, T>,
 ) -> Option<T> {
     let live: HashSet<&T> = surviving.iter().collect();
     let Some(selected) = selected else {
@@ -136,49 +137,15 @@ pub fn tab<T: Eq + Hash + Clone>(
         return Some(selected.clone());
     }
     let visible = |id: &T| live.contains(id) && shown.contains(id);
-    if let Some(family) = opener_family(selected, old, opener, visible) {
-        return Some(family.clone());
-    }
-    neighbor(selected, old, true, visible)
+    neighbor(selected, old, false, visible)
         .or_else(|| surviving.iter().find(|id| shown.contains(*id)))
-        .or_else(|| neighbor(selected, old, true, |id| live.contains(id)))
+        .or_else(|| neighbor(selected, old, false, |id| live.contains(id)))
         .or_else(|| surviving.first())
         .cloned()
 }
 
-/// Chrome's opener step for a closed tab: the next child of `closed`, else
-/// the next tab with the same opener, else the opener. "Next" is Chrome's
-/// `GetIndexOfNextWebContentsOpenedBy`: the nearest after `closed`, else
-/// the nearest before it. None when none qualifies.
-pub fn opener_family<'a, T: Eq + Hash>(
-    closed: &T,
-    old: &'a [T],
-    opener: &'a HashMap<T, T>,
-    qualifies: impl Fn(&T) -> bool,
-) -> Option<&'a T> {
-    if opener.is_empty() {
-        return None;
-    }
-    let opened_by = |parent: &T| -> Option<&'a T> {
-        let (mut after, mut before) = around(closed, old)?;
-        let child = |id: &&T| opener.get(*id) == Some(parent) && qualifies(id);
-        after.find(child).or_else(|| before.find(child))
-    };
-    if !old.contains(closed) {
-        return None;
-    }
-    if let Some(child) = opened_by(closed) {
-        return Some(child);
-    }
-    let parent = opener.get(closed)?;
-    if let Some(sibling) = opened_by(parent) {
-        return Some(sibling);
-    }
-    qualifies(parent).then_some(parent)
-}
-
 /// The opener relations among `order`, from `opener` (child to opener,
-/// possibly naming tabs that are gone). A tab whose opener is not in
+/// possibly naming tabs that are gone), for a link tab's slot. A tab whose opener is not in
 /// `order` takes that opener's own opener, as Chrome's `FixOpeners` does
 /// when a tab leaves the strip; a relation back to the tab itself is
 /// dropped. Only tabs in `order` are keys.

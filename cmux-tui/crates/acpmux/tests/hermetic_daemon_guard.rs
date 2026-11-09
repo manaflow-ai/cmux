@@ -66,6 +66,9 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         ("app_orphan_exit.rs", "let source = daemon_env::bin();"),
         // Reads the binary's bytes; starts nothing.
         ("binary_build_stamp.rs", "std::fs::read(daemon_env::bin())"),
+        // Machine A's send relay scripts: the hermetic daemon A (started by `cli`, which calls
+        // `apply`) runs them, so the acpmux they start inherits its environment.
+        ("cross_host_send_cli.rs", "let exe = daemon_env::sh_quote(daemon_env::bin().display());"),
     ];
     let mut files = Vec::new();
     rust_files(&tests, &mut files);

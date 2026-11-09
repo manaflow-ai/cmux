@@ -537,6 +537,53 @@ export default agentPaneEntry({
         if (dots !== 3) throw new Error(`the minimal page shows ${dots} dots, not the three`);
       },
     },
+    "fix-from-link": {
+      note: "A lone GitHub issue URL leaves the normal composer intact and offers the explicit Fix in a new worktree action beneath it.",
+      ready: newTab({
+        template: "minimal",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-chip") !== null);
+        if (ctx.document.querySelector(".nt-fix-error")) throw new Error("the idle fix action shows an error");
+      },
+    },
+    "fix-from-link-stage": {
+      note: "The same explicit issue action in the optional stage layout; the default minimal layout keeps the focus on the pasted report.",
+      ready: newTab({
+        template: "default",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-chip") !== null);
+      },
+    },
+    "fix-from-link-error": {
+      note: "When checkout discovery fails, the Fix in a new worktree action stays in place and reports the host error inline beside the composer.",
+      ready: newTab({
+        template: "minimal",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      native: {
+        "chat.fix_from_link": {
+          nativeError: {
+            code: "fix.checkout_missing",
+            userMessage: "No local checkout found; choose its folder or clone it first.",
+          },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector<HTMLButtonElement>(".nt-fix-chip") !== null);
+        await ctx.click({ selector: ".nt-fix-chip" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-error[role=alert]") !== null);
+      },
+    },
     "widgets-all-off": {
       note: "All optional New Tab widgets off: the composer is the whole page.",
       ready: newTab({ template: "minimal", pageWidgets: [] }),

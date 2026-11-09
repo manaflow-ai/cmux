@@ -9,17 +9,11 @@
 //!
 //! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux.
 //!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
-//!
-//! With `--wait`, the relay-first chat (cmuxterm-hq#7086) comes next: `cloud relay-chat` sends the prompt over
-//! HTTPS to the socket the machine holds from boot. A machine that does not exist yet (no `--target`, or a
-//! `--name` no machine has) is made first with `cloud new-machine [--name N]`. Steps 2-4 run only when the
-//! prompt certainly never reached the machine, on the machine the relay was tried on.
-//!
 //! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P] [--login L]`: takes
 //!    the machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the
 //!    app. With `--from-folder` (an existing folder on this Mac) the app copies that folder to the
 //!    machine the way the agent pane composer's Cloud start copies one, and the chat starts in the
-//!    copy; a retry on the same machine reuses the finished copy. It skips the relay-first chat.
+//!    copy; a retry on the same machine reuses the finished copy.
 //!    Without `--name` or `--target` it creates a new small machine with a new name, so the chat
 //!    never lands on a machine another workspace uses (leo-workspace `design/cloud.md`, "One
 //!    workspace per small machine").
@@ -30,8 +24,7 @@
 //!    in pieces, and the send reads it from there ([`upload_prompt`]).
 //! 4. With `--wait`, `cloud exec` again until the turn ends (`cmux-tui acp wait`, under the
 //!    exec's own 25 s limit each time), then the turn's last reply (`cmux-tui acp last`).
-//!    `--timeout` counts from the command's start: a new machine, the start and the relay
-//!    spend it too.
+//!    `--timeout` counts from the command's start: a new machine and the start spend it too.
 //!
 //! Output: one JSON object (`--json`): the reply text with `machine_id`, `session_id`,
 //! `workspace_id`, `tab_id` and the follow-up commands. A failure names what
@@ -45,9 +38,6 @@ use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
-#[cfg(test)]
-use relay::RELAY_PROMPT_BYTES;
-use relay::{Relayed, new_machine, relay_chat};
 
 /// The longest `--wait` takes by default, and at most.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(900);
@@ -136,6 +126,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let [cloud, verb, rest @ ..] = command_args.as_slice() else { return None };
     if cloud != "cloud" || verb != "start-chat" {
         return None;
+    }
+    if let Some(code) = fault::run_if_requested(&global, rest) {
+        return Some(code);
     }
     // `--wait --json`: the global scan takes `--json` as `--wait`'s value.
     let words = lift_output(rest, &mut global.output);
@@ -460,8 +453,6 @@ pub(super) trait Runner {
     /// A new machine's name: the run's prefix and 16 hex characters from the OS's random source, so it is another
     /// machine's only by a negligible chance ([`unused_name`] still refuses one that is).
     fn fresh_name(&mut self) -> String;
-    /// A new prompt id: acpmux runs a prompt id once.
-    fn prompt_id(&mut self) -> String;
 }
 
 struct SelfRunner {
@@ -497,10 +488,6 @@ impl Runner for SelfRunner {
     fn fresh_name(&mut self) -> String {
         let id = uuid::Uuid::new_v4().simple().to_string();
         format!("chat-{}", id.chars().take(16).collect::<String>())
-    }
-
-    fn prompt_id(&mut self) -> String {
-        format!("start-chat-{}", uuid::Uuid::new_v4().simple())
     }
 }
 
@@ -591,9 +578,11 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     words.join(" ")
 }
 
-/// One word for a POSIX shell.
+/// One word for a POSIX shell. A word that starts with `=` is quoted too:
+/// zsh expands a bare `=name` to the path of `name`.
 pub(super) fn shell_quote(text: &str) -> String {
     if !text.is_empty()
+        && !text.starts_with('=')
         && text.chars().all(|ch| ch.is_ascii_alphanumeric() || "-_./:@=+,".contains(ch))
     {
         return text.to_owned();
@@ -783,7 +772,7 @@ struct Progress {
     machine: Option<Machine>,
     /// The chat's machine id, session and answer so far, once a chat started.
     chat: Option<(String, String, Value)>,
-    /// The prompt is on its way to the machine, or there: the relay was asked, or the send ran.
+    /// The prompt is on its way to the machine, or there: the send ran.
     sending: bool,
     /// The name this run gave its own `cloud new-machine`, once the app took that create: a rerun names it (in
     /// `machine` too), so a create still on its way with no machine id yet is found by name, never made twice.
@@ -812,7 +801,7 @@ impl Progress {
 
     /// The deadline passed during a step: that phase's timeout, whatever the step answered. Before the prompt may
     /// have reached the machine, `cloud.start_pending`; once it may have, `chat.wait_timeout` on the chat's session
-    /// or, with no session (the relay's answer never came back), `cloud.start_pending` that says it may be there.
+    /// or, with no session, `cloud.start_pending` that says it may be there.
     fn late(&self, request: &Request) -> Outcome {
         let request = &self.rerun(request);
         let machine = self.machine.clone().unwrap_or_else(|| request.machine.clone());
@@ -901,7 +890,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
 /// At most this many steps in `stages_ms`; a long wait's polls past it are counted, not listed.
 const STAGES_KEPT: usize = 48;
 
-/// A [`Runner`] that times each step it runs: its words (`cloud relay-chat`), when it began and how long it took,
+/// A [`Runner`] that times each step it runs: its words (`cloud start-session`), when it began and how long it took,
 /// in milliseconds since the run began.
 struct Timed<'a> {
     inner: &'a mut dyn Runner,
@@ -952,14 +941,10 @@ impl Runner for Timed<'_> {
     fn fresh_name(&mut self) -> String {
         self.inner.fresh_name()
     }
-
-    fn prompt_id(&mut self) -> String {
-        self.inner.prompt_id()
-    }
 }
 
 /// [`run`]'s steps; `progress` is what they got to. `--timeout` is one deadline from the start: the list, a new
-/// machine, the start, the relay, the upload, the send and the wait each start only before it and get what is left
+/// machine, the start, the upload, the send and the wait each start only before it and get what is left
 /// of it, never a `--timeout` of their own.
 fn steps(
     runner: &mut dyn Runner,
@@ -981,9 +966,7 @@ fn steps(
             1,
         );
     }
-    // 2. The relay-first chat (cmuxterm-hq#7086): the prompt goes over HTTPS and down the socket the machine
-    // holds from boot, with no link to the machine. Whatever kept it from the machine (an app or a machine
-    // without the relay) leaves the link path below, on the machine it found or made.
+    // 2. The chat's machine: one made in --environment first, else the one asked for.
     let mut wanted = request.machine.clone();
     if request.environment.is_some() && deadline.passed(runner) {
         return out_of_time(request, &request.machine, Value::Null);
@@ -1005,15 +988,6 @@ fn steps(
     {
         return outcome;
     }
-    // No prompt: nothing to relay, so the chat starts over the link alone. The relay chat copies no folder
-    // either: a chat from a folder of this Mac starts the start-session way.
-    if request.wait && request.prompt.is_some() && request.from_folder.is_none() {
-        match relay_chat(runner, request, &wanted, &listed, deadline, progress) {
-            Relayed::Answered(outcome) => return outcome,
-            Relayed::Fallback(Some(id)) => wanted = Machine::Target(id),
-            Relayed::Fallback(None) => {}
-        }
-    }
     // The fresh name a new machine gets (no listed machine or create has it): a start-session machine of that name is this run's.
     let mut fresh = None;
     let machine = match &wanted {
@@ -1034,7 +1008,7 @@ fn steps(
         return out_of_time(request, &machine, Value::Null);
     }
 
-    // 3. The machine and the chat, over the link.
+    // 3. The machine and the chat.
     let mut start = vec!["cloud".to_owned(), "start-session".to_owned()];
     match &machine {
         Machine::Named(name) => start.extend(["--name".to_owned(), name.clone()]),
@@ -1258,7 +1232,7 @@ fn send_prompt(
     wait_turn(runner, request, machine_id, session, baseline, answer, deadline)
 }
 
-/// 5. The turn after `baseline` in `session`: its end and its reply.
+/// 4. The turn after `baseline` in `session`: its end and its reply.
 fn wait_turn(
     runner: &mut dyn Runner,
     request: &Request,
@@ -1523,6 +1497,66 @@ fn in_flight(listed: &Value, name: &str) -> Result<(), Outcome> {
     Ok(())
 }
 
+/// `cloud new-machine` in `environment`, named `name` or a fresh name no machine or create has: the new machine's id
+/// once the app has it. The name goes into `progress` before the call, and any id the app answers (a pending
+/// create's included) after it: the command to ask again names that machine, never a new one. A pending create with
+/// no id yet is asked again by its name, which a rerun finds among the creates on their way ([`in_flight`]).
+fn new_machine(
+    runner: &mut dyn Runner,
+    request: &Request,
+    listed: &Value,
+    name: Option<&str>,
+    environment: Option<&str>,
+    deadline: Deadline,
+    progress: &mut Progress,
+) -> Result<String, Outcome> {
+    let name = match name {
+        Some(name) => name.to_owned(),
+        None => unused_name(runner, listed)?,
+    };
+    let mut args = words(&["cloud", "new-machine", "--name"]);
+    args.push(name.clone());
+    if let Some(environment) = environment {
+        args.extend(["--environment".to_owned(), environment.to_owned()]);
+    }
+    args.push("--json".to_owned());
+    progress.machine = Some(Machine::Named(name.clone()));
+    let made =
+        step_result(&runner.cmux(&args)).map_err(|error| start_refused(error, listed, request))?;
+    progress.created = Some(name.clone());
+    let id = at(&made, "machine_id").as_str().map(str::to_owned);
+    if let Some(id) = &id {
+        progress.made = Some(id.clone());
+        progress.machine = Some(Machine::Target(id.clone()));
+    }
+    progress.creation = at(&made, "creation_id").as_str().map(str::to_owned);
+    if at(&made, "pending").as_bool() != Some(true)
+        && let Some(id) = id
+    {
+        return Ok(id);
+    }
+    let machine = progress.machine.clone().unwrap_or(Machine::Named(name.clone()));
+    let again = again_command(&progress.rerun(request), &machine);
+    let what = id.clone().unwrap_or_else(|| name.clone());
+    let pending = || {
+        failed(
+            "cloud.start_pending",
+            format!(
+                "the new machine {what} is still being made; once `cmux cloud list-machines` lists it, \
+                 run: {again}"
+            ),
+            json!({"again": again, "machine_id": id, "machine_name": name, "app": made,
+                   "list": "cmux cloud list-machines --json"}),
+            75,
+        )
+    };
+    // A slow create: `--wait` with a prompt waits for it, within what is left of `--timeout`.
+    let id = await_created(runner, request, listed, &made, &name, deadline, &pending)?;
+    progress.made = Some(id.clone());
+    progress.machine = Some(Machine::Target(id.clone()));
+    Ok(id)
+}
+
 /// A machine name for this run: a fresh one no listed machine or create on its way has. It is never one that is:
 /// a fresh name that is taken anyway, or a list the app has not loaded (`loaded: false` lists no machines, which
 /// says nothing), is a typed error before any `start-session --name` (which would attach to that machine) or
@@ -1557,10 +1591,6 @@ fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcom
         ));
     }
     Ok(name)
-}
-
-fn words(list: &[&str]) -> Vec<String> {
-    list.iter().map(|word| (*word).to_owned()).collect()
 }
 
 /// The commands that go on with this chat.
@@ -1867,14 +1897,10 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
     }
 }
 
-/// `value[key]` without indexing: `Null` when absent.
-fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
-    const NULL: &Value = &Value::Null;
-    value.get(key).unwrap_or(NULL)
-}
-
 mod cap;
-mod relay;
+mod fault;
+mod support;
+use support::{at, words};
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;

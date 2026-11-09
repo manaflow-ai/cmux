@@ -1,6 +1,6 @@
 // The composer and its model button draw in the app's UI font (Leo 2026-10-21: "WE ALREADY FIXED THE
 // FONTS"). The composer names it once, `.acpmux-composer { font-family: var(--font-ui) }` in
-// styles.css (the shared UI token, desktop.css: Inter then the system stack, so SF Pro in the app's
+// styles.css (the shared UI token, desktop.css: the system stack, so SF Pro in the app's
 // WebKit); every control in it inherits that family, so no rule in the
 // composer's stylesheets may name another one, and the quiet row under the box (ComposerFoot), which
 // sits outside `.acpmux-composer-box`, must inherit it too. test/composer-model-quiet.test.ts checks

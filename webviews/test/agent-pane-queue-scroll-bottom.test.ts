@@ -225,7 +225,9 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
 
   /// Opens the chat at its latest row and notes where the last row rests over the stack there.
   async function open(name: string) {
-    const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 700 } });
+    // 980px: the 88px side gutters this suite had at 900px beside the old 720px column, so a point 8px
+    // left of the composer is the transcript's, clear of the thread rail at the pane's edge.
+    const page = await browsers.get(name)!.newPage({ viewport: { width: 980, height: 700 } });
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;

@@ -198,9 +198,157 @@ async fn a_local_prompt_records_its_provenance_on_its_user_message() {
     let first = c.user_message(&session, "p-a").await;
     assert_eq!(first["text"], "hello from builder", "{first}");
     assert_eq!(first.pointer("/_meta/provenance"), Some(&seen(p.clone(), "unix")), "{first}");
-    // A unix client proves no person: its unnamed prompt is unverified, never the person's.
+    // The owner's own terminal send (a plain unix client claiming no sender, harness or relay)
+    // is the person's prompt, as before #37497 (`requests.rs` `owner_terminal`).
     let second = c.user_message(&session, "p-b").await;
-    assert_eq!(second.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{second}");
+    assert_eq!(second.pointer("/_meta/provenance"), None, "{second}");
+    assert_eq!(second.pointer("/_meta/origin/actor"), Some(&json!("person")), "{second}");
+}
+
+/// The owner's own `acpmux send` from a plain terminal of their machine is
+/// their prompt, drawn as their bubble (regression of #37497, manaflow-ai/cmux#37497 comment
+/// 6716711734: it drew as "Unverified sender"). Only what the daemon checks or the CLI declares
+/// tells an agent from them (`requests.rs` `owner_terminal`): a harness claim, a named sender, a
+/// relay label, a caller token proven or not, or the app's transport without its proof each keep
+/// the prompt off the person.
+#[tokio::test]
+async fn the_owners_plain_terminal_send_is_theirs_and_every_claim_keeps_one_off_them() {
+    let hub = hub();
+    let mut owner = Client::open(&hub);
+    let receiver = owner.new_session(json!({"harness": "fake"})).await;
+    let sender = owner.new_session(json!({"harness": "fake"})).await;
+    let with = |id: &str, fields: Value| {
+        let mut p = prompt(&receiver, id, "ship it", None);
+        for (key, value) in fields.as_object().unwrap() {
+            p["_meta"]["acpmux"][key] = value.clone();
+        }
+        p
+    };
+    // What `acpmux send` stamps at a plain shell: only the machine it ran on.
+    owner.call("session/prompt", with("p-owner", json!({"cliHost": "my-mac"}))).await;
+    // An agent harness's shell (`cli/sender.rs`): its name and harness, or the harness alone.
+    let named = json!({"fromAgent": "Claude Code on my-mac", "fromHarness": "claude"});
+    owner.call("session/prompt", with("p-named", named)).await;
+    owner.call("session/prompt", with("p-harness", json!({"fromHarness": "codex"}))).await;
+    // A send whose process chain shows a harness but names no one (`sender_harness.rs`).
+    let found = json!({"senderHarness": {"harness": "claude-code", "source": "process"}});
+    owner.call("session/prompt", with("p-chain", found)).await;
+    // A relay's label: it passes on another client's prompt (`remote_guard::mark_forwarded`).
+    owner.call("session/prompt", with("p-via", json!({"via": "device"}))).await;
+    // A caller token the daemon could not prove: an agent's shell that kept a stale token.
+    let mut stale = Client::open(&hub);
+    let caller = json!({"callerSession": {"sessionId": sender, "token": "not-its-token"}});
+    stale.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    stale.call("session/prompt", with("p-stale", json!({}))).await;
+    // The app's own transport without the person's proof.
+    let mut app = Client::open_as(&hub, Origin::LocalApp);
+    app.call("session/prompt", with("p-app", json!({}))).await;
+    // A proven session's send.
+    let mut lane = open_in_session(&hub, &sender).await;
+    lane.call("session/prompt", with("p-lane", json!({}))).await;
+
+    let mine = owner.user_message(&receiver, "p-owner").await;
+    assert_eq!(mine.pointer("/_meta/provenance"), None, "{mine}");
+    assert_eq!(mine.pointer("/_meta/origin/actor"), Some(&json!("person")), "{mine}");
+    let client = mine["client"].as_str().unwrap();
+    assert!(client.ends_with("@my-mac"), "{mine}");
+
+    let named = owner.user_message(&receiver, "p-named").await;
+    assert_eq!(named.pointer("/_meta/provenance/kind"), Some(&json!("agent_message")), "{named}");
+    assert_eq!(named.pointer("/_meta/provenance/verified"), Some(&json!(false)), "{named}");
+    for (id, transport) in [
+        ("p-harness", "unix"),
+        ("p-chain", "unix"),
+        ("p-via", "unix"),
+        ("p-stale", "unix"),
+        ("p-app", "app"),
+    ] {
+        let message = owner.user_message(&receiver, id).await;
+        assert_eq!(
+            message.pointer("/_meta/provenance/kind"),
+            Some(&json!("unverified")),
+            "{id}: {message}"
+        );
+        assert_eq!(
+            message.pointer("/_meta/provenance/transport"),
+            Some(&json!(transport)),
+            "{id}: {message}"
+        );
+        assert_eq!(message.pointer("/_meta/origin"), None, "{id}: {message}");
+    }
+    let harness = owner.user_message(&receiver, "p-harness").await;
+    assert_eq!(
+        harness.pointer("/_meta/provenance/claimed/fromHarness"),
+        Some(&json!("codex")),
+        "{harness}"
+    );
+    let from_lane = owner.user_message(&receiver, "p-lane").await;
+    assert_eq!(
+        from_lane.pointer("/_meta/provenance/kind"),
+        Some(&json!("session_message")),
+        "{from_lane}"
+    );
+    assert_eq!(from_lane.pointer("/_meta/provenance/verified"), Some(&json!(true)), "{from_lane}");
+}
+
+/// A send the daemon keeps and delivers later (`_acpmux/send_queue`, the CLI's `--no-wait` and
+/// retry path) is replayed on the outbox's own fresh unix connection (`server/outbox.rs`
+/// `attempt_once`). What kept the prompt off the owner at send time goes with it: a caller token
+/// the daemon could not prove (an agent's shell holding a stale session's token) stays unproven
+/// on replay, and a harness claim stays in the request (manaflow-ai/cmux#38260 F1). The owner's
+/// own queued send is still theirs.
+#[tokio::test]
+async fn a_queued_send_keeps_what_kept_it_off_the_owner_through_delivery() {
+    let hub = hub();
+    let mut owner = Client::open(&hub);
+    let receiver = owner.new_session(json!({"harness": "fake"})).await;
+    let sender = owner.new_session(json!({"harness": "fake"})).await;
+    let queued = |id: &str, fields: Value| {
+        let mut p = prompt(&receiver, id, "ship it", None);
+        for (key, value) in fields.as_object().unwrap() {
+            p["_meta"]["acpmux"][key] = value.clone();
+        }
+        json!({"request": p})
+    };
+    async fn delivered(c: &mut Client, queued: Value) {
+        let ack = c.call("_acpmux/send_queue", queued).await;
+        let delivery = ack["deliveryId"].as_str().expect("a delivery id").to_owned();
+        let status =
+            c.call("_acpmux/send_status", json!({"deliveryId": delivery, "waitMs": 20000})).await;
+        assert_eq!(status["status"], "delivered", "{status}");
+    }
+    // Delivered means the receiver took the prompt; its turn (and so its user_message) may start a
+    // moment later, behind the one before it.
+    async fn recorded(c: &mut Client, session: &str, id: &str) -> Value {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let found = c.records(session, "user_message").await;
+            if let Some(message) = found.into_iter().find(|m| m["promptId"] == id) {
+                return message;
+            }
+            assert!(std::time::Instant::now() < deadline, "{id}: no user_message within 10 s");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+    let mut stale = Client::open(&hub);
+    let caller = json!({"callerSession": {"sessionId": sender, "token": "not-its-token"}});
+    stale.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    delivered(&mut stale, queued("p-queued-stale", json!({}))).await;
+    delivered(&mut owner, queued("p-queued-harness", json!({"fromHarness": "codex"}))).await;
+    delivered(&mut owner, queued("p-queued-owner", json!({"cliHost": "my-mac"}))).await;
+
+    for id in ["p-queued-stale", "p-queued-harness"] {
+        let message = recorded(&mut owner, &receiver, id).await;
+        assert_eq!(
+            message.pointer("/_meta/provenance/kind"),
+            Some(&json!("unverified")),
+            "{id}: {message}"
+        );
+        assert_eq!(message.pointer("/_meta/origin"), None, "{id}: {message}");
+    }
+    let mine = recorded(&mut owner, &receiver, "p-queued-owner").await;
+    assert_eq!(mine.pointer("/_meta/provenance"), None, "{mine}");
+    assert_eq!(mine.pointer("/_meta/origin/actor"), Some(&json!("person")), "{mine}");
 }
 
 /// A Web connection is the person's only by a paired device's proof (`pairing.rs` `origin_of`:
@@ -519,8 +667,10 @@ async fn a_steer_records_its_provenance() {
     let steered = c.user_message(&session, "p-steer").await;
     assert_eq!(steered["steer"], true, "{steered}");
     assert_eq!(steered.pointer("/_meta/provenance"), Some(&seen(p.clone(), "unix")), "{steered}");
+    // The turn it steered into is the owner's own terminal send: the person's prompt.
     let own = c.user_message(&session, "p-turn").await;
-    assert_eq!(own.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{own}");
+    assert_eq!(own.pointer("/_meta/provenance"), None, "{own}");
+    assert_eq!(own.pointer("/_meta/origin/actor"), Some(&json!("person")), "{own}");
 }
 
 /// A connection that proved it runs inside session `id` with the caller token acpmux put in that
@@ -561,9 +711,10 @@ async fn a_prompt_sent_from_inside_another_session_records_that_session_as_its_s
     let own = person.user_message(&sender, "p-self").await;
     assert_eq!(own.pointer("/_meta/provenance/kind"), Some(&json!("session_message")), "{own}");
     assert_eq!(own.pointer("/_meta/provenance/verified"), Some(&json!(true)), "{own}");
-    // A unix client proves no person: its unnamed prompt is unverified, never the person's.
+    // The owner's own terminal send, outside any session, is the person's prompt again.
     let theirs = person.user_message(&receiver, "p-person").await;
-    assert_eq!(theirs.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{theirs}");
+    assert_eq!(theirs.pointer("/_meta/provenance"), None, "{theirs}");
+    assert_eq!(theirs.pointer("/_meta/origin/actor"), Some(&json!("person")), "{theirs}");
     let kept = person.user_message(&receiver, "p-given").await;
     let mut bound = given.clone();
     bound["fromSessionId"] = json!(sender);
@@ -784,16 +935,18 @@ async fn a_prompt_that_names_its_sender_records_it_as_that_agents_message() {
             "{message}"
         );
     }
-    // Its own name from a unix client, and an unnamed prompt, name no one else: unverified, never
-    // the person's (a unix client proves no person).
-    for id in ["p-self", "p-person"] {
-        let message = person.user_message(&receiver, id).await;
-        assert_eq!(
-            message.pointer("/_meta/provenance/kind"),
-            Some(&json!("unverified")),
-            "{message}"
-        );
-    }
+    // Its own name from a unix client names no one else, but it named a sender: unverified, never
+    // the person's.
+    let own_name = person.user_message(&receiver, "p-self").await;
+    assert_eq!(
+        own_name.pointer("/_meta/provenance/kind"),
+        Some(&json!("unverified")),
+        "{own_name}"
+    );
+    // An unnamed prompt claiming nothing is the owner's own terminal send: the person's again.
+    let theirs = person.user_message(&receiver, "p-person").await;
+    assert_eq!(theirs.pointer("/_meta/provenance"), None, "{theirs}");
+    assert_eq!(theirs.pointer("/_meta/origin/actor"), Some(&json!("person")), "{theirs}");
 }
 
 /// The person's own `acpmux send` from a terminal names the machine it ran on: the recorded client

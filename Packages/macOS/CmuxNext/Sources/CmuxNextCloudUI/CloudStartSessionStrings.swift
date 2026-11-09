@@ -17,25 +17,6 @@ public struct CloudStartSessionStrings {
         }
     }
 
-    // `cmux cloud relay-chat` (``CloudStartSession/bindRelayChat(into:context:reason:)``).
-    public static var relayPromptRequired: String { String(localized: "cloud.relayChat.promptRequired", defaultValue: "Give the chat a prompt with --prompt.", table: "CloudSessions", bundle: .module) }
-    public static var relayAgentRun: String { String(localized: "cloud.relayChat.agentRun", defaultValue: "An agent starts a Cloud chat with `cmux cloud start-session`, which asks the person first.", table: "CloudSessions", bundle: .module) }
-    public static var relayUnavailable: String { String(localized: "cloud.relayChat.unavailable", defaultValue: "This Cloud sign-in has no relay chat. Use `cmux cloud start-session` instead.", table: "CloudSessions", bundle: .module) }
-    public static var relayReplyTitle: String { String(localized: "cloud.relayChat.replyTitle", defaultValue: "Cloud Chat Reply", table: "CloudSessions", bundle: .module) }
-    public static func relayLoginMissing(_ asked: Asked) -> String {
-        String(format: String(localized: "cloud.relayChat.loginMissing", defaultValue: "%2$@ on %1$@ isn't signed in, and this Mac holds no login of yours to give it, so the prompt wasn't sent. Run `%3$@` and use Sign in to Claude in its chat, then send the prompt again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
-    }
-    public static func relayLoginPending(_ asked: Asked) -> String { String(format: String(localized: "cloud.relayChat.loginPending", defaultValue: "%2$@ on %1$@ is still getting your login, so the prompt wasn't sent over the relay. Run `%3$@`, which waits for it.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command) }
-    public static func relayLoginCancelled(_ asked: Asked) -> String { String(format: String(localized: "cloud.relayChat.loginCancelled", defaultValue: "Giving %2$@ on %1$@ your login was cancelled with the start, so the prompt wasn't sent. Run `%3$@` to give it your login again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command) }
-    public static func relayLoginDeclined(_ asked: Asked) -> String {
-        String(format: String(localized: "cloud.relayChat.loginDeclined", defaultValue: "You chose not to give %2$@ on %1$@ your login, so the prompt wasn't sent. Run `%3$@` and sign in there with Sign in to Claude, or allow the copy when cmux asks.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
-    }
-    public static func relayLoginUnverified(_ asked: Asked) -> String { String(format: String(localized: "cloud.relayChat.loginUnverified", defaultValue: "cmux couldn't check that %1$@ is yours, so %2$@ there didn't get your login and the prompt wasn't sent. To sign in, run `%3$@`, which connects to the machine first, then use Sign in to Claude in its chat and send the prompt again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command) }
-    public static func relayLoginSkipped(_ asked: Asked) -> String { String(format: String(localized: "cloud.relayChat.loginSkipped", defaultValue: "%2$@ on %1$@ didn't get your login (this machine or build doesn't take it), so the prompt wasn't sent. Run `%3$@` and use Sign in to Claude in its chat.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command) }
-    public static func relayLoginFailed(_ asked: Asked, reason: String) -> String {
-        String(format: String(localized: "cloud.relayChat.loginFailed", defaultValue: "Couldn't give %2$@ on %1$@ your login (%4$@), so the prompt wasn't sent. Run `%3$@` to try again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command, reason)
-    }
-
     public static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .module) }
     public static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .module) }
 
@@ -187,7 +168,7 @@ public struct CloudStartSessionStrings {
         String(localized: "cloud.startSession.loginInvalid", defaultValue: "Pass --login as pass (your own login), machine (the machine's own) or none.", table: "CloudSessions", bundle: .module)
     }
 
-    /// Why a headless start (`cmux cloud start-session`) fails at once instead of asking about the login
+    /// Why a headless start (`cmux cloud start-session`, `start-chat`) fails at once instead of asking about the login
     /// (the App maps `CloudHarnessLoginDecision.Reason` to it).
     public enum LoginRefusal: Equatable { case machineLoginMissing, consentFirst, loginNeeded }
 
@@ -195,7 +176,7 @@ public struct CloudStartSessionStrings {
         let text = switch reason {
         case .machineLoginMissing: String(localized: "cloud.startSession.machineLoginMissing", defaultValue: "%2$@ on %1$@ has no login of its own, and the login choice is machine. Sign in on the machine, or run it again with --login none.", table: "CloudSessions", bundle: .module)
         case .consentFirst: String(localized: "cloud.startSession.consentNeeded", defaultValue: "%2$@ on %1$@ waits for your one-time OK to copy your Claude login to your own Cloud machines, which only you can give. Turn on Use My Claude Login on My Own Cloud Machines in Settings > Machines, then run `%3$@` again.", table: "CloudSessions", bundle: .module)
-        case .loginNeeded: String(localized: "cloud.startSession.loginNeeded", defaultValue: "%2$@ on %1$@ has no login, and no login choice is kept for your Cloud machines. To give it your own login, start a session on a Cloud machine from cmux once and choose Yes (kept for every later machine). Or run it again with --login machine to use only a login the machine already has, or with --login none.", table: "CloudSessions", bundle: .module)
+        case .loginNeeded: String(localized: "cloud.startSession.loginNeeded", defaultValue: "%2$@ on %1$@ isn't signed in: it has no login from you, and you haven't chosen whether your Cloud machines get yours. Run it again with --login none, then sign in to %2$@ in its chat in cmux, or with --login machine to use only a login the machine already has. To give your own login to every later machine, start a session on a Cloud machine in the cmux app once and choose Yes; a --login pass from a terminal or an agent doesn't count as that choice.", table: "CloudSessions", bundle: .module)
         }
         return String(format: text, asked.machine, asked.agent, asked.command)
     }

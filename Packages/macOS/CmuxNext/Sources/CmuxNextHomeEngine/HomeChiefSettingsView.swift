@@ -308,6 +308,13 @@ public final class HomeChiefSettingsView: NSView {
         avatarButton.show(picture: picture, text: text)
     }
 
+    /// Puts the keyboard in the name field, as a click on it does; false when the card is not on
+    /// screen. `debug.home.drive {action: "chief_name"}` uses it, so a capture can edit the name.
+    @discardableResult
+    public func beginEditingName() -> Bool {
+        window?.makeFirstResponder(nameField) ?? false
+    }
+
     /// Ends an edit in progress (the name), so a close keeps it.
     public func commitEditing() {
         guard nameField.currentEditor() != nil else { return }

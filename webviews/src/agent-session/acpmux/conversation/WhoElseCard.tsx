@@ -13,7 +13,7 @@ import { ChevronRight, ToolGroup } from "./icons";
 import { openSessionAttributes } from "./menuParts";
 import { useTranscriptReadOnly } from "./readOnly";
 import { resolveSessionRef } from "./sessionRefs";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { pullLabel, type WhoElseCall, type WhoElseSession } from "./whoElseCalls";
 import "./WhoElseCard.css";
 import { whatText } from "./whoElseCardModel";

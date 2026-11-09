@@ -451,22 +451,30 @@ test("opening the chat on screen in a new tab hands it over, with no switch away
 
 /// The wiring the test above cannot reach. It calls `handOverCurrentTail` itself, so it proves the
 /// client hands a chat over — not that anything in the product asks it to. The asking happens in
-/// `App.tsx`, in the two actions that open a chat in a tab, and it is React code no test here
-/// drives. Take either call away and every test in this file stays green while the flow this cache
-/// is named for goes cold again, so the call sites are read out of the source.
+/// the two actions that open a chat in a tab: `openInOwnTab` (openFork.ts, behind App.tsx's
+/// openOwnTab) and App.tsx's onMoveToTab, React code no test here drives. Take either call away and
+/// every test in this file stays green while the flow this cache is named for goes cold again, so
+/// the call sites are read out of the source.
 ///
 /// Renaming the method is fine; this test then names what to rewrite it to.
 test("the actions that open a chat in a tab hand the chat over first", async () => {
-  const app = await readFile(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
-  const sites = [...app.matchAll(/callNative\("chat\.openTab"/g)];
-  // Two today (openOwnTab, onMoveToTab); a third would need the hand-over too, so this notices it.
+  const files = ["../src/agent-session/acpmux/App.tsx", "../src/agent-session/acpmux/conversation/openFork.ts"];
+  const sources = await Promise.all(files.map((file) => readFile(new URL(file, import.meta.url), "utf8")));
+  const sites = sources.flatMap((source, at) =>
+    [...source.matchAll(/callNative\("chat\.openTab"/g)].map((site) => ({
+      file: files[at],
+      source,
+      index: site.index,
+    })),
+  );
+  // Two today (openInOwnTab, onMoveToTab); a third would need the hand-over too, so this notices it.
   expect(sites.length).toBe(2);
-  for (const site of sites) {
+  for (const { file, source, index } of sites) {
     // The hand-over has to come before the op, and close enough to belong to it.
-    const before = app.slice(Math.max(0, site.index - 400), site.index);
+    const before = source.slice(Math.max(0, index - 400), index);
     expect(
       before.includes("handOverCurrentTail()"),
-      `a chat.openTab at index ${site.index} does not hand the chat over first, so the new tab ` +
+      `a chat.openTab in ${file} at index ${index} does not hand the chat over first, so the new tab ` +
         "opens cold (tailCache.ts). Call client.handOverCurrentTail() before it.",
     ).toBe(true);
   }

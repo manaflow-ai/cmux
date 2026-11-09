@@ -61,7 +61,9 @@ export type ParsePermission = (message: unknown, sessionId: string) => AcpmuxPer
 const count = (value: unknown) => (typeof value === "number" && value > 0 ? Math.floor(value) : 0);
 
 /// A grouped request (`groupId`) is answered as a group on its own card, never one by one: the list
-/// leaves it to the chat's waiting item (model.ts), which opens that card.
+/// leaves it to the chat's waiting item (model.ts), which opens that card. It is still held, apart
+/// (`listGrouped`): the chat above a sub-session draws its child's asks, grouped ones too, and
+/// acpmux takes an answer to one member of a group (subagents/childAsks.ts).
 const grouped = (value: unknown) => typeof value === "string" && value.length > 0;
 
 export class AskTracker {
@@ -78,6 +80,9 @@ export class AskTracker {
   /// Chats the watch lists on another computer: never read, and no ask of theirs is held.
   private readonly remote = new Set<string>();
   private listed: WatchedAsk[] = [];
+  private listedGrouped: WatchedAsk[] = [];
+  /// The grouped asks held, by permission id (`grouped`).
+  private readonly inGroup = new Set<string>();
   private stale = false;
 
   constructor(
@@ -87,13 +92,31 @@ export class AskTracker {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /// The open asks, oldest seen first; the same array until one comes or goes.
+  /// The open asks, oldest seen first; the same array until one comes or goes. Never a grouped one.
   list(): WatchedAsk[] {
-    if (this.stale) {
-      this.listed = [...this.asks.values()];
-      this.stale = false;
-    }
+    this.refresh();
     return this.listed;
+  }
+
+  /// The open grouped asks, oldest seen first; the same array until one comes or goes.
+  listGrouped(): WatchedAsk[] {
+    this.refresh();
+    return this.listedGrouped;
+  }
+
+  private refresh(): void {
+    if (!this.stale) return;
+    const all = [...this.asks.values()];
+    // A grouped ask coming or going keeps the other list's array, so its readers do not redraw.
+    this.listed = same(
+      this.listed,
+      all.filter((ask) => !this.inGroup.has(ask.permission.permissionId)),
+    );
+    this.listedGrouped = same(
+      this.listedGrouped,
+      all.filter((ask) => this.inGroup.has(ask.permission.permissionId)),
+    );
+    this.stale = false;
   }
 
   /// A `_acpmux/permission_pending` notification, on an attached chat or a watched one.
@@ -102,9 +125,10 @@ export class AskTracker {
   pending(message: unknown): void {
     const sessionId = sessionOf(message);
     const fields = message as { groupId?: unknown; peer?: unknown };
-    if (!sessionId || this.remote.has(sessionId) || onPeer(fields) || grouped(fields.groupId)) return;
+    if (!sessionId || this.remote.has(sessionId) || onPeer(fields)) return;
     const permission = this.parse(message, sessionId);
     if (!permission || this.asks.has(permission.permissionId)) return;
+    if (grouped(fields.groupId)) this.inGroup.add(permission.permissionId);
     // A read already on its way keeps counting: it may hold another chat's answer. It cannot drop
     // this ask, which it never saw (`reconcile` keeps asks seen after the read started).
     this.asks.set(permission.permissionId, { sessionId, permission, at: this.now() });
@@ -172,6 +196,7 @@ export class AskTracker {
       if (ask.sessionId === sessionId) {
         this.asks.delete(id);
         this.seen.delete(id);
+        this.inGroup.delete(id);
         removed = true;
       }
     this.reported.delete(sessionId);
@@ -202,12 +227,19 @@ export class AskTracker {
     const open = new Set<string>();
     let moved = false;
     for (const entry of entries) {
-      if (grouped(entry.groupId)) continue;
       const permission = this.parse({ sessionId, permissionId: entry.permissionId, request: entry.request }, sessionId);
       if (!permission) continue;
       if (typeof entry.turnId === "string" && !permission.turnId) permission.turnId = entry.turnId;
       open.add(permission.permissionId);
-      if (this.asks.has(permission.permissionId)) continue;
+      if (this.asks.has(permission.permissionId)) {
+        // A reissued request's notice may not name its group (`permission_reissued`); the read does.
+        if (grouped(entry.groupId) && !this.inGroup.has(permission.permissionId)) {
+          this.inGroup.add(permission.permissionId);
+          moved = true;
+        }
+        continue;
+      }
+      if (grouped(entry.groupId)) this.inGroup.add(permission.permissionId);
       // An ask found by a read was asked before the page saw it: the chat's last change dates it.
       const at = Math.min(this.now(), this.updatedAt.get(sessionId) ?? Number.POSITIVE_INFINITY);
       this.asks.set(permission.permissionId, { sessionId, permission, at });
@@ -219,6 +251,7 @@ export class AskTracker {
       if (ask.sessionId === sessionId && !open.has(id) && (this.seen.get(id) ?? 0) <= started) {
         this.asks.delete(id);
         this.seen.delete(id);
+        this.inGroup.delete(id);
         moved = true;
       }
     if (moved) this.touch();
@@ -229,6 +262,10 @@ export class AskTracker {
     this.changed();
   }
 }
+
+/// `next`, or `last` when it holds the same asks in the same order.
+const same = (last: WatchedAsk[], next: WatchedAsk[]) =>
+  last.length === next.length && last.every((ask, index) => ask === next[index]) ? last : next;
 
 function sessionOf(message: unknown): string | undefined {
   if (!message || typeof message !== "object") return undefined;

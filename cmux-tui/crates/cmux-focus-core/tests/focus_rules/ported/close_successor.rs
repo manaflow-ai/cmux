@@ -1,8 +1,7 @@
-//! The tab and workspace successors, ported from the Swift
-//! `FocusAfterCloseOpenerTests`: closing the selected link tab goes back to
-//! its opener family first, in Chrome's order (`DetermineNewSelectedIndex`):
-//! its next child, else a sibling, else its opener; then the next shown tab,
-//! else the previous one (close-focus.md, Tab; manaflow-ai/cmux#21805 row 1).
+//! The tab and workspace successors: closing the selected tab selects the
+//! shown tab before it, else the shown tab after it, for every tab kind and
+//! every way a tab closes (close-focus.md, Tab; Lawrence 2026-11-08: "it
+//! should always focus the tab before it if it exists").
 
 use cmux_focus_core::close_focus::{live_openers, tab, workspace};
 use std::collections::{HashMap, HashSet};
@@ -15,73 +14,94 @@ fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
     pairs.iter().map(|(a, b)| ((*a).to_owned(), (*b).to_owned())).collect()
 }
 
-fn pick(closed: &str, old: &[&str], opener: &[(&str, &str)], hidden: &[&str]) -> Option<String> {
-    let old = s(old);
-    let surviving: Vec<String> = old.iter().filter(|id| *id != closed).cloned().collect();
-    let shown: HashSet<String> =
-        surviving.iter().filter(|id| !hidden.contains(&id.as_str())).cloned().collect();
-    tab(Some(&closed.to_owned()), &old, &surviving, &shown, &map(opener))
+fn pick(closed: &str, old: &[&str], hidden: &[&str]) -> Option<String> {
+    close(closed, &[closed], old, hidden)
 }
 
 fn some(id: &str) -> Option<String> {
     Some(id.to_owned())
 }
 
-#[test]
-fn a_closed_child_goes_back_to_its_opener() {
-    // A link opened in a new tab, read, Cmd-W: back to the page it came from,
-    // not the tab on its right.
-    assert_eq!(pick("B", &["A", "B", "C"], &[("B", "A")], &[]), some("A"));
+/// One close of `closed` while `selected` is selected; `hidden` are members
+/// of a collapsed group.
+fn close(selected: &str, closed: &[&str], old: &[&str], hidden: &[&str]) -> Option<String> {
+    let old = s(old);
+    let surviving: Vec<String> =
+        old.iter().filter(|id| !closed.contains(&id.as_str())).cloned().collect();
+    let shown: HashSet<String> =
+        surviving.iter().filter(|id| !hidden.contains(&id.as_str())).cloned().collect();
+    tab(Some(&selected.to_owned()), &old, &surviving, &shown)
 }
 
 #[test]
-fn a_closed_child_picks_the_next_sibling_before_the_opener() {
-    let opener = [("B", "A"), ("C", "A"), ("D", "A")];
-    assert_eq!(pick("B", &["A", "B", "C", "D", "X"], &opener, &[]), some("C"));
-    // The last child: the nearest sibling before it, not the unrelated tab on
-    // its right.
-    assert_eq!(pick("D", &["A", "B", "C", "D", "X"], &opener, &[]), some("C"));
+fn tab_close_selects_before_the_tab_before_it() {
+    // Lawrence 2026-11-08: "it should always focus the tab before it if it
+    // exists" (left in a strip, above in a vertical list).
+    assert_eq!(pick("B", &["A", "B", "C"], &[]), some("A"));
+    assert_eq!(pick("C", &["A", "B", "C"], &[]), some("B"));
+    assert_eq!(pick("D", &["A", "B", "C", "D"], &[]), some("C"));
 }
 
 #[test]
-fn a_closed_opener_picks_its_next_child() {
-    assert_eq!(pick("A", &["A", "X", "B"], &[("B", "A")], &[]), some("B"));
-    // A child before it counts when none follows (Chrome searches after, then
-    // before).
-    assert_eq!(pick("A", &["B", "X", "A", "Y"], &[("B", "A")], &[]), some("B"));
+fn tab_close_selects_before_else_the_tab_after_the_first() {
+    assert_eq!(pick("A", &["A", "B", "C"], &[]), some("B"));
+    assert_eq!(pick("A", &["A", "B"], &[]), some("B"));
+    assert_eq!(pick("A", &["A"], &[]), None);
 }
 
 #[test]
-fn a_child_comes_before_a_sibling() {
-    // B opened C and was itself opened by A, like A's other child D.
-    let opener = [("B", "A"), ("C", "B"), ("D", "A")];
-    assert_eq!(pick("B", &["A", "B", "D", "C"], &opener, &[]), some("C"));
+fn tab_close_selects_before_keeps_the_selection_on_an_unselected_close() {
+    assert_eq!(close("A", &["C"], &["A", "B", "C"], &[]), some("A"));
+    assert_eq!(close("C", &["A"], &["A", "B", "C"], &[]), some("C"));
+    assert_eq!(close("B", &["A", "C"], &["A", "B", "C"], &[]), some("B"));
 }
 
 #[test]
-fn forgotten_openers_fall_back_to_the_right_neighbor() {
-    // After a switch to an unrelated tab every relation is forgotten.
-    assert_eq!(pick("B", &["A", "B", "C"], &[], &[]), some("C"));
-    assert_eq!(pick("C", &["A", "B", "C"], &[], &[]), some("B"));
+fn tab_close_selects_before_the_last_pinned_tab() {
+    // Pinned tabs come first in the strip: closing the first unpinned tab
+    // selects the last pinned tab before it.
+    assert_eq!(pick("U1", &["P1", "P2", "U1", "U2"], &[]), some("P2"));
+    assert_eq!(pick("P2", &["P1", "P2", "U1"], &[]), some("P1"));
 }
 
 #[test]
-fn tabs_without_relations_keep_next_else_previous() {
-    // A terminal next to a link family: it has no relation, so the family is
-    // not consulted.
-    assert_eq!(pick("T", &["A", "T", "B"], &[("B", "A")], &[]), some("B"));
-    assert_eq!(pick("T", &["B", "A", "T"], &[("B", "A")], &[]), some("A"));
+fn tab_close_selects_before_across_groups_and_past_collapsed_ones() {
+    // The tab before, even in another (expanded) group: A [B C] [D].
+    assert_eq!(pick("D", &["A", "B", "C", "D"], &[]), some("C"));
+    // A collapsed group's members are skipped to the nearest shown tab
+    // before: A [B C collapsed] D, close D: A.
+    assert_eq!(pick("D", &["A", "B", "C", "D"], &["B", "C"]), some("A"));
+    // No shown tab before: the nearest shown tab after.
+    assert_eq!(pick("A", &["A", "B", "C", "D"], &["B", "C"]), some("D"));
+    // Only hidden tabs are left: the one before (its group then expands).
+    assert_eq!(pick("D", &["A", "B", "D"], &["A", "B"]), some("B"));
 }
 
 #[test]
-fn a_hidden_opener_is_skipped() {
-    // The opener sits in a collapsed group: the right neighbor, not a hidden
-    // tab.
-    assert_eq!(pick("B", &["A", "B", "C"], &[("B", "A")], &["A"]), some("C"));
-    // A hidden sibling is skipped too; the shown opener comes next.
-    assert_eq!(pick("B", &["A", "B", "C", "X"], &[("B", "A"), ("C", "A")], &["C"]), some("A"));
-    // A hidden child is skipped; with no other relation, the right neighbor.
-    assert_eq!(pick("A", &["A", "X", "B"], &[("B", "A")], &["B"]), some("X"));
+fn tab_close_selects_before_for_close_others_and_close_to_the_right() {
+    // Close Other Tabs keeps the selected tab: it stays.
+    assert_eq!(close("B", &["A", "C", "D"], &["A", "B", "C", "D"], &[]), some("B"));
+    // Close Tabs to the Right of A while C is selected: C goes, so the
+    // surviving tab before it, A.
+    assert_eq!(close("C", &["B", "C", "D"], &["A", "B", "C", "D"], &[]), some("A"));
+    // Close Tabs to the Right of the selected tab: it stays.
+    assert_eq!(close("B", &["C", "D"], &["A", "B", "C", "D"], &[]), some("B"));
+}
+
+#[test]
+fn tab_close_selects_before_on_rapid_repeated_closes() {
+    // Each close uses the selection the previous close made.
+    let mut strip = s(&["A", "B", "C", "D"]);
+    let mut selected = Some("C".to_owned());
+    let mut picks = Vec::new();
+    while let Some(current) = selected.clone() {
+        let surviving: Vec<String> = strip.iter().filter(|id| **id != current).cloned().collect();
+        let shown: HashSet<String> = surviving.iter().cloned().collect();
+        selected = tab(Some(&current), &strip, &surviving, &shown);
+        picks.push(selected.clone());
+        strip = surviving;
+    }
+    assert_eq!(picks, vec![some("B"), some("A"), some("D"), None]);
 }
 
 #[test]
@@ -100,96 +120,15 @@ fn live_openers_skip_tabs_that_left() {
 #[test]
 fn a_surviving_selection_stays() {
     let shown: HashSet<String> = s(&["A"]).into_iter().collect();
-    let picked =
-        tab(Some(&"A".to_owned()), &s(&["A", "B"]), &s(&["A"]), &shown, &map(&[("B", "A")]));
-    assert_eq!(picked, some("A"));
+    assert_eq!(tab(Some(&"A".to_owned()), &s(&["A", "B"]), &s(&["A"]), &shown), some("A"));
 }
 
 #[test]
 fn no_selection_takes_the_first_shown_survivor() {
     let shown: HashSet<String> = s(&["B"]).into_iter().collect();
-    assert_eq!(tab(None, &s(&["A", "B"]), &s(&["A", "B"]), &shown, &HashMap::new()), some("B"));
-    assert_eq!(tab(None, &s(&["A"]), &s(&["A"]), &HashSet::new(), &HashMap::new()), some("A"));
-    assert_eq!(tab::<String>(None, &[], &[], &HashSet::new(), &HashMap::new()), None);
-}
-
-/// Every assignment of an opener (or none) to each tab with no cycles.
-fn forests(tabs: &[String]) -> Vec<HashMap<String, String>> {
-    let mut result: Vec<HashMap<String, String>> = vec![HashMap::new()];
-    for t in tabs {
-        let mut next = Vec::new();
-        for m in &result {
-            next.push(m.clone());
-            for parent in tabs.iter().filter(|p| *p != t && !reaches(m, p, t)) {
-                let mut with = m.clone();
-                with.entry(t.clone()).or_insert_with(|| parent.clone());
-                next.push(with);
-            }
-        }
-        result = next;
-    }
-    result
-}
-
-fn reaches(m: &HashMap<String, String>, start: &str, target: &str) -> bool {
-    let mut current = Some(start.to_owned());
-    let mut steps = 0;
-    while let Some(id) = current {
-        if steps > m.len() {
-            break;
-        }
-        if id == target {
-            return true;
-        }
-        current = m.get(&id).cloned();
-        steps += 1;
-    }
-    false
-}
-
-/// Every strip of up to 4 tabs, every opener forest, every hidden set, every
-/// closed tab: the pick is a surviving shown tab while one is left (C2, C3),
-/// and it differs from the plain rule only for a tab of the closed tab's
-/// family (child, sibling or opener).
-#[test]
-fn every_small_strip_keeps_the_contract() {
-    let mut checked = 0;
-    for count in 1..=4usize {
-        let tabs: Vec<String> = (0..count).map(|i| format!("t{i}")).collect();
-        for opener in forests(&tabs) {
-            for mask in 0..(1u32 << count) {
-                let hidden: HashSet<&String> = tabs
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, _)| mask & (1 << i) != 0)
-                    .map(|(_, t)| t)
-                    .collect();
-                for closed in &tabs {
-                    checked += 1;
-                    let surviving: Vec<String> =
-                        tabs.iter().filter(|t| *t != closed).cloned().collect();
-                    let shown: HashSet<String> =
-                        surviving.iter().filter(|t| !hidden.contains(t)).cloned().collect();
-                    let picked = tab(Some(closed), &tabs, &surviving, &shown, &opener);
-                    let plain = tab(Some(closed), &tabs, &surviving, &shown, &HashMap::new());
-                    assert_eq!(picked.is_none(), surviving.is_empty());
-                    if let Some(p) = &picked {
-                        assert!(surviving.contains(p));
-                        if !shown.is_empty() {
-                            assert!(shown.contains(p));
-                        }
-                        if Some(p) != plain.as_ref() {
-                            let family = opener.get(p) == Some(closed)
-                                || opener.get(closed) == Some(p)
-                                || (opener.contains_key(p) && opener.get(p) == opener.get(closed));
-                            assert!(family, "{tabs:?} {opener:?} close {closed}: {p} not family");
-                        }
-                    }
-                }
-            }
-        }
-    }
-    assert!(checked > 1000);
+    assert_eq!(tab(None, &s(&["A", "B"]), &s(&["A", "B"]), &shown), some("B"));
+    assert_eq!(tab(None, &s(&["A"]), &s(&["A"]), &HashSet::new()), some("A"));
+    assert_eq!(tab::<String>(None, &[], &[], &HashSet::new()), None);
 }
 
 #[test]

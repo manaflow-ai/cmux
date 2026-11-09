@@ -1,10 +1,15 @@
 public import AppKit
 
-/// The two update surfaces the What's New design draws in React
-/// (cx-urd.61.2): the staged update's highlights in the card's hover
-/// popover, and the "cmux Updated!" card after an update.
+/// The update surfaces the What's New design draws in React (cx-urd.61.2): the staged
+/// update's highlights in the card's hover popover, the "cmux Updated!" card after an update,
+/// and that card's changes in the same kind of popover beside the sidebar
+/// (``UpdatedCardPreviewMode/beside``).
 public enum SidebarUpdateSurfaceKind: String, Sendable {
     case ready, updated
+    case updatedNotes = "updated-notes"
+
+    /// The surface shows the last update (the Updated card and its popover), not a staged one.
+    public var showsLastUpdate: Bool { self != .ready }
 }
 
 /// One React surface the App mounts in a sidebar host (a page view). The
@@ -28,6 +33,11 @@ public protocol SidebarSurfaceIsland: AnyObject {
     /// The room, in points, the Updated card's open hover preview needs above its slot's bottom
     /// (the card and the preview's rows); 0 while the preview is closed.
     var overlayHeight: CGFloat { get }
+    /// The height, in points, the Updated card's hover preview has once open; 0 from the moment it
+    /// starts to close. The host's glass behind the page runs the page's motion to it.
+    var previewHeight: CGFloat { get }
+    /// Points per CSS px of the page (its interface scale); 1 for a surface that is not zoomed.
+    var zoom: CGFloat { get }
     /// Tells the page whether the pointer is on its view (the host's tracking area): WebKit sends a
     /// page no pointer moves while another of the app's windows, a Chromium page's, has the key.
     func setPointerInside(_ inside: Bool)
@@ -41,6 +51,8 @@ public protocol SidebarSurfaceIsland: AnyObject {
 extension SidebarSurfaceIsland {
     public var contentWidth: CGFloat { 0 }
     public var overlayHeight: CGFloat { 0 }
+    public var previewHeight: CGFloat { 0 }
+    public var zoom: CGFloat { 1 }
     public func setPointerInside(_ inside: Bool) {}
     public var onDrag: ((SidebarCardDrag) -> Void)? {
         get { nil }
@@ -182,6 +194,19 @@ extension SidebarViewComponents {
                 "parked": String(updateCardView.highlights?.view.superview === updateCardView.parking),
                 "window": String(updateCardView.window != nil),
                 "hiddenAncestor": String(updateCardView.isHiddenOrHasHiddenAncestor)]
+    }
+
+    /// Proofs (`debug.update_surfaces {action: "hover-updated"}`): puts the pointer on the
+    /// Updated card as a hover would (its x shows; its look's changes open, beside the sidebar or
+    /// in the card) and opens the popover now, without the rest; what shows.
+    public func debugHoverUpdatedCard() -> [String: String] {
+        updatedCardView.setHovered(true)
+        updatedCardView.notes.show(force: true)
+        return ["look": updatedCardView.previewMode.rawValue,
+                "notesShown": String(updatedCardView.notes.isShown),
+                "notesPage": String(updatedCardView.notes.island != nil),
+                "notesHeight": String(Double(updatedCardView.notes.island?.contentHeight ?? -1)),
+                "updatedCard": String(updatedCardView.card != nil)]
     }
 
     /// Proofs (`debug.update_surfaces {action: "state"}`): which update

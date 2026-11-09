@@ -372,6 +372,10 @@ pub enum Call {
         release: bool,
         request: String,
     },
+    /// `link start-chat warm-spare --request JSON`: the person's paused spare, warmed on intent.
+    StartChatWarmSpare {
+        request: String,
+    },
     /// `link start-chat plan --request JSON`.
     StartChatPlan {
         request: String,
@@ -557,6 +561,12 @@ pub fn invocation(call: &Call) -> Invocation {
                 request,
             ]),
             timeout_seconds: Some(if *release { 15 } else { 125 }),
+            min_timeout_seconds: None,
+        },
+        Call::StartChatWarmSpare { request } => Invocation {
+            args: words(&["link", "start-chat", "warm-spare", "--request", request]),
+            // The platform's resume of a paused spare waits for running (CloudCarrier WAIT_MS).
+            timeout_seconds: Some(95),
             min_timeout_seconds: None,
         },
         Call::StartChatPlan { request } => {

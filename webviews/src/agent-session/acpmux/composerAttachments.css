@@ -643,6 +643,37 @@ button.acpmux-attachment-pasted-open:hover {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
 }
+/* An oversized paste's other way on: Keep as .txt, on its card's label row at the end, always shown
+   so both choices are on the card (a click on the card is the other). Either host: the strip's card
+   and the one placed in the prompt (composer/attachmentIntake.tsx KeepFileButton). */
+.acpmux-text-card {
+  position: relative;
+}
+/* Scoped to its card: `.acpmux-composer-box button { font: inherit }` comes later at one class and
+   one element, and set the prompt's copy at the composer's 14px, over its label (review of #37516). */
+.acpmux-text-card > .acpmux-attachment-keep-file {
+  position: absolute;
+  /* The label row's end, where its reserve is, in either writing direction (review of #38247). */
+  inset-inline-end: 8px;
+  bottom: 4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--acpmux-base, Canvas);
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  line-height: var(--text-caption--line-height);
+}
+.acpmux-attachment-keep-file:hover {
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, Canvas));
+}
+.acpmux-attachment-keep-file:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
 /* The card's body, in either host: lines from the top, the label pinned to the bottom. */
 .acpmux-text-card .acpmux-attachment-pasted-open,
 .acpmux-text-card .acpmux-text-card__open {
@@ -683,8 +714,26 @@ button.acpmux-attachment-pasted-open:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.acpmux-text-card__label {
+/* The label row: the label, then the room an action over its end takes (TextAttachmentCard
+   `reserve`), so the label's ellipsis comes before Keep as .txt, never under it. */
+.acpmux-text-card__foot {
+  display: flex;
   flex: none;
+  gap: 8px;
+  min-width: 0;
+}
+.acpmux-text-card__reserve {
+  flex: none;
+  padding: 0 4px;
+  visibility: hidden;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  line-height: 14px;
+  white-space: nowrap;
+}
+.acpmux-text-card__label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--agent-muted);
   font-size: var(--text-caption);

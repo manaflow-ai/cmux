@@ -19,7 +19,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// Requests (`id` present).
     public static let requests: Set<String> = [
         // Sessions (direct.ts).
-        "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
+        "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option", "chat.fix_from_link", "chat.fix_from_link.prepare",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
         "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
@@ -97,6 +97,10 @@ nonisolated enum AcpmuxPaneMethods {
         // Dismiss or Start on a chat's session offer chip (direct.ts dismissOffer, startOffer;
         // cx-807da): acpmux records the answer; Start names the child chat the pane just made.
         "_acpmux/offer_respond",
+        // Accept or Dismiss on a chat's memory offer card (direct.ts resolveMemory, #38571): acpmux
+        // adds the accepted facts to the offer's CLAUDE.md or AGENTS.md and records the answer. Only
+        // for a chat in scope, and only on a gesture (``gestureRules``).
+        "_acpmux/memory_resolve",
         // Session Info's View Prompt (context/ContextScreen.tsx; acpmux server/requests/context.rs):
         // `_acpmux/context` reads the chat's prompt inventory, `_acpmux/context_override` saves the
         // guidance new chats get, for every chat or the chat's own folder (no `cwd`: acpmux takes the
@@ -148,6 +152,9 @@ nonisolated enum AcpmuxPaneMethods {
         // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
         // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
         "_acpmux/subsession/limits",
+        // Model races: candidates and reviewer run only under the selected parent chat's
+        // existing authorization and isolated worktree guard (acpmux hub/races.rs).
+        "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp,
         // Session Info's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
         // already lists, on its running process; it starts nothing and refuses other harnesses.
@@ -268,15 +275,23 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
+        "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
+        "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
     /// side chat names the chat it is beside (cx-jlzsf).
     public static let scopedSessionParams: [String: Set<String>] = ["_acpmux/side": ["chat"]]
+
+    /// Race requests use `parent` instead of `sessionId`; it is the same pane-scoped session
+    /// reference and is checked by `sessionRefusal` below.
+    public static let primarySessionParams: [String: String] = [
+        "_acpmux/race/start": "parent", "_acpmux/race/get": "parent",
+        "_acpmux/race/list": "parent", "_acpmux/race/cancel": "parent", "_acpmux/race/stats": "parent",
+    ]
 
     /// Params beside `sessionId` that may name a session: none is fine, a named one (even `null`)
     /// must be a string in the pane's scope. Only an accepted offer names its child chat (the one
@@ -342,10 +357,17 @@ nonisolated enum AcpmuxPaneMethods {
 
     public static let gestureRules: [String: GestureRule] = [
         "session/prompt": .always,
+        // Fixing a GitHub link creates a worktree and starts an agent turn; it is a person click,
+        // never a scriptable background launch.
+        "chat.fix_from_link": .always,
         // A side session's question is its first prompt.
         "_acpmux/btw": .always,
         // A saved guidance edit reaches every new chat's agent.
         "_acpmux/context_override": .always,
+        // An accepted memory fact reaches every later chat's agent in that folder, and acpmux does not
+        // match the facts against its offer, so Accept and Dismiss go only on the person's click
+        // (direct.ts resolveMemory sends with no await before it).
+        "_acpmux/memory_resolve": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,
@@ -358,6 +380,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/secret_submit": .always,
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
+        // Racing starts additional agent turns; the launch button supplies a fresh click.
+        "_acpmux/race/start": .always,
         // Hand back delivers held messages, which runs turns.
         "_acpmux/agent_hold": .always,
         "_acpmux/app_reply": .always,
