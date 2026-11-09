@@ -268,11 +268,13 @@ pub fn pending_hint(request: &Value, session: &str) -> String {
 ///
 /// A daemon default of ask, approve-reads or approve-edits is not the chat's own policy and does
 /// not change its mode (chats start in full access, `hub/policy_gate.rs`): in a mode that runs
-/// tools unasked (`web_modes::NON_ASKING_MODES`, such as `bypassPermissions` from the harness's
-/// settings) nothing asks, so the note says that and how to hold the policy (W5-S, bench round
-/// 4 friction 6, 2026-11-08). In Japanese for a Japanese locale.
+/// every tool unasked (`web_modes::runs_everything_unasked`, such as `bypassPermissions` from the
+/// harness's settings) nothing asks, so the note says that and how to hold the policy (W5-S,
+/// bench round 4 friction 6, 2026-11-08). A mode that still asks for some tools (`acceptEdits`)
+/// keeps the asking note: the default answers those. In Japanese for a Japanese locale.
 pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
     use crate::config::PermissionPolicy;
+    use crate::web_modes::runs_everything_unasked;
     // A session's own policy, else the daemon default it runs under.
     let own = info.get("policy").and_then(Value::as_str);
     let policy = own.or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str));
@@ -281,10 +283,8 @@ pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
         return None;
     }
     let mode = info.pointer("/modes/currentModeId").and_then(Value::as_str);
-    let held_default = policy == PermissionPolicy::Review;
-    if let Some(mode) =
-        mode.filter(|m| own.is_none() && !held_default && crate::web_modes::non_asking(m))
-    {
+    let default_only = own.is_none() && policy != PermissionPolicy::Review;
+    if let Some(mode) = mode.filter(|m| default_only && runs_everything_unasked(m)) {
         let japanese = crate::cli::sender::japanese(|k| std::env::var(k).ok());
         return Some(if japanese {
             format!(

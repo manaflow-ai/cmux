@@ -171,8 +171,23 @@ pub(crate) const CARRIED_CONFIG_IDS: &[&str] = &[
     crate::claude_stdio::prompt_suggestions::OPTION,
 ];
 
-pub(crate) fn non_asking(mode: &str) -> bool {
+fn non_asking(mode: &str) -> bool {
     NON_ASKING_MODES.iter().any(|(_, modes)| modes.contains(&mode))
+}
+
+/// Modes of [`NON_ASKING_MODES`] that run every tool with no question at all, so a permission
+/// policy that answers questions never comes into play. The other non-asking modes still ask for
+/// some tools (Claude's `acceptEdits` before Bash, Codex's `read-only` and `agent` outside the
+/// workspace) or deny them (`dontAsk`), and a policy answers those (review of #39057).
+const RUNS_EVERYTHING_MODES: &[(&str, &[&str])] = &[
+    ("claude", &["bypassPermissions"]),
+    ("codex", &["agent-full-access"]),
+    ("opencode", &["build"]),
+];
+
+/// Whether mode `mode` runs every tool unasked ([`RUNS_EVERYTHING_MODES`]).
+pub(crate) fn runs_everything_unasked(mode: &str) -> bool {
+    RUNS_EVERYTHING_MODES.iter().any(|(_, modes)| modes.contains(&mode))
 }
 
 /// `REFUSED_FAMILIES` plus `extra` (families whose profile runs one).
