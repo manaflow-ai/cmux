@@ -24,13 +24,13 @@ pub use resource_projection::{
 };
 mod connection_leases;
 mod disk_usage;
+pub use connection_leases::{ConnectionLease, PeerClosed};
+#[cfg(test)]
+pub(crate) use disk_usage::journal_bytes_by_kind;
 pub use disk_usage::{
     DEFAULT_JOURNAL_KIND_BUDGET, DiskUsageCache, DiskUsageSnapshot, JOURNAL_KIND_BUDGETS,
     REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
 };
-#[cfg(test)]
-pub(crate) use disk_usage::journal_bytes_by_kind;
-pub use connection_leases::{ConnectionLease, PeerClosed};
 mod hook_queue;
 mod write_path;
 pub use hook_queue::{
