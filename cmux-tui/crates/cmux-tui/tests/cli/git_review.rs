@@ -478,7 +478,8 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     git(&attached, &[&probe[..], &["status", "--porcelain"]].concat());
     assert!(fsmonitor_ran.exists(), "the branch's fsmonitor is not configured");
     fs::remove_file(&fsmonitor_ran).unwrap();
-    let removed = git_cli(&server, &attached, &["worktree", "remove", "--idempotency-key", "rm-on"]);
+    let removed =
+        git_cli(&server, &attached, &["worktree", "remove", "--idempotency-key", "rm-on"]);
     assert_success(&removed);
     assert!(!attached.exists(), "the review's worktree was not removed");
     assert!(!fsmonitor_ran.exists(), "an fsmonitor ran removing a review's checkout");
