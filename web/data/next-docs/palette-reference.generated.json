@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1385,
+    "entries": 1390,
     "shortcuts": 188
   },
   "sections": [
@@ -3082,6 +3082,12 @@
           "command": "cmux tab-group add-tab"
         },
         {
+          "id": "git.worktree.apply",
+          "title": "Apply Worktree to Main Checkout",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "palette.clearTabName",
           "title": "Clear Tab Name",
           "shortcut": null,
@@ -3162,6 +3168,12 @@
         {
           "id": "palette.copySurfaceLink",
           "title": "Copy Tab Link",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "git.checkpoint.create",
+          "title": "Create Git Checkpoint",
           "shortcut": null,
           "command": null
         },
@@ -3364,6 +3376,12 @@
           "command": "cmux tab new-browser"
         },
         {
+          "id": "git.worktree.create",
+          "title": "New Git Worktree",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "newTab.horizontal",
           "title": "New Horizontal Tab",
           "shortcut": null,
@@ -3488,6 +3506,12 @@
           "title": "Reload Tab",
           "shortcut": null,
           "command": "cmux tab reload"
+        },
+        {
+          "id": "git.worktree.remove",
+          "title": "Remove Git Worktree",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "tabGroup.removeTab",
@@ -6692,6 +6716,12 @@
           "title": "Set Agent Chat Model…",
           "shortcut": null,
           "command": "cmux agent set-model"
+        },
+        {
+          "id": "agent.harness.setIcon",
+          "title": "Set Agent Icon…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "agent.share",
