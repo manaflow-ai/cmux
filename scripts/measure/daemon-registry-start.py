@@ -96,6 +96,14 @@ def start(args, label, bumped):
         stdout=subprocess.DEVNULL,
         stderr=log,
     )
+    # The first start's stacks (macOS `sample`, 3 s from spawn): where a slow first start
+    # waits. Printed as DRS-SAMPLE lines, the heaviest frames of each thread.
+    sampler = None
+    if label.endswith("-0") and sys.platform == "darwin" and os.path.exists("/usr/bin/sample"):
+        sample_file = os.path.join(args.home, f"sample-{label}.txt")
+        sampler = subprocess.Popen(["/usr/bin/sample", str(child.pid), "3", "1", "-file", sample_file],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
     listen = first_answer = ready = None
     deadline = started + args.ready_timeout
     while time.monotonic() < deadline and child.poll() is None:
@@ -113,6 +121,19 @@ def start(args, label, bumped):
             ready = time.monotonic() - started
             break
         time.sleep(0.01)
+    if sampler is not None:
+        try:
+            sampler.wait(timeout=60)
+            lines = Path(sample_file).read_text(errors="replace").splitlines()
+            start = next((i for i, line in enumerate(lines) if line.startswith("Call graph:")), None)
+            end = next((i for i, line in enumerate(lines) if line.startswith("Total number in stack")), len(lines))
+            for line in lines[start:end] if start is not None else []:
+                # Frames only: symbol names and sample counts, no paths or arguments.
+                text = line.split(" (in ")[0].rstrip()
+                if text.strip():
+                    print("DRS-SAMPLE " + text[:200], flush=True)
+        except (subprocess.TimeoutExpired, OSError) as error:
+            print(f"DRS-SAMPLE failed: {error}", flush=True)
     laps = None
     timings = sdir / "startup-timings.jsonl"
     if timings.is_file():
