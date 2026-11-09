@@ -2117,6 +2117,23 @@ jobs:
   outside: {needs: [web], runs-on: x, steps: []}
   ci-status: {needs: [web, fast-guards], runs-on: x, steps: []}
 """
+CI_WEB_YML = """
+on: {workflow_call: {inputs: {web: {type: string}}}}
+jobs:
+  scope: {runs-on: x, steps: []}
+  web-tests:
+    needs: scope
+    name: Web tests (${{ matrix.shard }})
+    strategy: {matrix: {shard: [1/2, 2/2]}}
+    runs-on: x
+    steps: []
+  react-apps-check-shard:
+    name: react-apps-check (${{ matrix.shard }})
+    strategy: {matrix: {include: [{shard: 1, shard_count: 2}, {shard: 2, shard_count: 2}]}}
+    runs-on: x
+    steps: []
+  web-status: {name: Web status, needs: [web-tests, react-apps-check-shard], runs-on: x, steps: []}
+"""
 GUARDS_YML = """
 on:
   workflow_call:
@@ -2188,6 +2205,7 @@ class StaleBasePass(unittest.TestCase):
 
 
 WEB_SHARD = "web / Web tests (1/4)"
+WEB_STATUS = "web / Web status"
 PUSHED_BASE_SHA = "e" * 40
 
 
@@ -2244,6 +2262,38 @@ class WebShardBaseVerdict(unittest.TestCase):
         text = self.judge(WebShardBaseGitHub())
         self.assertIn(f"excused '{WEB_SHARD}'", text)
         self.assertIn("run 40", text)
+
+    def red_web_status(self, gh):
+        # ci-web.yml's Web status, red only because a web job under its needs is red (cmux#39559, hq#8503).
+        gh.jobs[5] = failed_job(5, 10, HEAD, name=WEB_STATUS, step="Check routed web jobs")
+        gh.logs[5] = log(WEB_STATUS, "Check routed web jobs", "web-tests: failure")
+        return gh
+
+    def test_a_red_web_status_whose_red_shards_are_all_base_reds_is_excused(self):
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub())
+                text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks))
+                self.assertIn(f"excused '{WEB_SHARD}'", text)
+                self.assertNotIn(f"'{WEB_STATUS}'", text)
+
+    def test_a_red_web_status_with_one_shard_not_red_on_the_base_blocks(self):
+        other = WEB_SHARD.replace("(1/4)", "(2/4)")
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub())
+                gh.jobs[6] = failed_job(6, 10, HEAD, name=other)
+                gh.logs[6] = log(other, TEST_STEP, OTHER.replace("palettePages", "somethingNew"))
+                gh.jobs[7] = dict(failed_job(7, 40, PUSHED_BASE_SHA, name=other), conclusion="success",
+                                  steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+                with self.assertRaisesRegex(excuse.Refused, re.escape(other)):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
+
+    def test_a_red_web_status_with_no_red_web_job_blocks(self):
+        # Its own step failed (a bad route input, say): nothing under it to compare with the base.
+        gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
+        with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh, checks=[WEB_STATUS])
 
     def test_a_web_shard_green_on_the_pushed_base_is_the_prs_own_red(self):
         gh = WebShardBaseGitHub()
@@ -2708,9 +2758,9 @@ class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
 class RollupsFromNeeds(unittest.TestCase):
     """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
 
-    def derive(self, ci=CI_YML, guards=GUARDS_YML):
+    def derive(self, ci=CI_YML, guards=GUARDS_YML, web=CI_WEB_YML):
         with tempfile.TemporaryDirectory() as root:
-            for file, text in (("ci.yml", ci), ("ci-guards.yml", guards)):
+            for file, text in (("ci.yml", ci), ("ci-guards.yml", guards), ("ci-web.yml", web)):
                 if text is not None:
                     (Path(root) / file).write_text(text)
             return excuse.derive_rollups(Path(root))
@@ -2727,6 +2777,7 @@ class RollupsFromNeeds(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             (Path(root) / "ci.yml").write_text(CI_YML)
             (Path(root) / "ci-guards.yml").write_text(GUARDS_YML)
+            (Path(root) / "ci-web.yml").write_text(CI_WEB_YML)
             probe = (
                 "import importlib.abc, importlib.machinery, importlib.util, json, sys\n"
                 "from pathlib import Path\n"
@@ -2757,6 +2808,14 @@ class RollupsFromNeeds(unittest.TestCase):
             "changes": {"exact": ["changes"], "prefixes": []},
             "fast-guards": {"exact": ["CI fast guards"], "prefixes": []},
             "web": {"exact": [], "prefixes": ["web / "]}})
+        # A called workflow's rollup is named, and its jobs matched, under its caller's name; a matrix job named by
+        # one matrix key is each of its exact names.
+        self.assertEqual(got["run"]["web / Web status"]["under"], {
+            "react-apps-check-shard": {"exact": ["web / react-apps-check (1)", "web / react-apps-check (2)"],
+                                       "prefixes": []},
+            "scope": {"exact": ["web / scope"], "prefixes": []},
+            "web-tests": {"exact": ["web / Web tests (1/2)", "web / Web tests (2/2)"], "prefixes": []}})
+        self.assertNotIn("Web status", got["run"])
         self.assertEqual(got["routed"]["Guard status"]["routes"], {
             "workflow-guard-submodule-forward-only": {
                 "route": None, "exact": ["workflow-guard-submodule-forward-only"], "prefixes": []},
@@ -2785,6 +2844,13 @@ class RollupsFromNeeds(unittest.TestCase):
             "a routed workflow with another trigger": (dict(
                 guards=GUARDS_YML.replace("on:\n", "on:\n  push: {}\n")), "called only"),
             "unparseable YAML": (dict(guards=GUARDS_YML + "\n  : [\n"), "unreadable"),
+            "a called rollup whose caller calls another workflow": (dict(
+                ci=CI_YML.replace("uses: ./.github/workflows/ci-web.yml", "uses: ./.github/workflows/ci-other.yml")),
+                "no job web calling"),
+            "a matrix name over a key the matrix lacks": (dict(
+                web=CI_WEB_YML.replace("matrix.shard }})\n    strategy: {matrix: {shard:",
+                                       "matrix.part }})\n    strategy: {matrix: {shard:")),
+                "not one matrix key over fixed values"),
         }
         for why, (files, said) in cases.items():
             with self.subTest(why), self.assertRaisesRegex(excuse.Refused, said):
