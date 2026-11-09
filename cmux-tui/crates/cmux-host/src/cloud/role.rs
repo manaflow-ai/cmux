@@ -6,9 +6,8 @@
 //!
 //! Resume comes from the supervisor (`HostEvent::Resumed`, its clock-set
 //! wake or its pause watch's, after a metadata read confirmed the id),
-//! replacing the interim
-//! agent's `OnClockChange` timer. A `{"resume": true}` socket line still
-//! works.
+//! replacing the interim agent's `OnClockChange` timer. A
+//! `{"resume": true}` socket line still works.
 
 use crate::json::JsonField;
 use std::fs::{self, OpenOptions};
