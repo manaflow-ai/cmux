@@ -132,22 +132,12 @@ public actor SSHMachineLink {
     private var socket: String?
     /// The running link's admin socket (``SSHLinkAdmin``).
     private var admin: SSHLinkAdmin?
-    /// A person's open or Reconnect the link has not answered yet: its deadline, recorded before
-    /// any request goes out, and whether one is in flight. Kept until the link answers it.
-    private var personWait: PersonWait?
-    /// The running link said its admin socket is bound (``socketReadyLine``).
-    private var linkAnswers = false
-    /// Tests only: given to each link's ``SSHLinkAdmin`` (its `exchanged`).
+    /// A person's open or Reconnect that came before the link's admin socket answered (no link
+    /// process yet, or its socket not bound): its deadline, kept until the link's first report.
+    private var personWait: ContinuousClock.Instant?
     private var adminExchanged: (@Sendable (String, Bool) -> Void)?
-
-    /// Tests only: see ``SSHLinkAdmin``'s `exchanged`; applies to links started after it.
     func observeAdminExchanges(_ observer: (@Sendable (String, Bool) -> Void)?) {
         adminExchanged = observer
-    }
-
-    private struct PersonWait {
-        var until: ContinuousClock.Instant
-        var inFlight = false
     }
     private var starting: Task<String, any Error>?
     /// Invalidates in-flight startup work when transport ownership changes.
@@ -282,36 +272,20 @@ public actor SSHMachineLink {
     /// A cold open comes before the link answers: the request and its original deadline wait for
     /// the link's first stderr line (it writes one as soon as its admin socket is bound, before
     /// any dial reports), and go to it with what is left of the deadline.
-    /// The wait is recorded before any request goes out, so the ready line always finds it: one
-    /// in flight that fails because the socket was not bound yet goes again in the same actor step
-    /// that sees the ready line came meanwhile (review of #39200, F1).
     public func awaitReady(within deadline: Duration) async {
         let until = ContinuousClock.now + deadline
         guard socket == nil, machine.mayAttempt else { return }
-        personWait = PersonWait(until: max(personWait?.until ?? until, until), inFlight: personWait?.inFlight ?? false)
-        guard let child, child.isRunning, admin != nil else { return }
-        await forwardPersonWait(of: child)
-    }
-
-    /// Sends the pending wait to the link with what is left of its deadline, unless one is in flight.
-    private func forwardPersonWait(of child: ChildProcess) async {
-        while self.child === child, socket == nil, let admin, let wait = personWait, !wait.inFlight {
-            personWait?.inFlight = true
-            let answered = linkAnswers
-            let left = wait.until - ContinuousClock.now
-            let state = left > .zero ? await admin.awaitReady(within: left) : await admin.linkState()
-            guard self.child === child, socket == nil else { return }
-            personWait?.inFlight = false
-            if state != nil || left <= .zero {
-                // Answered (or out of time): done, unless a longer wait came meanwhile.
-                if personWait?.until == wait.until { personWait = nil }
-                reportFirstDial(state, of: child)
-            } else if answered || !linkAnswers {
-                // The socket did not answer and no ready line came while this one was out: the
-                // ready line (or the next report) takes it.
-                return
-            }
+        guard let child, child.isRunning, let admin else {
+            personWait = max(personWait ?? until, until)
+            return
         }
+        let state = await admin.awaitReady(within: deadline)
+        // Not bound yet: the next report takes the request.
+        guard state != nil else {
+            if self.child === child, socket == nil { personWait = max(personWait ?? until, until) }
+            return
+        }
+        reportFirstDial(state, of: child)
     }
 
     /// Ends the link for good (forget, quit).
@@ -420,7 +394,6 @@ public actor SSHMachineLink {
         try child.start()
         self.child = child
         admin = SSHLinkAdmin(localSocket: path, exchanged: adminExchanged)
-        linkAnswers = false
         watchFirstDial(child)
         // No deadline here: the link dials under its own budget until it connects or exits.
         var connected: String?
@@ -498,24 +471,25 @@ public actor SSHMachineLink {
         let lines = child.stderrLines
         // task-owner: ends with the child's stderr, or at its first line after the link connected
         Task { [weak self] in
-            for await line in lines {
-                guard let self, await self.readFirstDial(child, line: line) else { return }
+            for await _ in lines {
+                guard let self, await self.readFirstDial(child) else { return }
             }
         }
     }
 
-    /// Hands a pending wait to the link, or reads its state for a failed first dial; false once
-    /// the link connected or was replaced. A wait in flight is not sent twice: if it fails because
-    /// it went out before the ready line, ``forwardPersonWait(of:)`` sends it again.
-    private func readFirstDial(_ reading: ChildProcess, line: String) async -> Bool {
+    /// Reads the link's state for a failed first dial; false once the link connected or was replaced.
+    private func readFirstDial(_ reading: ChildProcess) async -> Bool {
         guard child === reading, socket == nil, let admin else { return false }
-        let ready = line == Self.socketReadyLine
-        if ready { linkAnswers = true }
-        if let wait = personWait, !wait.inFlight {
-            await forwardPersonWait(of: reading)
-        } else if !ready {
-            reportFirstDial(await admin.linkState(), of: reading)
+        let state: SSHLinkState?
+        if let until = personWait {
+            // A person's request that came before the link answered: what is left of its deadline.
+            personWait = nil
+            let left = until - ContinuousClock.now
+            state = left > .zero ? await admin.awaitReady(within: left) : await admin.linkState()
+        } else {
+            state = await admin.linkState()
         }
+        reportFirstDial(state, of: reading)
         return child === reading && socket == nil
     }
 
