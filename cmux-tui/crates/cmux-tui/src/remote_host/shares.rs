@@ -29,6 +29,11 @@ pub(crate) struct Share {
     /// recorded before this field) matches nothing.
     #[serde(default)]
     pub session: String,
+    /// The teammate's verified cmux user id (`user_...`), when known. Only a share that has one
+    /// moves to the cmux platform on a Cloud machine (`platform_shares::move_local`): a tailnet
+    /// login is never matched to a teammate by display name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<String>,
 }
 
 /// What a share names on the daemon: its boot and the surface's current agent session.
@@ -135,6 +140,7 @@ pub(super) fn applied(
             shared_at: grant::now_rfc3339(),
             generation: consented.generation.clone(),
             session: consented.session.clone(),
+            person: None,
         });
     }
     Ok(config)
@@ -166,6 +172,12 @@ pub(super) fn allowable(config: &config::Config, login: &str) -> anyhow::Result<
         bail!("{}: {login}", crate::localization::catalog().host_share.shared);
     }
     Ok(())
+}
+
+/// The running daemon's boot id, or `None` when it cannot be read.
+pub(super) fn generation(config: &config::Config) -> Option<String> {
+    let identify = daemon(config, &json!({"cmd": "identify"})).ok()?;
+    identify["data"]["generation"].as_str().filter(|g| !g.is_empty()).map(str::to_owned)
 }
 
 /// The daemon's boot and the surface's current agent session, over the same-user socket. A

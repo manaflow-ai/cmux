@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use serde_json::{Value, json};
 
 use super::*;
+use crate::remote_host::grant::{Grant, Scope};
 use crate::remote_host::shares::{Role, Share};
 
 const VM: &str = "vm_0123456789abcdefghij";
@@ -385,64 +386,135 @@ fn the_target_is_the_named_machine_or_this_cloud_machine() {
     assert!(target(Some("i-provider"), own()).is_err());
 }
 
-fn local(login: &str, session: &str, role: Role) -> Share {
+/// The one login on the teammate allowlist, which a consented grant can admit.
+const TEAMMATE: &str = "lawrence@manaflow.ai";
+const BOOT: &str = "boot-1";
+
+/// A member share of `session` by the allowlisted teammate, verified as `person`.
+fn local(person: &str, session: &str) -> Share {
     Share {
         surface: 3,
-        login: login.into(),
-        role,
+        login: TEAMMATE.into(),
+        role: Role::Member,
         shared_at: "2026-11-01T00:00:00Z".into(),
-        generation: "g1".into(),
+        generation: BOOT.into(),
         session: session.into(),
+        person: (!person.is_empty()).then(|| person.to_owned()),
     }
 }
 
+fn grant(revoked: bool, consented: bool, scopes: &[Scope]) -> Grant {
+    Grant {
+        login: TEAMMATE.into(),
+        scopes: scopes.to_vec(),
+        consented_at: consented.then(|| "2026-11-01T00:00:00Z".to_owned()),
+        consented_via: Some("cli-tty".into()),
+        revoked_at: revoked.then(|| "2026-11-02T00:00:00Z".to_owned()),
+    }
+}
+
+/// A host with teammate access on and the teammate's consented `agents` grant.
 fn with_shares(shares: Vec<Share>) -> config::Config {
-    config::Config { enabled: true, shares, ..config::Config::default() }
+    config::Config {
+        enabled: true,
+        teammate_access: true,
+        grants: vec![grant(false, true, &[Scope::Agents])],
+        shares,
+        ..config::Config::default()
+    }
+}
+
+fn moved(config: config::Config, api: &Platform) -> MoveOutcome {
+    move_local(config, api, VM, "now", Some(BOOT)).unwrap()
 }
 
 #[test]
 fn local_shares_move_once_and_what_cannot_move_stays() {
-    let api = Platform::with_members(&[(ANA, "ana@example.com"), (BO, "Bo")]);
+    let api = Platform::default();
     api.live(BO, &["s-bo-old"]);
+    let guest = Share { role: Role::Guest, ..local(ANA, "s-4") };
     let config = with_shares(vec![
-        local("ana@example.com", "s-1", Role::Member),
-        local("ana@example.com", "s-2", Role::Member),
-        local("bo", "s-3", Role::Member),
-        local("ana@example.com", "s-4", Role::Guest),
-        local("cy@example.com", "s-5", Role::Member),
-        local("bo", "", Role::Member),
+        local(ANA, "s-1"),
+        local(ANA, "s-2"),
+        local(BO, "s-3"),
+        guest,
+        local("", "s-5"),
+        local(BO, ""),
     ]);
-    let outcome = move_local(config, &api, VM, "now").unwrap();
+    let outcome = moved(config, &api);
     assert!(outcome.failed.is_none());
     // One create per person, added to what they already had.
     assert_eq!(api.creates.borrow().len(), 2);
     assert_eq!(api.live_sessions(ANA).unwrap(), ["s-1", "s-2"]);
     assert_eq!(api.live_sessions(BO).unwrap(), ["s-bo-old", "s-3"]);
-    let moved: Vec<_> = outcome.moved.iter().map(|m| m.session.as_str()).collect();
-    assert_eq!(moved, ["s-1", "s-2", "s-3"]);
+    let moved_ids: Vec<_> = outcome.moved.iter().map(|m| m.session.as_str()).collect();
+    assert_eq!(moved_ids, ["s-1", "s-2", "s-3"]);
     assert_eq!(outcome.config.moved_shares, outcome.moved);
-    // The guest, the unknown login and the share with no chat stay local.
     let left: Vec<_> = outcome.config.shares.iter().map(|s| s.session.as_str()).collect();
     assert_eq!(left, ["s-4", "s-5", ""]);
     let reasons: Vec<_> = outcome.kept.iter().map(|k| k.reason).collect();
-    assert_eq!(reasons, ["guest", "no teammate", "no chat"]);
+    assert_eq!(reasons, ["guest", "no verified identity", "no chat"]);
     // A second run finds nothing to move.
-    let again = move_local(outcome.config, &api, VM, "later").unwrap();
+    let again = moved(outcome.config, &api);
     assert!(again.moved.is_empty());
     assert_eq!(api.creates.borrow().len(), 2);
 }
 
 #[test]
+fn a_display_name_that_matches_never_moves_a_share_without_a_verified_id() {
+    // The teammate's display name equals the share's tailnet login, but that is no identity.
+    let api = Platform::with_members(&[(ANA, TEAMMATE)]);
+    let outcome = moved(with_shares(vec![local("", "s-1")]), &api);
+    assert!(outcome.moved.is_empty());
+    assert!(api.creates.borrow().is_empty());
+    assert_eq!(outcome.kept[0].reason, "no verified identity");
+    assert_eq!(outcome.config.shares.len(), 1, "it stays local");
+}
+
+#[test]
+fn a_revoked_or_unconsented_share_is_never_recreated_on_the_platform() {
+    let api = Platform::default();
+    let cases = [
+        vec![grant(true, true, &[Scope::Agents])],
+        vec![grant(false, false, &[Scope::Agents])],
+        vec![grant(false, true, &[Scope::Status])],
+        Vec::new(),
+    ];
+    for grants in cases {
+        let config = config::Config { grants, ..with_shares(vec![local(ANA, "s-1")]) };
+        let outcome = moved(config, &api);
+        assert!(outcome.moved.is_empty());
+        assert_eq!(outcome.kept[0].reason, "revoked");
+        assert_eq!(outcome.config.shares.len(), 1);
+    }
+    let off = config::Config { teammate_access: false, ..with_shares(vec![local(ANA, "s-1")]) };
+    assert_eq!(moved(off, &api).kept[0].reason, "revoked");
+    assert!(api.creates.borrow().is_empty(), "never a create for a share without access");
+}
+
+#[test]
+fn an_expired_share_is_never_recreated_on_the_platform() {
+    let api = Platform::default();
+    let old = Share { generation: "boot-0".into(), ..local(ANA, "s-1") };
+    let outcome = moved(with_shares(vec![old.clone()]), &api);
+    assert_eq!(outcome.kept[0].reason, "expired");
+    // A boot that cannot be read moves nothing either.
+    let unknown = move_local(with_shares(vec![local(ANA, "s-1")]), &api, VM, "now", None).unwrap();
+    assert_eq!(unknown.kept[0].reason, "expired");
+    assert!(api.creates.borrow().is_empty());
+}
+
+#[test]
 fn a_crash_between_the_create_and_the_config_write_moves_without_a_second_create() {
     let api = Platform::default();
-    let config = with_shares(vec![local(ANA, "s-1", Role::Member)]);
+    let config = with_shares(vec![local(ANA, "s-1")]);
     // The first run's creates reach the platform, then the process dies before its write.
-    let lost = move_local(config.clone(), &api, VM, "first").unwrap();
+    let lost = moved(config.clone(), &api);
     assert_eq!(lost.moved.len(), 1);
     drop(lost);
     assert_eq!(api.creates.borrow().len(), 1);
     // The re-run reads the same config: the share is covered, so it only leaves the config.
-    let rerun = move_local(config, &api, VM, "second").unwrap();
+    let rerun = moved(config, &api);
     assert_eq!(api.creates.borrow().len(), 1, "no second create");
     assert!(rerun.config.shares.is_empty());
     assert_eq!(rerun.config.moved_shares.len(), 1);
@@ -453,10 +525,9 @@ fn a_crash_between_the_create_and_the_config_write_moves_without_a_second_create
 fn an_unreachable_platform_moves_nothing_and_keeps_every_local_share() {
     let api =
         Platform { down: Some(Failure::Unreachable("offline".into())), ..Platform::default() };
-    let config =
-        with_shares(vec![local(ANA, "s-1", Role::Member), local("bo", "s-2", Role::Member)]);
+    let config = with_shares(vec![local(ANA, "s-1"), local(BO, "s-2")]);
     assert_eq!(
-        move_local(config, &api, VM, "now").unwrap_err(),
+        move_local(config, &api, VM, "now", Some(BOOT)).unwrap_err(),
         Failure::Unreachable("offline".into())
     );
 }
@@ -468,14 +539,14 @@ fn a_create_that_fails_keeps_that_person_and_the_rest_local() {
         ..Platform::default()
     };
     let config = with_shares(vec![
-        local(ANA, "s-1", Role::Member),
-        local(BO, "s-2", Role::Member),
-        local("user_00000000000000000c0c", "s-3", Role::Member),
+        local(ANA, "s-1"),
+        local(BO, "s-2"),
+        local("user_00000000000000000c0c", "s-3"),
     ]);
-    let outcome = move_local(config, &api, VM, "now").unwrap();
+    let outcome = moved(config, &api);
     assert_eq!(outcome.failed, Some(Failure::Unreachable("reset".into())));
-    let moved: Vec<_> = outcome.moved.iter().map(|m| m.session.as_str()).collect();
-    assert_eq!(moved, ["s-1"]);
+    let moved_ids: Vec<_> = outcome.moved.iter().map(|m| m.session.as_str()).collect();
+    assert_eq!(moved_ids, ["s-1"]);
     let left: Vec<_> = outcome.config.shares.iter().map(|s| s.session.as_str()).collect();
     assert_eq!(left, ["s-2", "s-3"]);
 }
@@ -492,8 +563,7 @@ fn an_every_chat_share_covers_local_shares_and_cannot_be_narrowed_by_name() {
         revoked_at: None,
         created_by: None,
     });
-    let outcome =
-        move_local(with_shares(vec![local(ANA, "s-1", Role::Member)]), &api, VM, "now").unwrap();
+    let outcome = moved(with_shares(vec![local(ANA, "s-1")]), &api);
     assert_eq!(outcome.moved.len(), 1);
     assert!(api.creates.borrow().is_empty());
     let (answer, ..) = run("unshare", &["s-1", ANA], false, &elsewhere(), &api);

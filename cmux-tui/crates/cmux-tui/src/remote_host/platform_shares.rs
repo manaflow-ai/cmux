@@ -18,8 +18,9 @@
 //! - `shares` lists the machine's live shares.
 //!
 //! On this machine every run first moves the local shares (`config.shares`) to the platform, once
-//! ([`move_local`]): each one the platform confirms leaves `shares` and goes to `moved_shares` in
-//! one write. A platform that cannot be reached changes nothing; a crash between a create and that
+//! ([`move_local`]): only a share that still grants access (a live, consented `agents` grant, this
+//! daemon boot) and carries a verified `user_` id moves, and each one the platform confirms leaves
+//! `shares` and goes to `moved_shares` in one write; the rest stay local, enforced as before. A platform that cannot be reached changes nothing; a crash between a create and that
 //! write leaves the local share, and the next run finds it already covered and only removes it.
 
 use std::collections::BTreeMap;
@@ -180,7 +181,10 @@ pub(crate) fn person(api: &dyn Api, given: &str) -> anyhow::Result<String> {
     let members = api.members().map_err(|f| anyhow!("{}", explain(&f)))?;
     let mut named = members.iter().filter(|m| m.name.trim().eq_ignore_ascii_case(given));
     match (named.next(), named.next()) {
-        (Some(member), None) => Ok(member.user.clone()),
+        (Some(member), None) => {
+            eprintln!("cmux host: {given} = {}", member.user);
+            Ok(member.user.clone())
+        }
         (Some(_), Some(_)) => bail!("{}: {given}", text.person_ambiguous),
         (None, _) if given.contains('@') => bail!("{}: {given}", text.person_email),
         (None, _) => bail!("{}: {given}", text.person_unknown),
@@ -275,49 +279,42 @@ pub(crate) struct MoveOutcome {
 
 /// `config` with its local shares moved to `machine` on the platform: each person's chats are
 /// added to their live share (one create per person, none when it already covers them), and only
-/// what the platform confirmed leaves `shares`. A guest share stays local (the platform has no
-/// read-only teammate yet, and moving it would raise the guest's access), as do a share with no
-/// pinned chat and one whose login names no teammate. A list that fails changes nothing.
+/// what the platform confirmed leaves `shares`. A share moves only while it still grants access
+/// here, and only to a verified person; every other one stays local with its reason:
+///
+/// - `guest`: the platform has no read-only teammate yet, and moving it would raise the access;
+/// - `no chat`: no pinned session;
+/// - `revoked`: its login's teammate grant is gone, revoked or not consented, or lacks `agents`
+///   (`cmux host revoke` leaves the share in the config, and it must not come back as access);
+/// - `expired`: it names an older daemon boot than `generation` (local shares end with the boot),
+///   or the boot could not be read;
+/// - `no verified identity`: the share carries no `user_` id (`Share::person`). A tailnet login is
+///   never matched to a teammate by display name.
+///
+/// A list that fails changes nothing.
 pub(crate) fn move_local(
     mut config: config::Config,
     api: &dyn Api,
     machine: &str,
     at: &str,
+    generation: Option<&str>,
 ) -> Result<MoveOutcome, Failure> {
     let mut outcome =
         MoveOutcome { config: config.clone(), moved: Vec::new(), kept: Vec::new(), failed: None };
     if config.shares.is_empty() {
         return Ok(outcome);
     }
-    let live = api.list(machine)?;
-    let needs_members = config.shares.iter().any(|s| !valid_person(s.login.trim()));
-    let members = if needs_members {
-        match api.members() {
-            Ok(members) => members,
-            Err(Failure::Refused { .. }) => Vec::new(),
-            Err(failure) => return Err(failure),
-        }
-    } else {
-        Vec::new()
-    };
     let mut by_person: BTreeMap<String, Vec<&shares::Share>> = BTreeMap::new();
     for share in &config.shares {
-        let reason = if share.role != shares::Role::Member {
-            Some("guest")
-        } else if !valid_session(&share.session) {
-            Some("no chat")
-        } else {
-            None
-        };
-        if let Some(reason) = reason {
-            outcome.kept.push(kept(share, reason));
-            continue;
-        }
-        match login_person(&share.login, &members) {
-            Some(person) => by_person.entry(person).or_default().push(share),
-            None => outcome.kept.push(kept(share, "no teammate")),
+        match movable(&config, share, generation) {
+            Ok(person) => by_person.entry(person).or_default().push(share),
+            Err(reason) => outcome.kept.push(kept(share, reason)),
         }
     }
+    if by_person.is_empty() {
+        return Ok(outcome);
+    }
+    let live = api.list(machine)?;
     let mut confirmed: Vec<(String, String)> = Vec::new();
     for (person, local) in &by_person {
         if outcome.failed.is_some() {
@@ -365,16 +362,29 @@ fn kept(share: &shares::Share, reason: &'static str) -> Kept {
     Kept { login: share.login.clone(), session: share.session.clone(), reason }
 }
 
-/// A local share's login as a platform person: a `user_` id, else the one member of that name.
-fn login_person(login: &str, members: &[Member]) -> Option<String> {
-    let login = login.trim();
-    if valid_person(login) {
-        return Some(login.to_owned());
+/// The verified person a local share may move to, or why it stays local ([`move_local`]).
+fn movable(
+    config: &config::Config,
+    share: &shares::Share,
+    generation: Option<&str>,
+) -> Result<String, &'static str> {
+    if share.role != shares::Role::Member {
+        return Err("guest");
     }
-    let mut named = members.iter().filter(|m| m.name.trim().eq_ignore_ascii_case(login));
-    match (named.next(), named.next()) {
-        (Some(member), None) => Some(member.user.clone()),
-        _ => None,
+    if !valid_session(&share.session) {
+        return Err("no chat");
+    }
+    let granted = matches!(super::grant::check(config, &share.login),
+        super::grant::Check::Granted(scopes) if scopes.contains(&super::grant::Scope::Agents));
+    if !granted || config.allow.iter().any(|a| config::same_login(a, &share.login)) {
+        return Err("revoked");
+    }
+    if generation.is_none_or(|now| now.is_empty() || share.generation != now) {
+        return Err("expired");
+    }
+    match share.person.as_deref().map(str::trim) {
+        Some(person) if valid_person(person) => Ok(person.to_owned()),
+        _ => Err("no verified identity"),
     }
 }
 
@@ -579,8 +589,10 @@ fn move_here(api: &dyn Api, machine: &str) -> anyhow::Result<Option<Value>> {
     }
     let lock = config::lock()?;
     let current = config::load()?;
-    let outcome = move_local(current, api, machine, &super::grant::now_rfc3339())
-        .map_err(|f| anyhow!("{}", explain(&f)))?;
+    let generation = shares::generation(&current);
+    let outcome =
+        move_local(current, api, machine, &super::grant::now_rfc3339(), generation.as_deref())
+            .map_err(|f| anyhow!("{}", explain(&f)))?;
     if !outcome.moved.is_empty() {
         // The listener restarts: a tailnet connection a moved share admitted closes with it.
         config::commit(&outcome.config, &lock, config::Listener::Restart)?;
