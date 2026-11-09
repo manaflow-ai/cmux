@@ -533,6 +533,16 @@
 }
 /* The chip's front (the icon) and its title end are two widgets around the hidden link, drawn as
    one chip: the same no-size boxes, the front's icon painted over the title's wash (position). */
+/* Where the caret before a chip stands (composer/deeplinkTitles.ts caretBuffer, as CodeMirror's
+   widget buffer): no width, a text line's height. */
+.acpmux-md img.acpmux-caret-buffer {
+  display: inline;
+  width: 0;
+  height: 1em;
+  margin: 0;
+  border: none;
+  vertical-align: text-top;
+}
 .acpmux-md .is-titled-start {
   --cmux-link-chip-pad-inline: 5px;
   --cmux-link-chip-icon: 14px;
