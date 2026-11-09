@@ -99,3 +99,17 @@ extension CloudAuth {
         }
     }
 }
+
+extension CloudAuth {
+    /// A Cloud plan refusal's `details` for the agent pane: the active team, every team the person may
+    /// switch to, whether they may switch, and who they are, so the card names the team and offers
+    /// their own (webviews cloudPlanTeams.ts decides which one that is). Data only, no rule here.
+    public var planRefusalTeams: [String: Any] {
+        var details: [String: Any] = ["teams": activeTeam.teams.map { ["id": $0.id, "name": $0.displayName] },
+                                      "canSwitch": activeTeam.canSwitch]
+        if let id = activeTeam.id { details["team"] = id }
+        if let name = user?.displayName { details["userName"] = name }
+        if let email = user?.primaryEmail { details["userEmail"] = email }
+        return details
+    }
+}

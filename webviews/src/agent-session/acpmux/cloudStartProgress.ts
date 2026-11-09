@@ -1,4 +1,5 @@
 import type { CloudStartAnswer } from "./cloudRun";
+import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { sliceWhole } from "../../ui/wholeChars";
@@ -40,6 +41,9 @@ export type CloudStartProgress = {
   message?: string;
   /// A stable host refusal code, used to attach recovery to the matching failure.
   code?: string;
+  /// A plan refusal in a team (`cloud_plan_required` with the host's teams): the card says "This team
+  /// has no Cloud plan", names the team and offers the person's own (cloudPlanTeams.ts).
+  planTeam?: CloudPlanTeamRefusal;
   /// The start waits on the person's browser sign-in (`cloud.signIn`): the card says so, not "starting".
   signingIn?: true;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
@@ -416,7 +420,8 @@ export function cloudStartEnded(
   const refusedHere = answer.code.startsWith("transport.") || REFUSED_HERE.has(answer.code);
   const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
   // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
-  const { signingIn: _signingIn, ask: _ask, ...ended } = current;
+  const { signingIn: _signingIn, ask: _ask, planTeam: _planTeam, ...ended } = current;
+  const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
   return {
     ...ended,
     state: "failed",
@@ -424,6 +429,7 @@ export function cloudStartEnded(
     ...(message ? { message } : {}),
     ...(refusedHere ? { refusedHere } : {}),
     ...(answer.retryable ? { retryable: true } : {}),
+    ...(planTeam ? { planTeam } : {}),
   };
 }
 

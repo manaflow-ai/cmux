@@ -60,6 +60,8 @@ function cloudStartHandlers(record: Recorder) {
     onUpgrade: () => record({ kind: "out-of-app", what: "upgrade the plan" }),
     onRunHere: inPlace(record, "run the prompt on this Mac"),
     onDismiss: () => record({ kind: "dismiss", what: "not now" }),
+    // The plan card's Switch to <team>: the team picker's switch, then the same start goes again.
+    onSwitchTeam: inPlace(record, "switch to the person's own team, then the start goes again"),
   };
 }
 
@@ -72,7 +74,14 @@ const galleryStart = (name: string): CloudStartProgress => {
 
 /// A host answer to a Cloud start: its code, its words, whether the host marked it retryable, and the
 /// start it ended (a gallery variant's progress).
-type HostAnswer = { id: string; code: string; message?: string; retryable?: boolean; from?: string };
+type HostAnswer = {
+  id: string;
+  code: string;
+  message?: string;
+  retryable?: boolean;
+  from?: string;
+  details?: unknown;
+};
 const HOST_ANSWERS: readonly HostAnswer[] = [
   // CloudStartChat.refusal: CloudStrings.startRefusal("not_signed_in").
   {
@@ -117,6 +126,20 @@ const HOST_ANSWERS: readonly HostAnswer[] = [
   },
   // CloudStartChat: a Pro refusal keeps its own code (CloudStartView's Upgrade, This Mac, Not now).
   { id: "cloud_plan_required", code: "cloud_plan_required", message: "Cloud machines need a Pro plan." },
+  // The same refusal in a team that is not the person's own (CloudStartChat `teams`): "This team has no Cloud plan".
+  {
+    id: "cloud_plan_required.team",
+    code: "cloud_plan_required",
+    message: "Cloud machines need a Pro plan.",
+    details: {
+      team: "t-cmux",
+      teams: [
+        { id: "t-cmux", name: "cmux" },
+        { id: "t-own", name: "Personal Team" },
+      ],
+      canSwitch: true,
+    },
+  },
   // The pane's own refusals (cloudStartProgress.ts REFUSED_HERE and `transport.*`), worded by cloudRefusalText.
   { id: "cloud_attachments", code: "cloud_attachments", message: "Attachments can't go to a Cloud machine yet." },
   { id: "unsupported", code: "unsupported" },
@@ -137,6 +160,7 @@ function hostFailure(answer: HostAnswer): CloudStartProgress {
     code: answer.code,
     ...(answer.message !== undefined ? { message: answer.message } : {}),
     ...(answer.retryable ? { retryable: true } : {}),
+    ...(answer.details !== undefined ? { details: answer.details } : {}),
   } as Parameters<typeof cloudStartEnded>[2]);
   if (!ended) throw new Error(`cloudStartEnded dropped ${answer.id}`);
   return ended;
@@ -146,7 +170,7 @@ const CLOUD_START_ERRORS: ErgoState[] = HOST_ANSWERS.map((answer) => ({
   id: `cloud-start.${answer.id}`,
   type: "error",
   surface: "cloud-start",
-  region: ".acpmux-cloud-start__failure, .acpmux-cloud-ask__actions, .acpmux-cloud-start__card",
+  region: ".acpmux-cloud-start__failure, .acpmux-cloud-ask__actions, .acpmux-cloud-start__card, .acpmux-cloud-plan-team",
   render: (record) => <CloudStartView start={hostFailure(answer)} {...cloudStartHandlers(record)} />,
 }));
 

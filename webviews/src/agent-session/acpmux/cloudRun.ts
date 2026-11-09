@@ -26,6 +26,8 @@ export type CloudStart = {
   gestureTicket?: string;
   /** The send again after `cloud.signIn` signed in: the host's kept click authorizes it (resumeSignedIn). */
   signedIn?: true;
+  /** The plan card's Switch to <team>: the host switches to this team (as the team picker does), then starts. */
+  team?: string;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -122,7 +124,9 @@ export function grantedCloudStart(
 
 /// The host's answer: ok, or a code with the host's own words when it has them.
 /// `retryable`: another try of the same start can help (the machine didn't connect, a copy timed out), so the card offers Retry.
-export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string; retryable?: boolean };
+export type CloudStartAnswer =
+  | { ok: true }
+  | { ok: false; code: string; message?: string; retryable?: boolean; details?: unknown };
 
 /// Keeps the failed first-send prompt in the composer while Cloud account sign-in runs, then
 /// resumes it once. Concurrent clicks share one browser callback, and a later click after a
@@ -201,15 +205,17 @@ export async function startCloudChat(
   if (start.reservationKey) params.reservationKey = start.reservationKey;
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
   if (start.signedIn) params.signedIn = true;
+  if (start.team) params.team = start.team;
   try {
     await call(signingIn ? "cloud.signIn" : "cloud.startChat", params);
     return { ok: true };
   } catch (error) {
-    const { code, message, userMessage, retryable } = (error ?? {}) as {
+    const { code, message, userMessage, retryable, details } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;
       userMessage?: unknown;
       retryable?: unknown;
+      details?: unknown;
     };
     const words = typeof userMessage === "string" ? userMessage : typeof message === "string" ? message : undefined;
     return {
@@ -217,6 +223,7 @@ export async function startCloudChat(
       code: typeof code === "string" && code ? code : "unavailable",
       ...(words ? { message: words } : {}),
       ...(retryable === true ? { retryable: true } : {}),
+      ...(details !== undefined && details !== null ? { details } : {}),
     };
   }
 }
@@ -333,9 +340,11 @@ export function cloudStartKeys(
     },
     /// The start sent with `start` ended in `answer`: one that opened its chat, or whose prompt goes
     /// to a chat on this Mac, is done, and the next send of the same prompt is a new start. A failure
-    /// keeps the key: the start may have made its machine, and the retry must reach it.
+    /// keeps the key: the start may have made its machine, and the retry must reach it. A plan
+    /// refusal made none (the platform checks the plan before any machine), and its retry may be in
+    /// another team, so it is a new start too.
     ended(start: CloudStart, answer: CloudStartAnswer) {
-      if (!answer.ok && !cloudRunsHere(answer)) return;
+      if (!answer.ok && !cloudRunsHere(answer) && answer.code !== "cloud_plan_required") return;
       const name = cloudStartFingerprint(start);
       const kept = read();
       delete kept[name];
