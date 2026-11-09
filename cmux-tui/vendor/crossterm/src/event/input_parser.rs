@@ -6,7 +6,8 @@
 //! color reply (`ESC ] 1 1 ; rgb:… ST`), so the parser holds them for the
 //! next byte. When no byte comes for [`HELD_REPLY_QUIET`], they are typed
 //! keys: Alt+] and the digits. The time comes in as `now` on each call, so
-//! tests give it and never wait.
+//! tests give it and never wait. Known limit (`CMUX_PATCH.md`): a late reply
+//! split with more than that quiet time before its `;` is read as keys.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};

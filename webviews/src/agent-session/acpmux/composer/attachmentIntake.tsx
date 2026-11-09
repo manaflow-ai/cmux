@@ -518,9 +518,10 @@ export function AttachmentChip({
     );
   }
   // A video goes as its path too, with its poster and length once the host read them; a click plays it
-  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer). One the host
-  // could not read (or never asked: a chat on another machine) keeps the square with its play glyph
-  // and no poster; Quick Look still plays it from its path when the pane may not.
+  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer); in a chat on
+  // another machine, from its upload there. One the host could not read (or never asked: a chat on
+  // another machine) keeps the square with its play glyph and no poster; Quick Look plays it from its
+  // path when the pane may not, and one nothing can play says so on its tile.
   if (isVideoAttachment(attachment)) {
     const play = videoPlayer.play;
     return (
@@ -534,6 +535,7 @@ export function AttachmentChip({
             reading={!attachment.video && videoReading}
             remove={remove}
             onPlay={play}
+            unplayable={videoPlayer.unplayable}
           />,
           t("media.play"),
         )}

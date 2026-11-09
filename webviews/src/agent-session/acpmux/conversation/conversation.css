@@ -363,7 +363,8 @@
 .cv-user__video-play svg {
   transform: translateX(1px);
 }
-.cv-user__video-length {
+.cv-user__video-length,
+.cv-user__video-unplayable {
   position: absolute;
   right: 6px;
   bottom: 6px;
@@ -375,6 +376,18 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   pointer-events: none;
+}
+/* A video nothing can play (Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop
+   up anymore :("): it says so over its whole tile, in the play glyph's place, on the length's scrim. */
+.cv-user__video-unplayable {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border-radius: var(--cv-media-radius);
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
 }
 /* A sent video playing in place (SentVideoTile.tsx): the reply's player (chips.css .cv-media) at its
    own size, its controls and Expand showing the arrow, not a sent image's zoom-in. */
