@@ -66,7 +66,7 @@ fn populated(dir: &FaultDir, session: &str, bump: bool) -> Value {
 /// ready with the same workspaces and every journal row, and nothing was
 /// moved to `registry-recovery/`.
 #[test]
-fn sigkill_during_restore_keeps_every_row() {
+fn fault_sigkill_during_restore_keeps_every_row() {
     let dir = FaultDir::new("restore-kill");
     let session = "fi-restore-kill";
     populated(&dir, session, false);
@@ -102,7 +102,7 @@ fn sigkill_during_restore_keeps_every_row() {
 
 /// Every write the owner acknowledged survives a SIGKILL right after it.
 #[test]
-fn sigkill_after_a_burst_keeps_every_acknowledged_write() {
+fn fault_sigkill_after_a_burst_keeps_every_acknowledged_write() {
     let dir = FaultDir::new("burst-kill");
     let session = "fi-burst-kill";
     let owner = Owner::start(&dir, session, &[NO_MAINTENANCE], READY_BOUND);
@@ -131,7 +131,7 @@ fn sigkill_after_a_burst_keeps_every_acknowledged_write() {
 /// (replace_unresponsive_owner.rs covers the replace itself; this adds the
 /// bound and the state.)
 #[test]
-fn a_frozen_owner_is_replaced_with_its_state() {
+fn fault_a_frozen_owner_is_replaced_with_its_state() {
     let dir = FaultDir::new("frozen");
     let session = "fi-frozen";
     let owner = Owner::start(&dir, session, &[], READY_BOUND);
@@ -175,7 +175,7 @@ fn a_frozen_owner_is_replaced_with_its_state() {
 /// read (`list-workspaces`) still answer within 2 s: no request that does
 /// not write waits for a commit.
 #[test]
-fn reads_answer_while_registry_commits_are_slow() {
+fn fault_reads_answer_while_registry_commits_are_slow() {
     const COMMIT_DELAY_MS: &str = "2500";
     let dir = FaultDir::new("slow-commit");
     let session = "fi-slow-commit";
@@ -240,7 +240,7 @@ fn reads_answer_while_registry_commits_are_slow() {
 /// ready, and saves a snapshot of the current version equal to the fold of
 /// the same records.
 #[test]
-fn a_roster_version_bump_refolds_and_starts() {
+fn fault_a_roster_version_bump_refolds_and_starts() {
     let dir = FaultDir::new("roster-bump");
     let session = "fi-roster-bump";
     let generated = populated(&dir, session, true);
