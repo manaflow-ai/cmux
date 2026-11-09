@@ -138,6 +138,10 @@ nonisolated extension AcpmuxPaneMethods {
         // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
         "_acpmux/context": (["sessionId"], []),
+        "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
+        "_acpmux/review_queue": (["localOnly", "limit"], []),
+        "_acpmux/review_verdict": (["prUrl", "sessionId", "verdict", "comment"], []),
+        "_acpmux/audit": (["since", "until", "sessionId", "limit", "cursor"], []),
         // `text: null` removes the saved text; `partId`: a verified local preset prompt's id.
         "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
