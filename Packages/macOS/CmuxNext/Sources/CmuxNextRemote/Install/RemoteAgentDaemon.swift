@@ -174,9 +174,7 @@ public actor RemoteApprovalPreparations {
             _ = await task.value
             return value
         } catch {
-            task.cancel()
-            _ = await task.value
-            throw error
+            throw error // red check only: the old behavior, the prep left running
         }
     }
 }
