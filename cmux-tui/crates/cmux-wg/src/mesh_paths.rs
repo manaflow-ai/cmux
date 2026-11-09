@@ -518,15 +518,19 @@ mod tests {
         ];
         let mut paths = MeshPaths::new(Some(lan), &candidates, &[], start);
         // A 400 ms LAN: four round trips of silence outlast the 1 s probe
-        // timeout, so the chosen path turns suspect by a lost probe.
-        let answered = start + ms(400);
-        for (id, probe) in paths.poll(start).pings {
-            let address = paths.address_of(id).unwrap();
-            paths.pong(id, probe, address, answered);
+        // timeout, so the chosen path turns suspect by a lost probe. Answer
+        // everything for 2 s, so each path is on its alive interval (the
+        // relay's next probe is 30 s out).
+        let mut now = start;
+        while now < start + ms(2000) {
+            for (id, probe) in paths.poll(now).pings {
+                let address = paths.address_of(id).unwrap();
+                paths.pong(id, probe, address, now + ms(400));
+            }
+            now += ms(10);
         }
-        assert_eq!(targets(&mut paths, answered), vec![lan]);
+        assert_eq!(targets(&mut paths, now), vec![lan]);
         // The LAN is cut; nothing is answered from here on.
-        let mut now = answered;
         let mut refreshed = None;
         for _ in 0..1000 {
             now += ms(10);
