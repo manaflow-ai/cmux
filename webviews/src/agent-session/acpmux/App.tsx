@@ -5218,7 +5218,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // that run. A count of one opens its subagent, the command's row or the chat; of several, the
   // Inspector's section that lists them all (the summary card with the Inspector off). With the tray
   // on (the default) the tray is the count, in a turn and between turns, so the line counts nothing.
-  const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string }>();
+  // `child`: a row of the subagent view shown then, which only that view reveals.
+  const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string; child?: true }>();
   const counting = snapshot.isWorking && !subagentTray;
   // chatAgents already lists every subagent and changes when one's state does.
   const runningAgents = useMemo(() => (counting ? chatAgents.filter(running) : NO_AGENTS), [counting, chatAgents]);
@@ -5321,6 +5322,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runningCommands,
     runningSessions,
     sourceRows,
+    childRows,
     transcriptRows,
     summaryCard,
     sessionInfo,
@@ -5333,6 +5335,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runningSessions,
     backgroundCommandList: runningCommandList,
     sourceRows,
+    childRows,
     transcriptRows,
     summaryCard,
     sessionInfo,
@@ -5373,7 +5376,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // False when no loaded row holds the call (a command only the registry knows).
   const showToolRow = useCallback(
     (toolId: string | undefined, startedAt?: number) => {
-      const { sourceRows: rows, transcriptRows: shown } = counted.current;
+      // A subagent's view finds its own calls (its footer's Timeline, subagentRows.ts `subagentFooter`).
+      const { sourceRows, childRows: child, transcriptRows: shown } = counted.current;
+      const rows = child ?? sourceRows;
       // A harness can reuse a call id in a later prompt: the call that started at `startedAt` (a
       // waterfall bar's, TurnWaterfall.tsx) is that one, else the first call with the id.
       const holds = (row: AcpmuxRow, timed: boolean) =>
@@ -5386,7 +5391,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         for (const fold of hiddenRowFolds(rows, shown, index)) openFold(fold);
       }
       const key = Date.now();
-      setRevealRow({ rowId: row.id, key, toolId });
+      setRevealRow({ rowId: row.id, key, toolId, ...(child && { child: true }) });
       setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
       return true;
     },
@@ -8565,7 +8570,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (!mock) void postNative("pane.clientReady", { ready: true }).catch(() => undefined);
         // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
         setMessageMenuSource((rowId) =>
-          snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId, opensSideChat.current) : undefined,
+          snapshotRef.current
+            ? messageMenuTarget(snapshotRef.current, rowId, opensSideChat.current, counted.current.childRows)
+            : undefined,
         );
         // The harness switch runs on this client; one waiting on a connection runs now.
         switchPort = {
@@ -10461,7 +10468,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   }
                                                                   expanded={folds}
                                                                   showMinimap={minimapVisible}
-                                                                  reveal={childRows ? undefined : revealRow}
+                                                                  reveal={
+                                                                    (revealRow?.child === true) === Boolean(childRows)
+                                                                      ? revealRow
+                                                                      : undefined
+                                                                  }
                                                                   sinceKey={childRows ? undefined : sinceKey}
                                                                   onJumpToSince={jumpToSince}
                                                                   coldOpen={
