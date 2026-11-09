@@ -136,7 +136,7 @@ fn replay_after_version_bump(churn: usize) -> ReplayCost {
 /// record other than terminal output cost tens of steps for each one.
 #[test]
 fn roster_replay_after_a_version_bump_skips_session_churn() {
-    let sizes = [1_000, 10_000, 50_000];
+    let sizes = [1_000, 10_000, 50_000, 200_000];
     let costs = sizes.map(replay_after_version_bump);
     let table = sizes
         .iter()
@@ -151,6 +151,8 @@ fn roster_replay_after_a_version_bump_skips_session_churn() {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    panic!("MEASURE\n{table}");
+    #[allow(unreachable_code)]
     let (small, large) = (&costs[0], &costs[2]);
     let added = (sizes[2] - sizes[0]) as u64;
     let per_record = large.steps.saturating_sub(small.steps) / added;
