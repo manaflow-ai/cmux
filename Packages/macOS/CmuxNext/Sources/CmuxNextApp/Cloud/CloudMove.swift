@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextCompat
@@ -16,7 +17,7 @@ import Foundation
 /// it on that machine: a Cloud workspace whose terminal runs in the synced
 /// folder and whose chat tab is bound to the moved session through the
 /// machine's store, so the tab attaches through that machine and carries its
-/// badge. This Mac's tab, whose chat the move closed, closes.
+/// badge, in place of this Mac's tab (``open``), which closes with its chat.
 ///
 /// The chat keeps its session, history, draft and queue, not its tab id: a tab
 /// lives in exactly one machine's store, which mints its ids, and a chat on a
@@ -207,12 +208,12 @@ struct CloudMove {
             let local = folder.subpath.isEmpty ? folder.root : folder.root + "/" + folder.subpath
             services.cloud.movedChats.record(CloudMovedChats.Entry(machineID: machine.machineID, host: host, session: movedSession, harness: record.harness,
                                                                    localRoot: folder.root, localChat: local, remoteFolder: remote.folder,
-                                                                   remoteChat: remote.chat, name: workspace?.name))
+                                                                   remoteChat: remote.chat, name: Self.movedName(workspace, folder: chat)))
             services.cloud.accessAsks.start(services: services)
         }
         // The move committed: from here Retry only opens the chat's tab on the machine.
         let shown = CloudMoveRetries.Shown(session: movedSession, harness: record.harness, machineID: machine.machineID, folder: remote.chat,
-                                           name: workspace?.name, key: moved.transferID ?? movedSession)
+                                           name: Self.movedName(workspace, folder: chat), key: moved.transferID ?? movedSession)
         // A quit or a crash before the tab opens leaves the relaunched app only opening it.
         services.cloud.moveRetries[tab.id] = .show(shown)
         try await finish(shown, on: machine, tab: tab)
@@ -240,7 +241,8 @@ struct CloudMove {
     /// Opens the moved chat's tab on `machine`, then closes this Mac's tab, whose chat closed with the move.
     private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel) async throws {
         do {
-            try await show(shown.session, harness: shown.harness, on: machine, in: shown.folder, name: shown.name, key: shown.key)
+            try await Self.open(shown, host: AgentTabStore.registryHost(of: machine.daemon), hostName: machine.machine.title, on: machine.daemon,
+                                repair: machine.emptyWorkspaces, mutation: "cloud-move-", leaving: tab, services: services)
         } catch {
             throw Failure(message: CloudMoveStrings.tabFailed(machine.machine.title, CloudStrings.errorText(error)), retry: .show(shown))
         }
@@ -342,25 +344,40 @@ struct CloudMove {
         CloudMoveStrings.notConnected(session.machine.title)
     }
 
-    /// Shows the moved chat on `machine`: a new Cloud workspace with a terminal
-    /// in `folder`, then the chat's tab bound to `session` through the
-    /// machine's store, selected; filed into the window, and shown when the run
-    /// may change the view. `key` makes the chat tab's creation idempotent.
-    private func show(_ session: String, harness: String?, on machine: CloudMachineSession, in folder: String, name: String?, key: String) async throws {
-        let daemon = machine.daemon
-        guard let connection = daemon.connection, let host = AgentTabStore.registryHost(of: daemon) else { throw DaemonError.notConnected }
-        let record = AgentSessionRef(host: host, hostName: machine.machine.title, session: session, harness: harness)
-        let workspace = NewWorkspacePlacements.placedKey(in: services.windows) // placed like Cmd-N, not at the machine daemon's slot
-        let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: name, on: connection, repair: machine.emptyWorkspaces) { result in
-            try await connection.createTerminal(in: result.key, cwd: folder)
+    /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a new
+    /// workspace placed like Cmd-N, its terminal in `shown.folder`, then the chat's tab (made once: `mutation` + `shown.key`),
+    /// selected. Each window that showed `tab`, the chat's tab the move leaves, shows it in its place even for a run that may
+    /// not change the view (a CLI move with no `--focus`), as focus follows a moved tab; else only a run that may shows it.
+    static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
+                     mutation: String, leaving tab: TabModel, services: AppServices) async throws {
+        guard let connection = daemon.connection, let host else { throw DaemonError.notConnected }
+        let record = AgentSessionRef(host: host, hostName: hostName, session: shown.session, harness: shown.harness)
+        let workspace = NewWorkspacePlacements.placedKey(in: services.windows)
+        let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: shown.name, on: connection, repair: repair) { result in
+            try await connection.createTerminal(in: result.key, cwd: shown.folder)
             return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
-                                                                          origin: AgentTabStore.createOrigin, mutationID: "cloud-move-" + key))
+                                                                          origin: AgentTabStore.createOrigin, mutationID: mutation + shown.key))
         }
-        services.windows.reveal(workspaceID: workspace.rawValue)
-        let tab = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
-        if let pane = await daemon.store.firstPane(mirroring: workspace) {
-            for window in services.windows.controllers { window.state.selection.select(tab, in: pane.id) }
-        }
+        let keeping = services.windows.controllers.filter { shows(tab, in: $0.state, services: services) }.map(\.state.id)
+        if keeping.isEmpty { services.windows.reveal(workspaceID: workspace.rawValue) }
+        ActionRunScope.carrying(ActionRunScope(origin: ActionRunScope.current?.origin ?? .user, allowsViewChange: true)) {
+            keeping.forEach { services.windows.show(workspaceID: workspace.rawValue, inWindow: $0) } }
+        let opened = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)", pane = await daemon.store.firstPane(mirroring: workspace)
+        for window in services.windows.controllers { if let pane { window.state.selection.select(opened, in: pane.id) } }
+    }
+
+    /// Whether window `state` shows `tab`: its pane's selected tab there, in the workspace it shows (under a top page too).
+    static func shows(_ tab: TabModel, in state: WindowState, services: AppServices) -> Bool {
+        let store = services.machines.daemon(forTab: tab).store
+        guard let pane = store.tab(idOrResource: tab.id).flatMap(store.pane(holding:)), let workspace = store.workspace(containing: pane.handle)?.id,
+              state.workspaceID == workspace || state.viewSet?.ids.contains(workspace) == true else { return false }
+        let fallback = pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil
+        return (state.selection.selection(in: pane.id) ?? fallback) == tab.id
+    }
+
+    /// A moved chat's workspace name: its workspace's here, but never Home's (a machine's "Home" hid the chat): its folder's.
+    static func movedName(_ workspace: WorkspaceModel?, folder: String) -> String? {
+        workspace?.kind == SidebarMapping.homeKind ? URL(fileURLWithPath: folder).lastPathComponent : workspace?.name
     }
 
     /// The failure of a `cmux link agent move` answer, in plain words. `retry`

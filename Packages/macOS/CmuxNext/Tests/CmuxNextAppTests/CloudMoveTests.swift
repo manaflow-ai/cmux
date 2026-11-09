@@ -94,6 +94,62 @@ struct CloudMoveTests {
         }
     }
 
+    /// A CLI move with no `--focus` of the chat a window shows keeps it on screen (the cloud-ergo-handoff capture at
+    /// fde02dbe1ae0: the window fell back to Home, the chat sat in a machine workspace called "Home", and an untargeted
+    /// `cmux cloud bring-back` found only the Chief): the window shows the chat's Cloud workspace with the chat selected
+    /// and focused, the workspace is never called Home, and Bring Back Local with no target acts on the moved chat.
+    @Test func aCLIMoveOfTheChatAWindowShowsKeepsItOnScreenForBringBack() async throws {
+        try await Self.withMove("moves") { move in
+            let services = move.services
+            let controller = try #require(services.windows.active)
+            let (chat, pane) = try #require(services.locateTab(move.tabID, onMachine: services.machines.local.machineID))
+            let local = try #require(services.daemon.store.workspace(containing: pane.handle))
+            _ = services.windows.reveal(workspaceID: local.id)
+            controller.state.selection.select(chat.id, in: pane.id)
+            try await Self.waitUntil { CloudMove.shows(chat, in: controller.state, services: services) }
+            try #require(CloudMove.shows(chat, in: controller.state, services: services), "the window does not show the chat before the move")
+
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            let tab = try #require(moved.machineTab, "no chat tab on the machine")
+            let store = move.machine.daemon.store
+            let cloud = try #require(store.workspaces.first { $0.screens.flatMap(\.panes).contains { $0.tabs.contains { $0.id == tab.id } } })
+            let machinePane = try #require(cloud.screens.flatMap(\.panes).first { $0.tabs.contains { $0.id == tab.id } })
+            try await Self.waitUntil { controller.state.workspaceID == cloud.id && controller.focusedPane?.stripModel.selectedID?.rawValue == tab.id }
+            #expect(controller.state.workspaceID == cloud.id, "the window no longer shows the moved chat: \(controller.state.workspaceID ?? "nil")")
+            #expect(controller.state.selection.selection(in: machinePane.id) == tab.id, "the moved chat is not the selected tab")
+            #expect(controller.focusedPane?.stripModel.selectedID?.rawValue == tab.id, "the focused tab is not the moved chat")
+            #expect(cloud.name == CloudMove.movedName(local, folder: move.project.path))
+            #expect(cloud.name != "Home" || local.kind != SidebarMapping.homeKind, "the moved chat's workspace took Home's name")
+
+            // `cmux cloud bring-back` with no target, as the capture ran it: it acts on the moved chat (its pull runs).
+            let back = await move.cli("cloud bring-back", targeted: false)
+            #expect(back?.message.contains(CloudBringBackStrings.notFromMove) != true, "bring back found no moved chat: \(back?.message ?? "")")
+            try await Self.waitUntil { move.calls().contains { $0.prefix(3) == ["link", "seed", "pull"] } }
+            #expect(move.calls().contains { $0.prefix(3) == ["link", "seed", "pull"] }, "bring back did not act on the moved chat: \(move.calls())")
+        }
+    }
+
+    /// A CLI move with no `--focus` of a chat no window shows changes no window's view: the window keeps its workspace.
+    @Test func aCLIMoveOfAChatNoWindowShowsLeavesTheWindowAlone() async throws {
+        try await Self.withMove("moves") { move in
+            let services = move.services
+            let controller = try #require(services.windows.active)
+            let connection = try #require(services.daemon.connection)
+            let other = WorkspaceKey.generate()
+            try await connection.createWorkspace(name: "Elsewhere", key: other)
+            try await Self.waitUntil { services.daemon.store.workspaces.contains { $0.key == other } }
+            let elsewhere = try #require(services.daemon.store.workspaces.first { $0.key == other }).id
+            _ = services.windows.reveal(workspaceID: elsewhere)
+            try await Self.waitUntil { controller.state.workspaceID == elsewhere }
+
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            #expect(moved.machineTab != nil, "no chat tab on the machine")
+            #expect(controller.state.workspaceID == elsewhere, "a move with no --focus of a chat no window showed changed the view")
+        }
+    }
+
     /// Waits up to 30 seconds for `condition`.
     private static func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(30)
@@ -528,9 +584,12 @@ struct CloudMoveTests {
         }
 
         /// `cmux <action>` on the chat tab, as the CLI sends it; its error when it stopped.
-        func cli(_ action: String, args: [String: CmuxNextSettings.JSONValue] = [:]) async -> ControlError? {
-            await send(["action": .string(action), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
-                        "target": .string("tab:" + tabID), "args": .object(args)])
+        /// With `targeted` false it names no target, as `cmux cloud bring-back` run bare does: it acts on the focused tab.
+        func cli(_ action: String, args: [String: CmuxNextSettings.JSONValue] = [:], targeted: Bool = true) async -> ControlError? {
+            var params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
+                                                                 "wait": .bool(true), "args": .object(args)]
+            if targeted { params["target"] = .string("tab:" + tabID) }
+            return await send(params)
         }
 
         /// `action` as the chat's own agent runs it from its shell: the CLI names the agent's session
