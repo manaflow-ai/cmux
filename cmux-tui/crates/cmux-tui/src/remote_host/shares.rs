@@ -54,10 +54,12 @@ pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
     let own = crate::machine_secrets::this_machine_id();
     #[cfg(not(unix))]
     let own = None;
+    // A local share the platform does not hold keeps this path (platform_shares::stays_local).
     if let Some(target) = super::platform_shares::target(flags.value("machine"), own)? {
-        return super::platform_shares::run(verb, &flags, &target);
-    }
-    if super::platform_shares::CLOUD_FLAGS.iter().any(|name| flags.has(name)) {
+        if !super::platform_shares::stays_local(verb, &flags, &config::load()?, &target) {
+            return super::platform_shares::run(verb, &flags, &target);
+        }
+    } else if super::platform_shares::CLOUD_FLAGS.iter().any(|name| flags.has(name)) {
         return Err(super::usage(text.cloud_flags));
     }
     let config = config::load()?;

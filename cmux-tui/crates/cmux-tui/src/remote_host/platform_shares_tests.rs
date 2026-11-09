@@ -7,8 +7,9 @@ use std::cell::RefCell;
 use serde_json::{Value, json};
 
 use super::*;
+use crate::remote_host::Flags;
 use crate::remote_host::grant::{Grant, Scope};
-use crate::remote_host::shares::{Role, Share};
+use crate::remote_host::shares::{self, Role, Share};
 
 const VM: &str = "vm_0123456789abcdefghij";
 const ANA: &str = "user_00000000000000000a0a";
@@ -139,6 +140,11 @@ fn words(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| (*w).to_owned()).collect()
 }
 
+/// The tests run one change at a time; the lock's own exclusion is `flock`'s.
+fn no_lock(_: &str, _: &str) -> anyhow::Result<Box<dyn std::any::Any>> {
+    Ok(Box::new(()))
+}
+
 fn here() -> Target {
     Target { machine: VM.into(), here: true }
 }
@@ -179,6 +185,7 @@ fn run(
             resolve_session: &resolve_session,
             local_sessions: &local_sessions,
             audit: &mut audit,
+            lock: &no_lock,
         };
         act(verb, &words(args), all, None, target, api, &mut hooks)
     };
@@ -261,6 +268,7 @@ fn a_guest_role_is_refused_on_a_cloud_machine() {
         resolve_session: &same,
         local_sessions: &listed,
         audit: &mut audit,
+        lock: &no_lock,
     };
     let error = act("share", &words(&["s", ANA]), false, Some("guest"), &here(), &api, &mut hooks)
         .unwrap_err();
@@ -568,4 +576,103 @@ fn an_every_chat_share_covers_local_shares_and_cannot_be_narrowed_by_name() {
     assert!(api.creates.borrow().is_empty());
     let (answer, ..) = run("unshare", &["s-1", ANA], false, &elsewhere(), &api);
     assert!(answer.unwrap_err().to_string().contains("covers every chat"));
+}
+
+/// Runs `unshare` whose confirmation waits while `meanwhile` runs, as a second person's change
+/// that lands while the first one's prompt is open.
+fn unshare_while(api: &Platform, args: &[&str], meanwhile: &dyn Fn()) -> anyhow::Result<Value> {
+    let mut confirm = |_: &str| -> anyhow::Result<()> {
+        meanwhile();
+        Ok(())
+    };
+    let none = |_: u64| -> anyhow::Result<String> { anyhow::bail!("no") };
+    let same = |k: &str| -> anyhow::Result<String> { Ok(k.to_owned()) };
+    let listed: fn() -> Vec<(String, String)> = Vec::new;
+    let mut audit = |_: Value| {};
+    let mut hooks = Hooks {
+        confirm: &mut confirm,
+        surface_session: &none,
+        resolve_session: &same,
+        local_sessions: &listed,
+        audit: &mut audit,
+        lock: &no_lock,
+    };
+    act("unshare", &words(args), false, None, &elsewhere(), api, &mut hooks)
+}
+
+#[test]
+fn two_concurrent_removals_end_with_neither_chat_shared() {
+    let api = Platform::default();
+    api.live(ANA, &["a", "b"]);
+    // A takes out `a`; while A's prompt is open, B takes out `b`.
+    let answer = unshare_while(&api, &["a", ANA], &|| {
+        let (answer, ..) = run("unshare", &["b", ANA], false, &elsewhere(), &api);
+        answer.unwrap();
+    });
+    answer.unwrap();
+    assert_eq!(api.live_sessions(ANA), None, "neither chat is shared");
+    assert!(api.shares.borrow().iter().all(|s| s.revoked_at.is_some()));
+}
+
+#[test]
+fn a_share_made_while_the_prompt_waits_is_not_overwritten_by_an_older_list() {
+    let api = Platform::default();
+    api.live(ANA, &["a", "b"]);
+    // A takes out `a`; meanwhile `c` is added. A keeps `c`.
+    let answer = unshare_while(&api, &["a", ANA], &|| {
+        let (answer, ..) = run("share", &["c", ANA], false, &elsewhere(), &api);
+        answer.unwrap();
+    });
+    answer.unwrap();
+    assert_eq!(api.live_sessions(ANA).unwrap(), ["b", "c"]);
+}
+
+fn flags(words: &[&str]) -> Flags {
+    let args: Vec<String> = words.iter().map(|w| (*w).to_owned()).collect();
+    Flags::parse(&args, &["role", "machine"], &["json", "all"]).unwrap()
+}
+
+#[test]
+fn an_unmigrated_local_share_keeps_the_tailnet_hosts_unshare_and_share_paths() {
+    // A local share with no verified person stays local, so its unshare stays local too.
+    let config = with_shares(vec![local("", "s-1")]);
+    assert!(stays_local("unshare", &flags(&["3", TEAMMATE]), &config, &here()));
+    assert!(stays_local("unshare", &flags(&["3", "Lawrence@Manaflow.ai"]), &config, &here()));
+    // ... and the local removal itself is the base one.
+    let after = shares::applied(
+        "unshare",
+        config.clone(),
+        3,
+        TEAMMATE,
+        Role::Member,
+        &shares::Chat::default(),
+        &shares::Chat::default(),
+    )
+    .unwrap();
+    assert!(after.shares.is_empty());
+    // A guest share is made where it is enforced: the platform has no read-only teammate.
+    assert!(stays_local("share", &flags(&["3", TEAMMATE, "--role", "guest"]), &config, &here()));
+    // Everything else goes to the platform.
+    assert!(!stays_local("unshare", &flags(&["4", TEAMMATE]), &config, &here()));
+    assert!(!stays_local("unshare", &flags(&["3", ANA]), &config, &here()));
+    assert!(!stays_local("unshare", &flags(&["3", TEAMMATE]), &config, &elsewhere()));
+    assert!(!stays_local("unshare", &flags(&["3", TEAMMATE, "--machine", VM]), &config, &here()));
+    assert!(!stays_local("share", &flags(&["3", ANA]), &config, &here()));
+    assert!(!stays_local("shares", &flags(&[]), &config, &here()));
+}
+
+#[test]
+fn shares_lists_local_and_cloud_shares_marked_by_where_they_live() {
+    let api = Platform::default();
+    api.live(ANA, &["a"]);
+    let local_shares = vec![local("", "s-1")];
+    let both = listing(&local_shares, api.list(VM).map_err(|f| explain(&f)));
+    let wheres: Vec<_> =
+        both["shares"].as_array().unwrap().iter().map(|s| s["where"].clone()).collect();
+    assert_eq!(wheres, [json!("local"), json!("cloud")]);
+    assert_eq!(both["shares"][0]["session"], "s-1");
+    // Without the platform, the local shares still list, with the reason.
+    let offline = listing(&local_shares, Err("offline".into()));
+    assert_eq!(offline["shares"].as_array().unwrap().len(), 1);
+    assert_eq!(offline["cloud_error"], "offline");
 }

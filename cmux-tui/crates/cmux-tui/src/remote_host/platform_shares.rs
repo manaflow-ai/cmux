@@ -400,7 +400,14 @@ pub(crate) struct Hooks<'a> {
     pub local_sessions: &'a dyn Fn() -> Vec<(String, String)>,
     /// Records a decision in the host's audit log.
     pub audit: &'a mut dyn FnMut(Value),
+    /// Holds off every other change to one person's share of one machine on this host until the
+    /// guard drops ([`person_lock`]), so a change is computed from the share as it is then.
+    pub lock: &'a dyn Fn(&str, &str) -> anyhow::Result<Box<dyn std::any::Any>>,
 }
+
+/// How many times a change re-reads and writes again when a concurrent writer (another host)
+/// undid it between its write and its check.
+const MAX_WRITES: usize = 3;
 
 /// `share|unshare|shares` on `target` with `positional` words; the JSON answer.
 pub(crate) fn act(
@@ -435,16 +442,24 @@ pub(crate) fn act(
             }
             let add = sessions_of(chats, target, hooks)?;
             let person = person(api, who)?;
-            let live = api.list(machine).map_err(failed)?;
-            let existing = live_for(&live, &person);
-            let Some(sessions) = merged(existing, &add) else {
+            let before = api.list(machine).map_err(failed)?;
+            if merged(live_for(&before, &person), &add).is_none() {
+                let existing = live_for(&before, &person);
                 return Ok(json!({"machine": machine, "share": existing, "unchanged": true}));
-            };
+            }
             (hooks.confirm)(&format!(
-                "share: {machine}, {person}, {}. {} ",
-                sessions.ids().join(" "),
+                "share: {machine}, {person}, add {}. {} ",
+                add.ids().join(" "),
                 text.cloud_confirm
             ))?;
+            // What is written is computed from the share as it is now, under the lock: a change
+            // that landed while the prompt waited is kept, never overwritten by an older list.
+            let _guard = (hooks.lock)(machine, &person)?;
+            let live = api.list(machine).map_err(failed)?;
+            let Some(sessions) = merged(live_for(&live, &person), &add) else {
+                let existing = live_for(&live, &person);
+                return Ok(json!({"machine": machine, "share": existing, "unchanged": true}));
+            };
             let share = api.create(machine, &person, &sessions).map_err(failed)?;
             (hooks.audit)(json!({"decision": "share", "machine": machine, "person": person,
                 "sessions": sessions.ids(), "share": share.id}));
@@ -469,43 +484,147 @@ pub(crate) fn act(
             let remove =
                 if chats.is_empty() { None } else { Some(sessions_of(chats, target, hooks)?) };
             let person = person(api, who)?;
-            let live = api.list(machine).map_err(failed)?;
-            let Some(existing) = live_for(&live, &person) else {
+            let before = api.list(machine).map_err(failed)?;
+            if live_for(&before, &person).is_none() {
                 bail!("{}: {person}", text.not_shared);
-            };
-            let next = match &remove {
-                None => Narrowed::Revoke,
-                Some(remove) => narrowed(existing, remove)?,
-            };
-            match next {
-                Narrowed::Unchanged => {
-                    Ok(json!({"machine": machine, "share": existing, "unchanged": true}))
-                }
-                Narrowed::Revoke => {
-                    (hooks.confirm)(&format!(
-                        "unshare: {machine}, {person}. {} ",
-                        text.cloud_unshare_confirm
-                    ))?;
-                    let share = api.revoke(machine, &existing.id).map_err(failed)?;
-                    (hooks.audit)(json!({"decision": "unshare", "machine": machine,
-                        "person": person, "share": existing.id}));
-                    Ok(json!({"machine": machine, "revoked": share}))
-                }
-                Narrowed::Keep(sessions) => {
-                    (hooks.confirm)(&format!(
-                        "unshare: {machine}, {person}, keep {}. {} ",
-                        sessions.ids().join(" "),
-                        text.cloud_unshare_confirm
-                    ))?;
-                    let share = api.create(machine, &person, &sessions).map_err(failed)?;
-                    (hooks.audit)(json!({"decision": "unshare", "machine": machine,
-                        "person": person, "sessions": sessions.ids(), "share": share.id}));
-                    Ok(json!({"machine": machine, "share": share}))
-                }
             }
+            let what = remove.as_ref().map_or_else(
+                || "every chat".to_owned(),
+                |remove| format!("remove {}", remove.ids().join(" ")),
+            );
+            (hooks.confirm)(&format!(
+                "unshare: {machine}, {person}, {what}. {} ",
+                text.cloud_unshare_confirm
+            ))?;
+            let _guard = (hooks.lock)(machine, &person)?;
+            narrow(api, machine, &person, remove.as_ref(), hooks)
         }
         _ => Err(anyhow!("unknown verb")),
     }
+}
+
+/// Takes `remove` (every chat for `None`) out of `person`'s live share, holding their lock: each
+/// pass reads the share as it is, writes the narrowed one (or revokes it), and reads it back. A
+/// removed chat that is shared again after the write (a writer on another host) takes another
+/// pass, up to [`MAX_WRITES`]; a list computed before the lock is never written.
+fn narrow(
+    api: &dyn Api,
+    machine: &str,
+    person: &str,
+    remove: Option<&Sessions>,
+    hooks: &mut Hooks<'_>,
+) -> anyhow::Result<Value> {
+    let text = &crate::localization::catalog().host_share;
+    let failed = |f: Failure| anyhow!("{}", explain(&f));
+    let mut answer = None;
+    for _ in 0..MAX_WRITES {
+        let live = api.list(machine).map_err(failed)?;
+        let Some(existing) = live_for(&live, person) else {
+            // Nothing (left) to take back.
+            return Ok(answer.unwrap_or_else(|| json!({"machine": machine, "unchanged": true})));
+        };
+        if answer.is_some() && !still_shares(existing, remove) {
+            break;
+        }
+        let next = match remove {
+            None => Narrowed::Revoke,
+            Some(remove) => narrowed(existing, remove)?,
+        };
+        answer = Some(match next {
+            Narrowed::Unchanged => {
+                return Ok(answer.unwrap_or_else(
+                    || json!({"machine": machine, "share": existing, "unchanged": true}),
+                ));
+            }
+            Narrowed::Revoke => {
+                let share = api.revoke(machine, &existing.id).map_err(failed)?;
+                (hooks.audit)(json!({"decision": "unshare", "machine": machine,
+                    "person": person, "share": existing.id}));
+                json!({"machine": machine, "revoked": share})
+            }
+            Narrowed::Keep(sessions) => {
+                let share = api.create(machine, person, &sessions).map_err(failed)?;
+                (hooks.audit)(json!({"decision": "unshare", "machine": machine,
+                    "person": person, "sessions": sessions.ids(), "share": share.id}));
+                json!({"machine": machine, "share": share})
+            }
+        });
+    }
+    let live = api.list(machine).map_err(failed)?;
+    match (answer, live_for(&live, person)) {
+        (Some(answer), None) => Ok(answer),
+        (Some(answer), Some(share)) if !still_shares(share, remove) => Ok(answer),
+        _ => bail!("{}: {person}", text.narrow_raced),
+    }
+}
+
+/// Whether `share` still reaches a chat `remove` took out (any chat, for `None`).
+fn still_shares(share: &PlatformShare, remove: Option<&Sessions>) -> bool {
+    match (remove, &share.sessions) {
+        (None, _) | (_, None) => true,
+        (Some(remove), Some(ids)) => ids.iter().any(|id| remove.ids().contains(id)),
+    }
+}
+
+/// Whether a verb on this Cloud machine stays the tailnet host's, exactly as on a host that is no
+/// Cloud machine: a local share the platform does not hold (not moved: a guest, no verified
+/// person, a revoked or expired grant) is taken back where it lives (`unshare SURFACE LOGIN`
+/// naming one), and a guest share is made there (the platform has no read-only teammate).
+/// `shares` lists both ([`listing`]); every other verb goes to the platform.
+pub(super) fn stays_local(
+    verb: &str,
+    flags: &Flags,
+    config: &config::Config,
+    target: &Target,
+) -> bool {
+    if !target.here || CLOUD_FLAGS.iter().any(|name| flags.has(name)) {
+        return false;
+    }
+    match (verb, flags.positional.as_slice()) {
+        ("unshare", [surface, login]) => surface.parse::<u64>().is_ok_and(|surface| {
+            config
+                .shares
+                .iter()
+                .any(|s| s.surface == surface && config::same_login(&s.login, login.trim()))
+        }),
+        ("share", [_, _]) => flags.value("role") == Some("guest"),
+        _ => false,
+    }
+}
+
+/// `shares` on this Cloud machine: the local shares (`where: local`, enforced by the tailnet
+/// host as before) and the platform's (`where: cloud`), or the local ones and why the platform's
+/// could not be read.
+pub(crate) fn listing(local: &[shares::Share], cloud: Result<Vec<PlatformShare>, String>) -> Value {
+    let mut all: Vec<Value> = local
+        .iter()
+        .map(|share| {
+            let mut entry = json!(share);
+            if let Some(object) = entry.as_object_mut() {
+                object.insert("where".to_owned(), json!("local"));
+            }
+            entry
+        })
+        .collect();
+    let mut answer = json!({});
+    match cloud {
+        Ok(cloud) => all.extend(cloud.iter().map(|share| {
+            let mut entry = json!(share);
+            if let Some(object) = entry.as_object_mut() {
+                object.insert("where".to_owned(), json!("cloud"));
+            }
+            entry
+        })),
+        Err(error) => {
+            if let Some(object) = answer.as_object_mut() {
+                object.insert("cloud_error".to_owned(), json!(error));
+            }
+        }
+    }
+    if let Some(object) = answer.as_object_mut() {
+        object.insert("shares".to_owned(), Value::Array(all));
+    }
+    answer
 }
 
 /// Why `--all` (or no chats) is refused, with this machine's chats to pick from.
@@ -550,6 +669,20 @@ pub(super) const CLOUD_FLAGS: &[&str] =
 
 /// Runs `verb` on `target`: signs in, moves this machine's local shares once, then acts.
 pub(super) fn run(verb: &str, flags: &Flags, target: &Target) -> anyhow::Result<()> {
+    if verb == "shares" && target.here {
+        if !flags.positional.is_empty() || flags.has("all") {
+            return Err(super::usage(crate::localization::catalog().host_share.no_arguments));
+        }
+        // The local shares list as on any host, with or without a sign-in or the platform.
+        let cloud = live::Live::from_flags(flags).map_err(|e| format!("{e:#}")).and_then(|api| {
+            if let Err(error) = move_here(&api, &target.machine) {
+                eprintln!("cmux host: {error:#}");
+            }
+            api.list(&target.machine).map_err(|f| explain(&f))
+        });
+        println!("{}", listing(&config::load()?.shares, cloud));
+        return Ok(());
+    }
     let api = live::Live::from_flags(flags)?;
     let moved = if target.here { move_here(&api, &target.machine)? } else { None };
     let config = config::load()?;
@@ -564,6 +697,7 @@ pub(super) fn run(verb: &str, flags: &Flags, target: &Target) -> anyhow::Result<
         resolve_session: &resolve_session,
         local_sessions: &local_sessions,
         audit: &mut |entry| audit::append(&entry),
+        lock: &person_lock,
     };
     let mut answer = act(
         verb,
@@ -607,6 +741,20 @@ fn move_here(api: &dyn Api, machine: &str) -> anyhow::Result<Option<Value>> {
         bail!("{}", explain(failure));
     }
     Ok(Some(json!({"moved": outcome.moved, "not_moved": outcome.kept})))
+}
+
+/// An exclusive lock on one person's share of one machine, on this host (a 0600 file beside the
+/// host config, `flock` on Unix), held until the guard drops.
+fn person_lock(machine: &str, person: &str) -> anyhow::Result<Box<dyn std::any::Any>> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    // Both are checked ids (`vm_…`, `user_…`), so the name is a plain file name.
+    let path = config::ensure_dir()?.join(format!("share-{machine}-{person}.lock"));
+    let file = options.open(path)?;
+    file.lock()?;
+    Ok(Box::new(file))
 }
 
 /// A yes from the person at this machine's terminal, as `cmux host share` always asked.
