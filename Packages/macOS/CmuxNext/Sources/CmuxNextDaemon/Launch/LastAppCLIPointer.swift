@@ -14,8 +14,10 @@ public import Foundation
 /// must not take over the user's `cmux`.
 ///
 /// Builds before goals/next-store-out-of-classic wrote it in classic cmux's
-/// `Application Support/cmux` (``legacyFile``); a publish removes that one,
-/// so NEXT leaves nothing in classic's folder and no reader finds a stale app.
+/// `Application Support/cmux` (``legacyFile``), and a dev shim installed
+/// before then reads only that one. So a publish also rewrites the legacy
+/// pointer where one is already there (that shim keeps finding the app), and
+/// never makes one: a Mac that never had it keeps nothing in classic's folder.
 public struct LastAppCLIPointer: Sendable, Equatable {
     public let file: URL
     public let legacyFile: URL
@@ -51,23 +53,29 @@ public struct LastAppCLIPointer: Sendable, Equatable {
     @discardableResult
     public func publish(cliPath: String) -> Bool {
         guard cliPath.hasPrefix("/"), !Self.isPassing(cliPath), FileManager.default.isExecutableFile(atPath: cliPath) else { return false }
-        let directory = file.deletingLastPathComponent()
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.checked.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         } catch {
             return false
         }
-        let temporary = directory.appendingPathComponent(".last-app-cli.\(getpid()).\(UUID().uuidString)")
+        guard Self.replace(file, with: cliPath) else { return false }
+        var info = stat()
+        if lstat(legacyFile.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG { _ = Self.replace(legacyFile, with: cliPath) }
+        return true
+    }
+
+    /// Writes `cliPath` to a temporary file beside `pointer` (mode 0600) and renames it over `pointer`.
+    private static func replace(_ pointer: URL, with cliPath: String) -> Bool {
+        let temporary = pointer.deletingLastPathComponent().appendingPathComponent(".last-app-cli.\(getpid()).\(UUID().uuidString)")
         let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return false }
         let bytes = Array((cliPath + "\n").utf8)
         let written = bytes.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
         close(descriptor)
-        guard written == bytes.count, rename(temporary.path, file.path) == 0 else {
+        guard written == bytes.count, rename(temporary.path, pointer.path) == 0 else {
             unlink(temporary.path)
             return false
         }
-        unlink(legacyFile.path)
         return true
     }
 }
