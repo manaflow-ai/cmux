@@ -6,7 +6,9 @@
 //! update, or a plan tool's `rawInput.plan`), the sentences of its replies that hedge ("not sure",
 //! "couldn't verify") or drop an approach ("didn't work", "instead"), and its edits. An edit that
 //! puts back the text an earlier edit replaced is a revert; one that writes that change again is
-//! a redo; the same text rewritten three times running is rework. Each of those, and each hedge
+//! a redo; the same text rewritten three times running is rework. An edit counts once its tool
+//! call completes: a proposed diff is held (the call's later updates may correct it) and a failed
+//! call's is dropped. Each of those, and each hedge
 //! that names an edited file or follows an edit in its turn, is a spot linked to its file, with the
 //! first changed line as the snippet the diff page finds the hunk by.
 //!
@@ -46,6 +48,10 @@ const MAX_HEDGES: usize = 10;
 const MAX_EDIT_SPOTS: usize = 10;
 const MAX_EDITS: usize = 200;
 const MAX_SEEN_CALLS: usize = 64;
+/// The most tool calls whose proposed edits wait for their result.
+const MAX_PENDING: usize = 32;
+/// The most files one call's edits name.
+const MAX_CHANGES: usize = 64;
 const MAX_OPEN_TEXT: usize = 16 * 1024;
 const MAX_SNIPPET: usize = 120;
 /// The most spots one brief lists.
@@ -202,6 +208,28 @@ struct Edit {
     reverted: bool,
 }
 
+/// One file's change in an edit, hashed, with the lines its spots show.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct Change {
+    path: String,
+    old: u64,
+    new: u64,
+    /// The first line the edit adds, and the first it takes out.
+    added: String,
+    removed: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    line: Option<u32>,
+}
+
+/// A tool call's proposed edits, waiting for the call to complete.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct PendingCall {
+    id: String,
+    changes: Vec<Change>,
+}
+
 /// A reply still taking chunks.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -238,6 +266,9 @@ pub struct Fold {
     /// Tool calls whose diff was folded, so an update repeating it is not a second edit.
     #[serde(default)]
     seen_calls: Vec<String>,
+    /// Tool calls whose diff came before their result.
+    #[serde(default)]
+    pending: Vec<PendingCall>,
     #[serde(default)]
     open: Option<OpenMessage>,
 }
@@ -256,6 +287,7 @@ impl Default for Fold {
             edits: Vec::new(),
             turn_paths: Vec::new(),
             seen_calls: Vec::new(),
+            pending: Vec::new(),
             open: None,
         }
     }
@@ -382,32 +414,35 @@ impl Fold {
 
     fn tool_edits(&mut self, seq: u64, update: &Value) {
         let id = update.get("toolCallId").and_then(Value::as_str).unwrap_or_default();
-        let diffs = diffs_of(update);
-        if diffs.is_empty() {
+        let status = update.get("status").and_then(Value::as_str).unwrap_or_default();
+        let changes = changes_of(update);
+        if id.is_empty() {
+            // No call to wait on: the edit is as the update says.
+            changes.into_iter().for_each(|c| self.edit(seq, c));
             return;
         }
-        if !id.is_empty() {
-            if self.seen_calls.iter().any(|seen| seen == id) {
-                return;
-            }
-            push_capped(&mut self.seen_calls, id.to_owned(), MAX_SEEN_CALLS);
+        if self.seen_calls.iter().any(|seen| seen == id) {
+            return;
         }
-        let line_of = |path: &str| {
-            update.get("locations").and_then(Value::as_array).into_iter().flatten().find_map(|l| {
-                (l.get("path").and_then(Value::as_str) == Some(path))
-                    .then(|| l.get("line").and_then(Value::as_u64))
-                    .flatten()
-                    .and_then(|n| u32::try_from(n).ok())
-            })
-        };
-        for (path, old, new) in diffs {
-            let line = line_of(&path);
-            self.edit(seq, path, &old, &new, line);
+        if !changes.is_empty() {
+            // A later update's diff replaces an earlier one's (the edit as it was made).
+            self.pending.retain(|p| p.id != id);
+            push_capped(&mut self.pending, PendingCall { id: id.to_owned(), changes }, MAX_PENDING);
+        }
+        match status {
+            "failed" => self.pending.retain(|p| p.id != id),
+            "completed" => {
+                let Some(at) = self.pending.iter().position(|p| p.id == id) else { return };
+                let call = self.pending.remove(at);
+                push_capped(&mut self.seen_calls, call.id, MAX_SEEN_CALLS);
+                call.changes.into_iter().for_each(|c| self.edit(seq, c));
+            }
+            _ => {}
         }
     }
 
-    fn edit(&mut self, seq: u64, path: String, old: &str, new: &str, line: Option<u32>) {
-        let (old_h, new_h) = (hash(old), hash(new));
+    fn edit(&mut self, seq: u64, change: Change) {
+        let Change { path, old: old_h, new: new_h, added, removed, line } = change;
         if old_h == new_h {
             return;
         }
@@ -427,13 +462,12 @@ impl Fold {
             .map(|e| e.origin);
         let (origin, chain) = earlier.as_ref().map_or((old_h, 1), |e| (e.origin, e.chain + 1));
         let reverted = earlier.is_some() && new_h == origin;
-        let snippet = changed_line(old, new);
         if let Some(origin) = redo {
-            self.edit_spot(SpotKind::Redone, &path, origin, line, snippet.clone(), 0, seq);
+            self.edit_spot(SpotKind::Redone, &path, origin, line, added, 0, seq);
         } else if reverted {
-            self.edit_spot(SpotKind::Reverted, &path, origin, line, changed_line(new, old), 0, seq);
+            self.edit_spot(SpotKind::Reverted, &path, origin, line, removed, 0, seq);
         } else if chain >= 3 {
-            self.edit_spot(SpotKind::Reworked, &path, origin, line, snippet, chain - 1, seq);
+            self.edit_spot(SpotKind::Reworked, &path, origin, line, added, chain - 1, seq);
         }
         if reverted {
             for e in self.edits.iter_mut().filter(|e| e.path == path && e.origin == origin) {
@@ -519,29 +553,51 @@ fn own_params(rec: &EventRecord) -> Option<&Value> {
     rec.msg.get("params").filter(|p| !crate::subagents::is_subagents(p))
 }
 
-/// The edits a tool update carries: each ACP `diff` block, else the call's
-/// `rawInput` (`file_path` with `old_string`/`new_string`, or `content` for a whole write).
-fn diffs_of(update: &Value) -> Vec<(String, String, String)> {
+/// The edits a tool update carries: each ACP `diff` block, else the call's `rawInput`
+/// (`file_path` with `old_string`/`new_string`, or `content` for a whole write). A path is the
+/// canonical one the hub added (`_meta.acpmux.canonicalPath`) when there is one, so a relative or
+/// linked path still falls under the diff's root.
+fn changes_of(update: &Value) -> Vec<Change> {
+    let canonical = |v: &Value| v.pointer("/_meta/acpmux/canonicalPath").and_then(Value::as_str);
+    let line_of = |path: &str| {
+        update.get("locations").and_then(Value::as_array).into_iter().flatten().find_map(|l| {
+            let named = canonical(l).or_else(|| l.get("path").and_then(Value::as_str));
+            (named == Some(path))
+                .then(|| l.get("line").and_then(Value::as_u64))
+                .flatten()
+                .and_then(|n| u32::try_from(n).ok())
+        })
+    };
+    let change = |path: &str, old: &str, new: &str| Change {
+        path: path.to_owned(),
+        old: hash(old),
+        new: hash(new),
+        added: changed_line(old, new),
+        removed: changed_line(new, old),
+        line: line_of(path),
+    };
     let mut out = Vec::new();
     for block in update.get("content").and_then(Value::as_array).into_iter().flatten() {
         if block.get("type").and_then(Value::as_str) != Some("diff") {
             continue;
         }
-        let Some(path) = block.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()) else {
-            continue;
-        };
-        let text = |key: &str| block.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-        out.push((path.to_owned(), text("oldText"), text("newText")));
+        let path = canonical(block).or_else(|| block.get("path").and_then(Value::as_str));
+        let Some(path) = path.filter(|p| !p.is_empty()) else { continue };
+        let text = |key: &str| block.get(key).and_then(Value::as_str).unwrap_or_default();
+        out.push(change(path, text("oldText"), text("newText")));
     }
     if !out.is_empty() {
+        // A patch of many files keeps its first ones: a call's held state stays bounded.
+        out.truncate(MAX_CHANGES);
         return out;
     }
     let Some(input) = update.get("rawInput") else { return out };
-    let path = ["file_path", "filePath"].iter().find_map(|k| input.get(*k).and_then(Value::as_str));
+    let raw = ["file_path", "filePath"].iter().find_map(|k| input.get(*k).and_then(Value::as_str));
+    let path = raw.and(canonical(update)).or(raw);
     let new = input.get("new_string").or_else(|| input.get("content")).and_then(Value::as_str);
     if let (Some(path), Some(new)) = (path.filter(|p| !p.is_empty()), new) {
         let old = input.get("old_string").and_then(Value::as_str).unwrap_or_default();
-        out.push((path.to_owned(), old.to_owned(), new.to_owned()));
+        out.push(change(path, old, new));
     }
     out
 }

@@ -145,3 +145,54 @@ fn every_list_stays_bounded_however_long_the_chat() {
     assert!(brief["unsure"].as_array().unwrap().len() <= MAX_SPOTS);
     assert!(brief["rejected"].as_array().unwrap().len() <= 6);
 }
+
+fn tool(seq: u64, update: Value) -> EventRecord {
+    EventRecord {
+        seq,
+        at: seq,
+        dir: "in".into(),
+        kind: if seq == 1 { "tool_call" } else { "tool_call_update" }.into(),
+        msg: json!({"params": {"update": update}}),
+        host_seq: None,
+    }
+}
+
+fn diff(path: &str, old: &str, new: &str) -> Value {
+    json!([{"type": "diff", "path": path, "oldText": old, "newText": new}])
+}
+
+#[test]
+fn an_edit_counts_once_its_call_completes_and_a_failed_call_s_never() {
+    let mut fold = Fold::default();
+    // Proposed, then failed: no edit, so undoing it later is no revert.
+    fold.feed(&tool(1, json!({"toolCallId": "a", "status": "pending",
+        "content": diff("/r/x.rs", "one();", "two();")})));
+    fold.feed(&tool(2, json!({"toolCallId": "a", "status": "failed"})));
+    fold.feed(&tool(3, json!({"toolCallId": "b", "status": "completed",
+        "content": diff("/r/x.rs", "two();", "one();")})));
+    assert_eq!(fold.brief(Some("/r"))["unsure"], json!([]));
+    // A diff corrected by a later update of the call is the edit that counts.
+    fold.feed(&tool(4, json!({"toolCallId": "c", "status": "in_progress",
+        "content": diff("/r/y.rs", "guess", "a();")})));
+    fold.feed(&tool(5, json!({"toolCallId": "c", "content": diff("/r/y.rs", "b();", "a();")})));
+    fold.feed(&tool(6, json!({"toolCallId": "c", "status": "completed"})));
+    fold.feed(&tool(7, json!({"toolCallId": "d", "status": "completed",
+        "content": diff("/r/y.rs", "a();", "b();")})));
+    assert_eq!(
+        fold.brief(Some("/r"))["unsure"],
+        json!([{"kind": "reverted", "path": "y.rs", "snippet": "a();", "seq": 7}])
+    );
+}
+
+#[test]
+fn a_relative_path_counts_under_its_root_by_the_canonical_path_the_hub_added() {
+    let mut fold = Fold::default();
+    let edit = |seq: u64, id: &str, old: &str, new: &str| {
+        tool(seq, json!({"toolCallId": id, "status": "completed", "content": [{"type": "diff",
+            "path": "./src/a.rs", "oldText": old, "newText": new,
+            "_meta": {"acpmux": {"canonicalPath": "/r/src/a.rs"}}}]}))
+    };
+    fold.feed(&edit(1, "a", "x();", "y();"));
+    fold.feed(&edit(2, "b", "y();", "x();"));
+    assert_eq!(fold.brief(Some("/r"))["unsure"][0]["path"], "src/a.rs");
+}
