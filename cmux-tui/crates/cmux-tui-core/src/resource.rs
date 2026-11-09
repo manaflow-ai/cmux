@@ -556,6 +556,10 @@ pub enum ResourceOperation {
     StashDelete,
     #[serde(rename = "stash.import")]
     StashImport,
+    #[serde(rename = "classic_import.plan")]
+    ClassicImportPlan,
+    #[serde(rename = "classic_import.record")]
+    ClassicImportRecord,
     #[serde(rename = "conductor_import.plan")]
     ConductorImportPlan,
     #[serde(rename = "conductor_import.record")]
