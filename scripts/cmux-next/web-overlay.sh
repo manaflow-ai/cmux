@@ -327,7 +327,7 @@ point_at() {
 # $2 is the pid of the dev server `cmux live start` runs, empty when none runs.
 explain() {
   python3 - "$1" "$2" "$web_dev" "$state" <<'PY'
-import hashlib, hmac, json, os, secrets, sys, urllib.request
+import hashlib, hmac, json, os, re, secrets, sys, urllib.error, urllib.parse, urllib.request
 
 setting_raw, pid, web_dev, state = sys.argv[1:5]
 SHIPPED = "the web UI it shipped with"
@@ -384,16 +384,44 @@ if config.get("enabled", True) is False:
 
 def overlay_or_shipped(why):
     overlay = config.get("overlay")
-    if isinstance(overlay, str) and overlay:
-        folder = os.path.expanduser(overlay)
-        try:
-            commit = json.load(open(os.path.join(folder, "manifest.json"))).get("commit") or "unknown"
-        except (OSError, ValueError, AttributeError):
-            commit = "unknown"
-        why.append("So the app uses the overlay web-dev.json names, where it has the files.")
-        say(f"the overlay at {folder} (commit {commit})", why)
-    else:
+    if not (isinstance(overlay, str) and overlay):
         say(SHIPPED, why)
+        return
+    folder = os.path.expanduser(overlay)
+    if not os.path.isabs(folder) or not os.path.isfile(os.path.join(folder, "agent-pane", "index.html")):
+        # WebDevOverride.overlayRoot: a page comes from the overlay only when its files are there.
+        why.append(f"The overlay web-dev.json names, {folder}, has no agent-pane/index.html, so the app does not use it.")
+        say(SHIPPED, why)
+        return
+    try:
+        manifest = json.load(open(os.path.join(folder, "manifest.json")))
+    except (OSError, ValueError):
+        manifest = {}
+    manifest = manifest if isinstance(manifest, dict) else {}
+    commit = manifest.get("commit") or "unknown"
+    why.append("So the app uses the overlay web-dev.json names, where it has the files.")
+    if isinstance(manifest.get("abi"), int):
+        # WebDevOverride.abiRefusal: the app refuses an overlay built for another web ABI.
+        why.append(f"It needs web ABI {manifest['abi']}; an app with another ABI shows {SHIPPED} instead.")
+    say(f"the overlay at {folder} (commit {commit})", why)
+
+def loopback(raw):
+    """PageDevServer.loopbackURL: http to 127.0.0.1 or localhost with a port, no user; else None."""
+    try:
+        parts = urllib.parse.urlsplit(raw.strip())
+        port = parts.port
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower()
+    if parts.scheme.lower() != "http" or host not in ("127.0.0.1", "localhost") or port is None:
+        return None
+    if parts.username is not None or parts.password is not None:
+        return None
+    return f"http://{host}:{port}" + (parts.path or "/")
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
 
 def last_stop():
     """Why the last server this script started is gone, from the exit watch's note."""
@@ -409,13 +437,19 @@ if not isinstance(server, str) or not server:
     overlay_or_shipped([f"Why: {web_dev} names no dev server.", *last_stop(),
                         "`cmux live start` runs one."])
     sys.exit(0)
+root = loopback(server)
+if root is None:
+    overlay_or_shipped([f"Why: {web_dev} names {server}, which is not http on 127.0.0.1 or localhost with a port,",
+                        "so the app does not use it. `cmux live start` writes a local one."])
+    sys.exit(0)
 token = config.get("token")
-if not isinstance(token, str) or len(token) < 32:
-    overlay_or_shipped([f"Why: {web_dev} names {server} but no token, so the app does not trust it.",
+# WebDevOverride.validToken: 32 or more of A-Z, a-z, 0-9, - and _.
+if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,}", token):
+    overlay_or_shipped([f"Why: {web_dev} names {server} but no valid token, so the app does not trust it.",
                         "`cmux live start` writes a fresh one."])
     sys.exit(0)
 
-root = server if server.endswith("/") else server + "/"
+root = root if root.endswith("/") else root + "/"
 tree = read(os.path.join(state, "dev-server.tree"))
 checkout = None
 if pid and tree and ":" in tree:
@@ -426,9 +460,13 @@ if pid and tree and ":" in tree:
 nonce = secrets.token_hex(16)
 request = urllib.request.Request(root + "agent-pane/index.html", headers={"X-Cmux-Dev-Nonce": nonce})
 try:
-    with urllib.request.urlopen(request, timeout=3) as response:
+    # Never follows a redirect: the app asks only the server web-dev.json names.
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=3) as response:
         proof = response.headers.get("X-Cmux-Dev-Proof")
     answered = True
+except urllib.error.HTTPError as error:
+    # An error status or a refused redirect is still an answer; the proof decides whose.
+    answered, proof = True, error.headers.get("X-Cmux-Dev-Proof")
 except Exception:
     answered, proof = False, None
 

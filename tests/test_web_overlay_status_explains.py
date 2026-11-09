@@ -116,7 +116,8 @@ class WebOverlayStatusExplainsTests(unittest.TestCase):
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         overlay = self.tmp / "my-overlay"
-        overlay.mkdir()
+        (overlay / "agent-pane").mkdir(parents=True)
+        (overlay / "agent-pane/index.html").write_text("<!doctype html>")
         (overlay / "manifest.json").write_text(json.dumps({"commit": "abc123"}))
         self.web_dev({"server": f"http://127.0.0.1:{server.server_address[1]}/", "token": TOKEN,
                       "overlay": str(overlay)})
@@ -140,6 +141,96 @@ class WebOverlayStatusExplainsTests(unittest.TestCase):
         out = self.status()
         self.assertIn(f"cmux loads its web UI from the dev server at {url}", out)
         self.assertIn("answers with its token", out)
+
+
+    # The app uses only a loopback server (PageDevServer.loopbackURL), so status asks no other host.
+    def test_server_off_loopback_is_never_asked(self):
+        asked = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                asked.append(self.path)
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *_):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        port = server.server_address[1]
+        for url in (f"http://user@127.0.0.1:{port}/", f"https://127.0.0.1:{port}/", "http://127.0.0.1/",
+                    "http://10.0.0.1:4200/", "http://example.com:80/"):
+            self.web_dev({"server": url, "token": TOKEN})
+            out = self.status()
+            self.assertIn("not http on 127.0.0.1 or localhost with a port", out)
+            self.assertIn("from the web UI it shipped with", out)
+        self.assertEqual(asked, [])
+
+    def test_a_redirect_is_not_followed(self):
+        target = []
+
+        class Elsewhere(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                target.append(self.path)
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *_):
+                pass
+
+        elsewhere = http.server.HTTPServer(("127.0.0.1", 0), Elsewhere)
+        threading.Thread(target=elsewhere.serve_forever, daemon=True).start()
+        self.addCleanup(elsewhere.server_close)
+        self.addCleanup(elsewhere.shutdown)
+
+        class Redirect(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{elsewhere.server_address[1]}/x")
+                self.end_headers()
+
+            def log_message(self, *_):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.web_dev({"server": f"http://127.0.0.1:{server.server_address[1]}/", "token": TOKEN})
+        self.assertIn("(it sent no proof)", self.status())
+        self.assertEqual(target, [])
+
+    # WebDevOverride.validToken: the app trusts only 32+ of A-Z, a-z, 0-9, - and _.
+    def test_a_token_the_app_refuses(self):
+        token = "a" * 40 + "!"
+        server = serve(token)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.web_dev({"server": f"http://127.0.0.1:{server.server_address[1]}/", "token": token})
+        out = self.status()
+        self.assertIn("no valid token", out)
+        self.assertIn("from the web UI it shipped with", out)
+
+    # WebDevOverride.overlayRoot / abiRefusal: an overlay without the files is not used, and one
+    # that names a web ABI says the app needs the same one.
+    def test_overlay_without_files_and_with_an_abi(self):
+        empty = self.tmp / "empty-overlay"
+        empty.mkdir()
+        self.web_dev({"overlay": str(empty)})
+        out = self.status()
+        self.assertIn("has no agent-pane/index.html", out)
+        self.assertIn("from the web UI it shipped with", out)
+        built = self.tmp / "built-overlay"
+        (built / "agent-pane").mkdir(parents=True)
+        (built / "agent-pane/index.html").write_text("<!doctype html>")
+        (built / "manifest.json").write_text(json.dumps({"commit": "def456", "abi": 7}))
+        self.web_dev({"overlay": str(built)})
+        out = self.status()
+        self.assertIn(f"from the overlay at {built} (commit def456)", out)
+        self.assertIn("It needs web ABI 7", out)
 
 
 if __name__ == "__main__":
