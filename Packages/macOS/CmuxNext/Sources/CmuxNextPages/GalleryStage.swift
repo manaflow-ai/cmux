@@ -121,7 +121,7 @@ public final class GalleryStageView: NSView, WKNavigationDelegate {
         webView.load(URLRequest(url: url))
         // task-owner: one per stage view; ends with the view (weak self) or its deinit
         scaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale) }) {
                 guard let self else { return }
                 self.applyScale()
             }

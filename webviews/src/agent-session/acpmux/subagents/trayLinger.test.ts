@@ -120,6 +120,25 @@ describe("trayLinger", () => {
     expect(shown[0]!.kind === "command" && shown[0]!.command.endedAt).toBe(300);
     expect(shown[1]!.kind === "command" && shown[1]!.command.endedAt).toBe(50);
   });
+
+  test("a finished subagent with no end of its own takes the end this view saw, the same on every pass", () => {
+    const agent = (id: string, extra: object = {}): TrayItem => ({
+      kind: "agent",
+      id,
+      depth: 0,
+      agent: { id, parent: null, name: id, state: "completed", startedAt: 0, ...extra },
+    });
+    const items = [agent("a1"), agent("a2", { endedAt: 40 })];
+    const kept = new Map([
+      ["agent:a1", 5_000],
+      ["agent:a2", 40],
+    ]);
+    // The hat folded and opened again: a later pass draws the same ends, so the line's time stays put.
+    for (const pass of [lingeringTrayItems(items, kept), lingeringTrayItems(items, kept)]) {
+      expect(pass[0]!.kind === "agent" && pass[0]!.agent.endedAt).toBe(5_000);
+      expect(pass[1]!.kind === "agent" && pass[1]!.agent.endedAt).toBe(40);
+    }
+  });
 });
 
 describe("trayLinger review follow-ups", () => {
