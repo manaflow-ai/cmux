@@ -740,3 +740,58 @@ test("a host that answers something other than a tail leaves the chat to open co
     client.close();
   }
 });
+
+/// Leo, 2026-11-08: "after a restart, it sort of doesn't load a ton of your recent messages, and
+/// it's just a bunch of, like, your tool calls and then, like, my messages to you ... what you saw
+/// when you clicked the restart button should ... be like, Oh, okay, here's literally what you just
+/// had". acpmux journals each streamed word group as its own record, and a working chat's records
+/// are mostly thinking chunks, so a tail of the newest 400 records held a few turns' worth of
+/// fragments. The tail keeps whole messages: 400 records once each message's chunks are one.
+test("a working chat's kept tail holds its recent turns whole, not the last 400 streamed fragments", async () => {
+  const chat = new Fixture("streamed");
+  const TURNS = 30;
+  const update = (kind: string, text: string, messageId?: string): Step => [
+    "in",
+    kind,
+    {
+      method: "session/update",
+      params: {
+        sessionId: chat.a,
+        update: { sessionUpdate: kind, content: { type: "text", text }, ...(messageId ? { messageId } : {}) },
+      },
+    },
+  ];
+  const steps: Step[] = [];
+  for (let turn = 1; turn <= TURNS; turn += 1) {
+    steps.push(prompt(`Question ${turn}`), ["mux", "turn_started", {}]);
+    for (let chunk = 0; chunk < 40; chunk += 1) steps.push(update("agent_thought_chunk", `think ${turn}.${chunk} `));
+    for (const word of `Answer ${turn} is in the retry path.`.split(/(?<= )/))
+      steps.push(update("agent_message_chunk", word, `msg-${turn}`));
+    steps.push(["mux", "turn_result", { stopReason: "end_turn" }]);
+  }
+  chat.pages.set(chat.a, { events: steps });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+
+  // Relaunched, with acpmux slow to answer: the tail alone is on screen.
+  const tab = chat.tab(chat.a, { hold: true });
+  await tab.daemon.asked;
+  await flush();
+  const drawn = text(tab.last());
+  for (let turn = 1; turn <= TURNS; turn += 1) {
+    expect(drawn).toContain(`Question ${turn}"`);
+    expect(drawn).toContain(`Answer ${turn} is in the retry path.`);
+  }
+
+  // acpmux answers with its newest page of raw chunks, which overlaps the tail: each reply is
+  // still drawn once, not its chunks a second time after the tail's whole message.
+  const newest = 400;
+  chat.pages.set(chat.a, { events: steps.slice(-newest), from: steps.length - newest + 1, hasMore: true });
+  tab.daemon.release();
+  live.push(await tab.client);
+  await flush();
+  const attached = text(tab.last());
+  for (let turn = 1; turn <= TURNS; turn += 1)
+    expect(attached.split(`Answer ${turn} is in the retry path.`).length - 1).toBe(1);
+  expect(attached.split(`think ${TURNS}.39 `).length - 1).toBe(1);
+});
