@@ -3,6 +3,7 @@
 
 mod agent_last_sessions;
 mod idle_close;
+mod journal_retention;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
@@ -2716,6 +2717,9 @@ pub struct Mux {
     /// per-terminal reporting would emit N warnings for one underlying
     /// condition. Cleared when a reconnect checkpoint succeeds again.
     reconnect_checkpoint_skip_reported: AtomicBool,
+    /// Coalesced journal checkpoints after terminal-host reconnects; see
+    /// mux/journal_retention.rs.
+    journal_retention: journal_retention::JournalRetention,
     /// Frontend-owned sink for diagnostics emitted by background core work.
     /// `OnceLock` keeps the callback immutable after startup and avoids a
     /// mutex on the reconnect hot path. Startup can adopt a hosted surface
@@ -3138,6 +3142,7 @@ impl Mux {
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
+            journal_retention: Default::default(),
             diagnostic_reporter: OnceLock::new(),
             pending_diagnostic: Mutex::new(None),
             #[cfg(test)]
