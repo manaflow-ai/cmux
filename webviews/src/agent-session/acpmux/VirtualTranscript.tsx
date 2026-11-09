@@ -4456,7 +4456,31 @@ function TranscriptView({
       jumpToLatestRef.current(false, "end-key");
     };
     node.ownerDocument.addEventListener("keydown", endKey);
+    // The reader left the latest row while the follow motion was in flight, and their input has gone
+    // quiet: what the chase still held is folded into the scroll offset (the thread drawn back by x is
+    // the same picture as the offset x less), and the rows under a change glide no further. Held, it
+    // played the moment the reader scrolled back down to the latest row: the rows moved under a view
+    // the reader had just put where they wanted it (Leo, 2026-11-09: "when i scroll down now there's
+    // a little readjustment sometimes that shold never happen"). Nothing on screen moves here but a
+    // row whose glide was cut short, under the view's foot. O(1); runs once per quiet input.
+    const settleHeldFollowMotion = () => {
+      if (followingRef.current || jumpTarget.current !== undefined) return;
+      tailGlide.current?.stop();
+      const chase = followChase.current;
+      const held = chase?.outstanding() ?? 0;
+      if (!chase || held === 0) return;
+      const top = layoutScrollTop(node) - held;
+      // An offset the scroller cannot take (a thread drawn above its layout at the very end) stays
+      // drawn, as before; it goes home when the view is followed again.
+      if (top < 0 || top > node.scrollHeight - node.clientHeight) return;
+      chase.stop();
+      writeAnchorScrollTop(node, top);
+      scrolledTo.current = { top: node.scrollTop, atLatest: false };
+      scrollPacer.current?.cancel();
+      setScrollAt(node.scrollTop, 0);
+    };
     const unsubscribeQuiet = intent.subscribeQuiet(() => {
+      settleHeldFollowMotion();
       if (!followDeferred.current) return;
       followDeferred.current = false;
       if (followingRef.current) resumeDeferredFollow();
