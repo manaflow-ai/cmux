@@ -130,6 +130,7 @@ export function runControls(host: RunButtonHost, block: () => { language: string
     confirm.focus();
   });
   run.title = host.label("runTitle");
+  // ui-allow: Esc cancels the row's own Run question; the row lives in the editor's DOM, outside any React scope.
   row.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && row.dataset.state === "ask") {
       event.stopPropagation();
