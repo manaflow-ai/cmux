@@ -73,6 +73,28 @@ enum WorkspaceRootToolbarSizing {
         contentWidth > 0 && contentWidth < nonPickerWidth + minimumPickerWidth
     }
 
+    /// Where the computer picker goes. A phone's split sidebar reports a
+    /// compact size class but is just as narrow as an iPad sidebar, and its
+    /// leading toggle leaves even less room, so it takes the same fallback.
+    static func usesLeadingTitlePlacement(
+        contentWidth: CGFloat,
+        isRegularWidth: Bool,
+        hostsSidebarToggle: Bool
+    ) -> Bool {
+        (isRegularWidth || hostsSidebarToggle) && usesLeadingPlacement(for: contentWidth)
+    }
+
+    /// Whether the picker draws as a single ellipsis control. Only the phone
+    /// split sidebar needs it: a titled picker there pushes the whole leading
+    /// group into the overflow menu, while the iPad sidebar has room for it.
+    static func usesIconTitleLabel(
+        contentWidth: CGFloat,
+        isRegularWidth: Bool,
+        hostsSidebarToggle: Bool
+    ) -> Bool {
+        !isRegularWidth && hostsSidebarToggle && usesLeadingPlacement(for: contentWidth)
+    }
+
     /// Titled destinations plus the create and compose controls need about
     /// 360 pt; a phone's portrait split sidebar (320 pt) switches to symbols.
     static func usesSymbolDestinationBar(for sidebarWidth: CGFloat) -> Bool {
@@ -108,9 +130,22 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     /// the row the system toolbar actually lays out.
     var sidebarToggleFrameChanged: ((CGRect) -> Void)?
 
+    /// The phone split sidebar's top bar fits three controls, so the picker
+    /// takes the Computers button's place and opens that screen from its menu.
+    private var pickerReplacesDevicesButton: Bool {
+        WorkspaceRootToolbarSizing.usesIconTitleLabel(
+            contentWidth: contentWidth,
+            isRegularWidth: horizontalSizeClass == .regular,
+            hostsSidebarToggle: sidebarToggle != nil
+        )
+    }
+
     private var titlePlacement: ToolbarItemPlacement {
-        if horizontalSizeClass == .regular,
-           WorkspaceRootToolbarSizing.usesLeadingPlacement(for: contentWidth) {
+        if WorkspaceRootToolbarSizing.usesLeadingTitlePlacement(
+            contentWidth: contentWidth,
+            isRegularWidth: horizontalSizeClass == .regular,
+            hostsSidebarToggle: sidebarToggle != nil
+        ) {
             return .topBarLeading
         }
         return .principal
@@ -155,11 +190,13 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     canAddDevice: showAddDevice != nil,
                     labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth),
                     usesCompactLabelTreatment: horizontalSizeClass != .regular,
-                    statusLine: statusLine
+                    statusLine: statusLine,
+                    usesIconLabel: pickerReplacesDevicesButton
                 ),
                 actions: WorkspaceMacTitlePickerActions(
                     select: select,
-                    addDevice: showAddDevice
+                    addDevice: showAddDevice,
+                    openDevices: pickerReplacesDevicesButton ? openDevices : nil
                 )
             )
             .equatable()
@@ -169,23 +206,25 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     : nil
             )
         }
-        ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
-            Button(action: openDevices) {
-                MobileDevicesToolbarLabel(
-                    gateWarningPairingIDs: gateWarningPairingIDs,
-                    computerPairingIDs: Set(machines.map(\.id))
+        if !pickerReplacesDevicesButton {
+            ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
+                Button(action: openDevices) {
+                    MobileDevicesToolbarLabel(
+                        gateWarningPairingIDs: gateWarningPairingIDs,
+                        computerPairingIDs: Set(machines.map(\.id))
+                    )
+                }
+                .frame(
+                    minWidth: horizontalSizeClass == .regular
+                        ? WorkspaceRootToolbarSizing.controlHeight
+                        : nil,
+                    minHeight: horizontalSizeClass == .regular
+                        ? WorkspaceRootToolbarSizing.controlHeight
+                        : nil
                 )
+                .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
+                .accessibilityIdentifier("MobileWorkspaceDevicesButton")
             }
-            .frame(
-                minWidth: horizontalSizeClass == .regular
-                    ? WorkspaceRootToolbarSizing.controlHeight
-                    : nil,
-                minHeight: horizontalSizeClass == .regular
-                    ? WorkspaceRootToolbarSizing.controlHeight
-                    : nil
-            )
-            .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
-            .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
         if let openChief {
             ToolbarItem(id: "workspace-list-chief", placement: .topBarTrailing) {
