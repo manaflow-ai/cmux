@@ -475,7 +475,7 @@ export const nextDocPages: NextDocPage[] = [
         { path: "cmux-tui/docs", what: "cmux-tui docs: concepts, remote, protocol" },
       ] },
       { h2: "Agents: acpmux" },
-      { p: "acpmux is a daemon that keeps coding agents alive as named sessions: Claude Code, Codex, OpenCode, Pi, Gemini, and any agent that speaks the Agent Client Protocol (ACP). It records every message, so any number of clients can attach to a session, and it adds up what each turn cost. A chat tab in the app is one of those clients." },
+      { p: "acpmux is a daemon that keeps coding agents alive as named sessions: Claude Code, Codex, OpenCode, Pi, and any agent that speaks the Agent Client Protocol (ACP). It records every message, so any number of clients can attach to a session, and it adds up what each turn cost. A chat tab in the app is one of those clients." },
       { files: [
         { path: "cmux-tui/crates/acpmux", what: "The agent daemon and its CLI" },
         { path: "webviews/src/agent-session/acpmux", what: "The chat pane, a client of acpmux" },
