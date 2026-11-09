@@ -44,7 +44,7 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
-import { QUEUED_MESSAGE, TURN_RETRY, type AcpmuxTurnRetry } from "./model";
+import { QUEUED_MESSAGE, SINCE_DIVIDER, TURN_RETRY, type AcpmuxSince, type AcpmuxTurnRetry } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
@@ -129,6 +129,8 @@ import { withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } f
 import { bareSender, provenanceAuthenticated } from "./conversation/senderIdentity";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
+import { PLAN_BUILD_KIND } from "./planBuild/planBuild";
+import { PlanBuildRows } from "./planBuild/planBuildRows";
 import { OfferChildren } from "./offer/offerChildren";
 import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled } from "./transportErrors";
@@ -147,7 +149,12 @@ import { harnessModeName, highestMode } from "./harnessModes";
 import { insertRunChange, type RunChange, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
-import { BACKGROUND_TURN, backgroundTurnRecord, backgroundTurnRowId } from "./conversation/backgroundTurns";
+import {
+  BACKGROUND_TURN,
+  backgroundTurnRecord,
+  backgroundTurnRowId,
+  isReactionNote,
+} from "./conversation/backgroundTurns";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
@@ -169,6 +176,7 @@ import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIco
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
+import type { PlanBuildReply, PlanBuildTarget, PlanCompareReply } from "./permissions/planBuild";
 import {
   MEMORY_OFFER,
   memoryOfferFromRecord,
@@ -612,6 +620,9 @@ const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
 /// The capability id an acpmux that serves the memory inbox names (`memory_offer` records and
 /// `_acpmux/memory_resolve`): without it no memory card draws.
 const MEMORY_INBOX_CAPABILITY = "memory-inbox-v1";
+/// The feature a chat on another machine names (Cloud, SSH: the app's RemoteAcpmuxWire) where that
+/// machine opens the chat's side chats there, with `_acpmux/side_chat`.
+const SIDE_CHAT_FEATURE = "side_chat";
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
@@ -1587,6 +1598,14 @@ function afterPaint(run: () => void): () => void {
   return stop;
 }
 
+/// "New since you looked" from acpmux's `lastReturn` (`{since, turns}`, `hub/seen.rs`), when it has one.
+function returnOf(sessionId: string, value: unknown): (Omit<AcpmuxSince, "key"> & { sessionId: string }) | undefined {
+  const back = value as { since?: unknown; turns?: unknown } | null | undefined;
+  return typeof back?.since === "number" && typeof back.turns === "number" && back.turns > 0
+    ? { sessionId, seq: back.since, turns: back.turns }
+    : undefined;
+}
+
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,
 /// not one row per chunk. `at` (the chunk's time) dates the thought's first and latest chunk, so
 /// a folded thought can read "Thought for 12s" (conversation/ThoughtRow.tsx `thoughtDuration`).
@@ -1631,6 +1650,9 @@ const MANY_SLOTS = Symbol("many");
 /// replays events older than it, it moves after them again.
 export class OrderedRows extends Map<string, AcpmuxRow> {
   private readonly order = new Map<string, number>();
+  /// The newest event that wrote each streamed reply (`assistant`), where it differs from the one
+  /// that made it: a reply the person left mid-stream goes on past where they left (`placeAfter`).
+  private readonly lastWrite = new Map<string, number>();
   private readonly local = new Set<string>();
   private made = 0;
   /// The sequence number of the event being reduced.
@@ -1775,7 +1797,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.order.set(id, this.latest + 0.5 + (this.made += 1e-6));
         this.local.add(id);
       }
-    } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
+    } else if (this.current !== undefined) {
+      this.latest = Math.max(this.latest, this.current);
+      if (row.kind === "assistant") this.lastWrite.set(id, this.current);
+    }
     // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
     // never is: it starts a turn of its own (acpmux ends the background turn before it).
     let turn: string | undefined;
@@ -1838,6 +1863,37 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.snapshot = undefined;
   }
 
+  /// Where "New since you looked" goes for a person who had seen through the event at `seq`: right
+  /// after it, or before a reply that started at or before it and streamed on past it, so the rest
+  /// of that reply reads as new. One pass over the rows, made only when the line is placed.
+  placeAfter(seq: number): number {
+    let place = seq + 0.5;
+    for (const [id, last] of this.lastWrite) {
+      const first = this.order.get(id);
+      if (first !== undefined && first <= seq && last > seq) place = Math.min(place, first - 0.25);
+    }
+    return place;
+  }
+
+  /// Sets `row` to sort at `place` (`placeAfter`): "New since you looked" (`SINCE_DIVIDER`), which no
+  /// event of its own makes.
+  setAt(place: number, row: AcpmuxRow): void {
+    if (this.order.get(row.id) !== place) {
+      this.order.set(row.id, place);
+      this.local.delete(row.id);
+      this.ordered = undefined;
+      this.transcriptSummaryVersion = {};
+    } else if (this.ordered) {
+      // Same place, new content (a recap arrived or was dismissed): its slot of the kept order too.
+      const at = this.orderedIndex.get(row.id);
+      if (at === undefined) this.ordered = undefined;
+      else this.ordered[at] = row;
+    }
+    super.set(row.id, row);
+    this.snapshot = undefined;
+    this.changedSlot = MANY_SLOTS;
+  }
+
   /// The place `id` sorts at: its event's sequence number, or just after the events seen before it.
   orderOf(id: string): number {
     return this.order.get(id) ?? Infinity;
@@ -1858,6 +1914,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.snapshot = undefined;
     this.order.delete(id);
     this.local.delete(id);
+    this.lastWrite.delete(id);
     return super.delete(id);
   }
 
@@ -1869,6 +1926,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.snapshot = undefined;
     this.order.clear();
     this.local.clear();
+    this.lastWrite.clear();
     this.latest = 0;
     this.backgroundSpans = [];
     this.backgroundEnds.clear();
@@ -2365,6 +2423,8 @@ export class AcpmuxDirectClient {
   /// The selection an open in flight may still draw a tail for while it connects; cleared once
   /// the open reaches its own draw, which then decides.
   private earlyTailWindow?: number;
+  /// The hold of the open in flight (`OPEN_HOLD_MS`): a tail drawn for the open's chat ends it.
+  private openHold?: number;
   /// The selected peer chat was drawn from the Mac's copy of it (peerCopy.ts): set from the draw
   /// until an attach reads the chat, and kept, `offline`, while its machine does not answer.
   private peerCopy?: PeerCopy;
@@ -2494,6 +2554,8 @@ export class AcpmuxDirectClient {
   private subagentStops = subagentStops();
   /// Subagents and their records, which draw as group rows (subagents/subagentFold.ts).
   private subagents = new SubagentFold(this.subagentStops);
+  /// The plan build cards' rows and which build each of their chats is (planBuild/planBuildRows.ts).
+  private planBuilds = new PlanBuildRows();
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
   /// A purge in flight owns the selected session's disappearance; do not replace it with another
@@ -2904,6 +2966,7 @@ export class AcpmuxDirectClient {
     // The pane keeps what it shows (the page's cached chat, or the chat before a reconnect) until
     // the open has read the chat: no half-read frame (an empty transcript, no composer) in between.
     const hold = this.holdSnapshots(OPEN_HOLD_MS);
+    this.openHold = hold;
     let early: EarlyAttach | undefined;
     try {
       // With a progress threshold, as the reads have: a socket that opened but whose daemon never
@@ -3259,6 +3322,7 @@ export class AcpmuxDirectClient {
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
     this.rows.clear();
+    this.planBuilds.clear();
     this.memoryEarly.clear();
     this.queueAuthors.clear();
     this.queueEdited.clear();
@@ -3791,10 +3855,12 @@ export class AcpmuxDirectClient {
     }
     this.earlyTail = { sessionId, generation, through };
     this.drewKeptTail = true;
-    // Drawn now when the socket is still connecting. Once it is open the open holds its snapshots
-    // until the list confirms the chat (a chat the list lacks falls back or rebinds under that
-    // hold), and its own draw point releases them with these rows.
+    // Drawn now, the socket still connecting or open: the open's hold ends with these rows, as its
+    // own draw point would end it, rather than keeping the chat off screen until acpmux answers
+    // `initialize` and the list (hq#7289: about 900 ms for the chat in front at relaunch). A chat
+    // the list then lacks falls back or rebinds from them, as one drawn while connecting does.
     this.emit("selected");
+    if (this.openHold !== undefined) this.releaseSnapshots(this.openHold);
   }
 
   /// The open failed before its attach read the chat: rows drawn while it connected are not this
@@ -4553,11 +4619,72 @@ export class AcpmuxDirectClient {
     });
   }
 
-  /// Selecting a session is seeing it, including an unread flag acpmux sent.
+  /// Selecting a session is seeing it, including an unread flag acpmux sent. Turns that ended since
+  /// the person last left it put "New since you looked" after what they had seen; it stays until
+  /// another chat is selected, so it never appears or goes while the reader is on it.
   private markSeen(sessionId: string): void {
+    const listed = this.sessions.find((session) => session.sessionId === sessionId);
+    const turns = listed?.unreadTurns;
+    const seq = listed?.seenSeq;
+    if (typeof turns === "number" && turns > 0 && typeof seq === "number") {
+      this.since = { sessionId, seq, turns };
+      this.placeSince();
+    } else if (this.since?.sessionId !== sessionId) this.since = returnOf(sessionId, listed?.lastReturn);
     this.sessions = this.sessions.map((session) =>
-      session.sessionId === sessionId && session.unread === true ? { ...session, unread: false } : session,
+      session.sessionId === sessionId && (session.unread === true || session.unreadTurns)
+        ? { ...session, unread: false, unreadTurns: 0 }
+        : session,
     );
+  }
+
+  /// "New since you looked" for the chat on screen (`markSeen`): its row, after the record at
+  /// `since.seq`. Placed again after a reset clears the rows; O(1) when it is there already.
+  private since?: Omit<AcpmuxSince, "key"> & { sessionId: string };
+  /// Each standalone recap row by the chat and the `since` its record named (`placeSince`).
+  private readonly recapsBySince = new Map<string, string>();
+  /// An older page folded in (`foldOlder`): a reply it brought may span `since.seq`, so the drawn
+  /// divider is placed again even when its mark did not change.
+  private sinceStale = false;
+  private placeSince(): void {
+    // Its attach answered before the list said turns ended unseen (a cold open): acpmux keeps the
+    // return on the chat while the person stays (`lastReturn`).
+    const selected = this.selectedSessionId;
+    if (selected && this.since?.sessionId !== selected && this.summary?.sessionId === selected)
+      this.since = returnOf(selected, this.summary.lastReturn);
+    const since = this.since;
+    if (!since || since.sessionId !== this.selectedSessionId) {
+      if (this.rows.has(SINCE_DIVIDER)) this.rows.delete(SINCE_DIVIDER);
+      return;
+    }
+    // The recap made for this return, drawn on its own before the divider was known: onto it.
+    const recapId = since.recap ? undefined : this.recapsBySince.get(`${since.sessionId}:${since.seq}`);
+    const recap = recapId ? this.rows.get(recapId)?.recap : undefined;
+    if (recapId && recap) {
+      this.rows.delete(recapId);
+      this.since = { ...since, recap };
+      return this.placeSince();
+    }
+    const drawn = this.rows.get(SINCE_DIVIDER);
+    if (
+      !this.sinceStale &&
+      drawn?.since?.seq === since.seq &&
+      drawn.since.turns === since.turns &&
+      drawn.since.recap === since.recap
+    )
+      return;
+    this.sinceStale = false;
+    this.rows.setAt(this.rows.placeAfter(since.seq), {
+      id: SINCE_DIVIDER,
+      version: (drawn?.version ?? 0) + 1,
+      at: drawn?.at ?? Date.now(),
+      kind: SINCE_DIVIDER,
+      since: {
+        key: `${since.sessionId}:${since.seq}`,
+        seq: since.seq,
+        turns: since.turns,
+        ...(since.recap && { recap: since.recap }),
+      },
+    });
   }
 
   /// A refused peer start has no session id yet. Keep its destination until a session is
@@ -6585,15 +6712,29 @@ export class AcpmuxDirectClient {
 
   /// A background turn that ended: its reply goes onto the call its reaction is on, when the turn
   /// folds it (a silent one, or a quiet one); a reply with something to say draws as a message.
+  /// Only a short quiet note goes onto the call: a reply with more to say is the main agent's own turn
+  /// (`ownTurn`), drawn at the reply column with its own footer, never as the call's or the
+  /// subagent's words (Leo, 2026-11-08: "the text in this situation isn't from the subagent?", on
+  /// three later turns of the chat's replies drawn as one block under "Subagent finished").
   private settleReaction(turn: string): void {
     const origin = this.reactionOrigins.get(turn);
-    const reaction = origin === undefined ? undefined : this.reactions.get(origin)?.reaction;
-    if (!origin || reaction?.turn !== turn) return;
-    const line = this.rows.get(backgroundTurnRowId(turn))?.background;
-    if (line?.quiet !== true && reaction.weight !== "silent") return;
-    // An earlier end of the same call left its words (`attachReaction` carried them): these follow.
+    if (!origin) return;
+    const id = backgroundTurnRowId(turn);
+    const row = this.rows.get(id);
+    const line = row?.background;
+    if (!row || !line || (line.quiet !== true && line.cause?.weight !== "silent")) return;
     const reply = this.rows.backgroundReply(turn);
-    if (reply) this.react(origin, { ...reaction, text: reaction.text ? `${reaction.text}\n\n${reply}` : reply });
+    if (!reply) return;
+    // acpmux calls it quiet (one short line, nothing new); the length is the pane's own floor.
+    if (line.quiet !== true || !isReactionNote(reply)) {
+      if (!line.ownTurn)
+        this.rows.set(id, { ...row, version: row.version + 1, background: { ...line, ownTurn: true } });
+      return;
+    }
+    const reaction = this.reactions.get(origin)?.reaction;
+    if (reaction?.turn !== turn) return;
+    // An earlier end of the same call left its words (`attachReaction` carried them): these follow.
+    this.react(origin, { ...reaction, text: reaction.text ? `${reaction.text}\n\n${reply}` : reply });
   }
 
   /// Puts `reaction` on call `origin`: an activity row's tool call, or the subagent it started
@@ -7137,8 +7278,25 @@ export class AcpmuxDirectClient {
         // device, is skipped; never a turn of its own. Its key names the chat too: seqs repeat
         // across chats.
         const key = `${this.selectedSessionId ?? ""}:${event.seq}`;
-        if (typeof msg.text === "string" && msg.text.trim() && !recapDismissed(key)) {
+        const since = this.since;
+        if (
+          typeof msg.text === "string" &&
+          msg.text.trim() &&
+          !recapDismissed(key) &&
+          since &&
+          // A hidden selection skips markSeen, so the mark may still be another chat's.
+          since.sessionId === this.selectedSessionId &&
+          msg.since === since.seq
+        ) {
+          // Made for this return: it draws on "New since you looked", not as a second summary.
+          const recap = { key, text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined };
+          this.since = { ...since, recap };
+          this.placeSince();
+        } else if (typeof msg.text === "string" && msg.text.trim() && !recapDismissed(key)) {
           const id = `recap-${event.seq}`;
+          // Its return's divider may come only after this (an attach that answered before the
+          // list): `placeSince` moves the recap onto it then.
+          if (typeof msg.since === "number") this.recapsBySince.set(`${this.selectedSessionId ?? ""}:${msg.since}`, id);
           this.rows.set(id, {
             id,
             version: 1,
@@ -7201,6 +7359,9 @@ export class AcpmuxDirectClient {
         // acpmux's step of a subagent's retry: whether it gave up (subagents/retryState.ts).
         this.subagents.reduceRetryStep(msg);
         this.takeSubagentRows();
+      } else if (event.kind === PLAN_BUILD_KIND) {
+        // A plan approval's builds (acpmux hub/plan_build.rs): their card, where it was approved.
+        this.planBuilds.reduce(this.rows, event, msg);
       } else if (event.kind === "subsession" && msg.event === "limits") {
         // The chat's running limit changed: its summary's, not a child's card.
         this.reduceLiveState(event);
@@ -7208,6 +7369,8 @@ export class AcpmuxDirectClient {
         // A child an `acpmux run --parent` call of this chat started (acpmux #25019): that call's
         // run, whose card stands for the call's row from now on.
         this.subagents.harness = this.summary?.harness;
+        // A plan build's chat: its card's column says where it stands.
+        this.planBuilds.child(this.rows, msg);
         const call = this.subagents.reduceChild(event, msg);
         if (call) this.dropToolItem(call);
         this.takeSubagentRows();
@@ -8372,6 +8535,7 @@ export class AcpmuxDirectClient {
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
+    this.placeSince();
     const publishedRows = this.rows.sorted();
     this.noteReplace(publishedRows);
     const progressPlan = this.progressRow ? this.rows.get(this.progressRow)?.plan : undefined;
@@ -8440,6 +8604,7 @@ export class AcpmuxDirectClient {
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
+      ...(this.features.has(SIDE_CHAT_FEATURE) ? { sideChatOnMachine: true as const } : {}),
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
       permissionGroups: this.permissions.state,
@@ -8449,6 +8614,7 @@ export class AcpmuxDirectClient {
       // Two or more steers the agent has not read: the transcript draws other sessions' as one card.
       ...(this.waitingSteers.length > 1 ? { waitingSteers: this.steerRowIds() } : {}),
       ...(this.waitingSteers.length > 1 && this.newestOwnSteer() ? { newestOwnSteer: this.newestOwnSteer() } : {}),
+      ...(this.rows.get(SINCE_DIVIDER)?.since && { sinceKey: this.rows.get(SINCE_DIVIDER)!.since!.key }),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
         ? { permissionsWaiting: this.waitingPermissions.size, permissionsQueued: this.queuedPermissions() }
@@ -10023,6 +10189,37 @@ export class AcpmuxDirectClient {
       ...gestureMeta(ticket),
     });
   }
+  /// Builds a plan the chat's plan approval asks about (`_acpmux/plan/build`): `here` approves it
+  /// in this chat; `worktree` and `compare` start it in new worktrees as sub-sessions (one, or one
+  /// per harness) and answer the ask so this chat stays free. Takes a gesture ticket for that
+  /// exact build, as an answer does.
+  async planBuild(permissionId: string, target: PlanBuildTarget, session?: string): Promise<PlanBuildReply> {
+    const sessionId = session ?? this.actingSessionId;
+    // l10n-allow: refuses the card's answer so it stays answerable; never shown.
+    if (!sessionId) throw new Error("no chat to build in");
+    const params = { sessionId, permissionId, target };
+    const ticket = await postNative<{ ticket?: string }>("transport.gesture", {
+      intent: { method: "_acpmux/plan/build", params },
+    }).then(
+      (reply) => reply?.ticket,
+      () => undefined,
+    );
+    return (await this.request("_acpmux/plan/build", { ...params, ...gestureMeta(ticket) })) as PlanBuildReply;
+  }
+  /// A plan build's runs side by side (`_acpmux/plan/compare`): each one's state and diff.
+  async planCompare(buildId: string, session?: string): Promise<PlanCompareReply> {
+    const sessionId = session ?? this.actingSessionId;
+    // l10n-allow: a refusal the compare card shows as its error; never a label.
+    if (!sessionId) throw new Error("no chat to compare in");
+    return (await this.request("_acpmux/plan/compare", { sessionId, buildId })) as PlanCompareReply;
+  }
+  /// Keeps one run of a plan build (`_acpmux/plan/keep`): its branch stays, the others are archived.
+  async planKeep(buildId: string, keep: string, session?: string): Promise<PlanCompareReply> {
+    const sessionId = session ?? this.actingSessionId;
+    // l10n-allow: a refusal the compare card shows as its error; never a label.
+    if (!sessionId) throw new Error("no chat to keep a build in");
+    return (await this.request("_acpmux/plan/keep", { sessionId, buildId, keep })) as PlanCompareReply;
+  }
   /// Answers a secret card: `value` provides it (acpmux keeps it in memory and gives the agent a
   /// one-use ref), none declines. The wire log never holds the value (wire.ts).
   async secret(secretId: string, value?: string): Promise<void> {
@@ -10527,6 +10724,14 @@ export class AcpmuxDirectClient {
       ...(Array.isArray(summary?.configOptions) ? { configOptions: summary.configOptions } : {}),
     };
   }
+  /// Whether `sessionId` is the chat on screen and attached, once a switch's hold has let it draw:
+  /// an action that reads the drawn chat (Stop, Fork) then reaches it and never the chat before.
+  async shownAndAttached(sessionId: string): Promise<boolean> {
+    while (this.snapshotHold && this.shownSessionId !== this.selectedSessionId) await this.snapshotHold.released;
+    return (
+      this.selectedSessionId === sessionId && this.actingSessionId === sessionId && this.attachedSession() === sessionId
+    );
+  }
   /// The selected chat's attach has supplied a matching summary for this selection generation.
   /// A stale or malformed attach can otherwise make `select()` resolve with only its requested id.
   attachedSession(): string | undefined {
@@ -11027,6 +11232,12 @@ export class AcpmuxDirectClient {
   /// (a press on the chat a switch still shows).
   dismissRecap(rowId: string, key: string): void {
     rememberRecapDismissed(key);
+    if (rowId === SINCE_DIVIDER && this.since?.recap?.key === key) {
+      this.since = { sessionId: this.since.sessionId, seq: this.since.seq, turns: this.since.turns };
+      this.placeSince();
+      this.emit();
+      return;
+    }
     if (this.rows.get(rowId)?.recap?.key !== key) return;
     this.rows.delete(rowId);
     this.emit();
@@ -11202,6 +11413,33 @@ export class AcpmuxDirectClient {
       this.forking = false;
     }
   }
+  /// New side chat and `/side [prompt]` of a chat on another machine that opens side chats there
+  /// (`sideChatOnMachine`): that machine forks the open chat through `throughSeq` (`live`: as it is
+  /// now, its turn going on), tags the fork its side chat and sends it `prompt`, in one call, and
+  /// the side chat runs there, in the chat's folder (the app's RemoteAcpmuxWire, cmux-tui
+  /// agent_session_side.rs). Answers its id there, which the host then opens beside the chat, and
+  /// `notSent`, why that machine's acpmux did not take `prompt` when it did not.
+  async sideChatOnMachine(
+    throughSeq: number | "live",
+    prompt?: string,
+  ): Promise<{ sessionId: string; notSent?: string } | undefined> {
+    const sessionId = this.selectedSessionId;
+    if (!this.features.has(SIDE_CHAT_FEATURE) || !sessionId || this.forking) return undefined;
+    this.forking = true;
+    try {
+      const boundary = throughSeq === "live" ? { live: true } : { throughSeq };
+      const result = await this.request("_acpmux/side_chat", {
+        sessionId,
+        ...boundary,
+        ...(prompt ? { prompt } : {}),
+      });
+      if (typeof result?.sessionId !== "string" || !result.sessionId) return undefined;
+      const notSent = typeof result.notSent === "string" ? { notSent: result.notSent } : {};
+      return { sessionId: result.sessionId, ...notSent };
+    } finally {
+      this.forking = false;
+    }
+  }
   /// A side chat's fork that never opened beside its chat: its chat and conversation copy go.
   takeBackSide(sessionId: string): void {
     this.takeBackFork(sessionId);
@@ -11219,6 +11457,25 @@ export class AcpmuxDirectClient {
     // No id: the caller says the side session did not start, without a reason it does not have.
     if (typeof result?.sessionId !== "string" || !result.sessionId) throw new Error("");
     return result.sessionId;
+  }
+  /// This machine's agent spend for History > Costs (`_acpmux/ledger`, ledger/ledgerModel.ts): read
+  /// from acpmux's ledger index, never a log scan. An older acpmux answers method not found.
+  async ledger(params: Record<string, unknown>): Promise<unknown> {
+    return this.request("_acpmux/ledger", params, 15_000);
+  }
+  /// Every ask waiting on the person across agents and machines, for History > Waiting on you
+  /// (`_acpmux/review_queue`, queue/queueModel.ts).
+  async reviewQueue(params: Record<string, unknown> = {}): Promise<unknown> {
+    return this.request("_acpmux/review_queue", params, 15_000);
+  }
+  /// A pull request item's Accept or Request changes (`_acpmux/review_verdict`). Sent on the click
+  /// or key with no await before it: the relay takes a verdict only on the person's gesture.
+  async reviewVerdict(params: Record<string, unknown>): Promise<unknown> {
+    return this.request("_acpmux/review_verdict", params, 15_000);
+  }
+  /// One page of the approvals audit trail (`_acpmux/audit`): `{entries, next?}`.
+  async audit(params: Record<string, unknown> = {}): Promise<unknown> {
+    return this.request("_acpmux/audit", params, 15_000);
   }
   /// The chat's effective prompt context for the Context screen (`_acpmux/context`, acpmux
   /// context_inventory.rs): what cmux adds in full, the harness's own parts as counts.
@@ -11844,6 +12101,7 @@ export class AcpmuxDirectClient {
     } finally {
       this.foldingBelow = undefined;
     }
+    this.sinceStale = true;
     // The held events' compactions take up the ones the page left open, in order, as reading the
     // whole record does (`compaction` above). One whose first record is a running note continues a
     // compaction the page left running, or noted as failed while it may go on (a forced Stop, or an

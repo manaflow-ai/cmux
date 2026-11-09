@@ -48,6 +48,28 @@ pub enum DialOutcome<T, E> {
     Fatal(E),
 }
 
+/// Why the first dial stopped without an attempt's own error. The caller's error type converts
+/// from it ([`LinkCell::dial`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DialStop {
+    /// A network change abandoned the attempt in flight.
+    NetworkChanged,
+    /// `ReconnectPolicy::maximum_duration` passed after `attempts` attempts.
+    DeadlineExceeded { attempts: u32 },
+}
+
+impl fmt::Display for DialStop {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NetworkChanged => formatter.write_str(NETWORK_CHANGED),
+            Self::DeadlineExceeded { attempts } => write!(
+                formatter,
+                "the first connect did not succeed within its maximum duration ({attempts} attempts)"
+            ),
+        }
+    }
+}
+
 /// Why [`LinkCell::wait_connected`] did not return a connection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotConnected {
@@ -144,7 +166,11 @@ impl LinkCell {
     /// dial then parks until a network change on `network`, a [`LinkCell::wake`], or the
     /// jittered `maximum_delay`. A network change abandons an attempt in flight and starts a new
     /// burst at once. A finite `policy.maximum_attempts` ends it after that many failures with
-    /// the last error. The caller attaches the connection it got ([`LinkCell::attach`]).
+    /// the last error, counting an attempt a network change abandoned
+    /// ([`DialStop::NetworkChanged`]), so a flapping network cannot outlast the bound. A finite
+    /// `policy.maximum_duration` ends the whole dial, an attempt in flight or a wait included, with
+    /// [`DialStop::DeadlineExceeded`]. The caller attaches the connection it got
+    /// ([`LinkCell::attach`]).
     pub async fn dial<T, E, F, Fut>(
         &self,
         policy: ReconnectPolicy,
@@ -152,56 +178,74 @@ impl LinkCell {
         mut attempt: F,
     ) -> Result<T, E>
     where
-        E: fmt::Display,
+        E: fmt::Display + From<DialStop>,
         F: FnMut() -> Fut,
         Fut: Future<Output = DialOutcome<T, E>>,
     {
         let mut actions = self.actions.subscribe();
         actions.borrow_and_update();
         let mut bucket = TokenBucket::new(policy.redial_budget, tokio::time::Instant::now());
+        // The whole first dial, attempts and waits included, ends by `maximum_duration`.
+        let deadline = policy
+            .maximum_duration
+            .and_then(|bound| tokio::time::Instant::now().checked_add(bound));
+        let mut attempts = 0_u32;
         let mut failures = 0_u32;
         let mut in_burst = 0_u32;
         let mut delay = policy.initial_delay;
         let mut reason: Option<String> = None;
+        // The deadline is polled first in every wait, as `ClientConnection`'s is: a wait that
+        // is ready at or past it still loses, so nothing goes on after it.
         loop {
+            if expired(deadline) {
+                return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+            }
             while let Err(next) = bucket.take(tokio::time::Instant::now()) {
                 self.phase.send_replace(LinkPhase::Disconnected { reason: reason.clone() });
-                tokio::time::sleep_until(next).await;
+                tokio::select! {
+                    biased;
+                    () = until(deadline) => {
+                        return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+                    }
+                    () = tokio::time::sleep_until(next) => {}
+                }
             }
+            // A token that arrived at the deadline starts nothing.
+            if expired(deadline) {
+                return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+            }
+            attempts = attempts.saturating_add(1);
             in_burst = in_burst.saturating_add(1);
             self.phase.send_replace(LinkPhase::Connecting { reason: reason.clone() });
             // This attempt starts on the network as it is now; only a change while it is in
             // flight abandons it.
             network.borrow_and_update();
+            let mut network_moved = false;
             let outcome = tokio::select! {
                 biased;
-                outcome = attempt() => Some(outcome),
-                Ok(()) = network.changed() => None,
+                () = until(deadline) => {
+                    return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+                }
+                outcome = attempt() => outcome,
+                // A dial on the network that went away may hang until its timeout; drop it.
+                Ok(()) = network.changed() => {
+                    network_moved = true;
+                    DialOutcome::Retry(DialStop::NetworkChanged.into())
+                }
             };
             let error = match outcome {
-                Some(DialOutcome::Ready(value)) => return Ok(value),
-                Some(DialOutcome::Fatal(error)) => {
-                    self.phase.send_replace(LinkPhase::Failed { reason: error.to_string() });
-                    return Err(error);
-                }
-                Some(DialOutcome::Retry(error)) => error,
-                None => {
-                    // A dial on the network that went away may hang until its timeout; drop it
-                    // and start a new burst on the new one.
-                    network.borrow_and_update();
-                    reason = Some(NETWORK_CHANGED.into());
-                    in_burst = 0;
-                    delay = policy.initial_delay;
-                    continue;
-                }
+                DialOutcome::Ready(value) => return Ok(value),
+                DialOutcome::Fatal(error) => return Err(self.fail(error)),
+                DialOutcome::Retry(error) => error,
             };
             reason = Some(error.to_string());
+            // Every failed attempt counts, one a network change abandoned too: a flapping
+            // network cannot outlast an attempt bound.
             failures = failures.saturating_add(1);
             if policy.maximum_attempts.is_some_and(|maximum| failures >= maximum) {
-                self.phase.send_replace(LinkPhase::Failed { reason: error.to_string() });
-                return Err(error);
+                return Err(self.fail(error));
             }
-            if network.has_changed().unwrap_or(false) {
+            if network_moved || network.has_changed().unwrap_or(false) {
                 // A new network starts a new burst at once.
                 network.borrow_and_update();
                 in_burst = 0;
@@ -219,6 +263,9 @@ impl LinkCell {
             // flight still wakes the park.
             let woken = tokio::select! {
                 biased;
+                () = until(deadline) => {
+                    return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+                }
                 Ok(()) = network.changed() => {
                     network.borrow_and_update();
                     true
@@ -236,5 +283,23 @@ impl LinkCell {
                 delay = delay.saturating_mul(4).min(policy.maximum_delay);
             }
         }
+    }
+
+    /// The first dial ended for good with `error`: the cell says why.
+    fn fail<E: fmt::Display>(&self, error: E) -> E {
+        self.phase.send_replace(LinkPhase::Failed { reason: error.to_string() });
+        error
+    }
+}
+
+fn expired(deadline: Option<tokio::time::Instant>) -> bool {
+    deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
+}
+
+/// Resolves at `deadline`, or never without one.
+async fn until(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
     }
 }

@@ -10,6 +10,7 @@ const TOKEN: &str = "wireguard-test-listener-token";
 
 fn peer(key: String, endpoint: SocketAddr, address: SocketAddr) -> PeerConfig {
     PeerConfig {
+        link_host: None,
         url: "ws://127.0.0.1:1".into(),
         wireguard: Some(StaticPeer { public_key: key, endpoint: endpoint.to_string(), address }),
         token: Some(TOKEN.into()),
@@ -96,15 +97,21 @@ fn disabled_never_binds_udp_or_reads_a_key() {
             listen: occupied.local_addr().unwrap(),
             address: "10.77.0.1:4100".parse().unwrap(),
         });
-        let disabled =
-            Transport::start(&cfg, &dir.path().join("absent"), "127.0.0.1:1".parse().unwrap())
-                .await
-                .unwrap();
+        let disabled = Transport::start_with_link(
+            &cfg,
+            &dir.path().join("absent"),
+            None,
+            "127.0.0.1:1".parse().unwrap(),
+        )
+        .await
+        .unwrap();
         assert!(disabled.is_none());
         assert!(!dir.path().join("absent").exists());
         cfg.transport.wireguard = true;
         assert!(
-            Transport::start(&cfg, dir.path(), "127.0.0.1:1".parse().unwrap()).await.is_err(),
+            Transport::start_with_link(&cfg, dir.path(), None, "127.0.0.1:1".parse().unwrap())
+                .await
+                .is_err(),
             "the occupied UDP socket must prevent enabled startup"
         );
     });
@@ -122,17 +129,28 @@ fn a_held_key_lock_steps_the_transport_down_without_binding() {
             listen: occupied.local_addr().unwrap(),
             address: "10.77.0.1:4100".parse().unwrap(),
         });
+        // A link that serves this node's own key (one key on the machine) holds its lock.
+        let link_dir = tempfile::tempdir().unwrap();
+        crate::cli::mesh_node_key::load_or_create_at(dir.path()).unwrap();
+        let node = std::fs::read(cmux_link::key_holder::KeyFile::Node.path_in(dir.path())).unwrap();
+        std::fs::write(
+            cmux_link::key_holder::KeyFile::Link.path_in(link_dir.path()),
+            base64::engine::general_purpose::STANDARD.encode(&node),
+        )
+        .unwrap();
         let link = KeyHolder::acquire(dir.path()).unwrap();
-        let stepped_down =
-            Transport::start(&cfg, dir.path(), "127.0.0.1:1".parse().unwrap()).await.unwrap();
-        assert!(stepped_down.is_none());
-        assert!(
-            !cmux_link::key_holder::KeyFile::Node.path_in(dir.path()).exists(),
-            "a stepped-down transport read or created the key"
-        );
+        let start = || {
+            Transport::start_with_link(
+                &cfg,
+                dir.path(),
+                Some(link_dir.path()),
+                "127.0.0.1:1".parse().unwrap(),
+            )
+        };
+        assert!(start().await.unwrap().is_none());
         drop(link);
         assert!(
-            Transport::start(&cfg, dir.path(), "127.0.0.1:1".parse().unwrap()).await.is_err(),
+            start().await.is_err(),
             "with the lock free, the transport goes on to the (occupied) bind"
         );
     });

@@ -2211,3 +2211,8 @@ div.cv-subagent-done[data-toggle-line]::before {
 .acpmux-running-tray__detail-latest {
   color: var(--agent-muted);
 }
+/* Show more under a report the card has only part of (WholeReportBody.tsx): the expand row across
+   the report's width, so the rest opens in place under the words it continues. */
+.cv-subagent-done__more-row {
+  align-self: stretch;
+}

@@ -15,11 +15,17 @@ use super::super::{
     open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,
     required_meta,
 };
+use super::chunks::{CHUNK_SCHEMA, StagedRecord, insert_chunk};
 use super::codec::{inflate_segment, split_records};
-use super::{OUTPUT_KIND, copied_bytes, free_space_refusal, remove_staging, staging_path};
+use super::{
+    MAX_KEPT_RECORDS, OUTPUT_KIND, copied_bytes, free_space_refusal, kept_refusal, live_records,
+    remove_staging, staged_bytes_refusal, staging_path,
+};
 use crate::platform;
 
-const STAGING_FORMAT: &str = "2";
+/// Format 3 stores kept records compressed (`chunks.rs`); a format 2 file
+/// (plain JSON per record) is discarded and staged again.
+const STAGING_FORMAT: &str = "3";
 /// Free space is checked again after this many staged segments.
 const SEGMENTS_PER_SPACE_CHECK: u64 = 256;
 const PROGRESS_LOG_INTERVAL: Duration = Duration::from_secs(10);
@@ -45,6 +51,9 @@ pub(crate) enum StageOutcome {
     Refused(String),
     /// The owner is stopping; the staged work so far stays.
     Stopped,
+    /// The cleanup would keep too much of the journal (module docs of
+    /// `output_cleanup`); any staging file is deleted.
+    Skipped(String),
 }
 
 pub(crate) struct StageControl<'a> {
@@ -94,6 +103,15 @@ fn stage_registry_until_stopped(
     if !output_present(&source)? {
         return Ok(StageOutcome::NotNeeded);
     }
+    // A mixed segment counts as output here (the staged count checks it as
+    // it goes), but every record counts toward the journal's size.
+    let sealed = sealed_records(&source, 0)?;
+    let (live_kept, live_total) = live_records(&source)?;
+    if let Some(reason) = kept_refusal(sealed.kept_at_least + live_kept, sealed.total + live_total)
+    {
+        remove_staging(db_path)?;
+        return Ok(StageOutcome::Skipped(reason));
+    }
     (control.on_pending)();
     let copied = copied_bytes(&source)?;
     if let Err(reason) = free_space_refusal(db_path, copied)? {
@@ -116,10 +134,22 @@ fn stage_registry_until_stopped(
     } else {
         eprintln!("cmux-tui: output cleanup: staging {}", staging_path(db_path).display());
     }
-    match stage_segments(&source, &staging, control.next_segment, Some((db_path, copied)))? {
-        Staged::Stopped => return Ok(StageOutcome::Stopped),
-        Staged::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
-        Staged::Finished => {}
+    let abandoned =
+        match stage_segments(&source, &staging, control.next_segment, Some((db_path, copied)))? {
+            Staged::Stopped => return Ok(StageOutcome::Stopped),
+            Staged::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
+            Staged::Abandoned(reason) => Some(reason),
+            Staged::Finished => {
+                let (staged_kept, staged_total) = staged_records(&staging)?;
+                let (live_kept, live_total) = live_records(&source)?;
+                staged_bytes_refusal(db_path)
+                    .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
+            }
+        };
+    if let Some(reason) = abandoned {
+        drop(staging);
+        remove_staging(db_path)?;
+        return Ok(StageOutcome::Skipped(reason));
     }
     count_live_rows(&source, &staging)?;
     staging.execute("UPDATE output_cleanup_state SET value = '1' WHERE key = 'complete'", [])?;
@@ -153,6 +183,54 @@ pub(super) fn output_present(source: &Connection) -> anyhow::Result<bool> {
     )?)
 }
 
+/// The records of the sealed segments after sequence `after`, from their
+/// kind map alone (a row of each segment, never its content).
+pub(super) struct SealedRecords {
+    /// Records of segments without output: kept for certain.
+    pub(super) kept_at_least: u64,
+    /// Records of every segment that is not output only (mixed and unmapped
+    /// segments too): at most this many are kept.
+    pub(super) kept_at_most: u64,
+    /// Records of every segment.
+    pub(super) total: u64,
+}
+
+pub(super) fn sealed_records(source: &Connection, after: u64) -> anyhow::Result<SealedRecords> {
+    let (at_least, at_most, total): (i64, i64, i64) = source.query_row(
+        "SELECT COALESCE(SUM(CASE WHEN has_other AND NOT has_output THEN record_count END), 0),
+                COALESCE(SUM(CASE WHEN has_other OR NOT has_output THEN record_count END), 0),
+                COALESCE(SUM(record_count), 0)
+         FROM (
+           SELECT segment.record_count,
+                  EXISTS(SELECT 1 FROM journal_segment_kinds AS kinds
+                         WHERE kinds.segment_id = segment.segment_id AND kinds.kind = ?1)
+                    AS has_output,
+                  EXISTS(SELECT 1 FROM journal_segment_kinds AS kinds
+                         WHERE kinds.segment_id = segment.segment_id AND kinds.kind != ?1)
+                    AS has_other
+           FROM journal_segments AS segment
+           WHERE segment.start_sequence > ?2)",
+        params![OUTPUT_KIND, i64::try_from(after)?],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    Ok(SealedRecords {
+        kept_at_least: u64::try_from(at_least)?,
+        kept_at_most: u64::try_from(at_most)?,
+        total: u64::try_from(total)?,
+    })
+}
+
+/// (kept, all) records of the segments staged so far: one row per segment.
+pub(super) fn staged_records(staging: &Connection) -> anyhow::Result<(u64, u64)> {
+    let (kept, total): (i64, i64) = staging.query_row(
+        "SELECT COALESCE(SUM(kept), 0), COALESCE(SUM(record_count), 0)
+         FROM output_cleanup_segments",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok((u64::try_from(kept)?, u64::try_from(total)?))
+}
+
 /// The staging file of `db_path` for registry `registry_id`: the existing
 /// one when it belongs to that registry and this format, else a new one.
 pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<Connection> {
@@ -180,12 +258,6 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
            key TEXT PRIMARY KEY NOT NULL,
            value TEXT NOT NULL
          );
-         CREATE TABLE output_cleanup_records (
-           sequence INTEGER PRIMARY KEY CHECK(sequence > 0),
-           kind TEXT NOT NULL,
-           record_json BLOB NOT NULL,
-           actor TEXT
-         );
          CREATE TABLE output_cleanup_segments (
            start_sequence INTEGER PRIMARY KEY,
            end_sequence INTEGER NOT NULL,
@@ -196,6 +268,7 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
            CHECK(record_count = end_sequence - start_sequence + 1)
          );",
     )?;
+    connection.execute_batch(CHUNK_SCHEMA)?;
     let tx = connection.unchecked_transaction()?;
     for (key, value) in [
         ("format", STAGING_FORMAT),
@@ -256,10 +329,13 @@ pub(super) enum Staged {
     Finished,
     Stopped,
     Refused(String),
+    /// The staged work passed a bound (`output_cleanup` module docs).
+    Abandoned(String),
 }
 
 /// Stages every sealed segment of `source` after the staging cursor. With
-/// `space_check`, free space beside that registry is checked as it goes.
+/// `space_check`, free space beside that registry and the staged work's
+/// bounds are checked as it goes.
 pub(super) fn stage_segments(
     source: &Connection,
     staging: &Connection,
@@ -315,13 +391,7 @@ pub(super) fn stage_segments(
                 record_count - i64::try_from(kept.len())?
             ],
         )?;
-        for record in &kept {
-            tx.execute(
-                "INSERT INTO output_cleanup_records(sequence, kind, record_json, actor)
-                 VALUES(?1, ?2, ?3, ?4)",
-                params![i64::try_from(record.0)?, record.1, record.2, record.3],
-            )?;
-        }
+        insert_chunk(&tx, &kept)?;
         tx.execute(
             "UPDATE output_cleanup_state SET value = ?1 WHERE key = 'staged_through'",
             [end.to_string()],
@@ -343,6 +413,13 @@ pub(super) fn stage_segments(
             since_space_check = 0;
             if let Err(reason) = free_space_refusal(db_path, copied)? {
                 return Ok(Staged::Refused(reason));
+            }
+            let (kept, _) = staged_records(staging)?;
+            if let Some(reason) = staged_bytes_refusal(db_path).or_else(|| {
+                (kept > MAX_KEPT_RECORDS)
+                    .then(|| format!("{kept} records staged, over the bound of {MAX_KEPT_RECORDS}"))
+            }) {
+                return Ok(Staged::Abandoned(reason));
             }
         }
         if last_log.elapsed() >= progress_log_interval() {
@@ -408,8 +485,6 @@ fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<
     Ok(())
 }
 
-type KeptRecord = (u64, String, Vec<u8>, Option<String>);
-
 /// The non-output records of one sealed segment with their stored actors.
 /// Every segment is inflated: its kind map is not proof that it holds only
 /// output, since a legacy kind backfill killed partway leaves a mixed
@@ -420,7 +495,7 @@ fn kept_segment_records(
     start: u64,
     end: u64,
     record_count: i64,
-) -> anyhow::Result<Vec<KeptRecord>> {
+) -> anyhow::Result<Vec<StagedRecord>> {
     let (codec, content, uncompressed_bytes, sha256, actors_json) = source.query_row(
         "SELECT codec, content, uncompressed_bytes, sha256, actors_json
          FROM journal_segments WHERE segment_id = ?1",

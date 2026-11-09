@@ -5,7 +5,7 @@
 // are in the Rust catalog (cmux-action-catalog).
 
 /// What the profile menu holds, top to bottom: the current profile (with its
-/// options submenu), the submenus, Settings, Check for Updates, the account
+/// options submenu), the submenus, Show Chief, Personalization…, Settings, Check for Updates, the account
 /// rows (Accounts…, Cloud), then New Tab and Incognito Window. A submenu row or action the build
 /// does not register is left out, and a submenu with no row is left out
 /// (items whose feature does not exist are omitted, not disabled). "New
@@ -29,6 +29,8 @@ public nonisolated struct ProfileMenuSpec: Sendable {
 
     public var profileActions: [ActionID]
     public var submenus: [Submenu]
+    /// Personalization…, under Show Chief: Settings > Personalization (Leo 2026-11-07).
+    public var personalization: Row
     public var settings: Row
     /// Check for Updates…, under Settings: the app menu has it, and the
     /// profile menu is the sidebar's app menu.
@@ -54,6 +56,7 @@ public nonisolated struct ProfileMenuSpec: Sendable {
                     symbol: "chevron.left.forwardslash.chevron.right",
                     actions: ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"]),
         ]
+        personalization = Row(action: "appearance.personalize", title: nil, symbol: "wand.and.stars")
         settings = Row(action: "openSettings", title: nil, symbol: "gear")
         updates = Row(action: "palette.checkForUpdates", title: nil, symbol: "arrow.down.circle")
         account = [
