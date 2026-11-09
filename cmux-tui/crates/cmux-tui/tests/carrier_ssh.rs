@@ -306,6 +306,33 @@ fn capabilities(world: &SshWorld) -> Value {
     serde_json::from_slice(&out.stdout).unwrap()
 }
 
+/// [`round_trip`] for the row: when no line comes, the failure says what
+/// the dial, the fake ssh and the stand-in hub saw.
+fn row_round_trip(
+    world: &SshWorld,
+    stdin: &mut impl Write,
+    lines: &mpsc::Receiver<String>,
+    id: u32,
+) -> String {
+    let ask = format!("{{\"cmd\":\"identify\",\"id\":{id}}}\n");
+    stdin.write_all(ask.as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    let mut got = Vec::new();
+    while got.len() < 2 {
+        match lines.recv_timeout(Duration::from_secs(30)) {
+            Ok(line) => got.push(line),
+            Err(why) => panic!(
+                "round trip {id}: {why:?} after {got:?}\nconnect log:\n{}\nssh args:\n{}\nhub dialed: {:?}",
+                world.connect_log(),
+                std::fs::read_to_string(&world.ssh_args).unwrap_or_default(),
+                world.hub_dialed.lock().unwrap()
+            ),
+        }
+    }
+    assert_eq!(got[0], ask, "the device's line reached the daemon");
+    got.remove(1)
+}
+
 /// The `carrier_faults` ssh row for the Cloud carrier (goal
 /// cloud-carrier-ssh-backup S2, G5), the one the failover probe's
 /// capability gate stands for: with this device's tunnel hub up,
@@ -347,7 +374,7 @@ fn carrier_faults_ssh_row_relay_cut_fails_over_to_ssh_through_wg_dial_and_back()
     });
     let lines = lines(&mut child);
     let mut stdin = child.stdin.take().unwrap();
-    let (_, pushed) = round_trip(&mut stdin, &lines, 1);
+    let pushed = row_round_trip(&world, &mut stdin, &lines, 1);
     assert_eq!(pushed, "{\"event\":\"pushed\",\"conn\":0}\n");
     let log = world.connect_log();
     assert!(log.contains("phase=connect ssh=on carrier=relay:0 outcome=ok"), "{log}");
@@ -356,7 +383,7 @@ fn carrier_faults_ssh_row_relay_cut_fails_over_to_ssh_through_wg_dial_and_back()
     // Cut the relay: the session goes on over ssh, through `wg dial`.
     let relay_cut = std::time::Instant::now();
     world.cut.send_replace(true);
-    let (_, pushed) = round_trip(&mut stdin, &lines, 2);
+    let pushed = row_round_trip(&world, &mut stdin, &lines, 2);
     assert_eq!(pushed, "{\"event\":\"pushed\",\"conn\":0}\n", "the same mux connection");
     let to_ssh = relay_cut.elapsed();
     log_with(&world, "phase=resume carrier=ssh:0 outcome=ok");
@@ -371,7 +398,7 @@ fn carrier_faults_ssh_row_relay_cut_fails_over_to_ssh_through_wg_dial_and_back()
     world.cut.send_replace(false);
     let ssh_cut = std::time::Instant::now();
     world.hub_cut.store(true, std::sync::atomic::Ordering::SeqCst);
-    let (_, pushed) = round_trip(&mut stdin, &lines, 3);
+    let pushed = row_round_trip(&world, &mut stdin, &lines, 3);
     assert_eq!(pushed, "{\"event\":\"pushed\",\"conn\":0}\n", "still the same mux connection");
     let to_relay = ssh_cut.elapsed();
     let log = log_with(&world, "phase=resume carrier=relay:0 outcome=ok");
