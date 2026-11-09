@@ -119,7 +119,7 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
         ".acpmux-composer-box { --acpmux-card-ring: 0 0 transparent !important; --acpmux-composer-rim: 0 0 transparent !important; }",
     });
     const plain = await shot(page, band);
-    await bare.evaluate((node) => node.remove());
+    await bare.evaluate((node) => (node as HTMLStyleElement).remove());
     const width = band.right - band.left;
     return {
       inside: diff(drawn, plain, 8 + 2, width - 8 - 2),
