@@ -307,3 +307,39 @@ fn agent_states(snapshot: &Value) -> std::collections::BTreeMap<String, Value> {
         .map(|(terminal, entry)| (terminal.clone(), entry["state"].clone()))
         .collect()
 }
+
+/// A legacy kind backfill an older build stopped partway (marker `0`) can
+/// leave a sealed segment mapped without its agent kinds. The premigration
+/// does not trust such a map: it reads the sealed range with the full
+/// decoder, so the side snapshot equals a cold fold and its cursor never
+/// passes an agent event the map hides.
+#[test]
+fn a_partial_kind_map_does_not_hide_an_agent_event_from_the_premigration() {
+    let store = stale_roster_store("premigrate-partial-kind-map");
+    let db = rusqlite::Connection::open(&store.db_path).unwrap();
+    let hidden: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM journal_segment_kinds
+             WHERE kind LIKE 'agent.%' OR kind LIKE 'plugin.%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(hidden > 0, "the sealed segments map agent kinds");
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds WHERE kind LIKE 'agent.%' OR kind LIKE 'plugin.%';
+         INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind)
+           SELECT segment_id, 'personal.session.put' FROM journal_segments;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_through', '0')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+    )
+    .unwrap();
+    drop(db);
+    let report = premigrate(&store, &PremigrateControl::new(None, NEVER));
+    assert!(report.complete, "{report:?}");
+    assert_eq!(report.cursor, store.head);
+    assert_eq!(side_snapshot(&store), store.cold);
+    assert_eq!(agent_states(&side_snapshot(&store)).len(), 4, "{}", store.cold);
+}

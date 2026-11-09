@@ -27,7 +27,7 @@ use serde_json::Value;
 
 use super::open_guard::sidecar_path;
 use super::session_journal::kind_read::query_session_journal_kinds_after;
-use super::session_journal::query_journal_head;
+use super::session_journal::{query_journal_head, query_session_journal_after};
 use super::{
     WORKSPACE_REGISTRY_FILE, WorkspaceRegistry, meta_value, open_registry_database_read_only,
     persistent_session_state_dir,
@@ -373,6 +373,15 @@ fn fold_roster(
 /// in its own short read transaction: a consistent view of the active
 /// journal and its sealed segments while the owner appends and seals,
 /// released before the next page.
+///
+/// The kind read skips a sealed segment whose kind map names none of the
+/// roster's kinds. A map is whole only once the legacy kind backfill has
+/// finished: one an older build stopped partway can map a segment as only
+/// `personal.session.put` while it holds an agent event, and the kind read
+/// would skip that event and pass the cursor over it for good. Until the
+/// backfill's marker says it finished, the sealed range is read with the
+/// full validating decoder instead; a read-only connection never runs the
+/// backfill itself. The active journal's kind index is always whole.
 fn read_page(
     source: &Connection,
     cursor: u64,
@@ -380,15 +389,64 @@ fn read_page(
     page: usize,
 ) -> anyhow::Result<(Vec<super::SessionJournalRecord>, u64)> {
     let transaction = source.unchecked_transaction()?;
-    let read = query_session_journal_kinds_after(
-        &transaction,
-        cursor,
-        head,
-        AgentRoster::folds_kind,
-        page,
-    );
+    let read = (|| {
+        if cursor < archive_head(&transaction)? && !kind_maps_whole(&transaction)? {
+            return full_decode_page(&transaction, cursor, head, page);
+        }
+        query_session_journal_kinds_after(&transaction, cursor, head, AgentRoster::folds_kind, page)
+    })();
     transaction.finish()?;
     read
+}
+
+/// The last sequence held by a sealed segment (0 with none).
+fn archive_head(connection: &Connection) -> anyhow::Result<u64> {
+    let end: i64 = connection.query_row(
+        "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+        [],
+        |row| row.get(0),
+    )?;
+    u64::try_from(end).context("archived journal sequence is negative")
+}
+
+/// Whether every sealed segment's kind map can be trusted: no legacy kind
+/// backfill ever started (seals write whole maps), or one finished (`1`)
+/// with no progress rows left beside it (a `1` next to them is an older
+/// build's, written after a downgrade, and proves nothing).
+fn kind_maps_whole(connection: &Connection) -> anyhow::Result<bool> {
+    let (marker, progress): (Option<String>, bool) = connection.query_row(
+        "SELECT (SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'),
+                EXISTS(SELECT 1 FROM meta WHERE key IN (
+                  'journal_segment_kinds_backfill_through', 'journal_segment_kinds_backfill_end'
+                ))",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok(match marker.as_deref() {
+        None => !progress,
+        Some("1") => !progress,
+        Some(_) => false,
+    })
+}
+
+/// Every record after `cursor` through the validating decoder, at most
+/// `page`, keeping the roster's kinds; the cursor reaches the last record
+/// read, so no record is passed over unread.
+fn full_decode_page(
+    connection: &Connection,
+    cursor: u64,
+    head: u64,
+    page: usize,
+) -> anyhow::Result<(Vec<super::SessionJournalRecord>, u64)> {
+    let read = query_session_journal_after(connection, cursor, page)?;
+    let records = read
+        .records
+        .into_iter()
+        .take_while(|record| record.sequence <= head)
+        .collect::<Vec<_>>();
+    let reached = records.last().map_or(cursor, |record| record.sequence);
+    let records = records.into_iter().filter(|record| AgentRoster::folds_kind(&record.kind));
+    Ok((records.collect(), reached))
 }
 
 fn print_progress(cursor: u64, head: u64) {
