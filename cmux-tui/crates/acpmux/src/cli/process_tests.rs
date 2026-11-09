@@ -120,7 +120,7 @@ fn the_header_names_the_command_folder_start_and_output_file() {
 }
 
 /// A Claude Monitor an agent named "hold" (`sleep 840; echo t`): the view
-/// says it only waits and then wakes the agent, and until when, under its
+/// says it only waits and then wakes the agent, under its
 /// command and the agent's name for it; the tab reads "Waiting 14m · hold".
 #[test]
 fn a_timer_says_what_it_waits_for() {
@@ -130,7 +130,7 @@ fn a_timer_says_what_it_waits_for() {
     let h = header(&p, PLAIN);
     assert_eq!(h.lines().next(), Some("$ sleep 840; echo t"));
     assert!(h.contains("named    hold"), "{h}");
-    assert!(h.contains("waits    14m, then wakes the agent; it runs nothing else · until "), "{h}");
+    assert!(h.contains("waits    14m, then wakes the agent; it runs nothing else\n"), "{h}");
     assert_eq!(title(&p), "Waiting 14m · hold");
     // The name alone (an older registry knew only it) is not said twice.
     p["command"] = json!("hold");
@@ -150,6 +150,7 @@ fn only_a_bare_sleep_reads_as_a_timer() {
     assert_eq!(timer_secs("sleep 30; gh pr checks 1"), None);
     assert_eq!(timer_secs("sleep 30; echo $(date)"), None);
     assert_eq!(timer_secs("sleep 30; echo t > f"), None);
+    assert_eq!(timer_secs("sleep 30; echo t & make build"), None);
     assert_eq!(timer_secs("sleep x"), None);
     assert_eq!(timer_secs("npm run dev"), None);
     assert_eq!(span(840), "14m");

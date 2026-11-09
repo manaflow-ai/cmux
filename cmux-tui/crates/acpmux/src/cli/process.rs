@@ -480,20 +480,14 @@ pub(crate) fn header(p: &Value, style: Style) -> String {
         row(&mut s, "named", description);
     }
     // A timer an agent set to wake itself (`sleep 840; echo t`) prints
-    // nothing until it ends: say so, and when (Leo, 2026-11-05, on a view
-    // reading only "$ hold": "what are you even holding for?").
-    let start = p.get("startedAt").and_then(Value::as_u64);
+    // nothing until it ends: say so (Leo, 2026-11-05, on a view reading only
+    // "$ hold": "what are you even holding for?"). No end time: `startedAt`
+    // is when it reached the background, which may be after its launch.
     if let Some(secs) = timer_secs(command) {
-        let until = start.map(|at| format!(" · until {}", local_time(at + secs * 1000)));
-        let waits = format!(
-            "{}, then wakes the agent; it runs nothing else{}",
-            span(secs),
-            until.unwrap_or_default()
-        );
-        row(&mut s, "waits", &waits);
+        row(&mut s, "waits", &format!("{}, then wakes the agent; it runs nothing else", span(secs)));
     }
     row(&mut s, "folder", &tilde(text(p, "cwd")));
-    let started = start.map(local_time).unwrap_or_default();
+    let started = p.get("startedAt").and_then(Value::as_u64).map(local_time).unwrap_or_default();
     let harness = match text(p, "harness") {
         "claude" => "Claude Code",
         "codex" => "Codex",
@@ -603,7 +597,7 @@ pub(crate) fn timer_secs(command: &str) -> Option<u64> {
         .filter(|step| !step.is_empty())
         .all(|step| {
             matches!(step.split_whitespace().next(), Some("echo" | "printf" | "true" | ":"))
-                && !step.contains(['|', '>', '<', '`', '$'])
+                && !step.contains(['|', '&', '>', '<', '`', '$'])
         })
         .then_some(secs)
 }
