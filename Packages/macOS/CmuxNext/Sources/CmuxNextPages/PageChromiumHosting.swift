@@ -12,6 +12,9 @@ public protocol PageChromiumHosting: AnyObject {
     /// Whether Chromium can host a page now: false when the build has no Chromium or it failed to
     /// start.
     var isAvailable: Bool { get }
+    /// App health's feed for every page view made with this host (the one host every page view takes
+    /// at init); nil: its pages report nothing.
+    var healthFeed: (any PageHealthFeed)? { get }
     /// Whether Chromium's `cmux-page://` scheme serves `page` (its bundled folder is registered).
     ///
     /// - Parameter page: The page to show.
@@ -52,9 +55,14 @@ extension PageChromiumPage {
     public var windowClip: CGPath? { nil }
 
     public func restartRenderer() { reload() }
+
+    public var isUnresponsive: Bool { false }
 }
 
 extension PageChromiumHosting {
+    /// No app health feed: the host's pages report nothing.
+    public var healthFeed: (any PageHealthFeed)? { nil }
+
     /// No focus model: the page keeps its keyboard itself.
     public func focusViewChanged(_ page: PageWebView) -> Bool { false }
     public func setLivePages(_ live: Bool) -> Bool { false }
@@ -109,6 +117,9 @@ public protocol PageChromiumPage: AnyObject {
     /// App health's `restartRenderer`: ends a renderer that stopped answering and brings the page
     /// back in a new one (the default: a plain reload).
     func restartRenderer()
+    /// Whether Chromium's hang monitor says the page's renderer stopped answering (observable: the
+    /// page view follows it for app health's renderer part). The default: never.
+    var isUnresponsive: Bool { get }
     /// Sets the page zoom (1 is 100%).
     func setZoom(_ zoom: Double)
     /// Gives or takes the keyboard focus.
@@ -139,9 +150,6 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     case finished
     /// The page's render process ended.
     case crashed
-    /// Chromium's hang monitor says the page's renderer stopped answering (true) or answers again
-    /// (false): app health's renderer events.
-    case rendererUnresponsive(Bool)
     /// The Chromium browser itself went away (not closed by the host): the page cannot come back
     /// in Chromium.
     case ended

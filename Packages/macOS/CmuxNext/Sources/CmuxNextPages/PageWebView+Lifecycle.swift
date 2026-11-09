@@ -14,7 +14,7 @@ extension PageWebView {
         resumeLoadWaiters()
         webView.stopLoading()
         WebViewRetirement.retire(webView)
-        Self.healthFeed?.pageClosed(self)
+        healthFeed?.pageClosed(self)
     }
 
     /// Waits for the current document to finish loading or fail, and for a pending claim to be
@@ -50,7 +50,7 @@ extension PageWebView {
         let error = error as NSError
         if error.domain == NSURLErrorDomain, error.code == NSURLErrorCancelled { return }
         if error.domain == "WebKitErrorDomain", error.code == 102 { return } // frame load interrupted by a policy change
-        Self.healthFeed?.pageLoadFailed(self)
+        healthFeed?.pageLoadFailed(self)
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -84,7 +84,7 @@ extension PageWebView {
     func contentProcessTerminated() {
         loaded = false
         router.reset()
-        Self.healthFeed?.pageCrashed(self)
+        healthFeed?.pageCrashed(self)
         guard reloadsAfterCrash else {
             // A renderer that crashed before the page reached the host leaves the Chromium start
             // deadline armed: its fallback would load the page in WebKit by itself.

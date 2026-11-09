@@ -98,6 +98,8 @@ public struct DaemonLauncher: Sendable {
     public static let binaryOverrideKey = "CMUX_NEXT_TUI_BIN"
 
     public let configuration: Configuration
+    /// App health's sink for each ensure's facts (``DaemonHealthSink``); nil: not reported.
+    public var health: DaemonHealthSink?
     /// `configuration.rememberedSocket` until the first endpoint request of
     /// any provider of this launcher takes it: the startup loop's retries
     /// and every reconnect then ask the owner (`ensure`), so a hung daemon
@@ -141,7 +143,8 @@ public struct DaemonLauncher: Sendable {
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
-        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory()
+        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory(),
+        health: DaemonHealthSink? = nil
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
@@ -157,7 +160,9 @@ public struct DaemonLauncher: Sendable {
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
-        return DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        var launcher = DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        launcher.health = health
+        return launcher
     }
 
     /// The launcher of a Chief home's conversation owner
@@ -349,7 +354,7 @@ public struct DaemonLauncher: Sendable {
         let environment = await ensureEnvironment()
         if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
            let running = await runningOwner() {
-            Self.noteHealth(.ready(pid: running.pid))
+            health?.note(.ready(pid: running.pid))
             return running
         }
         async let reapGrace = supportsReapGrace()
@@ -362,7 +367,7 @@ public struct DaemonLauncher: Sendable {
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
         // App health reads each ensure (read-only; nothing here changes what the launcher does).
-        Self.noteHealth(.started)
+        health?.note(.started)
         do {
             let result = try await ProcessRunner.run(
                 executable: configuration.binary,
@@ -374,10 +379,10 @@ public struct DaemonLauncher: Sendable {
                 clock: clock
             )
             let ensured = try Self.parseEnsure(result)
-            Self.noteHealth(.ready(pid: ensured.pid))
+            health?.note(.ready(pid: ensured.pid))
             return ensured
         } catch {
-            Self.noteHealth(.exited)
+            health?.note(.exited)
             throw error
         }
     }

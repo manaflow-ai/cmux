@@ -118,6 +118,8 @@ public final class DaemonService {
     /// The local connection's daemon-request probe (``newRequestLatency()``), set by `start(launch:…)`;
     /// `debug.daemon_requests` reads it off the main actor.
     nonisolated let requestLatency = RequestLatencySlot()
+    /// App health's sink for this service's launcher and connections (``DaemonHealthSink``); the App binds it.
+    public nonisolated let health = DaemonHealthSink()
     private nonisolated static let launchMarkSink = Mutex<@Sendable (String) -> Void>({ _ in })
 
     /// Fires `retryWake` when the app becomes active.
@@ -193,11 +195,13 @@ public final class DaemonService {
         if let prestart {
             launcher = prestart.launcher
             retryWake = prestart.wake
+            prestart.health?.forward(to: health)
         } else {
             do {
                 launcher = try DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
-                                                daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins)
+                                                daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins,
+                                                health: health)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)), retries: false)
                 return
@@ -223,7 +227,7 @@ public final class DaemonService {
         let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
-            requestLatency: latency))
+            requestLatency: latency, health: health))
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.

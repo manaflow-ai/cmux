@@ -37,6 +37,6 @@ extension PageWebView {
         applyLiveDocumentAttributes()
         resumeLoadWaiters()
         onDocumentLoaded?()
-        Self.healthFeed?.pageLoaded(self)
+        healthFeed?.pageLoaded(self)
     }
 }

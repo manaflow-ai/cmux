@@ -223,10 +223,10 @@ public actor DaemonConnection {
             throw reported(refused)
         } catch {
             // App health: a request the daemon left unanswered (a terminal start's own deadline is not the daemon's health).
-            if case DaemonError.timedOut = error, !(R.self is any TerminalSpawningRequest.Type) { Self.noteRequest(timedOut: true) }
+            if case DaemonError.timedOut = error, !(R.self is any TerminalSpawningRequest.Type) { configuration.health?.noteRequest(timedOut: true) }
             throw error
         }
-        Self.noteRequest(timedOut: false)
+        configuration.health?.noteRequest(timedOut: false)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }

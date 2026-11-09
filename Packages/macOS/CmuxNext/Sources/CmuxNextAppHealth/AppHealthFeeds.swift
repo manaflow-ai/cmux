@@ -14,31 +14,40 @@ import Foundation
 ///
 /// - pages and their Chromium renderers: `AppHealthPageFeed`;
 /// - the session daemon (`sessionDaemon`): each `server ensure` of the launcher
-///   (``DaemonLauncher/HealthSignal``) and, once, the size of its registry on disk. Its only
+///   (`DaemonHealthSink`) and, once, the size of its registry on disk. Its only
 ///   "repair" is `holdReplace`, which ``AppHealth/holdsReplace`` exposes to the launcher's replace path;
 /// - the session daemon connection (`acpmux`, "Connection to the session service"): connected or not,
-///   answering its heartbeat and its requests or not (``DaemonConnection/requestHealth``: the first
+///   answering its heartbeat and its requests or not (`DaemonHealthSink`: the first
 ///   timed-out request shows it at once). Repairs: Retry Now, then a reconnect with a fresh drop budget;
 ///   never a kill;
-/// - the page host (`pageHost`): page loads and the daemon's page listener (the Channels page's
-///   credential read). Repair: `DaemonService.ensurePageListener()`.
+/// - the page host (`pageHost`): page loads and the daemon's page listener (asked for when a page
+///   found no listener credential). Repair: `DaemonService.ensurePageListener()`.
 @MainActor
 public final class AppHealthFeeds {
-    private let health: AppHealth
+    /// The app's health (the Rust model's host), which every feed writes to.
+    public let health: AppHealth
+    /// App health's popover; a trigger (the restore lane's sidebar card) calls `popover.open(over:)`.
+    public let popover: AppHealthPopover
     private let daemon: DaemonService
     private let stateDirectory: URL?
     private let work: BackgroundWork
+    /// App health's page and renderer feed; the App hands it to the page host every page view is made with.
+    public let pageFeed: any PageHealthFeed
     /// The follow of the local daemon connection (`AppHealthConnectionFeed`), for the app's life.
     private var connectionFeed: Task<Void, Never>?
 
     /// - Parameters:
     ///   - stateDirectory: The session daemon's state directory, whose registry size is read once.
     ///   - work: The app's blocking-work lanes (the size read runs on `.files`).
-    public init(health: AppHealth, daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork) {
+    ///   - overlayProcess: The overlay pages' one web content process, for the popover's panel.
+    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork, overlayProcess: PageOverlayProcess?) {
+        let health = AppHealth()
         self.health = health
         self.daemon = daemon
         self.stateDirectory = stateDirectory
         self.work = work
+        pageFeed = AppHealthPageFeed(health: health)
+        popover = AppHealthPopover(health: health, overlayProcess: overlayProcess)
     }
 
     /// Before the daemon starts (its first ensure is a health fact). The debug socket's `debug.health`
@@ -46,17 +55,8 @@ public final class AppHealthFeeds {
     public func start() {
         guard connectionFeed == nil else { return }
         let health = health
-        PageWebView.healthFeed = AppHealthPageFeed(health: health)
-
         // The session daemon: the launcher's facts, and once the registry's size.
         health.register(AppHealth.sessionDaemonID, kind: .sessionDaemon, label: AppHealthStrings.sessionDaemon)
-        DaemonLauncher.health = { [health] signal in
-            switch signal {
-            case .started: health.noteDaemonStarted()
-            case .ready(let pid): health.noteDaemonReady(pid: pid)
-            case .exited: health.noteDaemonExited()
-            }
-        }
         if let stateDirectory {
             work.post(.bestEffort, mayBlock: .files) {
                 health.size(AppHealth.sessionDaemonID, bytes: AppHealthRegistrySize.bytes(in: stateDirectory))
@@ -69,21 +69,12 @@ public final class AppHealthFeeds {
         let daemon = daemon
         health.setRepair(.acpmux) { [weak daemon] action in await Self.repairConnection(daemon, action.action) }
         connectionFeed = AppHealthConnectionFeed.follow(daemon, health: health)
-        // A request that timed out says "not answering" at once (no wait for the heartbeat's misses);
-        // the next answered request says it answers again.
-        DaemonConnection.requestHealth = { [health] change in
-            switch change {
-            case .timedOut:
-                health.visibility(AppHealth.acpmuxID, visible: true)
-                health.event(AppHealth.acpmuxID, .disconnected)
-            case .answered:
-                health.event(AppHealth.acpmuxID, .connected)
-                health.visibility(AppHealth.acpmuxID, visible: false)
-            }
-        }
 
         // The page host.
         health.register(AppHealth.pageHostID, kind: .pageHost, label: AppHealthStrings.pageHost)
+        // The service's facts (its launcher's ensures, its requests, its page listener). A request that
+        // timed out says "not answering" at once (no wait for the heartbeat's misses).
+        daemon.health.bind { [health] signal in Self.note(signal, health: health) }
         health.setRepair(.pageHost) { [weak daemon] _ in await Self.restartPageHost(daemon) }
 
         #if DEBUG
@@ -92,6 +83,22 @@ public final class AppHealthFeeds {
         health.setInjector(.acpmux) { [weak daemon] _, fault in await Self.dropConnection(daemon, fault: fault) }
         health.setInjector(.pageHost) { [weak daemon] _, fault in await Self.removeListenerFile(daemon, fault: fault) }
         #endif
+    }
+
+    nonisolated static func note(_ signal: DaemonHealthSink.Signal, health: AppHealth) {
+        switch signal {
+        case .started: health.noteDaemonStarted()
+        case .ready(let pid): health.noteDaemonReady(pid: pid)
+        case .exited: health.noteDaemonExited()
+        case .requestTimedOut:
+            health.visibility(AppHealth.acpmuxID, visible: true)
+            health.event(AppHealth.acpmuxID, .disconnected)
+        case .requestAnswered:
+            health.event(AppHealth.acpmuxID, .connected)
+            health.visibility(AppHealth.acpmuxID, visible: false)
+        case .pageListenerMissing: health.event(AppHealth.pageHostID, .listenerMissing)
+        case .pageListenerReady: health.event(AppHealth.pageHostID, .loaded)
+        }
     }
 
     static func repairConnection(_ daemon: DaemonService?, _ action: AppHealth.Repair) async -> Bool {

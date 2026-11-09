@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextSettings
@@ -165,6 +166,16 @@ extension PageWebView {
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
         let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
+        if healthFeed != nil {
+            let hang = ObservationStream { [weak session] in session?.page.isUnresponsive ?? false }
+            // task-owner: the session (`end`); event driven (Observation on the hang monitor's state).
+            session.hangWatch = Task { [weak self] in
+                for await unresponsive in hang {
+                    guard let self else { return }
+                    healthFeed?.pageRenderer(self, unresponsive: unresponsive)
+                }
+            }
+        }
         page.resources = { [weak self] url, range in await self?.chromiumResource(url, range: range) ?? .notFound }
         page.readyResources = { [weak self] url in self?.readyChromiumResource(url) }
         do {
@@ -298,8 +309,6 @@ extension PageWebView {
             chromiumSession.questionKeys?.invalidate()
             lastTermination = PageTermination(reason: .crash)
             contentProcessTerminated()
-        case .rendererUnresponsive(let unresponsive):
-            Self.healthFeed?.pageRenderer(self, unresponsive: unresponsive)
         case .ended:
             chromiumSession.questionKeys?.invalidate()
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)

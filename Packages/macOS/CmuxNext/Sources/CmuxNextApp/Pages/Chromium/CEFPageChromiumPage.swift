@@ -17,8 +17,6 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     private let pageID: String
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
     private var crashWatch: Task<Void, Never>?
-    /// Follows Chromium's hang monitor for app health (``PageChromiumEvent/rendererUnresponsive(_:)``).
-    private var hangWatch: Task<Void, Never>?
     private var closed = false
 
     init(tab: CEFTab, pageID: String) {
@@ -60,8 +58,6 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
             tab.clearPageEventHooks()
             crashWatch?.cancel()
             crashWatch = nil
-            hangWatch?.cancel()
-            hangWatch = nil
             return
         }
         tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
@@ -75,12 +71,6 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         crashWatch = Task { [weak self] in
             for await exit in ObservationStream({ tab.state.processExit }) where exit != nil {
                 self?.onEvent?(.crashed)
-            }
-        }
-        // task-owner: ends with the page (`close`) or when its events stop (`listen` with no `onEvent`); event driven.
-        hangWatch = Task { [weak self] in
-            for await unresponsive in ObservationStream({ tab.state.isUnresponsive }) {
-                self?.onEvent?(.rendererUnresponsive(unresponsive))
             }
         }
     }
@@ -126,16 +116,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     func load(_ url: URL) { tab.load(url) }
 
     func reload() { tab.reload() }
-
-    /// App health's `restartRenderer`: a renderer Chromium reports unresponsive is ended through the
-    /// tab's own answer (terminate; the crash path then reloads the page), any other is reloaded.
-    func restartRenderer() {
-        if tab.state.isUnresponsive {
-            tab.answerUnresponsivePage(terminate: true)
-        } else {
-            tab.reload()
-        }
-    }
+    var isUnresponsive: Bool { tab.state.isUnresponsive }
+    func restartRenderer() { if tab.state.isUnresponsive { tab.answerUnresponsivePage(terminate: true) } else { tab.reload() } }
 
     func setZoom(_ zoom: Double) { tab.setZoom(zoom) }
 
@@ -154,8 +136,6 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         closed = true
         crashWatch?.cancel()
         crashWatch = nil
-        hangWatch?.cancel()
-        hangWatch = nil
         tab.clearPageHooks()
         tab.delegate = nil
         tab.close()

@@ -5,8 +5,8 @@ import WebKit
 
 /// App health's page half on the host (the shared health contract, part kind `page`): the page view
 /// reports what it sees, and the App's feed turns it into the Rust health model's signals. This
-/// module has no daemon and no health model, so it only calls the feed the App installs once at
-/// startup (``PageWebView/healthFeed``, like ``PageWebView/chromiumHosting``).
+/// module has no daemon and no health model, so it only calls the feed of the page host the view was
+/// made with (``PageWebView/healthFeed``, ``PageChromiumHosting/healthFeed``).
 @MainActor
 public protocol PageHealthFeed: AnyObject {
     /// The page's heartbeat (`cmux.page.heartbeat`), with the key and pointer presses it handled.
@@ -28,10 +28,6 @@ public protocol PageHealthFeed: AnyObject {
 }
 
 extension PageWebView {
-    /// App health's feed for every page view; the App sets it once at startup (its composition root).
-    /// Nil: pages report nothing (tests, a build without health).
-    public static var healthFeed: (any PageHealthFeed)?
-
     /// This view's health part (`page:<instance>`, the `debug.page` instance).
     public var healthPartID: String { "page:\(PageRegistry.instance(of: self))" }
 

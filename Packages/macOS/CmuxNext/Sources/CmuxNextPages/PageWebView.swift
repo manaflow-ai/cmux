@@ -45,6 +45,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
+    /// App health's feed for this page, from the page host it was made with (``PageChromiumHosting/healthFeed``).
+    public internal(set) var healthFeed: (any PageHealthFeed)?
     /// Rects in this view's coordinates where native UI of the window shows over the page
     /// (PageWebView+NativeRects.swift): a Chromium page leaves them uncovered. WebKit draws in the
     /// window's own view tree, under that UI, and needs none.
@@ -418,9 +420,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
+        healthFeed = chromium?.healthFeed
         router.heartbeat = { [weak self] handled in
             guard let self else { return }
-            Self.healthFeed?.pageBeat(self, handled: handled)
+            healthFeed?.pageBeat(self, handled: handled)
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
@@ -524,7 +527,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Marks a claimed pooled host as used by real input.
     func noteTouch() {
         if countsTouches { touched = true }
-        Self.healthFeed?.pageInput(self)
+        healthFeed?.pageInput(self)
     }
 
     /// The window's title bar double-click action (System Settings > Desktop & Dock: zoom by
@@ -669,7 +672,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let visible = window != nil && !isHiddenOrHasHiddenAncestor
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
-        Self.healthFeed?.pageVisibilityChanged(self)
+        healthFeed?.pageVisibilityChanged(self)
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -685,7 +688,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         popupHost?.dismiss()
         setChromiumVisibility(false)
         onVisibilityChanged?(false)
-        Self.healthFeed?.pageVisibilityChanged(self)
+        healthFeed?.pageVisibilityChanged(self)
     }
 
     public override func viewDidUnhide() {
@@ -693,7 +696,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let visible = window != nil && !isHiddenOrHasHiddenAncestor
         setChromiumVisibility(true)
         onVisibilityChanged?(visible)
-        Self.healthFeed?.pageVisibilityChanged(self)
+        healthFeed?.pageVisibilityChanged(self)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -707,7 +710,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
-        Self.healthFeed?.pageVisibilityChanged(self)
+        healthFeed?.pageVisibilityChanged(self)
     }
 
     func applyTheme(force: Bool = false) {
