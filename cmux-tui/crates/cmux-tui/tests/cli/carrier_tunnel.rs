@@ -6,17 +6,25 @@ use super::*;
 
 #[test]
 fn carrier_tunnel_runs_the_real_hub_until_sigterm() {
-    run_until_sigterm(false);
+    run_until_sigterm(false, false);
+}
+
+/// Started with SIGCHLD ignored (inherited across exec), `carrier tunnel`
+/// still owns its hub: the kernel does not reap it behind the owner thread,
+/// so the stop's SIGTERM and wait reap it cleanly and no wait ever fails.
+#[test]
+fn carrier_tunnel_owns_its_hub_when_started_with_sigchld_ignored() {
+    run_until_sigterm(false, true);
 }
 
 /// SIGTERM while a refresh hangs on the VM API: the read is cancelled, the
 /// hub stops, and the process ends `tunnel-stopped` with 0, never failed.
 #[test]
 fn sigterm_during_a_stalled_refresh_stops_cleanly() {
-    run_until_sigterm(true);
+    run_until_sigterm(true, false);
 }
 
-fn run_until_sigterm(stall: bool) {
+fn run_until_sigterm(stall: bool, ignore_sigchld: bool) {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
 
@@ -78,7 +86,19 @@ fn run_until_sigterm(stall: bool) {
     });
 
     let socket = dir.path().join("hub").join("wg.sock");
-    let mut child = Command::new(bin())
+    let mut command = Command::new(bin());
+    if ignore_sigchld {
+        use std::os::unix::process::CommandExt as _;
+        // SAFETY: `signal` is async-signal-safe; nothing else runs between
+        // fork and exec here.
+        unsafe {
+            command.pre_exec(|| {
+                libc::signal(libc::SIGCHLD, libc::SIG_IGN);
+                Ok(())
+            });
+        }
+    }
+    let mut child = command
         .args(["carrier", "tunnel", "--machine-id", "machine_1", "--name", "test-mac", "--socket"])
         .arg(&socket)
         .args(["--platform", &origin, "--vm-api", &vm_api])
@@ -88,10 +108,21 @@ fn run_until_sigterm(stall: bool) {
         .env("LC_ALL", "C")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     writeln!(child.stdin.take().unwrap(), "{keys}").unwrap();
+    // Echo stderr as it comes and keep it, to check no hub wait failed.
+    let stderr = child.stderr.take().unwrap();
+    let errors = std::thread::spawn(move || {
+        let mut kept = String::new();
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            eprintln!("{line}");
+            kept.push_str(&line);
+            kept.push('\n');
+        }
+        kept
+    });
     let (lines, events) = mpsc::channel::<String>();
     let stdout = child.stdout.take().unwrap();
     std::thread::spawn(move || {
@@ -142,6 +173,8 @@ fn run_until_sigterm(stall: bool) {
     };
     assert!(status.success(), "{status}");
     assert!(!socket.exists(), "the stopped hub removed its socket");
+    let errors = errors.join().unwrap();
+    assert!(!errors.contains("carrier tunnel: hub"), "a hub wait failed:\n{errors}");
     runtime.block_on(peer.shutdown());
 }
 

@@ -39,7 +39,9 @@ fn seal_whole_journal(mux: &Mux, key: &str) -> Vec<String> {
 }
 
 /// Makes every listed segment undecodable: a read that inflates any of them
-/// fails, so a fold that still reads them is visible.
+/// fails, so a fold that still reads them is visible. Their kept reducer
+/// records go too, as for segments an older build sealed, or a read would
+/// take them and never meet the damage.
 fn make_segments_undecodable(root: &Path, session: &str, segments: &[String]) {
     let registry = WorkspaceRegistry::open(root, session).unwrap();
     let database = registry.session_journal_database_path().unwrap();
@@ -54,6 +56,12 @@ fn make_segments_undecodable(root: &Path, session: &str, segments: &[String]) {
             )
             .unwrap();
         assert_eq!(changed, 1);
+        connection
+            .execute(
+                "DELETE FROM journal_segment_reducer_records WHERE segment_id = ?1",
+                rusqlite::params![segment_id],
+            )
+            .unwrap();
     }
 }
 

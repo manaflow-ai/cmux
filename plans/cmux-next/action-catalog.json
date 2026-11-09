@@ -72715,6 +72715,102 @@
     {
       "arguments" : [
         {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "id",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "agentHarnessProfiles"
+          },
+          "title" : "Agent"
+        },
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "icon",
+          "suggestions" : null,
+          "title" : "Icon"
+        }
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-harness-set-icon",
+      "computed" : {
+        "canonical_action_id" : "agent.harness.setIcon",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentHarnessActionCatalog",
+      "hint" : null,
+      "id" : "agent.harness.setIcon",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "harness",
+        "acp",
+        "icon",
+        "emoji",
+        "symbol",
+        "logo",
+        "mark",
+        "profile"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "face.smiling",
+      "targets" : [
+
+      ],
+      "title" : "Set Agent Icon…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72800,6 +72896,314 @@
 
       ],
       "title" : "Update Agent CLIs",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "name",
+          "suggestions" : null,
+          "title" : "Worktree Name"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "base",
+          "suggestions" : null,
+          "title" : "Base Revision"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "action git-worktree-create",
+      "computed" : {
+        "canonical_action_id" : "git.worktree.create",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.worktree.create",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "worktree",
+        "branch",
+        "checkout",
+        "new",
+        "create",
+        "isolate"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.triangle.branch",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "New Git Worktree",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "tab",
+      "cliName" : "action git-worktree-apply",
+      "computed" : {
+        "canonical_action_id" : "git.worktree.apply",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.worktree.apply",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "worktree",
+        "apply",
+        "merge",
+        "bring back",
+        "main",
+        "checkout"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.down.to.line",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Apply Worktree to Main Checkout",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "discard",
+          "suggestions" : null,
+          "title" : "Discard Unsaved Work"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "confirm",
+          "suggestions" : null,
+          "title" : "Confirm"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "action git-worktree-remove",
+      "computed" : {
+        "canonical_action_id" : "git.worktree.remove",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.worktree.remove",
+      "isDebugOnly" : false,
+      "isDestructive" : true,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "worktree",
+        "remove",
+        "delete",
+        "clean up",
+        "branch"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "trash",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Remove Git Worktree",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "tab",
+      "cliName" : "action git-checkpoint-create",
+      "computed" : {
+        "canonical_action_id" : "git.checkpoint.create",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.checkpoint.create",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "checkpoint",
+        "snapshot",
+        "save",
+        "capture",
+        "stash"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "camera",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Create Git Checkpoint",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
