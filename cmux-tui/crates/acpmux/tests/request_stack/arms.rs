@@ -335,6 +335,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 json!({"sessionId": "$S", "id": "0000000000000000000000000000000000000000000000000000000000000000"}),
             ),
         ),
+        (method::MUX_TURN_SHOTS, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
         (method::MUX_QUEUE_TEXT, Run(json!({"sessionId": "$S", "promptId": "p1"}))),
         (
             method::MUX_MAIL_SEND,

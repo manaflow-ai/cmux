@@ -2013,6 +2013,12 @@ export type TurnSummary = {
   turnSeq: number;
 } & Record<string, unknown>;
 
+export interface TurnShotsParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+  turnId?: unknown;
+}
+
 /**
  * `_acpmux/typing`: at most 2 a second per connection (`typing.rate_limited`); an `on`
  * lapses after 8 s. The connection must be attached to the chat.

@@ -313,6 +313,7 @@ mod transfer_watch;
 mod trust_wait;
 mod turn_attestation;
 mod turn_git;
+pub(crate) mod turn_shots;
 mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;

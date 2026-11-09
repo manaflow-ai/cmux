@@ -70,6 +70,11 @@ impl Hub {
         }
         msg.set("pendingPermissions", self.session_summary(session)["pendingPermissions"].clone());
         self.record_last_turn(session, &msg);
+        // The chat's page after the turn (`turn_shots.rs`), taken once the result is written.
+        let turn = msg["turnId"].as_str().map(str::to_owned);
         self.append(session, "mux", "turn_result", msg);
+        if let Some(turn) = turn {
+            super::turn_shots::turn_ended(session, &turn);
+        }
     }
 }

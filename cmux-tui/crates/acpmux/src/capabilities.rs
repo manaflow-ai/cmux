@@ -267,6 +267,9 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_AGENT_LOGIN_API_KEY,
         ],
     },
+    // A turn's before and after picture of the chat's page, for its edited-files card
+    // (`hub/turn_shots.rs`).
+    Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.

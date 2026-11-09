@@ -1,0 +1,125 @@
+/* MediaCompare.tsx: a before/after pair. The after lies in the box's grid cell and sets its size;
+   the before lies over it at the same size, so no mode or position moves anything around the box.
+   `cover` fills its frame from the top left like a lone picture; `contain` (enlarged) lets the
+   after picture size the box, shown whole. Colours come from the page (What's New) or the agent
+   chat, whichever defines its tokens. */
+.ui-compare {
+  --ui-compare-surface: var(--page-elevated, var(--agent-surface-elevated, var(--agent-page-bg)));
+  --ui-compare-line: var(--page-separator, var(--agent-border));
+  --ui-compare-text: var(--page-text, var(--agent-text));
+  --ui-compare-text-2: var(--page-text-2, var(--agent-muted));
+  --ui-compare-hover: var(--page-hover, var(--agent-control-hover));
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+}
+.ui-compare-pane { position: relative; grid-area: 1 / 1; min-width: 0; min-height: 0; }
+.ui-compare-pane img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+.ui-compare-pane[data-side="before"] { position: absolute; inset: 0; }
+.ui-compare[data-fit="contain"] { width: auto; height: auto; max-width: 100%; max-height: 100%; border-radius: var(--ds-radius-xl); box-shadow: 0 0 0 1px var(--ui-compare-line); }
+.ui-compare[data-fit="contain"] .ui-compare-pane[data-side="after"] img { width: auto; height: auto; max-width: 100cqw; max-height: 100cqh; object-fit: contain; }
+.ui-compare-tag {
+  position: absolute;
+  top: var(--ds-space-2);
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ui-compare-surface);
+  box-shadow: 0 0 0 1px var(--ui-compare-line);
+  color: var(--ui-compare-text);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
+  pointer-events: none;
+}
+.ui-compare-pane[data-side="before"] .ui-compare-tag { left: var(--ds-space-2); }
+.ui-compare-pane[data-side="after"] .ui-compare-tag { right: var(--ds-space-2); }
+/* Slider (default): the before shows left of the split, the after right of it; the split follows
+   the pointer or the arrow keys directly, so it has no transition to gate. */
+.ui-compare[data-mode="slider"] .ui-compare-pane[data-side="before"] { clip-path: inset(0 calc(100% - var(--ui-compare-split)) 0 0); }
+.ui-compare-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--ui-compare-split);
+  width: 2px;
+  translate: -50% 0;
+  background: var(--ui-compare-text);
+  box-shadow: var(--shadow-elevation-1);
+  pointer-events: none;
+}
+.ui-compare-handle svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  box-sizing: content-box;
+  padding: var(--ds-space-1);
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: var(--ui-compare-surface);
+  box-shadow: 0 0 0 1px var(--ui-compare-line), var(--shadow-elevation-1);
+  color: var(--ui-compare-text);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ui-compare-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: ew-resize;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ui-compare-range::-webkit-slider-thumb { -webkit-appearance: none; width: 32px; height: 100vh; }
+.ui-compare:has(.ui-compare-range:focus-visible) .ui-compare-handle svg { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+/* Side by side: each half its own picture, from its top left, under its label. */
+.ui-compare[data-mode="side"] { grid-template-columns: 1fr 1fr; gap: var(--ds-space-1); }
+.ui-compare[data-mode="side"] .ui-compare-pane[data-side="before"] { position: relative; inset: auto; grid-area: 1 / 1; }
+.ui-compare[data-mode="side"] .ui-compare-pane[data-side="after"] { grid-area: 1 / 2; }
+.ui-compare[data-mode="side"] .ui-compare-pane[data-side="after"] .ui-compare-tag { right: auto; left: var(--ds-space-2); }
+.ui-compare[data-mode="side"][data-fit="contain"] .ui-compare-pane img { width: 100%; max-width: 50cqw; max-height: 100cqh; object-fit: contain; }
+/* Toggle: Before / After at the bottom; the before fades over the after through the motion gate. */
+.ui-compare[data-mode="toggle"] .ui-compare-pane[data-side="before"] { opacity: 0; }
+.ui-compare[data-showing="before"] .ui-compare-pane[data-side="before"] { opacity: 1; }
+/* The fade exists only while motion is on: off or reduced (the gate, Reduce Motion) switch at once. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+    .ui-compare[data-mode="toggle"]
+    .ui-compare-pane[data-side="before"] {
+    transition: opacity var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+  }
+}
+.ui-compare-switch {
+  position: absolute;
+  bottom: var(--ds-space-2);
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  gap: 0;
+  margin: 0;
+  padding: var(--ds-space-1);
+  border: 0;
+  min-inline-size: 0;
+  border-radius: var(--ds-radius-md);
+}
+.ui-compare-switch button {
+  min-width: 64px;
+  height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: none;
+  color: var(--ui-compare-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+.ui-compare-switch button[aria-pressed="true"] { background: var(--ui-compare-hover); color: var(--ui-compare-text); font-weight: 600; }
+.ui-compare-switch button:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }

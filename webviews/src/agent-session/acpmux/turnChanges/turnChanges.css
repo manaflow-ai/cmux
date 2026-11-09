@@ -35,3 +35,16 @@
    (Leo 2026-11-07, on a diff card nested in this one: "the rest of the card situation"), so the card
    has one rim and one radius and its Show all / Show less row is the card's bottom row. */
 .acpmux-edited-diff>.cv-edit-diff{margin:0;border-radius:0;background:none;box-shadow:none}
+/* The turn's before and after picture of the chat's page (TurnShots.tsx), under the card's header:
+   a 16:10 frame from the pictures' top left, at most 220px tall, the split the person drags. A pair
+   that arrives while the card shows grows its row from nothing, through the motion gate; with motion
+   off or reduced it is there at once. */
+.acpmux-turn-shots{display:grid;grid-template-rows:1fr;padding:0 var(--ds-space-2) var(--ds-space-2)}
+.acpmux-turn-shots-frame{position:relative;min-height:0;aspect-ratio:16/10;max-height:220px;overflow:hidden;border-radius:var(--ds-radius-control);box-shadow:0 0 0 1px var(--agent-border)}
+.acpmux-turn-shots-open{position:absolute;right:var(--ds-space-2);bottom:var(--ds-space-2);display:grid;place-items:center;width:24px;height:24px;padding:0;border:0;border-radius:var(--ds-radius-control);color:var(--agent-text);cursor:zoom-in}
+.acpmux-turn-shots-open svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.acpmux-turn-shots-open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+@keyframes acpmux-turn-shots-in{from{grid-template-rows:0fr;opacity:0}to{grid-template-rows:1fr;opacity:1}}
+@media (prefers-reduced-motion:no-preference){
+  :root:not([data-agent-motion="off"],[data-agent-motion="reduced"],[data-cmux-motion="off"],[data-cmux-motion="reduced"]) .acpmux-turn-shots[data-arrived]{animation:acpmux-turn-shots-in var(--cmux-motion-standard,180ms) var(--cmux-ease-out,ease-out)}
+}

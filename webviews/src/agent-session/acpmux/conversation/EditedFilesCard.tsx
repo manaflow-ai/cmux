@@ -24,6 +24,7 @@ import { SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { TurnShots } from "../turnChanges/TurnShots";
 import { FindReveal, isRevealRow } from "./chatFind";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { EditDiff } from "./EditDiff";
@@ -289,6 +290,7 @@ function Card({
           </div>
         );
       })}
+      {row.ended === true && <TurnShots rowId={row.id} />}
       {open && (more > 0 || showAll) && !single && total > limit && (
         <button
           type="button"

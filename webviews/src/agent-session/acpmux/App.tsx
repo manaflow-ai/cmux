@@ -312,6 +312,7 @@ import {
 import { shownSubagentFacts, useShownSubagent } from "./subagents/subagentShown";
 import { turnCounts } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
+import { shotTurnId, TurnShotCache, TurnShotsContext, type TurnShotsReader } from "./turnChanges/turnShots";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
 import {
@@ -3991,6 +3992,34 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
     [],
   );
+  // A turn's before and after picture of the chat's page (turnChanges/turnShots.ts), read once per
+  // turn by the cards that draw. The reader is new when a turn ends, so a card whose turn just ended
+  // reads its pair; the scan stops at the newest summary, a few rows from the end.
+  const [turnShotCache] = useState(() => new TurnShotCache());
+  const latestSummary = useMemo(() => {
+    const rows = snapshot.rows;
+    for (let at = rows.length - 1; at >= 0; at -= 1) if (rows[at]!.kind === "turnSummary") return rows[at]!.id;
+    return undefined;
+  }, [snapshot.rows]);
+  const turnShots = useMemo<TurnShotsReader>(() => {
+    const sessionId = snapshot.sessionId;
+    const turnOf = (rowId: string) => (sessionId ? shotTurnId(turnRowsRef.current, rowId) : undefined);
+    return {
+      version: latestSummary,
+      peek: (rowId) => {
+        const turnId = turnOf(rowId);
+        return turnId ? turnShotCache.peek(`${sessionId}\u0000${turnId}`) : {};
+      },
+      read: (rowId) => {
+        const turnId = turnOf(rowId);
+        if (!turnId) return Promise.resolve(undefined);
+        return turnShotCache.read(
+          `${sessionId}\u0000${turnId}`,
+          () => directClient.current?.turnShots(turnId) ?? Promise.resolve(undefined),
+        );
+      },
+    };
+  }, [turnShotCache, latestSummary, snapshot.sessionId]);
   const turnCheckpoints = useTurnCheckpoints(readTurn, snapshot.sessionId);
   const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
   const turnKey = useCallback((rowId: string) => turnRows(turnRowsRef.current, rowId)[0]?.id ?? rowId, []);
@@ -9931,6 +9960,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <NewestSteerContext.Provider value={snapshot.newestOwnSteer}>
                     <RunInBackgroundContext.Provider value={backgroundHint}>
                       <TurnCountsContext.Provider value={turnCountsFor}>
+                        <TurnShotsContext.Provider value={turnShots}>
                         <SessionEditsContext.Provider value={editRows}>
                           <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                             <OfferDefaultsContext.Provider value={offerDefaultsValue}>
@@ -10105,6 +10135,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                             </OfferDefaultsContext.Provider>
                           </SessionCwdContext.Provider>
                         </SessionEditsContext.Provider>
+                        </TurnShotsContext.Provider>
                       </TurnCountsContext.Provider>
                     </RunInBackgroundContext.Provider>
                   </NewestSteerContext.Provider>
