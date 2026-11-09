@@ -334,7 +334,7 @@ impl Paths {
             .into_iter()
             .filter(|via| *via != serving)
             .filter(|via| matches!(self.health(*via, now), Some(Health::Alive | Health::Doubt)))
-            .min_by_key(|via| (self.rtt(*via).map_or(u64::MAX, |rtt| millis(rtt)), *via))
+            .min_by_key(|via| (self.rtt(*via).map_or(u64::MAX, millis), *via))
     }
 
     /// Whether a dead `via` is due for its recovery probe at `now`; it is then scheduled for
