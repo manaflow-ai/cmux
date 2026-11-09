@@ -219,8 +219,7 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
         assert!(text.contains(rule), "code mode {code_mode}: {text}");
         if code_mode {
             // cmux_exec's description, always loaded, says each of these once.
-            for repeated in ["This chat runs in cmux", "acpmux_wrap_up", "sessions_offer_session"]
-            {
+            for repeated in ["This chat runs in cmux", "acpmux_wrap_up", "sessions_offer_session"] {
                 assert!(!text.contains(repeated), "{repeated}: {text}");
             }
         }

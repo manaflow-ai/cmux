@@ -56,7 +56,17 @@ pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
 
 fn apply(state: &mut State, line: Line) {
     match line {
-        Line::Spend { sid, at, model, pv, totals } => {
+        Line::Spend { sid, at, model, pv, mut totals } => {
+            // A line from before acpmux counted cache savings has none: its cache reads at
+            // today's table, so a ledger kept across the upgrade does not read as $0 saved.
+            if totals.cache_saved_usd == 0.0 && totals.cache_read_tokens > 0 {
+                let usage = crate::store::TurnUsage {
+                    cache_read_tokens: Some(totals.cache_read_tokens),
+                    ..Default::default()
+                };
+                totals.cache_saved_usd =
+                    crate::pricing::table().cache_savings(&model, &usage).unwrap_or(0.0);
+            }
             state.add_bucket(&sid, &model, &pv, at, &totals)
         }
         Line::Session { sid, info } => {

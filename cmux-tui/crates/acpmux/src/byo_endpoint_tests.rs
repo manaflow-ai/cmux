@@ -257,7 +257,10 @@ fn byo_endpoint_classify_names_the_fix() {
     assert!(fix(Problem::BaseUrl, Kind::Anthropic, "acme").contains("check the base URL"));
     assert!(fix(Problem::Model, Kind::OpenAi, "acme").contains("model not found"));
     let credit = fix(Problem::Credit, Kind::OpenAi, "acme");
-    assert!(credit.contains("out of credit") && credit.contains("cmux harness doctor acme"), "{credit}");
+    assert!(
+        credit.contains("out of credit") && credit.contains("cmux harness doctor acme"),
+        "{credit}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
