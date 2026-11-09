@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42576384740",
+  "recorded_at": "2026-11-09T07:07:06Z",
+  "reason": "cmux-tui 527c69fdd937 changes the image's cmux-tui (pinned 17bbeea2ab8f)",
+  "dry_run": false,
+  "cmux_tui": "527c69fdd937e4dbbaa1b3fd22b090996c829cec",
+  "fixes": [
+    {
+      "sha": "10e30bc1cc95a4747e7689d5ab32d1de8a76f1dd",
+      "mergedAt": "2026-11-08T22:44:00-08:00",
+      "subject": "acpmux: gate a peer chat's prompt suggestions by the person's own tally and switch (#39228)"
+    },
+    {
+      "sha": "56140525f05adf5632500d36629f6e00c44ed1e2",
+      "mergedAt": "2026-11-08T22:39:07-08:00",
+      "subject": "cmux-tui: say how the registry WAL shrinks: a full PASSIVE checkpoint, then a commit (#39269)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T07:07:06Z",
+    "snapshot_id": "sh-e417e82aaa5247f693094a8723461d8a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42576384740): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cd69b72761ee3c511a8cf78070f66b6862c08064",
+    "image": "cloud-native-auto-527c69fd-42576384740-1",
+    "revision": "ci-42576384740-1",
+    "at": "2026-11-09T07:07:06Z"
+  },
+  "rolled_back": false
+}
