@@ -85,8 +85,9 @@
 #                         and logs each id. The Worker's 5-minute cron runs the same sweep (src/upstream/orphan-sweep.ts).
 #   journey-machines-staging  list the staging agent test account's Cloud machines (its own team and
 #                         CMUX_JOURNEY_PRODUCT_TEAM), one JSON line each with `eligible` by the leaked journey machine
-#                         rule (cloud-journey.ts journeyMachineEligible); machine_ids (vm_ ids, comma separated) then
-#                         deletes exactly those, each only when listed and eligible, logged before the delete.
+#                         rule (cloud-journey.ts journeyMachineEligible); machine_ids (at most 5 `vm_ID@JOB_ID`, JOB_ID
+#                         the CI journey job whose log shows it made the machine and its cleanup delete failed) then
+#                         deletes exactly those, each only when proven, listed and eligible, logged before the delete.
 
 name: cmux VM
 
@@ -137,7 +138,7 @@ on:
         type: boolean
         default: false
       machine_ids:
-        description: journey-machines-staging only, the vm_ ids to delete (comma separated); empty lists only
+        description: journey-machines-staging only, at most 5 vm_ID@JOB_ID to delete (JOB_ID the journey job that leaked it), comma separated; empty lists only
         type: string
         default: ""
       tail_minutes:
@@ -1193,10 +1194,14 @@ jobs:
     name: journey machines (staging agent test account)
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'journey-machines-staging' && github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 20
+    # 35 min: at most 5 ids (MAX_DELETE_IDS), each delete bounded at 5 min (180 s of retries, 120 s of read back),
+    # plus sign-in, the list and the job log reads.
+    timeout-minutes: 35
     environment: cmux-vm-staging
     permissions:
       contents: read
+      # Each id's proof: its journey job's log (cloud-journey.ts provenLeak).
+      actions: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1210,11 +1215,12 @@ jobs:
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           MACHINE_IDS: ${{ inputs.machine_ids }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           args=(--backend staging --machines)
           if [ -n "$PRODUCT_TEAM" ]; then args+=(--also-team "$PRODUCT_TEAM"); fi
-          # cloud-journey.ts refuses anything but strict vm_ ids before it signs in.
+          # cloud-journey.ts refuses anything but vm_ID@JOB_ID, and any id its job's log does not prove leaked, before it signs in.
           if [ -n "$MACHINE_IDS" ]; then args+=(--delete-ids "$MACHINE_IDS"); fi
           bun scripts/cmux-next/cloud-journey.ts "${args[@]}"
 

@@ -66,8 +66,10 @@
  * made) and set back to its earlier mode at the end.
  *
  * --machines lists the agent test account's machines (one JSON line each, with `eligible` by the leaked journey
- * machine rule; --also-team T lists a second team too), and --delete-ids vm_a,vm_b deletes exactly those, each only
- * when the live list has it and the rule allows it, logged first (cmux-vm.yml action journey-machines-staging).
+ * machine rule; --also-team T lists a second team too), and --delete-ids vm_a@JOB,vm_b@JOB deletes exactly those (at
+ * most 5), each only when JOB is a CI journey job whose log shows it made the machine and its cleanup delete failed
+ * (GITHUB_TOKEN reads it), the live list has it and the rule allows it, logged first (cmux-vm.yml action
+ * journey-machines-staging).
  *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
@@ -1009,14 +1011,99 @@ export function journeyMachineEligible(m: any, now = Date.now()): { eligible: bo
   return { eligible: true, reason: `${status}, older than 24 h, ${last ? "idle over 45 min" : "no activity recorded"}` };
 }
 
-/** --delete-ids: strict `vm_` ids, comma or space separated, checked before anything signs in. */
-export function parseMachineIds(text: string): string[] {
-  const ids = [...new Set(text.split(/[\s,]+/).filter(Boolean))];
-  if (!ids.length) throw new Error("--delete-ids: no machine ids");
-  const bad = ids.filter((id) => !MACHINE_ID.test(id));
-  if (bad.length) throw new Error(`--delete-ids: not a machine id (vm_ and 20 lowercase letters or digits): ${bad.map((b) => JSON.stringify(b.slice(0, 40))).join(", ")}`);
-  if (ids.length > 25) throw new Error(`--delete-ids: ${ids.length} ids; at most 25 in one run`);
-  return ids;
+/**
+ * At most this many ids in one run. Each delete is bounded at 5 min (its mutation.indeterminate retries, 180 s, and
+ * its read back, 120 s), so 5 fit the workflow job's 35 min with sign-in, the list and the log reads.
+ */
+export const MAX_DELETE_IDS = 5;
+
+/** One id to delete and the GitHub Actions job whose journey made it and failed to delete it. */
+export type DeleteEntry = { id: string; job: string };
+
+/** --delete-ids: `vm_<20>@<job id>` entries, comma or space separated, checked before anything signs in. */
+export function parseDeleteEntries(text: string): DeleteEntry[] {
+  const raw = [...new Set(text.split(/[\s,]+/).filter(Boolean))];
+  if (!raw.length) throw new Error("--delete-ids: no machine ids");
+  const bad = raw.filter((e) => !/^vm_[a-z0-9]{20}@[1-9][0-9]{0,19}$/.test(e));
+  if (bad.length) throw new Error(`--delete-ids: not vm_<20 lowercase letters or digits>@<GitHub Actions job id>: ${bad.map((b) => JSON.stringify(b.slice(0, 60))).join(", ")}`);
+  const entries = raw.map((e) => { const [id, job] = e.split("@"); return { id: id!, job: job! }; });
+  const ids = entries.map((e) => e.id);
+  const twice = ids.filter((id, i) => ids.indexOf(id) !== i);
+  if (twice.length) throw new Error(`--delete-ids: an id given twice: ${twice.join(", ")}`);
+  if (entries.length > MAX_DELETE_IDS) throw new Error(`--delete-ids: ${entries.length} ids; at most ${MAX_DELETE_IDS} in one run`);
+  return entries;
+}
+
+/**
+ * The workflows whose journeys may have leaked a machine: each runs cloud-journey.ts without --keep or --machine
+ * (cmux-vm.yml, backend.yml, cloud-journey-pr.yml and cloudflare-relay.yml run it through cloud-journey-ci.sh, which
+ * passes only --backend, --out, --cmux or --skip sync, --model and --team; checked 2026-11-09). Only hand runs pass
+ * --keep, so a machine made by one of these jobs is never a kept one. A --keep run also never logs a cleanup delete
+ * (cleanup returns before it), so the FAIL line below is a second proof.
+ */
+export const JOURNEY_WORKFLOWS = new Set([".github/workflows/cmux-vm.yml", ".github/workflows/backend.yml", ".github/workflows/cloud-journey-pr.yml", ".github/workflows/cloudflare-relay.yml"]);
+export const JOURNEY_REPO = "manaflow-ai/cmux";
+
+/**
+ * Whether a job's log proves this machine leaked: one journey in it (from its `health` step to the next) logged
+ * `PASS create machine <ms> ms :: <id> ...` and then `FAIL delete (cleanup) ...`. Null when proven, else why not.
+ * A job runs several journeys (baseline and after a deploy, the test team and the product team), so the create
+ * and the failed cleanup must be in the same one.
+ */
+export function leakProof(log: string, id: string): string | null {
+  const lines = log.split("\n").map((l) => l.replace(/\r$/, "").replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, ""));
+  let inJourney = false;
+  let created = false;
+  let seenCreate = false;
+  for (const line of lines) {
+    if (/^(PASS|FAIL) health \d+ ms ::/.test(line)) { inJourney = true; created = false; continue; }
+    if (!inJourney) continue;
+    const c = /^PASS create machine \d+ ms :: (vm_[a-z0-9]{20})( |$)/.exec(line);
+    if (c) { created = c[1] === id; seenCreate ||= created; continue; }
+    if (created && /^FAIL delete \(cleanup\) \d+ ms ::/.test(line)) return null;
+  }
+  return seenCreate ? `the job's journey made ${id} but logged no failed cleanup delete for it` : `the job's log has no journey that made ${id}`;
+}
+
+type GhGet = (url: string, headers: Record<string, string>) => Promise<{ status: number; location: string | null; text: string }>;
+
+const ghGet: GhGet = async (url, headers) => {
+  const res = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(60_000) });
+  const text = await res.text();
+  return { status: res.status, location: res.headers.get("location"), text: text.slice(0, 64 * 1024 * 1024) };
+};
+
+/**
+ * The GitHub side of the proof: the job is in JOURNEY_REPO, its run's workflow is a JOURNEY_WORKFLOWS one, and its
+ * log has leakProof's two lines. Null when proven, else why not. The log's download link is fetched without the token.
+ */
+export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet): Promise<string | null> {
+  const api = `https://api.github.com/repos/${JOURNEY_REPO}/actions`;
+  const auth = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
+  const json = async (url: string) => {
+    const r = await get(url, auth);
+    if (r.status !== 200) throw new Error(`GET ${url.slice(api.length)}: HTTP ${r.status}`);
+    return JSON.parse(r.text);
+  };
+  try {
+    const job = await json(`${api}/jobs/${entry.job}`);
+    if (String(job?.id) !== entry.job || !Number.isSafeInteger(job?.run_id)) return `job ${entry.job}: not a job of ${JOURNEY_REPO}`;
+    const run = await json(`${api}/runs/${job.run_id}`);
+    if (run?.repository?.full_name !== JOURNEY_REPO) return `job ${entry.job}: its run is not in ${JOURNEY_REPO}`;
+    const workflow = String(run?.path ?? "").replace(/@.*$/, "");
+    if (!JOURNEY_WORKFLOWS.has(workflow)) return `job ${entry.job}: workflow ${workflow || "?"} is not one whose journeys run without --keep`;
+    const link = await get(`${api}/jobs/${entry.job}/logs`, auth);
+    let log = link.text;
+    if (link.status === 302 && link.location) {
+      const blob = await get(link.location, {});
+      if (blob.status !== 200) return `job ${entry.job}: its log download answered HTTP ${blob.status}`;
+      log = blob.text;
+    } else if (link.status !== 200) return `job ${entry.job}: its log answered HTTP ${link.status}`;
+    const why = leakProof(log, entry.id);
+    return why ? `job ${entry.job}: ${why}` : null;
+  } catch (e) {
+    return `job ${entry.job}: ${(e as Error).message}`;
+  }
 }
 
 const iso = (ms: unknown) => (Number.isSafeInteger(ms) && (ms as number) > 0 ? new Date(ms as number).toISOString() : null);
@@ -1025,6 +1112,10 @@ const iso = (ms: unknown) => (Number.isSafeInteger(ms) && (ms as number) > 0 ? n
 export function machineLine(m: any, scope: string, now = Date.now()): Record<string, unknown> {
   const { eligible, reason } = journeyMachineEligible(m, now);
   const created = Number.isSafeInteger(m?.created_at) ? m.created_at : null;
+  // A delete needs the job that made it (DeleteEntry); this tool cannot search logs, so it says where to look.
+  const findJob = eligible
+    ? `a journey job running at ${iso(created)} (cmux-vm.yml deploy-staging, cloud-journey-pr.yml, backend.yml or cloudflare-relay.yml) whose log has "PASS create machine ... :: ${m.id}" and "FAIL delete (cleanup)"; pass ${m.id}@<job id>`
+    : null;
   return {
     scope,
     id: m?.id ?? null,
@@ -1037,6 +1128,7 @@ export function machineLine(m: any, scope: string, now = Date.now()): Record<str
     error: m?.error?.code ?? null,
     eligible,
     reason,
+    ...(findJob ? { find_job: findJob } : {}),
   };
 }
 
@@ -1129,8 +1221,24 @@ async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, p
 
 async function machinesMode(argv: string[], backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {
   const idsArg = argv.includes("--delete-ids") ? argValue("--delete-ids", argv) ?? "" : null;
-  // The ids are checked before anything signs in.
-  const ids = idsArg === null ? null : parseMachineIds(idsArg);
+  // The ids, and each one's proof that a CI journey made it and failed to delete it, are checked before anything
+  // signs in. One without its proof deletes nothing.
+  const entries = idsArg === null ? null : parseDeleteEntries(idsArg);
+  if (entries) {
+    const token = process.env.GITHUB_TOKEN ?? "";
+    if (!token) throw new Error("--delete-ids needs GITHUB_TOKEN (actions: read on manaflow-ai/cmux) to read each id's journey job");
+    let unproven = 0;
+    for (const e of entries) {
+      const why = await provenLeak(e, token);
+      console.log(JSON.stringify(why ? { refused: e.id, job: e.job, reason: why } : { proven: e.id, job: e.job }));
+      if (why) unproven++;
+    }
+    if (unproven) {
+      console.log(JSON.stringify({ deleted: 0, not_deleted: entries.length, reason: `${unproven} id(s) without a CI journey's proof of a leak` }));
+      return 1;
+    }
+  }
+  const ids = entries?.map((e) => e.id) ?? null;
   const alsoTeams = (argValue("--also-team", argv) ?? "").split(/[\s,]+/).filter(Boolean);
   const secrets: string[] = password ? [password] : [];
   const say = (line: string) => console.log(scrub(line, secrets));
