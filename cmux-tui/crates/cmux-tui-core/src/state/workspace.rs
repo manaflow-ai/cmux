@@ -135,8 +135,7 @@ impl Mux {
                             && !matches!(mutation.actor, Actor::Daemon)
                         {
                             anyhow::bail!(
-                                "bad request: status keys starting with {} are reserved for terminal tail pins",
-                                RESERVED_TAIL_KEY_PREFIX
+                                "bad request: status keys starting with {RESERVED_TAIL_KEY_PREFIX} are reserved for terminal tail pins"
                             );
                         }
                         // Checked here, after the replay check, so a retry of
