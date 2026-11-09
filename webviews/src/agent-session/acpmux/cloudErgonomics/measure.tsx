@@ -101,16 +101,19 @@ async function mount(element: (record: (effect: Effect) => void) => ReactElement
     return null;
   }) as typeof win.open;
   // The native bridge (native.ts postNative): every call answers ok, and is read as the click's effect.
-  win.webkit = {
-    messageHandlers: {
-      agentSession: {
-        postMessage: (message: { method: string }) => {
-          record({ kind: LEAVES_PANE.has(message.method) ? "out-of-app" : "in-place", what: message.method });
-          return { ok: true, value: {} };
+  Object.assign(win, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: unknown) => {
+            const method = String((message as { method?: unknown }).method);
+            record({ kind: LEAVES_PANE.has(method) ? "out-of-app" : "in-place", what: method });
+            return Promise.resolve({ ok: true, value: {} });
+          },
         },
       },
     },
-  };
+  });
   win.addEventListener("cmux:open-cloud-environment", () =>
     record({ kind: "out-of-app", what: "open the Cloud environment editor" }),
   );
