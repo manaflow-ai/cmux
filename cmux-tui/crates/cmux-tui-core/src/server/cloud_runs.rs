@@ -55,9 +55,7 @@ pub(super) fn engine(mux: &Mux) -> &'static Arc<Engine> {
 
 /// At the daemon's start: Runs a former daemon left get their cleanup again (nothing when it left none).
 pub(super) fn resume(mux: &Mux) {
-    let has_store = mux
-        .session_state_directory()
-        .is_some_and(|dir| dir.join(STORE_FILE).exists());
+    let has_store = mux.session_state_directory().is_some_and(|dir| dir.join(STORE_FILE).exists());
     if has_store {
         engine(mux);
     }
@@ -77,7 +75,13 @@ struct Ran {
 }
 
 impl AppVerbs {
-    fn cmux(&self, words: &[&str], stdin: Option<&str>, bound: Duration, cancel: Option<&AtomicBool>) -> Ran {
+    fn cmux(
+        &self,
+        words: &[&str],
+        stdin: Option<&str>,
+        bound: Duration,
+        cancel: Option<&AtomicBool>,
+    ) -> Ran {
         let failed = |message: String| Ran { code: None, stdout: String::new(), stderr: message };
         let Some(exe) = &self.exe else { return failed("the cmux binary is not known".into()) };
         let mut command = Command::new(exe);
@@ -178,7 +182,12 @@ fn machine_of(value: &Value) -> Option<String> {
 }
 
 /// How a `cloud start-chat --wait` child ended, as a Run's outcome.
-pub(super) fn outcome(code: Option<i32>, result: Result<Value, Value>, cancelled: bool, out_of_time: bool) -> Outcome {
+pub(super) fn outcome(
+    code: Option<i32>,
+    result: Result<Value, Value>,
+    cancelled: bool,
+    out_of_time: bool,
+) -> Outcome {
     let machine = match &result {
         Ok(value) | Err(value) => machine_of(value),
     };
@@ -205,7 +214,11 @@ pub(super) fn outcome(code: Option<i32>, result: Result<Value, Value>, cancelled
             }
             let reply = error.pointer("/details/reply").and_then(Value::as_str).map(str::to_owned);
             Outcome::Failed {
-                code: if code_text.is_empty() { format!("exit {}", code.unwrap_or(-1)) } else { code_text },
+                code: if code_text.is_empty() {
+                    format!("exit {}", code.unwrap_or(-1))
+                } else {
+                    code_text
+                },
                 message: text(&error, "message"),
                 reply,
                 machine,
@@ -247,11 +260,19 @@ impl Steps for AppVerbs {
             .filter(|id| listed.iter().any(|(listed, _)| listed == id))
             .map(str::to_owned)
             .or_else(|| {
-                listed.iter().find(|(_, name)| name.as_deref() == Some(machine_name)).map(|(id, _)| id.clone())
+                listed
+                    .iter()
+                    .find(|(_, name)| name.as_deref() == Some(machine_name))
+                    .map(|(id, _)| id.clone())
             });
         let Some(id) = id else { return Removal::Gone };
         let target = format!("machine:{id}");
-        let ran = self.cmux(&["cloud", "kill-machine", "--target", &target, "--confirm"], None, STEP_BOUND, None);
+        let ran = self.cmux(
+            &["cloud", "kill-machine", "--target", &target, "--confirm"],
+            None,
+            STEP_BOUND,
+            None,
+        );
         match answer(&ran) {
             Ok(_) => Removal::Deleted,
             Err(error) => Removal::Later(text(&error, "message")),
@@ -274,7 +295,10 @@ mod tests {
     fn the_start_chats_own_timeouts_are_a_timed_out_run() {
         for code in ["cloud.start_pending", "chat.wait_timeout"] {
             let error = json!({ "code": code, "message": "m", "details": { "answer": { "machine_id": "m2" } } });
-            assert_eq!(outcome(Some(3), Err(error), false, false), Outcome::TimedOut { machine: Some("m2".into()) });
+            assert_eq!(
+                outcome(Some(3), Err(error), false, false),
+                Outcome::TimedOut { machine: Some("m2".into()) }
+            );
         }
         assert_eq!(outcome(None, Err(json!({})), false, true), Outcome::TimedOut { machine: None });
     }
@@ -292,14 +316,25 @@ mod tests {
                 machine: Some("m3".into())
             }
         );
-        assert_eq!(outcome(None, Err(error), true, false), Outcome::Cancelled { machine: Some("m3".into()) });
+        assert_eq!(
+            outcome(None, Err(error), true, false),
+            Outcome::Cancelled { machine: Some("m3".into()) }
+        );
     }
 
     #[test]
     fn an_answer_is_read_from_stdout_and_an_error_from_stderr() {
-        let ran = Ran { code: Some(0), stdout: "noise\n{\"reply\":\"r\"}\n".into(), stderr: String::new() };
+        let ran = Ran {
+            code: Some(0),
+            stdout: "noise\n{\"reply\":\"r\"}\n".into(),
+            stderr: String::new(),
+        };
         assert_eq!(answer(&ran), Ok(json!({ "reply": "r" })));
-        let ran = Ran { code: Some(1), stdout: String::new(), stderr: "{\"code\":\"cloud.signed_out\",\"message\":\"sign in\"}".into() };
+        let ran = Ran {
+            code: Some(1),
+            stdout: String::new(),
+            stderr: "{\"code\":\"cloud.signed_out\",\"message\":\"sign in\"}".into(),
+        };
         assert_eq!(answer(&ran).unwrap_err()["code"], "cloud.signed_out");
         let ran = Ran { code: None, stdout: String::new(), stderr: "boom".into() };
         assert_eq!(answer(&ran).unwrap_err(), json!({ "code": "step.failed", "message": "boom" }));

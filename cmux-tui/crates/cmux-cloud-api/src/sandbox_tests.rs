@@ -81,7 +81,9 @@ fn create(engine: &Arc<Engine>, key: &str) -> Value {
 fn settled(engine: &Arc<Engine>, id: &str, cleanup: &str) -> Value {
     let began = Instant::now();
     loop {
-        let snapshot = engine.perform("runs.wait", None, &args(json!({ "id": id, "timeoutMs": 200 }))).unwrap();
+        let snapshot = engine
+            .perform("runs.wait", None, &args(json!({ "id": id, "timeoutMs": 200 })))
+            .unwrap();
         if snapshot["receipt"]["cleanup"] == cleanup || began.elapsed() > Duration::from_secs(5) {
             return snapshot;
         }
@@ -91,7 +93,13 @@ fn settled(engine: &Arc<Engine>, id: &str, cleanup: &str) -> Value {
 
 #[test]
 fn a_run_answers_the_reply_and_deletes_its_machine() {
-    let fake = Fake::new(Some(Outcome::Replied { reply: "\u{1b}[1mhi\u{1b}[0m there".into(), machine: Some("m-7".into()) }), vec![]);
+    let fake = Fake::new(
+        Some(Outcome::Replied {
+            reply: "\u{1b}[1mhi\u{1b}[0m there".into(),
+            machine: Some("m-7".into()),
+        }),
+        vec![],
+    );
     let engine = Engine::open(None, fake.clone(), quick());
     let created = create(&engine, "k1");
     let id = created["id"].as_str().unwrap().to_owned();
@@ -111,7 +119,10 @@ fn a_run_answers_the_reply_and_deletes_its_machine() {
     assert_eq!(ran[0].agent, "claude");
     assert_eq!(ran[0].machine_name, format!("{MACHINE_PREFIX}{id}"));
     assert_eq!(ran[0].timeout, Duration::from_millis(30_000));
-    assert_eq!(fake.removed.lock().unwrap()[0], (format!("{MACHINE_PREFIX}{id}"), Some("m-7".into())));
+    assert_eq!(
+        fake.removed.lock().unwrap()[0],
+        (format!("{MACHINE_PREFIX}{id}"), Some("m-7".into()))
+    );
 }
 
 #[test]
@@ -147,7 +158,12 @@ fn a_cancel_stops_the_task_and_deletes_the_machine() {
 #[test]
 fn a_failed_delete_is_tried_again_until_the_machine_goes() {
     let fake = Fake::new(
-        Some(Outcome::Failed { code: "chat.turn_failed".into(), message: "the turn ended failed".into(), reply: Some("oops".into()), machine: None }),
+        Some(Outcome::Failed {
+            code: "chat.turn_failed".into(),
+            message: "the turn ended failed".into(),
+            reply: Some("oops".into()),
+            machine: None,
+        }),
         vec![Removal::Later("app not running".into()), Removal::Later("again".into())],
     );
     let engine = Engine::open(None, fake.clone(), quick());
@@ -163,10 +179,17 @@ fn a_failed_delete_is_tried_again_until_the_machine_goes() {
 fn gone_counts_only_after_a_cut_off_start_could_still_make_the_machine() {
     let fake = Fake::new(Some(Outcome::TimedOut { machine: None }), vec![Removal::Gone]);
     // The settle time is the task's timeout (30 s) past its create: far off.
-    let engine = Engine::open(None, fake.clone(), Timing { start_settle: Duration::from_secs(60), ..quick() });
+    let engine = Engine::open(
+        None,
+        fake.clone(),
+        Timing { start_settle: Duration::from_secs(60), ..quick() },
+    );
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     let snapshot = settled(&engine, &id, "destroyed");
-    assert_eq!(snapshot["receipt"]["cleanup"], "pending", "a list without the machine is not proof yet");
+    assert_eq!(
+        snapshot["receipt"]["cleanup"], "pending",
+        "a list without the machine is not proof yet"
+    );
     assert!(fake.removes.load(Ordering::Acquire) >= 2, "it is read again before the settle time");
 }
 
@@ -210,7 +233,14 @@ fn the_same_key_answers_the_same_run_and_another_body_is_a_conflict() {
     let conflict = engine
         .perform("runs.create", Some("team_1"), &args(json!({ "task": "other", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": "same" })))
         .unwrap_err();
-    assert_eq!(conflict, Failure::http(409, Some("run_idempotency_conflict".into()), Some("this idempotency key named another Run".into())));
+    assert_eq!(
+        conflict,
+        Failure::http(
+            409,
+            Some("run_idempotency_conflict".into()),
+            Some("this idempotency key named another Run".into())
+        )
+    );
     // Another team's same key is another Run.
     let other = engine
         .perform("runs.create", Some("team_2"), &args(json!({ "task": "say hi", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": "same" })))
@@ -235,9 +265,13 @@ fn a_create_that_is_not_one_is_refused_and_runs_nothing() {
     ];
     for (body, code) in cases {
         let failure = engine.perform("runs.create", None, &args(body)).unwrap_err();
-        assert!(matches!(&failure, Failure::Http { status: 400, code: Some(c), .. } if c == code), "{failure:?}");
+        assert!(
+            matches!(&failure, Failure::Http { status: 400, code: Some(c), .. } if c == code),
+            "{failure:?}"
+        );
     }
-    let missing = engine.perform("runs.wait", None, &args(json!({ "id": "run_nope" }))).unwrap_err();
+    let missing =
+        engine.perform("runs.wait", None, &args(json!({ "id": "run_nope" }))).unwrap_err();
     assert!(matches!(missing, Failure::Http { status: 404, .. }));
     assert!(fake.ran.lock().unwrap().is_empty());
 }
@@ -248,7 +282,8 @@ fn a_wait_holds_at_most_its_bound_and_answers_no_receipt_while_running() {
     let engine = Engine::open(None, fake.clone(), quick());
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     let began = Instant::now();
-    let snapshot = engine.perform("runs.wait", None, &args(json!({ "id": id, "timeoutMs": 50 }))).unwrap();
+    let snapshot =
+        engine.perform("runs.wait", None, &args(json!({ "id": id, "timeoutMs": 50 }))).unwrap();
     assert!(began.elapsed() < Duration::from_secs(2));
     assert_eq!(snapshot["receipt"], Value::Null);
     assert!(matches!(snapshot["run"]["status"].as_str(), Some("queued" | "running")));
@@ -260,7 +295,11 @@ fn run_sandbox_answers_the_final_snapshot() {
     let fake = Fake::new(Some(Outcome::Replied { reply: "done".into(), machine: None }), vec![]);
     let engine = Engine::open(None, fake, quick());
     let snapshot = engine
-        .perform("runs.sandbox", None, &args(json!({ "task": "hi", "timeoutMs": 30_000, "idempotencyKey": "k" })))
+        .perform(
+            "runs.sandbox",
+            None,
+            &args(json!({ "task": "hi", "timeoutMs": 30_000, "idempotencyKey": "k" })),
+        )
         .unwrap();
     assert_eq!(snapshot["receipt"]["reply"], "done");
 }

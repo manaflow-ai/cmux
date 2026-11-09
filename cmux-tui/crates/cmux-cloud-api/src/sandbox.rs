@@ -328,7 +328,10 @@ impl Engine {
             "runs.wait" => {
                 let id = id_arg(args)?;
                 let held = optional_int(args, "timeoutMs").unwrap_or(WAIT_LIMIT_MS);
-                self.wait(id, Duration::from_millis(u64::try_from(held.clamp(0, WAIT_LIMIT_MS)).unwrap_or(0)))
+                self.wait(
+                    id,
+                    Duration::from_millis(u64::try_from(held.clamp(0, WAIT_LIMIT_MS)).unwrap_or(0)),
+                )
             }
             "runs.cancel" => self.cancel(id_arg(args)?),
             "runs.sandbox" => self.sandbox(team, args),
@@ -336,7 +339,11 @@ impl Engine {
         }
     }
 
-    fn create(self: &Arc<Self>, team: Option<&str>, args: &Map<String, Value>) -> Result<Value, Failure> {
+    fn create(
+        self: &Arc<Self>,
+        team: Option<&str>,
+        args: &Map<String, Value>,
+    ) -> Result<Value, Failure> {
         let task = optional_text(args, "task").map(str::trim).unwrap_or_default();
         if task.is_empty() || task.chars().count() > TASK_MAX_CHARS {
             return Err(refused(400, "run_task_required", "task: the task, 1 to 16000 characters"));
@@ -358,7 +365,11 @@ impl Engine {
         }
         let key = optional_text(args, "idempotencyKey").unwrap_or_default();
         if key.is_empty() || key.chars().count() > KEY_MAX_CHARS {
-            return Err(refused(400, "run_idempotency_required", "idempotencyKey: 1 to 128 characters"));
+            return Err(refused(
+                400,
+                "run_idempotency_required",
+                "idempotencyKey: 1 to 128 characters",
+            ));
         }
         let scoped = format!("{}\u{0}{key}", team.unwrap_or_default());
         let digest = hex(&Sha256::digest(
@@ -472,7 +483,8 @@ impl Engine {
             }
             Outcome::Failed { code, message, reply, machine } => {
                 run.reply = reply.map(|r| clean_reply(&r));
-                run.error = Some(capped(&clean_reply(&format!("{code}: {message}")), ERROR_MAX_CHARS));
+                run.error =
+                    Some(capped(&clean_reply(&format!("{code}: {message}")), ERROR_MAX_CHARS));
                 run.exit_code = Some(1);
                 ("failed", machine, false)
             }
@@ -527,7 +539,8 @@ impl Engine {
             let wait = match removal {
                 // Deleted or gone, before the settle time: read again then.
                 Removal::Deleted | Removal::Gone => {
-                    Duration::from_millis(u64::try_from(settle - now).unwrap_or(0)).min(self.timing.retry_max)
+                    Duration::from_millis(u64::try_from(settle - now).unwrap_or(0))
+                        .min(self.timing.retry_max)
                 }
                 Removal::Later(_) => {
                     let wait = pause;
@@ -579,7 +592,11 @@ impl Engine {
         self.wait(id, CANCEL_WAIT)
     }
 
-    fn sandbox(self: &Arc<Self>, team: Option<&str>, args: &Map<String, Value>) -> Result<Value, Failure> {
+    fn sandbox(
+        self: &Arc<Self>,
+        team: Option<&str>,
+        args: &Map<String, Value>,
+    ) -> Result<Value, Failure> {
         let timeout_ms = optional_int(args, "timeoutMs").unwrap_or(DEFAULT_TIMEOUT_MS);
         let teardown = optional_int(args, "teardownMs").unwrap_or(DEFAULT_TEARDOWN_MS);
         let margin = optional_int(args, "callsMarginMs").unwrap_or(DEFAULT_CALLS_MARGIN_MS);
@@ -603,7 +620,9 @@ impl Engine {
     fn prune(&self, state: &mut State, now: i64) {
         let keep = ms(self.timing.keep_ended);
         state.runs.retain(|_, run| {
-            !(run.ended() && run.cleanup != "pending" && run.finished_ms.is_some_and(|at| now - at > keep))
+            !(run.ended()
+                && run.cleanup != "pending"
+                && run.finished_ms.is_some_and(|at| now - at > keep))
         });
     }
 
@@ -611,7 +630,9 @@ impl Engine {
         let Some(path) = &self.store else { return };
         let mut runs: Vec<Run> = state.runs.values().cloned().collect();
         runs.sort_by(|a, b| a.created_ms.cmp(&b.created_ms).then_with(|| a.id.cmp(&b.id)));
-        let Ok(bytes) = serde_json::to_vec(&Stored { version: STORE_VERSION, runs }) else { return };
+        let Ok(bytes) = serde_json::to_vec(&Stored { version: STORE_VERSION, runs }) else {
+            return;
+        };
         let _ = write_private(path, &bytes);
     }
 }

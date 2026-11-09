@@ -724,7 +724,10 @@ fn the_answer_line_is_the_apps_error_cases() {
     assert_eq!(line, json!({ "ok": true, "body": [1] }));
     let line: Value =
         serde_json::from_str(&answer_line(&Err(Failure::TimedOut("cloud.runs".into())))).unwrap();
-    assert_eq!(line, json!({ "ok": false, "error": { "kind": "timed_out", "path": "cloud.runs" } }));
+    assert_eq!(
+        line,
+        json!({ "ok": false, "error": { "kind": "timed_out", "path": "cloud.runs" } })
+    );
     let line: Value =
         serde_json::from_str(&answer_line(&Err(Failure::http(409, Some("c".into()), None))))
             .unwrap();
