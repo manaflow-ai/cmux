@@ -1806,7 +1806,7 @@ mod tests {
             }
         };
         // The lane's fleet run runs past its turns as a daemon task that brings its end to it.
-        let run = hub.bg_fake_running(&lane, true);
+        let run = hub.bg_fake_running(&lane, true).unwrap();
         for turn in 1..=15 {
             let before = parent.meta().turn_count;
             let minutes = turn * 2;
