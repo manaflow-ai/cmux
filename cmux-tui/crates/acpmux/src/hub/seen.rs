@@ -22,6 +22,7 @@ impl Hub {
         // A client letting go starts the idle period; one arriving resets it.
         self.touch(session);
         let was_shown = self.shown(session);
+        let seen = session.seq.load(Ordering::SeqCst);
         let n = delta.unsigned_abs() as usize;
         if delta > 0 {
             session.attached.fetch_add(n, Ordering::SeqCst);
@@ -37,7 +38,7 @@ impl Hub {
                 let _ = session.hidden.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
             }
         }
-        self.left_off(session, was_shown);
+        self.left_off(session, was_shown, seen);
         // Leaving the chat or coming back to it (`away_recap.rs`).
         self.recap_visibility(session);
         // The git watch follows the chats clients hold (`git_watch.rs`).
@@ -49,6 +50,7 @@ impl Hub {
     /// An attached client starts or stops showing the chat.
     pub fn set_visible(&self, session: &Session, visible: bool) {
         let was_shown = self.shown(session);
+        let seen = session.seq.load(Ordering::SeqCst);
         let less = |v: usize| Some(v.saturating_sub(1));
         if visible {
             let _ = session.hidden.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
@@ -56,17 +58,17 @@ impl Hub {
         } else {
             session.hidden.fetch_add(1, Ordering::SeqCst);
         }
-        self.left_off(session, was_shown);
+        self.left_off(session, was_shown, seen);
         self.recap_visibility(session);
         self.events.changed();
     }
 
-    /// The last client showing the chat stopped: the person has seen it up to its newest record.
-    fn left_off(&self, session: &Session, was_shown: bool) {
+    /// The last client showing the chat stopped: the person has seen it up to `seq`, read before
+    /// the counters changed, so a record that lands while they change is left under the line.
+    fn left_off(&self, session: &Session, was_shown: bool, seq: u64) {
         if !was_shown || self.shown(session) {
             return;
         }
-        let seq = session.seq.load(Ordering::SeqCst);
         let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         let returned = meta.last_return.take().is_some();
         let changed = meta.seen_seq.replace(seq) != Some(seq) || returned;

@@ -7261,6 +7261,8 @@ export class AcpmuxDirectClient {
           msg.text.trim() &&
           !recapDismissed(key) &&
           since &&
+          // A hidden selection skips markSeen, so the mark may still be another chat's.
+          since.sessionId === this.selectedSessionId &&
           msg.since === since.seq
         ) {
           // Made for this return: it draws on "New since you looked", not as a second summary.
