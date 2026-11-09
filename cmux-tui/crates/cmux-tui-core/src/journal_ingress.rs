@@ -1090,9 +1090,30 @@ pub(crate) fn start(
     mux.spawn_journal_writer("mux-session-journal-writer", move || run(weak, receivers))
 }
 
+/// Debug builds: the first batch that holds terminal output waits until a
+/// test opens the FIFO named by `CMUX_TUI_TEST_HOLD_TERMINAL_JOURNAL`, as a
+/// writer stuck behind a slow disk would.
+#[cfg(debug_assertions)]
+fn hold_terminal_journal_for_test(batch: &[QueuedJournalEvent]) {
+    static HELD: AtomicBool = AtomicBool::new(false);
+    if !batch
+        .iter()
+        .any(|queued| matches!(queued.event, JournalIngressEvent::TerminalOutput { .. }))
+    {
+        return;
+    }
+    if let Some(path) = std::env::var_os("CMUX_TUI_TEST_HOLD_TERMINAL_JOURNAL")
+        && !HELD.swap(true, Ordering::AcqRel)
+    {
+        let _ = std::fs::read(path);
+    }
+}
+
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
     loop {
         let Some(batch) = receive_batch(&receivers) else { return };
+        #[cfg(debug_assertions)]
+        hold_terminal_journal_for_test(&batch);
         let mut pending = VecDeque::from([batch]);
         while let Some(mut batch) = pending.pop_front() {
             let mut delay = JOURNAL_RETRY_INITIAL_DELAY;

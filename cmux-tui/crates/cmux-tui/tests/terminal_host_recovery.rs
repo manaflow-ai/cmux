@@ -51,6 +51,9 @@ struct RecoveryHarness {
     /// FIFO that holds every terminal-host reconnect checkpoint of the daemon
     /// until [`RecoveryHarness::release_reconnect_checkpoints`].
     reconnect_checkpoint_hold: Option<PathBuf>,
+    /// FIFO that holds the daemon's first terminal-output journal commit
+    /// until [`RecoveryHarness::release_terminal_journal`].
+    terminal_journal_hold: Option<PathBuf>,
     adoption_insert_failures: Option<u64>,
     template_completion_failures: Option<u64>,
     adopt_template_terminal: bool,
@@ -75,6 +78,7 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             reconnect_checkpoint_hold: None,
+            terminal_journal_hold: None,
             adoption_insert_failures: None,
             template_completion_failures: None,
             adopt_template_terminal: false,
@@ -109,22 +113,37 @@ impl RecoveryHarness {
 
     fn start_with_reconnect_checkpoint_hold(name: &str) -> Self {
         let mut harness = Self::start_unstarted(name);
-        let hold = harness.dir.join("reconnect-checkpoint-hold");
-        let path = std::ffi::CString::new(hold.as_os_str().as_encoded_bytes()).unwrap();
-        // SAFETY: `path` is a NUL-terminated path inside this harness's own
-        // private directory.
-        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
-        harness.reconnect_checkpoint_hold = Some(hold);
+        harness.reconnect_checkpoint_hold = Some(harness.hold_fifo("reconnect-checkpoint-hold"));
         harness.restart();
         harness
     }
 
-    /// Lets a held reconnect checkpoint go on. Nothing waits when no
-    /// checkpoint is held: the FIFO then has no reader.
+    fn start_with_terminal_journal_hold(name: &str) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.terminal_journal_hold = Some(harness.hold_fifo("terminal-journal-hold"));
+        harness.restart();
+        harness
+    }
+
+    /// A FIFO in this harness's own directory; a daemon hook that reads it
+    /// waits until `release_hold` opens it.
+    fn hold_fifo(&self, name: &str) -> PathBuf {
+        let hold = self.dir.join(name);
+        let path = std::ffi::CString::new(hold.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: `path` is a NUL-terminated path inside this harness's own
+        // private directory.
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        hold
+    }
+
+    /// Lets a held reconnect checkpoint go on.
     fn release_reconnect_checkpoints(&self) {
-        use std::os::unix::fs::OpenOptionsExt;
-        let hold = self.reconnect_checkpoint_hold.as_ref().unwrap();
-        let _ = fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(hold);
+        release_hold(self.reconnect_checkpoint_hold.as_ref().unwrap());
+    }
+
+    /// Lets the held terminal-output journal commit go on.
+    fn release_terminal_journal(&self) {
+        release_hold(self.terminal_journal_hold.as_ref().unwrap());
     }
 
     fn start_in_own_session(name: &str) -> Self {
@@ -165,6 +184,7 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             reconnect_checkpoint_hold: None,
+            terminal_journal_hold: None,
             adoption_insert_failures: None,
             template_completion_failures: None,
             adopt_template_terminal: false,
@@ -200,6 +220,12 @@ impl RecoveryHarness {
         }
         if let Some(hold) = &self.reconnect_checkpoint_hold {
             command.env("CMUX_TUI_TEST_HOLD_RECONNECT_CHECKPOINT", hold);
+        }
+        if let Some(hold) = &self.terminal_journal_hold {
+            command.env("CMUX_TUI_TEST_HOLD_TERMINAL_JOURNAL", hold);
+            // The longest journal wait, so a reader that waits for the held
+            // journal is still waiting when the test writes.
+            command.env("CMUX_TUI_JOURNAL_DURABLE_WAIT_MS", "300000");
         }
         if let Some(failures) = self.adoption_insert_failures {
             command.env("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES", failures.to_string());
@@ -3019,6 +3045,132 @@ fn host_dropped_daemon_recovers_while_output_continues() {
     drain.join().unwrap();
     close_terminal_surface(&harness.socket, surface, 5);
     wait_for_no_host_records(&harness.host_root());
+}
+
+/// A terminal's output journal is a replay record; it must not make the
+/// daemon fall behind the terminal. With the journal writer held (a slow disk
+/// under a busy machine), output that never stops fills the journal's terminal
+/// lane. A daemon reader that waits there stops reading its host stream, the
+/// host drops the daemon's tap once it is 8 MiB behind, and input fails while
+/// the shell lives.
+#[test]
+fn held_terminal_journal_does_not_stall_live_output() {
+    let harness = RecoveryHarness::start_with_terminal_journal_hold("held-journal");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let terminal = terminal_resource_id(&harness.socket, surface, 2);
+    let grant = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":3,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+        }),
+    );
+    let renderer = connect_host_detailed(
+        grant["endpoint"].as_str().unwrap(),
+        grant["terminal_id"].as_str().unwrap(),
+        grant["token"].as_str().unwrap(),
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+    )
+    .unwrap();
+    let mut renderer_writer = renderer.stream.try_clone().unwrap();
+    // The journal's terminal lane holds at most 1024 chunks of 64 KiB; past
+    // that and the daemon tap's 8 MiB budget, a reader that waits for the
+    // journal has lost its tap. The output rate stays well below what a
+    // reader that does not wait parses, so only the journal can stall it.
+    const PAST_JOURNAL_LANE_AND_TAP: usize = 1024 * 64 * 1024 + 8 * 1024 * 1024 + 16_000_000;
+    let (flooded_tx, flooded_rx) = mpsc::sync_channel(1);
+    let drain = std::thread::spawn(move || {
+        let mut renderer = renderer;
+        let mut drained = 0_usize;
+        loop {
+            match read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD) {
+                Ok(Some(frame)) => {
+                    if frame.kind != MessageKind::Output {
+                        continue;
+                    }
+                    let before = drained;
+                    drained += frame.payload.len();
+                    if before < PAST_JOURNAL_LANE_AND_TAP && drained >= PAST_JOURNAL_LANE_AND_TAP {
+                        let _ = flooded_tx.send(());
+                    }
+                }
+                Ok(None) | Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => {
+                    break;
+                }
+                Err(error) => panic!("renderer stream failed: {error}"),
+            }
+        }
+    });
+
+    write_frame(
+        &mut renderer_writer,
+        &Frame::new(
+            MessageKind::Input,
+            b"while :; do /usr/bin/head -c 262144 /dev/zero; sleep 0.02; done\n".to_vec(),
+        ),
+    )
+    .unwrap();
+    flooded_rx.recv_timeout(test_timeout(Duration::from_secs(120))).unwrap();
+
+    let write = terminal_input_request(
+        &harness.socket,
+        "held-journal-write",
+        "terminal.input.write",
+        serde_json::json!({"text":"x"}),
+        &terminal,
+    );
+    assert_eq!(
+        write["ok"], true,
+        "a receipted write while the terminal journal was held failed: {write}"
+    );
+    let interrupt = terminal_input_request(
+        &harness.socket,
+        "held-journal-interrupt",
+        "terminal.input.keys",
+        serde_json::json!({"keys":["ctrl+c"]}),
+        &terminal,
+    );
+    assert_eq!(
+        interrupt["ok"], true,
+        "Ctrl-C while the terminal journal was held failed: {interrupt}"
+    );
+    // The echoed command line does not contain the marker; only its output
+    // does.
+    let pid = std::process::id();
+    let marker = format!("held-journal-typed-{pid}");
+    let typed = terminal_input_request(
+        &harness.socket,
+        "held-journal-marker",
+        "terminal.input.write",
+        serde_json::json!({"text":format!("printf '%s-%s\\n' held-journal typed-{pid}\n")}),
+        &terminal,
+    );
+    assert_eq!(typed["ok"], true, "typing after the output stopped failed: {typed}");
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
+    assert_eq!(resolved["lifecycle"], "running");
+
+    harness.release_terminal_journal();
+    let _ = renderer_writer.shutdown(std::net::Shutdown::Both);
+    drain.join().unwrap();
+    close_terminal_surface(&harness.socket, surface, 4);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// Opens a hold FIFO for writing and closes it, which ends the read of the
+/// daemon hook waiting on it. Nothing waits when no hook holds: the FIFO then
+/// has no reader.
+fn release_hold(hold: &Path) {
+    use std::os::unix::fs::OpenOptionsExt;
+    let _ = fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(hold);
 }
 
 /// The public terminal id of the tab of `surface`.
