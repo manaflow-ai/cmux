@@ -432,8 +432,9 @@ mod tests {
     /// `dontAsk` denies what is not allowed; Codex's `read-only` and `agent` ask outside the
     /// workspace; opencode's `build` asks outside the project, for `*.env` and repeated calls.
     /// They keep the asking note. Claude's `bypassPermissions` and Codex's `agent-full-access`
-    /// run everything, so they get the note that says so; the same name in another harness
-    /// (a custom agent's mode) says nothing about what it asks.
+    /// run everything, so they get the note that says so; a mode of the same name in another
+    /// reviewed harness (opencode) says nothing about what it asks, and neither does a mode
+    /// with no full-access marker in an unreviewed one (`build`).
     #[test]
     fn w5s_only_a_mode_that_runs_everything_unasked_drops_the_asking_note() {
         let default_ask = |harness: &str, mode: &str| {
@@ -445,8 +446,8 @@ mod tests {
             ("codex", "read-only"),
             ("codex", "agent"),
             ("opencode", "build"),
-            ("my-agent", "bypassPermissions"),
-            ("my-agent", "agent-full-access"),
+            ("my-agent", "build"),
+            ("gemini", "autoEdit"),
             ("opencode", "agent-full-access"),
         ] {
             let note = app_allow_note(&default_ask(harness, mode), "alpha").expect("a note");
@@ -464,6 +465,36 @@ mod tests {
                          "modes": {"currentModeId": "bypassPermissions", "availableModes": []}});
         let note = app_allow_note(&sr2, "alpha").expect("a note");
         assert!(note.contains("does not hold here"), "{note}");
+    }
+
+    /// Review 3 of #39057: a Codex launcher with a family of its own (`codex-sr2`, whose agent is
+    /// codex-acp) in `agent-full-access` runs everything as Codex does, so the note says the
+    /// default does not hold; its `agent` still asks.
+    #[test]
+    fn w5s_a_codex_launcher_in_full_access_gets_the_bypass_note() {
+        let info = |mode: &str| {
+            json!({"harness": "codex-sr2", "family": "codex-sr2", "policy": null,
+                   "agentInfo": {"name": "@agentclientprotocol/codex-acp", "title": "Codex"},
+                   "enforcement": {"policy": "ask"},
+                   "modes": {"currentModeId": mode, "availableModes": []}})
+        };
+        let note = app_allow_note(&info("agent-full-access"), "alpha").expect("a note");
+        assert!(note.contains("does not hold here"), "{note}");
+        let note = app_allow_note(&info("agent"), "alpha").expect("a note");
+        assert!(note.contains("asks before some tools run"), "{note}");
+    }
+
+    /// Review 3 of #39057: a harness outside the reviewed table whose mode skips every approval
+    /// by acpmux's shared rule (`spec/full-access-modes.json`: Gemini's `yolo`, a custom
+    /// agent's `bypassPermissions`) gets the bypass note too.
+    #[test]
+    fn w5s_a_full_access_mode_of_an_unreviewed_harness_gets_the_bypass_note() {
+        for (harness, mode) in [("gemini", "yolo"), ("my-agent", "bypassPermissions")] {
+            let info = json!({"harness": harness, "policy": null, "enforcement": {"policy": "ask"},
+                              "modes": {"currentModeId": mode, "availableModes": []}});
+            let note = app_allow_note(&info, "alpha").expect("a note");
+            assert!(note.contains("does not hold here"), "{harness} {mode}: {note}");
+        }
     }
 
     /// Review of #39057: Claude's `dontAsk` asks nothing; it denies a tool that is not allowed
