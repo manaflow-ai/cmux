@@ -54,8 +54,13 @@ fn a_ref_is_checked_out_and_a_missing_one_says_so() {
     assert!(!missing.exists());
     let empty = root.path().join("empty");
     std::fs::create_dir(&empty).unwrap();
+    std::fs::set_permissions(&empty, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
     assert!(ensure(&url, Some("no-such-ref"), &empty).is_err());
     assert_eq!(std::fs::read_dir(&empty).unwrap().count(), 0);
+    // The folder that was there stays, with its own permissions.
+    let mode =
+        std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&empty).unwrap().permissions());
+    assert_eq!(mode & 0o777, 0o700);
 }
 
 #[test]
@@ -106,4 +111,34 @@ fn one_repository_under_several_spellings_is_the_same_remote() {
     assert!(same_remote("https://GitLab.com/g/n/", "https://gitlab.com/g/n.git"));
     assert!(!same_remote("https://github.com/o/n.git", "https://github.com/o/other.git"));
     assert!(same_remote("file:///tmp/x/", "file:///tmp/x.git"));
+}
+
+#[test]
+fn a_folder_inside_another_repository_is_not_read_as_its_clone() {
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
+    // A folder with files, inside the source repository: git would answer for the source.
+    let inside = root.path().join("source").join("sub");
+    std::fs::create_dir_all(&inside).unwrap();
+    std::fs::write(inside.join("file"), "x").unwrap();
+    assert_eq!(ensure(&url, None, &inside).unwrap_err()["code"], "repo.dir_taken");
+}
+
+#[test]
+fn starts_on_one_folder_take_turns() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("dir");
+    let held = super::lock(&dir).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let waiter = std::thread::spawn({
+        let dir = dir.clone();
+        move || {
+            let _second = super::lock(&dir).unwrap();
+            tx.send(()).unwrap();
+        }
+    });
+    assert!(rx.recv_timeout(std::time::Duration::from_millis(200)).is_err());
+    drop(held);
+    rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+    waiter.join().unwrap();
 }

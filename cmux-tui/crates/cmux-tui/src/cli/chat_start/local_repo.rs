@@ -47,9 +47,20 @@ pub(super) enum Ready {
 
 /// `url` cloned into `dir` (an empty or missing folder), `reference` checked out when given; or
 /// the clone already in `dir` when its origin is `url`. Err: a `{code, message, details}` error.
+///
+/// One start at a time does this for a folder ([`lock`]): a second start waits for the first's
+/// clone and checkout and then reuses it, so it never works in a clone that a failed checkout is
+/// about to take away.
 pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
+    let _lock = lock(dir)?;
     if is_nonempty(dir) {
-        let origin = git(Some(dir), ["remote", "get-url", "origin"]).ok();
+        // Only a folder with its own `.git` is asked: git would otherwise answer for a repository
+        // the folder sits in.
+        let origin = dir
+            .join(".git")
+            .exists()
+            .then(|| git(Some(dir), ["remote", "get-url", "origin"]).ok())
+            .flatten();
         if origin.as_deref().is_some_and(|origin| same_remote(origin, url)) {
             return Ok(Ready::Reused);
         }
@@ -63,15 +74,6 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
             json!({"dir": dir, "origin": origin}),
         ));
     }
-    if let Some(parent) = dir.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| {
-            error(
-                "repo.clone_failed",
-                format!("could not make {}: {err}", parent.display()),
-                json!({"dir": dir}),
-            )
-        })?;
-    }
     // Blobless: the whole history's commits and trees now, each file's contents when read, so a
     // big repository starts as fast as a small one.
     let existed = dir.exists();
@@ -81,11 +83,13 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
     })?;
     if let Some(reference) = reference {
         git(Some(dir), ["checkout", "--quiet", reference]).map_err(|said| {
-            // The clone is this call's own: take it away, so a retry clones again and checks the
-            // ref out instead of reusing a clone on the default branch.
-            let _ = std::fs::remove_dir_all(dir);
+            // The clone is this start's own (no other start reuses it before the lock is let go):
+            // take it away, so a retry clones again and checks the ref out instead of reusing a
+            // clone on the default branch. A folder that was there stays, with its permissions.
             if existed {
-                let _ = std::fs::create_dir(dir);
+                empty(dir);
+            } else {
+                let _ = std::fs::remove_dir_all(dir);
             }
             error(
                 "repo.checkout_failed",
@@ -95,6 +99,47 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
         })?;
     }
     Ok(Ready::Cloned)
+}
+
+/// The advisory lock on `dir`'s clone (`.NAME.cmux-clone.lock` beside it, made with its parent
+/// folders), held until the returned file is dropped.
+fn lock(dir: &Path) -> Result<std::fs::File, Value> {
+    let failed = |err: std::io::Error| {
+        error(
+            "repo.clone_failed",
+            format!("could not lock {} for its clone: {err}", dir.display()),
+            json!({"dir": dir}),
+        )
+    };
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
+        return Err(failed(std::io::Error::other("the folder has no parent")));
+    };
+    std::fs::create_dir_all(parent).map_err(failed)?;
+    let mut lock_name = std::ffi::OsString::from(".");
+    lock_name.push(name);
+    lock_name.push(".cmux-clone.lock");
+    // Only the advisory lock matters; the file holds no data, so opening it never truncates.
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(parent.join(lock_name))
+        .map_err(failed)?;
+    fs4::FileExt::lock(&file).map_err(failed)?;
+    Ok(file)
+}
+
+/// Everything in `dir` removed, `dir` itself kept.
+fn empty(dir: &Path) {
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let _ = if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+    }
 }
 
 /// Whether two remote URLs name one repository: equal once a trailing `/` and `.git` are dropped

@@ -6,9 +6,9 @@ use super::super::cloud_start_chat::Machine;
 use std::time::Duration;
 
 use super::{
-    Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_wait,
-    here_words, in_environment, names_cloud, new_args, parse, parse_with, pick_target, route,
-    route_start, setting_stream, start_words,
+    Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_preflight,
+    here_wait, here_words, in_environment, names_cloud, new_args, parse, parse_with, pick_target,
+    route, route_start, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -522,4 +522,9 @@ fn a_chat_here_takes_a_repository() {
         assert!(names_cloud(on), "{on}");
     }
     assert!(!names_cloud("here") && !names_cloud("studio-mac"));
+    // Checked before anything is cloned: a bad wait, and `agents chat new`'s own refusals.
+    assert!(here_preflight(&start(&["--repo", "o/n", "hi"])).is_ok());
+    assert!(here_preflight(&start(&["--repo", "o/n", "--wait", "--timeout", "0", "hi"])).is_err());
+    assert!(here_preflight(&start(&["--repo", "o/n", "--attach", "/tmp/note.txt"])).is_err());
+    assert!(here_preflight(&start(&["--repo", "o/n", "--cwd", "rel", "hi"])).is_err());
 }
