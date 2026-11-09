@@ -82,6 +82,9 @@ export type TurnActions = {
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
   restoreTestTampering?: (finding: TamperingEvidence) => Promise<void>;
+  /// Who asks in this chat, the chat's agent by name (agents.ts `agentName`): an answer to its ask
+  /// quotes the ask under this name (nextStepAsk.ts `answerPrompt`).
+  asker?: string;
   /// Scrolls to call `toolCallId`'s row and opens it, opening the fold and run that hold it (App.tsx
   /// `showToolRow`): a turn waterfall's bar (TurnWaterfall.tsx). `startedAt` picks the call among
   /// several with a reused id. False when no loaded row holds it.
