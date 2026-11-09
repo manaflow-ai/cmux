@@ -31,4 +31,6 @@ for (const scheme of ["dark", "light"]) for (const v of ["a-plain","b-grouped","
   } catch (e) { console.log("FAIL", v, String(e).slice(0, 300)); }
   await ctx.close();
 }
-await browser.close(); server.stop(); console.log("done");
+await browser.close();
+await server.stop();
+console.log("done");
