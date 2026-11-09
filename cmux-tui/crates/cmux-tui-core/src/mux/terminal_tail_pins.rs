@@ -82,9 +82,6 @@ impl Mux {
             .terminal_public_id()
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("terminal_not_hosted"))?;
-        if pinned && self.output_store.is_private(self, &terminal) {
-            anyhow::bail!("terminal_private: an incognito terminal's output is never pinned");
-        }
         let seed = pinned
             .then(|| {
                 surface.try_with_terminal(|term| term.viewport_text()).ok().and_then(Result::ok)
@@ -93,6 +90,11 @@ impl Mux {
         let seed = seed.as_deref().and_then(|text| {
             text.lines().rev().find(|line| !line.trim().is_empty()).map(str::to_owned)
         });
+        // Checked after the seed is read: privacy only goes one way, so a
+        // terminal public now was public when it drew the seed.
+        if pinned && self.output_store.is_private(self, &terminal) {
+            anyhow::bail!("terminal_private: an incognito terminal's output is never pinned");
+        }
         // The whole transition, slot and record, under the publication lock:
         // a concurrent pin, unpin or publication sees it before or after.
         let publishing = self.terminal_tail_pins.publishing();
@@ -298,6 +300,14 @@ impl Mux {
             slot.mark_changed();
         }
         let Some(text) = slot.take_change() else { return };
+        // Privacy only goes one way (a private mark is never undone), so a
+        // terminal still public after the take was public when it printed
+        // `text`: turning private from here on leaks nothing it printed.
+        if self.output_store.is_private(self, &terminal) {
+            slot.set_pinned(false, None);
+            self.end_terminal_tail_locked(runtime);
+            return;
+        }
         let meta = StatusMeta {
             owner_terminal: Some(terminal.as_str().to_owned()),
             target_terminal: Some(terminal.as_str().to_owned()),
