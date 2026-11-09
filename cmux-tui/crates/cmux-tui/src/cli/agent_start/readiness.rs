@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use super::super::command::RequestPlan;
+use super::super::mcp::{CallFailure, FailureKind};
 use super::super::terminal_talk::send::Daemon;
 use super::Failure;
 
@@ -319,27 +320,66 @@ where
     S: FnMut(Duration) + ?Sized,
 {
     let started = now();
-    let deadline = started + options.timeout;
+    let deadline = started.checked_add(options.timeout).unwrap_or(started);
     let mut gate = Gate::new(options.settle, started);
+    let mut last = Readiness::Starting;
     loop {
-        let terminal = daemon.request(None, reads.show.clone())?;
-        // An older daemon without agent records leaves the screen to decide.
-        let records = daemon.request(None, reads.agents.clone()).unwrap_or(Value::Null);
-        let shown = daemon.request(None, reads.screen.clone())?;
-        let screen = shown.get("text").and_then(Value::as_str).unwrap_or_default();
-        let look = Look {
-            screen,
-            exited: terminal.get("lifecycle").is_some_and(|lifecycle| lifecycle == "exited"),
-            hook_state: fresh_hook_state(&records, options.since_ms),
-        };
-        let last = assess(&look);
-        let at = now();
-        if let Some(done) = gate.observe(screen, last, at) {
-            return Ok(Outcome { readiness: Some(done), last, waited: at - started });
+        match look_once(daemon, reads) {
+            Ok((terminal, records, shown)) => {
+                let screen = shown.get("text").and_then(Value::as_str).unwrap_or_default();
+                let look = Look {
+                    screen,
+                    exited: terminal
+                        .get("lifecycle")
+                        .is_some_and(|lifecycle| lifecycle == "exited"),
+                    hook_state: fresh_hook_state(&records, options.since_ms),
+                };
+                last = assess(&look);
+                let at = now();
+                if let Some(done) = gate.observe(screen, last, at) {
+                    return Ok(Outcome {
+                        readiness: Some(done),
+                        last,
+                        waited: at.saturating_duration_since(started),
+                    });
+                }
+            }
+            // A busy session that did not answer a read: the terminal is
+            // still there, so look again until the timeout (a start under
+            // load must not report a failure for an agent it made).
+            Err(failure) if busy(&failure) => {}
+            Err(failure) => return Err(failure.into()),
         }
+        let at = now();
         if at >= deadline {
-            return Ok(Outcome { readiness: None, last, waited: at - started });
+            return Ok(Outcome {
+                readiness: None,
+                last,
+                waited: at.saturating_duration_since(started),
+            });
         }
         sleep(options.poll.min(deadline.saturating_duration_since(at)));
     }
+}
+
+/// One look: the terminal record, its agent records and its screen.
+fn look_once<D: Daemon + ?Sized>(
+    daemon: &D,
+    reads: &Reads,
+) -> Result<(Value, Value, Value), CallFailure> {
+    let terminal = daemon.request(None, reads.show.clone())?;
+    // An older daemon without agent records leaves the screen to decide.
+    let records = daemon.request(None, reads.agents.clone()).unwrap_or(Value::Null);
+    let shown = daemon.request(None, reads.screen.clone())?;
+    Ok((terminal, records, shown))
+}
+
+/// A read a busy session did not answer in time (its read timeout) or
+/// refused at its connection limit: nothing changed, so it can run again.
+fn busy(failure: &CallFailure) -> bool {
+    let code = failure.error.get("code").and_then(Value::as_str);
+    let message = failure.error.get("message").and_then(Value::as_str);
+    failure.kind == FailureKind::NotRun
+        && (code == Some("session.busy")
+            || message == Some(crate::localization::catalog().cli_connection.no_answer()))
 }
