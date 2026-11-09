@@ -509,7 +509,13 @@ pub(in crate::cli) fn new(
         }
         Err(error) if new_workspace => {
             // No workspace has the chat's key, so no chat verb could ever reach it: it ends.
+            // Its prompt went beside the tab, so the agent may have started on it; the error
+            // carries the prompt's receipt so the caller sees it was sent.
             let _ = chat::acp::kill(&session, socket);
+            let mut error = error;
+            if let Some(prompt) = prompt {
+                error.set("prompt", prompt);
+            }
             return Err(CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None });
         }
         Err(error) => {
