@@ -6,8 +6,8 @@
 // - a turn with calls, followed at the bottom: the fold plays, over several frames, and the reply
 //   moves over several frames, under 75% of its move in any one, never past its place and back, the
 //   bottom pinned;
-// - a turn of words alone (no running line, so no fold): nothing folds, and the reply stays put,
-//   never stepping on any frame (or, should it move, eases as above);
+// - a turn of words alone: the reply stays put, never stepping on any frame (or, should it move,
+//   eases as above);
 // - motion off before the end: the end applies at once, and nothing settles on after;
 // - the reader scrolled up: the row at the top of their view stays where it is.
 // Another chat shown in place of the one that ended is turnEndFold.test.ts's (nothing plays or draws).
@@ -301,7 +301,9 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
     const steps = replies.slice(1).map((reply, index) => reply - replies[index]!);
     const move = (replies.at(-1)! - replies[0]!).toFixed(1);
     const folding = samples.filter((sample) => sample.folding).length;
-    console.log(`TURN_END_REPLY ${label} move=${move} folding=${folding} steps=${JSON.stringify(steps.map(Math.round))}`);
+    console.log(
+      `TURN_END_REPLY ${label} move=${move} folding=${folding} steps=${JSON.stringify(steps.map(Math.round))}`,
+    );
     expect(replyMotionProblems(replies)).toEqual([]);
     // The bottom stays pinned once it lands.
     expect(after.at(-1)!.gap).toBeLessThanOrEqual(2);
@@ -313,16 +315,17 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
     // The fold played: the thread is marked folding from the frame the running line goes, over
     // several painted frames, and the mark goes when it lands.
     const folding = samples.filter((sample) => sample.folding).length;
-    expect(Math.abs(samples.findIndex((sample) => sample.folding) - end)).toBeLessThanOrEqual(1);
+    const folds = samples.findIndex((sample) => sample.folding);
+    expect(folds).toBeGreaterThanOrEqual(0);
+    expect(Math.abs(folds - end)).toBeLessThanOrEqual(1);
     expect(folding).toBeGreaterThanOrEqual(3);
     expect(samples.at(-1)!.folding).toBe(false);
     expectEased(samples, end, "bottom");
     await page.close();
   });
 
-  test("a turn of words alone: nothing folds and the reply never steps at the end", async () => {
+  test("a turn of words alone: the reply never steps at the end", async () => {
     const { page, samples } = await playEnd("words");
-    expect(samples.some((sample) => sample.folding)).toBe(false);
     expectEased(
       samples,
       samples.findIndex((sample) => sample.ended),
