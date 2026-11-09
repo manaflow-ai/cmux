@@ -2,7 +2,7 @@
 import CmuxNextCompat
 @testable import CmuxNextDaemon
 @testable import CmuxNextDaemonService
-import CmuxNextRemote
+@testable import CmuxNextRemote
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -96,8 +96,12 @@ import Testing
         print(json.dumps({'event': 'connection-snapshot', 'local_socket': local, 'connection': {
             'session_id': 's', 'generation': 1, 'state': name, 'lane_bindings': [], 'physical_link_count': 1,
             'transport': {'provider': 'ssh', 'route': 'ssh://drill'}}}), flush=True)
+    open(p('local'), 'w').write(local)
+    while os.path.exists(p('hold-admin')) and not os.path.exists(p('bind')):
+        time.sleep(0.02)
     serve(local + '.admin', admin)
     print('remote connect: link socket ready', file=sys.stderr, flush=True)
+    open(p('ready-printed'), 'w').close()
     if not reachable() and not os.path.exists(p('stall')):
         with lock:
             state.update(state='disconnected', reason=REFUSED)
@@ -243,6 +247,44 @@ import Testing
         }
         #expect(ContinuousClock.now - opened < .seconds(3), "the wait reached the link only after its deadline")
         try await Self.waitUntil("the wait brought the machine up") { fixture.session.linkStatus == .connected }
+        #expect(fixture.spawns == 1)
+    }
+
+    /// Review of #39200, F1: a person's wait sent while the link's socket is not bound yet fails, and
+    /// the ready line can come before that failure is seen. The pending wait was recorded only after
+    /// the failure, so the ready line found nothing to forward and the deadline was lost. This forces
+    /// that order: the first `await-ready` fails, and before its caller resumes the link binds its
+    /// socket, prints the ready line, and the app has time to read it.
+    @Test func aWaitThatFailsBeforeTheSocketIsBoundStillReachesTheLink() async throws {
+        let fixture = try Fixture(["up-on-wake", "stall", "hold-admin"])
+        defer { fixture.close() }
+        let root = fixture.root
+        let bind = root.appendingPathComponent("bind").path
+        let printed = root.appendingPathComponent("ready-printed").path
+        // Only the first failed wait: the observer alone makes `bind`.
+        await fixture.session.link.observeAdminExchanges { line, answered in
+            guard !answered, line.contains("await-ready"), !FileManager.default.fileExists(atPath: bind) else { return }
+            FileManager.default.createFile(atPath: bind, contents: nil)
+            let until = Date().addingTimeInterval(5)
+            while !FileManager.default.fileExists(atPath: printed), Date() < until { Thread.sleep(forTimeInterval: 0.02) }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        await fixture.open()
+        try await Self.waitUntil("the link started and waits to bind its socket") { !fixture.lines("local").isEmpty }
+        let link = fixture.session.link
+        var running = false
+        for _ in 0..<100 where !running {
+            running = await link.pid != nil
+            if !running { try await Task.sleep(for: .milliseconds(20)) }
+        }
+        try #require(running)
+        let wait = Task { await link.awaitReady(within: .seconds(4)) }
+        defer { wait.cancel() }
+        try await Self.waitUntil("the first wait failed, and the ready line came before it was seen") {
+            FileManager.default.fileExists(atPath: bind) && FileManager.default.fileExists(atPath: printed)
+        }
+        try await Self.waitUntil("the person's wait reached the link and brought it up") { fixture.connected }
+        #expect(fixture.lines("admin.log").contains { $0.contains("await-ready") }, "\(fixture.lines("admin.log"))")
         #expect(fixture.spawns == 1)
     }
 
