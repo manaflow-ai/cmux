@@ -4,9 +4,14 @@ use serde_json::{Value, json};
 
 use super::super::{Outcome, Parsed, Ran, Request, Runner, parse};
 use super::{start, take};
-use crate::carrier::fault::{FaultSpec, Route};
+use crate::carrier::fault::{Absent, Carrier, FaultSpec, Route, this_build};
 
 const PROBE: &str = "cmux-cloud-capture-prod@manaflow.dev";
+
+/// A device without a tunnel hub: the relay is its only carrier.
+fn relay_only() -> [Carrier; 2] {
+    this_build(Err(Absent::Tunnel))
+}
 
 fn strings(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
@@ -94,7 +99,7 @@ fn a_person_without_the_probe_switch_is_refused_before_any_step() {
     let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
     let asked = request(&["--prompt", "count", "--wait"]);
     for env in [None, Some("0"), Some("yes")] {
-        let outcome = start(&mut fake, &asked, relay_after(3), env);
+        let outcome = start(&mut fake, &asked, relay_after(3), env, relay_only);
         let (error, exit) = error_of(&outcome);
         assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.not_probe"), 2));
     }
@@ -105,8 +110,13 @@ fn a_person_without_the_probe_switch_is_refused_before_any_step() {
 fn an_account_that_is_not_a_probe_account_is_refused_with_the_same_words() {
     for email in [Some("leo@manaflow.ai"), Some("someone@example.com"), None] {
         let mut fake = Fake { email, asked: Vec::new() };
-        let outcome =
-            start(&mut fake, &request(&["--prompt", "count", "--wait"]), relay_after(3), Some("1"));
+        let outcome = start(
+            &mut fake,
+            &request(&["--prompt", "count", "--wait"]),
+            relay_after(3),
+            Some("1"),
+            relay_only,
+        );
         let (error, exit) = error_of(&outcome);
         assert_eq!(
             (error["code"].as_str(), exit),
@@ -123,7 +133,7 @@ fn an_account_that_is_not_a_probe_account_is_refused_with_the_same_words() {
 fn the_drill_needs_a_prompt_and_wait() {
     let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
     for words in [&["--wait"][..], &["--prompt", "count"]] {
-        let outcome = start(&mut fake, &request(words), relay_after(3), Some("1"));
+        let outcome = start(&mut fake, &request(words), relay_after(3), Some("1"), relay_only);
         assert_eq!(error_of(&outcome).0["code"], "usage.invalid", "{words:?}");
     }
 }
@@ -131,8 +141,13 @@ fn the_drill_needs_a_prompt_and_wait() {
 #[test]
 fn killing_the_only_relay_is_a_typed_error_with_the_judges_record_not_a_hang() {
     let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
-    let outcome =
-        start(&mut fake, &request(&["--prompt", "count", "--wait"]), relay_after(3), Some("1"));
+    let outcome = start(
+        &mut fake,
+        &request(&["--prompt", "count", "--wait"]),
+        relay_after(3),
+        Some("1"),
+        relay_only,
+    );
     let (error, exit) = error_of(&outcome);
     assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.no_other_route"), 2));
     let details = &error["details"];
@@ -140,6 +155,20 @@ fn killing_the_only_relay_is_a_typed_error_with_the_judges_record_not_a_hang() {
     assert_eq!(details["fault"], json!({"kill_route": "relay", "after_events": 3}));
     assert_eq!(details["kill"], Value::Null);
     assert_eq!((details["events"].clone(), details["resumes"].clone()), (json!([]), json!([])));
+    assert_eq!(fake.asked.len(), 1, "no machine was made: {:?}", fake.asked);
+}
+
+/// With ssh available on the device the fault leaves a carrier to go on over, and the drill
+/// stops at the missing event source (slice S1), the capabilities in its record listing ssh.
+#[test]
+fn with_ssh_on_the_device_the_fault_plan_passes_and_the_record_lists_ssh() {
+    let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
+    let request = request(&["--prompt", "count", "--wait"]);
+    let outcome = start(&mut fake, &request, relay_after(3), Some("1"), || this_build(Ok(())));
+    let (error, exit) = error_of(&outcome);
+    assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.no_event_source"), 2));
+    let caps = &error["details"]["capabilities"];
+    assert_eq!(caps, &json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]}));
     assert_eq!(fake.asked.len(), 1, "no machine was made: {:?}", fake.asked);
 }
 
