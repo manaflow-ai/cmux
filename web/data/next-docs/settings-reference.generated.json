@@ -1694,7 +1694,7 @@
           "title": "Install Versions from What's New",
           "help": "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Updates"
         },
         {

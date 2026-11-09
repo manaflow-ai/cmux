@@ -5638,7 +5638,7 @@
       "type" : "string"
     },
     "updates.whatsNewInstall" : {
-      "default" : false,
+      "default" : true,
       "description" : "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents.",
       "title" : "Install Versions from What's New",
       "type" : "boolean"
