@@ -166,16 +166,16 @@ def main():
     parser.add_argument("--ready-timeout", type=float, default=3600)
     args = parser.parse_args()
     generated = json.loads(Path(args.generate).read_text())
-    # The first exec of a binary just linked pays for macOS's check of it (no registry is
-    # opened). CMUX_DRS_WARM_EXEC=1 pays it before the timed starts, with `--version`, and
-    # reports it.
-    first_exec_ms = None
-    if os.environ.get("CMUX_DRS_WARM_EXEC") == "1":
+    # The first exec of a binary just linked pays for macOS's check of it, before main and
+    # without opening a registry. Two `--version` execs before the timed starts pay it and
+    # show it (the first against the second), so the starts time only the owner.
+    execs = []
+    for _ in range(2):
         exec_started = time.monotonic()
         subprocess.run([args.bin, "--version"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, timeout=600, check=False)
-        first_exec_ms = round((time.monotonic() - exec_started) * 1000, 1)
-        print("DRS-EXEC " + json.dumps({"first_exec_ms": first_exec_ms}), flush=True)
+        execs.append(round((time.monotonic() - exec_started) * 1000, 1))
+    print("DRS-EXEC " + json.dumps({"first_exec_ms": execs[0], "second_exec_ms": execs[1]}), flush=True)
     starts = []
     registry = session_dir(args.state) / REGISTRY
     for index in range(max(args.rounds, 1)):
@@ -185,7 +185,7 @@ def main():
             bump_roster(registry)
         starts.append(start(args, f"bumped-{index}" if bumped else f"plain-{index}", bumped))
     starts.append(start(args, "after", False))
-    report = {"generate": generated, "first_exec_ms": first_exec_ms, "starts": starts}
+    report = {"generate": generated, "first_exec_ms": execs[0], "second_exec_ms": execs[1], "starts": starts}
     Path(args.report).write_text(json.dumps(report, indent=2))
     return 0 if all(item["ready_ms"] is not None for item in starts) else 1
 
