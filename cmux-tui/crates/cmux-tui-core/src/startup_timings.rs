@@ -15,6 +15,7 @@
 //! total. Time a nested phase's own steps did not cover is named
 //! `<phase>.other`.
 
+use std::borrow::Cow;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -30,7 +31,16 @@ pub const KEPT_STARTS: usize = 20;
 pub struct StartupTimings {
     started: Instant,
     mark: Instant,
-    steps: Vec<(&'static str, Duration)>,
+    steps: Vec<Step>,
+}
+
+/// One lap: its name, how long it took and, for a lap over table rows, how
+/// many rows it changed.
+#[derive(Debug, Clone)]
+struct Step {
+    name: Cow<'static, str>,
+    took: Duration,
+    rows: Option<u64>,
 }
 
 impl Default for StartupTimings {
@@ -49,8 +59,17 @@ impl StartupTimings {
     /// Records the time since the previous lap (or the start) as `step`.
     pub fn lap(&mut self, step: &'static str) {
         let now = Instant::now();
-        self.steps.push((step, now.saturating_duration_since(self.mark)));
+        let took = now.saturating_duration_since(self.mark);
+        self.steps.push(Step { name: Cow::Borrowed(step), took, rows: None });
         self.mark = now;
+    }
+
+    /// Records a step timed by its caller, named at run time, with the rows
+    /// it changed (a table's share of a migration). It does not move the
+    /// lap mark: a phase collects these on its own clock and the caller
+    /// [`absorb`](Self::absorb)s it, which names the rest of the phase.
+    pub fn record_rows(&mut self, step: String, took: Duration, rows: u64) {
+        self.steps.push(Step { name: Cow::Owned(step), took, rows: Some(rows) });
     }
 
     /// Takes `inner`'s laps, which ran since this clock's previous lap, and
@@ -58,15 +77,19 @@ impl StartupTimings {
     pub fn absorb(&mut self, inner: StartupTimings, other: &'static str) {
         let now = Instant::now();
         let span = now.saturating_duration_since(self.mark);
-        let covered: Duration = inner.steps.iter().map(|(_, took)| *took).sum();
+        let covered: Duration = inner.steps.iter().map(|step| step.took).sum();
         self.steps.extend(inner.steps);
-        self.steps.push((other, span.saturating_sub(covered)));
+        self.steps.push(Step {
+            name: Cow::Borrowed(other),
+            took: span.saturating_sub(covered),
+            rows: None,
+        });
         self.mark = now;
     }
 
     /// The laps so far, in order.
-    pub fn steps(&self) -> &[(&'static str, Duration)] {
-        &self.steps
+    pub fn steps(&self) -> Vec<(&str, Duration)> {
+        self.steps.iter().map(|step| (step.name.as_ref(), step.took)).collect()
     }
 
     /// From the start of the clock to now.
@@ -84,14 +107,19 @@ impl StartupTimings {
             "steps": self
                 .steps
                 .iter()
-                .map(|(step, took)| serde_json::json!({"step": step, "ms": ms(*took)}))
+                .map(|step| match step.rows {
+                    Some(rows) => {
+                        serde_json::json!({"step": step.name, "ms": ms(step.took), "rows": rows})
+                    }
+                    None => serde_json::json!({"step": step.name, "ms": ms(step.took)}),
+                })
                 .collect::<Vec<_>>(),
         })
     }
 
     /// A one-line summary for the log: the total and the slowest laps.
     pub fn summary(&self) -> String {
-        let mut slowest = self.steps.clone();
+        let mut slowest = self.steps();
         slowest.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
         let top = slowest
             .iter()
@@ -147,7 +175,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(5));
         outer.absorb(inner, "open.other");
         outer.lap("server.attach");
-        let names: Vec<_> = outer.steps().iter().map(|(step, _)| *step).collect();
+        let names: Vec<_> = outer.steps().into_iter().map(|(step, _)| step).collect();
         assert_eq!(names, ["socket.bind", "registry.open", "open.other", "server.attach"]);
         let sum: Duration = outer.steps().iter().map(|(_, took)| *took).sum();
         assert!(sum <= outer.total());

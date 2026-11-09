@@ -79,7 +79,7 @@ fn assert_ssh_ran_pinned_through_the_hub(world: &SshWorld) {
     let pin = world.ssh_state().join(MACHINE).join("known_hosts");
     let has = |want: &str| args.contains(&want);
     assert!(has("-F") && has("/dev/null"), "{args:?}");
-    assert!(has(key.to_str().unwrap()), "the carrier key: {args:?}");
+    assert!(has(&format!("IdentityFile=\"{}\"", key.display())), "the carrier key: {args:?}");
     assert!(has("IdentitiesOnly=yes") && has("IdentityAgent=none"), "{args:?}");
     assert!(has("StrictHostKeyChecking=yes"), "{args:?}");
     assert!(has(&format!("UserKnownHostsFile=\"{}\"", pin.display())), "{args:?}");
