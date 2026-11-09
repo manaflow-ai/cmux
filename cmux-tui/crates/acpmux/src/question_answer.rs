@@ -404,4 +404,26 @@ mod tests {
         let note = app_allow_note(&asking, "alpha").expect("a note");
         assert!(note.contains("asks before some tools run"), "{note}");
     }
+
+    /// Review of #39057: only a mode that runs every tool unasked makes the daemon default not
+    /// hold. Claude's `acceptEdits` still asks before Bash, and the default `ask` answers that;
+    /// `dontAsk` denies what is not allowed; Codex's `read-only` and `agent` ask outside the
+    /// workspace. They keep the asking note. `bypassPermissions` and Codex's
+    /// `agent-full-access` run everything, so they get the note that says so.
+    #[test]
+    fn w5s_only_a_mode_that_runs_everything_unasked_drops_the_asking_note() {
+        let default_ask = |mode: &str| {
+            json!({"policy": null, "enforcement": {"policy": "ask"},
+                   "modes": {"currentModeId": mode, "availableModes": []}})
+        };
+        for mode in ["acceptEdits", "dontAsk", "read-only", "agent"] {
+            let note = app_allow_note(&default_ask(mode), "alpha").expect("a note");
+            assert!(note.contains("asks before some tools run"), "{mode}: {note}");
+            assert!(!note.contains("does not hold"), "{mode}: {note}");
+        }
+        for mode in ["bypassPermissions", "agent-full-access"] {
+            let note = app_allow_note(&default_ask(mode), "alpha").expect("a note");
+            assert!(note.contains("does not hold here"), "{mode}: {note}");
+        }
+    }
 }
