@@ -277,9 +277,14 @@ pub struct Decision {
     /// so this no longer happens; kept for the handshake.
     pub skipped_team_machine: bool,
     /// Whether this start would race the spare warm's login copy (cmux-tui `start-chat warm-spare`)
-    /// were one in flight on its machine: it reads and copies onto the machine, for a provider the
-    /// warm copies ([`warm_copies`]). Only such a start waits on that copy; any other never waits.
+    /// were one in flight on its machine: it reads the machine and its step is one the warm installs
+    /// on ([`warm_installs`]: `install` only; a confirm, a consent question, a skip or a refusal
+    /// never waits), for a provider the warm copies ([`warm_copies`]).
     pub warm_copy_conflict: bool,
+    /// Whether the spare warm's headless copy installs this provider's login at this step
+    /// ([`warm_installs`]): the warm's copy decision, read by the App, and the one
+    /// [`Decision::warm_copy_conflict`] is built on, so the two never drift.
+    pub warm_installs: bool,
     /// One line for the log and the `cloud.machines` row; no token, path or provider output.
     pub summary: String,
 }
@@ -299,6 +304,12 @@ fn guest_takes_login(kind: Option<&str>, release: bool, provider: Option<Provide
 /// Codex's broker access is per machine and per start, so a Codex start never waits on a warm.
 pub fn warm_copies(provider: Provider) -> bool {
     provider == Provider::Claude
+}
+
+/// Whether the spare warm's copy installs at `step`. The warm runs with no prompt, so it installs
+/// only on a step that needs none: a confirm or a consent question is never the warm's.
+pub fn warm_installs(step: Step) -> bool {
+    step == Step::Install
 }
 
 /// Whether the start passes this provider's login: Claude always (its gate decides), Codex only
@@ -509,10 +520,11 @@ pub fn decide(d: &Inputs) -> Decision {
         reads_machine,
         guest_takes_login: guest_takes_login(kind, d.release, d.provider),
         skipped_team_machine: reason == Reason::GuestNotOwner && kind == Some("team"),
+        // The warm's own install rule: a start waits only where the warm would install.
         warm_copy_conflict: reads_machine
-            && step != Step::Refuse
-            && choice(d) != Some(Choice::Machine)
+            && warm_installs(step)
             && d.provider.is_some_and(warm_copies),
+        warm_installs: warm_installs(step) && d.provider.is_some_and(warm_copies),
         summary: summary(d, step, reason),
     }
 }

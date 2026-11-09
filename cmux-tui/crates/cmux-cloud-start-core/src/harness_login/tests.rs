@@ -750,3 +750,50 @@ fn a_start_that_keeps_the_machines_login_never_waits_on_a_warm_copy() {
         assert!(d.reads_machine && !d.warm_copy_conflict, "{login:?}");
     }
 }
+
+#[test]
+fn a_start_that_skips_the_copy_never_waits_on_a_warm_copy() {
+    // These starts read the machine but copy nothing, so a warm's copy never ends a wait for them:
+    // the machine's own working login is kept, and a Release team guest takes no login.
+    let kept = |login| Inputs { machine_login: Some(login), ..cached(owner()) };
+    let release_team_guest = Inputs { guest_kind: Some("team".into()), ..cached(release()) };
+    let declined = Inputs { consent: Some(false), ..cached(release()) };
+    for (d, reason) in [
+        (kept(MachineLogin::Working), Reason::MachineLoginKept),
+        (kept(MachineLogin::Session), Reason::MachineLoginKept),
+        (kept(MachineLogin::Cached), Reason::MachineLoginKept),
+        (release_team_guest, Reason::GuestNotOwner),
+        (declined, Reason::ConsentDeclined),
+    ] {
+        let decision = decide(&d);
+        assert_eq!((decision.step, decision.reason), (Step::Skip, reason));
+        assert!(decision.reads_machine && !decision.warm_copy_conflict, "{reason:?}");
+    }
+    // The start that installs still waits.
+    let installs = decide(&cached(owner()));
+    assert!(installs.step == Step::Install && installs.warm_copy_conflict);
+}
+
+#[test]
+fn only_an_install_conflicts_and_the_warm_installs_on_exactly_those_steps() {
+    // One case per step kind, each a Claude start that reads its machine.
+    let cases = [
+        (cached(owner()), Step::Install),
+        (owner(), Step::ConfirmThenInstall),
+        (Inputs { consent: None, ..release() }, Step::AskConsent),
+        (Inputs { machine_login: Some(MachineLogin::Working), ..cached(owner()) }, Step::Skip),
+        (Inputs { headless: true, ..owner() }, Step::Refuse),
+    ];
+    for (inputs, step) in cases {
+        let d = decide(&inputs);
+        assert_eq!(d.step, step);
+        assert!(d.reads_machine, "{step:?}");
+        // The warm installs only where no prompt is needed; a confirm or consent start never waits on it.
+        assert_eq!(d.warm_installs, warm_installs(step), "{step:?}");
+        assert_eq!(d.warm_copy_conflict, step == Step::Install, "{step:?}");
+        assert_eq!(
+            d.warm_copy_conflict, d.warm_installs,
+            "{step:?}: the warm and the conflict agree"
+        );
+    }
+}

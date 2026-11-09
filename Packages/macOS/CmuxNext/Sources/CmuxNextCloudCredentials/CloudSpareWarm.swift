@@ -52,7 +52,7 @@ public import os
                 try await decision.readGuest(exec: { (try? await pinned.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause)
             }
             if decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: pinned, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)) }
-            guard decision.verdict.transferProvider == .claude, decision.verdict.step == .install else { return false }
+            guard decision.verdict.transferProvider == .claude, decision.verdict.warmInstalls ?? (decision.verdict.step == .install) else { return false }
             if let outcome = try await CloudCredentialTransfer.CachedLogin.startOutcome({
                 await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams)
             }) {
@@ -69,6 +69,19 @@ public import os
             decision.outcome = CloudHarnessLoginDecision.loginOutcome(error, cancelled: Task.isCancelled)
             return false
         }
+    }
+}
+
+public extension CloudHarnessLoginDecision {
+    /// Reads the machine's Claude login into the decision. A start whose step would install it races a spare warm's
+    /// copy onto this machine (Rust's ``Verdict/warmCopyConflict``, known only now): it waits for that copy (Rust's
+    /// `wait-copy`) and, if it waited, reads again, so the warm's finished copy is "machine login cached".
+    mutating func takeMachineLogin(on api: CloudAPIClient, machineID: String, teamID: String?, userID: String, otherTeams: [String?],
+                                   warmCopy cli: CloudMoveCLI?) async {
+        take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams))
+        guard let cli, verdict.warmCopyConflict == true, let provider = verdict.transferProvider,
+              await cli.startChatWaitCopy(machine: machineID, provider: provider.rawValue) else { return }
+        take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams))
     }
 }
 
