@@ -179,7 +179,10 @@ impl Adapter {
                 if text.trim().is_empty() {
                     return Ok(error(id, -32602, "A text prompt is required"));
                 }
-                if params.pointer("/_meta/acpmux/steer") == Some(&json!(true)) {
+                // The relay can't steer: a steer runs after the turn, as acpmux runs one an agent
+                // can't steer, so the phone's Send never loses a message to a running Cloud turn.
+                // Only a prompt that must steer or not run is refused.
+                if params.pointer("/_meta/acpmux/steerOnly") == Some(&json!(true)) {
                     return Ok(error(id, -32602, "Steering is not supported by the Cloud chat relay"));
                 }
                 (

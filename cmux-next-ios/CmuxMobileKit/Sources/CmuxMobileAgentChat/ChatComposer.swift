@@ -468,8 +468,9 @@ struct ChatComposer: View {
         return Button {
             switch state {
             case .stop: store.cancel()
-            // A follow-up while the agent works steers it, as the Mac's Return does.
-            case .send, .queue: send(steer: state == .queue)
+            // A message steers a running turn, as the Mac's Return does. It asks even before the
+            // phone hears the turn start; acpmux steers only into a running turn, else runs it next.
+            case .send, .queue: send(steer: true)
             case .empty: break
             }
         } label: {
@@ -506,8 +507,7 @@ struct ChatComposer: View {
     /// A hardware Return: what the send button would do with a draft (never Stop).
     private func sendFromKeyboard() {
         switch primaryState {
-        case .send: send(steer: false)
-        case .queue: send(steer: true)
+        case .send, .queue: send(steer: true)
         case .stop, .empty: break
         }
     }
