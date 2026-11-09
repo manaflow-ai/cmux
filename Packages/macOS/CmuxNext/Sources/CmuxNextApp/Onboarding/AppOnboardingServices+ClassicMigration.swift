@@ -62,7 +62,7 @@ extension AppOnboardingServices {
     ///   tree: a New Tab page workspace, closed when the migration brought workspaces
     ///   into its window, or Home, which stays.
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
-        guard classicMigrationRunsAtLaunch else { return }
+        guard classicMigrationRunsAtLaunch else { return owner.setup.classicSettled() }
         do {
             // While the Set Up cmux card shows, its cmux Classic row asks; otherwise the dialog. A No there reads on the row.
             let outcome = try await owner.setup.classicMigration(seam: owner.classicMigrationConfirmation, dialog: confirmClassicImport) {

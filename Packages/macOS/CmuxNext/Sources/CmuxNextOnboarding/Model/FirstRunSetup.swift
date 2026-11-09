@@ -67,10 +67,19 @@ public final class FirstRunSetup {
     /// or run the first-run windows (no card ever started).
     public enum Route: Equatable, Sendable { case startCard, cardOwns, windows }
 
-    /// The launch's first-run route; starts the card when ``begin(isFirstRun:replacedKeys:screenReader:)`` does.
+    /// The launch's first-run route; starts the card when ``begin(isFirstRun:replacedKeys:screenReader:)`` does. Decided
+    /// before the launch's classic migration: a card that shows waits for it (``awaitsClassic``) from here, before any
+    /// card is drawn, until ``classicMigration(seam:dialog:_:)`` ends or ``classicSettled()`` says it does not run.
     public func route(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Route {
-        if begin(isFirstRun: isFirstRun, replacedKeys: replacedKeys, screenReader: screenReader) { return .startCard }
-        return defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
+        let route: Route = begin(isFirstRun: isFirstRun, replacedKeys: replacedKeys, screenReader: screenReader) ? .startCard
+            : defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
+        if shows { awaitsClassic = true }
+        return route
+    }
+
+    /// The launch's classic migration does not run (not a shipping build): the card waits for it no longer.
+    public func classicSettled() {
+        awaitsClassic = false
     }
 
     /// What the launch's classic import would bring, shown on the card's cmux Classic row until answered.

@@ -404,6 +404,22 @@ import Testing
         #expect(!FirstRunSetup.ClassicOffer(workspaces: 1, app: "cmux", savedAt: 0, running: false).resumes)
     }
 
+    /// A Classic user whose other rows are all done: the launch's route makes the card wait for the migration before
+    /// any card is drawn, so a card's first snapshot cannot end it before the cmux Classic row asks.
+    @Test func theRouteMakesTheCardWaitForTheMigrationBeforeItIsDrawn() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.route(isFirstRun: true, replacedKeys: Self.replaced) == .startCard)
+        #expect(setup.awaitsClassic)
+        setup.historyAnswered()
+        let agent = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)
+        let provider = SetupCardPageProvider(setup: setup, agents: MockAgentSignInSource(agents: [agent]), environment: Self.quiet)
+        defer { provider.stop() }
+        await until { provider.agents.loaded && provider.state["cli"] == .string("installed") }
+        #expect(!provider.allDone && setup.shows, "drawn before the migration asked: it waits")
+        setup.classicSettled()
+        #expect(provider.allDone, "no migration at launch: every row done")
+    }
+
     /// A test's answer (`classicMigrationConfirmation`) wins over the card's row.
     @Test func aTestsAnswerWinsOverTheCard() async throws {
         let setup = FirstRunSetup(defaults: try defaults())
