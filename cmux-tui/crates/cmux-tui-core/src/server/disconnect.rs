@@ -147,6 +147,9 @@ fn disconnect_client_with_notice(
     mux.unregister_browser_provider(client);
     #[cfg(unix)]
     mux.image_pastes.disconnect(client);
+    // Its shell mode commands get a hangup, as a closed terminal sends (`shell_runs.rs`).
+    #[cfg(unix)]
+    mux.shell_runs.client_left(client);
     if let Some(owner @ BrowserPointerOwner::Client(_)) = record.browser_pointer_owner {
         // Pointer commands do not require a frame-stream attachment, so any
         // browser worker may own this negotiated client. Disconnects are rare;

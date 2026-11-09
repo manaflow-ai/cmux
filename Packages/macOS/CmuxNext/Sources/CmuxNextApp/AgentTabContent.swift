@@ -45,6 +45,7 @@ struct AgentTabContent {
             return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: pane.daemon.machineID)
         }
         view.model.onOpenMachineFile = { [weak pane] path in guard let pane, pane.services.agentTabs.remoteMachineID(of: key) != nil, let daemon = pane.services.agentTabs.daemonForTab(pane.services.agentTabs.resolve(key)), !daemon.isLocal, await !pane.services.agentGit.link(for: daemon).reachesThroughLink(path) else { return false }; return pane.services.linkOpener.openFile(URL(fileURLWithPath: path, isDirectory: false), on: daemon, from: pane) }
+        view.model.shell.machine = { [weak pane] in guard let pane, pane.services.agentTabs.remoteMachineID(of: key) != nil, let daemon = pane.services.agentTabs.daemonForTab(pane.services.agentTabs.resolve(key)), !daemon.isLocal else { return nil }; return pane.services.agentGit.link(for: daemon) } // a Cloud or SSH chat's `!` commands run on its machine
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
             // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
@@ -53,10 +54,7 @@ struct AgentTabContent {
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: pane.daemon.machineID)
         }; view.model.onOpenCloudPreview = { [weak pane, weak view] port in guard let pane, let view, let machine = pane.services.agentTabs.remoteMachineID(of: key), let session = pane.services.machines.session(machine), session.appLink != nil else { return false }; let inventory = try await CloudHandlers.refreshPreviews(session, CloudPortNames(session, port: port), AppActionContext(services: pane.services)); guard let preview = inventory.previews.first(where: { $0.port == port }), pane.services.agentTabs.remoteMachineID(of: key) == machine else { return false }; return view.model.onOpenPreview?(try preview.browserURL(path: "/")) ?? false }
         // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
-        view.model.onOpenSignInOnMachine = { [weak pane] url in
-            guard let pane else { return nil }
-            return ChatMachineSignInTab.opener(for: url, agentTab: key, from: pane)
-        }
+        view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: key, from: $0) } }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost); BenchSpans.mark(view.superview is PageOffscreenParking ? "newTab.show.parked" : "newTab.show") }
         if view.model.hasPainted, view.superview is PageOffscreenParking { coverMove(of: view) }

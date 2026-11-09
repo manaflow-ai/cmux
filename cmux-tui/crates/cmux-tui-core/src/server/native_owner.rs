@@ -86,6 +86,10 @@ const COMMANDS: &[&str] = &[
     "clear-history",
     "terminal-clipboard-reply",
     "terminal-clipboard-subscribe",
+    // Shell mode of a chat on this machine (`shell_wire.rs`): the owner's `!` commands run here.
+    "shell-run",
+    "shell-read",
+    "shell-stop",
 ];
 
 const CAPABILITIES: &[&str] = &[
@@ -148,6 +152,7 @@ const CAPABILITIES: &[&str] = &[
     crate::git_seed::GIT_SEED_CAPABILITY,
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
+    crate::shell_runs::CAPABILITY,
 ];
 
 /// Whether identify on this carrier lists `capability` (tests read the policy through this).
@@ -306,7 +311,10 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::RestartTab { .. }
         | Command::ClearHistory { .. }
         | Command::TerminalClipboardReply { .. }
-        | Command::TerminalClipboardSubscribe { .. } => true,
+        | Command::TerminalClipboardSubscribe { .. }
+        | Command::ShellRun(_)
+        | Command::ShellRead(_)
+        | Command::ShellStop(_) => true,
         Command::NewConversationTab(params) => params.native_agent_tab(mux),
         _ => terminal::allows(mux, client, command),
     }
