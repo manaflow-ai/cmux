@@ -625,7 +625,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: spanData, span, theme: "dark", placement: "top-right", previewOpen: true },
     },
     "card-preview-over-rows": {
-      note: "Shipped (Leo 2026-11-08: \"I feel like we should be able to keep it as glass though, right?\"): the open preview over the sidebar's rows stays the card's glass. The host draws a native glass behind the page that frosts the rows, so the rows read as moving shapes, not words, and the card has the same fill open and at rest (the fill swap was the flicker). The glass follows the preview on the card's curve, cubic-bezier(0.16, 1, 0.3, 1) over 265 ms.",
+      note: "Shipped (Leo 2026-11-08: \"I feel like we should be able to keep it as glass though, right?\"): the open preview over the sidebar's rows stays the card's glass. The host draws a native glass behind the page that frosts the rows, so the rows read as moving shapes, not words, and the card has the same fill open and at rest (the fill swap was the flicker). The glass follows the preview on the card's curve, cubic-bezier(0.16, 1, 0.3, 1) over 180 ms.",
       props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "glass" },
     },
     "card-preview-over-rows-light": {

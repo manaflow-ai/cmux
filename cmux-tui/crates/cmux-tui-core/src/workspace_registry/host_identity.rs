@@ -168,9 +168,43 @@ fn immutable_tables(connection: &Connection) -> anyhow::Result<HashSet<String>> 
         .collect::<Result<_, _>>()?)
 }
 
-/// Every mutable table and its columns.
+/// Tables that describe journal records, one row (or more) per record or
+/// segment, and the producers and hooks those records name by id. The
+/// journal itself refuses updates, so it keeps the ids it recorded; these
+/// keep them too. The history tables are also the ones that grow with
+/// history: scanning them made the rehome cost the registry's age (5.5 s of
+/// a 7.4 s first start of a 58.7 GB registry on its new machine). What is
+/// left to scan is current state, which does not grow with history.
+///
+/// The set is closed under foreign keys and joins: hook deliveries reference
+/// `journal_hooks`, ingress receipts reference `journal_producers`, and kind
+/// rows reference `journal_segments` (immutable); no table the rehome still
+/// rewrites references one of these or joins on their ids. A hook or
+/// producer id that equals the registry id is a coincidence, not a reference
+/// to it: no reader keys them by the registry id.
+///
+/// The rewrite stays in start's transaction and is not moved to a lazy or
+/// background pass: until it commits, the registry would answer to two ids,
+/// and every reader that keys on the id (the session rows, the sidebar's
+/// `sec_m_<id>` sections, `itm_w_<id>_` items, `<id>/<key>` placements,
+/// `<id>:<workspace>` layout refs) would have to accept both.
+const JOURNAL_TABLES: [&str; 10] = [
+    "journal_event_index",
+    "legacy_journal_event_index",
+    "journal_segment_kinds",
+    "journal_segment_reducer_records",
+    "journal_pruned_ranges",
+    "journal_ingress_receipts",
+    "journal_operation_receipts",
+    "journal_hook_deliveries",
+    "journal_hooks",
+    "journal_producers",
+];
+
+/// Every mutable table and its columns, less the journal's ([`JOURNAL_TABLES`]).
 fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<String>)>> {
-    let immutable = immutable_tables(connection)?;
+    let mut immutable = immutable_tables(connection)?;
+    immutable.extend(JOURNAL_TABLES.map(str::to_string));
     let tables: Vec<String> = connection
         .prepare(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
@@ -550,6 +584,117 @@ mod tests {
         for root in [original, clone] {
             fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    /// A journal hook whose id happens to be the registry id, with a
+    /// delivery: the rehome leaves the deliveries (journal history) alone,
+    /// so it must leave the hook too, or the delivery's foreign key names a
+    /// hook that is gone and the copied registry does not open.
+    #[test]
+    fn a_hook_named_like_the_registry_keeps_its_deliveries_after_a_rehome() {
+        let root = temp_root("rehome-hook");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let copied = ids(&root).0;
+        {
+            let connection = Connection::open(registry_file(&root)).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO journal_hooks(
+                       hook_id, manifest_version, manifest_json, enabled, cursor_sequence,
+                       installed_at_ms
+                     ) VALUES(?1, 1, json_object('id', ?1), 0, 0, 1)",
+                    [&copied],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO journal_hook_deliveries(
+                       hook_id, manifest_version, event_id, event_sequence, attempt, state,
+                       next_attempt_at_ms, scheduled_at_ms
+                     ) VALUES(?1, 1, 'event_hooked', 1, 1, 'completed', 0, 1)",
+                    [&copied],
+                )
+                .unwrap();
+        }
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        let rehomed = ids(&root).0;
+        assert_ne!(rehomed, copied, "rehomed");
+        let connection = Connection::open(registry_file(&root)).unwrap();
+        let hook: String = connection
+            .query_row(
+                "SELECT hooks.hook_id FROM journal_hook_deliveries AS deliveries
+                 JOIN journal_hooks AS hooks USING(hook_id, manifest_version)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(hook, copied, "the hook keeps the id its deliveries name");
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// SQLite VM steps the rehome of a registry with `records` journal
+    /// records takes, after a copy to another machine.
+    fn rehome_steps(records: usize) -> u64 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        use super::super::session_journal::kind_read_tests::TestJournalRecord;
+        let root = temp_root("rehome-cost");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
+        let copied = registry.registry_id().to_string();
+        let records = (0..records)
+            .map(|index| TestJournalRecord {
+                kind: "personal.session.put".into(),
+                producer: JournalProducer { kind: "presentation".into(), id: "cmux-tui".into() },
+                subjects: vec![JournalSubject {
+                    kind: "session".into(),
+                    id: format!("sess_{:032x}", index % 64),
+                }],
+                payload: serde_json::json!({"index": index}),
+            })
+            .collect::<Vec<_>>();
+        registry.append_journal_records_for_test(&records);
+        drop(registry);
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        let connection = Connection::open(registry_file(&root)).unwrap();
+        let steps = std::sync::Arc::new(AtomicU64::new(0));
+        let counter = std::sync::Arc::clone(&steps);
+        connection
+            .progress_handler(
+                16,
+                Some(move || {
+                    counter.fetch_add(16, Ordering::Relaxed);
+                    false
+                }),
+            )
+            .unwrap();
+        rehome_registry(&connection).unwrap();
+        connection.progress_handler(0, None::<fn() -> bool>).unwrap();
+        assert_ne!(required_meta(&connection, "registry_id").unwrap(), copied, "rehomed");
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+        steps.load(Ordering::Relaxed)
+    }
+
+    /// The rehome costs the registry's state, not its history: 10x the
+    /// journal records adds less than one VM step each. It used to scan
+    /// every text column of the journal's event index (a row per record)
+    /// and took 5.5 s of a 7.4 s first start of a 58.7 GB registry on its
+    /// new machine (2026-11-09).
+    #[test]
+    fn the_rehome_cost_does_not_grow_with_the_journal() {
+        let sizes = [2_000, 20_000];
+        let steps = sizes.map(rehome_steps);
+        let per_record = steps[1].saturating_sub(steps[0]) / (sizes[1] - sizes[0]) as u64;
+        assert!(
+            per_record < 1,
+            "the rehome costs {per_record} VM steps per journal record ({} at {}, {} at {})",
+            steps[0],
+            sizes[0],
+            steps[1],
+            sizes[1]
+        );
     }
 
     #[test]

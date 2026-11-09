@@ -59,8 +59,6 @@
     "cmux-next-ios/verify/termqa/killtest.py": {"count": 1, "reason": "safe: the rig's own uniquely tagged app bundle's hostd"},
     "cmux-next-ios/verify/termqa/tq.py": {"count": 2, "reason": "safe: the rig's own simulator UDID recording and its uniquely tagged hostd"},
     "cmux-next-ios/verify/termqa/v8.py": {"count": 1, "reason": "safe: the rig's own hostd path (RIG_HOSTD), unique to the rig build"},
-    "cmux-tui/crates/cmux-mux2/bench/reset.sh": {"count": 5, "reason": "debt: bench reset kills mux2d, rex, cmux-tui daemons and every `sleep` by name; record the PIDs it starts"},
-    "cmux-tui/crates/cmux-mux2/bench/upgrade-test.sh": {"count": 3, "reason": "debt: `pkill -f mux2/bin/mux2d` after `mux2 stop`; rely on stop or a recorded PID"},
     "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_session.rs": {"count": 1, "reason": "safe: a comment or doc string explaining why name kills are unsafe; nothing is signalled"},
     "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_signals.rs": {"count": 2, "reason": "safe: a comment or doc string explaining why name kills are unsafe; nothing is signalled"},
     "cmux-tui/crates/cmux-tui-platform/src/host_exe.rs": {"count": 1, "reason": "safe: a comment or doc string explaining why name kills are unsafe; nothing is signalled"},

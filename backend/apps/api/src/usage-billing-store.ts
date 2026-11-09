@@ -45,10 +45,13 @@ export const ensureBillingTables = (sql: SqlStorage) => {
 /**
  * The team's included mode for a period that starts at `periodStartMs`: the last setting made at or
  * before that start, so a change applies from the next period start, never inside a running period.
- * New teams (no setting) are per team.
+ * A team with no setting gets `fallback`, its plan's default in the price set in force
+ * (billing-catalog.ts defaultIncludedMode: per seat for Team in v2, else per team).
  */
-export const teamModeAt = (sql: SqlStorage, periodStartMs: number): IncludedMode =>
-  modeOf(sql.exec<{ mode: string }>(`SELECT mode FROM usage_mode_setting WHERE set_at <= ? ORDER BY set_at DESC, seq DESC LIMIT 1`, periodStartMs).toArray()[0]?.mode)
+export const teamModeAt = (sql: SqlStorage, periodStartMs: number, fallback: IncludedMode = "per_team"): IncludedMode => {
+  const row = sql.exec<{ mode: string }>(`SELECT mode FROM usage_mode_setting WHERE set_at <= ? ORDER BY set_at DESC, seq DESC LIMIT 1`, periodStartMs).toArray()[0]
+  return row ? modeOf(row.mode) : fallback
+}
 
 export interface ModeChange {
   readonly mode: IncludedMode
@@ -57,15 +60,15 @@ export interface ModeChange {
   readonly reason: string | null
 }
 
-/** The setting history, newest first, and the mode the latest setting asks for. */
-export const teamModeHistory = (sql: SqlStorage, limit = 20): { readonly requested: IncludedMode; readonly changes: ReadonlyArray<ModeChange> } => {
+/** The setting history, newest first, and the mode the latest setting asks for (`fallback` with no setting). */
+export const teamModeHistory = (sql: SqlStorage, limit = 20, fallback: IncludedMode = "per_team"): { readonly requested: IncludedMode; readonly changes: ReadonlyArray<ModeChange> } => {
   const changes = sql.exec<{ mode: string; set_at: number; actor: string; reason: string | null }>(`SELECT mode, set_at, actor, reason FROM usage_mode_setting ORDER BY set_at DESC, seq DESC LIMIT ?`, limit).toArray().map((r) => ({ mode: modeOf(r.mode), set_at: Number(r.set_at), actor: r.actor, reason: r.reason }))
-  return { requested: changes[0]?.mode ?? "per_team", changes }
+  return { requested: changes[0]?.mode ?? fallback, changes }
 }
 
 /** Records an operator's setting (a no-op when the latest setting already asks for `mode`). */
-export const setTeamMode = (sql: SqlStorage, mode: IncludedMode, actor: string, reason: string | null, now: number): { readonly before: IncludedMode; readonly changed: boolean } => {
-  const before = teamModeHistory(sql, 1).requested
+export const setTeamMode = (sql: SqlStorage, mode: IncludedMode, actor: string, reason: string | null, now: number, fallback: IncludedMode = "per_team"): { readonly before: IncludedMode; readonly changed: boolean } => {
+  const before = teamModeHistory(sql, 1, fallback).requested
   const hasAny = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM usage_mode_setting`).one().n > 0
   if (before === mode && hasAny) return { before, changed: false }
   sql.exec(`INSERT INTO usage_mode_setting (mode, set_at, actor, reason) VALUES (?, ?, ?, ?)`, mode, now, actor, reason)
@@ -106,9 +109,9 @@ export const currentBillable = (sql: SqlStorage, now: number, graceMs: number): 
   }
 }
 
-export const pushState = (sql: SqlStorage, subscription: string, periodStart: number): { identifier: string; mode: IncludedMode; seats: number; event_ts: number | null } | null => {
-  const row = sql.exec<{ identifier: string; mode: string | null; seats: number; event_ts: number | null }>(`SELECT identifier, mode, seats, event_ts FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
-  return row ? { identifier: row.identifier, mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)), event_ts: row.event_ts === null ? null : Number(row.event_ts) } : null
+export const pushState = (sql: SqlStorage, subscription: string, periodStart: number): { identifier: string; mode: IncludedMode; seats: number; event_ts: number | null; included_usd: number | null } | null => {
+  const row = sql.exec<{ identifier: string; mode: string | null; seats: number; event_ts: number | null; included_usd: number | null }>(`SELECT identifier, mode, seats, event_ts, included_usd FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
+  return row ? { identifier: row.identifier, mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)), event_ts: row.event_ts === null ? null : Number(row.event_ts), included_usd: row.included_usd === null ? null : Number(row.included_usd) } : null
 }
 
 export const recordPush = (sql: SqlStorage, subscription: string, periodStart: number, periodEnd: number, identifier: string, micros: number, now: number, info?: PushInfo) =>

@@ -199,6 +199,8 @@ public final class DaemonStore: StateResourceQueries {
     /// Workspace snapshots the main actor compared or keyed for ``snapshotMemo`` since creation
     /// (tests: a live resync with its off-main ``SnapshotDiff`` walks none).
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
+    /// Confirmed workspace records an incremental apply walked to rebuild the list (none when no workspace moved).
+    @ObservationIgnored var workspaceListWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     /// Test seam (nil in the app): while it returns true for the buffered events, `drain` leaves them
@@ -234,6 +236,16 @@ public final class DaemonStore: StateResourceQueries {
     /// change to one workspace: observers that track membership read it
     /// instead of `workspaces`, whose order every move changes.
     public internal(set) var workspaceSetRevision: UInt64 = 0
+    /// This Mac's former `install:<id>` hosts (its other Cloud backends' ids, #35284) -> its current one,
+    /// set on this Mac's own daemon's store only: a tab this tree saved under one reads as this Mac's
+    /// (``TabModel/agentSession``) at every check, where a host is compared exactly (#36015's `listedHere`
+    /// rule). Every other store has none, so another machine's listing keeps the host it saved.
+    @ObservationIgnored public var formerLocalHosts: [String: String] = [:] {
+        didSet {
+            guard formerLocalHosts != oldValue else { return }
+            for tab in index.tabsBySurface.values where tab.formerLocalHosts != formerLocalHosts { tab.formerLocalHosts = formerLocalHosts }
+        }
+    }
 
     public init() {}
 
@@ -361,7 +373,7 @@ public final class DaemonStore: StateResourceQueries {
         stage?.commitAll()
         withOverlayLifted(snapshot: true) {
             if let diff = incrementalDiff(tree, diff: diff) {
-                applyTreeIncrementally(tree, touching: touchedWorkspaces(diff))
+                applyTreeIncrementally(tree, touching: touchedWorkspaces(diff), diff: diff)
                 advanceSnapshotMemo(tree, applying: diff)
             } else {
                 applyTree(tree)
@@ -547,8 +559,9 @@ public final class DaemonStore: StateResourceQueries {
         for tab in pane.tabs { prime(tab) }
     }
 
-    /// What a tab learns when it is indexed: its agent and its observed folder.
+    /// What a tab learns when it is indexed: its agent, its observed folder and this Mac's former hosts.
     private func prime(_ tab: TabModel) {
+        if tab.formerLocalHosts != formerLocalHosts { tab.formerLocalHosts = formerLocalHosts }
         if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
         if let presence = heldPresence.removeValue(forKey: tab.surface) { tab.setPresence(presence) }
         tab.setObservedCwd(directories.directory(for: tab.surface))
