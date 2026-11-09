@@ -111,7 +111,8 @@ mod tests {
         assert_eq!(t1.cli_version.as_deref(), Some("0.164.0"));
         assert!(!t1.archived);
         let t2 = rows.iter().find(|r| r.id == "t2").unwrap();
-        assert_eq!((t2.name.as_deref(), t2.cli_version.as_deref(), t2.archived), (Some("named"), None, true));
+        assert_eq!(t2.name.as_deref(), Some("named"));
+        assert_eq!((t2.cli_version.as_deref(), t2.archived), (None, true));
         assert_eq!(rows.len(), 2);
     }
 

@@ -50,9 +50,9 @@ pub mod cloud_host;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
 pub mod codex_app_server;
-pub mod codex_desktop;
 #[cfg(unix)]
 mod codex_auth_file;
+pub mod codex_desktop;
 pub mod complete;
 pub mod config;
 pub mod context_inventory;

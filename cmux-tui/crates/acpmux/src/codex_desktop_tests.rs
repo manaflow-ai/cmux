@@ -64,7 +64,8 @@ fn the_queue_call_is_codex_queues() {
     assert_eq!(add["method"], "thread/queue/add");
     assert_eq!(add["params"]["threadId"], T1);
     assert_eq!(add["params"]["clientUserMessageId"], "u-1");
-    assert_eq!(add["params"]["input"][0], json!({"type": "text", "text": "hi", "text_elements": []}));
+    let input = json!({"type": "text", "text": "hi", "text_elements": []});
+    assert_eq!(add["params"]["input"][0], input);
     assert_eq!(initialize(1)["params"]["capabilities"]["experimentalApi"], true);
 }
 
@@ -122,10 +123,10 @@ fn live_threads_are_the_held_ones_a_listed_client_started() {
     // T2's lock file stays after its Codex ended: not held, not live.
     std::fs::File::create(lock_dir(home).join(format!("{T2}.lock"))).unwrap();
     let listed = vec![DESKTOP_ORIGINATOR.to_owned()];
-    let live = live(home, &listed);
-    assert_eq!(live.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), vec![T1]);
-    assert_eq!(live[0].cwd.as_deref(), Some(Path::new("/w/cmux")));
-    assert_eq!(live[0].version.as_deref(), Some("0.164.0"));
+    let threads = live(home, &listed);
+    assert_eq!(threads.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), vec![T1]);
+    assert_eq!(threads[0].cwd.as_deref(), Some(Path::new("/w/cmux")));
+    assert_eq!(threads[0].version.as_deref(), Some("0.164.0"));
     assert!(find(home, T1, &listed).is_some());
     assert!(find(home, T2, &listed).is_none(), "no running Codex holds it");
     // A setting that does not list the desktop app lists none of its threads.
@@ -161,11 +162,12 @@ pub(crate) fn fake_daemon(
                         Some("thread/queue/add") => {
                             kept.lock().unwrap().push(msg["params"].clone());
                             on_add(&msg["params"]);
-                            json!({"queuedSubmission": {"id": "q-1", "input": msg["params"]["input"]}})
+                            let input = msg["params"]["input"].clone();
+                            json!({"queuedSubmission": {"id": "q-1", "input": input}})
                         }
                         _ => continue,
                     };
-                    let note = json!({"method": "thread/queue/changed", "params": {"threadId": "x"}});
+                    let note = json!({"method": "thread/queue/changed", "params": {}});
                     let answer = json!({"id": msg["id"], "result": result});
                     for out in [note, answer] {
                         ws.send(Message::Text(out.to_string().into())).await.unwrap();

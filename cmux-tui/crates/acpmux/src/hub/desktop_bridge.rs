@@ -93,12 +93,17 @@ impl Hub {
             return;
         }
         *seen = modified;
-        let threads = tokio::task::spawn_blocking(move || {
+        let (listed, threads) = tokio::task::spawn_blocking(move || {
             let listed = crate::claude_peers::listed_entrypoints();
-            crate::codex_desktop::live(&home, &listed)
+            let threads = crate::codex_desktop::live(&home, &listed);
+            (listed.iter().any(|l| l == crate::codex_desktop::DESKTOP_ORIGINATOR), threads)
         })
         .await
         .unwrap_or_default();
+        // Not listed: the setting is read again at the next scan, so listing it takes effect.
+        if !listed {
+            *seen = None;
+        }
         for thread in threads {
             if let Err(e) = self.list_codex_thread(&thread).await {
                 *seen = None;
@@ -245,7 +250,8 @@ impl Hub {
             let (claude, codex): (Vec<_>, Vec<_>) = chats
                 .filter(|(family, _)| family == "claude" || family == "codex")
                 .partition(|(family, _)| family == "claude");
-            (claude.into_iter().map(|(_, c)| c).collect(), codex.into_iter().map(|(_, c)| c).collect())
+            let chats = |all: Vec<(String, (String, String))>| all.into_iter().map(|(_, c)| c);
+            (chats(claude).collect(), chats(codex).collect())
         };
         if claude.is_empty() && codex.is_empty() {
             return;

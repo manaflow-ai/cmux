@@ -20,7 +20,8 @@ fn only_an_all_text_prompt_is_carried() {
 #[test]
 fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
     let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi", "hi").unwrap();
-    assert!(deliveries().claim("u-other".into(), "s1", "p1", "hi", "hi").is_err(), "one id, one send");
+    let again = deliveries().claim("u-other".into(), "s1", "p1", "hi", "hi");
+    assert!(again.is_err(), "one id, one send");
     assert_eq!(delivered("s1", "u-find"), Some(("p1".into(), "hi".into())));
     assert_eq!(delivered("s2", "u-find"), None);
     answered("s1", "p1", "t1");
