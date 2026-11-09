@@ -993,3 +993,30 @@ fn a_malformed_connection_list_fails_closed() {
     let fine = json!([row("connected"), row("closed")]).to_string();
     assert_eq!(carrier::attached_sessions_in(&fine), Some(vec!["d/s#1".to_owned()]));
 }
+
+/// Review P1 of #39049: the watch publishes a look that found a pause in the
+/// middle of the updater's read. The read sees the old count and the old
+/// look, or the new count and the new look, never the old count with the
+/// new look (which reads as a current watch and no new pause).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pause_published_during_the_read_still_holds() {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = Arc::new(crate::agent::PauseWatch::new());
+    watch.looked(B0, false);
+    let handled = AtomicU64::new(watch.pause_seq());
+    // The watch's look after a 3-minute pause lands between the read's two fields.
+    let publisher = Arc::clone(&watch);
+    crate::agent::BETWEEN_READS.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || publisher.looked(at(180).0, true)));
+    });
+    assert!(
+        role::hold_if_paused(&paths, &watch, &handled, at(181)),
+        "a pause published during the read was missed"
+    );
+    assert_eq!(gate::Gate::new(&paths).held_left(at(181).1), Some(role::CONNECT_HOLD));
+}

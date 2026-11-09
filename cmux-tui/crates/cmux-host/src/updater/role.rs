@@ -177,9 +177,9 @@ pub(super) fn hold_if_paused(
     handled: &AtomicU64,
     now: (i128, u64),
 ) -> bool {
-    let seq = watch.pause_seq();
-    let counted = seq > handled.fetch_max(seq, Ordering::SeqCst);
-    if !counted && !watch.waking(now.0) {
+    let seen = watch.seen();
+    let counted = seen.pauses > handled.fetch_max(seen.pauses, Ordering::SeqCst);
+    if !counted && !seen.waking(now.0) {
         return false;
     }
     super::gate::hold_connects(paths, now.1);

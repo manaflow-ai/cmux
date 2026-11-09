@@ -148,6 +148,19 @@ impl PauseWatch {
         self.write();
     }
 
+    /// The count and the last look together, as one look of the watch saw
+    /// them: a reader that took the old count with the new look would miss
+    /// the pause that look just found.
+    pub fn seen(&self) -> PauseSeen {
+        use std::sync::atomic::Ordering;
+        self.refresh();
+        let pauses = self.pauses.load(Ordering::SeqCst);
+        #[cfg(test)]
+        between_reads();
+        let last_look_ns = i128::from(self.last_look_ns.load(Ordering::SeqCst));
+        PauseSeen { pauses, last_look_ns }
+    }
+
     /// How many pauses were found so far: a reader that keeps the count it
     /// last handled sees every newer one, whenever it was found.
     pub fn pause_seq(&self) -> u64 {
@@ -217,6 +230,38 @@ impl PauseWatch {
         let pauses = field("pauses").and_then(serde_json::Value::as_u64).unwrap_or(0);
         self.last_look_ns.store(look, Ordering::SeqCst);
         self.pauses.store(pauses, Ordering::SeqCst);
+    }
+}
+
+/// One consistent look at a [`PauseWatch`] ([`PauseWatch::seen`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PauseSeen {
+    /// How many pauses were found so far.
+    pub pauses: u64,
+    /// The boot clock at the watch's last look (ns, 0 for never).
+    pub last_look_ns: i128,
+}
+
+impl PauseSeen {
+    /// Whether the watch, as seen, has not looked for longer than a pause
+    /// takes to find at boot time `now_ns`: it is still waking from one.
+    pub fn waking(&self, now_ns: i128) -> bool {
+        self.last_look_ns != 0 && paused_for(self.last_look_ns, now_ns).is_some()
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs once inside the next [`PauseWatch::seen`] on this thread, between
+    /// its reads: a test's publish interleaved with the read.
+    pub static BETWEEN_READS: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn between_reads() {
+    if let Some(publish) = BETWEEN_READS.with(|hook| hook.borrow_mut().take()) {
+        publish();
     }
 }
 
