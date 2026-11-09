@@ -53,7 +53,8 @@ export type AnchoredCollapse = {
   open: boolean;
   /// Draw the body: while open, and while it closes.
   present: boolean;
-  toggle: () => void;
+  /// Opens or closes it. Given the click (a row's `onClick`), only a deliberate one (`deliberateClick`).
+  toggle: (event?: unknown) => void;
   setOpen: (open: boolean) => void;
   /// The ref for the line the reader clicks: it stays where it is drawn while the body opens or closes.
   headerRef: (node: HTMLElement | null) => void;
@@ -138,6 +139,32 @@ function keepHeader(header: HTMLElement): () => () => void {
   };
 }
 
+/// How far (px) the pointer may travel between press and release for the release to still be a click
+/// on a line: past it the reader dragged (a selection, a scroll on a trackpad's press), and nothing
+/// opens or closes (Leo, 2026-11-06: "way too jittery/sensitive").
+export const CLICK_SLOP_PX = 4;
+
+/// Where the pointer pressed a header (`useAnchoredCollapse`'s headerRef notes it).
+type Press = { x: number; y: number };
+
+/// Whether `event`, a click on `header`, is the reader's deliberate click: a keyboard click (detail
+/// 0) or a call with no event always is; a pointer's is unless it travelled more than CLICK_SLOP_PX
+/// from where it pressed, or left a selection in the line (a drag or a double-click that selects its
+/// words), so neither a small drag nor a selection toggles the row.
+export function deliberateClick(event: unknown, header: HTMLElement | null, press: Press | undefined): boolean {
+  const click = event as { detail?: number; clientX?: number; clientY?: number } | undefined;
+  if (!click || typeof click.detail !== "number" || click.detail === 0) return true;
+  if (press && typeof click.clientX === "number" && typeof click.clientY === "number") {
+    if (Math.hypot(click.clientX - press.x, click.clientY - press.y) > CLICK_SLOP_PX) return false;
+  }
+  const selection = header?.ownerDocument.getSelection?.();
+  if (header && selection && !selection.isCollapsed && selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0);
+    if (header.contains(range.commonAncestorContainer) || range.intersectsNode(header)) return false;
+  }
+  return true;
+}
+
 export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): AnchoredCollapse {
   const [inner, setInner] = useState(options.defaultOpen ?? false);
   const controlled = options.open !== undefined;
@@ -145,8 +172,21 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
   // A transcript view switch (transcriptView.ts) opens and closes the rows on screen at once: they snap.
   const fold = useFold(open, options.animates ?? foldPlays, options.fadeIn ?? true);
   const header = useRef<HTMLElement | null>(null);
+  // Where the pointer last pressed the header, for `deliberateClick`; the listener lives as long as
+  // the header is mounted.
+  const press = useRef<Press | undefined>(undefined);
+  const unlisten = useRef<(() => void) | undefined>(undefined);
   const headerRef = useCallback((node: HTMLElement | null) => {
+    unlisten.current?.();
+    unlisten.current = undefined;
+    press.current = undefined;
     header.current = node;
+    if (!node) return;
+    const note = (event: PointerEvent) => {
+      press.current = event.button === 0 ? { x: event.clientX, y: event.clientY } : undefined;
+    };
+    node.addEventListener("pointerdown", note, { passive: true });
+    unlisten.current = () => node.removeEventListener("pointerdown", note);
   }, []);
   // Read when the reader toggles, so `setOpen` and `toggle` stay the same function across renders.
   const latest = useRef({ open, controlled, onOpenChange: options.onOpenChange });
@@ -171,7 +211,14 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
     },
     [stopKeeping],
   );
-  const toggle = useCallback(() => setOpen(!latest.current.open), [setOpen]);
+  const toggle = useCallback(
+    (event?: unknown) => {
+      const pressed = press.current;
+      press.current = undefined;
+      if (deliberateClick(event, header.current, pressed)) setOpen(!latest.current.open);
+    },
+    [setOpen],
+  );
   useLayoutEffect(() => {
     const keep = pendingKeep.current;
     pendingKeep.current = undefined;
