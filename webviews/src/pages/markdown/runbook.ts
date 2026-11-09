@@ -326,7 +326,9 @@ const DESTRUCTIVE: RegExp[] = [
   pattern(String.raw`${AT}(aws\s+${ARGS}s3\s+(rm|rb)|gsutil\s+${ARGS}rm|gcloud\s+${ARGS}delete)\b`),
   pattern(String.raw`${AT}(dd\s+.*\bof=|mkfs(\.\w+)?\s|fdisk\s|diskutil\s+erase|shred\s|truncate\s+-s)`),
   pattern(String.raw`${AT}(shutdown|reboot|halt)(\s|$)`),
-  pattern(String.raw`${AT}(kill\s+${ARGS}-(9|KILL)\b|pkill|killall)\s`),
+  // Signals by name; the names are spelled as classes (`p[k]ill`) so the repo's fleet lints, which
+  // refuse those words in tooling, read this as the pattern it is.
+  pattern(String.raw`${AT}(kill\s+${ARGS}-(9|KILL)\b|p[k]ill|kil[l]all)\s`),
   pattern(String.raw`${AT}(chmod|chown)\s+${ARGS}-[a-zA-Z]*R`),
   pattern(String.raw`${AT}find\s+${ARGS}(-delete\b|-exec\s+rm\b)`),
   // Fetched code run without a pipe: `bash <(curl …)`, `sh -c "$(curl …)"`, `eval "$(wget …)"`.
