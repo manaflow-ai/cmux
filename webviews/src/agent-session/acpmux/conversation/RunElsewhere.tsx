@@ -26,6 +26,8 @@ import {
 const CHIP_ICON = rowIconSize(12);
 /** The untracked paths the panel names; the rest are counted. */
 const UNTRACKED_SHOWN = 6;
+/** Failed output reads in a row before the run reads as ended. */
+const READ_FAILURES = 5;
 let lastMachine: string | undefined;
 
 /** Whether `due` has passed, re-rendering once when it does (one timer, gone on unmount). */
@@ -183,7 +185,7 @@ function RunElsewherePanel({
       <div className="cv-run-elsewhere__head">
         <span className="cv-run-elsewhere__title">{t("runElsewhere.title")}</span>
         {tree && (
-          <span className="cv-run-elsewhere__base">
+          <span className="cv-run-elsewhere__base" title={tree.origin}>
             {t("runElsewhere.base", { commit: tree.base.slice(0, 9) })}
           </span>
         )}
@@ -303,16 +305,19 @@ function RunElsewhereStream({
     let timer: ReturnType<typeof setTimeout> | undefined;
     let from = 0;
     let delay = 250;
+    let failures = 0;
     const decoder = new TextDecoder();
     const read = () => {
       runs.client.output(taskId, from).then(
         (out) => {
           if (stopped) return;
+          failures = 0;
           const text = decodeChunk(decoder, out.data);
           from = out.nextByte;
           const current = runs.store.get(toolCallId);
           if (current?.phase !== "running" || current.taskId !== taskId) return;
-          const ended = out.state !== "running";
+          // An ended task is read to its last byte first: one read returns at most 64 KiB.
+          const ended = out.state !== "running" && (out.totalBytes === undefined ? !out.data : from >= out.totalBytes);
           runs.store.set(toolCallId, {
             ...current,
             phase: ended ? "ended" : "running",
@@ -326,6 +331,13 @@ function RunElsewhereStream({
         },
         () => {
           if (stopped) return;
+          // A task acpmux no longer has (a daemon restart, a purged chat) ends the reads.
+          failures += 1;
+          const current = runs.store.get(toolCallId);
+          if (failures >= READ_FAILURES && current?.phase === "running" && current.taskId === taskId) {
+            runs.store.set(toolCallId, { ...current, phase: "ended", state: "lost" });
+            return;
+          }
           delay = nextReadDelay(delay, false);
           timer = setTimeout(read, delay);
         },

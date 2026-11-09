@@ -7629,7 +7629,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   font-weight: 600;
 }
 .cv-run-elsewhere--run .cv-run-elsewhere__title {
-  font-weight: 500;
+  font-weight: normal;
 }
 .cv-run-elsewhere--run[data-state="failed"] .cv-run-elsewhere__title {
   color: var(--agent-status-failure);
@@ -7692,7 +7692,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-run-elsewhere__group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 .cv-run-elsewhere__file {
   display: flex;

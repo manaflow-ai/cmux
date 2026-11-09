@@ -5509,8 +5509,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         stop: (taskId) => call((c) => c.bgStop(runChat, taskId)),
       },
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
-  }, [quick, cloudPreviewChat, runChat, clientEpoch]);
+    // The client is read at each call, so a reconnect keeps the chat's runs and their rows.
+  }, [quick, cloudPreviewChat, runChat]);
   const workingCounts = useMemo<WorkingCounts>(() => {
     return {
       agents: runningAgents.length,

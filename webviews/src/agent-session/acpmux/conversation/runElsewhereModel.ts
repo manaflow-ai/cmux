@@ -29,6 +29,8 @@ export interface RunPlan {
   why?: string;
   machines: RunMachine[];
   tree?: {
+    /** The repository the other machine fetches, without a login. */
+    origin: string;
     base: string;
     prefix: string;
     files: RunFile[];
@@ -43,6 +45,8 @@ export interface RunPlan {
 export interface RunOutput {
   data: string;
   nextByte: number;
+  /** Every byte the task has written so far. */
+  totalBytes?: number;
   state: string;
   exitCode?: number | null;
 }

@@ -39,6 +39,7 @@ const PLAN: RunPlan = {
     { name: "laptop", ok: false, why: "not connected now" },
   ],
   tree: {
+    origin: "https://github.com/acme/app.git",
     base: "4f1c2a9be03d7e51a2c6f0b8d9e4a7c3b1f05e62",
     prefix: "",
     files: [
