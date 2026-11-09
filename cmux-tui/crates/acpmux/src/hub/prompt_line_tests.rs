@@ -356,3 +356,51 @@ async fn context_inventory_a_fork_the_agent_never_answers_does_not_hold_its_pare
         .unwrap();
     fork.abort();
 }
+
+/// A prompt the chat takes while its agent answers `session/fork` is not in the fork's history:
+/// the fork's cut is taken as its request is written, as the agent's fork is (review of #39841).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn context_inventory_a_prompt_while_the_agent_answers_a_fork_is_not_in_the_forks_history() {
+    let hub = hub();
+    hub.config
+        .write()
+        .await
+        .harnesses
+        .get_mut("fake")
+        .unwrap()
+        .env
+        .insert("FAKE_FORK_DELAY_MS".into(), "3000".into());
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"first"})], "test", false).await.unwrap();
+    let fork = {
+        let (hub, parent) = (hub.clone(), parent.clone());
+        tokio::spawn(async move {
+            hub.fork(&parent, None, None, Default::default(), None, None, true).await
+        })
+    };
+    // The fork's request reaches the agent, which answers it later.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(!fork.is_finished(), "the agent answered the fork at once");
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"AFTER-THE-FORK"})], "test", false)
+        .await
+        .unwrap();
+    let fork = tokio::time::timeout(std::time::Duration::from_secs(10), fork)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let records = hub.events(&fork.id, 0, 1_000).unwrap();
+    let prompts: Vec<&str> = records
+        .iter()
+        .filter(|e| e.kind == "user_message")
+        .filter_map(|e| e.msg["text"].as_str())
+        .collect();
+    assert!(prompts.contains(&"first"), "{prompts:?}");
+    assert!(
+        !prompts.contains(&"AFTER-THE-FORK"),
+        "the fork shows a prompt its agent never read: {prompts:?}"
+    );
+}
