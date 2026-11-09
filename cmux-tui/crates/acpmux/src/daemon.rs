@@ -645,8 +645,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     } else {
         None
     };
-    // A new peer token at every launch (`server/peer_auth.rs`): the only
-    // proof of a peer daemon, read by it over ssh, never over an RPC.
+    // A new peer token at every launch (`server/peer_auth.rs`), read by a peer over ssh only.
     let peer = if ws_listener.is_some() {
         match crate::server::peer_auth::PeerAuth::create(&home()) {
             Ok(auth) => Some(std::sync::Arc::new(auth)),
@@ -661,6 +660,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
+    let carrier_file = crate::server::carrier::start(&hub, &home()).await;
     let ws_shutdown = hub.ws_shutdown.clone();
     let ws_task = ws_listener.map(|(l, token)| {
         let auth = crate::server::WsAuth { local_app, peer };
@@ -1035,7 +1035,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     recheck_home();
     if !crate::config::home_lost() {
         let _ = std::fs::remove_file(home().join("daemon.pid"));
-        for file in [local_app_file, peer_file].into_iter().flatten() {
+        for file in [local_app_file, peer_file, carrier_file].into_iter().flatten() {
             let _ = std::fs::remove_file(file);
         }
     }

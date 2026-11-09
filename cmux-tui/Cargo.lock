@@ -1291,6 +1291,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-command-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-conductor-import"
 version = "0.1.0"
 dependencies = [

@@ -389,6 +389,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "personalization",
+        "lead" : [
+          "personalization"
+        ],
+        "symbol" : "wand.and.stars",
+        "title" : {
+          "key" : "settings.category.personalization",
+          "text" : "Personalization"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.appTheme",
             "rows" : [
@@ -2076,6 +2099,7 @@
       },
       {
         "categories" : [
+          "personalization",
           "theme",
           "appearance"
         ],

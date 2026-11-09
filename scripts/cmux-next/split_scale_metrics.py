@@ -43,6 +43,9 @@ RETARGET_RATIO = 1.5
 # The window places each edge on the pixel grid (whole points at scale 1), so a step between two shown edges is off its
 # spring's by up to one point: a re-acceleration counts only when the step is more than this over the slowest one.
 RETARGET_SLACK = 1.0
+# The trace keeps its ticks and values to 0.01 (ticks 8.33 and 8.34 ms apart): the slowest step carried over this
+# interval may be off by that much in time and in points (#38984 review F1), so the slack takes it too.
+TIME_SLACK = 0.02
 # The pane frame's width in a trace pane row (one_motion_series PANE_FRAME: fx, fy, fwidth, fheight).
 PANE_FRAME_WIDTH = PANE_FRAME.start + 2
 
@@ -127,7 +130,7 @@ def retargets(points):
                 turned.add(t1)
                 slowest = None
             elif (slowest is not None and speed > RETARGET_MIN_SPEED and speed > slowest * RETARGET_RATIO
-                  and abs(delta) - slowest * (t1 - t0) > RETARGET_SLACK + 1e-6):
+                  and abs(delta) - slowest * (t1 - t0) > RETARGET_SLACK + TIME_SLACK * (1 + slowest)):
                 turned.add(t1)
                 slowest = None
             elif sign:
