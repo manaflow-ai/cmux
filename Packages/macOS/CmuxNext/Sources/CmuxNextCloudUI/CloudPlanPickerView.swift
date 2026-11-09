@@ -27,11 +27,11 @@ public final class CloudPlanPickerHostingView: NSView {
     init(picker: CloudPlanPicker) {
         self.picker = picker
         subtitleLabel = ChromeLabel(wrappingLabelWithString: picker.recommended == .max ? CloudPlanPickerStrings.subtitleMax : CloudPlanPickerStrings.subtitle)
-        notNowButton = CmuxDialogButtonView(CmuxDialogButton(id: "cloud-plan-not-now", title: CloudMachineCapCard.Strings.notNow, role: .cancel),
-                                            hint: .escape, target: nil, action: #selector(CloudPlanPickerHostingView.notNowPressed))
+        notNowButton = CmuxDialogButtonView(standalone: CmuxDialogButton(id: "cloud-plan-not-now", title: CloudMachineCapCard.Strings.notNow, role: .cancel),
+                                            target: nil, action: #selector(CloudPlanPickerHostingView.notNowPressed))
         runHereButton = picker.offersRunHere
-            ? CmuxDialogButtonView(CmuxDialogButton(id: "cloud-plan-run-here", title: CloudMachineCapCard.Strings.runHere),
-                                   hint: nil, target: nil, action: #selector(CloudPlanPickerHostingView.runHerePressed))
+            ? CmuxDialogButtonView(standalone: CmuxDialogButton(id: "cloud-plan-run-here", title: CloudMachineCapCard.Strings.runHere),
+                                   target: nil, action: #selector(CloudPlanPickerHostingView.runHerePressed))
             : nil
         super.init(frame: .zero)
         notNowButton.target = self
@@ -228,13 +228,12 @@ final class CloudPlanCardView: NSView {
             CloudPlanPickerStrings.machines(plan.machines, perSeat: plan.perSeat),
             CloudPlanPickerStrings.storage(plan.storageGB),
         ].map(ChromeLabel.init(wrappingLabelWithString:))
-        getButton = CmuxDialogButtonView(CmuxDialogButton(id: "cloud-plan-\(plan.id.rawValue)", title: CloudPlanPickerStrings.choose(plan.id),
-                                                          role: picker.recommended == plan.id ? .default : .normal),
-                                         hint: picker.recommended == plan.id ? .return : nil, target: nil, action: #selector(CloudPlanCardView.getPressed))
+        // The recommended plan's button is the default: it answers Return and shows the key.
+        getButton = CmuxDialogButtonView(standalone: CmuxDialogButton(id: "cloud-plan-\(plan.id.rawValue)", title: CloudPlanPickerStrings.choose(plan.id),
+                                                                      role: picker.recommended == plan.id ? .default : .normal),
+                                         target: nil, action: #selector(CloudPlanCardView.getPressed))
         super.init(frame: .zero)
         getButton.target = self
-        // The recommended plan's button answers Return (its hint says so).
-        if isRecommended { getButton.keyEquivalent = "\r" }
         wantsLayer = true
         layer?.cornerRadius = Metrics.insetCornerRadius
         layer?.cornerCurve = .continuous
