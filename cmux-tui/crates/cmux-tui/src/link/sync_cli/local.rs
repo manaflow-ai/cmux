@@ -345,15 +345,10 @@ fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<L
 /// The first folder on the way to `path` (`a`, then `a/b`, ...) that
 /// `enter` refuses.
 fn refused_dir(path: &str, enter: &dyn Fn(&str) -> bool) -> Option<String> {
-    let mut at = 0;
-    while let Some(slash) = path[at..].find('/') {
-        let dir = &path[..at + slash];
-        if !enter(dir) {
-            return Some(dir.to_string());
-        }
-        at += slash + 1;
-    }
-    None
+    path.match_indices('/')
+        .filter_map(|(slash, _)| path.get(..slash))
+        .find(|dir| !enter(dir))
+        .map(str::to_string)
 }
 
 /// A relative path that stays below its folder: no root, no empty, `.` or
