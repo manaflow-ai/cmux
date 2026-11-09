@@ -5,9 +5,10 @@
 // dialog"), so a new person had no way to learn a chat can be shared.
 //
 // Once per install is the app's to keep, like a feature tip's (design feature-tips.md): the page
-// writes the nudge's record (`tips.state {id: "share-nudge", state}`, the app's defaults) before the
-// line draws, and an app that keeps no records shows none, since a line that could not stay gone
-// must not show at all. No timer, no observer: it reacts to the turn's end and to the person.
+// claims the nudge (`tips.state {claim: "share-nudge"}`, the app's defaults) before the line draws,
+// which the app grants only with no other tip in the last 14 days. An app that keeps no records
+// shows none, since a line that could not stay gone must not show at all. No timer, no observer:
+// it reacts to the turn's end and to the person.
 import { useEffect, useRef, useState } from "react";
 import type { TipHost } from "../../../ui/featureTips/store";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
@@ -130,9 +131,10 @@ export function useShareNudge(
       .read()
       .then(async (state) => {
         if (state.records[SHARE_NUDGE_ID] !== undefined) return false;
-        // Kept before it draws: a page that reloads, or another window, never shows it again.
-        await host.write(SHARE_NUDGE_ID, "closed");
-        return true;
+        // The app's claim keeps it before it draws (a page that reloads, or another window, never
+        // shows it again) and says no within 14 days of any other tip: it spends the one budget
+        // the feature tips, the Cloud hint and the sidebar's card share.
+        return host.claim(SHARE_NUDGE_ID, undefined);
       })
       .then(
         (show) => {
