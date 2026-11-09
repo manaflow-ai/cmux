@@ -106,8 +106,8 @@ impl From<io::Error> for KeyHolderError {
 #[derive(Debug)]
 pub struct KeyHolder {
     dir: PathBuf,
-    // Held for the holder's life: the OS lock goes with this descriptor.
-    _lock: File,
+    // Held for the holder's life, and released explicitly on drop (`Drop`).
+    lock: File,
 }
 
 impl KeyHolder {
@@ -124,7 +124,7 @@ impl KeyHolder {
             Err(TryLockError::Error(error)) => return Err(error.into()),
         }
         write_pid(dir, std::process::id())?;
-        Ok(Self { dir: dir.to_path_buf(), _lock: lock })
+        Ok(Self { dir: dir.to_path_buf(), lock })
     }
 
     /// The directory the lock is in: the key files it guards sit next to it.
@@ -150,6 +150,10 @@ impl Drop for KeyHolder {
         if recorded_pid(&self.dir) == Some(std::process::id()) {
             let _ = std::fs::remove_file(self.dir.join(PID_FILE));
         }
+        // `flock` belongs to the open file description, not this descriptor: a child forked
+        // while the lock was held keeps a copy until its exec closes it, and closing ours
+        // alone would leave the key held for that while. Unlocking releases it for every copy.
+        let _ = self.lock.unlock();
     }
 }
 
@@ -249,6 +253,21 @@ mod tests {
         let record = std::fs::read_to_string(dir.join(PID_FILE)).unwrap();
         assert_eq!(record, format!("{}\n", std::process::id()));
         drop(holder);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A copy of the lock's descriptor (what a child forked by another thread holds until its
+    /// exec closes it) never keeps the key held once its holder dropped: the acpmux lib tests
+    /// that take, drop and retake a lock failed `KeyHeld { pid: None }` next to tests that spawn.
+    #[test]
+    fn a_dropped_holder_releases_the_lock_while_a_copy_of_its_descriptor_lives() {
+        let dir = tempfile_dir("inherited-copy");
+        let first = KeyHolder::acquire(&dir).unwrap();
+        let inherited = first.lock.try_clone().unwrap();
+        drop(first);
+        let again = KeyHolder::acquire(&dir).expect("a descriptor copy kept the key held");
+        drop(again);
+        drop(inherited);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
