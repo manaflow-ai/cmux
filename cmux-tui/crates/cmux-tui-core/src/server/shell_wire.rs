@@ -94,16 +94,18 @@ mod serve {
     ) -> anyhow::Result<Value> {
         anyhow::ensure!(owner(mux, client), NotOwner);
         let scope = params.scope.unwrap_or_default();
-        Ok(match mux.shell_runs.run_as(
-            &scope,
-            client,
-            &params.command,
-            params.cwd.as_deref(),
-            params.run.as_deref(),
-        ) {
-            Ok(run) => json!({"run": run}),
-            Err(refusal) => refused(refusal),
-        })
+        Ok(
+            match mux.shell_runs.run_as(
+                &scope,
+                client,
+                &params.command,
+                params.cwd.as_deref(),
+                params.run.as_deref(),
+            ) {
+                Ok(run) => json!({"run": run}),
+                Err(refusal) => refused(refusal),
+            },
+        )
     }
 
     pub(in crate::server) fn stop(

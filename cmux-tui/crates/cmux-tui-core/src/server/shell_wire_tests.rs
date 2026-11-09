@@ -120,8 +120,7 @@ fn a_run_under_the_callers_id_can_be_stopped_without_its_answer() {
     let started =
         reply(&mux, owner, json!({"cmd":"shell-run","command":"sleep 30","cwd":cwd,"run":id}));
     assert_eq!(started["data"], json!({"run": id}), "{started}");
-    let again =
-        reply(&mux, owner, json!({"cmd":"shell-run","command":"true","cwd":cwd,"run":id}));
+    let again = reply(&mux, owner, json!({"cmd":"shell-run","command":"true","cwd":cwd,"run":id}));
     assert_eq!(again["data"], json!({"refused": "invalid"}), "a taken id: {again}");
     let malformed =
         reply(&mux, owner, json!({"cmd":"shell-run","command":"true","cwd":cwd,"run":"run_X"}));

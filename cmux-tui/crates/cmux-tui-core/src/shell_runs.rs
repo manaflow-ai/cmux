@@ -516,7 +516,7 @@ fn read_output(shared: &Shared, id: &str, output: OwnedFd, wake: OwnedFd) {
         }
         match file.read(&mut bytes) {
             Ok(0) => break,
-            Ok(count) => append(shared, id, &bytes[..count]),
+            Ok(count) => append(shared, id, bytes.get(..count).unwrap_or_default()),
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => break,
         }
@@ -590,8 +590,7 @@ fn chunk(run: &Run, after: u64) -> Chunk {
 /// How many leading bytes of `bytes` end on a whole UTF-8 character.
 pub(crate) fn utf8_complete(bytes: &[u8]) -> usize {
     let count = bytes.len();
-    for back in 0..count.min(4) {
-        let byte = bytes[count - 1 - back];
+    for (back, &byte) in bytes.iter().rev().take(4).enumerate() {
         if byte & 0xC0 != 0x80 {
             let length = match byte {
                 0x00..=0x7F => 1,
