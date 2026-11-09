@@ -3139,10 +3139,13 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     let mut result = crate::agent_hook_install::run(&plan);
     #[cfg(unix)]
     if plan.action == crate::agent_hook_install::Action::Status {
-        result.value = super::agent_hook_status::with_pane_helper(
+        let (value, broken) = super::agent_hook_status::with_pane_helper(
             result.value,
             super::agent_hook_status::pane_helper(),
+            crate::localization::catalog(),
         );
+        result.value = value;
+        result.failed |= broken;
     }
     if result.failed {
         let error = json!({

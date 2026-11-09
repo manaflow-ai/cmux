@@ -14,30 +14,49 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
+/// The hook helper of the pane `agent hook status` runs in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum PaneHelper {
+    /// Not in a cmux pane (no `CMUX_TUI_HOOK`), or the pane runs the shared
+    /// helper itself: the status is as `agent hook install` reports it.
+    Outside,
+    /// The pane's agents run this build's own helper at this path.
+    Runs(PathBuf),
+    /// `CMUX_TUI_HOOK` names a helper that is missing or cannot run (its
+    /// build folder was deleted): the pane's agents send no hook events.
+    Broken(PathBuf),
+}
+
 /// The hook helper an agent started in this pane runs: the `CMUX_TUI_HOOK`
-/// the pane carries (its daemon's own build). Outside a cmux pane there is
-/// none, and the status keeps the installed helper.
-pub(super) fn pane_helper() -> Option<PathBuf> {
+/// the pane carries (its daemon's own build).
+pub(super) fn pane_helper() -> PaneHelper {
     pane_helper_from(std::env::var_os("CMUX_TUI_HOOK"))
 }
 
 /// [`pane_helper`] for the `CMUX_TUI_HOOK` value `inherited`. It only reads:
 /// a status call never writes a launcher file.
-fn pane_helper_from(inherited: Option<OsString>) -> Option<PathBuf> {
-    crate::own_build_helpers::inherited_hook_helper(inherited)
+fn pane_helper_from(inherited: Option<OsString>) -> PaneHelper {
+    match crate::own_build_helpers::inherited_hook_helper(inherited) {
+        Some(path) => PaneHelper::Runs(path),
+        None => PaneHelper::Outside,
+    }
 }
 
-/// The status `value` with `helper` naming `pane_helper` and the shared
-/// helper `agent hook install` writes as `installed_helper`. Without a pane
-/// helper the value is as it is.
-pub(super) fn with_pane_helper(mut value: Value, pane_helper: Option<PathBuf>) -> Value {
-    let Some(pane) = pane_helper else { return value };
+/// The status `value` for `pane`, and whether it is a fault. With a pane
+/// helper, `helper` names it and the shared helper `agent hook install`
+/// writes is `installed_helper`.
+pub(super) fn with_pane_helper(
+    mut value: Value,
+    pane: PaneHelper,
+    _catalog: &crate::localization::Catalog,
+) -> (Value, bool) {
+    let PaneHelper::Runs(pane) = pane else { return (value, false) };
     if let Some(object) = value.as_object_mut() {
         let installed = object.remove("helper").unwrap_or(Value::Null);
         object.insert("helper".into(), json!(pane));
         object.insert("installed_helper".into(), installed);
     }
-    value
+    (value, false)
 }
 
 #[cfg(test)]
@@ -58,10 +77,16 @@ mod tests {
             "errors": [],
         });
         let pane = PathBuf::from("/opt/r4/cmux-tui-hook");
-        let shown = with_pane_helper(status.clone(), Some(pane));
+        let english = crate::localization::catalog_for_locale("en_US.UTF-8");
+        let (shown, failed) = with_pane_helper(status.clone(), PaneHelper::Runs(pane), english);
+        assert!(!failed);
         assert_eq!(shown["helper"], "/opt/r4/cmux-tui-hook", "{shown}");
         assert_eq!(shown["installed_helper"], "/home/u/.local/share/cmux-tui/bin/cmux-tui-hook");
-        assert_eq!(with_pane_helper(status.clone(), None), status, "no pane helper: unchanged");
+        assert_eq!(
+            with_pane_helper(status.clone(), PaneHelper::Outside, english),
+            (status.clone(), false),
+            "no pane helper: unchanged"
+        );
     }
 
     /// W5-Q: outside a cmux pane (no `CMUX_TUI_HOOK`: a build script) the
@@ -71,13 +96,55 @@ mod tests {
     fn w5q_agent_hook_status_outside_a_pane_keeps_the_installed_helper() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        assert_eq!(pane_helper_from(None), None, "outside a pane: no pane helper");
+        assert_eq!(pane_helper_from(None), PaneHelper::Outside, "outside a pane: no pane helper");
+        assert_eq!(pane_helper_from(Some(OsString::new())), PaneHelper::Outside, "empty: shared");
         let dir = std::env::temp_dir().join(format!("w5q-pane-helper-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let helper = dir.join("cmux-tui-hook");
         std::fs::write(&helper, "#!/bin/sh\n").unwrap();
         std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(pane_helper_from(Some(helper.clone().into_os_string())), Some(helper));
+        assert_eq!(
+            pane_helper_from(Some(helper.clone().into_os_string())),
+            PaneHelper::Runs(helper)
+        );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// W5-Q review (w5qa2-1): a pane whose `CMUX_TUI_HOOK` names a helper of
+    /// a deleted build runs no hooks. The status names that helper and
+    /// fails with a localized reason; it does not show the shared helper as
+    /// if all were well.
+    #[test]
+    fn w5q_agent_hook_status_reports_a_deleted_pane_helper_as_a_fault() {
+        let gone = std::env::temp_dir()
+            .join(format!("w5q-deleted-build-{}", std::process::id()))
+            .join("cmux-tui-hook");
+        assert_eq!(
+            pane_helper_from(Some(gone.clone().into_os_string())),
+            PaneHelper::Broken(gone.clone())
+        );
+        let status = json!({
+            "action": "status",
+            "helper": "/home/u/.local/share/cmux-tui/bin/cmux-tui-hook",
+            "errors": [],
+        });
+        let english = crate::localization::catalog_for_locale("en_US.UTF-8");
+        let (shown, failed) =
+            with_pane_helper(status.clone(), PaneHelper::Broken(gone.clone()), english);
+        assert!(failed, "{shown}");
+        assert_eq!(shown["helper"], json!(gone), "{shown}");
+        assert_eq!(shown["installed_helper"], "/home/u/.local/share/cmux-tui/bin/cmux-tui-hook");
+        let error = shown["errors"][0].as_str().unwrap_or_default();
+        assert!(
+            error.contains(&gone.display().to_string()) && error.contains("missing"),
+            "{error}"
+        );
+        let japanese = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let (shown, _) = with_pane_helper(status, PaneHelper::Broken(gone.clone()), japanese);
+        let error = shown["errors"][0].as_str().unwrap_or_default();
+        assert!(
+            error.contains(&gone.display().to_string()) && error.contains("見つからない"),
+            "{error}"
+        );
     }
 }

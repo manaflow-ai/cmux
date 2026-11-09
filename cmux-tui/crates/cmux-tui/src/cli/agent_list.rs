@@ -72,7 +72,7 @@ pub(super) fn run(global: GlobalArgs, plan: AgentListPlan) -> i32 {
     // A refused read leaves the place fields null and leaves no row out.
     let snapshot = wire::fetch(&global, snapshot).unwrap_or(Value::Null);
     let (shaped, hidden_ended) =
-        shape(rows, &unseen_terminals(&notifications), plan.status, list(&snapshot, "terminals"));
+        shape(rows, &unseen_terminals(&notifications), plan.status, open_terminals(&snapshot));
     let code = wire::print_local_success(&with_places(shaped, &snapshot), global.output);
     if code == 0
         && global.output == super::OutputMode::Human
@@ -176,6 +176,12 @@ fn with_places(rows: Value, snapshot: &Value) -> Value {
     Value::Array(agents)
 }
 
+/// The snapshot's open terminals, or `None` when the snapshot read failed
+/// (no `terminals` list): then nothing is known to be closed.
+fn open_terminals(snapshot: &Value) -> Option<&[Value]> {
+    Some(list(snapshot, "terminals"))
+}
+
 /// The terminals with an unread notification: a turn finished there that
 /// nobody has viewed (done-until-seen). `notifications` are
 /// `notification.list` rows.
@@ -198,7 +204,7 @@ fn shape(
     rows: Value,
     unseen: &HashSet<&str>,
     wanted: Option<&str>,
-    terminals: &[Value],
+    terminals: Option<&[Value]>,
 ) -> (Value, usize) {
     let mut agents = match rows {
         Value::Array(rows) => rows,
@@ -217,7 +223,7 @@ fn shape(
         agents.retain(|agent| status_word(agent) == wanted);
         return (Value::Array(agents), 0);
     }
-    if !terminals.is_empty() {
+    if let Some(terminals) = terminals.filter(|terminals| !terminals.is_empty()) {
         // An ended agent of a closed terminal is history, not an agent:
         // `--state ended` still lists it.
         let open: HashSet<&str> =
@@ -294,7 +300,7 @@ mod tests {
     #[test]
     fn w4j_agent_list_rows_carry_the_shared_status() {
         let notifications = notifications();
-        let (shaped, _) = shape(rows(), &unseen_terminals(&notifications), None, &[]);
+        let (shaped, _) = shape(rows(), &unseen_terminals(&notifications), None, None);
         assert_eq!(
             statuses(&shaped),
             vec![
@@ -315,12 +321,12 @@ mod tests {
         for (wanted, terminal) in
             [("done", IDLE_UNSEEN), ("idle", IDLE_SEEN), ("ended", ENDED_TERMINAL)]
         {
-            let (shaped, _) = shape(rows(), &unseen, Some(wanted), &[]);
+            let (shaped, _) = shape(rows(), &unseen, Some(wanted), None);
             let terminals = statuses(&shaped).into_iter().map(|(id, _)| id).collect::<Vec<_>>();
             assert_eq!(terminals, vec![terminal.to_owned()], "--state {wanted}");
         }
         // A refused notification read: every idle agent is idle.
-        let (shaped, _) = shape(rows(), &HashSet::new(), Some("done"), &[]);
+        let (shaped, _) = shape(rows(), &HashSet::new(), Some("done"), None);
         assert_eq!(shaped, json!([]));
     }
 
@@ -367,7 +373,7 @@ mod tests {
     #[test]
     fn w5q_agent_list_says_ended_and_state_is_an_alias_of_status() {
         let notifications = notifications();
-        let (shaped, hidden) = shape(rows(), &unseen_terminals(&notifications), None, &[]);
+        let (shaped, hidden) = shape(rows(), &unseen_terminals(&notifications), None, None);
         assert_eq!(
             statuses(&shaped),
             vec![
@@ -380,7 +386,7 @@ mod tests {
         for row in shaped.as_array().map(Vec::as_slice).unwrap_or_default() {
             assert_eq!(row["state"], row["status"], "{row}");
         }
-        assert_eq!(hidden, 0, "no terminals read: nothing left out");
+        assert_eq!(hidden, 0, "no snapshot read: nothing left out");
     }
 
     /// W5-Q (A4): an ended agent of a terminal that closed (the snapshot
@@ -392,16 +398,16 @@ mod tests {
         let notifications = notifications();
         let unseen = unseen_terminals(&notifications);
         let open = [json!({"id": IDLE_SEEN}), json!({"id": IDLE_UNSEEN}), json!({"id": WORKING})];
-        let (shaped, hidden) = shape(rows(), &unseen, None, &open);
+        let (shaped, hidden) = shape(rows(), &unseen, None, Some(&open));
         let terminals = statuses(&shaped).into_iter().map(|(id, _)| id).collect::<Vec<_>>();
         assert_eq!(terminals, vec![IDLE_SEEN, IDLE_UNSEEN, WORKING]);
         assert_eq!(hidden, 1);
-        let (shaped, hidden) = shape(rows(), &unseen, Some("ended"), &open);
+        let (shaped, hidden) = shape(rows(), &unseen, Some("ended"), Some(&open));
         assert_eq!(statuses(&shaped), vec![(ENDED_TERMINAL.to_owned(), json!("ended"))]);
         assert_eq!(hidden, 0, "--state ended leaves nothing out");
         let mut still_open = open.to_vec();
         still_open.push(json!({"id": ENDED_TERMINAL}));
-        let (shaped, hidden) = shape(rows(), &unseen, None, &still_open);
+        let (shaped, hidden) = shape(rows(), &unseen, None, Some(&still_open));
         assert_eq!(shaped.as_array().map(Vec::len), Some(4));
         assert_eq!(hidden, 0);
     }
@@ -420,5 +426,25 @@ mod tests {
             hidden_ended_line(0, crate::localization::catalog_for_locale("en_US.UTF-8")),
             None
         );
+    }
+
+    /// W5-Q review (w5qa2-1): a snapshot with no open terminal is not a
+    /// failed read. With no terminal open, every ended agent's terminal is
+    /// closed and its row is left out; only a failed read (no `terminals`
+    /// list) leaves every row in.
+    #[test]
+    fn w5q_agent_list_tells_no_open_terminal_from_a_failed_snapshot_read() {
+        let notifications = notifications();
+        let unseen = unseen_terminals(&notifications);
+        let no_terminals = json!({"terminals": [], "tabs": []});
+        assert_eq!(open_terminals(&no_terminals).map(<[Value]>::len), Some(0));
+        assert_eq!(open_terminals(&Value::Null), None, "a failed read is no list");
+        let (shaped, hidden) = shape(rows(), &unseen, None, open_terminals(&no_terminals));
+        let terminals = statuses(&shaped).into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+        assert_eq!(terminals, vec![IDLE_SEEN, IDLE_UNSEEN, WORKING]);
+        assert_eq!(hidden, 1);
+        let (shaped, hidden) = shape(rows(), &unseen, None, open_terminals(&Value::Null));
+        assert_eq!(shaped.as_array().map(Vec::len), Some(4));
+        assert_eq!(hidden, 0);
     }
 }
