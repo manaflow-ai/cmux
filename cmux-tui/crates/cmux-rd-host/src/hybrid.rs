@@ -77,6 +77,12 @@ mod with_link {
             self.up
         }
 
+        /// As if a link path answered (the replacement test needs no second handshake).
+        #[cfg(test)]
+        pub fn force_up(&mut self) {
+            self.up = true;
+        }
+
         fn state(&mut self, up: bool, reason: Option<String>) -> io::Result<()> {
             if let Some(reason) = &reason {
                 eprintln!("cmux-rd host: udp link down: {reason}");
@@ -93,9 +99,13 @@ mod with_link {
             candidates: Vec<String>,
         ) -> io::Result<()> {
             self.offers += 1;
-            // Dropping the old link closes it; media is on the stream until the new one answers.
+            // Dropping the old link closes it; media is on the stream until the new one answers,
+            // and the viewer hears so before the answer.
             self.net = None;
             self.candidates = 0;
+            if self.up {
+                self.state(false, Some("replaced by a new offer".into()))?;
+            }
             let refused = if self.offers > MAX_OFFERS {
                 Some(format!("more than {MAX_OFFERS} offers"))
             } else if session.is_empty() || session.len() > MAX_PROLOGUE {
@@ -432,6 +442,43 @@ mod tests {
         assert!(!carrier.is_up(), "still on the link after the viewer closed it");
         carrier.send_datagram(b"back").expect("send");
         assert!(viewer.frames().iter().any(|(ty, p)| *ty == FRAME_DATAGRAM && p == b"back"));
+    }
+
+    /// A new offer while media rides the link: the viewer hears it is back on the stream
+    /// before the answer.
+    #[test]
+    fn a_replacement_offer_reports_media_back_on_the_stream() {
+        let (mut host, mut viewer) = pair();
+        let mut reader = FrameReader::default();
+        let stream = SocketCarrier::new(&mut host, &mut reader, None, DatagramOut::Stream);
+        let mut carrier = HybridCarrier::new(stream, LinkCfg::default());
+        carrier.force_up();
+        let keys = KeyPair::generate().expect("keys");
+        write_control(
+            &mut viewer.stream,
+            &Control::LinkOffer {
+                session: "cloud-2".into(),
+                key: crate::serve::hex(&keys.public),
+                candidates: vec![],
+            },
+        )
+        .expect("offer");
+        let mut out = Vec::new();
+        let mut seen = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !seen.iter().any(|c| matches!(c, Control::LinkAnswer { .. }))
+            && Instant::now() < deadline
+        {
+            carrier.receive(&mut out).expect("receive");
+            seen.extend(controls(&viewer.frames()));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let down = seen.iter().position(|c| {
+            matches!(c, Control::LinkState { up: false, reason: Some(r) } if r.contains("replaced"))
+        });
+        let answer = seen.iter().position(|c| matches!(c, Control::LinkAnswer { .. }));
+        assert!(matches!((down, answer), (Some(d), Some(a)) if d < a), "{seen:?}");
+        assert!(!carrier.is_up());
     }
 
     #[test]
