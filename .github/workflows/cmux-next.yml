@@ -2541,6 +2541,9 @@ jobs:
       - name: Fail on any red check
         if: always()
         env:
+          # The check steps above continue on error, so this step decides the job: it must not source the
+          # checkout's scripts/ci/api_call_log/env.sh (the workflow's BASH_ENV), which their code can rewrite.
+          BASH_ENV: ""
           STYLE_CHECKS: |
             God files and types (Swift)
             God files (cmux-tui Rust)

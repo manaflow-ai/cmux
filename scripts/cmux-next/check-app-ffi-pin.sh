@@ -41,6 +41,8 @@ if [[ -n "$tree" ]]; then
   root="$(cd "$tree" 2>/dev/null && pwd -P)" || { echo "error: --tree $tree is not a directory" >&2; exit 2; }
 fi
 manifest="$root/Packages/macOS/CmuxNext/Package.swift"
+# The JSON pin (cmux#37645): when the tree has it, the pin is that file's and Package.swift holds only its loader block.
+pin_file="$root/Packages/macOS/CmuxNext/app-ffi-pin.json"
 asset="CCmuxAppFFI.xcframework.zip"
 
 # The FFI sources: cmux-app-ffi and every crate it reaches through Cargo path
@@ -87,7 +89,9 @@ pin_reader="$code/scripts/ci/app_ffi_pin.py"
 # reader, or json.py at the root for the python3 -c below) is imported in place of the standard library and decides
 # the verdict, while base_red_excuse.py trusts the verdict of a change that leaves this check's files alone. The
 # reader imports only the standard library.
-if ! pinned="$(python3 -I "$pin_reader" read "$manifest" 2>&1)"; then
+read_pin=(read "$manifest")
+[[ -f "$pin_file" ]] && read_pin=(read-pin-file "$pin_file" "$manifest")
+if ! pinned="$(python3 -I "$pin_reader" "${read_pin[@]}" 2>&1)"; then
   echo "error: no canonical cmux-app-ffi pin in $manifest: ${pinned#error: }" >&2
   exit 1
 fi
@@ -109,9 +113,17 @@ fi
 own_change=1
 if [[ -n "$base_ref" ]]; then
   if base_commit="$(git rev-parse --verify --quiet "$base_ref^{commit}")"; then
-    # The base's pin through the same canonical match; a base that does not match it pins nothing here.
-    base_pin="$(git show "$base_commit:Packages/macOS/CmuxNext/Package.swift" 2>/dev/null \
-      | python3 -I "$pin_reader" read /dev/stdin 2>/dev/null | awk '{print $1}' || true)"
+    # The base's pin through the same canonical match, in either form; a base that does not match it pins nothing
+    # here.
+    base_dir="$(mktemp -d)"
+    base_pin=""
+    if git show "$base_commit:Packages/macOS/CmuxNext/Package.swift" >"$base_dir/Package.swift" 2>/dev/null; then
+      read_pin=(read "$base_dir/Package.swift")
+      git show "$base_commit:Packages/macOS/CmuxNext/app-ffi-pin.json" >"$base_dir/app-ffi-pin.json" 2>/dev/null \
+        && read_pin=(read-pin-file "$base_dir/app-ffi-pin.json" "$base_dir/Package.swift")
+      base_pin="$(python3 -I "$pin_reader" "${read_pin[@]}" 2>/dev/null | awk '{print $1}' || true)"
+    fi
+    rm -rf "$base_dir"
     if git diff --quiet "$base_commit" HEAD -- "${paths[@]}" && [[ "$base_pin" == "$sha" ]]; then
       own_change=0
     fi
