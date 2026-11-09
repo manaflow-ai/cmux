@@ -76,6 +76,7 @@ pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
 pub mod github_status;
+pub mod hosted_mcp;
 pub mod goal;
 pub mod hand;
 pub mod harness_admin;
