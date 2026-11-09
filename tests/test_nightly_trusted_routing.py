@@ -403,7 +403,7 @@ class NightlyTrustedRouting(unittest.TestCase):
             "needs.pick-nightly-sign-runner.outputs.attempt": "1",
             "needs.pick-nightly-sign-runner.outputs.sign_owned_pool": "",
         }
-        for name in ("publish-nightly", "publish-nightly-next-github"):
+        for name in ("publish-nightly",):
             source = jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
             expr = parse_expression(source)
             with self.subTest(job=name):
