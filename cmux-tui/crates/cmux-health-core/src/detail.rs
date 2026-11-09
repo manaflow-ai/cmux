@@ -67,7 +67,7 @@ pub fn human_bytes(bytes: u64) -> String {
     }
     let text = format!("{value:.1}");
     let text = text.strip_suffix(".0").unwrap_or(&text);
-    format!("{text} {}", UNITS[unit])
+    format!("{text} {}", UNITS.get(unit).copied().unwrap_or("PB"))
 }
 
 /// Whole units: "59 GB" (a size the user compares, not a counter).

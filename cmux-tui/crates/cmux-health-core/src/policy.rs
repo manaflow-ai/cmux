@@ -64,6 +64,6 @@ pub fn step(ladder: &[RepairAction], attempt: u32) -> RepairAction {
 
 /// The wait after attempt `attempt` (1-based); the last repeats.
 pub fn backoff(attempt: u32) -> u64 {
-    let index = (attempt.max(1) as usize - 1).min(BACKOFF_MS.len() - 1);
-    BACKOFF_MS[index]
+    let index = (attempt.max(1) as usize - 1).min(BACKOFF_MS.len().saturating_sub(1));
+    BACKOFF_MS.get(index).copied().unwrap_or(0)
 }
