@@ -1339,7 +1339,8 @@ impl Hub {
                                         false,
                                         false,
                                         fence.as_ref(),
-                                        confirm_team_write,
+                                        // Owed rules are recorded only once the writer took them.
+                                        confirm_team_write || rules_owed_here,
                                         None,
                                         || {
                                             if rules_owed_here {

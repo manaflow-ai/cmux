@@ -901,6 +901,13 @@ mod tests {
         // A moved chat's start (no command line recorded): owed too.
         let mut blocks = Vec::new();
         assert!(append_owed_rules(Some(&parts), None, &mut blocks));
+        // Codex's compact `-ckey=value` form counts as their own too.
+        let mut compact = codex.clone();
+        std::fs::remove_file(home.path().join("config.toml")).unwrap();
+        compact.argv.push("-cdeveloper_instructions=\"mine\"".into());
+        cfg.harnesses.insert("codex".into(), compact.clone());
+        assert_eq!(rules_channel(&cfg, home.path(), "codex"), USER_CONTEXT);
+        assert!(launch_args(Some(&parts), &compact, home.path()).is_empty());
         // Any other ACP agent: the first message.
         cfg.harnesses.insert("fake".into(), profile(json!({"argv":["python3","agent.py"]})));
         assert_eq!(rules_channel(&cfg, Path::new("/repo"), "fake"), USER_CONTEXT);
