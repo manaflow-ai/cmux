@@ -176,7 +176,8 @@ public class ArrowCursorView: NSView, ClickableCursorHost {
     /// (sample of the live app, 2026-10-21): callers ask only when the cursor is not already the
     /// row's. The answer is never kept, since any window of any app can move over the toolbar.
     fileprivate static func isTopWindow(_ window: NSWindow, at location: NSPoint) -> Bool {
-        NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0) == window.windowNumber
+        // A hover card's clear band covers nothing (`PointerClearBandWindow`).
+        PointerTopWindow.number(at: location) == window.windowNumber
     }
 }
 

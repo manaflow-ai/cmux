@@ -37,7 +37,8 @@ open class ClickableButton: NSButton {
 
     /// `pointer(in:screenPoint:topWindowNumber:)` for the real pointer and window list.
     public static func currentPointer(in window: NSWindow) -> NSPoint? {
-        pointer(in: window, screenPoint: NSEvent.mouseLocation) { NSWindow.windowNumber(at: $0, belowWindowWithWindowNumber: 0) }
+        // A hover card's clear band covers nothing: the pointing hand shows over the x under it.
+        pointer(in: window, screenPoint: NSEvent.mouseLocation) { PointerTopWindow.number(at: $0) }
     }
 
     /// Where a clickable view's cursor rect goes: its visible rect, as `addCursorRect` requires, so

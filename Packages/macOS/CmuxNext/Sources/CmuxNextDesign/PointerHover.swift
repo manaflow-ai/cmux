@@ -166,13 +166,14 @@ public final class PointerHover: NSObject {
 
     /// The topmost window that takes the mouse under the real pointer is
     /// `window` or one of `passThrough` (no other window or panel covers the
-    /// point). A window server round trip: ask only when a view is under the
-    /// pointer.
+    /// point). A window's clear band (a hover card's shadow and slide room,
+    /// ``PointerClearBandWindow``) covers nothing. A window server round trip:
+    /// ask only when a view is under the pointer.
     public static func isTopmost(_ window: NSWindow, passThrough: Set<Int> = []) -> Bool {
         #if DEBUG
         if debugPointer(in: window) != nil { return true }
         #endif
-        let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+        let top = PointerTopWindow.number(at: NSEvent.mouseLocation)
         return top == window.windowNumber || passThrough.contains(top)
     }
 

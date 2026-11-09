@@ -70,6 +70,8 @@ final class HoverCardPanel: NSPanel {
     /// The current press began in the clear band around the card: it and its drags and release
     /// go to the parent window (`HoverCardPanel+ClickThrough.swift`).
     var forwardsPress = false
+    /// Recomputes the parent's hover on pointer moves in the clear band (`HoverCardPanel+PointerBand.swift`).
+    var bandRelay: HoverCardBandRelay?
     /// A `.beside` card sits left of its target (no room on its right: a sidebar on the right).
     private(set) var isLeading = false
     /// The card's frame on screen at rest, while a morph lays the window out larger.
@@ -212,6 +214,8 @@ final class HoverCardPanel: NSPanel {
         isInteractive = interactive
         ignoresMouseEvents = !interactive
         acceptsMouseMovedEvents = interactive
+        // The pointer in the clear band hovers what is under it (`HoverCardPanel+PointerBand.swift`).
+        if interactive { installBandRelayIfNeeded() }
         // The card draws in the theme scope of the view it describes and
         // follows that scope's changes while it shows, at full strength even
         // over an unfocused pane's subtle strip.
