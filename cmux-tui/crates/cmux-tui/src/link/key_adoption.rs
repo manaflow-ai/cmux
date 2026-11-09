@@ -2,10 +2,15 @@
 //! in the acpmux home, which the platform already knows as this machine's
 //! key) and retires its own `private.key`.
 //!
-//! A link adopts when its key lock is not in its own state directory (it
-//! shares the app's acpmux home, `key_lock.rs`) and it is not a
-//! server-enrolled link. Every step runs under the held lock, and each one is
-//! safe to be killed after:
+//! A link adopts when its key lock is this machine's acpmux home, resolved
+//! the way the app resolves it ([`crate::acp::key_lock_home`]: `ACPMUX_HOME`,
+//! else the build's home under `~/.acpmux`), or the directory a committed
+//! adoption already serves, and it is not a server-enrolled link. Any other
+//! lock directory (its own state directory, or an explicit `--key-lock-dir`
+//! elsewhere) keeps the link's own key. Every step runs under the held key
+//! lock and the pairing file's lock ([`Pairings::lock`]), so a `link peer
+//! add` lands either before the commit (and is told) or after it, when `link
+//! show` already names the node key. Each step is safe to be killed after:
 //!
 //! 1. The node key exists (`acpmux::cli::mesh_node_key::load_or_create_held`:
 //!    a synced temporary file linked into place).
@@ -129,12 +134,27 @@ fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
-/// Whether `state`'s link adopts the node key next to `lock_dir`.
-pub(super) fn adopts(state: &LinkState, lock_dir: &Path) -> io::Result<bool> {
+/// Whether `state`'s link adopts the node key in `lock_dir`: only when it is
+/// `acpmux_home` (this machine's acpmux home, [`crate::acp::key_lock_home`]),
+/// or the directory the link's committed adoption already serves. Any other
+/// lock directory, an explicit `--key-lock-dir` included, is not where the
+/// platform knows this machine's key from.
+pub(super) fn adopts(
+    state: &LinkState,
+    lock_dir: &Path,
+    acpmux_home: Option<&Path>,
+) -> io::Result<bool> {
     if state.config()?.server_identity.is_some() {
         return Ok(false);
     }
-    Ok(canonical(lock_dir) != canonical(state.dir()))
+    let lock_dir = canonical(lock_dir);
+    if lock_dir == canonical(state.dir()) {
+        return Ok(false);
+    }
+    if adopted(state)?.is_some_and(|adopted| canonical(&adopted.key_dir) == lock_dir) {
+        return Ok(true);
+    }
+    Ok(acpmux_home.is_some_and(|home| canonical(home) == lock_dir))
 }
 
 /// The adoption record of `state`, if its link adopted the node key.
@@ -175,13 +195,15 @@ fn retire(state: &LinkState, mut record: Adopted) -> io::Result<()> {
 }
 
 /// The key `serve` runs with: the node key once adopted (steps 1 and 2 above,
-/// and 4 when nobody is left to tell), else the link's own key.
+/// and 4 when nobody is left to tell), else the link's own key. `acpmux_home`
+/// is this machine's acpmux home ([`adopts`]). The paired peers to tell are
+/// read under the pairing file's lock, never from an earlier snapshot.
 pub(super) async fn serve_key(
     state: &LinkState,
     holder: &KeyHolder,
-    pairings: &Pairings,
+    acpmux_home: Option<&Path>,
 ) -> anyhow::Result<ServeKey> {
-    if !adopts(state, holder.dir())? {
+    if !adopts(state, holder.dir(), acpmux_home)? {
         // An adopted link serves only the node key, under the lock next to it: never its old
         // key again, and never the node key under another lock.
         if let Some(adopted) = adopted(state)? {
@@ -206,14 +228,45 @@ pub(super) async fn serve_key(
             adopted.key_dir.display()
         );
     }
-    adopt(state, holder, pairings)
+    adopt(state, holder)
 }
 
 fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
 }
 
-fn adopt(state: &LinkState, holder: &KeyHolder, pairings: &Pairings) -> anyhow::Result<ServeKey> {
+/// Test hooks around the pairing file's lock in [`adopt`]: what runs just
+/// before it is taken, and while it is held.
+#[cfg(test)]
+pub(super) mod hooks {
+    use std::cell::RefCell;
+    use std::thread::LocalKey;
+
+    type Hook = RefCell<Option<Box<dyn FnOnce()>>>;
+
+    thread_local! {
+        pub(super) static BEFORE_PAIRINGS_LOCK: Hook = const { RefCell::new(None) };
+        pub(super) static PAIRINGS_LOCKED: Hook = const { RefCell::new(None) };
+    }
+
+    pub(super) fn run(hook: &'static LocalKey<Hook>) {
+        if let Some(hook) = hook.with(|hook| hook.borrow_mut().take()) {
+            hook();
+        }
+    }
+}
+
+fn adopt(state: &LinkState, holder: &KeyHolder) -> anyhow::Result<ServeKey> {
+    #[cfg(test)]
+    hooks::run(&hooks::BEFORE_PAIRINGS_LOCK);
+    // The paired peers, the record and the link key are read and written under the pairing
+    // file's lock (`link peer add|remove`, inbound rekeys and install switches take it too): a
+    // peer added concurrently is either in `pending` or added after the commit, when this
+    // link's public key (`link show`) is already the node key.
+    let _pairings_lock =
+        Pairings::lock(&state.peers_path()).context("lock the pairing file to adopt")?;
+    #[cfg(test)]
+    hooks::run(&hooks::PAIRINGS_LOCKED);
     let earlier = adopted(state)?;
     if earlier.is_some() {
         node_key_kept(holder.dir())?;
@@ -239,7 +292,7 @@ fn adopt(state: &LinkState, holder: &KeyHolder, pairings: &Pairings) -> anyhow::
         return Ok(ServeKey { key: node, retiring: None });
     };
     let retired = STANDARD.encode(state::public_key(&old));
-    let paired: BTreeSet<String> = pairings
+    let paired: BTreeSet<String> = Pairings::load(&state.peers_path())?
         .peers
         .iter()
         .filter(|record| record.key().is_some())
@@ -413,39 +466,21 @@ pub(super) async fn finish_retiring(
             told.retain(|(record, _)| on_current.by_install(&record.install).is_none());
             told.extend(also);
         }
-        let told: Vec<(String, Option<[u8; 32]>)> = told
+        let told: BTreeSet<String> = told
             .into_iter()
-            .filter_map(|(record, tell)| match tell {
-                Tell::Took(theirs) => Some((record.install, theirs)),
-                _ => None,
-            })
+            .filter_map(|(record, tell)| matches!(tell, Tell::Took(_)).then_some(record.install))
             .collect();
-        let still = retiring.installs();
-        let pending: BTreeSet<String> = record
-            .pending
-            .iter()
-            .filter(|install| pairings.by_install(install).is_some())
-            .filter(|install| still.contains(*install))
-            .filter(|install| !told.iter().any(|(told, _)| told == *install))
-            .cloned()
-            .collect();
-        let expired = now_secs() >= deadline;
-        let moved = pending != record.pending;
-        let result = if pending.is_empty() || expired {
-            let record = Adopted { pending, ..record };
-            retiring.retain(&BTreeSet::new());
-            retire(state, record)
-        } else if moved {
-            let record = Adopted { pending: pending.clone(), ..record };
-            retiring.retain(&pending);
-            commit(state, &record)
-        } else {
-            Ok(())
+        let Settled { moved, expired } = match settle(state, &record, &retiring, &told) {
+            Ok(Some(settled)) => settled,
+            // The record went or names another retired key (an install switch moved it).
+            Ok(None) => return,
+            Err(error) => {
+                eprintln!(
+                    "cmux link: could not record the peers told this link's new key: {error}"
+                );
+                return;
+            }
         };
-        if let Err(error) = result {
-            eprintln!("cmux link: could not record the peers told this link's new key: {error}");
-            return;
-        }
         if moved || expired {
             // The told peers (or all, at the end) move to the node key.
             if let Err(error) = peers.reload(overlay).await {
@@ -462,6 +497,50 @@ pub(super) async fn finish_retiring(
         }
         wait = (wait * 2).min(retry.cap);
     }
+}
+
+/// What [`settle`] changed: the pending peers, or the end of the retirement.
+struct Settled {
+    moved: bool,
+    expired: bool,
+}
+
+/// Step 3's record, or step 4, after the tells: from a fresh read of the
+/// record and the pairing file, both under the pairing file's lock, so a
+/// `link peer add|remove` or an install switch in the meantime is seen
+/// before anything is written. `seen` is the record the tells were made
+/// from; `None` when the record is gone or retires another key now.
+fn settle(
+    state: &LinkState,
+    seen: &Adopted,
+    retiring: &RetiringPeers,
+    told: &BTreeSet<String>,
+) -> io::Result<Option<Settled>> {
+    let _pairings_lock = Pairings::lock(&state.peers_path())?;
+    let Some(record) = adopted(state)? else { return Ok(None) };
+    if record.retired_public_key != seen.retired_public_key {
+        return Ok(None);
+    }
+    let pairings = Pairings::load(&state.peers_path())?;
+    let still = retiring.installs();
+    let pending: BTreeSet<String> = record
+        .pending
+        .iter()
+        .filter(|install| pairings.by_install(install).is_some())
+        .filter(|install| still.contains(*install))
+        .filter(|install| !told.contains(*install))
+        .cloned()
+        .collect();
+    let expired = now_secs() >= record.retire_after.unwrap_or(0);
+    let moved = pending != record.pending;
+    if pending.is_empty() || expired {
+        retiring.retain(&BTreeSet::new());
+        retire(state, Adopted { pending, ..record })?;
+    } else if moved {
+        retiring.retain(&pending);
+        commit(state, &Adopted { pending, ..record })?;
+    }
+    Ok(Some(Settled { moved, expired }))
 }
 
 /// How one peer took a tell ([`tell_each`]).

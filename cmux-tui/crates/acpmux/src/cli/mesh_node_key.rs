@@ -92,11 +92,22 @@ pub fn public_key_at(state_dir: &Path) -> Option<[u8; 32]> {
     Some(NodeKeypair::of(&private).public_key)
 }
 
-/// Whether the cmux link in `link_dir` adopted the node key as its only key (`key-adopted.json`,
-/// the link's `key_adoption.rs`): its paired peers know the link by that key alone, so nothing
-/// deletes or replaces it then.
-pub(crate) fn link_adopted(link_dir: Option<&Path>) -> bool {
-    link_dir.is_some_and(|dir| std::fs::symlink_metadata(dir.join("key-adopted.json")).is_ok())
+/// Whether the cmux link in `link_dir` adopted the node key in `home` as its only key
+/// (`key-adopted.json`, the link's `key_adoption.rs`, names the adopted key's directory in
+/// `key_dir`): its paired peers know the link by that key alone, so nothing deletes or replaces
+/// it then. A record naming another directory adopted another home's key; one that cannot be
+/// read or names none counts as this home's, so the key stays.
+pub(crate) fn link_adopted(link_dir: Option<&Path>, home: &Path) -> bool {
+    let Some(marker) = link_dir.map(|dir| dir.join("key-adopted.json")) else { return false };
+    if std::fs::symlink_metadata(&marker).is_err() {
+        return false;
+    }
+    let key_dir = std::fs::read(&marker)
+        .ok()
+        .and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok())
+        .and_then(|record| record.get("key_dir")?.as_str().map(std::path::PathBuf::from));
+    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    key_dir.is_none_or(|key_dir| canonical(&key_dir) == canonical(home))
 }
 
 /// This machine's link state directory; a test's is beside its home.
@@ -124,7 +135,7 @@ pub(crate) fn lock_to_remove(home: &Path) -> Result<RemoveLock> {
             return Err(anyhow::Error::from(e).context("take the WireGuard key lock"));
         }
     };
-    if link_adopted(link_dir_for(home).as_deref()) {
+    if link_adopted(link_dir_for(home).as_deref(), home) {
         return Ok(RemoveLock::Adopted);
     }
     Ok(RemoveLock::Free(holder))
@@ -344,8 +355,18 @@ mod tests {
         assert!(refused.to_string().starts_with("node_key.held:"), "{refused}");
         assert_eq!(public_key_at(dir.path()), Some(kept.public_key));
         drop(held);
+        // A record of another home's adoption does not keep this home's key.
+        let other = tempfile::tempdir().unwrap();
+        let record = serde_json::json!({ "key_dir": other.path() });
+        std::fs::write(dir.path().join("link/key-adopted.json"), record.to_string()).unwrap();
         let fresh = replace_at(dir.path()).unwrap();
         assert_ne!(fresh.public_key, kept.public_key);
+        // This home's own record does.
+        let record = serde_json::json!({ "key_dir": dir.path() });
+        std::fs::write(dir.path().join("link/key-adopted.json"), record.to_string()).unwrap();
+        let refused = replace_at(dir.path()).unwrap_err();
+        assert!(refused.to_string().starts_with("node_key.adopted:"), "{refused}");
+        assert_eq!(public_key_at(dir.path()), Some(fresh.public_key));
     }
 
     #[test]

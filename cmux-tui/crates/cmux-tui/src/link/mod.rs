@@ -494,9 +494,11 @@ async fn serve(
     watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
-    let pairings = Pairings::load(&state.peers_path())?;
-    // One key per machine: the node key, adopted under the held lock (`key_adoption.rs`).
-    let served_key = key_adoption::serve_key(&state, key, &pairings).await?;
+    // One key per machine: the node key in this machine's acpmux home, adopted under the held
+    // key lock and the pairing file's lock (`key_adoption.rs`). The paired peers are read
+    // after it (`Peers::load` below), so a peer added during the adoption is not missed.
+    let acpmux_home = crate::acp::key_lock_home();
+    let served_key = key_adoption::serve_key(&state, key, acpmux_home.as_deref()).await?;
     let public_key = state::public_key(&served_key.key);
     let mut own_keys = vec![public_key];
     own_keys.extend(served_key.retiring.as_ref().map(|retiring| state::public_key(&retiring.key)));

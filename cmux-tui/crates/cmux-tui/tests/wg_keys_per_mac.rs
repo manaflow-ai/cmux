@@ -86,7 +86,8 @@ async fn one_mac_runs_one_wireguard_key_and_one_udp_socket() {
             home.to_str().unwrap(),
         ],
     );
-    serve.stdout(Stdio::piped()).stderr(Stdio::null());
+    // The app's acpmux home, as the app resolves it: the link adopts only there.
+    serve.env("ACPMUX_HOME", &home).stdout(Stdio::piped()).stderr(Stdio::null());
     let mut serving = Serving(serve.spawn().unwrap());
     let stdout = serving.0.stdout.take().unwrap();
     let ready = tokio::time::timeout(

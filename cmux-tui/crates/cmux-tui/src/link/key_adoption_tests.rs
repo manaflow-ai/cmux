@@ -60,7 +60,7 @@ async fn adopt_child() {
     };
     let state = LinkState::open(Some(PathBuf::from(link))).unwrap();
     let holder = KeyHolder::acquire(Path::new(&lock)).unwrap();
-    let _ = serve_key(&state, &holder, &Pairings::default()).await;
+    let _ = serve_key(&state, &holder, Some(Path::new(&lock))).await;
 }
 
 /// Killed after each step, the next start finishes the adoption: the link
@@ -91,7 +91,7 @@ async fn a_link_killed_at_each_step_of_the_adoption_finishes_it_on_its_next_star
         );
         // The next start, once the killed child's lock is free.
         let holder = KeyHolder::acquire(&machine.home).unwrap();
-        let served = serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+        let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
         let node = node_public(&machine.home);
         assert!(served.retiring.is_none(), "no paired peer is left to tell");
         assert_eq!(state::public_key(&served.key), node, "{}", step.name());
@@ -101,7 +101,7 @@ async fn a_link_killed_at_each_step_of_the_adoption_finishes_it_on_its_next_star
         assert_eq!(record.retired_public_key, Some(STANDARD.encode(old)), "{}", step.name());
         assert_eq!(state.own_public_key().unwrap(), node, "show names the node key");
         // And again: nothing left to do, still the node key.
-        let again = serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+        let again = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
         assert_eq!(state::public_key(&again.key), node);
     }
 }
@@ -114,7 +114,7 @@ async fn a_link_locked_in_its_own_state_dir_keeps_its_own_key() {
     let state = LinkState::open(Some(machine.link.clone())).unwrap();
     let old = state.own_public_key().unwrap();
     let holder = KeyHolder::acquire(&machine.link).unwrap();
-    let served = serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+    let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     assert_eq!(state::public_key(&served.key), old);
     assert!(state.has_link_key());
     assert!(adopted(&state).unwrap().is_none());
@@ -127,10 +127,10 @@ async fn an_adopted_link_never_serves_under_another_lock() {
     let machine = machine();
     let state = LinkState::open(Some(machine.link.clone())).unwrap();
     let holder = KeyHolder::acquire(&machine.home).unwrap();
-    serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+    serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     drop(holder);
     let own = KeyHolder::acquire(&machine.link).unwrap();
-    let Err(refused) = serve_key(&state, &own, &Pairings::default()).await else {
+    let Err(refused) = serve_key(&state, &own, Some(&machine.home)).await else {
         panic!("an adopted link served under another lock");
     };
     assert!(refused.to_string().starts_with("key_lock_dir:"), "{refused}");
@@ -295,8 +295,7 @@ async fn run_dropping(
 ) -> Running {
     let state = LinkState::open(Some(machine.link.clone())).unwrap();
     let holder = KeyHolder::acquire(if adopting { &machine.home } else { &machine.link }).unwrap();
-    let pairings = Pairings::load(&state.peers_path()).unwrap();
-    let served = serve_key(&state, &holder, &pairings).await.unwrap();
+    let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     let public = state::public_key(&served.key);
     let mut own_keys = vec![public];
     own_keys.extend(served.retiring.as_ref().map(|retiring| state::public_key(&retiring.key)));
@@ -569,13 +568,13 @@ async fn init_after_the_adoption_makes_no_new_link_key() {
     let machine = machine();
     let state = LinkState::open(Some(machine.link.clone())).unwrap();
     let holder = KeyHolder::acquire(&machine.home).unwrap();
-    serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+    serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     assert!(!state.has_link_key());
     state
         .init(&LinkConfig { install: "inst_a".into(), port: 4242, server_identity: None })
         .unwrap();
     assert!(!state.has_link_key(), "init made a new link key after the adoption");
-    let served = serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+    let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     assert!(served.retiring.is_none());
     assert_eq!(state::public_key(&served.key), node_public(&machine.home));
 }
@@ -588,16 +587,16 @@ async fn init_after_the_adoption_makes_no_new_link_key() {
 async fn an_adopted_link_whose_node_key_is_gone_refuses_and_makes_none() {
     let machine = machine();
     let state = LinkState::open(Some(machine.link.clone())).unwrap();
-    let paired = Pairings { peers: vec![record("inst_b", [7; 32])] };
+    pair(&machine, &[record("inst_b", [7; 32])]);
     let holder = KeyHolder::acquire(&machine.home).unwrap();
-    let served = serve_key(&state, &holder, &paired).await.unwrap();
+    let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     assert!(served.retiring.is_some(), "the paired peer is still to tell");
     let node = KeyFile::Node.path_in(&machine.home);
     let aside = machine.home.join("node.wg.key.aside");
     let before = adopted(&state).unwrap().unwrap();
     std::fs::rename(&node, &aside).unwrap();
     for _ in 0..2 {
-        let Err(refused) = serve_key(&state, &holder, &paired).await else {
+        let Err(refused) = serve_key(&state, &holder, Some(&machine.home)).await else {
             panic!("an adopted link served without its node key");
         };
         assert!(refused.to_string().starts_with("key_adoption.node_key_missing:"), "{refused}");
@@ -606,7 +605,7 @@ async fn an_adopted_link_whose_node_key_is_gone_refuses_and_makes_none() {
         assert!(state.has_link_key(), "the retired key went while peers were left to tell");
     }
     std::fs::rename(&aside, &node).unwrap();
-    let again = serve_key(&state, &holder, &paired).await.unwrap();
+    let again = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     assert_eq!(state::public_key(&again.key), node_public(&machine.home));
     assert_eq!(again.retiring.map(|retiring| retiring.pending), Some(before.pending));
 }
@@ -618,11 +617,11 @@ async fn an_adopted_link_refuses_another_external_lock_dir() {
     let machine = machine();
     let state = LinkState::open(Some(machine.link.clone())).unwrap();
     let holder = KeyHolder::acquire(&machine.home).unwrap();
-    serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+    serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     drop(holder);
     let other = machine.home.parent().unwrap().join("other-home");
     let held = KeyHolder::acquire(&other).unwrap();
-    let Err(refused) = serve_key(&state, &held, &Pairings::default()).await else {
+    let Err(refused) = serve_key(&state, &held, Some(&machine.home)).await else {
         panic!("an adopted link adopted another dir's key");
     };
     assert!(refused.to_string().starts_with("key_lock_dir:"), "{refused}");
@@ -665,10 +664,9 @@ async fn a_revoke_racing_a_rekey_stays_revoked() {
 async fn an_install_switch_keeps_a_pending_retirement() {
     let machine = machine();
     let state = LinkState::open(Some(machine.link.clone())).unwrap();
-    let mut pairings = Pairings::default();
-    pairings.upsert(record("inst_b", [2; 32])).unwrap();
+    pair(&machine, &[record("inst_b", [2; 32])]);
     let holder = KeyHolder::acquire(&machine.home).unwrap();
-    let served = serve_key(&state, &holder, &pairings).await.unwrap();
+    let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     assert!(served.retiring.is_some());
     let before = adopted(&state).unwrap().unwrap();
     assert_eq!(before.pending, BTreeSet::from(["inst_b".into()]));
@@ -680,7 +678,7 @@ async fn an_install_switch_keeps_a_pending_retirement() {
     state.switch_install("inst_other", "inst_a").unwrap();
     assert_eq!(adopted(&state).unwrap(), Some(before));
     assert!(state.has_link_key(), "the retired key came back with its record");
-    let again = serve_key(&state, &holder, &pairings).await.unwrap();
+    let again = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     let retiring = again.retiring.expect("the retirement goes on");
     assert_eq!(retiring.pending, BTreeSet::from(["inst_b".into()]));
 }
@@ -798,4 +796,90 @@ async fn retries_against_a_link_without_rekeys_never_interrupt_the_old_tunnel() 
     let state = LinkState::open(Some(a.link.clone())).unwrap();
     assert!(state.has_link_key(), "the retired key went while the peer was never told");
     assert_eq!(adopted(&state).unwrap().unwrap().pending, BTreeSet::from(["inst_b".into()]));
+}
+
+/// `link peer add`, as the command runs it: under the pairing file's lock.
+fn peer_add(link: &Path, peer: PairingRecord) {
+    let state = LinkState::open(Some(link.to_path_buf())).unwrap();
+    Pairings::update(&state.peers_path(), |pairings| pairings.upsert(peer)).unwrap();
+}
+
+/// Fourth review, F1: a `link peer add` that lands after `serve` started but
+/// before the adoption commits is in the record's pending peers: the link
+/// keeps answering it on the retired key and tells it the node key.
+#[tokio::test]
+async fn a_peer_added_just_before_the_adoption_is_still_told() {
+    let machine = machine();
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    pair(&machine, &[record("inst_b", [2; 32])]);
+    let link = machine.link.clone();
+    hooks::BEFORE_PAIRINGS_LOCK.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || peer_add(&link, record("inst_c", [3; 32]))));
+    });
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
+    let both = BTreeSet::from(["inst_b".to_owned(), "inst_c".to_owned()]);
+    assert_eq!(served.retiring.expect("peers are left to tell").pending, both);
+    assert_eq!(adopted(&state).unwrap().unwrap().pending, both);
+    assert!(state.has_link_key(), "the retired key went while a peer was never told");
+}
+
+/// Fourth review, F1: a `link peer add` that starts while the adoption holds
+/// the pairing file's lock waits for the commit; by then `link show` (what
+/// the far side pairs with) names the node key, so it needs no retired key.
+#[tokio::test]
+async fn a_peer_added_during_the_adoption_lands_after_the_commit_on_the_node_key() {
+    let machine = machine();
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    pair(&machine, &[record("inst_b", [2; 32])]);
+    let link = machine.link.clone();
+    let adding = Arc::new(std::sync::Mutex::new(None));
+    let handle = adding.clone();
+    hooks::PAIRINGS_LOCKED.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || {
+            let thread = std::thread::spawn(move || {
+                peer_add(&link, record("inst_c", [3; 32]));
+                LinkState::open(Some(link)).unwrap().own_public_key().unwrap()
+            });
+            std::thread::sleep(Duration::from_millis(200));
+            assert!(!thread.is_finished(), "the peer add did not wait for the adoption's lock");
+            *handle.lock().unwrap() = Some(thread);
+        }));
+    });
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
+    let shown = adding.lock().unwrap().take().expect("the hook ran").join().unwrap();
+    assert_eq!(
+        shown,
+        node_public(&machine.home),
+        "the peer paired with a key other than the node key"
+    );
+    let pending = BTreeSet::from(["inst_b".to_owned()]);
+    assert_eq!(served.retiring.expect("inst_b is left to tell").pending, pending);
+    assert_eq!(adopted(&state).unwrap().unwrap().pending, pending);
+    assert_eq!(key_of(&machine, "inst_c"), Some([3; 32]), "the peer add was lost");
+}
+
+/// Fourth review, F2: an explicit `--key-lock-dir` that is not this
+/// machine's acpmux home never adopts: the link keeps its own key, and no
+/// `node.wg.key` or record is made there.
+#[tokio::test]
+async fn an_explicit_lock_dir_that_is_not_the_acpmux_home_never_adopts() {
+    let machine = machine();
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    pair(&machine, &[record("inst_b", [2; 32])]);
+    let old = state.own_public_key().unwrap();
+    let other = machine.home.parent().unwrap().join("other-dir");
+    for home in [Some(machine.home.as_path()), None] {
+        let holder = KeyHolder::acquire(&other).unwrap();
+        let served = serve_key(&state, &holder, home).await.unwrap();
+        assert_eq!(state::public_key(&served.key), old, "home {home:?}");
+        assert!(served.retiring.is_none());
+        assert!(!other.join(KeyFile::Node.file_name()).exists(), "a node key was made there");
+        assert!(state.has_link_key());
+        assert!(adopted(&state).unwrap().is_none());
+        assert!(!adopts(&state, &other, home).unwrap());
+    }
+    // The acpmux home itself does.
+    assert!(adopts(&state, &machine.home, Some(&machine.home)).unwrap());
 }
