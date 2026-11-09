@@ -60,7 +60,10 @@ const fresh = [chunk(5, "Fresh one. "), chunk(6, "Fresh two. ")].map((record) =>
 /// A pane attached to a chat whose machine's journal is `host.log`; `_acpmux/events` reads it as
 /// acpmux does, refusing a cursor past its end (`cursor_future`).
 async function pane(log: Rec[]) {
-  const host = { log };
+  // `attachPage`: the newest records an attach's page holds (acpmux reads a page, not the log).
+  // `failBackward`: how many reads back from a seq (`beforeSeq`) fail first, as a peer link still
+  // connecting refuses them (`Peer::request_on`).
+  const host = { log, attachPage: Infinity, failBackward: 0 };
   const session = {
     sessionId: CHAT,
     cwd: "/home/dev/x",
@@ -74,6 +77,8 @@ async function pane(log: Rec[]) {
     createdAt: 100,
   };
   const reads: number[] = [];
+  const backReads: number[] = [];
+  let inFlight = 0;
   const last = () => host.log.at(-1)?.seq ?? 0;
   const answer = (method: string, params: any): { result?: unknown; error?: unknown } => {
     switch (method) {
@@ -81,19 +86,32 @@ async function pane(log: Rec[]) {
         return { result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } } };
       case "_acpmux/watch":
         return { result: { sessions: [session] } };
-      case "_acpmux/attach":
-        return { result: { session, lastSeq: last(), pageThrough: last(), events: host.log, hasMore: false } };
+      case "_acpmux/attach": {
+        const page = host.log.slice(-host.attachPage);
+        const hasMore = page.length < host.log.length;
+        return { result: { session, lastSeq: last(), pageThrough: last(), events: page, hasMore } };
+      }
       case "_acpmux/events": {
         const after = Number(params?.afterSeq ?? 0);
         const before = typeof params?.beforeSeq === "number" ? params.beforeSeq : undefined;
         if (before === undefined) reads.push(after);
+        else backReads.push(before);
+        if (before !== undefined && host.failBackward > 0) {
+          host.failBackward -= 1;
+          return { error: { code: -32000, message: "peer link is not connected yet" } };
+        }
         if (after > last())
           return {
             error: { code: -32602, message: `cursor_future: afterSeq ${after} is beyond the last event ${last()}` },
           };
         let page = host.log.filter((r) => r.seq > after && (before === undefined || r.seq < before));
-        if (before !== undefined) page = page.slice(-Number(params?.limit ?? 5000));
-        return { result: { events: page, hasMore: false, lastSeq: last(), createdAt: 100 } };
+        let hasMore = false;
+        if (before !== undefined) {
+          const all = page.length;
+          page = page.slice(-Number(params?.limit ?? 5000));
+          hasMore = page.length < all;
+        }
+        return { result: { events: page, hasMore, lastSeq: last(), createdAt: 100 } };
       }
       default:
         return { result: null };
@@ -106,9 +124,13 @@ async function pane(log: Rec[]) {
       send(raw: string) {
         const message = JSON.parse(raw);
         if (message.id === undefined) return;
-        queueMicrotask(() =>
-          mine.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...answer(message.method, message.params) }) }),
-        );
+        inFlight += 1;
+        queueMicrotask(() => {
+          const reply = answer(message.method, message.params);
+          check();
+          mine.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }) });
+          inFlight -= 1;
+        });
       },
       close() {
         mine.readyState = 3;
@@ -143,10 +165,17 @@ async function pane(log: Rec[]) {
   await until(() => rows.length > 0);
   const notify = (method: string, params: unknown) =>
     socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
-  const settle = () => new Promise((done) => setTimeout(done, 20));
+  /// Resolves once no request is out and every reply has been handled: the next macrotask after
+  /// the last answer, so whatever the pane read on from it has been asked and answered too.
+  const quiet = async () => {
+    do {
+      await new Promise((done) => setTimeout(done, 0));
+    } while (inFlight > 0);
+  };
   return {
     host,
     reads,
+    backReads,
     live: (record: Rec) => notify("_acpmux/event", record),
     notify,
     reply: () =>
@@ -156,7 +185,7 @@ async function pane(log: Rec[]) {
         .join(""),
     /// The socket drops and the pane connects again (its reconnect, without waiting out the delay).
     reconnect: () => (client as unknown as { open: () => Promise<void> }).open(),
-    settle,
+    quiet,
     until,
   };
 }
@@ -175,7 +204,8 @@ test("the Mac's acpmux saying the machine's journal went back replaces the rows 
   await chat.until(() => chat.reply().includes("Fresh two."));
   expect(chat.reply()).toBe("Synced one. Synced two. Fresh one. Fresh two. ");
   // It read on from the journal's new end, after reading back what it kept.
-  await chat.settle();
+  await chat.until(() => chat.reads.length > 0);
+  await chat.quiet();
   expect(chat.reads).toEqual([4]);
 });
 
@@ -184,7 +214,7 @@ test("a notice of another chat or a journal that did not go back changes nothing
   await chat.until(() => chat.reply().includes("LOST two."));
   chat.notify("_acpmux/rewound", { sessionId: "another-chat", lastSeq: 4 });
   chat.notify("_acpmux/rewound", { sessionId: CHAT, lastSeq: 6 });
-  await chat.settle();
+  await chat.quiet();
   expect(chat.reply()).toBe("Synced one. Synced two. LOST one. LOST two. ");
   expect(chat.reads).toEqual([]);
 });
@@ -218,4 +248,39 @@ test("a reconnect's attach to a journal that went back replaces the rows it lost
   chat.live(fresh[1]!);
   await chat.until(() => chat.reply().includes("Fresh two."));
   expect(chat.reply()).toBe("Synced one. Synced two. Fresh one. Fresh two. ");
+});
+
+test("a reconnect over a journal rewritten for many pages replaces every rewritten row", async () => {
+  const seqs = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  // The pane holds 1..1000; the machine came back on 1..100 and the agent wrote 101..900 again.
+  const drawn = [...opened, ...seqs(3, 1000).map((seq) => chunk(seq, `old${seq} `))];
+  const chat = await pane(drawn);
+  await chat.until(() => chat.reply().includes("old1000 "));
+  const rewritten = seqs(101, 900).map((seq) => ({ ...chunk(seq, `new${seq} `), at: START + seq * 100 + 600_000 }));
+  chat.host.log = [...drawn.slice(0, 100), ...rewritten];
+  // The attach's page is the newest 400 records (501..900): proof of nothing older than them.
+  chat.host.attachPage = 400;
+  await chat.reconnect();
+  await chat.until(() => chat.reads.includes(900));
+  await chat.quiet();
+  const want = [...seqs(3, 100).map((seq) => `old${seq} `), ...seqs(101, 900).map((seq) => `new${seq} `)].join("");
+  expect(chat.reply()).toBe(want);
+  // Read back page by page to the first record the pane held as the machine has it.
+  expect(chat.backReads).toEqual([901, 501, 101]);
+});
+
+test("a read back refused while the machine's link is still connecting is read again", async () => {
+  const chat = await pane([...synced, ...lost]);
+  await chat.until(() => chat.reply().includes("LOST two."));
+  // The machine kept 1..3 and the agent wrote seq 4 again; its link's notice comes during the
+  // handshake, when it still refuses requests, so the first read back fails.
+  const rewrote = { ...chunk(4, "Fresh zero. "), at: START + 4 * 100 + 60_000 };
+  chat.host.log = [...synced.slice(0, 3), rewrote];
+  chat.host.failBackward = 1;
+  chat.notify("_acpmux/rewound", { sessionId: CHAT, lastSeq: 4, peer: "cloud" });
+  await chat.until(() => chat.reads.length > 0);
+  await chat.quiet();
+  expect(chat.reply()).toBe("Synced one. Fresh zero. ");
+  expect(chat.backReads).toEqual([5, 5]);
+  expect(chat.reads).toEqual([4]);
 });
