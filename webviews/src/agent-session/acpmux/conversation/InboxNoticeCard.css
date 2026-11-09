@@ -120,7 +120,7 @@
   gap: var(--ds-space-2);
   align-items: baseline;
   width: 100%;
-  min-height: 22px;
+  min-height: var(--cv-tool-row-height);
   margin: 0;
   padding: 0 4px;
   border: 0;
