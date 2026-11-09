@@ -41,7 +41,7 @@ use anyhow::{Context as _, bail};
 use super::place;
 use super::skips::{self, Skips, Why};
 
-pub(super) use super::listed::{add_entry, entry_in, open_listed, walk_in};
+pub(super) use super::listed::{add_entry, entry_in, git_text, open_listed, walk_in};
 
 /// Where one file to push comes from.
 #[derive(Clone, Debug)]
@@ -455,19 +455,7 @@ fn add_git(
         return Ok(());
     }
     let target = format!(".git/{relative}");
-    // Read through `dir`, never through `path`: a regular file only.
-    let read = || -> Vec<u8> {
-        use std::io::Read as _;
-        let mut bytes = Vec::new();
-        if matches!(entry, place::Entry::File { .. })
-            && let Ok(mut file) = dir.open_file(name)
-            && file.metadata().is_ok_and(|meta| meta.is_file())
-            && file.read_to_end(&mut bytes).is_err()
-        {
-            bytes.clear();
-        }
-        bytes
-    };
+    let read = || git_text(dir, name, &entry, path, relative, set.skips.top());
     if data_at.is_none() && matches!(name, "config" | "config.worktree") {
         let text = String::from_utf8_lossy(&read()).into_owned();
         let source = Source::Bytes(clean_config(&text).into_bytes());
@@ -893,6 +881,30 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success(), "git {args:?}");
+    }
+
+    /// A symlinked git config (`config -> config.actual`) goes as the file it
+    /// names, read through the git folder's descriptor, never as an empty one.
+    #[test]
+    fn a_symlinked_git_config_goes_as_the_file_it_names() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = std::fs::canonicalize(root.path()).unwrap().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        git(&repo, &["config", "remote.origin.url", "https://example.invalid/r.git"]);
+        std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+        std::fs::rename(repo.join(".git/config"), repo.join(".git/config.actual")).unwrap();
+        std::os::unix::fs::symlink("config.actual", repo.join(".git/config")).unwrap();
+        let set = collect(&repo, Rules::Copy).unwrap();
+        let Some(super::Source::Bytes(bytes)) = set.files.get(".git/config").map(|f| &f.source)
+        else {
+            panic!("no config: {:?}", set.files.keys());
+        };
+        let text = String::from_utf8_lossy(bytes);
+        assert!(
+            text.contains("repositoryformatversion") && text.contains("example.invalid"),
+            "{text}"
+        );
     }
 
     /// A stray file in a borrowed object folder (a `.env`, a note) never
