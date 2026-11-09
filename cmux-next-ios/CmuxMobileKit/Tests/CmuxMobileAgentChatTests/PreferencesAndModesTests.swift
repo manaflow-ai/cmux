@@ -85,11 +85,23 @@ import Testing
         settings.terminalFontSize = 99
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == CmuxMobilePreferences.terminalFontSizes.upperBound)
 
-        // Ultra mode on cellular: off by default, stored under the key the WireGuard dial reads.
-        #expect(!settings.ultraOnCellular)
-        #expect(CmuxMobilePreferences.Key.ultraOnCellular == "cmuxMobile.settings.ultraOnCellular")
-        settings.ultraOnCellular = true
-        #expect(defaults.bool(forKey: CmuxMobilePreferences.Key.ultraOnCellular))
+        // Ultra mode: Auto by default, stored under the key the WireGuard dial reads.
+        #expect(settings.ultra == .auto)
+        #expect(CmuxMobilePreferences.Key.ultra == "cmuxMobile.settings.ultra")
+        #expect(defaults.string(forKey: CmuxMobilePreferences.Key.ultra) == "auto")
+        settings.ultra = .always
+        #expect(defaults.string(forKey: CmuxMobilePreferences.Key.ultra) == "always")
+    }
+
+    @Test func theEarlierUltraOnCellularSwitchReadsAsAlways() throws {
+        let suite = "cmuxMobile.prefs.test.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: "cmuxMobile.settings.ultraOnCellular")
+        let settings = SettingsStore(defaults: defaults)
+        #expect(settings.ultra == .always)
+        #expect(defaults.string(forKey: CmuxMobilePreferences.Key.ultra) == "always")
+        #expect(defaults.object(forKey: "cmuxMobile.settings.ultraOnCellular") == nil)
     }
 
     @Test func liveSessionsHideCheckpoints() {

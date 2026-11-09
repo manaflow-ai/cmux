@@ -344,6 +344,9 @@ pub(crate) struct Pacer {
     bulk_lead: i64,
     /// Packets from the TCP stack (connection queues and `other`).
     queued: usize,
+    /// Segments the stack sent again (lost, or so TCP thinks) since the last
+    /// [`Pacer::take_resent`]; a keepalive is not one.
+    resent: u64,
 }
 
 impl Pacer {
@@ -431,8 +434,19 @@ impl Pacer {
             connection.restart();
         }
         let fresh = connection.emitted(&segment);
+        // Old sequence space past what the peer acknowledged: TCP sends it
+        // again. A keepalive repeats the byte before `snd_una`, so it is not.
+        let end = segment.seq.wrapping_add(segment.len);
+        if !fresh && segment.len > 0 && connection.snd_una.is_some_and(|una| after(end, una)) {
+            self.resent += 1;
+        }
         connection.queue.push_back(packet);
         fresh
+    }
+
+    /// Segments sent again since the last call (for ultra mode's Auto).
+    pub(crate) fn take_resent(&mut self) -> u64 {
+        std::mem::take(&mut self.resent)
     }
 
     /// A packet the stack received: its ACK feeds the sending connection.

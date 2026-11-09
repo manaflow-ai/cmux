@@ -606,11 +606,13 @@ pub struct ConnectOptions {
     /// rides RTP inside the tunnel (the "WireGuard only" comparison).
     #[uniffi(default = false)]
     pub no_webrtc_media: bool,
-    /// WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
-    /// made while the network is cellular (`set_cellular_path`) sends
-    /// repair data, about 2-3x the bytes, so a lossy network costs no time.
-    #[uniffi(default = false)]
-    pub ultra_on_cellular: bool,
+    /// WireGuard: the person's Settings > Transport > Ultra Mode, as the app
+    /// stores it: `"off"`, `"auto"` (the default: no extra data on a clean
+    /// link, repair data once packets are lost, capped while
+    /// `set_cellular_path` says cellular) or `"always"` (repair data on
+    /// every datagram, about 2-3x the bytes).
+    #[uniffi(default = "auto")]
+    pub ultra: String,
 }
 
 /// Dial `mac_device_id` from this phone (`device_id`) over `transport`.
@@ -666,7 +668,7 @@ pub async fn connect_with_options(
         video_lane: !options.no_video_lane,
         webrtc_media: !options.no_webrtc_media
             && std::env::var_os("CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA").is_none(),
-        ultra_on_cellular: options.ultra_on_cellular,
+        ultra: cmux_mobile_link::UltraSetting::parse(&options.ultra),
     };
     on_runtime(connect_inner(request, observer)).await
 }
@@ -693,8 +695,8 @@ pub struct ConnectRequest {
     /// WireGuard: offer a WebRTC media session beside the link for browser
     /// video (cmux_mobile_link::hybrid).
     pub webrtc_media: bool,
-    /// WireGuard: "Ultra mode on cellular" (`ConnectOptions::ultra_on_cellular`).
-    pub ultra_on_cellular: bool,
+    /// WireGuard: Settings > Transport > Ultra Mode (`ConnectOptions::ultra`).
+    pub ultra: cmux_mobile_link::UltraSetting,
 }
 
 fn emit(observer: &Option<Arc<dyn LinkObserver>>, event: LinkEvent) {
@@ -1010,9 +1012,8 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 
 /// The device's network is cellular now, or not (iOS `NWPathMonitor`,
 /// `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
-/// too). WireGuard dials made from now on turn ultra mode on when this is
-/// true and their `ConnectOptions::ultra_on_cellular` is set; a live link
-/// keeps its mode until it redials.
+/// too). Every WireGuard link in Auto (`ConnectOptions::ultra`) reads it
+/// live: on cellular its repair data stays within its data bytes.
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
@@ -1121,7 +1122,7 @@ async fn dial(
         block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
-        ultra_on_cellular: request.ultra_on_cellular,
+        ultra: request.ultra,
         timeline: timeline.clone(),
         ..DialOptions::default()
     };

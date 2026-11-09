@@ -10,8 +10,8 @@ public enum CmuxMobilePreferences {
         public static let wrapCode = "cmuxMobile.settings.wrapCode"
         public static let keyClicks = "cmuxMobile.settings.keyClicks"
         public static let predictiveEcho = "cmuxMobile.settings.predictiveEcho"
-        /// Settings → Transport → Ultra Mode on Cellular; read at each dial (`FFIMacLinkDialer`).
-        public static let ultraOnCellular = "cmuxMobile.settings.ultraOnCellular"
+        /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
+        public static let ultra = "cmuxMobile.settings.ultra"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).

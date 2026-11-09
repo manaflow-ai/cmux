@@ -1515,9 +1515,9 @@
     },
     {
       "agent": "userOnly",
-      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
-        "remote.ultraMode"
+        "remote.ultra"
       ]
     },
     {

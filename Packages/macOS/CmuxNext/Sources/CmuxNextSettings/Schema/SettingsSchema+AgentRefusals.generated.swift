@@ -165,8 +165,8 @@ extension SettingsSchema {
         "macScreen.systemShortcuts": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
-        // Spends about 2 to 3 times the data on every remote connection; only the person turns it on.
-        "remote.ultraMode": .userOnly,
+        // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
+        "remote.ultra": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.

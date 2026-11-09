@@ -571,25 +571,52 @@
           ]
         },
         {
-          "key": "remote.ultraMode",
-          "name": "ultraMode",
-          "note": "Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra_mode): on, cmux-wg tunnels this Mac starts use UltraMode::SETTING (rs:4:4); CMUX_WG_ULTRA still wins.",
+          "key": "remote.ultra",
+          "name": "ultra",
+          "note": "Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.",
           "title": {
-            "key": "settings.remote.ultraMode",
+            "key": "settings.remote.ultra",
             "text": "Ultra Connection Mode"
           },
           "help": {
-            "key": "settings.remote.ultraMode.help",
-            "text": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."
+            "key": "settings.remote.ultra.help",
+            "text": "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."
           },
           "summary": {
-            "key": "settings.remote.ultraMode.summary",
+            "key": "settings.remote.ultra.summary",
             "text": "Uses more data to stay fast on lossy networks"
           },
-          "kind": "toggle",
-          "default": false,
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.remote.ultra.off",
+                "text": "Off"
+              },
+              "note": "No repair data."
+            },
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.remote.ultra.auto",
+                "text": "Auto"
+              },
+              "note": "No extra data on a clean link; repair data from the first loss."
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.remote.ultra.always",
+                "text": "Always"
+              },
+              "note": "Repair data on every datagram, about 2-3x the bytes."
+            }
+          ],
+          "default": "auto",
           "keywords": [
             "ultra",
+            "auto",
             "lossy",
             "packet loss",
             "bandwidth",
@@ -598,7 +625,10 @@
             "cloud",
             "latency",
             "fec"
-          ]
+          ],
+          "swift_enum": {
+            "name": "UltraConnectionMode"
+          }
         }
       ]
     },

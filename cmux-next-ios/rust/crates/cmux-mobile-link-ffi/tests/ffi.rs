@@ -63,7 +63,7 @@ async fn round_trip(transport: Transport) {
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
-            ultra_on_cellular: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         Some(recorder.clone() as Arc<dyn LinkObserver>),
     )
@@ -139,7 +139,7 @@ async fn wireguard_relay_only_rides_turn() {
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
-            ultra_on_cellular: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         Some(recorder.clone() as Arc<dyn LinkObserver>),
     )
@@ -185,7 +185,7 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
             block_udp: true,
             video_lane: false,
             webrtc_media: false,
-            ultra_on_cellular: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )
@@ -221,7 +221,7 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
-            ultra_on_cellular: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )
@@ -249,7 +249,7 @@ fn request(server: &FakeSignaling, device_id: &str, mac_id: &str) -> ConnectRequ
         block_udp: false,
         video_lane: false,
         webrtc_media: false,
-        ultra_on_cellular: false,
+        ultra: cmux_mobile_link::UltraSetting::Off,
     }
 }
 
@@ -363,10 +363,15 @@ async fn a_new_socket_carries_every_live_link() {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let first_mac = uuid::Uuid::new_v4().to_string();
     let second_mac = uuid::Uuid::new_v4().to_string();
-    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &first_mac).await.unwrap());
-    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &second_mac).await.unwrap());
+    spawn_echo_mac(
+        SignalingClient::connect(&server.base_url, "user:alice", "team", &first_mac).await.unwrap(),
+    );
+    spawn_echo_mac(
+        SignalingClient::connect(&server.base_url, "user:alice", "team", &second_mac).await.unwrap(),
+    );
     let device = uuid::Uuid::new_v4().to_string();
-    let wireguard = |mac: &str| ConnectRequest { transport: Transport::WireGuard, ..request(&server, &device, mac) };
+    let wireguard =
+        |mac: &str| ConnectRequest { transport: Transport::WireGuard, ..request(&server, &device, mac) };
 
     let first = connect_inner(wireguard(&first_mac), None).await.expect("first Mac");
     server.kick(&device);
@@ -381,9 +386,13 @@ async fn a_new_socket_carries_every_live_link() {
         assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"both".to_vec() });
     }
     // Nothing is left on the dead socket: a network change has no session to move.
-    let marks =
-        cmux_mobile_link_ffi::network_changed(server.base_url.clone(), "user:alice".into(), "team".into(), device)
-            .await;
+    let marks = cmux_mobile_link_ffi::network_changed(
+        server.base_url.clone(),
+        "user:alice".into(),
+        "team".into(),
+        device,
+    )
+    .await;
     assert!(!names(&marks).contains(&"signaling:rehomed"), "{marks:?}");
     first.close();
     second.close();

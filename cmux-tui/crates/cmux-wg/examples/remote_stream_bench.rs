@@ -47,7 +47,7 @@
 //! `longest_frame_gap_ms` is the longest wait between two frames at the
 //! viewer: a path that dropped shows up there as a stall.
 //!
-//! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, `rs:4:4`, see `cmux_wg::UltraMode`) turns on
+//! `CMUX_WG_ULTRA` (`auto`, `dup`, `fec:8:2`, `rs:4:4`, see `cmux_wg::UltraChoice`) turns on
 //! ultra mode on both ends, and `CMUX_WG_ULTRA_HOST` gives the host its own
 //! (`off`: the viewer alone asked for it); the note says what it sent and
 //! rebuilt.
@@ -567,10 +567,10 @@ async fn start_wg(args: &Args) -> io::Result<(WgNet, WgNet, SocketAddr, SocketAd
     let host = match std::env::var("CMUX_WG_ULTRA_HOST")
         .ok()
         .filter(|v| !v.trim().is_empty())
-        .and_then(|v| cmux_wg::UltraMode::parse(&v))
+        .and_then(|v| cmux_wg::UltraChoice::parse(&v))
     {
-        Some(mode) => {
-            WgNet::start_with_ultra(pair.server, SocketPath::new(server_socket, None), mode)
+        Some(choice) => {
+            WgNet::start_with_choice(pair.server, SocketPath::new(server_socket, None), choice)
                 .map_err(err)?
         }
         None => WgNet::start(pair.server, server_socket).await.map_err(err)?,
@@ -959,18 +959,20 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
 fn ultra_note(viewer: &WgNet, host: &WgNet) -> String {
     let (viewer, host) = (viewer.ultra_stats(), host.ultra_stats());
     format!(
-        "ultra {:?}: host parity {} copies {} overhead {} B of {} B rebuilt {}, viewer parity {} copies {} overhead {} B of {} B rebuilt {}",
-        cmux_wg::UltraMode::from_env(),
+        "ultra {:?}: host parity {} copies {} overhead {} B of {} B rebuilt {} auto-on {}, viewer parity {} copies {} overhead {} B of {} B rebuilt {} auto-on {}",
+        std::env::var("CMUX_WG_ULTRA").unwrap_or_default(),
         host.parity_sent,
         host.copies_sent,
         host.overhead_bytes,
         host.data_bytes,
         host.recovered,
+        host.auto_on,
         viewer.parity_sent,
         viewer.copies_sent,
         viewer.overhead_bytes,
         viewer.data_bytes,
         viewer.recovered,
+        viewer.auto_on,
     )
 }
 

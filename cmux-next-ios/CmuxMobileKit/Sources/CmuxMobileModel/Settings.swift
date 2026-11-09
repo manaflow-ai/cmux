@@ -128,6 +128,22 @@ public enum FollowUpBehavior: String, CaseIterable, Identifiable, Sendable, Coda
     }
 }
 
+/// Settings → Transport → Ultra mode: repair data sent with each group of
+/// datagrams so a lost one is rebuilt instead of waiting on a resend.
+public enum UltraConnection: String, CaseIterable, Identifiable, Sendable, Codable {
+    case off, auto, always
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .off: "Off"
+        case .auto: "Auto"
+        case .always: "Always"
+        }
+    }
+}
+
 /// Device-local preferences (SPEC section 9), persisted in `UserDefaults`.
 @MainActor
 @Observable
@@ -151,9 +167,9 @@ public final class SettingsStore {
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
-    /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key; Rust turns ultra
-    /// mode on only while the network is cellular. Off by default.
-    public var ultraOnCellular: Bool { didSet { save(ultraOnCellular, "ultraOnCellular") } }
+    /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
+    /// Rust sends repair data only after it sees loss, capped while the network is cellular.
+    public var ultra: UltraConnection { didSet { save(ultra.rawValue, "ultra") } }
     public var notifyLevel: NotificationLevel { didSet { save(notifyLevel.rawValue, "notifyLevel") } }
     /// Macs whose notifications are off (their device ids).
     public private(set) var notifyMutedMacs: [String] { didSet { save(notifyMutedMacs, "notifyMutedMacs") } }
@@ -191,7 +207,11 @@ public final class SettingsStore {
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
         predictiveEcho = bool("predictiveEcho", true)
-        ultraOnCellular = bool("ultraOnCellular", false)
+        // The earlier "Ultra mode on cellular" switch: on reads as Always.
+        ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
+            ?? (bool("ultraOnCellular", false) ? .always : .auto)
+        // Saved now: the dial reads this key, and the earlier switch is retired below.
+        defaults.set(ultra.rawValue, forKey: "cmuxMobile.settings.ultra")
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))
             ?? (bool("notifyFinished", true) ? .neededAndFinished : .needed)
@@ -210,7 +230,7 @@ public final class SettingsStore {
         for key in Self.retiredKeys { defaults.removeObject(forKey: "cmuxMobile.settings.\(key)") }
     }
 
-    static let retiredKeys = ["showConnectionDetails", "terminalTheme", "notifyQuestions", "notifyFinished", "notifyErrors"]
+    static let retiredKeys = ["showConnectionDetails", "terminalTheme", "notifyQuestions", "notifyFinished", "notifyErrors", "ultraOnCellular"]
 
     /// Whether this Mac's notifications are on.
     public func notifies(macID: String) -> Bool { !notifyMutedMacs.contains(macID) }

@@ -8,6 +8,8 @@ extension SettingsSchema {
     /// write through `settings.set` or the palette is refused as removed
     /// (`SettingRetired`), not as unknown.
     public static let retiredKeys: [String: String] = [
+        // Auto became the default on Mac and iPhone (Leo, 2026-11-09: it is a different kind of default, it is auto).
+        "remote.ultraMode": "Ultra Connection Mode is now remote.ultra: Off, Auto or Always (true reads as Always)",
         // One background everywhere (plans/cmux-next/windows.md, 2026-10-03).
         "appearance.tabBarBackground": "every surface draws the one window background",
         // The update card is gone (Lawrence 2026-10-05): nothing left to quiet.

@@ -129,6 +129,32 @@ impl Driver {
         self.negotiation.sent(now);
     }
 
+    /// Ultra mode's Auto: read the loss seen on the way in and the
+    /// segments sent again, and when what Auto wants changed, send in it at
+    /// once and tell the peer (the next `run_ultra_hello`).
+    pub(super) fn run_ultra_auto(&mut self) {
+        let Some(auto) = self.auto.as_mut() else { return };
+        let sample = self.underlay.take_loss();
+        let resent = self.pacer.take_resent();
+        let was_on = auto.is_on();
+        if !auto.observe(Instant::now(), sample, resent) {
+            return;
+        }
+        if !was_on && auto.is_on() {
+            self.underlay.count_auto_on();
+        }
+        let (mode, metered) = auto.wanted();
+        self.negotiation.advertise(mode, metered);
+        self.apply_ultra_mode();
+    }
+
+    /// Send in the mode agreed with the peer, capped when either network is
+    /// metered.
+    pub(super) fn apply_ultra_mode(&mut self) {
+        self.underlay.set_mode(self.negotiation.mode());
+        self.underlay.set_metered(self.negotiation.metered());
+    }
+
     /// When the loop must wake for the next hello retry. Only while a
     /// session exists: with none, `run_ultra_hello` sends nothing, so an
     /// overdue retry would wake the loop at once, forever. The datagram

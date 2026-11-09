@@ -479,12 +479,15 @@ struct TransportPage: View {
                 }
             }
             Section {
-                Toggle(isOn: $settings.ultraOnCellular) {
-                    Text("Ultra mode on cellular")
+                Picker(selection: $settings.ultra) {
+                    ForEach(UltraConnection.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Text("Ultra mode")
                 }
-                .accessibilityIdentifier("settings.transport.ultraOnCellular")
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.transport.ultra")
             } footer: {
-                Text("On cellular, WireGuard sends repair data so a network that drops packets stays fast. Uses about 2 to 3 times the cellular data. Applies at the next connection.")
+                Text("Auto sends no extra data while the network is clean, and repair data within a round trip of the first lost packet, so a dropped packet costs milliseconds instead of seconds. On cellular, Auto keeps the repair data within the data it protects; Always sends it on every network, at about 2 to 3 times the data. Applies at the next connection.")
             }
             #if !DEBUG
             Section {

@@ -1533,10 +1533,16 @@ fn start_wireguard(
     Ok(Arc::new(net))
 }
 
-/// The ultra mode Settings asks for (`remote.ultraMode`, read at each tunnel
-/// start); `CMUX_WG_ULTRA` still wins over it ([`cmux_wg::UltraMode::resolve`]).
-fn ultra_setting() -> Option<cmux_wg::UltraMode> {
-    cmux_tui_core::user_settings::ultra_mode().then_some(cmux_wg::UltraMode::SETTING)
+/// The ultra choice Settings asks for (`remote.ultra`, Auto by default, read
+/// at each tunnel start); `CMUX_WG_ULTRA` still wins over it
+/// ([`cmux_wg::UltraChoice::resolve`]).
+fn ultra_setting() -> cmux_wg::UltraChoice {
+    use cmux_tui_core::user_settings::{UltraConnection, ultra};
+    match ultra() {
+        UltraConnection::Off => cmux_wg::UltraChoice::Off,
+        UltraConnection::Auto => cmux_wg::UltraChoice::AUTO,
+        UltraConnection::Always => cmux_wg::UltraChoice::ALWAYS,
+    }
 }
 
 fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {

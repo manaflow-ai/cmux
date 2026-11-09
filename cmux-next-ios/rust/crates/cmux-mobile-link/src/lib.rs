@@ -21,7 +21,7 @@ pub mod signaling;
 pub mod testing;
 pub mod timing;
 
-pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind};
+pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind, UltraSetting};
 pub use link::{
     Channel, ChannelEvent, CloseInfo, IncomingChannel, Lane, LaneState, Link, LinkConfig, LinkError, Role,
 };

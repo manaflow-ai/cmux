@@ -12,6 +12,7 @@ async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
         pair.client,
         UltraUnderlay::new(Box::new(underlay), UltraMode::Off, Arc::default()),
         Negotiation::new(UltraMode::Off),
+        None,
         receiver,
         Arc::new(Notify::new()),
     )
