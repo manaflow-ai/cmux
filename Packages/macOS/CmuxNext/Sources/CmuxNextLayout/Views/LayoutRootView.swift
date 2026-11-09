@@ -77,6 +77,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     var hoveredPane: PaneID?
     /// Delivers pointer moves for focus-follows-mouse (owner: self).
     private var hoverTrackingArea: NSTrackingArea?
+    /// How far the pointer has moved since the focus ring was earned (``handlePointerTravel(_:)``).
+    var pointerTravelSinceRing: CGFloat = 0
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -236,6 +238,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     override public func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
         guard event.window === window else { return }
+        handlePointerTravel(abs(event.deltaX) + abs(event.deltaY))
         focusPaneForPointerHover(at: event.locationInWindow)
     }
 

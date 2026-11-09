@@ -112,6 +112,24 @@ struct FocusRingEarnedTests {
         }
     }
 
+    /// A pointer move takes the ring away (ask-020e093fab: "any click, Escape or pointer move away
+    /// dismisses it"); a hand resting on the trackpad, a point or two, does not.
+    @Test func aPointerMoveClearsTheRing() throws {
+        try Self.withRing {
+            let w = Window()
+            defer { w.window.closeAfterTest() }
+            w.model.focus("p2", source: .keyboard)
+            w.root.handlePointerTravel(2)
+            #expect(w.ring("p2") == true, "a jitter of 2 points cleared the ring")
+            w.root.handlePointerTravel(12)
+            #expect(w.model.focusedPane == "p2")
+            #expect(w.ring("p2") == false, "the ring stayed after the pointer moved")
+            w.model.focus("p1", source: .keyboard)
+            w.root.handlePointerTravel(2)
+            #expect(w.ring("p1") == true, "travel before the ring was earned counted against the next one")
+        }
+    }
+
     /// A Chromium page's keys come from its child window: Escape there clears the ring too, and
     /// Escape in an unrelated window does not.
     @Test func escapeInAPagesChildWindowClearsTheRing() throws {

@@ -100,6 +100,16 @@ extension LayoutRootView: ScrollGestureOwning {
         model.dismissFocusRing()
     }
 
+    /// The pointer moved `distance` points: past a few points (a hand resting on the trackpad stays
+    /// under it) the focus ring goes, as on every web surface (FOCUS-RING, webviews/src/ui/focusModality.ts).
+    func handlePointerTravel(_ distance: CGFloat) {
+        guard model.focusRingEarned else { pointerTravelSinceRing = 0; return }
+        pointerTravelSinceRing += distance
+        guard pointerTravelSinceRing > 6 else { return }
+        pointerTravelSinceRing = 0
+        model.dismissFocusRing()
+    }
+
     /// A press in a page window of this one (a Chromium page) is a click in that pane: its ring
     /// goes and the press goes on to the page. False for any other window, child panels included
     /// (a divider's mouse catcher, an overlay): those are no click in a pane.
