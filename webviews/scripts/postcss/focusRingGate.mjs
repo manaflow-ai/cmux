@@ -18,10 +18,20 @@ export const FOCUS_RING_GATE = ':not(:root[data-focus-modality="pointer"] *)';
  * condition, so it goes right after the outermost `:has(...)` instead (`.box:has(:focus-visible)GATE`),
  * which WebKit restyles like any root-attribute rule and which leaves the alternatives of an
  * enclosing `:is(:hover, ...)` alone. Inside `:not(...)` it stays next to its `:focus-visible`,
- * where `:focus:not(:focus-visible)` keeps meaning "focused, ring not earned". */
+ * where `:focus:not(:focus-visible)` keeps meaning "focused, ring not earned".
+ *
+ * A `:focus-visible` that shares an `:is()` or `:where()` with other alternatives inside the
+ * `:has(...)` (`:has(.grip:is(:hover, :focus-visible))`) would take its hover branch down with the
+ * gate, so the selector is listed twice: once with that `:focus-visible` never matching (`:not(*)`,
+ * the other alternatives as they were, ungated) and once gated. */
 export function gateFocusVisible(selector) {
   if (!selector.includes(":focus-visible") || selector.includes(FOCUS_RING_GATE)) return selector;
   const after = new Set();
+  // Positions of the hoisted `:focus-visible`s that share an `:is()`/`:where()` with other
+  // alternatives, which the ungated copy replaces with `:not(*)`.
+  const shared = [];
+  // Gates after a `:has(...)` whose every `:focus-visible` is shared: the ungated copy leaves them out.
+  const sharedOnly = new Set();
   // The functional pseudo-classes open around the current position, each with whether a
   // `:focus-visible` inside it is gated at its close.
   const stack = [];
@@ -37,14 +47,22 @@ export function gateFocusVisible(selector) {
     else if (c === "[") bracket += 1;
     else if (c === "]") bracket -= 1;
     else if (bracket) continue;
-    else if (c === "(") stack.push({ name: /:([\w-]+)$/.exec(selector.slice(0, i))?.[1] ?? "", gate: false });
+    else if (c === "(")
+      stack.push({ name: /:([\w-]+)$/.exec(selector.slice(0, i))?.[1] ?? "", gate: false, own: false });
     else if (c === ")") {
-      if (stack.pop()?.gate) after.add(i + 1);
+      const open = stack.pop();
+      if (open?.gate) {
+        after.add(i + 1);
+        if (!open.own) sharedOnly.add(i + 1);
+      }
     } else if (selector.startsWith(":focus-visible", i) && !/[\w-]/.test(selector[i + 14] ?? "")) {
       const names = stack.map((open) => open.name);
       const has = names.indexOf("has");
-      if (has >= 0 && !names.slice(0, has).includes("not")) stack[has].gate = true;
-      else after.add(i + 14);
+      if (has >= 0 && !names.slice(0, has).includes("not")) {
+        stack[has].gate = true;
+        if (names.slice(has + 1).some((name) => ["is", "where", "matches"].includes(name))) shared.push(i);
+        else stack[has].own = true;
+      } else after.add(i + 14);
     }
   }
   let out = "";
@@ -52,7 +70,19 @@ export function gateFocusVisible(selector) {
     if (after.has(i)) out += FOCUS_RING_GATE;
     out += selector[i] ?? "";
   }
-  return out;
+  if (!shared.length) return out;
+  // The ungated copy: each shared `:focus-visible` never matches; every other one gated as above.
+  let other = "";
+  for (let i = 0; i <= selector.length; i += 1) {
+    if (shared.includes(i)) {
+      other += ":not(*)";
+      i += 13;
+      continue;
+    }
+    if (after.has(i) && !sharedOnly.has(i)) other += FOCUS_RING_GATE;
+    other += selector[i] ?? "";
+  }
+  return `${other}, ${out}`;
 }
 
 export default function focusRingGate() {

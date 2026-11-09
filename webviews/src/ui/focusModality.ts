@@ -100,10 +100,9 @@ export function installFocusModality(doc: Document = document): () => void {
   let anchor: { x: number; y: number } | null = null;
 
   const onPointerMove = (event: PointerEvent) => {
-    if (!anchor) {
-      anchor = { x: event.clientX, y: event.clientY };
-      return;
-    }
+    // The first move after the ring is earned measures from where it started (its own movement),
+    // so one long move takes the ring away too.
+    anchor ??= { x: event.clientX - (event.movementX || 0), y: event.clientY - (event.movementY || 0) };
     if (Math.abs(event.clientX - anchor.x) + Math.abs(event.clientY - anchor.y) > POINTER_SLOP_PX) clear();
   };
   const set = (next: FocusModality) => {

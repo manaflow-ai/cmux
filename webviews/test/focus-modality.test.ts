@@ -139,6 +139,20 @@ describe("the focus-ring owner", () => {
     }
   });
 
+  test("one long pointer move takes it away, measured from where it started", () => {
+    const p = page();
+    p.tabTo("a");
+    p.view.dispatchEvent(
+      new p.view.PointerEvent("pointermove", {
+        clientX: 130,
+        clientY: 100,
+        movementX: 30,
+        bubbles: true,
+      } as PointerEventInit),
+    );
+    expect(p.mode()).toBe("pointer");
+  });
+
   test("a pointer move past a few pixels takes it away; a resting hand's jitter does not", () => {
     const p = page();
     p.tabTo("a");
@@ -187,6 +201,11 @@ describe("the build gate", () => {
     // An alternative that is not focus keeps its own meaning (hover still lights the button).
     expect(gateFocusVisible(".p:is(:hover, :focus-visible)")).toBe(`.p:is(:hover, :focus-visible${FOCUS_RING_GATE})`);
     expect(gateFocusVisible(".r:not(:has(:focus-visible))")).toBe(`.r:not(:has(:focus-visible${FOCUS_RING_GATE}))`);
+    // A grip's hover shares the :has() with its focus (sessionInfo.css): hover still hides the count
+    // with the ring off, so the selector is listed once ungated with the focus branch never matching.
+    expect(gateFocusVisible(".s:is(:has(> .h:is(:hover, :focus-visible)), [data-dragging]) .c")).toBe(
+      `.s:is(:has(> .h:is(:hover, :not(*))), [data-dragging]) .c, .s:is(:has(> .h:is(:hover, :focus-visible))${FOCUS_RING_GATE}, [data-dragging]) .c`,
+    );
     expect(gateFocusVisible('.x[data-a=")"]:has(:focus-visible)')).toBe(
       `.x[data-a=")"]:has(:focus-visible)${FOCUS_RING_GATE}`,
     );
@@ -288,5 +307,11 @@ describe("detectors", () => {
   test("every page that boots the desktop layer installs the owner", () => {
     const desktop = readFileSync(path.join(webviews, "src/pages/shared/desktop.ts"), "utf8");
     expect(desktop).toMatch(/installFocusModality\(doc\)/);
+    // The pages served to a browser outside the app boot without the desktop layer.
+    for (const entry of ["src/agent-session/guest/main.tsx", "src/chief-web/main.tsx"])
+      expect([entry, readFileSync(path.join(webviews, entry), "utf8").includes("installFocusModality()")]).toEqual([
+        entry,
+        true,
+      ]);
   });
 });
