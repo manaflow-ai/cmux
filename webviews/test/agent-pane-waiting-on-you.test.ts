@@ -434,3 +434,11 @@ test("one pull request listed in two chats is two rows, each answered on its own
   // An id no other row shares stays as acpmux sent it.
   expect(ids).toContain("acpmux:p1");
 });
+
+test("a pull request's chat finishing its turn reads the queue again", () => {
+  // acpmux leaves a pull request out while its chat runs, so the end of the turn must read again.
+  const chat = { sessionId: "s5", pullRequest: { number: 3, title: "Fix", state: "open" as const } };
+  expect(queueKey([], [{ ...chat, status: "idle" }])).not.toBe(queueKey([], [{ ...chat, status: "running" }]));
+  const urls = { sessionId: "s6", pullRequestUrls: ["https://example.com/pull/3"] };
+  expect(queueKey([], [{ ...urls, status: "idle" }])).not.toBe(queueKey([], [{ ...urls, status: "running" }]));
+});
