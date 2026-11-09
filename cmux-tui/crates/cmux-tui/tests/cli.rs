@@ -3840,6 +3840,9 @@ mod tab_group_hex;
 #[path = "cli/tabless_terminals.rs"]
 mod tabless_terminals;
 #[cfg(unix)]
+#[path = "cli/terminal_copy_text.rs"]
+mod terminal_copy_text;
+#[cfg(unix)]
 #[path = "cli/terminal_paste.rs"]
 mod terminal_paste;
 #[cfg(unix)]

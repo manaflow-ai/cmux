@@ -20,6 +20,7 @@
 
 mod export;
 mod git;
+mod hold;
 mod job;
 mod params;
 mod place;
@@ -50,6 +51,15 @@ pub const GIT_SEED_EXPORT_CAPABILITY: &str = "git-seed-export-v1";
 /// The ops of `git-seed-export-v1`, exactly (its jobs are read with
 /// `git.seed.status`).
 pub const GIT_SEED_EXPORT_COMMANDS: [&str; 1] = ["git.seed.export"];
+
+/// The capability that carries the `git.seed.hold*` ops ([`hold`]): the machine holds a folder's
+/// sync barrier for a copy this Mac streams in, so its chat may open at the copy's head. Its own
+/// capability for the same reason as [`GIT_SEED_EXPORT_CAPABILITY`]: a Mac asks for it first.
+pub const GIT_SEED_HOLD_CAPABILITY: &str = "git-seed-hold-v1";
+
+/// The ops of `git-seed-hold-v1`, exactly (its jobs are read with `git.seed.status`).
+pub const GIT_SEED_HOLD_COMMANDS: [&str; 3] =
+    ["git.seed.hold", "git.seed.hold.head", "git.seed.hold.end"];
 
 static SERVICE: OnceLock<GitSeedService> = OnceLock::new();
 
@@ -97,13 +107,13 @@ pub fn installed() -> Option<&'static GitSeedService> {
 #[must_use]
 pub fn advertised() -> Vec<&'static str> {
     match crate::fs_ops::installed() {
-        Some(_) => vec![GIT_SEED_CAPABILITY, GIT_SEED_EXPORT_CAPABILITY],
+        Some(_) => vec![GIT_SEED_CAPABILITY, GIT_SEED_EXPORT_CAPABILITY, GIT_SEED_HOLD_CAPABILITY],
         None => Vec::new(),
     }
 }
 
-/// The `cmd` of `line` when it is one of [`GIT_SEED_COMMANDS`] or
-/// [`GIT_SEED_EXPORT_COMMANDS`], exactly.
+/// The `cmd` of `line` when it is one of [`GIT_SEED_COMMANDS`], [`GIT_SEED_EXPORT_COMMANDS`] or
+/// [`GIT_SEED_HOLD_COMMANDS`], exactly.
 #[must_use]
 pub fn frame_command(line: &str) -> Option<&'static str> {
     let value: Value = serde_json::from_str(line).ok()?;
@@ -113,7 +123,12 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         return None;
     }
     let cmd = object.get("cmd")?.as_str()?;
-    GIT_SEED_COMMANDS.iter().chain(&GIT_SEED_EXPORT_COMMANDS).copied().find(|known| *known == cmd)
+    GIT_SEED_COMMANDS
+        .iter()
+        .chain(&GIT_SEED_EXPORT_COMMANDS)
+        .chain(&GIT_SEED_HOLD_COMMANDS)
+        .copied()
+        .find(|known| *known == cmd)
 }
 
 /// A refused request: its wire code and display text.

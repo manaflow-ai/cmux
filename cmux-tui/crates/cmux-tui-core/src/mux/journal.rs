@@ -446,24 +446,6 @@ impl Mux {
         self.workspace_registry.lock().unwrap().session_journal_after(sequence, limit)
     }
 
-    /// Records in `(sequence, through]` other than `terminal.output`, at
-    /// most `limit`, and the sequence the read covered through (see
-    /// `WorkspaceRegistry::session_journal_without_output_after`).
-    // The roster and the history feed read through `*_kinds_after`; the open
-    // roster replay PR (#39096) still calls this until it moves there too.
-    #[allow(dead_code, reason = "#39096 reads through it until it moves to the kind-scoped read")]
-    pub(crate) fn session_journal_without_output_after(
-        &self,
-        sequence: u64,
-        through: u64,
-        limit: usize,
-    ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
-        self.workspace_registry
-            .lock()
-            .unwrap()
-            .session_journal_without_output_after(sequence, through, limit)
-    }
-
     /// Records in `(sequence, through]` of the kinds `kinds` accepts, and
     /// the sequence the read covered through (see
     /// `WorkspaceRegistry::session_journal_kinds_after`).

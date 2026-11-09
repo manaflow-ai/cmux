@@ -126,7 +126,16 @@ impl Hub {
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
         let (
-            Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest },
+            Resolved {
+                agent,
+                profile,
+                launch_digest,
+                defaults,
+                head,
+                preset_name,
+                folder_root,
+                preset_digest,
+            },
             preset_plain,
         ) = {
             let cfg = self.config.read().await;
@@ -417,13 +426,14 @@ impl Hub {
             creation_guard.disarm();
             return Ok(self.begin_watch(&session, &store_family, file.clone()));
         }
-        let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
-            Ok(spawn) => {
-                let checked = checked_cwd.as_ref();
-                self.ensure_checked_child(&session, &spawn, checked, created_stops).await
-            }
-            Err(e) => Err(e),
-        };
+        let spawned =
+            match self.spawn_profile(&session, &profile, launch_digest, &defaults.env).await {
+                Ok(spawn) => {
+                    let checked = checked_cwd.as_ref();
+                    self.ensure_checked_child(&session, &spawn, checked, created_stops).await
+                }
+                Err(e) => Err(e),
+            };
         if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
@@ -1707,7 +1717,8 @@ impl Hub {
                     .map_err(RpcError::invalid_params)?;
             (profile, cfg.defaults_for(&agent))
         };
-        let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
+        let digest = profile.launch_digest();
+        let spawn = self.spawn_profile(session, &profile, digest, &defaults.env).await?;
         self.ensure_child(session, &spawn, stops).await
     }
 }
