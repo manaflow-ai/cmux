@@ -636,6 +636,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 cliName: "settings customize-appearance", mainMenu: .view
             ),
             ActionDescriptor(
+                id: "appearance.personalize",
+                title: String(localized: "action.appearance.personalize", defaultValue: "Personalization…", bundle: .module),
+                keywords: ["personalization", "personalize", "appearance", "theme", "accent", "background", "wallpaper", "glass", "chief", "pet", "font", "density", "sounds", "make it yours"],
+                category: .settings, symbol: "wand.and.stars", surfaces: [.palette, .keyboard],
+                cliName: "settings personalize"
+            ),
+            ActionDescriptor(
                 id: "appearance.interfaceSize.increase",
                 title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Interface Size", bundle: .module),
                 keywords: ["appearance", "font", "chrome", "bigger", "zoom"], category: .settings,

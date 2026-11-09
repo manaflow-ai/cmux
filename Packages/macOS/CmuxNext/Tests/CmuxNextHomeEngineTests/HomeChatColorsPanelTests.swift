@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextHomeModel
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -23,7 +24,7 @@ import Testing
     }
 
     private func rig() throws -> Rig {
-        let defaults = try #require(UserDefaults(suiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
         let store = HomeChatColorStore(defaults: defaults)
         let provider = HomeChatColorsProvider(store: store, design: DesignSettings())
         let session = HomeChatColorsProvider.Session(id: "s1", conversation: "chat", name: "Ada")
@@ -139,7 +140,7 @@ import Testing
     }
 
     @Test func thePanelIs340WideWithTheChatsNameAndDoneClosesIt() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
         let service = HomeChatColorsService(store: HomeChatColorStore(defaults: defaults), design: DesignSettings())
         service.show(conversation: "chat", name: "Ada", over: nil)
         let window = try #require(service.window)
@@ -160,7 +161,7 @@ import Testing
         defer { design.uiScale = saved }
         design.uiScale = 1.5
         #expect(HomeChatColorsService.contentSize(zoom: 1.5) == NSSize(width: 510, height: 510))
-        let defaults = try #require(UserDefaults(suiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
         let service = HomeChatColorsService(store: HomeChatColorStore(defaults: defaults), design: design)
         service.show(conversation: "chat", name: "Ada", over: nil)
         let window = try #require(service.window)

@@ -693,6 +693,8 @@ impl Hub {
         if let Some(display_parts) = p.display_parts {
             queued.set("displayParts", display_parts.clone());
         }
+        // Its provenance first: `mark_pasted` reads it to leave a daemon-made prompt unnoted.
+        let mut queued = crate::prompt_provenance::marked(queued, p.provenance);
         super::session::mark_pasted(&mut queued, p.blocks);
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check and insert under one lock: simultaneous prompts cannot all reserve the last
@@ -793,12 +795,7 @@ impl Hub {
                 seam();
             }
         }
-        self.append(
-            session,
-            "mux",
-            "queued",
-            crate::prompt_provenance::marked(queued, p.provenance),
-        );
+        self.append(session, "mux", "queued", queued);
         if ahead {
             self.append(
                 session,

@@ -37,8 +37,8 @@ extension ActionRegistry {
 
     /// `makeContextMenu`'s rows without Customize Menu…, detached for another menu to take (a pane's own).
     public func contextMenuItems(for context: ActionMenuContext, target: ActionTargetRef? = nil,
-                                 entries: [ContextMenuEntry]? = nil) -> [NSMenuItem] {
-        let menu = makeContextMenu(for: context, target: target, entries: entries, customize: false)
+                                 entries: [ContextMenuEntry]? = nil, machineID: String? = nil) -> [NSMenuItem] {
+        let menu = makeContextMenu(for: context, target: target, entries: entries, customize: false, machineID: machineID)
         let items = menu.items
         menu.removeAllItems()
         return items

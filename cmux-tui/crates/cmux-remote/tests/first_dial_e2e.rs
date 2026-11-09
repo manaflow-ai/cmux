@@ -357,3 +357,57 @@ async fn a_hung_first_dial_ends_at_its_maximum_duration() {
     assert_eq!(started.elapsed(), Duration::from_secs(5));
     assert_eq!(attempts.load(Ordering::Acquire), 1);
 }
+
+/// An attempt that completes at the very instant `maximum_duration` passes loses: the deadline
+/// wins, as `ClientConnection`'s deadline does, so nothing goes on past it (#38983 F1).
+#[tokio::test(start_paused = true)]
+async fn an_attempt_ready_at_the_deadline_loses() {
+    let cell = LinkCell::new();
+    let watch = NetworkWatch::manual();
+    let result = cell
+        .dial(
+            ReconnectPolicy { maximum_duration: Some(Duration::from_secs(1)), ..policy() },
+            watch.subscribe(),
+            || async {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                DialOutcome::<(), Refused>::Ready(())
+            },
+        )
+        .await;
+    assert_eq!(result, Err(Refused("deadline")));
+    assert!(matches!(cell.phase(), LinkPhase::Failed { .. }), "{:?}", cell.phase());
+}
+
+/// A budget token that arrives at the deadline starts no attempt (#38983 F1). Both wake at the
+/// same instant; run it many times so a select that picks either at random fails.
+#[tokio::test(start_paused = true)]
+async fn a_token_at_the_deadline_starts_no_attempt() {
+    for _ in 0..32 {
+        let cell = LinkCell::new();
+        let watch = NetworkWatch::manual();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counted = attempts.clone();
+        let result = cell
+            .dial(
+                ReconnectPolicy {
+                    initial_delay: Duration::from_millis(1),
+                    maximum_delay: Duration::from_millis(1),
+                    attempts_per_recovery: 1_000,
+                    maximum_duration: Some(Duration::from_secs(10)),
+                    redial_budget: RedialBudget {
+                        capacity: 1,
+                        refill_interval: Duration::from_secs(10),
+                    },
+                    ..policy()
+                },
+                watch.subscribe(),
+                || {
+                    counted.fetch_add(1, Ordering::AcqRel);
+                    async { DialOutcome::<(), _>::Retry(Refused("nothing listens")) }
+                },
+            )
+            .await;
+        assert_eq!(result, Err(Refused("deadline")));
+        assert_eq!(attempts.load(Ordering::Acquire), 1, "an attempt started at the deadline");
+    }
+}
