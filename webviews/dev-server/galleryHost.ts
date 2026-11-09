@@ -388,21 +388,34 @@ export function galleryModules(): Plugin {
       });
     },
     handleHotUpdate({ file, server, modules }) {
+      const source = /\.(tsx?|mjs)$/.test(file) && file.startsWith(`${webviewsRoot}/src/`);
+      // Only a page that loaded the combined sheet (the gallery's pane) needs the sheet list. The
+      // agent pane and the app's live pages import each sheet themselves, so a save there must not
+      // wait on it: deriving the list runs bundle.mjs over dev.tsx, about 600 ms, and the first
+      // stylesheet save ran it synchronously, inside Vite's update (hot-reload-proof.mjs: 676 ms to
+      // shown, against 49 ms for the next save of the same sheet). With no combined sheet loaded the
+      // list is dropped instead, so its next load derives it from the files as they are then.
+      const combined = server.moduleGraph.getModuleById(PANE_CSS_PATH);
+      if (!combined) {
+        if (source) {
+          paneSheets = undefined;
+          if (rederiving) rederiveAgain = true;
+        }
+        return undefined;
+      }
       // A saved source may add or drop a stylesheet import: the list is derived again after this
       // update, and the combined sheet reloads when it changed. A save of a pane stylesheet updates
       // the combined sheet in place.
-      if (/\.(tsx?|mjs)$/.test(file) && file.startsWith(`${webviewsRoot}/src/`)) {
+      if (source) {
         rederivePaneSheets(() => {
-          const combined = server.moduleGraph.getModuleById(PANE_CSS_PATH);
-          if (!combined) return;
-          server.moduleGraph.invalidateModule(combined);
+          const loaded = server.moduleGraph.getModuleById(PANE_CSS_PATH);
+          if (!loaded) return;
+          server.moduleGraph.invalidateModule(loaded);
           server.ws.send({ type: "full-reload" });
         });
         return undefined;
       }
       if (!agentPaneStylesheets().includes(file)) return undefined;
-      const combined = server.moduleGraph.getModuleById(PANE_CSS_PATH);
-      if (!combined) return undefined;
       server.moduleGraph.invalidateModule(combined);
       return [...modules, combined];
     },
