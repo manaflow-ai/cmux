@@ -11,17 +11,37 @@
 //! egress, a firewall, no candidate pair), media stays on the stream.
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
+
+/// What the host knows of its STUN servers' addresses.
+#[derive(Debug, Default)]
+enum Resolution {
+    /// No session negotiated `link.udp` yet: nothing resolves, no socket opens.
+    #[default]
+    Idle,
+    /// The names are resolving; each link that started meanwhile waits on a sender.
+    Resolving(Vec<mpsc::Sender<Vec<SocketAddr>>>),
+    Done(Vec<SocketAddr>),
+}
+
+/// The names resolved: every link that started while they resolved gets them.
+fn finish(resolved: &Mutex<Resolution>, found: Vec<SocketAddr>) {
+    let Ok(mut slot) = resolved.lock() else { return };
+    if let Resolution::Resolving(waiting) = std::mem::replace(&mut *slot, Resolution::Done(found.clone())) {
+        for link in waiting {
+            let _ = link.send(found.clone());
+        }
+    }
+}
 
 /// What the host needs to offer `link.udp` (systemd mode; `--no-udp-link` turns it off).
 #[derive(Debug, Clone, Default)]
 pub struct LinkCfg {
     /// STUN servers for the host's reflexive candidate (`--link-stun`), as named.
     names: Vec<String>,
-    /// Their IPv4 addresses once resolved; `None` before the first session that
-    /// negotiated `link.udp` asked. Shared by every session of this host.
+    /// Their IPv4 addresses, resolved once for every session of this host.
     #[cfg_attr(not(feature = "link"), allow(dead_code))]
-    resolved: Arc<Mutex<Option<Vec<SocketAddr>>>>,
+    resolved: Arc<Mutex<Resolution>>,
 }
 
 impl LinkCfg {
@@ -35,14 +55,14 @@ impl LinkCfg {
     /// opens) until a session negotiated `link.udp`.
     pub fn resolve_stun(&self) {
         let Ok(mut slot) = self.resolved.lock() else { return };
-        if slot.is_some() {
+        if !matches!(*slot, Resolution::Idle) {
             return;
         }
         if self.names.is_empty() {
-            *slot = Some(Vec::new());
+            *slot = Resolution::Done(Vec::new());
             return;
         }
-        *slot = Some(Vec::new());
+        *slot = Resolution::Resolving(Vec::new());
         let (names, resolved) = (self.names.clone(), self.resolved.clone());
         let spawned = std::thread::Builder::new().name("rd-link-stun".into()).spawn(move || {
             let found: Vec<SocketAddr> = names
@@ -57,19 +77,37 @@ impl LinkCfg {
                     found
                 })
                 .collect();
-            if let Ok(mut slot) = resolved.lock() {
-                *slot = Some(found);
-            }
+            finish(&resolved, found);
         });
         if spawned.is_err() {
             eprintln!("cmux-rd: link: no thread to resolve --link-stun; no reflexive candidate");
+            *slot = Resolution::Done(Vec::new());
         }
     }
 
     /// The STUN servers resolved so far (none while they are still resolving).
     #[cfg_attr(not(feature = "link"), allow(dead_code))]
     pub fn stun(&self) -> Vec<SocketAddr> {
-        self.resolved.lock().ok().and_then(|s| s.clone()).unwrap_or_default()
+        match self.resolved.lock().as_deref() {
+            Ok(Resolution::Done(found)) => found.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The STUN servers for a link starting now, and, while they are still
+    /// resolving, where they arrive for [`cmux_rd_link::net::Net::late_stun`].
+    #[cfg_attr(not(feature = "link"), allow(dead_code))]
+    pub fn stun_now_or_later(&self) -> (Vec<SocketAddr>, Option<mpsc::Receiver<Vec<SocketAddr>>>) {
+        let Ok(mut slot) = self.resolved.lock() else { return (Vec::new(), None) };
+        match &mut *slot {
+            Resolution::Done(found) => (found.clone(), None),
+            Resolution::Resolving(waiting) => {
+                let (tx, rx) = mpsc::channel();
+                waiting.push(tx);
+                (Vec::new(), Some(rx))
+            }
+            Resolution::Idle => (Vec::new(), None),
+        }
     }
 }
 
@@ -177,12 +215,13 @@ mod with_link {
                 Err(e) => return self.state(false, Some(format!("link key: {e}"))),
             };
             let public = crate::serve::hex(&keys.public);
+            let (stun, late_stun) = self.cfg.stun_now_or_later();
             let net = match Net::start(NetConfig {
                 role: Role::Responder,
                 session: session.into_bytes(),
                 local: keys,
                 expected_remote,
-                stun: self.cfg.stun(),
+                stun,
                 bind: SocketAddr::from(([0, 0, 0, 0], 0)),
                 turn: Vec::new(),
                 relay_only: false,
@@ -190,6 +229,9 @@ mod with_link {
                 Ok(n) => n,
                 Err(e) => return self.state(false, Some(format!("link start: {e}"))),
             };
+            if let Some(late) = late_stun {
+                net.late_stun(late);
+            }
             self.net = Some(net);
             self.up = false;
             self.stream.send_control(&Control::LinkAnswer { key: public })?;
@@ -543,6 +585,21 @@ mod tests {
         assert_eq!(list, vec!["127.0.0.1:3478", "stun.example.com:3478"]);
         assert!(stun_names(Some("nope")).is_err());
         assert!(stun_names(Some("host:0")).is_err());
+    }
+
+    #[test]
+    fn a_link_that_starts_while_stun_resolves_gets_the_servers_when_they_arrive() {
+        let cfg = LinkCfg::new(vec!["stun.example.com:3478".into()]);
+        *cfg.resolved.lock().unwrap() = Resolution::Resolving(Vec::new());
+        let (now, later) = cfg.stun_now_or_later();
+        assert!(now.is_empty());
+        let later = later.expect("a receiver while the names resolve");
+        let server: SocketAddr = "192.0.2.7:3478".parse().unwrap();
+        finish(&cfg.resolved, vec![server]);
+        assert_eq!(later.try_recv(), Ok(vec![server]));
+        // Links after that start with the servers.
+        let (now, later) = cfg.stun_now_or_later();
+        assert_eq!((now, later.is_none()), (vec![server], true));
     }
 
     #[test]

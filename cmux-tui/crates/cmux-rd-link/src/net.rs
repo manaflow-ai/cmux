@@ -34,6 +34,12 @@ use std::time::Instant;
 /// STUN requests are retried this often until each server answers or gives up.
 const STUN_RETRY_US: u64 = 300_000;
 const STUN_ATTEMPTS: u32 = 5;
+/// STUN servers taken from a late list ([`Net::late_stun`]).
+const MAX_LATE_STUN: usize = 4;
+/// How often the driver looks for a late STUN list while one is pending.
+const LATE_STUN_CHECK_US: u64 = 50_000;
+/// A late STUN list that has not come this long after the link started never will.
+const LATE_STUN_GIVE_UP_US: u64 = 15_000_000;
 /// Largest UDP payload read.
 const MAX_PACKET: usize = 65_535;
 /// How long `CandidatesDone` waits for TURN allocations.
@@ -154,6 +160,8 @@ enum Command {
     Datagram(Vec<u8>),
     Control(Vec<u8>),
     NetworkChange,
+    /// STUN servers whose names resolve after the link started.
+    LateStun(mpsc::Receiver<Vec<SocketAddr>>),
     Close,
 }
 
@@ -292,6 +300,7 @@ impl Net {
                 })
                 .collect(),
             remote: Vec::new(),
+            late_stun: None,
             relay_only: config.relay_only,
             candidates_done: false,
             start: Instant::now(),
@@ -361,6 +370,13 @@ impl Net {
     pub fn network_changed(&self) {
         self.command(Command::NetworkChange);
     }
+
+    /// STUN servers still resolving when the link started: the driver queries
+    /// them once they arrive, so a slow resolver costs the reflexive candidate
+    /// only its delay. A dropped sender means none come.
+    pub fn late_stun(&self, servers: mpsc::Receiver<Vec<SocketAddr>>) {
+        self.command(Command::LateStun(servers));
+    }
 }
 
 impl Drop for Net {
@@ -419,6 +435,8 @@ struct Driver {
     relays: Vec<Relay>,
     /// The peer's candidates, for the relayed paths of allocations that finish later.
     remote: Vec<Candidate>,
+    /// STUN servers still resolving ([`Net::late_stun`]).
+    late_stun: Option<mpsc::Receiver<Vec<SocketAddr>>>,
     /// `NetConfig::relay_only`.
     relay_only: bool,
     candidates_done: bool,
@@ -456,6 +474,34 @@ impl Driver {
             self.emit(NetEvent::Endpoint(event));
         }
         Ok(())
+    }
+
+    /// Adds the STUN servers that resolved late, once, past those already asked.
+    fn take_late_stun(&mut self, now: u64) {
+        let Some(servers) = &self.late_stun else { return };
+        let servers = match servers.try_recv() {
+            Ok(servers) => servers,
+            Err(mpsc::TryRecvError::Empty) if now < LATE_STUN_GIVE_UP_US => return,
+            Err(mpsc::TryRecvError::Empty) => Vec::new(),
+            Err(mpsc::TryRecvError::Disconnected) => Vec::new(),
+        };
+        self.late_stun = None;
+        if self.relay_only {
+            return;
+        }
+        for server in servers.into_iter().take(MAX_LATE_STUN) {
+            if self.stun.iter().any(|q| q.server == server) {
+                continue;
+            }
+            let index = self.stun.len();
+            self.stun.push(StunQuery {
+                server,
+                transaction: transaction(index),
+                attempts: 0,
+                next_us: 0,
+                done: false,
+            });
+        }
     }
 
     fn stun_tick(&mut self, now: u64) {
@@ -578,7 +624,10 @@ impl Driver {
         let stun = self.stun.iter().filter(|q| !q.done).map(|q| q.next_us).min();
         let turn = self.relays.iter().filter_map(|r| r.client.next_deadline_us()).min();
         let gather = (!self.candidates_done && now < RELAY_GATHER_US).then_some(RELAY_GATHER_US);
-        match [self.endpoint.next_deadline_us(), stun, turn, gather].into_iter().flatten().min() {
+        // A late STUN list arrives on a channel without a wake-up: look again soon.
+        let late = self.late_stun.is_some().then_some(now + LATE_STUN_CHECK_US);
+        match [self.endpoint.next_deadline_us(), stun, turn, gather, late].into_iter().flatten().min()
+        {
             Some(at) => i32::try_from(at.saturating_sub(now).div_ceil(1000)).unwrap_or(i32::MAX),
             None => 1000,
         }
@@ -594,6 +643,7 @@ impl Driver {
         let mut buf = vec![0u8; MAX_PACKET];
         loop {
             let now = now_us(self.start);
+            self.take_late_stun(now);
             self.stun_tick(now);
             self.turn_tick(now);
             self.flush(now)?;
@@ -621,6 +671,7 @@ impl Driver {
                         }
                     }
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
+                    Command::LateStun(servers) => self.late_stun = Some(servers),
                     Command::NetworkChange => {
                         self.endpoint.set_local_networks(cmux_transport::local_networks());
                         self.endpoint.on_network_change();

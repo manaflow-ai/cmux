@@ -156,8 +156,9 @@ pub struct ViewerOffer {
     keys: KeyPair,
     session: String,
     /// The STUN servers and the TURN relays, each resolved on its own thread so a
-    /// slow resolver never holds the stream or the other list; a link that starts
-    /// before a list resolves goes without it.
+    /// slow resolver never holds the stream or the other list. A link that starts
+    /// before the STUN list resolves queries it when it arrives; one that starts
+    /// before the TURN list goes without it.
     stun: mpsc::Receiver<Vec<SocketAddr>>,
     turn: mpsc::Receiver<Vec<TurnServer>>,
 }
@@ -187,7 +188,11 @@ impl ViewerOffer {
     /// initiates the handshake.
     pub fn start(self, host_key: &str, bind: SocketAddr) -> Result<DatagramLink, String> {
         let remote = unhex::<32>(host_key).ok_or("the host's link key is not 64 hex")?;
-        let stun = self.stun.try_recv().unwrap_or_default();
+        let (stun, late_stun) = match self.stun.try_recv() {
+            Ok(stun) => (stun, None),
+            Err(mpsc::TryRecvError::Empty) => (Vec::new(), Some(self.stun)),
+            Err(mpsc::TryRecvError::Disconnected) => (Vec::new(), None),
+        };
         let turn = self.turn.try_recv().unwrap_or_default();
         let net = Net::start(NetConfig {
             role: Role::Initiator,
@@ -200,6 +205,9 @@ impl ViewerOffer {
             relay_only: false,
         })
         .map_err(|e| e.to_string())?;
+        if let Some(late) = late_stun {
+            net.late_stun(late);
+        }
         Ok(DatagramLink::running(net))
     }
 }

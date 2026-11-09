@@ -63,3 +63,56 @@ fn a_session_runs_over_real_udp_sockets() {
     assert!(wait(&viewer, &mut at_viewer, |e| e
         .contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)))));
 }
+
+/// A STUN server on loopback that answers every binding request with the sender's address.
+fn stun_server() -> std::net::SocketAddr {
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let addr = socket.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 1500];
+        while let Ok((n, from)) = socket.recv_from(&mut buf) {
+            let Some(id) = buf.get(8..20).filter(|_| n >= 20) else { continue };
+            let mut transaction = [0u8; 12];
+            transaction.copy_from_slice(id);
+            let _ = socket.send_to(&cmux_transport::stun::binding_success(transaction, from), from);
+        }
+    });
+    addr
+}
+
+#[test]
+fn stun_servers_that_resolve_after_the_link_started_still_give_a_reflexive_candidate() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let net = start(Role::Initiator, &v, h.public);
+    let (resolved, late) = std::sync::mpsc::channel();
+    net.late_stun(late);
+    let mut seen = Vec::new();
+    let reflexive = |seen: &[NetEvent]| {
+        seen.iter().any(|e| {
+            matches!(e, NetEvent::Candidate(Candidate { kind: CandidateKind::ServerReflexive, .. }))
+        })
+    };
+    // Nothing to ask yet: no reflexive candidate while the names are still resolving.
+    std::thread::sleep(Duration::from_millis(200));
+    seen.extend(net.events());
+    assert!(!reflexive(&seen));
+    resolved.send(vec![stun_server()]).unwrap();
+    assert!(wait(&net, &mut seen, reflexive), "the late STUN server was never asked: {seen:?}");
+}
+
+#[test]
+fn a_late_stun_list_that_never_comes_leaves_the_link_working() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    let (resolver, late) = std::sync::mpsc::channel::<Vec<std::net::SocketAddr>>();
+    viewer.late_stun(late);
+    // The resolver went away without an answer.
+    drop(resolver);
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: viewer.local_addr() });
+    let established =
+        |e: &[NetEvent]| e.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+    let mut at_viewer = Vec::new();
+    assert!(wait(&viewer, &mut at_viewer, established), "{at_viewer:?}");
+}
