@@ -140,7 +140,7 @@ import Testing
         await hub.bind(nil)
     }
 
-    private static func nextLiveEvent(
+    private nonisolated static func nextLiveEvent(
         _ iterator: inout AsyncStream<AgentSessionEvent>.Iterator,
         allowingRefresh: Bool = false,
         matching predicate: (AgentSessionEvent) -> Bool
@@ -158,23 +158,23 @@ import Testing
         throw CancellationError()
     }
 
-    private static func hasModelError(_ event: AgentSessionEvent) -> Bool {
+    private nonisolated static func hasModelError(_ event: AgentSessionEvent) -> Bool {
         if case .clientError(let text) = event { text.localizedCaseInsensitiveContains("model unavailable") }
         else { false }
     }
 
-    private static func hasOlderTurn(_ event: AgentSessionEvent) -> Bool {
+    private nonisolated static func hasOlderTurn(_ event: AgentSessionEvent) -> Bool {
         if case .earlierPage(let page, _) = event { ChatOpenSnapshotLiveTests.userMessages(page).contains("t0") }
         else { false }
     }
 
-    private static func isRefresh(_ event: AgentSessionEvent) -> Bool {
+    private nonisolated static func isRefresh(_ event: AgentSessionEvent) -> Bool {
         if case .batch(let events) = event {
             events.contains { if case .status = $0 { true } else { false } }
         } else { false }
     }
 
-    private static func isLiveMessage(_ event: AgentSessionEvent) -> Bool {
+    private nonisolated static func isLiveMessage(_ event: AgentSessionEvent) -> Bool {
         if case .userMessage(_, _, let turn, _, _) = event { turn == "live" } else { false }
     }
 
