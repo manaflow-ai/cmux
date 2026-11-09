@@ -353,7 +353,8 @@ elif args[0] == "api":
     elif endpoint.endswith("/status") and state.get("status_read") == "fail":
         print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
     elif endpoint.endswith("/check-runs?per_page=100"):
-        emit({"check_runs": [{"conclusion": c} for c in state.get("checks", [])]})
+        runs = [{"conclusion": c} for c in state.get("checks", [])]
+        emit({"total_count": state.get("check_total", len(runs)), "check_runs": runs})
     elif endpoint.endswith("/status"): emit({"state": state.get("status", "pending")})
     elif "/commits/" in endpoint:
         import datetime
@@ -374,6 +375,7 @@ class RePinPublication(unittest.TestCase):
 
     def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False,
                   refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
+                  check_total=None,
                   workflow=WORKFLOW):
         step = yaml.safe_load(workflow.read_text())["jobs"]["repin"]["steps"][-1]
         with tempfile.TemporaryDirectory() as temp:
@@ -402,7 +404,8 @@ class RePinPublication(unittest.TestCase):
                 "writes": 0, "write_mode": write_mode, "push_mode": push_mode,
                 "wrong_head": wrong_head, "close_on_edit": close_on_edit,
                 "head_age_min": head_age_min, "checks": list(checks), "status": status,
-                "status_read": status_read}))
+                "status_read": status_read,
+                **({} if check_total is None else {"check_total": check_total})}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
                        GITHUB_SHA=SHA, GITHUB_REPOSITORY=REPO, GITHUB_REPOSITORY_OWNER="manaflow-ai",
@@ -489,6 +492,10 @@ class RePinPublication(unittest.TestCase):
             "past the hold": {"head_age_min": 95},
             "a failed check run": {"head_age_min": 20, "checks": ("success", "failure")},
             "a timed-out check run": {"head_age_min": 20, "checks": ("timed_out",)},
+            "a check run that never started": {"head_age_min": 20, "checks": ("startup_failure",)},
+            "a stale check run": {"head_age_min": 20, "checks": ("stale",)},
+            "a check run waiting for approval": {"head_age_min": 20, "checks": ("action_required",)},
+            "more check runs than one page": {"head_age_min": 20, "checks": ("success",), "check_total": 101},
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
             "an errored commit status": {"head_age_min": 20, "status": "error"},
             "a failed status read": {"head_age_min": 20, "status_read": "fail"},
@@ -508,6 +515,8 @@ class RePinPublication(unittest.TestCase):
         push = workflow[True]["push"]
         self.assertEqual(push["branches"], ["feat-cmux-next"])
         self.assertIn("Packages/macOS/CmuxNext/Package.swift", push["paths"])
+        # A merge pushed with GITHUB_TOKEN fires no push event: the schedule covers it.
+        self.assertTrue(workflow[True]["schedule"])
         job = workflow["jobs"]["repin"]
         release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
         self.assertNotIn("needs", job)

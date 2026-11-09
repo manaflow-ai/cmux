@@ -16,6 +16,11 @@ on:
     paths:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "Packages/macOS/CmuxNext/app-ffi-pin.json"
+  # A push made with GITHUB_TOKEN starts no workflow, so a lander that merges
+  # the held PR that way fires no push event here: the schedule re-pins within
+  # 30 minutes anyway. With nothing newer published it changes nothing.
+  schedule:
+    - cron: "7,37 * * * *"
   workflow_dispatch:
 
 permissions: {}

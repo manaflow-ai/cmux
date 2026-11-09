@@ -65,9 +65,12 @@ held_pr() {
     echo "#$number's head ${previous:0:12} is $age min old (hold $hold_min min): moving it" >&2
     return 1
   fi
-  failed="$(read_api --paginate "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs?per_page=100" \
-    --jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled")] | length' |
-    awk '{ n += $1 } END { print n + 0 }')" || return 1
+  # One bounded page: a head with more check runs than it holds is moved.
+  failed="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs?per_page=100" \
+    --jq 'if .total_count > (.check_runs | length) then "unread" else [.check_runs[] | select(.conclusion as $c
+      | ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"] | index($c))] | length end')" ||
+    return 1
+  [[ "$failed" =~ ^[0-9]+$ ]] || return 1
   status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 1
   [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 1
   [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
