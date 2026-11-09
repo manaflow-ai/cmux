@@ -193,6 +193,59 @@ test("a script edit under a teammate's rename never sends the old name", async (
   page.unmount();
 });
 
+test("a variable edited and restored is unchanged, whatever the host's key order", async () => {
+  const id = "env_00000000000000000001";
+  // The host may send a variable's keys in either order.
+  const page = await open((provider) => {
+    provider.environments = {
+      ...provider.environments,
+      environments: provider.environments.environments.map((entry) =>
+        entry.id === id
+          ? {
+              ...entry,
+              env: [
+                { value: "development", name: "NODE_ENV" },
+                { secret: "openai", name: "OPENAI_API_KEY" },
+              ],
+            }
+          : entry,
+      ),
+    };
+  });
+  const row = () => card(page.container).querySelector<HTMLElement>(`[data-environment="${id}"]`)!;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  const value = () =>
+    row()
+      .querySelector<HTMLElement>('[data-environment-variable="0"]')!
+      .querySelector<HTMLInputElement>('[data-variable-field="value"]')!;
+  await changeValue(value(), "production");
+  await changeValue(value(), "development");
+  // A teammate changes the secret's vault item; the list reads it again under the open form.
+  page.provider.environments = {
+    ...page.provider.environments,
+    environments: page.provider.environments.environments.map((entry) =>
+      entry.id === id
+        ? {
+            ...entry,
+            env: [
+              { name: "NODE_ENV", value: "development" },
+              { name: "OPENAI_API_KEY", secret: "openai-team" },
+            ],
+          }
+        : entry,
+    ),
+  };
+  await click(card(page.container).querySelector<HTMLButtonElement>('[data-environments="refresh"]')!);
+  await settle();
+  const runs = page.provider.environmentRuns.length;
+  const form = row().querySelector<HTMLElement>("[data-environments-form]")!;
+  await changeValue(form.querySelector<HTMLInputElement>('[data-environment-field="name"]')!, "web app");
+  await click(form.querySelector<HTMLButtonElement>('[data-environments="save"]')!);
+  await settle();
+  expect(page.provider.environmentRuns.slice(runs)[0]).toEqual({ action: "save", id, name: "web app" });
+  page.unmount();
+});
+
 test("off the cmux-next Cloud path the card explains and lists nothing", async () => {
   const page = await open((provider) => {
     provider.environments = { available: false, loading: false, environments: [], error: null };

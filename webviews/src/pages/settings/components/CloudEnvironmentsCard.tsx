@@ -201,8 +201,16 @@ export type EnvironmentDraft = {
 
 const variableValue = (variable: CloudEnvironmentVariable) => ("secret" in variable ? variable.secret : variable.value);
 
+/** Field by field, never by JSON text: the host's `{value, name}` and the form's `{name, value}` are
+ * the same variable. */
 const sameEnv = (a: CloudEnvironmentVariable[], b: CloudEnvironmentVariable[]) =>
-  JSON.stringify(a) === JSON.stringify(b);
+  a.length === b.length &&
+  a.every(
+    (variable, index) =>
+      variable.name === b[index]!.name &&
+      "secret" in variable === "secret" in b[index]! &&
+      variableValue(variable) === variableValue(b[index]!),
+  );
 
 /** An edit's Save names only what changed from `row` (the environment as Edit opened it): a rename
  * alone leaves the built snapshot fresh, and a teammate's newer edit to another field stays. */
