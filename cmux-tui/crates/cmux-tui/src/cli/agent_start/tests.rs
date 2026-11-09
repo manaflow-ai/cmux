@@ -372,6 +372,43 @@ fn w3h_resume_reruns_the_recorded_launcher_with_the_harness_session_and_takes_th
     assert_eq!(closed[0]["tab"], "tab_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0");
 }
 
+/// W5-O (bench round 4 orchestration item 5): resume closed the exited
+/// agent's tab with `tab close`, which left a tabless exited terminal record.
+/// It now retires the exited terminal (`terminal <t> close`, which takes its
+/// tab too) after the new agent runs; `tab close` stays only as a fallback.
+#[test]
+fn w5r_resume_retires_the_exited_terminal_not_only_its_tab() {
+    let snapshot = snapshot();
+    let daemon = Fake::new(|operation, params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "agent.list" if params["terminal_id"] == OLD || params["terminal"] == OLD => json!([
+            {"terminal_id": OLD, "state": "done", "source": "hook", "updated_at_ms": "900",
+             "extra": {"agent": "claude", "agent_session_id": SESSION}},
+        ]),
+        "agent.list" => json!([{"terminal_id": NEW, "state": "idle", "source": "hook",
+                                "updated_at_ms": "1500"}]),
+        "terminal.process.get" => json!({"argv": snapshot["terminals"][1]["argv_for_test"]}),
+        "pane.run" => created(
+            "pane_22222222222222222222222222222222",
+            "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0",
+            NEW,
+        ),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        _ => json!({}),
+    });
+    let target = ResumeTarget::Agent("alpha".into());
+    let (report, exit) =
+        run_with_clock(|clock| resume(&daemon, &env(), clock, &target, &Options::default()))
+            .expect("resume");
+    assert_eq!(exit, 0, "{report}");
+    assert_eq!(report["resumed"]["tab_closed"], true, "{report}");
+    let retired: Vec<Value> =
+        daemon.sent("terminal.close").iter().map(|close| close["terminal"].clone()).collect();
+    assert_eq!(retired, [json!(OLD)], "the exited terminal is retired: {report}");
+    assert!(daemon.sent("tab.close").is_empty(), "no tab-only close when the terminal closed");
+}
+
 /// An agent that quit (its hooks reported the session's end) has no agent
 /// record left; resume reads the session id the daemon kept on the terminal.
 #[test]
