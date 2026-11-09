@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42549646257",
+  "recorded_at": "2026-11-09T02:22:27Z",
+  "reason": "cmux-tui 11cd6d4f6084 changes the image's cmux-tui (pinned d90d8fda3080)",
+  "dry_run": false,
+  "cmux_tui": "11cd6d4f60844d14abdd32791d375c022035762d",
+  "fixes": [
+    {
+      "sha": "25b9bc5cfcf76db2635b4255cff1a5cdd27592cc",
+      "mergedAt": "2026-11-09T01:55:21Z",
+      "subject": "cmux-tui: split remote_cli.rs under 100 KB (tests, enroll, self install, daemon lifecycle) (#38934)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T02:22:27Z",
+    "snapshot_id": "sh-c615e09a838b4c619698cb0e6924da65",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42549646257): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "52f5aca4130a98f0657039eb3ed4a8a47fa79550",
+    "image": "cloud-native-auto-11cd6d4f-42549646257-1",
+    "revision": "ci-42549646257-1",
+    "at": "2026-11-09T02:22:27Z"
+  },
+  "rolled_back": false
+}
