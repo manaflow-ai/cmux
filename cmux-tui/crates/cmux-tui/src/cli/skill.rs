@@ -392,8 +392,8 @@ const RULES: &str = "\
 answers from the pane's session (`kind: \"cmux-tui\"`), even when that cmux-tui runs inside \
 the cmux app; `cmux app identify` asks the app around it (`outer_app`).
 - **Targets.** A selector is an id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), a \
-unique id prefix, the bare 32 hex digits (for a terminal also the host `terminal_id` that \
-`run` prints), `current`, `caller`, `focused`, or an exact name (`name:` forces a name). Inside a cmux terminal \
+unique id prefix of 4 or more hex digits (`pane_3f0a`; a shorter one is refused), the bare 32 \
+hex digits (for a terminal also the host `terminal_id` that `run` prints), `current`, `caller`, `focused`, or an exact name (`name:` forces a name). Inside a cmux terminal \
 `current` and `caller` are your own workspace, screen, pane, tab and terminal, not the one the \
 person looks at. For the person's focused pane, name the session: \
 `cmux --session <session.name> pane current show` (an explicit route makes `current` the \
