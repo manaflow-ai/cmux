@@ -55,7 +55,7 @@
 .am-fields input {
   box-sizing: border-box;
   width: 100%;
-  border: 1px solid var(--page-border);
+  border: 0.5px solid var(--page-separator);
   border-radius: 8px;
   background: var(--page-field, transparent);
   color: inherit;
@@ -64,7 +64,7 @@
 }
 
 .am-fields input:focus-visible {
-  border-color: var(--page-accent);
+  border-color: var(--cmux-accent, var(--page-text-2));
 }
 
 .am-host {
@@ -103,7 +103,7 @@
   padding: 0;
   overflow-y: auto;
   list-style: none;
-  border: 1px solid var(--page-border);
+  border: 0.5px solid var(--page-separator);
   border-radius: 8px;
 }
 
@@ -152,7 +152,7 @@
   flex-direction: column;
   gap: 12px;
   padding: 12px;
-  border: 1px solid var(--page-border);
+  border: 0.5px solid var(--page-separator);
   border-radius: 12px;
 }
 

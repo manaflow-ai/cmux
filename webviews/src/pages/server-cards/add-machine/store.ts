@@ -100,6 +100,9 @@ export class AddMachineStore {
   private parseRequest = 0;
   private candidatesRequest = 0;
   private seq?: number;
+  /** While a pressed action that starts a run is in flight: the first status read issued after it
+   * returned. Busy clears only when that read, or a later one, lands (a superseded read never does). */
+  private busyUntil?: number;
   private stopChanges?: () => void;
   private stopped = false;
 
@@ -141,12 +144,25 @@ export class AddMachineStore {
     try {
       status = await this.client.call<AddMachineStatus>(AddMachineOps.status, {});
     } catch {
-      if (id === this.request) this.set({ ...this.snapshot, failed: true });
+      if (id === this.request)
+        this.set({ ...this.snapshot, failed: true, busy: this.stillBusy(id) });
       return;
     }
     if (id !== this.request) return;
-    if (status.request.seq !== this.seq) return this.opened(status);
-    this.set({ ...this.snapshot, status });
+    if (status.request.seq !== this.seq) {
+      this.busyUntil = undefined;
+      return this.opened(status);
+    }
+    this.set({ ...this.snapshot, status, busy: this.stillBusy(id) });
+  }
+
+  /** Whether the action in flight still waits for its own status: a read issued before it returned
+   * shows the state the press started from, so its buttons stay off. */
+  private stillBusy(id: number): boolean {
+    if (this.busyUntil === undefined) return this.snapshot.busy;
+    if (id < this.busyUntil) return true;
+    this.busyUntil = undefined;
+    return false;
   }
 
   /** A new open: the fields as the opener filled them, or as the run in progress was added (a card
@@ -231,11 +247,14 @@ export class AddMachineStore {
           return;
       }
     } catch {
+      this.busyUntil = undefined;
       this.set({ ...this.snapshot, failed: true, busy: false });
       return;
     }
+    // Busy clears with the first status read issued from here on (this one, or a change event's
+    // that supersedes it), never on a reply that predates the press's effect.
+    if (starts) this.busyUntil = this.request + 1;
     await this.refresh();
-    if (starts) this.set({ ...this.snapshot, busy: false });
   }
 
   /** The button Escape presses (Cancel or Done; the panel's Escape too); with none, the card closes. */
@@ -279,11 +298,14 @@ export class AddMachineStore {
     let parsed: HostDestination | null = null;
     try {
       parsed =
-        text.trim() === "" ? null : await this.client.call<HostDestination | null>(AddMachineOps.parse, { text });
+        text.trim() === ""
+          ? null
+          : await this.client.call<HostDestination | null>(AddMachineOps.parse, { text });
     } catch {
       parsed = null;
     }
-    if (id === this.parseRequest && this.snapshot.destination === text) this.set({ ...this.snapshot, parsed });
+    if (id === this.parseRequest && this.snapshot.destination === text)
+      this.set({ ...this.snapshot, parsed });
   }
 
   /** The plain list first (one local tailscale call), then the ssh probe of the person's own
@@ -301,7 +323,10 @@ export class AddMachineStore {
     };
     const list = await read(false);
     if (id !== this.candidatesRequest) return;
-    this.set({ ...this.snapshot, candidates: list ? { kind: "loaded", list } : { kind: "unavailable" } });
+    this.set({
+      ...this.snapshot,
+      candidates: list ? { kind: "loaded", list } : { kind: "unavailable" },
+    });
     if (!list) return;
     const probed = await read(true);
     if (id !== this.candidatesRequest || !probed) return;
