@@ -311,6 +311,11 @@ pub struct SessionMeta {
     /// because a start did not carry them (`context_inventory::append_owed_rules`): once.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cmux_rules_in_transcript: bool,
+    /// The seq of the turn whose message carried them (`turn_started`): a fork cut before it
+    /// keeps a transcript without them (`context_inventory::fork_keeps_rules`). None for rules
+    /// recorded before this was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmux_rules_seq: Option<u64>,
     /// The account's plan usage limits (`claude_stdio::usage_limits`), newest per window, from
     /// Claude Code's `rate_limit_event`; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]

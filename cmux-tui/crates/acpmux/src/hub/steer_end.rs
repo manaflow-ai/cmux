@@ -148,8 +148,19 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
         let callback = move || {
-            drop(input_handoff);
+            // Tests only: the prompt is written and its `on_sent` has not run yet.
+            #[cfg(test)]
+            if let Some((arrived, release)) =
+                session.sent_seam.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                let _ = arrived.send(());
+                let _ = release.recv();
+            }
+            // What the written prompt records (the rules it carried, `turns.rs`) is recorded
+            // before the handoff is let go: a fork, which takes the handoff for its copy and
+            // cut (`fork.rs`), sees a written prompt with its record.
             on_sent();
+            drop(input_handoff);
         };
         if confirm_written {
             child.request_with_confirmed_hook(method::SESSION_PROMPT, params, fence, callback).await

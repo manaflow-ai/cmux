@@ -22,7 +22,8 @@ When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
 To message another session from a chat, use the `send` tool
-(`mcp__acpmux__send`, or `cmux.acpmux_send` in a cmux_exec script), not
+(`mcp__acpmux__send`, `mcp__cmux__acpmux_send` when cmux lists every tool, or
+`cmux.acpmux_send` in a cmux_exec script), not
 `acpmux send` in Bash ("Messages between agents" below). For the rest, run
 the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute path that runs it, also
 inside cmux. Use it in place of `acpmux` in every command, as in
@@ -165,7 +166,8 @@ output says `queued behind …`.
 ### Messages between agents
 
 In a chat with acpmux's MCP tools, message with the `send` tool
-(`mcp__acpmux__send`; `cmux.acpmux_send` in a cmux_exec script), not
+(`mcp__acpmux__send`; `mcp__cmux__acpmux_send` when cmux lists every tool;
+`cmux.acpmux_send` in a cmux_exec script), not
 `acpmux send` in Bash: one call, or `messages` for several, with `file`,
 `attach`, `class`, `pr`, `notice` and `supersede`, through the same outbox as
 `send --no-wait`. The CLI is for shells and scripts.
@@ -205,6 +207,12 @@ the person's prompt. What the receiver gets depends on who you are to it:
   `bg_output`. The receiver reads `From another agent (LEAD's TYPE
   subagent ID)` and ends its turn with its answer; it does not send it to the
   lead.
+  A subagent's send that goes to the send relay (`sendRelay`: no session here
+  or on a peer) names the subagent to the relay as a label only
+  (`ACPMUX_FROM_SUBAGENT`, `ACPMUX_FROM_LABEL`). Both are unverified claims:
+  nothing on the far side can check them yet. A Codex subagent's relayed send
+  has no label. `ACPMUX_FROM` stays the lead's name, the one reply address the
+  relay has, so the far side's answer reaches the lead, not the subagent.
   The `send` tool (`to: LEAD`) reaches the lead.
   A Codex subagent is named `LEAD's codex subagent THREAD` (its own
   `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
@@ -333,6 +341,21 @@ you: a wider `--mode` is refused. A start from a plain shell with no session
 gets the defaults. Some requests still ask in full access, because the harness
 raises them itself (Claude Code's guard on an `rm` whose target it cannot
 resolve): your policy answers those, and `ask` sends them to a person.
+
+A policy narrower than approve-all holds or the chat does not run: the start
+fails, or a live agent stops, with `policy_unenforceable`. It holds through
+acpmux's own Claude Code gate, a harness mode that asks, OpenCode asked to ask,
+or an ACP agent that says at `initialize` that it asks before every tool call
+(`agentCapabilities._meta.acpmux.asksBeforeTools: true`). acpmux believes that
+claim only from an agent it started from a harness entry of its own config
+(`config.json` or a discovered harness), and only while that entry still has
+the argv and env the agent started with. It does not believe it from a folder
+profile (`.cmux/harnesses/*.toml`, which the repository supplies), from an
+entry changed or removed after the start, or from a fork or moved chat that
+has a copy of another agent's claim. Each claim is in the session events as
+`asks_before_tools_claim`, with `trusted` and, when false, `reason`
+(`not_started_here`, `not_a_config_entry`, `entry_changed`); see them with
+`acpmux session tail NAME`.
 
 ## 6. Other machines
 

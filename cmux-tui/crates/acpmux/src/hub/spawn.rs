@@ -168,17 +168,19 @@ impl Hub {
     /// read here goes with the profile, and only a cold start records it
     /// (`Hub::ensure_child`, `hub/start_gate/preset_bind.rs`): a request that
     /// finds the agent running spawns nothing and records nothing.
+    /// `launch_digest`: the launch of the entry `profile` comes from, as the entry is written
+    /// (`Resolved::launch_digest`; `profile.launch_digest()` when `profile` is the entry itself).
     pub(super) async fn spawn_profile(
         &self,
         session: &Session,
         profile: &HarnessProfile,
+        launch_digest: String,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Spawn, RpcError> {
         // A fork resumes its parent's conversation: it runs in the parent's folder.
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
-        let launch_digest = profile.launch_digest();
         let (profile, preset_digest, account_home) =
             self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
         Ok(Spawn { profile, preset_digest, account_home, opencode, launch_digest })

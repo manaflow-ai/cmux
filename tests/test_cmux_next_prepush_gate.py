@@ -11,8 +11,10 @@ import sys
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 import urllib.request
@@ -287,6 +289,97 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("perf cron", result.stderr)
         self.assertIn("python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'",
                       result.stderr, "must say how to run them")
+
+    def test_the_hook_names_each_phase_time_and_what_to_do_next(self):
+        # 2026-11-09 (push-reliability): pushes took 34-98 s, and an agent could not tell a slow hook from a slow
+        # git or GitHub. The hook prints each phase's time and its total, then says what a failure after it means.
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        times = [line for line in result.stderr.splitlines() if line.startswith("pre-push: hook times: ")]
+        self.assertEqual(len(times), 1, result.stderr)
+        for phase in ("fast-tier", "web-lint", "cmux-next-gate", "base-merge-warning", "total"):
+            self.assertIn(phase, times[0])
+        self.assertIn("a failure after this line is git or GitHub", result.stderr)
+        self.assertIn("Retry a failed push", result.stderr)
+
+        self.kit("Refused", self.with_try("Refused"))
+        self.commit("adds a try!")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        times = [line for line in result.stderr.splitlines() if line.startswith("pre-push: hook times: ")]
+        self.assertEqual(len(times), 1, result.stderr)
+        self.assertIn("cmux-next-gate", times[0], "the phase that refused is named with its time")
+        self.assertIn("pre-push: refused in cmux-next-gate", result.stderr)
+        self.assertIn("do not retry", result.stderr)
+
+    def test_a_ui_font_check_stopped_by_its_read_guard_refuses_the_push(self):
+        # Review of #39838: the check stops ("reads X, which is not in INPUTS") on a read outside INPUTS. The base pass
+        # and the head pass print the same line, so the gate's base/head diff hid it, and the push went through with
+        # the check not run. The gate must refuse with the guard's message.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        installed = snapshot.resolve() / "check-ui-font.py"
+        entry = "def check_tree(tree: Tree) -> list[str]:\n"
+        text = installed.read_text()
+        self.assertIn(entry, text)
+        installed.write_text(text.replace(entry, entry + '    tree.read("README.md")\n', 1))
+        before = self.remote_head()
+        self.write("webviews/src/pages/shared/desktop.css", "/* a webviews change */\n")
+        self.commit("a webviews change")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("README.md, which is not in INPUTS", output)
+
+    def test_the_ui_font_check_runs_only_on_a_push_that_changes_what_it_reads(self):
+        # 2026-11-09 (push-reliability): check-ui-font.py reads every webviews/src and Native/OptChat source at the
+        # base and again at the head (4268 files on feat-cmux-next). On a push that changed one Python file it took
+        # 9.6 s of the gate's 18.8 s, and in this blob:none clone each source blob the clone lacks costs one
+        # on-demand fetch (5-8 s measured, 16 missing at the feat tip). A push that changes none of the files it
+        # reads cannot change what it finds.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        installed = snapshot.resolve() / "check-ui-font.py"
+        runs = self.root / "ui-font-runs"
+        # The marker is in check_tree, so it counts the check's passes, not the gate asking it what it reads.
+        entry = "def check_tree(tree: Tree) -> list[str]:\n"
+        text = installed.read_text()
+        self.assertIn(entry, text)
+        installed.write_text(text.replace(entry, f"{entry}    open({str(runs)!r}, 'a').write('ran\\n')\n", 1))
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("a Swift change only")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(runs.exists(), "the hook ran the UI font check on a push that changes none of its inputs")
+
+        self.write("webviews/src/pages/shared/desktop.css", "/* a webviews change */\n")
+        self.commit("a webviews change")
+
+        result = self.push()
+
+        self.assertTrue(runs.exists(), "a push that changes a file the UI font check reads must run it\n"
+                        + result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)  # the next push holds only its own change
+
+        # A push that changes the check itself runs it too (review of #39765).
+        runs.unlink()
+        self.write("scripts/cmux-next/check-ui-font.py",
+                   (self.repo / "scripts/cmux-next/check-ui-font.py").read_text() + "\n# a change to the check\n")
+        self.commit("a change to the UI font check only")
+
+        result = self.push()
+
+        self.assertTrue(runs.exists(), "a push that changes check-ui-font.py must run it\n"
+                        + result.stdout + result.stderr)
 
     def kit(self, name, text):
         self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
@@ -639,6 +732,45 @@ class PrePushGateTests(unittest.TestCase):
         script.write_text(f'#!/bin/sh\nprintf "%s|%s|%s\\n" "$1" "$2" "$PWD" > {record}\ncat >> {record}\nexit {status}\n')
         script.chmod(0o755)
         return script, record
+
+    def test_a_hook_stopped_by_a_signal_during_a_check_never_says_it_passed(self):
+        # Review of #39787: bash runs the EXIT trap when SIGTERM or SIGINT kills it, but $? there is the last
+        # command's status (0), so a hook stopped in the middle of a check printed "pre-push: passed". The extra
+        # writes the hook's pid into a FIFO (its open blocks until the test reads it, so the hook is inside the check)
+        # and then blocks on a second FIFO that is never written.
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        before = self.remote_head()
+        pid_fifo, never = self.root / "hook-pid", self.root / "never"
+        os.mkfifo(pid_fifo)
+        os.mkfifo(never)
+        extra = self.root / "blocks"
+        extra.write_text(f'#!/bin/sh\necho "$PPID" > {pid_fifo}\nexec cat {never}\n')
+        extra.chmod(0o755)
+        self.git("config", "--add", "cmux.prePushExtra", str(extra))
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum.name):
+                push = subprocess.Popen(["git", "-C", str(self.repo), "push", "origin", "feat-cmux-next"],
+                                        env=self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                got: list[str] = []
+                reader = threading.Thread(target=lambda: got.append(pid_fifo.read_text()), daemon=True)
+                reader.start()
+                reader.join(timeout=120)
+                if not got:
+                    push.kill()
+                    self.fail("the hook never reached the clone-local extra:\n" + "".join(push.communicate()))
+                hook = int(got[0].strip())
+                rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], text=True, capture_output=True).stdout
+                children = [int(p) for p, pp in (r.split() for r in rows.splitlines() if len(r.split()) == 2)
+                            if int(pp) == hook]
+                for pid in (hook, *children):  # as a terminal's Ctrl-C or a process-group kill reaches both
+                    os.kill(pid, signum)
+                out, err = push.communicate(timeout=120)
+
+                self.assertNotEqual(push.returncode, 0, out + err)
+                self.assertEqual(self.remote_head(), before)
+                self.assertNotIn("pre-push: passed", err, "a hook stopped in a check must not say it passed")
+                self.assertIn("pre-push: refused in extras", err)
 
     def test_clone_local_pre_push_extras_run_with_the_pushed_refs_and_a_failure_refuses_the_push(self):
         self.kit("Fresh", NEW_CLEAN)
@@ -1651,6 +1783,114 @@ let package = Package(
         self.assertNotEqual(result.returncode, 0, output)
         self.assertNotIn("reviewed raises of the pushed crash data", output)
         self.assertEqual(self.remote_head(), before)
+
+    # The crash ratchet (scripts/cmux-next/crash_ratchet.py, CI's cmux-next-guards "cmux-next crash ratchet" step)
+    # counts the Rust unwraps of each crate against crash-safety-baseline.json (cmux-tui-core: over a thousand). The
+    # gate's trees hold only the changed files, so their count never reached the row: #39304's first head (60550abe)
+    # added two non-test `.lock().unwrap()`, passed the hook and was refused by CI. A main-based push (no CmuxNext app
+    # entry in its tree) got no crash check at all: check-crash-safety.sh died on the missing file and only warned.
+    CRATE_FILE = "cmux-tui/crates/cmux-tui-core/src/undo_fixture.rs"
+    RUST_CLEAN = """use std::sync::Mutex;
+
+pub struct Snapshot {
+    state: Mutex<u32>,
+}
+
+impl Snapshot {
+    pub fn read(&self) -> u32 {
+        *self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+"""
+    RUST_LOCK_UNWRAP = RUST_CLEAN.replace("unwrap_or_else(std::sync::PoisonError::into_inner)", "unwrap()")
+    RUST_CLEAN_MORE = RUST_CLEAN + """
+pub fn twice(value: u32) -> u32 {
+    value.saturating_mul(2)
+}
+"""
+
+    def main_branch(self):
+        """origin/main as this clone fetched it: cut from feat-cmux-next's base, without the CmuxNext app entry (the
+        feat-only path check-crash-safety.sh reads) and with a clean cmux-tui crate file. Pushed past the hook."""
+        self.git("checkout", "--quiet", "-b", "main", "origin/feat-cmux-next")
+        self.git("rm", "--quiet", f"{PKG}/Sources/CmuxNextApp/CmuxNextApp.swift")
+        self.write(self.CRATE_FILE, self.RUST_CLEAN)
+        self.commit("main: its own tree")
+        self.assertEqual(self.push_ref("main", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "-b", "topic", "--no-track", "origin/main")
+
+    def test_a_main_based_push_that_adds_a_lock_unwrap_is_refused(self):
+        self.main_branch()
+        self.write(self.CRATE_FILE, self.RUST_LOCK_UNWRAP)
+        self.commit("main-based: a lock().unwrap() in production code")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertFalse(self.remote_has("refs/heads/topic"), "the unwrap must not reach origin")
+        self.assertIn("cut from origin/main", output, "control: the push is judged as main-based")
+        self.assertIn("Crash ratchet", output)
+        self.assertIn(f"{self.CRATE_FILE}:", output)
+        self.assertIn("unwrap", output)
+
+    def test_a_main_based_clean_push_passes_with_no_crash_check_warning(self):
+        self.main_branch()
+        self.write(self.CRATE_FILE, self.RUST_CLEAN_MORE)
+        self.commit("main-based: clean Rust")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("cut from origin/main", output, "control: the push is judged as main-based")
+        self.assertNotIn("FileNotFoundError", output)
+        self.assertNotIn("CmuxNextApp.swift", output)
+        self.assertNotIn("did not run cleanly", output)
+
+    def test_a_feat_based_push_that_adds_a_lock_unwrap_is_refused(self):
+        self.write(self.CRATE_FILE, self.RUST_CLEAN)
+        self.commit("base: a clean crate file")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(self.CRATE_FILE, self.RUST_LOCK_UNWRAP)
+        self.commit("a lock().unwrap() in production code")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the unwrap must not reach origin")
+        self.assertIn("Crash ratchet", output)
+        self.assertIn(f"{self.CRATE_FILE}:", output)
+        self.assertIn("unwrap", output)
+
+    def test_a_test_only_lock_unwrap_passes(self):
+        # The ratchet skips test code: an inline #[cfg(test)] module, and a file a `#[cfg(test)] mod name;` line in
+        # an unchanged file declares (the gate's trees need that declaring file to tell).
+        self.write("cmux-tui/crates/cmux-tui-core/src/lib.rs", "#[cfg(test)]\nmod test_support;\n")
+        self.commit("base: a test-only module declaration")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write("cmux-tui/crates/cmux-tui-core/src/test_support.rs",
+                   self.RUST_LOCK_UNWRAP.replace("pub struct", "pub(crate) struct"))
+        self.write(self.CRATE_FILE, self.RUST_CLEAN + """
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn reads() {
+        let state = std::sync::Mutex::new(1);
+        assert_eq!(*state.lock().unwrap(), 1);
+    }
+}
+""")
+        self.commit("test-only lock().unwrap()")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     # A ratchet row a push lowers or deletes with the sites it removes (lead 2026-11-03, #33091): the installed
     # baseline cannot know the push lowered it, so it read the fix as "fewer than the baseline" and refused it. Each

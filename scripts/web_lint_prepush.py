@@ -107,6 +107,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -137,6 +138,11 @@ MAX_SCRIPT_DEPTH = 8
 HEAVY_NICE = 10
 HEAVY_GOMEMLIMIT = "6GiB"
 HEAVY_NODE_HEAP_MB = 4096
+# The type-aware tools: `vp lint` and `vp check` (tsgolint, #27177). Started together with the other vp checks on a
+# 4 vCPU CI runner, the web lint took 185 to 698 s over four fast-gates dispatches and once outgrew the job's 15 min;
+# with them sharing heavy_slots() it took 99.9 and 135.8 s (#39782). The runner was not short of memory or CPU then
+# (14.6 GB free, load under 2): the tools sleep while they wait on each other, so fewer at once wait less.
+WEIGHTY = re.compile(r"(?:^|&&|;|\|\|)\s*vp\s+(?:lint|check)\b")
 
 
 @dataclass(frozen=True)
@@ -1572,6 +1578,47 @@ def refuse_escapes(tree: Path, plan: Plan, mode: str, read=None) -> bool:
     return bool(plan.script_packages or plan.script_pieces or plan.trusted_pieces or plan.eslint_files)
 
 
+def weighty(piece: str, scripts: dict, seen: tuple[str, ...] = ()) -> bool:
+    """PIECE runs a WEIGHTY tool, itself or through a `bun run NAME` script of SCRIPTS it names."""
+    if WEIGHTY.search(piece):
+        return True
+    for name in re.findall(r"\bbun run ([\w:.-]+)", piece):
+        body = scripts.get(name)
+        if name not in seen and isinstance(body, str) and weighty(body, scripts, (*seen, name)):
+            return True
+    return False
+
+
+def heavy_slots() -> int | None:
+    """How many WEIGHTY checks (and ESLint runs) run at once: in CI one per two cores this process may use, at least
+    one; elsewhere no bound (capped_env and nice keep them off a person's machine)."""
+    if not in_ci():
+        return None
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 2)
+    return max(1, cores // 2)
+
+
+def run_checks(repo: Path, plan: Plan, jobs: list[tuple]) -> list[Result]:
+    """Every check job, at most 8 at once and the weighty ones at most heavy_slots() at once, started first; the
+    results in JOBS' order."""
+    slots = heavy_slots()
+    scripts = {package.directory: package_scripts(repo, package) for package in plan.script_packages}
+    weighs = [slots is not None and (job[0] in plan.eslint_files or isinstance(job[1], str)
+                                     and weighty(job[1], scripts.get(job[0], {}))) for job in jobs]
+    gate = threading.BoundedSemaphore(slots) if slots else None
+
+    def check(index: int) -> Result:
+        if not weighs[index]:
+            return run(*jobs[index])
+        with gate:  # a check's phase starts once it holds a slot, so a queued one is never named as running
+            return run(*jobs[index])
+
+    order = sorted(range(len(jobs)), key=lambda index: not weighs[index])
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
+        futures = {index: pool.submit(check, index) for index in order}
+        return [futures[index].result() for index in range(len(jobs))]
+
+
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
              mode: str = "web-lint") -> list[Result]:
     # With heavy checks off: no install or build (the bindings build is `npm ci` plus tsc), only the allowlist,
@@ -1590,8 +1637,7 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool 
             return installs
     for job in fixes:
         run(*job)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
-        return list(pool.map(lambda job: run(*job), jobs))
+    return run_checks(repo, plan, jobs)
 
 
 def in_place_cache(repo: Path, head: str | None) -> bool:
