@@ -8,7 +8,7 @@ public import CmuxNextWakeups
 /// the open tabs.
 ///
 /// ```swift
-/// if launch, shownChats.holds({ AgentPaneShownChatsWait.loading(agentTabs.views.values) }, then: armWarmTimer) { return }
+/// if launch, shownChats.holds({ AgentPaneShownChatsWait.loading(services.agentTabs.views.values) }, then: armWarmTimer) { return }
 /// ```
 @MainActor
 public final class AgentPaneShownChatsWait {
@@ -18,6 +18,8 @@ public final class AgentPaneShownChatsWait {
     /// The longest a page that never reports its paint holds the spare.
     public static let deadline: Duration = .seconds(3)
 
+    /// Stands in for the pages `holds` is given (tests).
+    public var standIn: (() -> [WhenPainted])?
     private var pending = 0
     private var checked = false
     private let timer: DemandTimer
@@ -32,7 +34,7 @@ public final class AgentPaneShownChatsWait {
         if pending > 0 { return true }
         guard !checked else { return false }
         checked = true
-        let pages = loading()
+        let pages = standIn?() ?? loading()
         pending = pages.count
         var asking = true
         for whenPainted in pages {

@@ -54,7 +54,7 @@ struct NewTabSpareShownChatsTests {
         let pool = NewTabSparePool(services: services, memoryPressure: services.memoryPressure)
         // Each stand-in page keeps the pool's `whenPainted` body; `paint[i]` is page i drawing.
         var waiters: [() -> Void] = []
-        pool.shownChatsLoading = { _ in (0..<loading).map { _ in { waiters.append($0) } } }
+        pool.shownChats.standIn = { (0..<loading).map { _ in { waiters.append($0) } } }
         let paint: [() -> Void] = (0..<loading).map { index in { if index < waiters.count { waiters[index]() } } }
         try await body(pool, window, paint)
         pool.dropAll()

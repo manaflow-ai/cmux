@@ -345,10 +345,7 @@ final class NewTabSparePool {
         }
     }
 
-    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
-        let (seconds, attoseconds) = (ContinuousClock.now - start).components
-        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
-    }
+    static func milliseconds(since start: ContinuousClock.Instant) -> Double { AgentPaneSpareOpening.milliseconds(since: start) }
 
     // MARK: Warming
 
@@ -375,15 +372,11 @@ final class NewTabSparePool {
     /// types (a cold launch's first Cmd-N then finds a page that is loading or loaded, cx-ec99).
     private var warmedOnce = false
     let shownChats = AgentPaneShownChatsWait()
-    /// The restored chat pages on screen not drawn yet; tests stand in pages.
-    var shownChatsLoading: @MainActor (AppServices) -> [AgentPaneShownChatsWait.WhenPainted] = { AgentPaneShownChatsWait.loading($0.agentTabs.views.values) }
 
     private func armWarmTimer() {
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
-        // The launch spare's page loads after the restored chats on screen drew (AgentPaneShownChatsWait).
-        if launch, shownChats.holds({ shownChatsLoading(services) }, then: { [weak self] in self?.armWarmTimer() }) { return }
         warmedOnce = warmedOnce || launch
         warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }

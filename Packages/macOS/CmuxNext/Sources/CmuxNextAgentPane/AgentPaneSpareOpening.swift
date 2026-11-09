@@ -14,4 +14,10 @@ public struct AgentPaneSpareOpening: Sendable {
     public init(spare: Bool, crossWindow: Bool, milliseconds: Double, refit: Bool = false) {
         (self.spare, self.crossWindow, self.milliseconds, self.refit) = (spare, crossWindow, milliseconds, refit)
     }
+
+    /// Milliseconds from `start` to now, as an opening records them.
+    public static func milliseconds(since start: ContinuousClock.Instant) -> Double {
+        let (seconds, attoseconds) = (ContinuousClock.now - start).components
+        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
+    }
 }
