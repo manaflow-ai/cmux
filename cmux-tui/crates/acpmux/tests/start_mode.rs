@@ -1284,9 +1284,12 @@ async fn the_policy_gate_round_trip_under_approve_all_is_measured() {
     assert_eq!(gate.len(), 60);
     let (g50, g95, gmax) = spread(&mut gate);
     let (s50, s95, _) = spread(&mut sync);
-    eprintln!(
-        "policy gate round trip under approve-all, n=60: p50 {g50:.2} ms, p95 {g95:.2} ms, max {gmax:.2} ms (backend-only hook: p50 {s50:.2} ms, p95 {s95:.2} ms)"
+    // Straight to the process's stderr, past the test harness's capture: the number is the
+    // record.
+    let line = format!(
+        "policy gate round trip under approve-all, n=60: p50 {g50:.2} ms, p95 {g95:.2} ms, max {gmax:.2} ms (backend-only hook: p50 {s50:.2} ms, p95 {s95:.2} ms)\n"
     );
+    let _ = std::io::Write::write_all(&mut std::io::stderr(), line.as_bytes());
     assert!(g50 < 500.0, "p50 {g50} ms");
     let _ = std::fs::remove_dir_all(&dir);
 }
