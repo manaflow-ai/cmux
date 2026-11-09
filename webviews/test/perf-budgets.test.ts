@@ -240,7 +240,10 @@ describe("dev server plugin", () => {
   test("serve only, the page's first script", () => {
     const plugin = perfBudgetsDevEntry();
     expect(plugin.apply).toBe("serve");
-    (plugin.configResolved as (config: { root: string; base: string }) => void)({ root: `${import.meta.dir}/..`, base: "/" });
+    (plugin.configResolved as (config: { root: string; base: string }) => void)({
+      root: `${import.meta.dir}/..`,
+      base: "/",
+    });
     const tags = (plugin.transformIndexHtml as unknown as () => unknown[])();
     expect(tags).toEqual([
       { tag: "script", attrs: { type: "module", src: "/src/devkit/perfBudgets.dev.ts" }, injectTo: "head-prepend" },
