@@ -424,6 +424,18 @@ def record(run, gesture, label, content="focused", static=True):
     row = ssm.transition(strip, trace, opts.strip_tolerance, static=static)
     if debug:
         row["blank_debug"] = debug
+    try:
+        samples = [x for x in (trace or {}).get("samples") or [] if isinstance(x.get("t"), (int, float))]
+        movers = ssm.trace_movers(samples)
+        t0 = (trace or {}).get("t0_s")
+        sent = strip.get("sent_host_s") if isinstance(strip, dict) else None
+        row["tick_debug"] = {"t0_s": t0, "sent_host_s": sent, "ticks": [x["t"] for x in samples],
+                             "frames": [{k: f.get(k) for k in ("ms", "blank", "outside_vs_before", "content_vs_before",
+                                                                "outside_vs_final", "content_vs_final")} for f in frames],
+                             "movers": {k: [[t, list(v)] for t, v in pts] for k, pts in movers.items()
+                                        if len(set(tuple(v) for _, v in pts)) > 1}}
+    except Exception as error:  # diag only
+        row["tick_debug"] = {"error": str(error)}
     return row
 
 
