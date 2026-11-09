@@ -281,6 +281,9 @@ pub(crate) fn harness_command(
     cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
+    // The subagent mark is the daemon's to give (a workflow runner a subagent started,
+    // `hub/workflow_runs.rs`), never a profile's: an agent's MCP servers would send as it.
+    cmd.env_remove(crate::cli::sender::SUBAGENT_ENV);
     // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));

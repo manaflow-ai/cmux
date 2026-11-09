@@ -317,7 +317,8 @@ pub async fn run() -> Result<()> {
                 // runner a subagent started marks it (`cli::sender::SUBAGENT_ENV`, set by the
                 // daemon in `hub/workflow_runs.rs`), as the Bash hook marks its commands. An
                 // agent's own server never has it: the daemon removes every `ACPMUX_*` variable
-                // from a harness's env (`agent/command.rs`), so only the runner's server can.
+                // of its own env from a harness's, and the mark from the harness profile's env
+                // too (`agent/command.rs`), so only the runner's server can.
                 let sub = crate::subagent_call::of_call(&crate::config::home(), &session, &params)
                     .or_else(|| {
                         crate::cli::sender::subagent_of_this_process().map(|s| s.to_value())
