@@ -32,9 +32,15 @@ def status(base, state="success", at="2026-10-21T13:00:00Z"):
 
 
 class FakeApi:
-    def __init__(self, statuses, tips=(TIP,), compares=None, check_paths=CHECK_PATHS, run_ids=True):
+    def __init__(self, statuses, tips=(TIP,), compares=None, check_paths=CHECK_PATHS, run_ids=True,
+                 mergeables=("MERGEABLE",)):
         self.statuses, self.tips, self.compares, self.text = list(statuses), list(tips), compares or {}, check_paths
-        self.run_ids = run_ids
+        self.run_ids, self.mergeables, self.mergeable_reads = run_ids, list(mergeables), 0
+
+    def mergeable(self, number):
+        """GitHub's mergeable state at the 1st, 2nd... read (the last one repeats)."""
+        self.mergeable_reads += 1
+        return self.mergeables[min(self.mergeable_reads, len(self.mergeables)) - 1]
         self.dispatched, self.reads = [], 0
 
     def check_paths(self, branch):
@@ -370,6 +376,39 @@ class CheckPathGate(unittest.TestCase):
                                                   "the current tip"):
             run(api)
         self.assertEqual(len(api.dispatched), 1)
+
+    # 2026-11-09: the #39027 try dispatched the fast gates, then gh pr merge refused for a conflict.
+    def test_a_conflicting_pr_dispatches_nothing(self):
+        landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
+        api = FakeApi([status(OLD)], compares=landed, mergeables=("CONFLICTING",))
+        with self.assertRaisesRegex(gate.Refused, "conflicting: rebase"):
+            run(api)
+        self.assertEqual(api.dispatched, [])
+
+    def test_a_pr_that_turns_conflicting_before_a_rerun_is_not_rerun(self):
+        api = MovingTipApi(moves=1)
+        api.mergeables = ["MERGEABLE", "CONFLICTING"]
+        with self.assertRaisesRegex(gate.Refused, "conflicting: rebase"):
+            run(api)
+        self.assertEqual(len(api.dispatched), 1)
+
+    def test_an_unknown_mergeable_state_is_read_again_a_bounded_number_of_times(self):
+        landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
+        api = FakeApi([status(OLD), status(TIP, at="2026-10-21T14:12:00Z")], compares=landed,
+                      mergeables=("UNKNOWN", "UNKNOWN", "MERGEABLE"))
+        run(api)
+        self.assertEqual(api.mergeable_reads, 3)
+        self.assertEqual(len(api.dispatched), 1)
+        api = FakeApi([status(OLD), status(TIP, at="2026-10-21T14:12:00Z")], compares=landed,
+                      mergeables=("UNKNOWN",))
+        (checked, _), err = run(api)
+        self.assertEqual(api.mergeable_reads, 3)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertIn("still computing", err)
+        api = FakeApi([status(OLD)], compares=landed, mergeables=("UNKNOWN", "CONFLICTING"))
+        with self.assertRaisesRegex(gate.Refused, "conflicting: rebase"):
+            run(api)
+        self.assertEqual(api.dispatched, [])
 
     def test_check_only_dispatches_nothing(self):
         landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}

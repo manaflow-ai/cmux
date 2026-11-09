@@ -398,7 +398,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None, fast_gates_runs=None, tip_shas=None, tip_reads=None, dispatch_run_ids=True, status_reads=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None, fast_gates_runs=None, tip_shas=None, tip_reads=None, dispatch_run_ids=True, status_reads=None, mergeable_reads=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -496,11 +496,20 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -qE 'actions/runs/[0-9]+( |$)'; then "
             "printf '%s\\n' '{\"status\": \"in_progress\", \"conclusion\": null}'; exit 0; fi\n"
         ) if check_paths is not None else ""
+        # mergeable_reads: the REST pull request's (mergeable, mergeable_state) at the 1st, 2nd... read of it (the
+        # last one repeats); by default it can merge.
+        mergeable_answers = [{"mergeable": m, "mergeable_state": state} for m, state in (mergeable_reads or [(True, "clean")])]
+        mergeable_route = (
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42 .*mergeable'; then "
+            "printf '%s\\n' read >> \"$MERGE_MARKER.mergeablereads\"; r=$(grep -c '^read$' \"$MERGE_MARKER.mergeablereads\"); "
+            "case \"$r\" in "
+            + "".join(f"{index + 1}) printf '%s\\n' " + shlex.quote(json.dumps(answer)) + ";; " for index, answer in enumerate(mergeable_answers))
+            + "*) printf '%s\\n' " + shlex.quote(json.dumps(mergeable_answers[-1])) + ";; esac; exit 0; fi\n")
         rate_limit_route = ("if [ \"$1 $2\" = 'api rate_limit' ]; then printf '%s\\n' "
                             + shlex.quote(json.dumps({"resources": rate_limit})) + "; exit 0; fi\n") if rate_limit else ""
         gh.write_text(
             "#!/bin/sh\n"
-            + rate_limit_route +
+            + rate_limit_route + mergeable_route +
             "if [ \"$1 $2\" = 'pr view' ] && printf '%s' \"$*\" | grep -q statusCheckRollup; then "
             "printf '%s\\n' " + rollup_payload + "; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
@@ -1089,6 +1098,67 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertEqual(events.read_text().splitlines(), ["dispatch"])
             self.assertIn("final check-path gate", result.stderr)
+
+    # 2026-11-09: the #39027 try spent 4m39s and dispatched the fast gates, then gh pr merge refused with "the
+    # merge commit cannot be cleanly created". A pull request GitHub reports as conflicting refuses first.
+    def test_a_conflicting_pr_refuses_at_once_with_no_dispatch(self):
+        for fields in ({"mergeable": "CONFLICTING", "mergeStateStatus": "DIRTY"}, {"mergeable": "MERGEABLE", "mergeStateStatus": "DIRTY"}):
+            with self.subTest(fields), tempfile.TemporaryDirectory() as directory:
+                marker, events = Path(directory) / "merged", Path(directory) / "events"
+                result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                         event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                         fast_gates_after=(MERGED_SHA, "success"), tip_sha=MERGED_SHA,
+                                         compare=self.LANDED, pr_fields=fields)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertFalse(events.exists() and events.read_text().strip(), events.exists() and events.read_text())
+                self.assertIn("conflicting: rebase", result.stderr)
+
+    def test_a_pr_that_turns_conflicting_before_a_rerun_refuses_with_no_rerun(self):
+        newer = "e" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_runs=[(MERGED_SHA, "success"), (newer, "success")],
+                                     tip_shas=[MERGED_SHA, newer], compare=self.LANDED,
+                                     pr_fields={"mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"},
+                                     mergeable_reads=[(True, "clean"), (False, "dirty")])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch"])
+            self.assertIn("conflicting: rebase", result.stderr)
+
+    def test_an_unknown_mergeable_state_is_read_again_and_then_decides(self):
+        # GitHub computes it lazily: UNKNOWN is read again a bounded number of times; a conflict then refuses.
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "success"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED,
+                                     pr_fields={"mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN"},
+                                     mergeable_reads=[(None, "unknown"), (False, "dirty")])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertFalse(events.exists() and events.read_text().strip())
+            self.assertIn("conflicting: rebase", result.stderr)
+
+    def test_a_mergeable_state_still_unknown_after_the_reads_goes_on(self):
+        # UNKNOWN is no evidence of a conflict: after the bounded reads the gate goes on, and gh pr merge still
+        # refuses a real conflict.
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "success"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED,
+                                     pr_fields={"mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN"},
+                                     mergeable_reads=[(None, "unknown")])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(events.read_text().splitlines(), ["dispatch", "merge"])
+            self.assertIn("still computing", result.stderr)
+            self.assertEqual((Path(directory) / "merged.mergeablereads").read_text().count("read"), 6)
 
     def test_override_waives_the_check_path_gates_red(self):
         with tempfile.TemporaryDirectory() as directory:
