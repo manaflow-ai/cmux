@@ -144,8 +144,12 @@ Claude Code 2.1 reads under any config directory and beside any
     request). A live hook session other than its own means another agent's
     Claude: it hands over nothing and writes no claim. When the read fails
     or times out, the hook reports as before, so the terminal's own agent is
-    never silenced by a daemon that does not answer in time; that start
-    records no process, so later hooks read the row again.
+    never silenced by a daemon that does not answer in time. Only a read
+    that shows no other live session (at `SessionStart`), or this session as
+    the terminal's (at any check), records this process. A start whose read
+    failed records nothing; its next check that reads the row (a
+    `UserPromptSubmit` reads only while messages are queued) records it.
+    Until then an in-process `/resume` of it counts as another agent's.
 
   This relies on each Claude Code process setting its own `CLAUDE_PID` for
   its hooks (2.1.319 does). A nested Claude that passes on its parent's

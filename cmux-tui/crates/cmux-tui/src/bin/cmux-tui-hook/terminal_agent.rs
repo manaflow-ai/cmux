@@ -13,8 +13,9 @@
 //! - Else one `agent.list` read of the terminal: a live hook session other
 //!   than this one means this Claude is another agent's. A read that fails or
 //!   times out means it is the terminal's agent, so the agent is never
-//!   silenced by a daemon that does not answer in time; such a start records
-//!   no process, so the next hook reads again.
+//!   silenced by a daemon that does not answer in time. Only a read that
+//!   shows this session as the terminal's (or no live session) records this
+//!   process, at its start or at a later prompt.
 //!
 //! Limits (docs/agent-hooks.md): a Claude that ended without `SessionEnd`
 //! (a crash, `kill -9`) leaves a live row, and the next Claude started by
@@ -24,7 +25,7 @@
 //! first takes the row the same way.
 
 use cmux_tui_core::diagnostics::{
-    HOOK_SPOOL_DIR, hook_spool_dir, open_spool_file, queue_prefix, spool_name_part,
+    existing_hook_spool_dir, hook_spool_dir, open_spool_file, queue_prefix, spool_name_part,
 };
 
 use super::*;
@@ -53,14 +54,15 @@ pub(super) struct Run<'a> {
 
 impl Run<'_> {
     /// Whether this Claude is not the terminal's agent but one it started.
+    /// A read that shows this session as the terminal's records this process.
     pub(super) fn is_nested(&self) -> bool {
         self.check(false, || self.read_roster())
     }
 
     /// [`Self::is_nested`] for the journal hook's `SessionStart`. A Claude
-    /// found to be the terminal's agent is recorded as it; a start beside a
-    /// row that a crash may have left is counted (the session-context hook
-    /// runs beside it and does neither).
+    /// that a read shows to be the terminal's agent is recorded as it; a
+    /// start beside a row that a crash may have left is counted (the
+    /// session-context hook runs beside it and does neither).
     pub(super) fn start_is_nested(&self) -> bool {
         self.check(true, || self.read_roster())
     }
@@ -68,7 +70,7 @@ impl Run<'_> {
     fn check(&self, at_start: bool, read: impl FnOnce() -> anyhow::Result<Value>) -> bool {
         let recorded = self.terminal.and_then(|terminal| recorded_pid(self.socket, terminal));
         let nested = nested_in(self, recorded.as_deref(), read, now_ms());
-        if at_start && nested == Nested::No {
+        if nested == Nested::Own || (at_start && nested == Nested::Free) {
             self.record_agent();
         }
         if at_start && nested == Nested::StaleRow {
@@ -103,8 +105,12 @@ impl Run<'_> {
 /// The verdict of [`nested_in`].
 #[derive(Debug, PartialEq, Eq)]
 enum Nested {
-    /// The terminal's agent.
+    /// The terminal's agent: its recorded process, or a clear without one.
     No,
+    /// The roster shows this session as the terminal's live one.
+    Own,
+    /// The roster shows no live session of another Claude.
+    Free,
     /// Reported as the agent because the roster read failed; not recorded.
     Unread,
     Yes,
@@ -145,7 +151,16 @@ fn nested_in(
             && text(row, "state").as_deref() != Some("done")
             && live.is_some_and(|live| live != session)
     });
-    let Some(other) = other else { return Nested::No };
+    let Some(other) = other else {
+        let own = rows.as_array().into_iter().flatten().any(|row| {
+            let live = row.get("extra").and_then(|extra| text(extra, "agent_session_id"));
+            text(row, "terminal_id").as_deref() == Some(terminal)
+                && text(row, "source").as_deref() == Some("hook")
+                && text(row, "state").as_deref() != Some("done")
+                && live.as_deref() == Some(session)
+        });
+        return if own { Nested::Own } else { Nested::Free };
+    };
     let updated = other.get("updated_at_ms");
     let quiet = updated
         .and_then(Value::as_u64)
@@ -168,7 +183,7 @@ fn pid_file(socket: &Path, terminal: &str) -> io::Result<PathBuf> {
 /// opens no link.
 fn recorded_pid(socket: &Path, terminal: &str) -> Option<String> {
     let name = format!("{}.{}.claude-pid", queue_prefix(socket), spool_name_part(terminal));
-    let path = socket.parent()?.join(HOOK_SPOOL_DIR).join(name);
+    let path = existing_hook_spool_dir(socket).ok()??.join(name);
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -229,22 +244,22 @@ mod tests {
         assert_eq!(nested_in(&nested, Some("42"), rows(outer(NOW)), NOW), Nested::Yes);
         // The agent itself, and an agent row of another terminal.
         let agent = run("outer-1", None, Some("42"));
-        assert_eq!(nested_in(&agent, None, rows(outer(NOW)), NOW), Nested::No);
+        assert_eq!(nested_in(&agent, None, rows(outer(NOW)), NOW), Nested::Own);
         // Compaction keeps the session: the row tells the agent from a nested one.
         let compacted = run("outer-1", Some("compact"), Some("42"));
-        assert_eq!(nested_in(&compacted, None, rows(outer(NOW)), NOW), Nested::No);
+        assert_eq!(nested_in(&compacted, None, rows(outer(NOW)), NOW), Nested::Own);
         let nested_compacted = run("nested-2", Some("compact"), Some("51"));
         assert_eq!(nested_in(&nested_compacted, Some("42"), rows(outer(NOW)), NOW), Nested::Yes);
         let elsewhere = json!([{"terminal_id": "term_b", "source": "hook", "state": "idle",
             "extra": {"agent_session_id": "outer-1"}}]);
-        assert_eq!(nested_in(&nested, Some("42"), rows(elsewhere), NOW), Nested::No);
+        assert_eq!(nested_in(&nested, Some("42"), rows(elsewhere), NOW), Nested::Free);
         // No agent yet, an ended one, or one that no hook reports.
-        assert_eq!(nested_in(&nested, None, rows(json!([])), NOW), Nested::No);
+        assert_eq!(nested_in(&nested, None, rows(json!([])), NOW), Nested::Free);
         let ended = json!([{"terminal_id": "term_a", "source": "hook", "state": "done",
             "extra": {"agent_session_id": "outer-1"}}]);
-        assert_eq!(nested_in(&nested, None, rows(ended), NOW), Nested::No);
+        assert_eq!(nested_in(&nested, None, rows(ended), NOW), Nested::Free);
         let screen = json!([{"terminal_id": "term_a", "source": "detected", "state": "idle"}]);
-        assert_eq!(nested_in(&nested, None, rows(screen), NOW), Nested::No);
+        assert_eq!(nested_in(&nested, None, rows(screen), NOW), Nested::Free);
         // A read that fails or times out keeps the hook reporting.
         let failed = || Err(anyhow::anyhow!("timed out"));
         let unread = nested_in(&nested, Some("42"), failed, NOW);
@@ -318,11 +333,7 @@ mod tests {
         assert_eq!(recorded_pid(&socket, "term_a"), None);
         // A later prompt whose read shows its own session records it.
         assert!(!at(&socket, "outer-1", None, "42").check(false, rows(outer(NOW))));
-        assert_eq!(
-            recorded_pid(&socket, "term_a").as_deref(),
-            Some("42"),
-            "a prompt whose read shows its own session must record its process"
-        );
+        assert_eq!(recorded_pid(&socket, "term_a").as_deref(), Some("42"));
         assert_eq!(recorded_pid(&socket, "term_b"), None);
         // Then an in-process `/resume` (the old session still live) needs no read.
         assert!(!at(&socket, "older-0", Some("resume"), "42").check(true, unread));

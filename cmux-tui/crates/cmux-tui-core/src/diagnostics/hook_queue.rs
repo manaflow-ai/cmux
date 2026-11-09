@@ -126,7 +126,7 @@ pub fn hook_spool_dir(socket: &Path) -> io::Result<PathBuf> {
 /// private (as [`hook_spool_dir`] requires); `None` when there is none. It
 /// makes nothing: reset-state and server-stats read and delete only in a
 /// directory that this user owns.
-fn existing_hook_spool_dir(socket: &Path) -> io::Result<Option<PathBuf>> {
+pub fn existing_hook_spool_dir(socket: &Path) -> io::Result<Option<PathBuf>> {
     if require_file_identity().is_err() {
         return Ok(None);
     }
