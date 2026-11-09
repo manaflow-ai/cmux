@@ -744,8 +744,9 @@ button.acpmux-attachment-pasted-open:hover {
   flex: 1;
   flex-direction: column;
   justify-content: center;
-  /* Never narrower than the label's widest part: the name always shows whole. */
-  min-width: min-content;
+  /* As narrow as the chip: its rows drop their trailing parts whole instead of widening the body
+     past the face, which would clip a part mid-word. */
+  min-width: 0;
 }
 /* The paste's first words on one line, fading out at the chip's end. `contain` keeps them from
    widening the chip: the label alone sets its width. */
@@ -769,7 +770,7 @@ button.acpmux-attachment-pasted-open:hover {
   flex: none;
   flex-wrap: wrap;
   height: var(--text-caption--line-height);
-  min-width: min-content;
+  min-width: 0;
   overflow: hidden;
   line-height: var(--text-caption--line-height);
   text-overflow: clip;
@@ -778,6 +779,14 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-paste-chip__part {
   flex: none;
   white-space: pre;
+}
+/* The first part always stays: only when it alone is wider than the chip does it end in an
+   ellipsis, never a silent cut. The parts after it wrap to the hidden line, whole. */
+.acpmux-paste-chip__part:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .acpmux-paste-chip__part[data-part="name"] {
   color: var(--agent-text);
@@ -877,14 +886,18 @@ button.acpmux-attachment-pasted-open:hover {
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
 
-/* The other opening, compared in the gallery (design `expand`): the chip grows a panel under its
-   row with the text and the actions, the row and the panel one box that eases open together. */
-.acpmux-paste-chip[data-design="expand"] {
+/* Opening in place (ContentChip.tsx `panel`: an inspector pick, and a paste's `expand` design): the
+   chip grows a panel under its row with the content and its actions, the row and the panel one box
+   that eases open together on the fold's token; Collapse (or Escape) eases it shut the same way. The
+   content stays drawn while it folds, so it shrinks a full panel, never pops empty. */
+.acpmux-paste-chip[data-opening="panel"] {
   flex-direction: column;
   height: auto;
 }
-.acpmux-paste-chip[data-design="expand"] > .acpmux-paste-chip__face {
+.acpmux-paste-chip[data-opening="panel"] > .acpmux-paste-chip__face {
   flex: none;
+  /* As wide as the chip, never its content's min-content (a host may center its items). */
+  align-self: stretch;
   height: var(--acpmux-attach-height, calc(var(--cmux-control-height, 24px) * 2));
 }
 .acpmux-paste-chip__panel {
@@ -900,6 +913,7 @@ button.acpmux-attachment-pasted-open:hover {
   grid-template-rows: 1fr;
 }
 .acpmux-paste-chip__panel-inner {
+  position: relative;
   display: block;
   min-height: 0;
   overflow: hidden;
@@ -907,12 +921,148 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-paste-chip__panel .acpmux-paste-view__text {
   max-height: min(200px, 30vh);
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  white-space: pre-wrap;
+  /* The opened content is for reading and copying, in the strip too (a press there never drags the
+     chip: stripReorder.ts), whatever the chip's host leaves selectable. */
+  -webkit-user-select: text;
+  user-select: text;
 }
 .acpmux-paste-chip__panel .acpmux-paste-view__actions {
-  padding: var(--ds-space-2) var(--ds-space-3);
+  align-items: center;
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
 }
-:root[data-cmux-motion="off"] .acpmux-paste-chip__panel {
+:root[data-cmux-motion="off"] .acpmux-paste-chip__panel,
+:root[data-cmux-motion="reduced"] .acpmux-paste-chip__panel {
   transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-paste-chip__panel,
+  .acpmux-paste-chip__chevron,
+  .acpmux-chip-collapse__glyph {
+    transition: none;
+  }
+}
+
+/* The fold-back control (ContentChip.tsx): a quiet text button, an up chevron before "Collapse",
+   tinted only under the pointer or focus. `footer` (ships) ends the bar under the content; `corner`
+   floats in the content's top-right corner on the chip's own fill, the text scrolling under it. */
+.acpmux-chip-collapse {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--cmux-control-height, 24px);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: var(--text-detail--line-height);
+  white-space: nowrap;
+}
+.acpmux-chip-collapse:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
+}
+.acpmux-chip-collapse:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+  color: var(--agent-text);
+}
+.acpmux-chip-collapse__glyph {
+  rotate: 180deg;
+}
+/* Alone in the bar (a pick) it ends the bar; before a paste's actions it leads it, the actions at
+   the end, so the three never wrap into a second row at the chip's width. */
+.acpmux-chip-collapse[data-place="footer"]:only-child {
+  margin-inline-start: auto;
+}
+.acpmux-chip-collapse[data-place="footer"]:not(:only-child) {
+  margin-inline-end: auto;
+}
+.acpmux-chip-collapse[data-place="corner"] {
+  position: absolute;
+  top: var(--ds-space-1);
+  right: var(--ds-space-1);
+  height: 20px;
+  border-radius: var(--ds-radius-md);
+  background: var(--agent-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+}
+.acpmux-paste-chip[data-chip-kind] .acpmux-paste-chip__panel:has(.acpmux-chip-collapse[data-place="corner"]) .acpmux-paste-view__text {
+  padding-top: calc(var(--ds-space-3) + 12px);
+}
+/* `chevron`: the face's own chevron, turning over as the chip opens. */
+.acpmux-paste-chip__chevron {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--agent-muted);
+  transition: rotate var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+}
+.acpmux-paste-chip[data-open] .acpmux-paste-chip__chevron {
+  rotate: 180deg;
+}
+
+/* An inspector pick (UIPickChip.tsx): the element and its text over the kind and selector. Never
+   narrower than a readable panel, so its opened report wraps at a useful width; the closed row is
+   that width too, so opening changes only its height. */
+.acpmux-paste-chip[data-chip-kind="ui"] {
+  min-width: min(240px, 100%);
+}
+.acpmux-paste-chip__body > .acpmux-paste-chip__title {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  height: var(--text-detail--line-height);
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--agent-text) 88%, transparent);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: var(--text-detail--line-height);
+}
+.acpmux-paste-chip__title > .acpmux-paste-chip__part[data-part="name"] {
+  color: var(--agent-text);
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-paste-chip[data-chip-kind="ui"] .acpmux-paste-chip__label > .acpmux-paste-chip__part[data-part="kind"] {
+  color: var(--agent-muted);
+}
+
+/* A pick in a sent message (conversation/SentUIPick.tsx): the composer's chip in the message's one
+   body, its face as tall as the prompt's (two control rows), opening in place as there. */
+.cv-user__chip.acpmux-paste-chip {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(360px, 100%);
+  margin: var(--ds-space-1) 0;
+  overflow: hidden;
+  border-radius: var(--ds-radius-lg);
+  background: var(--agent-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+  color: var(--agent-muted);
+  white-space: normal;
+  text-align: start;
+}
+.cv-user__chip.acpmux-paste-chip > .acpmux-paste-chip__face {
+  height: calc(var(--cmux-control-height, 24px) * 2);
+}
+.cv-user__chip-open {
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+}
+.cv-user__chip-open:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
 }
 
 /* Dragging a staged chip moves it along the strip (composer/stripReorder.ts): its slot draws

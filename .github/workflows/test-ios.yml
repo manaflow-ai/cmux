@@ -60,7 +60,6 @@ on:
         options:
           - ""
           - CMUXMobileCore
-          - CmuxSyncStore
           - CmuxMobilePairedMac
           - CmuxMobileShellModel
           - CmuxHomeCore
@@ -504,8 +503,8 @@ jobs:
       # and 2026-09-23 never went quiet for more than 45 s, and no single test
       # took longer than 44 s; three hung runs went quiet for 353-1152 s.
       TEST_SILENCE_SECONDS: "180"
-      # swift-packages-linux.yml runs CMUXMobileCore, CmuxSyncStore,
-      # CmuxMobilePairedMac and CmuxMobileShellModel on Linux for every
+      # swift-packages-linux.yml runs CMUXMobileCore, CmuxMobilePairedMac
+      # and CmuxMobileShellModel on Linux for every
       # feat-cmux-next pull request that touches Packages/, so such a pull
       # request runs them here only with the full-ci label; pushes, dispatches
       # and other bases still run them on the Mac.
@@ -533,7 +532,7 @@ jobs:
           SELECTED_PACKAGE: ${{ inputs.swift_package }}
         run: |
           case "$SELECTED_PACKAGE" in
-            ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileShellModel|CmuxHomeCore) ;;
+            ""|CMUXMobileCore|CmuxMobilePairedMac|CmuxMobileShellModel|CmuxHomeCore) ;;
             *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
           esac
 
@@ -617,24 +616,6 @@ jobs:
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
             --label CMUXMobileCore --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CMUXMobileCore}"
-
-      - name: Run CmuxSyncStore package tests
-        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CmuxSyncStore' }}
-        run: |
-          set -euo pipefail
-          # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
-          # or app-target dependency, so it runs as a real CI gate here.
-          args=(--package-path Packages/Shared/CmuxSyncStore)
-          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
-            args+=(--no-parallel)
-          fi
-          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
-            args+=(--filter "$SWIFT_TEST_FILTER")
-          fi
-          log_path="$RUNNER_TEMP/CmuxSyncStore-tests.log"
-          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
-            --label CmuxSyncStore --log "$log_path" -- swift test "${args[@]}"
-          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxSyncStore}"
 
       - name: Run CmuxMobilePairedMac package tests
         if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CmuxMobilePairedMac' }}

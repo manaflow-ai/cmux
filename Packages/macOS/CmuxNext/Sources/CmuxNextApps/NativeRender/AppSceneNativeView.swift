@@ -12,7 +12,7 @@ import CmuxNextDesign
 /// (no polling) while the view is in a window, and any layout pass draws a pending one; ``onContentSizeChange`` tells the host when the
 /// height may have changed. Loading draws nothing; a failed or disconnected mount draws one quiet row
 /// (``AppFailureNSView``): what happened in plain words, with the raw reason under Details. Every node type of the kit has an AppKit view here, so no scene falls back to
-/// SwiftUI.
+/// SwiftUI. A kept view whose app's last save did not load draws ``AppSceneReloadMarkerView`` under it.
 final class AppSceneNativeView: NSView {
     let model: AppSceneModel
     /// The app bundle's folder: `Image` nodes read their `src` from it.
@@ -23,8 +23,11 @@ final class AppSceneNativeView: NSView {
     private var rootView: AppSceneNodeNSView?
     /// The failed or disconnected mount's row (plain words, Copy Error, Details).
     private let failure: AppFailureNSView
+    /// Under a kept view whose app's last save did not load.
+    private let reloadMarker = AppSceneReloadMarkerView()
     private var drawnRevision = -1
     private var drawnStatus: AppSceneModel.Status?
+    private var drawnReloadFailure: String?
 
     /// - Parameter copyText: What the failure row's Copy Error does with the raw reason (the general
     ///   pasteboard); tests pass a recorder.
@@ -43,6 +46,8 @@ final class AppSceneNativeView: NSView {
         }
         failure.onReload = { [model] in model.reload() }
         addSubview(failure)
+        reloadMarker.isHidden = true
+        addSubview(reloadMarker)
         needsLayout = true
     }
 
@@ -55,6 +60,7 @@ final class AppSceneNativeView: NSView {
     private struct Pass: Equatable, Sendable {
         let revision: Int
         let status: AppSceneModel.Status
+        let reloadFailure: String?
     }
 
     /// The task that redraws on each scene change while the view is in a window.
@@ -70,7 +76,7 @@ final class AppSceneNativeView: NSView {
         feed = Task { [weak self, model] in
             for await _ in ObservationStream({ () -> Pass in
                 _ = model.scene // tracked: every applied batch replaces the scene's nodes
-                return Pass(revision: model.revision, status: model.status)
+                return Pass(revision: model.revision, status: model.status, reloadFailure: model.reloadFailure)
             }) {
                 self?.redrawIfNeeded()
             }
@@ -79,24 +85,34 @@ final class AppSceneNativeView: NSView {
 
     /// Redraws when the model changed since the last draw; reports a size change.
     func redrawIfNeeded() {
-        guard model.revision != drawnRevision || model.status != drawnStatus else { return }
+        guard model.revision != drawnRevision || model.status != drawnStatus || model.reloadFailure != drawnReloadFailure else { return }
+        let markerChanged = model.reloadFailure != drawnReloadFailure
         drawnRevision = model.revision
         drawnStatus = model.status
+        drawnReloadFailure = model.reloadFailure
         let before = rootView.map { $0.height(width: bounds.width) }
         reconcile()
         needsLayout = true
         invalidateIntrinsicContentSize()
-        if before != rootView.map({ $0.height(width: bounds.width) }) || !failure.isHidden { onContentSizeChange?() }
+        if before != rootView.map({ $0.height(width: bounds.width) }) || !failure.isHidden || markerChanged { onContentSizeChange?() }
     }
 
     private func reconcile() {
         switch model.status {
         case .failed(let reason):
+            reloadMarker.isHidden = true
             return showFailure { $0.show(failure: AppFailureCopy(reason: reason)) }
         case .disconnected(let reason):
+            reloadMarker.isHidden = true
             return showFailure { $0.show(disconnected: reason) }
         case .loading, .ready:
             failure.isHidden = true
+        }
+        if let reason = model.reloadFailure, model.status == .ready {
+            reloadMarker.show(reason)
+            reloadMarker.isHidden = false
+        } else {
+            reloadMarker.isHidden = true
         }
         var live = Set<String>()
         let next = model.scene.root.flatMap { view(for: $0, live: &live) }
@@ -178,7 +194,8 @@ final class AppSceneNativeView: NSView {
     func preferredHeight(width: CGFloat) -> CGFloat {
         redrawIfNeeded()
         if !failure.isHidden { return ceil(failure.height(width: width)) }
-        return ceil(rootView?.height(width: width) ?? 0)
+        let marker = reloadMarker.isHidden ? 0 : reloadMarker.height
+        return ceil(rootView?.height(width: width) ?? 0) + marker
     }
 
     override var intrinsicContentSize: NSSize {
@@ -194,6 +211,9 @@ final class AppSceneNativeView: NSView {
         guard let rootView else { return }
         let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
         rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
+        if !reloadMarker.isHidden {
+            reloadMarker.frame = CGRect(x: 0, y: rootView.frame.maxY, width: bounds.width, height: reloadMarker.height)
+        }
     }
 
 }

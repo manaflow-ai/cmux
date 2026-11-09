@@ -678,6 +678,8 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
     struct Report: Sendable {
         var grid: TerminalGridSize
         var at: ContinuousClock.Instant
+        /// The view's window presenter's refresh at the report (``TerminalFramePresenter/currentEpoch``); nil: no window.
+        var epoch: UInt64?
     }
 
     /// Every grid the view reported, in order, with the main-thread time of the report
@@ -687,7 +689,8 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
 
     /// Records the report and lets it go on through the ordered input stream (returns false).
     @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool {
-        reports.withLock { $0.append(Report(grid: TerminalGridSize(columns: cols, rows: rows), at: .now)) }
+        let epoch = window.map { TerminalFramePresenter.forWindow($0).currentEpoch }
+        reports.withLock { $0.append(Report(grid: TerminalGridSize(columns: cols, rows: rows), at: .now, epoch: epoch)) }
         return false
     }
 }

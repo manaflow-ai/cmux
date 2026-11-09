@@ -882,6 +882,10 @@ fn build_in(
         .collect::<Vec<_>>()
         .join(", ");
     steps.mark("copy tables");
+    // The packed segments have no kept reducer records (their table is
+    // rebuilt empty), and the copied meta holds the backfill cursor of the
+    // old segments: the journal maintenance backfill starts over.
+    super::super::session_journal::reducer_records::forget_backfill(tx)?;
     // Every kept record has a row in the staged records, packed or not.
     let abandoned_deliveries = if table_exists(tx, "main", "journal_hook_deliveries")? {
         tx.execute(

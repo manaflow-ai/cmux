@@ -98,7 +98,7 @@ extension WorkspaceRowView {
     }
 
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, title: String? = nil) -> String {
-        Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence,
+        Self.accessibilityText(ws, content: content, tabCount: count, presence: driveIndicator.drivers + (presenceDots.isHidden ? [] : presenceDots.presence),
                                title: title)
     }
 
