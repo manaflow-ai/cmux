@@ -5276,11 +5276,6 @@ pub(crate) enum SessionOwnerProbe {
 pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerProbe {
     let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     let lock_path = session_guard_lock_component_path(&lock_dir, component);
-    let Ok(_coordinator) =
-        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
-    else {
-        return SessionOwnerProbe::Owned;
-    };
     let mut options = OpenOptions::new();
     options.read(true).write(true);
     #[cfg(unix)]
@@ -5294,6 +5289,11 @@ pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerP
             return SessionOwnerProbe::NoGuard;
         }
         Err(_) => return SessionOwnerProbe::Owned,
+    };
+    let Ok(_coordinator) =
+        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
+    else {
+        return SessionOwnerProbe::Owned;
     };
     // Locked first, then checked: the path must still name the locked file.
     if FileExt::try_lock(&file).is_err() || validate_session_lock_file(&lock_path, &file).is_err() {
