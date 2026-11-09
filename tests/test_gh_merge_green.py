@@ -397,7 +397,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None, fast_gates_runs=None, tip_shas=None, tip_reads=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None, fast_gates_runs=None, tip_shas=None, tip_reads=None, dispatch_run_ids=True):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -474,8 +474,14 @@ class InstalledHelperRegression(unittest.TestCase):
             + tip_route + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/compare/'; then printf '%s\\n' "
             + shlex.quote(json.dumps(compare or {"status": "diverged", "ahead_by": 0, "files": []})) + "; exit 0; fi\n"
+            # The dispatch answers 200 with the run's id (dispatch_run_ids=False: an empty answer, no id); the run
+            # reads in progress, so only its status decides.
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'cmux-next-fast-gates.yml/dispatches'; then "
-            "printf '%s\\n' dispatch >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER.dispatched\"; exit 0; fi\n"
+            "printf '%s\\n' dispatch >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER.dispatched\"; "
+            + ("n=$(grep -c '^dispatch$' \"$EVENT_LOG\"); printf '{\"workflow_run_id\": %s, \"run_url\": \"https://api.github.com/repos/manaflow-ai/cmux/actions/runs/%s\", \"html_url\": \"https://github.com/manaflow-ai/cmux/actions/runs/%s\"}\\n' \"$n\" \"$n\" \"$n\"; "
+               if dispatch_run_ids else "") + "exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -qE 'actions/runs/[0-9]+( |$)'; then "
+            "printf '%s\\n' '{\"status\": \"in_progress\", \"conclusion\": null}'; exit 0; fi\n"
         ) if check_paths is not None else ""
         rate_limit_route = ("if [ \"$1 $2\" = 'api rate_limit' ]; then printf '%s\\n' "
                             + shlex.quote(json.dumps({"resources": rate_limit})) + "; exit 0; fi\n") if rate_limit else ""
@@ -1002,6 +1008,20 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertEqual(events.read_text().splitlines(), ["dispatch"])
             self.assertIn("wait budget of 0s", result.stderr)
+
+    def test_a_dispatch_that_answers_no_run_id_refuses(self):
+        # Without the run's id the gate cannot tell its run's stop or cancel from another run's: it fails closed.
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "success"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED, dispatch_run_ids=False)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch"])
+            self.assertIn("workflow_run_id", result.stderr)
+            self.assertIn("check-path gate", result.stderr)
 
     def test_override_waives_the_check_path_gates_red(self):
         with tempfile.TemporaryDirectory() as directory:

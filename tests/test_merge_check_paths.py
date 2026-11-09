@@ -32,8 +32,9 @@ def status(base, state="success", at="2026-10-21T13:00:00Z"):
 
 
 class FakeApi:
-    def __init__(self, statuses, tips=(TIP,), compares=None, check_paths=CHECK_PATHS):
+    def __init__(self, statuses, tips=(TIP,), compares=None, check_paths=CHECK_PATHS, run_ids=True):
         self.statuses, self.tips, self.compares, self.text = list(statuses), list(tips), compares or {}, check_paths
+        self.run_ids = run_ids
         self.dispatched, self.reads = [], 0
 
     def check_paths(self, branch):
@@ -52,11 +53,13 @@ class FakeApi:
         return self.compares.get((base, tip)) or {"status": "diverged", "ahead_by": 0, "files": []}
 
     def dispatch(self, number, branch):
+        """The run's id, as GitHub's 200 answer names it (run_ids=False: an empty answer, no id)."""
         self.dispatched.append((number, branch))
-        return None
+        return len(self.dispatched) if self.run_ids else None
 
     def run(self, run_id):
-        raise AssertionError("no run id was handed out")
+        # This fake's runs never end on their own: only their statuses decide.
+        return {"status": "in_progress", "conclusion": None}
 
 
 class MovingTipApi(FakeApi):
@@ -312,6 +315,43 @@ class CheckPathGate(unittest.TestCase):
         (checked, _), err = run(api)
         self.assertEqual(len(api.dispatched), 2)
         self.assertIn("scripts/cmux-next/crash-safety-baseline.json", err)
+
+    def test_no_rerun_with_less_than_the_fastest_real_run_left(self):
+        # The fastest successful dispatched run on 2026-11-09 took 370s: with 360s left, no rerun.
+        api = MovingTipApi(moves=1000)
+        clock = Clock()
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(gate.Refused, r"wait budget of 420s.*less than one run \(370s\)"):
+                gate.gate(api, "42", HEAD, gate.BRANCH, 900, 20, clock, clock.sleep, budget=420)
+        self.assertEqual(len(api.dispatched), 1)
+
+    def test_a_dispatch_that_answers_no_run_id_refuses_without_waiting(self):
+        # Without the run's id a stop or a whole-run cancel of it cannot be told from another run's: fail closed.
+        landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
+        api = FakeApi([status(OLD), status(TIP, at="2026-10-21T14:12:00Z")], compares=landed, run_ids=False)
+        clock = Clock()
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(gate.Refused, "no workflow_run_id"):
+                gate.gate(api, "42", HEAD, gate.BRANCH, 900, 20, clock, clock.sleep)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(clock.now, 0)
+
+    def test_each_run_waits_up_to_1200s_by_default(self):
+        # Successful dispatched runs took up to 826s on 2026-11-09, close to the old 900s; main() passes 1200s.
+        seen = {}
+
+        def fake_gate(api, number, sha, branch, timeout, interval, **kwargs):
+            seen.update(timeout=timeout, budget=kwargs.get("budget"))
+            return "check paths fresh", 0.0
+
+        saved = gate.gate
+        gate.gate = fake_gate
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(gate.main(["manaflow-ai/cmux", "42", HEAD]), 0)
+        finally:
+            gate.gate = saved
+        self.assertEqual(seen, {"timeout": 1200, "budget": None})
 
     def test_check_only_dispatches_nothing(self):
         landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
