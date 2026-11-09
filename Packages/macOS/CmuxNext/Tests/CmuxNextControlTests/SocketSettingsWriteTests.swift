@@ -41,11 +41,18 @@ import Testing
         for descriptor in SettingsSchema.all {
             let key = JSONValue.string(descriptor.id)
             let before = settings.validatedWrites[descriptor.id, default: 0]
+            // A write of the default removes the key (#38119): the file then keeps nothing. `.none`, not a nil
+            // literal: JSONValue is ExpressibleByNilLiteral, so `nil` here would be the JSON null, `.null`.
+            let stored: JSONValue? = settings.isUnsetValue(descriptor.sampleValue, of: descriptor) ? .none : .some(descriptor.sampleValue)
             let set = await call(router, "settings.set", ["path": key, "value": descriptor.sampleValue, "confirm": true])
             #expect((try? set.get()) != nil, "\(descriptor.id): \(set)")
             #expect(settings.validatedWrites[descriptor.id, default: 0] == before + 1, "\(descriptor.id) skipped the settings owner")
+            // value(at:) throws on a file that does not parse; a missing file must not pass for "absent" either.
             let read = try await settings.file.value(at: descriptor.path)
-            #expect(read == descriptor.sampleValue, "\(descriptor.id)")
+            #expect(read == stored, "\(descriptor.id)")
+            if case .none = stored {
+                #expect(FileManager.default.fileExists(atPath: directory.appending(path: "cmux.json").path), "\(descriptor.id): cmux.json is gone")
+            }
             guard case .failure(let refused) = await call(router, "settings.set", ["path": key, "value": ["wrong": true]]) else {
                 Issue.record("\(descriptor.id) accepted a value of the wrong type")
                 continue
@@ -65,23 +72,24 @@ import Testing
         var asked: [String] = []
         var approve = false
         settings.userOnlyConfirmation = { key, _ in asked.append(key); return approve }
+        // On, not the default off: a write of the default removes the key (#38119), so it would not show the approved write.
         let path: JSONValue = "history.terminalCommands"
-        guard case .failure(let refused) = await call(router, "settings.set", ["path": path, "value": false]) else {
+        guard case .failure(let refused) = await call(router, "settings.set", ["path": path, "value": true]) else {
             Issue.record("a socket write of a user-only key went through")
             return
         }
         #expect(refused.code == "setting_user_only")
         #expect(refused.message.contains("--confirm"))
         #expect(asked.isEmpty, "no sheet without --confirm")
-        guard case .failure(let declined) = await call(router, "settings.set", ["path": path, "value": false, "confirm": true]) else {
+        guard case .failure(let declined) = await call(router, "settings.set", ["path": path, "value": true, "confirm": true]) else {
             Issue.record("a declined sheet wrote the key")
             return
         }
         #expect(declined.code == "setting_user_only")
         #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == nil)
         approve = true
-        _ = try await call(router, "settings.set", ["path": path, "value": false, "confirm": true]).get()
-        #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == .bool(false))
+        _ = try await call(router, "settings.set", ["path": path, "value": true, "confirm": true]).get()
+        #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == .bool(true))
         #expect(asked == ["history.terminalCommands", "history.terminalCommands"])
         _ = try await call(router, "settings.set", ["path": "appearance.density", "value": "compact"]).get()
         #expect(asked.count == 2, "an agent-settable key needs no sheet")
