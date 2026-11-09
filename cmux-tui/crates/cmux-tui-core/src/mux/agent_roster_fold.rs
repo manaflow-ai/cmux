@@ -395,9 +395,7 @@ impl Mux {
     /// under the fold lock, which request paths took, 5-8 s); the roster lock
     /// is taken only to apply each page that was read.
     fn run_roster_pass(&self, pass: agent_roster_worker::RosterPass) -> Vec<String> {
-        use crate::journal_reducers::{
-            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
-        };
+        use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, RosterEvent};
         let mut fold = self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner);
         let mut target = pass.wanted;
         // The head a retirement waits for. It is read after the close
@@ -508,7 +506,7 @@ impl Mux {
             // state commits do not wait behind the snapshot write (issue 23038).
             if let Err(error) = self.registry_connection.put_journal_reducer_state(
                 AGENT_ROSTER_REDUCER_ID,
-                AGENT_ROSTER_REDUCER_VERSION,
+                self.agent_roster_save_version(),
                 cursor,
                 &snapshot,
             ) {
@@ -534,7 +532,7 @@ impl Mux {
     pub(super) fn reconcile_agent_roster_projections(&self) {
         // A stale roster (a reducer bump) can disagree with projections the
         // current reducer would make. The rebuild reconciles when it is done.
-        if self.agent_roster_rebuilding() {
+        if self.agent_roster_stale() {
             return;
         }
         let entries = self
@@ -557,7 +555,7 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) {
-        if self.agent_roster_rebuilding() {
+        if self.agent_roster_stale() {
             return;
         }
         let entry = self

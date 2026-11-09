@@ -28,6 +28,7 @@ pub enum Action {
     SidebarWiden,
     Send,
     Steer,
+    Queue,
     Cancel,
     Retry,
     Stop,
@@ -334,6 +335,7 @@ impl App {
             }
             Action::Send => self.send_prompt(false),
             Action::Steer => self.send_prompt(true),
+            Action::Queue => self.send_prompt(false),
             Action::Cancel => self.cancel(),
             Action::Retry => {
                 if let Some(id) = sid {

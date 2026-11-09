@@ -449,7 +449,11 @@ reattaches to a running terminal host, the prompt and command state come back
 only with the shell's next mark. `--until ready` waits until the terminal's
 agent can take a message, as `cmux agent start` does (spec/cli.md "Agent start
 and resume"): a startup dialog such as Claude's folder-trust question ends it
-as `blocked` with `dialog` and `reason` (exit 4).
+as `blocked` with `dialog` and `reason` (exit 4). Both `agent start` and
+`--until ready` also give the dialog's numbered `options` and, for folder
+trust, `accept_keys` and `accept_label` (the option those keys pick); the
+`reason` names the terminal and warns when that option also turns approvals
+off.
 
 `list --agents` lists the terminals that run a coding agent, from one
 `session.snapshot`: the harness (Claude Code, Codex, … from hook or plugin
@@ -485,7 +489,10 @@ or OSC 9;4 progress runs, and the screen has not changed for `--settle`
 after the message's echo (reading history pages when the reply is longer than
 the screen), less the harness's input box and status footer; `--json` prints
 `{terminal, harness, bracketed_paste, status, state, timed_out, waited_ms,
-anchored, output}`. `status` is the word `list --agents` says for the same
+anchored, reply, reply_source, output}`. `reply` is the agent's own last
+message, whole, from its hooks when they reported it after the send and the
+wait ended idle (`reply_source: "hook"`); else it is `output`
+(`reply_source: "screen"`). `status` is the word `list --agents` says for the same
 turn: `idle`, `done` (the turn finished and the terminal has an unread
 notification), `blocked`, `working` (the wait timed out) or `ended` (the
 program exited); `state` is the wait's own word (`idle`, `blocked`, `working`,
