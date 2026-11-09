@@ -213,6 +213,8 @@ mod carrier_role;
 mod native_owner;
 mod new_screen;
 mod personal;
+#[cfg(unix)]
+mod phone_carrier;
 mod raw_tab;
 #[cfg(unix)]
 mod remote_entry;
