@@ -96,9 +96,11 @@ jobs:
           # No ENTRIES: a state is still to be picked, from every entry's cases.
           bun scripts/gallery/manifest.ts ${ENTRIES:+--entries "$ENTRIES"} --themes pair --widths normal \
             --frame component --out "$RUNNER_TEMP/cases.json"
+          # Each variant's note: a "Selected" one is the after a file picked, a "Before:" one its old look.
+          bun scripts/gallery/notes.ts --out "$RUNNER_TEMP/notes.json"
           # Picks the states no line names and writes them into the plan publish reads.
           python3 ../scripts/cmux-next/media/whats-new-gallery.py manifest --plan "$out/plan.json" \
-            --cases "$RUNNER_TEMP/cases.json" --out "$RUNNER_TEMP/manifest.json"
+            --cases "$RUNNER_TEMP/cases.json" --notes "$RUNNER_TEMP/notes.json" --out "$RUNNER_TEMP/manifest.json"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           (cd ../scripts/gallery-matrix && bun install --frozen-lockfile)
           "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"

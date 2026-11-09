@@ -812,8 +812,80 @@ const HUB_KILL_AFTER: Duration = Duration::from_secs(5);
 /// runs and before this same thread reaps it, so its pid cannot have been
 /// reused; nothing else ever signals the hub. A dropped `ProcessHub` (its
 /// sender gone) counts as `Term`.
+/// What the owner thread needs of the hub's child; a seam so a test can
+/// make the exit-event wait fail.
+trait HubChild {
+    fn id(&self) -> u32;
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn wait_timeout(
+        &mut self,
+        limit: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn kill(&mut self) -> std::io::Result<()>;
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus>;
+}
+
+impl HubChild for cmux_process::Child {
+    fn id(&self) -> u32 {
+        cmux_process::Child::id(self)
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        cmux_process::Child::try_wait(self)
+    }
+    fn wait_timeout(
+        &mut self,
+        limit: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>> {
+        cmux_process::Child::wait_timeout(self, limit)
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        cmux_process::Child::kill(self)
+    }
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        cmux_process::Child::wait(self)
+    }
+}
+
+/// The child can no longer be watched (its exit event could not be set up,
+/// say with no descriptors left): it is still this thread's, so it is killed
+/// and reaped here, and only then reported ended. Dropping it instead would
+/// leave a live hub no stop could reach, holding its socket's lock.
+///
+/// `ECHILD` is the one exception: the child was already reaped elsewhere (an
+/// inherited `SIGCHLD = SIG_IGN` makes the kernel reap it), so this thread no
+/// longer owns its pid, which may now be another process's. It is never
+/// signaled; the hub is reported ended as it is.
+fn kill_and_reap(child: &mut impl HubChild, why: &std::io::Error) -> String {
+    if why.raw_os_error() == Some(libc::ECHILD) {
+        // `carrier tunnel` resets SIGCHLD at start (`reap_own_children`), so
+        // this should never happen.
+        eprintln!("carrier tunnel: hub reaped elsewhere (unexpected); not signaled");
+        return format!("{:?} (reaped elsewhere)", why.kind());
+    }
+    eprintln!("carrier tunnel: hub wait failed ({:?}); killing and reaping it", why.kind());
+    let _ = child.kill();
+    match child.wait() {
+        Ok(status) => format!("{status} (after {:?})", why.kind()),
+        Err(e) => format!("{:?} (after {:?})", e.kind(), why.kind()),
+    }
+}
+
+/// Takes back the default `SIGCHLD` disposition for this process. A parent
+/// that ran us with `SIGCHLD = SIG_IGN` (inherited across exec) would make the
+/// kernel reap the hub the moment it exits, behind the owner thread's back;
+/// its pid could then be reused, and any pid-based signal (the stop's SIGTERM,
+/// the SIGKILL after a failed wait) could hit an unrelated process. With the
+/// default disposition an exited hub stays a zombie until its owner thread
+/// reaps it, so while that thread holds the `Child` its pid is the hub's and
+/// kill-then-wait is safe on every path. Call it before the first hub spawn.
+pub(crate) fn reap_own_children() -> bool {
+    // SAFETY: `signal` with `SIG_DFL` installs no handler code; it only
+    // changes this process's disposition, before any hub is spawned.
+    unsafe { libc::signal(libc::SIGCHLD, libc::SIG_DFL) != libc::SIG_ERR }
+}
+
 fn own_hub(
-    mut child: cmux_process::Child,
+    mut child: impl HubChild,
     requests: std::sync::mpsc::Receiver<HubSignal>,
     done: watch::Sender<Option<String>>,
     kill_after: Duration,
@@ -843,7 +915,7 @@ fn own_hub(
         if let Some(signal) = request {
             match child.try_wait() {
                 Ok(Some(status)) => break status.to_string(),
-                Err(e) => break format!("{:?}", e.kind()),
+                Err(e) => break kill_and_reap(&mut child, &e),
                 Ok(None) => match signal {
                     HubSignal::Kill => {
                         let _ = child.kill();
@@ -864,7 +936,7 @@ fn own_hub(
         match child.wait_timeout(HUB_OWNER_TICK) {
             Ok(Some(status)) => break status.to_string(),
             Ok(None) => {}
-            Err(e) => break format!("{:?}", e.kind()),
+            Err(e) => break kill_and_reap(&mut child, &e),
         }
     };
     done.send_replace(Some(why));

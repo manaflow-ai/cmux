@@ -117,7 +117,8 @@ public final class VerticalTabListView: NSView {
         }
         if tokenObservation == nil {
             tokenObservation = Task { [weak self] in
-                for await snapshot in ObservationStream({ (VerticalTabListMetrics.current, Typography.body.pointSize) }) {
+                // The no-color group look is read only while drawing, so a change to it repaints here.
+                for await snapshot in ObservationStream({ (VerticalTabListMetrics.current, Typography.body.pointSize, VerticalNoColorGroupLook.tunable.value) }) {
                     guard let self else { return }
                     if snapshot.0 != self.metrics { self.relayout() } else { self.needsDisplay = true }
                 }

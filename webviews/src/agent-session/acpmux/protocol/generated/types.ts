@@ -9,6 +9,8 @@ export interface AcpmuxRequestMeta {
   argv?: unknown;
   author?: unknown;
   beforePromptId?: unknown;
+  callerKind?: unknown;
+  callerProtocol?: unknown;
   callerSession?: unknown;
   cancelToken?: unknown;
   class?: unknown;
@@ -276,6 +278,7 @@ export interface BtwParams {
   model?: unknown;
   question?: unknown;
   sessionId?: unknown;
+  targetHarness?: unknown;
 }
 
 /** The carrier a live link runs over (`carrier`); null while no link is open. */
@@ -747,6 +750,7 @@ export type MessageSender = {
 
 export interface ModelsParams {
   _meta?: RequestMeta;
+  localOnly?: unknown;
   probe?: unknown;
   refresh?: unknown;
 }
