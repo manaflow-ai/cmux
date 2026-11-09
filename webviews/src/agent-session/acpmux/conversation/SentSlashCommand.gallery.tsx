@@ -28,21 +28,21 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/InlinePromptContent.tsx",
   ],
   variants: {
-    compactSent: {
+    "compact-sent": {
       note: "/compact sent on its own: the bubble draws it in the composer's command blue, not plain text.",
       snapshot: chat([user("Fix the flaky retry test", 9), assistant("Fixed and pushed.", 8), user("/compact", 1)], {
         harness: "claude",
         commands,
       }),
     },
-    goalWithArgs: {
+    "goal-with-args": {
       note: "/goal with arguments: only /goal is blue; the words after it stay text. /review-pr later is a skill, so it lights too.",
       snapshot: chat(
         [user("/goal ship the nightly with the retry fix, then /review-pr", 3), assistant("Goal set.", 2)],
         { harness: "claude", commands },
       ),
     },
-    loopPending: {
+    "loop-pending": {
       note: "/loop still sending (the optimistic row) and /loop waiting in the queue: both draw the command as the sent row will.",
       snapshot: chat(
         [
@@ -53,14 +53,14 @@ export default agentPaneEntry({
         { harness: "claude", commands, queue: [{ id: "q-1", prompt: "/loop 10m check the logs" }] },
       ),
     },
-    markdownLed: {
+    "markdown-led": {
       note: "A prompt written in Markdown that starts with /goal: /goal lights, the code span stays code.",
       snapshot: chat([user("/goal make `fetchWithRetry` pass on **every** run", 2), assistant("On it.", 1)], {
         harness: "claude",
         commands,
       }),
     },
-    notFirstWord: {
+    "not-first-word": {
       note: "A command that is not the first word stays plain, as in the composer (please /compact now, /nope).",
       snapshot: chat([user("please /compact now", 4), assistant("Compacting.", 3), user("/nope is no command", 1)], {
         harness: "claude",
