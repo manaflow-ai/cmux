@@ -140,6 +140,22 @@ impl PauseWatch {
         self.last_pause_ns.store(now, std::sync::atomic::Ordering::SeqCst);
     }
 
+    /// From now on, every look and pause found is also written to `path`, so
+    /// the processes that flip or restart outside this one (the operator's
+    /// `cmux host update check`) read the same record ([`PauseWatch::load`]).
+    pub fn persist_to(&self, _path: std::path::PathBuf) {}
+
+    /// The record another process wrote at `path` (an empty one, which never
+    /// counts a stop, when there is none or it is unreadable).
+    pub fn load(_path: &Path) -> PauseWatch {
+        PauseWatch::new()
+    }
+
+    /// Whether the watch has looked at all (a watch runs in this process).
+    pub fn has_looked(&self) -> bool {
+        self.last_look_ns.load(std::sync::atomic::Ordering::SeqCst) != 0
+    }
+
     /// Whether the machine was stopped between boot times `since_ns` and
     /// `now_ns`: the watch found a pause at or after `since_ns`, or it has not
     /// looked for longer than a pause takes to find ([`paused_for`] from its

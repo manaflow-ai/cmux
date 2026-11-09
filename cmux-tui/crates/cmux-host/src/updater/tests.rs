@@ -591,6 +591,41 @@ fn a_three_minute_pause_during_a_check_holds_its_flip() {
     assert!(gate.run(at(182).1, true, |_| ()).is_err(), "the flip ran under the hold");
 }
 
+/// Follow-up of #39049 (cloud-v0-lead): the pause record must reach the
+/// processes that flip outside the service, the operator's `cmux host update
+/// check`. The service's watch writes each look and pause to the record file,
+/// and a watch loaded from it holds by the same rule: a pause it found, and a
+/// watch still waking from one.
+#[cfg(target_os = "linux")]
+#[test]
+fn another_process_reads_the_pause_record_and_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let file = paths.at(super::PAUSE_FILE);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let service = crate::agent::PauseWatch::new();
+    service.persist_to(file.clone());
+    service.looked(B0, false);
+
+    // The operator's check, in its own process: no watch of its own.
+    let loaded = crate::agent::PauseWatch::load(&file);
+    assert!(loaded.has_looked(), "the record did not reach the other process");
+    assert!(!role::hold_if_paused(&paths, &loaded, B0, at(5)));
+    // Still waking from a 3-minute pause: held.
+    assert!(role::hold_if_paused(&paths, &crate::agent::PauseWatch::load(&file), B0, at(180)));
+
+    // The service's watch found the pause; a check that started before it holds.
+    service.looked(at(181).0, true);
+    let dir = tempfile::tempdir().unwrap();
+    let other = Paths::new(dir.path());
+    let loaded = crate::agent::PauseWatch::load(&file);
+    assert!(role::hold_if_paused(&other, &loaded, at(1).0, at(182)));
+    assert_eq!(gate::Gate::new(&other).held_left(at(182).1), Some(role::CONNECT_HOLD));
+    // No record at all: nothing to read, no hold.
+    let none = crate::agent::PauseWatch::load(&dir.path().join("missing.json"));
+    assert!(!none.has_looked());
+}
+
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
 /// sessions are attached, looking again every minute, and stops waiting when
 /// the role stops.
