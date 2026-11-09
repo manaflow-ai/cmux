@@ -419,7 +419,7 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
         SeedError::new(code, fallback.why)
     })?;
     if planned.unchanged {
-        return Ok(seeded("delta", &planned, None));
+        return Ok(seeded("delta", &planned, &Ended::Done(Value::Null)));
     }
     let ended = run_seed(machine.socket, remote, &planned, &bundle, None)?;
     keep_seed(&machine, &local, remote, &planned, ended.filling());
