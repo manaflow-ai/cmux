@@ -108,6 +108,19 @@ impl HostAttachment {
             .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
             .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
         self.terminate().context("send terminal-host termination")?;
+        self.wait_for_exit_until(deadline)
+    }
+
+    /// After [`Self::request_termination`]: the host's exit receipt, waited
+    /// for as long as [`Self::terminate_and_wait_for_exit`] waits.
+    pub(crate) fn wait_for_requested_exit(&mut self) -> anyhow::Result<TerminalHostExitRecord> {
+        let deadline = Instant::now()
+            .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
+            .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
+        self.wait_for_exit_until(deadline)
+    }
+
+    fn wait_for_exit_until(&mut self, deadline: Instant) -> anyhow::Result<TerminalHostExitRecord> {
         let identity = self.identity();
         let record_path = self.record_path.clone();
         let protocol_version = self.protocol_version;

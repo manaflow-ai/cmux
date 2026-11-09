@@ -453,14 +453,28 @@ struct HostOps<'a> {
         &Path,
         &crate::terminal_host_runtime::TerminalHostRecord,
     ) -> TerminalHostLiveness,
-    end: &'a dyn Fn(&crate::terminal_host_runtime::TerminalHostRecord, &Path) -> bool,
+    /// Run under the session guard's coordinator: it must not wait on the
+    /// host (see [`request_terminal_host_end`]).
+    end: &'a dyn Fn(&crate::terminal_host_runtime::TerminalHostRecord, &Path) -> HostEnd,
+    remove: &'a dyn Fn(&Path, &crate::terminal_host_runtime::TerminalHostRecord) -> bool,
+}
+
+fn remove_stale_record(
+    record_path: &Path,
+    record: &crate::terminal_host_runtime::TerminalHostRecord,
+) -> bool {
+    matches!(
+        crate::terminal_host_runtime::remove_stale_terminal_host_record(record_path, record),
+        Ok(true)
+    )
 }
 
 impl HostOps<'static> {
     const REAL: Self = Self {
         load: &crate::terminal_host_runtime::load_terminal_host_records,
         liveness: &terminal_host_record_liveness,
-        end: &cleanup_terminal_host_record,
+        end: &request_terminal_host_end,
+        remove: &remove_stale_record,
     };
 }
 
@@ -585,15 +599,27 @@ fn reap_pass_with(
                     store.hosts.insert(key, seen);
                     continue;
                 }
-                // The guard may have been deleted and made again since it
-                // was taken: then a daemon can own the session, so nothing
-                // of this root is ended.
-                if guard_lost || !lease.still_guards() {
+                // The end is decided and asked for under the guard's
+                // coordinator, right after the check that the guard still
+                // names this lease's file: no daemon can make a new guard
+                // and own the session in between. The wait for the host's
+                // exit comes after the coordinator is released. A guard
+                // deleted and made again since it was taken stops this root.
+                let requested = if guard_lost {
+                    None
+                } else {
+                    lease.while_guarding(|| (hosts.end)(&record, &record_path))
+                };
+                let Some(requested) = requested else {
                     guard_lost = true;
                     store.hosts.insert(key, seen);
                     continue;
-                }
-                if (hosts.end)(&record, &record_path) {
+                };
+                let ended = match requested {
+                    HostEnd::Done(ended) => ended,
+                    HostEnd::Requested(wait) => wait(),
+                };
+                if ended {
                     eprintln!(
                         "cmux-tui: ended terminal host {} of another session ({}): no live \
                          session owned it for {} s",
@@ -622,17 +648,18 @@ fn reap_pass_with(
                     store.hosts.insert(key, seen);
                     continue;
                 }
-                if guard_lost || !lease.still_guards() {
-                    guard_lost = true;
-                    store.hosts.insert(key, seen);
-                    continue;
-                }
-                match crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                    &record_path,
-                    &record,
-                ) {
-                    Ok(true) => removed += 1,
-                    Ok(false) | Err(_) => {
+                let gone = if guard_lost {
+                    None
+                } else {
+                    lease.while_guarding(|| (hosts.remove)(&record_path, &record))
+                };
+                match gone {
+                    Some(true) => removed += 1,
+                    Some(false) => {
+                        store.hosts.insert(key, seen);
+                    }
+                    None => {
+                        guard_lost = true;
                         store.hosts.insert(key, seen);
                     }
                 }
@@ -757,9 +784,10 @@ mod tests {
         let ended = std::cell::Cell::new(0);
         let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
             ended.set(ended.get() + 1);
-            true
+            HostEnd::Done(true)
         };
-        let hosts = HostOps { load: &records, liveness: &liveness, end: &end };
+        let hosts =
+            HostOps { load: &records, liveness: &liveness, end: &end, remove: &|_, _| true };
         let never = || false;
         reap_pass_with(&hosts, &own, &dir.join(STORE_FILE), 1_000_000, NO_GRACE, &never);
         assert_eq!(ended.get(), 0, "a host was ended under a guard that no longer guards its root");
@@ -787,10 +815,14 @@ mod tests {
         let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
             std::fs::remove_file(&guard).unwrap();
             daemon.borrow_mut().push(start_session_guard_for_test(&dir, "cmux-app-race").is_ok());
-            true
+            HostEnd::Done(true)
         };
-        let hosts =
-            HostOps { load: &records, liveness: &|_, _| TerminalHostLiveness::Live, end: &end };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &end,
+            remove: &|_, _| true,
+        };
         let never = || false;
         reap_pass_with(&hosts, &own, &dir.join(STORE_FILE), 1_000_000, NO_GRACE, &never);
         assert_eq!(
@@ -823,6 +855,7 @@ mod tests {
             load: &records,
             liveness: &|_, _| TerminalHostLiveness::Live,
             end: &|_, _| panic!("nothing to end"),
+            remove: &|_, _| panic!("nothing to remove"),
         };
         // A store over its cap, as a pass leaves it before it saves.
         let bytes = serde_json::to_vec(&store).unwrap();
@@ -863,6 +896,7 @@ mod tests {
             load: &records,
             liveness: &|_, _| TerminalHostLiveness::Live,
             end: &|_, _| panic!("ended in its grace"),
+            remove: &|_, _| panic!("removed in its grace"),
         };
         let never = || false;
         let first = 10_000_000;
@@ -936,10 +970,14 @@ mod tests {
         let tried = std::cell::RefCell::new(Vec::<PathBuf>::new());
         let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, path: &Path| {
             tried.borrow_mut().push(path.to_path_buf());
-            !path.starts_with(&stuck)
+            HostEnd::Done(!path.starts_with(&stuck))
         };
-        let hosts =
-            HostOps { load: &records, liveness: &|_, _| TerminalHostLiveness::Live, end: &end };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &end,
+            remove: &|_, _| true,
+        };
         let store = dir.join(STORE_FILE);
         let never = || false;
         let mut now = 1_000_000;
@@ -982,6 +1020,7 @@ mod tests {
             load: &records,
             liveness: &|_, _| TerminalHostLiveness::Live,
             end: &|_, _| panic!("ended in its grace"),
+            remove: &|_, _| panic!("removed in its grace"),
         };
         let never = || false;
         let first = 10_000_000;
@@ -1036,10 +1075,14 @@ mod tests {
             |_: &Path| -> LoadedRecords { Ok(vec![(record_path.clone(), record.clone())]) };
         let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
             ended.set(ended.get() + 1);
-            true
+            HostEnd::Done(true)
         };
-        let hosts =
-            HostOps { load: &records, liveness: &|_, _| TerminalHostLiveness::Live, end: &end };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &end,
+            remove: &|_, _| true,
+        };
         let timing = Timing { ended_grace: Duration::ZERO, ..Timing::STANDARD };
         let store = dir.join(STORE_FILE);
         let never = || false;

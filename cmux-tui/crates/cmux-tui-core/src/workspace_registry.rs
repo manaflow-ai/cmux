@@ -5797,6 +5797,21 @@ impl SessionLease {
         validate_session_lock_file(&self.path, &self.file).is_ok()
     }
 
+    /// Runs `act` only while this lease still guards its session, with the
+    /// session-locks coordinator held from that check until `act` returns.
+    /// A daemon makes or replaces a guard file only under that coordinator
+    /// (`acquire_session_guard_from_private_dir` takes it before
+    /// [`SessionLease::acquire`] opens the guard), so none can own the
+    /// session in between. `None`: the coordinator is busy past its short
+    /// bound, or the guard no longer names this lease's file. Keep `act`
+    /// short: a daemon start waits on the coordinator meanwhile.
+    pub(crate) fn while_guarding<T>(&self, act: impl FnOnce() -> T) -> Option<T> {
+        let lock_dir = self.path.parent()?;
+        let _coordinator =
+            SessionLease::acquire_coordinator(&session_guard_coordinator_path(lock_dir)).ok()?;
+        self.still_guards().then(act)
+    }
+
     fn acquire(path: &Path) -> anyhow::Result<Self> {
         let file = open_session_lock_file(path)?;
         restrict_session_lock_file(path, &file)?;
