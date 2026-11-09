@@ -55,6 +55,15 @@ on:
         required: false
         default: false
         type: boolean
+    # Named, never inherited: the caller passes only the feed's R2 token, and every job here
+    # that reads it names environment release-next, whose branch policy still bounds it.
+    secrets:
+      NIGHTLY_NEXT_R2_ACCESS_KEY_ID:
+        required: false
+      NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY:
+        required: false
+      NIGHTLY_NEXT_R2_ACCOUNT_ID:
+        required: false
   workflow_dispatch:
     inputs:
       reason:

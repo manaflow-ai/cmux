@@ -18,15 +18,18 @@ written, and nightly-next-guard.py keeps the drill inside its folder.
       the live feed holds fewer than two Nightly-ring items: then a real pull
       of N would have nothing to serve, which is what the drill is there to find.
   receipt publish --bad B --kept B --at ISO8601 --run-id ID --attempt N --run-url URL --out FILE
-  receipt pull --existing FILE --ordered-at ISO8601 [--served-at ISO8601] --outcome served|failed
-               --run-id ID --attempt N --run-url URL --out FILE
+  receipt pull --existing FILE --publish-run-id ID --publish-attempt N --ordered-at ISO8601
+               [--served-at ISO8601] --outcome served|failed --run-id ID --attempt N --run-url URL --out FILE
   receipt check --existing FILE --now ISO8601 [--max-age-s S]
       receipt.json, beside the drill appcast, is what the cmuxterm-hq probe
       reads (goals/release-rollback-drilled.md). Publish writes it with the
       pull fields empty, so a week whose pull fails leaves a receipt saying so,
       never last week's. Pull adds the pull fields to a published receipt.
       Check refuses (exit 1) a receipt that is not a fresh, unpulled publish,
-      and prints {"bad", "kept"} for the pull to take.
+      and prints {"bad", "kept", "publish_run_id", "publish_attempt"} for the
+      pull to take. Pull refuses a receipt whose publish run or attempt is not
+      the one check read: a publish that replaced it meanwhile is another
+      drill, and its receipt never gets this pull's times.
   served --feed FILE --pulled FILE --bad B --kept B
       Exit 0 when the served drill appcast no longer offers B, still offers K,
       and the served pulled.json lists B; exit 1 with what is missing.
@@ -138,12 +141,20 @@ def check_receipt(receipt: dict, now: str, max_age_s: int = MAX_AGE_S) -> dict:
     age = (parse_at(now) - parse_at(str(receipt.get("published_at", "")))).total_seconds()
     if not 0 <= age <= max_age_s:
         raise Refused(f"receipt published {age:.0f} s before now, outside 0..{max_age_s} s: not this week's")
-    return {"bad": receipt["bad_build"], "kept": receipt["kept_build"]}
+    publish = receipt.get("publish") or {}
+    return {"bad": receipt["bad_build"], "kept": receipt["kept_build"],
+            "publish_run_id": str(publish.get("run_id", "")), "publish_attempt": str(publish.get("run_attempt", ""))}
 
 
-def pull_receipt(receipt: dict, ordered_at: str, served_at: str, outcome: str, run: dict) -> dict:
+def pull_receipt(receipt: dict, publish_run_id: str, publish_attempt: str, ordered_at: str, served_at: str,
+                 outcome: str, run: dict) -> dict:
     if receipt.get("schema") != SCHEMA or receipt.get("outcome") != "published":
         raise Refused(f"receipt outcome {receipt.get('outcome')!r} is not a published drill")
+    publish = receipt.get("publish") or {}
+    got = (str(publish.get("run_id", "")), str(publish.get("run_attempt", "")))
+    if got != (publish_run_id, publish_attempt):
+        raise Refused(f"receipt is publish run {got[0]} attempt {got[1]}, not the {publish_run_id} attempt "
+                      f"{publish_attempt} this pull checked: another publish replaced it")
     if outcome not in ("served", "failed"):
         raise Refused(f"outcome {outcome!r} is not served or failed")
     ordered = parse_at(ordered_at)
@@ -208,6 +219,8 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--at", required=True)
     rq = rs.choices["pull"]
     rq.add_argument("--existing", required=True)
+    rq.add_argument("--publish-run-id", required=True)
+    rq.add_argument("--publish-attempt", required=True)
     rq.add_argument("--ordered-at", required=True)
     rq.add_argument("--served-at", default="")
     rq.add_argument("--outcome", required=True)
@@ -240,7 +253,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.mode == "publish":
                 value = publish_receipt(args.bad, args.kept, args.at, run)
             else:
-                value = pull_receipt(read_json(args.existing), args.ordered_at, args.served_at, args.outcome, run)
+                value = pull_receipt(read_json(args.existing), args.publish_run_id, args.publish_attempt,
+                                     args.ordered_at, args.served_at, args.outcome, run)
             write_json(args.out, value)
             print(json.dumps(value))
     except (OSError, UnicodeDecodeError, Refused) as error:

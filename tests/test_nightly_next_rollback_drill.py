@@ -105,26 +105,35 @@ class ReceiptTests(unittest.TestCase):
 
     def test_check_takes_only_a_fresh_unpulled_publish(self):
         receipt = drill.publish_receipt("300", "200", AT, RUN)
-        self.assertEqual(drill.check_receipt(receipt, "2026-11-09T10:15:00Z"), {"bad": "300", "kept": "200"})
+        self.assertEqual(drill.check_receipt(receipt, "2026-11-09T10:15:00Z"),
+                         {"bad": "300", "kept": "200", "publish_run_id": "7", "publish_attempt": "1"})
         with self.assertRaisesRegex(drill.Refused, "not this week's"):
             drill.check_receipt(receipt, "2026-11-16T10:15:00Z")
         with self.assertRaisesRegex(drill.Refused, "not this week's"):
             drill.check_receipt(receipt, "2026-11-09T09:00:00Z")
-        pulled = drill.pull_receipt(receipt, "2026-11-09T10:15:00Z", "2026-11-09T10:16:10Z", "served", RUN)
+        pulled = drill.pull_receipt(receipt, "7", "1", "2026-11-09T10:15:00Z", "2026-11-09T10:16:10Z", "served", RUN)
         with self.assertRaisesRegex(drill.Refused, "already pulled"):
             drill.check_receipt(pulled, "2026-11-09T10:20:00Z")
 
     def test_pull_records_both_times_or_a_failure(self):
         receipt = drill.publish_receipt("300", "200", AT, RUN)
         pull_run = {**RUN, "run_id": "8"}
-        done = drill.pull_receipt(receipt, "2026-11-09T10:15:00Z", "2026-11-09T10:16:10Z", "served", pull_run)
+        done = drill.pull_receipt(receipt, "7", "1", "2026-11-09T10:15:00Z", "2026-11-09T10:16:10Z", "served", pull_run)
         self.assertEqual((done["outcome"], done["publish"]["run_id"], done["pull"]["run_id"]), ("served", "7", "8"))
-        failed = drill.pull_receipt(receipt, "2026-11-09T10:15:00Z", "", "failed", pull_run)
+        failed = drill.pull_receipt(receipt, "7", "1", "2026-11-09T10:15:00Z", "", "failed", pull_run)
         self.assertEqual((failed["outcome"], failed["served_at"]), ("failed", ""))
         with self.assertRaisesRegex(drill.Refused, "at or after"):
-            drill.pull_receipt(receipt, "2026-11-09T10:15:00Z", "2026-11-09T10:14:00Z", "served", pull_run)
+            drill.pull_receipt(receipt, "7", "1", "2026-11-09T10:15:00Z", "2026-11-09T10:14:00Z", "served", pull_run)
         with self.assertRaisesRegex(drill.Refused, "not a published drill"):
-            drill.pull_receipt(done, "2026-11-09T10:15:00Z", "", "failed", pull_run)
+            drill.pull_receipt(done, "7", "1", "2026-11-09T10:15:00Z", "", "failed", pull_run)
+
+    def test_pull_refuses_a_receipt_another_publish_replaced(self):
+        receipt = drill.publish_receipt("300", "200", AT, RUN)
+        pull_run = {**RUN, "run_id": "8"}
+        with self.assertRaisesRegex(drill.Refused, "another publish replaced it"):
+            drill.pull_receipt(receipt, "6", "1", "2026-11-09T10:15:00Z", "2026-11-09T10:16:10Z", "served", pull_run)
+        with self.assertRaisesRegex(drill.Refused, "another publish replaced it"):
+            drill.pull_receipt(receipt, "7", "2", "2026-11-09T10:15:00Z", "", "failed", pull_run)
 
     def test_cli_round_trip(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -132,7 +141,8 @@ class ReceiptTests(unittest.TestCase):
             common = ["--run-id", "7", "--attempt", "1", "--run-url", RUN["run_url"], "--out", str(out)]
             self.assertEqual(drill.main(["receipt", "publish", "--bad", "300", "--kept", "200", "--at", AT, *common]), 0)
             self.assertEqual(drill.main(["receipt", "check", "--existing", str(out), "--now", "2026-11-09T10:15:00Z"]), 0)
-            self.assertEqual(drill.main(["receipt", "pull", "--existing", str(out), "--ordered-at",
+            self.assertEqual(drill.main(["receipt", "pull", "--existing", str(out), "--publish-run-id", "7",
+                                         "--publish-attempt", "1", "--ordered-at",
                                          "2026-11-09T10:15:00Z", "--served-at", "2026-11-09T10:15:40Z",
                                          "--outcome", "served", *common]), 0)
             self.assertEqual(json.loads(out.read_text())["served_at"], "2026-11-09T10:15:40Z")
