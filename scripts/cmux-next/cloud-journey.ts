@@ -240,13 +240,13 @@ class Api {
       return r.body.value;
     }
   }
-  async read(op: string, params: unknown): Promise<any> {
-    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers());
+  async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
+    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs);
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
-  async raw(method: string, route: string, body?: unknown): Promise<Answer> {
-    return http(method, `${this.origin}${route}`, body, this.headers(), 60_000);
+  async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000): Promise<Answer> {
+    return http(method, `${this.origin}${route}`, body, this.headers(), timeoutMs);
   }
 }
 
@@ -1147,8 +1147,11 @@ export function machineLine(m: any, scope: string, now = Date.now()): Record<str
   };
 }
 
-/** A team (null: the account's own) and its API, as the journey calls it. */
-export type MachineScope = { scope: string; list(): Promise<any[]>; get(id: string): Promise<any | null>; remove(id: string, key: string): Promise<Answer> };
+/**
+ * A team (null: the account's own) and its API, as the journey calls it. `get` and `remove` give up after
+ * `timeoutMs` (the request's own AbortSignal timeout), so a delete's deadline holds across its requests.
+ */
+export type MachineScope = { scope: string; list(): Promise<any[]>; get(id: string, timeoutMs: number): Promise<any | null>; remove(id: string, key: string, timeoutMs: number): Promise<Answer> };
 export type DeleteDeps = { now(): number; sleep(ms: number): Promise<void>; log(line: string): void; retryMs?: number; readBackMs?: number };
 
 /**
@@ -1156,6 +1159,10 @@ export type DeleteDeps = { now(): number; sleep(ms: number): Promise<void>; log(
  * refusal deletes nothing; right before each delete the machine is read again and checked again. Each delete is
  * logged before it is sent, retried under the same idempotency key while the API answers mutation.indeterminate
  * (bounded), then read back until it is gone or deleting (bounded). Returns the ids it could not delete, with why.
+ *
+ * Each id's whole delete (the read before it, the deletes and their pauses, the read back and its pauses) ends
+ * within retryMs + readBackMs (5 min): every request and every pause is cut to the time left, and the deadline is
+ * checked before each one, so a slow answer cannot carry it past the bound (the workflow's timeout counts on it).
  */
 export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[], runTag: string, deps: DeleteDeps): Promise<{ deleted: string[]; failed: Array<{ id: string; reason: string }> }> {
   const retryMs = deps.retryMs ?? 180_000;
@@ -1177,41 +1184,51 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
   for (const id of ids) {
     const s = where.get(id)!;
     const fail = (reason: string) => { failed.push({ id, reason }); deps.log(JSON.stringify({ failed: id, reason })); };
+    const t0 = deps.now();
+    const retryEnd = t0 + retryMs;
+    const deadline = retryEnd + readBackMs;
+    const left = (until: number) => until - deps.now();
+    // A request gets at most its usual timeout, never past `until`.
+    const cut = (until: number, usual: number) => Math.max(1, Math.min(usual, left(until)));
     let m: any;
-    try { m = await s.get(id); } catch (e) { fail(`read before delete: ${(e as Error).message}`); continue; }
+    try { m = await s.get(id, cut(retryEnd, 30_000)); } catch (e) { fail(`read before delete: ${(e as Error).message}`); continue; }
     const e = m ? journeyMachineEligible(m, deps.now()) : { eligible: false, reason: "gone from the account" };
     if (!m || !e.eligible) { fail(`not eligible at delete time: ${e.reason}`); continue; }
     deps.log(JSON.stringify({ before_delete: id, scope: s.scope, name: m.name, status: m.status, created: iso(m.created_at), last_active: iso(m.last_active_at) }));
     const key = `${runTag}-delete-${id}`;
-    const t0 = deps.now();
-    let answer: Answer | null = null;
-    for (let attempt = 1; ; attempt++) {
-      try { answer = await s.remove(id, key); } catch (e) { answer = { status: 0, body: { ok: false, error: { code: "transport", message: (e as Error).message, retryable: true } } }; }
+    const cutOff = (message: string): Answer => ({ status: 0, body: { ok: false, error: { code: "transport", message, retryable: true } } });
+    let answer: Answer = cutOff("no delete sent: the read before it used the time");
+    for (let attempt = 1; left(retryEnd) > 0; attempt++) {
+      try { answer = await s.remove(id, key, cut(retryEnd, 60_000)); } catch (e) { answer = cutOff((e as Error).message); }
       const again = opRetryable(answer.body) || answer.status === 0;
-      if (!again || deps.now() - t0 >= retryMs) break;
+      const pause = Math.min(5_000 * attempt, 30_000, left(retryEnd));
+      if (!again || pause <= 0) break;
       deps.log(JSON.stringify({ retry_delete: id, attempt, error: answer.body?.error?.code ?? null }));
-      await deps.sleep(Math.min(5_000 * attempt, 30_000));
+      await deps.sleep(pause);
     }
-    const accepted = answer!.status === 200 && answer!.body?.ok === true;
-    const unsure = !accepted && (opRetryable(answer!.body) || answer!.status === 0);
+    const accepted = answer.status === 200 && answer.body?.ok === true;
+    const unsure = !accepted && (opRetryable(answer.body) || answer.status === 0);
     // A refusal is final. An answer still cut off after the retries may have deleted it: read back before saying no.
     if (!accepted && !unsure) {
-      fail(`delete: HTTP ${answer!.status} ${short(answer!.body?.error ?? answer!.body)}`);
+      fail(`delete: HTTP ${answer.status} ${short(answer.body?.error ?? answer.body)}`);
       continue;
     }
     let gone = "";
-    for (const r0 = deps.now(); deps.now() - r0 < readBackMs; await deps.sleep(3_000)) {
+    while (left(deadline) > 0) {
       try {
-        const back = await s.get(id);
+        const back = await s.get(id, cut(deadline, 30_000));
         if (!back || back.status === "deleting" || back.status === "deleted") { gone = back ? back.status : "gone"; break; }
       } catch { /* read again */ }
+      const pause = Math.min(3_000, left(deadline));
+      if (pause <= 0) break;
+      await deps.sleep(pause);
     }
     if (!gone) {
-      fail(`${accepted ? "deleted" : `delete: HTTP ${answer!.status} ${short(answer!.body?.error ?? answer!.body)} after the retries`}, but read back still not gone or deleting after ${readBackMs / 1000} s`);
+      fail(`${accepted ? "deleted" : `delete: HTTP ${answer.status} ${short(answer.body?.error ?? answer.body)} after the retries`}, but read back still not gone or deleting by its ${(retryMs + readBackMs) / 1000} s deadline`);
       continue;
     }
     deleted.push(id);
-    deps.log(JSON.stringify({ deleted: id, read_back: gone, ...(accepted ? {} : { after: answer!.body?.error?.code ?? "transport" }) }));
+    deps.log(JSON.stringify({ deleted: id, read_back: gone, ...(accepted ? {} : { after: answer.body?.error?.code ?? "transport" }) }));
   }
   return { deleted, failed };
 }
@@ -1278,13 +1295,13 @@ async function machinesMode(argv: string[], backend: Backend, email: string | un
     return {
       scope: t || "personal",
       list: () => listAllMachines(api),
-      get: async (id) => {
-        try { return await api.read("cloud.machine.get", { machine: id }); } catch (e) {
+      get: async (id, timeoutMs) => {
+        try { return await api.read("cloud.machine.get", { machine: id }, timeoutMs); } catch (e) {
           if (/HTTP 404|not[ _.-]?found/i.test(String((e as Error).message))) return null;
           throw e;
         }
       },
-      remove: (id, key) => api.raw("POST", "/v1/ops", { op: "cloud.machine.delete", params: { machine: id }, idempotency_key: key }),
+      remove: (id, key, timeoutMs) => api.raw("POST", "/v1/ops", { op: "cloud.machine.delete", params: { machine: id }, idempotency_key: key }, timeoutMs),
     };
   });
   const now = Date.now();
