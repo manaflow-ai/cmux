@@ -634,6 +634,66 @@ fn a_three_minute_pause_during_a_check_holds_its_flip() {
     assert!(gate.run_test(at(182).1, true, |_| ()).is_err(), "the flip ran under the hold");
 }
 
+/// Follow-up of #39049 (cloud-v0-lead): the pause record must reach the
+/// processes that flip outside the service, the operator's `cmux host update
+/// check`. The service's watch writes each look and pause to the record file,
+/// and a watch loaded from it holds by the same rule: a pause it found, and a
+/// watch still waking from one.
+#[cfg(target_os = "linux")]
+#[test]
+fn another_process_reads_the_pause_record_and_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let file = paths.at(PAUSE_FILE);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let service = crate::agent::PauseWatch::new();
+    service.persist_to(file);
+    service.looked(B0, false);
+
+    // The operator's check, in its own process: no watch of its own.
+    let check = role::OtherLook::start(&paths, 0);
+    let looks = check.looks();
+    assert!(looks.watch.has_looked(), "the record did not reach the other process");
+    assert!(!role::hold_if_paused(&paths, looks.watch, looks.handled, at(5)));
+    // Still waking from a 3-minute pause: held.
+    assert!(role::hold_if_paused(&paths, looks.watch, looks.handled, at(180)));
+
+    // The service's watch counts the pause after this check took its count:
+    // held once, by the count the file carries.
+    service.looked(at(181).0, true);
+    assert!(role::hold_if_paused(&paths, looks.watch, looks.handled, at(182)));
+    assert!(!role::hold_if_paused(&paths, looks.watch, looks.handled, at(183)));
+    // A check that starts after it takes it as handled.
+    let later = role::OtherLook::start(&paths, 0);
+    let looks = later.looks();
+    assert!(!role::hold_if_paused(&paths, looks.watch, looks.handled, at(184)));
+    // No record at all: nothing to read, no hold.
+    let none = crate::agent::PauseWatch::load(&dir.path().join("missing.json"));
+    assert!(!none.has_looked());
+}
+
+/// The operator's check keeps its own restore look from its start: a restore
+/// during it holds its flip, though the service's worker in another process
+/// holds the baseline.
+#[cfg(target_os = "linux")]
+#[test]
+fn another_process_keeps_its_own_restore_look() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let check = role::OtherLook::start(&paths, 0);
+    let looks = check.looks();
+    let mut last = looks.offset.lock().unwrap();
+    assert!(role::flip_look(
+        &paths,
+        looks.watch,
+        looks.handled,
+        &mut last,
+        3_600 * SECOND_NS,
+        at(5),
+    ));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(5).1), Some(role::CONNECT_HOLD));
+}
+
 /// Review F2 of #39049: a pause the watch found after the previous wait's
 /// last look and before the next step began is still held. Comparing the
 /// pause's time with the step's start missed it; the count the worker keeps
@@ -1091,4 +1151,31 @@ fn a_rollback_wait_after_the_forward_hold_expired_still_holds_a_new_session() {
     let after = past_bound + carrier::CARRIER_MAX_HOLD + Duration::from_secs(1);
     assert_eq!(rollback.look(&paths, after, reconnected()), None, "its own bound passed");
     assert_eq!(rollback.look(&paths, after, Err("unreadable".to_owned())), None);
+}
+
+/// Review P1 of #39049: the watch publishes a look that found a pause in the
+/// middle of the updater's read. The read sees the old count and the old
+/// look, or the new count and the new look, never the old count with the
+/// new look (which reads as a current watch and no new pause).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pause_published_during_the_read_still_holds() {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = Arc::new(crate::agent::PauseWatch::new());
+    watch.looked(B0, false);
+    let handled = AtomicU64::new(watch.pause_seq());
+    // The watch's look after a 3-minute pause lands between the read's two fields.
+    let publisher = Arc::clone(&watch);
+    crate::agent::BETWEEN_READS.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || publisher.looked(at(180).0, true)));
+    });
+    assert!(
+        role::hold_if_paused(&paths, &watch, &handled, at(181)),
+        "a pause published during the read was missed"
+    );
+    assert_eq!(gate::Gate::new(&paths).held_left(at(181).1), Some(role::CONNECT_HOLD));
 }

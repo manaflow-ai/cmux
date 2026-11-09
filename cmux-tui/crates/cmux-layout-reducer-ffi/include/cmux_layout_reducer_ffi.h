@@ -378,6 +378,7 @@ typedef struct CmuxFocusTopology {
     uint32_t column_pane_count;
     uint32_t screen_count;
     uint32_t reserved;
+    const CmuxFocusStr *column_siblings; /* NULL, or column_pane_count ids parallel to column_panes: each pane's close sibling (issue 38194); empty is none */
 } CmuxFocusTopology;
 
 typedef struct CmuxFocusResolved {

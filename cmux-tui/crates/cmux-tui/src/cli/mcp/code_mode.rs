@@ -215,6 +215,12 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
             "required": ["script"],
         },
         "annotations": {"destructiveHint": true, "openWorldHint": false},
+        // Claude Code defers MCP tools behind its tool search unless a tool says it always
+        // loads. Every NEXT chat that used cmux_exec first spent a round trip on
+        // `ToolSearch select:mcp__cmux__cmux_exec` (5 of 5 guided chats, 64 searches in 172
+        // transcripts, 2026-11-09 audit), and its description is the guide to cmux's tools.
+        // Other harnesses ignore the key.
+        "_meta": {"anthropic/alwaysLoad": true},
     })]
 }
 
@@ -563,10 +569,13 @@ fn exec_mode(
     workflow_inputs: Option<Value>,
 ) -> Result<Value, String> {
     let workflow_mode = workflow_inputs.is_some();
-    if let Some(name) = arguments.keys().find(|name| name.as_str() != "script") {
+    // `code` is what models that know other code-mode tools send (6 of 1,100 cmux_exec calls
+    // in NEXT transcripts failed on it, 2026-11-09 audit): it is the script under another name.
+    let key = if arguments.contains_key("script") { "script" } else { "code" };
+    if let Some(name) = arguments.keys().find(|name| name.as_str() != key) {
         return Err(format!("{EXEC} has no argument {name:?}"));
     }
-    let script = match arguments.get("script") {
+    let script = match arguments.get(key) {
         Some(Value::String(script)) if !script.trim().is_empty() => script.clone(),
         _ => return Err(format!("{EXEC} needs script, a non-empty string")),
     };
