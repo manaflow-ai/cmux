@@ -193,12 +193,29 @@ class CancelSupersededTests(unittest.TestCase):
         result, _ = decide(api)
         self.assertEqual(result, [])
 
-    def test_queued_tip_deltas_counts_as_a_waiting_mac_job(self):
+    def test_a_run_that_waits_only_for_tip_deltas_is_left_alone(self):
+        # It has published and written the tip feed; only the deltas for that feed entry are left. A cancel
+        # would cost the feed its deltas and free no slot a newer source needs.
         deltas = [*waiting()[:3], job(VERIFY), job(TIP_DMG), job("Publish cmux NEXT DEV"),
+                  job("Publish the cmux NEXT DEV tip feed"),
                   job(DELTAS, "queued", labels=(STD,), created="2026-11-09T12:50:00Z")]
-        api = FakeApi([publish_run(101, 401), publish_run(102, 402)], {101: waiting(), 102: deltas})
-        result, _ = decide(api)
+        api = FakeApi([publish_run(101, 401), publish_run(102, 402), publish_run(103, 403)],
+                      {101: waiting(), 102: deltas, 103: waiting("2026-11-09T12:06:00Z")})
+        result, lines = decide(api)
+        self.assertEqual(result, [103])
+        self.assertNotIn(102, api.cancelled())
+        self.assertTrue(any("publish run 102" in line and "left alone" in line for line in lines), lines)
+
+    def test_a_deltas_only_run_is_never_the_kept_oldest(self):
+        # It is no candidate, so it does not take the oldest's place: the oldest run that still waits to
+        # publish is kept, and the one after it goes.
+        deltas = [*waiting()[:3], job(VERIFY), job(TIP_DMG), job("Publish cmux NEXT DEV"),
+                  job(DELTAS, "queued", labels=(STD,), created="2026-11-09T11:00:00Z")]
+        api = FakeApi([publish_run(100, 400), publish_run(101, 401), publish_run(102, 402)],
+                      {100: deltas, 101: waiting(), 102: waiting("2026-11-09T12:06:00Z")})
+        result, lines = decide(api)
         self.assertEqual(result, [102])
+        self.assertTrue(any("keeping publish run 101" in line for line in lines), lines)
 
     def test_a_mac_job_that_starts_before_the_cancel_keeps_the_run(self):
         started = waiting("2026-11-09T12:06:00Z")
@@ -242,6 +259,86 @@ class CancelSupersededTests(unittest.TestCase):
         result, lines = decide(api)
         self.assertEqual(result, [])
         self.assertTrue(any("could not cancel publish run 102" in line for line in lines), lines)
+
+
+def stamp(minute):
+    """The ISO stamp `minute` minutes after 10:00Z on 2026-11-09."""
+    return f"2026-11-09T{10 + minute // 60:02d}:{minute % 60:02d}:00Z"
+
+
+class ForwardProgressLoop(unittest.TestCase):
+    """Handoffs come every HANDOFF minutes and a Mac job starts only WAIT minutes after it queued (its place in the
+    label's queue behind other workflows' jobs: glaeda-std-xcode-26.6 had 1 of 57 runners online on 2026-11-09).
+    The Mac wait is longer than the handoff interval, the case that starved the channel on 2026-10-26."""
+
+    HANDOFF, WAIT, JOB, MINUTES = 10, 60, 5, 400
+
+    def simulate(self, supersede_once):
+        """Every HANDOFF minutes a publish run signs and runs `supersede_once(api, run_id, source)`; then the one
+        Mac runner takes the earliest queued Mac job whose wait is over. Returns (minute, source) of each
+        publish, and the most publish runs open at once."""
+        runs, jobs, published, most_open = {}, {}, [], 0
+        busy = None  # (run id, job index, done minute)
+        for minute in range(self.MINUTES + 1):
+            if busy and busy[2] == minute:
+                run_id, index, _ = busy
+                jobs[run_id][index].update(status="completed", conclusion="success")
+                if jobs[run_id][index]["name"] == VERIFY and (not published or runs[run_id]["source"] > published[-1][1]):
+                    published.append((minute, runs[run_id]["source"]))  # publish refuses an older source
+                if all(found["status"] == "completed" for found in jobs[run_id]):
+                    runs[run_id]["status"] = "completed"
+                busy = None
+            if minute % self.HANDOFF == 0:
+                count = minute // self.HANDOFF
+                run_id, source = 1000 + count, 500 + count
+                runs[run_id] = {**publish_run(run_id, source, created=stamp(minute)), "source": source}
+                jobs[run_id] = [*waiting(stamp(minute))[:3],
+                                {**job(VERIFY, "queued", created=stamp(minute), labels=(STD,)), "minute": minute},
+                                {**job(TIP_DMG, "queued", created=stamp(minute), labels=(STD,)), "minute": minute}]
+                api = FakeApi([run for run in runs.values() if run["status"] != "completed"],
+                              {ident: [dict(found) for found in found_jobs] for ident, found_jobs in jobs.items()})
+                supersede_once(api, run_id, source)
+                for cancelled in api.cancelled():
+                    runs[cancelled]["status"] = "completed"
+                    for found in jobs[cancelled]:
+                        if found["status"] != "completed":
+                            found.update(status="completed", conclusion="cancelled")
+                most_open = max(most_open, sum(run["status"] != "completed" for run in runs.values()))
+            if busy is None:
+                ready = [(found["minute"], run_id, index) for run_id, found_jobs in jobs.items()
+                         for index, found in enumerate(found_jobs)
+                         if found.get("minute") is not None and found["status"] == "queued"
+                         and found["minute"] + self.WAIT <= minute]
+                if ready:
+                    _, run_id, index = min(ready)
+                    jobs[run_id][index].update(status="in_progress", runner_name="cmux15-glaeda")
+                    busy = (run_id, index, minute + self.JOB)
+        return published, most_open
+
+    def test_keeping_the_oldest_publishes_every_wait_while_handoffs_keep_coming(self):
+        published, most_open = self.simulate(
+            lambda api, run_id, source: supersede.cancel_superseded(api, REPO, run_id, source, log=lambda _: None))
+        minutes = [minute for minute, _ in published]
+        sources = [source for _, source in published]
+        self.assertGreaterEqual(len(published), 5, published)
+        self.assertEqual(sources, sorted(set(sources)), published)
+        # Never longer between publishes (or before the first) than one queue wait, one handoff and both jobs.
+        bound = self.WAIT + self.HANDOFF + 2 * self.JOB
+        self.assertLessEqual(max(b - a for a, b in zip([0, *minutes], minutes)), bound, published)
+        # The kept oldest, the one on the Mac, and the newest: never seven again.
+        self.assertLessEqual(most_open, 3)
+
+    def test_cancelling_every_older_run_would_starve_the_channel(self):
+        # Why the oldest stays: with every older waiting run cancelled, each loses its queue place to the next
+        # handoff before its wait is over, so nothing publishes (the 2026-10-26 starvation by a concurrency group).
+        def cancel_all_older(api, run_id, source):
+            for run in supersede.open_runs(api, REPO):
+                other = supersede.source_of(run)
+                if run["id"] != run_id and other is not None and other < source and \
+                        not supersede.why_not_candidate(supersede.read_jobs(api, REPO, run["id"], lambda _: None)):
+                    api.post(f"repos/{REPO}/actions/runs/{run['id']}/cancel", {})
+        published, _ = self.simulate(cancel_all_older)
+        self.assertEqual(published, [])
 
 
 class MainTests(unittest.TestCase):
