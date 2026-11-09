@@ -103,7 +103,7 @@ describe("one item heads the hat", () => {
       expect(head!.getAttribute("aria-expanded")).toBe("false");
       // Folded: its task and what it does now, on the header's one line.
       expect(head!.querySelector(".acpmux-running-tray__title")?.textContent).toBe("Diagnose nightly lag, idle fleet");
-      expect(head!.querySelector(".acpmux-running-tray__latest")?.textContent).toBe("Bash");
+      expect(head!.querySelector(".acpmux-running-tray__latest")?.textContent).toBe("Running a command");
       await act(async () => head!.click());
       expect(view.opened).toEqual([]);
       expect(head!.getAttribute("aria-expanded")).toBe("true");

@@ -188,7 +188,14 @@ export type AcpmuxBackgroundTurn = {
   /// the agent's own turn, at the reply column with a footer of its own, never inside the call that
   /// started its task (Leo, 2026-11-08: "the text in this situation isn't from the subagent?").
   ownTurn?: true;
+  /// Where its task came from, cited on its line (direct.ts `backgroundSource`; Leo, 2026-11-05:
+  /// "cite the helper/add atribution ... and display the actual code in the raw").
+  source?: AcpmuxBackgroundSource;
 };
+
+/// The task a background turn answered, as its line cites it: the command as typed, and the helper
+/// that ran it when the chat did not (a subagent's or workflow agent's shell).
+export type AcpmuxBackgroundSource = { command?: string; ownerId?: string; ownerTitle?: string };
 
 /// How much a background task's end is worth (Leo, 2026-11-03: "there's like... background tasks
 /// worth responding to and not worth responding to"), decided by acpmux from the task's own event
@@ -704,6 +711,9 @@ export type AcpmuxRow = {
   /// it is open the row names the call, so the line does not (conversation/turns.ts `ownRow`).
   doingGroup?: string;
   doingGroupOpen?: boolean;
+  /// The run line that takes `doingGroup`'s place when the run folds (TurnRows.tsx `runLinks`), none for
+  /// an edits group: the group reads open or closed with it, as its own line does (WorkingFor.tsx).
+  doingRun?: string;
   /// A "Worked for" disclosure whose fold mixes the agent's messages with its work reads "N previous
   /// messages", as Codex's does (conversation/turns.ts `foldMixesMessages`).
   previous?: number;

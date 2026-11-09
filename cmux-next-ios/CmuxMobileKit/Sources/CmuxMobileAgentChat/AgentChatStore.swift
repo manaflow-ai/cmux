@@ -11,6 +11,9 @@ public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
 
     public var id: String
     public var prompt: String
+    /// The id of the prompt that opened the turn: a later `userMessage` for the turn with another
+    /// id is a message steered into it. Nil in a turn saved before it was kept.
+    public var promptID: String?
     public var attachments: [AgentAttachment]
     public var promptAt: Date
     /// Another agent's message, when the prompt is one (AgentIncoming): drawn as its card.
@@ -25,9 +28,10 @@ public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
     /// Tool calls drawn by something else (the subagent row that a spawn call started).
     public var hiddenToolCalls: Set<String> = []
 
-    public init(id: String, prompt: String, attachments: [AgentAttachment] = [], promptAt: Date) {
+    public init(id: String, prompt: String, promptID: String? = nil, attachments: [AgentAttachment] = [], promptAt: Date) {
         self.id = id
         self.prompt = prompt
+        self.promptID = promptID
         self.attachments = attachments
         self.promptAt = promptAt
     }
@@ -122,9 +126,12 @@ public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
     case question(AgentQuestion)
     /// Subagents started together (ids into `AgentChatStore.subagents`).
     case subagents(id: String, ids: [String])
+    /// A message steered into the running turn, where it went in (the Mac's steered row).
+    case steer(SteeredMessage)
 
     public var id: String {
         switch self {
+        case .steer(let message): "st-\(message.promptID)"
         case .subagents(let id, _): "s-\(id)"
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
@@ -133,6 +140,24 @@ public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
         case .permission(let record): "r-\(record.request.id)"
         case .question(let question): "q-\(question.id)"
         }
+    }
+}
+
+/// A message steered into a running turn: the person's, drawn as their bubble, or another
+/// agent's (`incoming`), drawn as its card.
+public struct SteeredMessage: Hashable, Sendable, Codable {
+    public var promptID: String
+    public var text: String
+    public var attachments: [AgentAttachment]
+    public var at: Date
+    public var incoming: AgentIncoming?
+
+    public init(promptID: String, text: String, attachments: [AgentAttachment] = [], at: Date, incoming: AgentIncoming? = nil) {
+        self.promptID = promptID
+        self.text = text
+        self.attachments = attachments
+        self.at = at
+        self.incoming = incoming
     }
 }
 
@@ -279,6 +304,8 @@ public final class AgentChatStore {
     private var startsNewAttempt = false
     /// The turn the latest `userMessage` opened (nil for a steer into a running turn): the one a `promptFrom` may mark.
     @ObservationIgnored private var promptedTurnID: String?
+    /// The steer the latest `userMessage` put into a running turn: the one a `promptFrom` may mark.
+    @ObservationIgnored private var steeredPrompt: (turnID: String, promptID: String)?
     private var task: Task<Void, Never>?
     /// The chat's edit diffs, computed once each off the main thread (the transcript, its
     /// grid card and the subagent screens share them).
@@ -458,8 +485,24 @@ public final class AgentChatStore {
         resendable = nil
         let promptID = resend ?? UUID().uuidString.lowercased()
         keepSent(attachments, promptID: promptID)
-        source.send(.prompt(text: text, attachments: attachments, steer: steer,
+        // One of the agent's own slash commands waits for the turn and runs as its own.
+        let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
+        source.send(.prompt(text: text, attachments: attachments, steer: steers,
                             promptID: promptID, resend: resend != nil))
+    }
+
+    /// Whether `text` is one of a Claude agent's own slash commands (`commands`, its
+    /// `available_commands_update`: built-ins, skills, plugin commands such as `/loop`), the Mac's
+    /// `commandWaitsForTurn`. Claude Code never reads a command into a running turn: steered, it
+    /// waits under the turn unread, or is read as plain words. Such a message queues and runs as
+    /// its own turn. Text that only starts with a slash (a path, a word the agent doesn't list)
+    /// is the agent's to read, and steers.
+    nonisolated static func commandWaitsForTurn(_ text: String, harness: String, commands: [ACPAvailableCommand]) -> Bool {
+        guard family(of: harness) == "claude", !commands.isEmpty else { return false }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return false }
+        let name = trimmed.dropFirst().prefix { !$0.isWhitespace }.lowercased()
+        return !name.isEmpty && commands.contains { $0.name.lowercased() == name }
     }
 
     /// The Mac shows `promptID` ran (or queued): a draft returned for it goes away, and it is
@@ -790,18 +833,40 @@ public final class AgentChatStore {
             reached(promptId)
             // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
             promptedTurnID = nil
+            steeredPrompt = nil
             // A turn on disk (`spillOlder`) is not new: a replay that brings its prompt again
             // must not add it a second time, at the bottom.
-            if !turns.contains(where: { $0.id == turnId }), !spilledTurnIDs.contains(turnId) {
+            if let index = turns.firstIndex(where: { $0.id == turnId }) {
+                // Another prompt id is a message steered in: it draws where it went in (once, a
+                // replay brings it again). A retried attempt's message is not one.
+                if !startsNewAttempt, let opened = turns[index].promptID, opened != promptId,
+                   !turns[index].items.contains(where: { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }) {
+                    let sent = Self.sentAttachments(sentAttachments[promptId], recorded: attachments)
+                    turns[index].items.append(.steer(SteeredMessage(promptID: promptId, text: text, attachments: sent, at: at)))
+                    steeredPrompt = (turnId, promptId)
+                }
+            } else if !spilledTurnIDs.contains(turnId) {
+                // A steer the turn ended before the agent read it runs as this turn's prompt, under
+                // its own id (acpmux `steer_end.rs`): it draws once, here, not also as a steer in
+                // the turn before.
+                if let last = turns.indices.last {
+                    turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
+                }
                 promptedTurnID = turnId
                 startsNewAttempt = false
-                turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
+                turns.append(AgentTurn(id: turnId, prompt: text, promptID: promptId,
+                                       attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
                                        promptAt: at))
             }
             // The turn holds them now.
             sentAttachments[promptId] = nil
         case .queued(let text, let promptId, _):
             reached(promptId)
+            // A steer that lost a stop race waits in the queue now (the Mac's `dropDeferredSteer`):
+            // it is drawn there, not also in the turn it missed.
+            if let last = turns.indices.last {
+                turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
+            }
             queue.append(QueuedPrompt(id: promptId, text: text))
         case .dequeued(let promptId):
             queue.removeAll { $0.id == promptId }
@@ -822,6 +887,18 @@ public final class AgentChatStore {
         case .turnSeq(let turnId, let seq):
             turnSeqs[turnId] = seq
         case .promptFrom(let turnId, let incoming):
+            if let steered = steeredPrompt, steered.turnID == turnId {
+                // Another agent's message steered in: its card, in the turn, under its sender.
+                mutateTurn(turnId) { turn in
+                    for index in turn.items.indices {
+                        if case .steer(var message) = turn.items[index], message.promptID == steered.promptID {
+                            message.incoming = incoming
+                            turn.items[index] = .steer(message)
+                        }
+                    }
+                }
+                return
+            }
             guard promptedTurnID == turnId else { return }
             mutateTurn(turnId) { $0.incoming = incoming }
         case .promptSeq(let turnId, let seq):

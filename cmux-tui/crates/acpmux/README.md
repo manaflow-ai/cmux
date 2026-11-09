@@ -592,7 +592,8 @@ pi and their forks show their catalogs before any session exists; Claude uses a 
 table.
 
 ```
-Enter        send prompt        Ctrl-s   steer, or queue when the agent cannot steer
+Enter        send prompt; steers a running turn when the agent steers
+Ctrl-s       queue the prompt for after the running turn
 Ctrl-t / n   new session tab    Alt-n     new session tab    Ctrl-g   cancel turn
 Cmd-Ctrl-h/j/k/l  move focus like cmux panes: h sidebar, l content, k transcript, j composer
                   (Alt-h/j/k/l on terminals that do not deliver Cmd)
