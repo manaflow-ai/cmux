@@ -524,3 +524,57 @@ fn w5q_agent_list_leaves_out_ended_agents_of_closed_terminals() {
     let unread = shape(rows(), &[], &HashSet::new(), AgentRosterView::default(), NOW);
     assert_eq!(unread["counts"]["total"], 3, "{unread}");
 }
+
+/// W5-Q follow-up (PR A review note 3): an ended session's row says
+/// `status: "ended"`, the word `terminal list --agents` and the send
+/// receipt say, not null.
+#[test]
+fn w5q_an_ended_row_of_agent_list_says_status_ended() {
+    let rows = json!([
+        agent("agent_ended", "done", NOW - 1_000, "term_1"),
+        agent("agent_idle", "idle", NOW - 2_000, "term_2"),
+    ]);
+    let result = shape(rows, &[], &HashSet::new(), AgentRosterView::default(), NOW);
+    let ended = result["agents"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["id"] == "agent_ended")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(ended["status"], "ended", "{result}");
+    assert_eq!(ended["state"], "ended", "{result}");
+    assert_eq!(result["counts"]["ended"], 1, "{result}");
+}
+
+/// W5-Q follow-up (PR A review note 8): the text output says how many
+/// ended agents of closed terminals it left out, and `--json --counts`
+/// has the number (`hidden_ended`). `--state ended` hides none.
+#[test]
+fn w5q_agent_list_says_how_many_ended_agents_it_left_out() {
+    let rows = || {
+        json!([
+            agent("agent_closed_1", "done", NOW - 1_000, "term_closed_1"),
+            agent("agent_closed_2", "done", NOW - 2_000, "term_closed_2"),
+            agent("agent_idle", "idle", NOW - 3_000, "term_idle"),
+        ])
+    };
+    let terminals = [json!({"id": "term_idle"})];
+    let line = crate::localization::catalog().pane_cli.agent_list_hidden_ended;
+    let result = shape(rows(), &terminals, &HashSet::new(), AgentRosterView::default(), NOW);
+    assert_eq!(ids(&result), ["agent_idle"], "{result}");
+    assert_eq!(result["hidden_ended"], 2, "{result}");
+    let text = human(&result, None);
+    assert!(text.contains(&line.replace("{count}", "2")), "{text}");
+
+    let ended = AgentRosterView { status: Some("ended"), ..AgentRosterView::default() };
+    let result = shape(rows(), &terminals, &HashSet::new(), ended, NOW);
+    assert_eq!(result["hidden_ended"], 0, "{result}");
+    assert!(!human(&result, None).contains(&line.replace("{count}", "0")), "{result}");
+
+    // Only ended agents of closed terminals: no agent row, still the line.
+    let closed = json!([agent("agent_closed_1", "done", NOW - 1_000, "term_closed_1")]);
+    let result = shape(closed, &terminals, &HashSet::new(), AgentRosterView::default(), NOW);
+    let text = human(&result, None);
+    assert!(text.contains(&line.replace("{count}", "1")), "{text}");
+}

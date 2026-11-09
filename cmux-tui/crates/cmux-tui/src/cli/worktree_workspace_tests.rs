@@ -420,3 +420,29 @@ fn w5o_worktree_close_guards_the_end_when_identify_cannot_tell() {
     assert_eq!(end["if_unplaced"], true, "the guard must not depend on identify: {end}");
     assert_eq!(result["ended_terminals"], json!([HERE]));
 }
+
+/// W5-Q follow-up (#39580 review): the close ends only terminals whose
+/// lifecycle says they run (`running`, `launching`, `adopting`). One with
+/// another word (`tombstoned`, a newer daemon's word) or with no
+/// `lifecycle` field is left to the session.
+#[test]
+fn w5q_worktree_close_counts_only_terminals_whose_lifecycle_says_they_run() {
+    let snapshot = json!({
+        "screens": [{"id": "screen_a", "workspace_id": WORKSPACE}],
+        "panes": [{"id": "pane_a", "screen_id": "screen_a"}],
+        "tabs": [{"id": "tab_1", "pane_id": "pane_a"}, {"id": "tab_2", "pane_id": "pane_a"},
+                 {"id": "tab_3", "pane_id": "pane_a"}, {"id": "tab_4", "pane_id": "pane_a"},
+                 {"id": "tab_5", "pane_id": "pane_a"}],
+        "terminals": [
+            {"id": "term_running", "lifecycle": "running", "tab_ids": ["tab_1"]},
+            {"id": "term_launching", "lifecycle": "launching", "tab_ids": ["tab_2"]},
+            {"id": "term_tombstoned", "lifecycle": "tombstoned", "tab_ids": ["tab_3"]},
+            {"id": "term_unknown_word", "lifecycle": "suspended", "tab_ids": ["tab_4"]},
+            {"id": "term_no_lifecycle", "tab_ids": ["tab_5"]},
+        ],
+    });
+    assert_eq!(
+        super::running_terminals_with_a_tab_in(&snapshot, WORKSPACE),
+        ["term_running", "term_launching"]
+    );
+}

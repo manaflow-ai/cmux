@@ -1134,3 +1134,102 @@ fn w5q_send_receipt_status_is_the_lists_word_for_the_turn() {
     let receipt = send::run(&daemon, None, &request).expect("sent");
     assert_eq!(receipt["status"], "working", "{receipt}");
 }
+
+/// A [`FakeDaemon`] whose `session.snapshot` reads after the first answer
+/// from `later`, in order: `None` is a failed read.
+struct LaterSnapshotDaemon {
+    inner: FakeDaemon,
+    later: RefCell<std::collections::VecDeque<Option<Value>>>,
+    read: Cell<bool>,
+}
+
+impl Daemon for LaterSnapshotDaemon {
+    fn request(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let wire = request_value(&plan).expect("valid request");
+        if wire["operation"] != "session.snapshot" || !self.read.replace(true) {
+            return self.inner.request(session, plan);
+        }
+        match self.later.borrow_mut().pop_front().flatten() {
+            Some(snapshot) => Ok(snapshot),
+            None => Err(CallFailure {
+                kind: FailureKind::NotRun,
+                error: json!({"code": "transport.failed", "message": "read failed",
+                              "details": {}, "retryable": true}),
+                idempotency_key: None,
+            }),
+        }
+    }
+}
+
+/// W5-Q follow-up (PR A review note 4): the receipt's `status` comes from a
+/// snapshot read after the wait. When that read fails, the snapshot from
+/// before the send is no answer: its old unread notification said `done`
+/// for a turn somebody viewed, and it cannot show the new one. The read is
+/// tried once more; when that fails too, `status` is the wait's own word.
+#[test]
+fn w5q_send_receipt_status_never_comes_from_the_snapshot_before_the_send() {
+    let answer = "> what is 2+2\n\n⏺ 4\n\n──────────────────────\n> \n──────────────────────";
+    let screens = [(1, "> what is 2+2\n\n✻ Thinking"), (2, answer)];
+    let mut unread = snapshot();
+    unread["notifications"] = json!([
+        {"id": "notification_1", "terminal_id": "term_c1a0de00000000000000000000000001",
+         "unread": true, "title": "Claude finished"},
+    ]);
+    let send_with = |before: Value, later: Vec<Option<Value>>| {
+        let daemon = LaterSnapshotDaemon {
+            inner: FakeDaemon::new(before, &screens),
+            later: RefCell::new(later.into()),
+            read: Cell::new(false),
+        };
+        send::run(&daemon, None, &quick("what is 2+2")).expect("sent")
+    };
+
+    // An old unread notification before the send; both reads after it fail.
+    let receipt = send_with(unread.clone(), vec![None, None]);
+    assert_eq!(receipt["status"], "idle", "the old notification gave the status: {receipt}");
+
+    // The first read after the wait fails; the second one shows the new
+    // unread notification of this turn.
+    let receipt = send_with(snapshot(), vec![None, Some(unread)]);
+    assert_eq!(receipt["status"], "done", "the read was not tried again: {receipt}");
+}
+
+/// W5-Q follow-up (PR A review note 3): an ended session's row says
+/// `status: "ended"`, the word the send receipt says, not null.
+#[test]
+fn w5q_an_ended_row_of_terminal_list_agents_says_status_ended() {
+    let mut ended = snapshot();
+    ended["agents"][0]["state"] = json!("done");
+    let rows = roster::agent_rows(&ended);
+    let last = rows.last().expect("the ended row");
+    assert_eq!(last.status_word(), "ended");
+    assert_eq!(last.to_json(0)["status"], "ended", "{}", last.to_json(0));
+    assert_eq!(last.to_json(0)["state"], "ended", "{}", last.to_json(0));
+}
+
+/// W5-Q follow-up (#39580 review): `terminal list --agents` lists the agents
+/// of live terminals, and live is an allow-list of lifecycle words
+/// (`running`, `launching`, `adopting`). A terminal with another word or
+/// with no `lifecycle` field gets no row.
+#[test]
+fn w5q_terminal_list_agents_lists_only_terminals_whose_lifecycle_says_they_run() {
+    let claude = "term_c1a0de00000000000000000000000001";
+    let listed = |lifecycle: Option<&str>| {
+        let mut snapshot = snapshot();
+        match lifecycle {
+            Some(word) => snapshot["terminals"][0]["lifecycle"] = json!(word),
+            None => {
+                if let Some(terminal) = snapshot["terminals"][0].as_object_mut() {
+                    terminal.remove("lifecycle");
+                }
+            }
+        }
+        roster::agent_rows(&snapshot).iter().any(|row| row.terminal == claude)
+    };
+    for live in ["running", "launching", "adopting"] {
+        assert!(listed(Some(live)), "lifecycle {live}");
+    }
+    for not_live in [Some("exited"), Some("tombstoned"), Some("suspended"), Some(""), None] {
+        assert!(!listed(not_live), "lifecycle {not_live:?}");
+    }
+}

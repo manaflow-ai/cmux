@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, io, time::Duration};
+use std::{io, time::Duration, time::Instant};
 
 use mio::{unix::SourceFd, Events, Interest, Poll, Token};
 use signal_hook_mio::v1_0::Signals;
@@ -6,7 +6,7 @@ use signal_hook_mio::v1_0::Signals;
 #[cfg(feature = "event-stream")]
 use crate::event::sys::Waker;
 use crate::event::{
-    source::EventSource, sys::unix::parse::advance, timeout::PollTimeout, Event, InternalEvent,
+    source::EventSource, timeout::PollTimeout, Event, InputParser, InternalEvent,
 };
 use crate::terminal::sys::file_descriptor::{tty_fd, FileDesc};
 
@@ -24,7 +24,7 @@ const TTY_BUFFER_SIZE: usize = 1_024;
 pub(crate) struct UnixInternalEventSource {
     poll: Poll,
     events: Events,
-    parser: Parser,
+    parser: InputParser,
     tty_buffer: [u8; TTY_BUFFER_SIZE],
     tty_fd: FileDesc<'static>,
     signals: Signals,
@@ -54,7 +54,7 @@ impl UnixInternalEventSource {
         Ok(UnixInternalEventSource {
             poll,
             events: Events::with_capacity(3),
-            parser: Parser::default(),
+            parser: InputParser::default(),
             tty_buffer: [0u8; TTY_BUFFER_SIZE],
             tty_fd: input_fd,
             signals,
@@ -105,6 +105,7 @@ impl EventSource for UnixInternalEventSource {
                                     self.parser.advance(
                                         &self.tty_buffer[..read_count],
                                         read_count == TTY_BUFFER_SIZE,
+                                        Instant::now(),
                                     );
                                 }
                                 Err(e) => {
@@ -165,56 +166,5 @@ impl EventSource for UnixInternalEventSource {
     #[cfg(feature = "event-stream")]
     fn waker(&self) -> Waker {
         self.waker.clone()
-    }
-}
-
-//
-// Following `Parser` structure exists for two reasons:
-//
-//  * mimic anes Parser interface
-//  * move the advancing, parsing, ... stuff out of the `try_read` method
-//
-#[derive(Debug)]
-struct Parser {
-    buffer: Vec<u8>,
-    internal_events: VecDeque<InternalEvent>,
-}
-
-impl Default for Parser {
-    fn default() -> Self {
-        Parser {
-            // This buffer is used for -> 1 <- ANSI escape sequence. Are we
-            // aware of any ANSI escape sequence that is bigger? Can we make
-            // it smaller?
-            //
-            // Probably not worth spending more time on this as "there's a plan"
-            // to use the anes crate parser.
-            buffer: Vec::with_capacity(256),
-            // TTY_BUFFER_SIZE is 1_024 bytes. How many ANSI escape sequences can
-            // fit? What is an average sequence length? Let's guess here
-            // and say that the average ANSI escape sequence length is 8 bytes. Thus
-            // the buffer size should be 1024/8=128 to avoid additional allocations
-            // when processing large amounts of data.
-            //
-            // There's no need to make it bigger, because when you look at the `try_read`
-            // method implementation, all events are consumed before the next TTY_BUFFER
-            // is processed -> events pushed.
-            internal_events: VecDeque::with_capacity(128),
-        }
-    }
-}
-
-impl Parser {
-    fn advance(&mut self, buffer: &[u8], more: bool) {
-        // cmux patch: the shared parse loop (`parse::advance`).
-        advance(&mut self.buffer, buffer, more, &mut self.internal_events);
-    }
-}
-
-impl Iterator for Parser {
-    type Item = InternalEvent;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.internal_events.pop_front()
     }
 }
