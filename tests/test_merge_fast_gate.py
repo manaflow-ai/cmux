@@ -15,9 +15,12 @@ spec.loader.exec_module(gate)
 HEAD = "a" * 40
 
 
-def check(name, status="COMPLETED", conclusion="SUCCESS", started=None, completed=None):
-    return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion,
+def check(name, status="COMPLETED", conclusion="SUCCESS", started=None, completed=None, workflow=None):
+    item = {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion,
             "startedAt": started, "completedAt": completed}
+    if workflow is not None:
+        item["workflowName"] = workflow
+    return item
 
 
 class Reader:
@@ -193,6 +196,36 @@ class FastGate(unittest.TestCase):
         _, _, reds = run(Reader(rollup))
         self.assertEqual(reds, ["cmux-next fast tier"])
 
+    def test_a_newer_skipped_run_does_not_hide_an_older_verdict(self):
+        """#39027 (2026-11-09): a same-tree dispatch of cmux-next.yml on the PR branch posted newer skipped check
+        runs of every other job on the head. Of one name, the newest run with a verdict counts."""
+        lint = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        older, newer = "2026-11-09T20:10:00Z", "2026-11-09T20:37:10Z"
+        _, _, reds = run(Reader(GREEN + [check(lint, conclusion="FAILURE", started=older),
+                                         check(lint, conclusion="SKIPPED", started=newer)]))
+        self.assertEqual(reds, [lint])
+        _, seen, reds = run(Reader(GREEN + [check(lint, started=older), check(lint, conclusion="SKIPPED", started=newer)]))
+        self.assertIn(lint, seen)
+        self.assertEqual(reds, [])
+        # The fast tier the same way: an older red still counts, an older cancel still has no verdict.
+        rest = [c for c in GREEN if c["name"] != "cmux-next fast tier"]
+        _, _, reds = run(Reader(rest + [check("cmux-next fast tier", conclusion="FAILURE", started=older),
+                                        check("cmux-next fast tier", conclusion="SKIPPED", started=newer)]))
+        self.assertEqual(reds, ["cmux-next fast tier"])
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(rest + [check("cmux-next fast tier", conclusion="CANCELLED", started=older),
+                               check("cmux-next fast tier", conclusion="SKIPPED", started=newer)]))
+        # Only skipped runs: as before (a lint check skipped has no verdict to compare).
+        with self.assertRaisesRegex(gate.Refused, "no verdict to compare"):
+            run(Reader(GREEN + [check(lint, conclusion="SKIPPED", started=older),
+                                check(lint, conclusion="SKIPPED", started=newer)]))
+        # A newer run still going replaces an older verdict: the gate waits for it.
+        _, _, reds = run(Reader(GREEN + [check(lint, conclusion="FAILURE", started=older),
+                                         check(lint, "IN_PROGRESS", "", started=newer)],
+                                GREEN + [check(lint, conclusion="FAILURE", started=older),
+                                         check(lint, started=newer)]))
+        self.assertEqual(reds, [])
+
     def test_a_webviews_change_stops_waiting_when_the_web_caller_finished_or_skipped_it(self):
         """No react-apps-check is coming once the caller job "web" finished, or react-apps-check was skipped."""
         for rollup in ([check("web")], [check("web", conclusion="SKIPPED")], [check("web / react-apps-check", conclusion="SKIPPED")]):
@@ -257,6 +290,14 @@ class FastGate(unittest.TestCase):
         # A cancelled run skips the Mac tier too: the cargo half may have passed before the cancel.
         with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
             run(Reader(base + [check("cmux-next fast tier (cargo)"), check("cmux-next guards", conclusion="CANCELLED")]))
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(base + [check("cmux-next fast tier (cargo)", workflow="cmux-next"),
+                               check("cmux-next generated files", conclusion="CANCELLED", workflow="cmux-next")]))
+        # #39706 (2026-11-09): a cancelled check of another workflow is not a cancelled cmux-next run.
+        _, _, reds = run(Reader(base + [check("cmux-next fast tier (cargo)", workflow="cmux-next"),
+                                        check("publish to R2", conclusion="CANCELLED", workflow="cmux-tui artifacts")],
+                                files=("cmux-tui/AGENTS.md", "scripts/ci/cmux-tui-focused-test.sh")))
+        self.assertEqual(reds, [])
         # Path routing did not pass: its outputs are not a route.
         no_route = [c for c in base if c["name"] != "cmux-next path routing"]
         with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):

@@ -412,8 +412,11 @@ class InstalledHelperRegression(unittest.TestCase):
             python.chmod(0o755)
         if full:
             extra_args = ("--full", *extra_args)
+        # A rollup entry is (name, status, conclusion[, startedAt[, workflowName]]).
         rollup_payload = shlex.quote(json.dumps({"headRefOid": rollup_head, "baseRefName": rollup_base or base, "files": [{"path": f} for f in changed_files[:rollup_files_limit]], "statusCheckRollup": [
-            {"__typename": "CheckRun", "name": name, "status": status.upper(), "conclusion": conclusion.upper()} for name, status, conclusion in rollup]}))
+            {"__typename": "CheckRun", "name": entry[0], "status": entry[1].upper(), "conclusion": entry[2].upper(),
+             **({"startedAt": entry[3]} if len(entry) > 3 else {}), **({"workflowName": entry[4]} if len(entry) > 4 else {})}
+            for entry in rollup]}))
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
             {"id": index + 2, "name": name, "status": status, "conclusion": conclusion}
@@ -1000,6 +1003,48 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
             self.assertIn("red on the base too", result.stderr)
+
+    # #39027 at 267a1d69 (2026-11-09): cmux_next_tree_notify.py dispatched cmux-next.yml in same-tree mode on the
+    # pull request's branch (run 42694652960); its skipped jobs posted newer check runs of the same names on the head,
+    # and the newer skipped "cmux-next checks" hid the older red the base excuses: "skipped ... no verdict".
+    def test_a_newer_skipped_run_does_not_hide_an_older_red_the_base_excuses(self):
+        rollup = list(self.FAST_GREEN) + [(self.LINT, "completed", "failure", "2026-11-09T20:10:00Z"),
+                                          (self.LINT, "completed", "skipped", "2026-11-09T20:37:10Z")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     event_log=events, excuse=(0, f"{self.LINT}: red on the base too"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("red on the base too", result.stderr)
+
+    def test_a_newer_skipped_run_does_not_hide_an_older_real_red(self):
+        rollup = list(self.FAST_GREEN) + [(self.LINT, "completed", "failure", "2026-11-09T20:10:00Z"),
+                                          (self.LINT, "completed", "skipped", "2026-11-09T20:37:10Z")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     event_log=events, excuse=(1, f"not excused: {self.LINT} is green on the base"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn(f"{self.LINT} red on", result.stderr)
+            self.assertNotIn("no verdict", result.stderr)
+
+    # #39706 at a251910a (2026-11-09): path routing sent the Mac fast tier no Swift work (fast_tier=false), so
+    # cmux-next.yml skipped it by design while its cargo half ran. A cancelled check of another workflow ("publish to
+    # R2" in cmux-tui artifacts) made the gate read the skip as a cancelled cmux-next run: "skipped ... rerun it".
+    def test_a_routed_fast_tier_skip_passes_beside_another_workflows_cancelled_check(self):
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [
+            ("cmux-next fast tier", "completed", "skipped", "2026-11-09T16:05:13Z", "cmux-next"),
+            ("cmux-next fast tier (cargo)", "completed", "success", "2026-11-09T16:00:11Z", "cmux-next"),
+            ("publish to R2", "completed", "cancelled", "2026-11-09T16:20:16Z", "cmux-tui artifacts")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            # A file inside this fixture's cmux-next paths, so the gate judges the fast tier.
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT,
+                                     rollup=rollup, event_log=events)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
 
     def test_the_fast_gate_waits_for_a_pending_lint_check(self):
         """main's full gate never lets a pending god-file, l10n or concurrency check
