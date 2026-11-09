@@ -73,33 +73,19 @@ async fn revoke_at_hub(record: &MachineCredential) -> HubAnswer {
     }
 }
 
-/// Whether the cmux link in `link_dir` adopted the node key as its only key (`key-adopted.json`,
-/// the link's `key_adoption.rs`): a leave never deletes it then.
-fn link_adopted(link_dir: Option<&Path>) -> bool {
-    link_dir.is_some_and(|dir| std::fs::symlink_metadata(dir.join("key-adopted.json")).is_ok())
-}
-
-/// This machine's link state directory; a test's is beside its home.
-fn link_dir_for(home: &Path) -> Option<std::path::PathBuf> {
-    if cfg!(test) { Some(home.join("link")) } else { crate::wireguard::link_state_dir() }
-}
-
 /// The WireGuard key lock in `home` when the node key there may be deleted: the key is there,
 /// no process holds the lock (the cmux link and the WireGuard transport hold it while they use
-/// the key), and, checked under it, the link did not adopt the key.
+/// the key), and, checked under it, the link did not adopt the key
+/// (`mesh_node_key::lock_to_remove`).
 fn node_key_removable(home: &Path) -> Result<Option<cmux_link::key_holder::KeyHolder>> {
-    use cmux_link::key_holder::{KeyFile, KeyHolder, KeyHolderError};
-    if std::fs::symlink_metadata(KeyFile::Node.path_in(home)).is_err() {
+    use crate::cli::mesh_node_key::{RemoveLock, lock_to_remove};
+    if std::fs::symlink_metadata(cmux_link::key_holder::KeyFile::Node.path_in(home)).is_err() {
         return Ok(None);
     }
-    let holder = match KeyHolder::acquire(home) {
-        Ok(holder) => holder,
-        Err(KeyHolderError::KeyHeld { .. }) => return Ok(None),
-        Err(KeyHolderError::Io(e)) => {
-            return Err(anyhow::Error::from(e).context("take the WireGuard key lock"));
-        }
-    };
-    Ok((!link_adopted(link_dir_for(home).as_deref())).then_some(holder))
+    Ok(match lock_to_remove(home)? {
+        RemoveLock::Free(holder) => Some(holder),
+        RemoveLock::Adopted | RemoveLock::Held => None,
+    })
 }
 
 /// Removes the join from `home`: the record marked revoked first (so nothing reads it as

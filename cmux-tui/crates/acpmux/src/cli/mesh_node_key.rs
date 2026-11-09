@@ -92,11 +92,62 @@ pub fn public_key_at(state_dir: &Path) -> Option<[u8; 32]> {
     Some(NodeKeypair::of(&private).public_key)
 }
 
+/// Whether the cmux link in `link_dir` adopted the node key as its only key (`key-adopted.json`,
+/// the link's `key_adoption.rs`): its paired peers know the link by that key alone, so nothing
+/// deletes or replaces it then.
+pub(crate) fn link_adopted(link_dir: Option<&Path>) -> bool {
+    link_dir.is_some_and(|dir| std::fs::symlink_metadata(dir.join("key-adopted.json")).is_ok())
+}
+
+/// This machine's link state directory; a test's is beside its home.
+pub(crate) fn link_dir_for(home: &Path) -> Option<std::path::PathBuf> {
+    if cfg!(test) { Some(home.join("link")) } else { crate::wireguard::link_state_dir() }
+}
+
+/// Who may delete or replace the node key in `home` ([`lock_to_remove`]).
+pub(crate) enum RemoveLock {
+    /// The WireGuard key lock, held: the key may go while it is.
+    Free(KeyHolder),
+    /// The cmux link adopted the key ([`link_adopted`]): it stays.
+    Adopted,
+    /// Another process holds the key lock (a running link or WireGuard transport): it stays.
+    Held,
+}
+
+/// The WireGuard key lock in `home` for deleting or replacing its node key, or why the key
+/// stays. The adoption is checked under the lock, which the link adopts under.
+pub(crate) fn lock_to_remove(home: &Path) -> Result<RemoveLock> {
+    let holder = match KeyHolder::acquire(home) {
+        Ok(holder) => holder,
+        Err(key_holder::KeyHolderError::KeyHeld { .. }) => return Ok(RemoveLock::Held),
+        Err(key_holder::KeyHolderError::Io(e)) => {
+            return Err(anyhow::Error::from(e).context("take the WireGuard key lock"));
+        }
+    };
+    if link_adopted(link_dir_for(home).as_deref()) {
+        return Ok(RemoveLock::Adopted);
+    }
+    Ok(RemoveLock::Free(holder))
+}
+
 /// A fresh node key in `state_dir`, in place of the one there: what a box whose home was copied
 /// from another gets, so the two never answer with one WireGuard identity. Only the public half
-/// of the new key is returned; the old key's bytes are not read.
+/// of the new key is returned; the old key's bytes are not read. Refused, with the key left as it
+/// is, when the cmux link adopted it or another process holds it ([`lock_to_remove`]).
 pub fn replace_at(state_dir: &Path) -> Result<NodeKeypair> {
     crate::config::private_state_dir(state_dir)?;
+    // Held until the new key is in place.
+    let _lock = match lock_to_remove(state_dir)? {
+        RemoveLock::Free(holder) => holder,
+        RemoveLock::Adopted => anyhow::bail!(
+            "node_key.adopted: the cmux link serves this node key, and its paired peers know the \
+             link by it alone; it is not replaced"
+        ),
+        RemoveLock::Held => anyhow::bail!(
+            "node_key.held: another process holds this machine's WireGuard key; the node key is \
+             not replaced while it does"
+        ),
+    };
     let path = KeyFile::Node.path_in(state_dir);
     match std::fs::symlink_metadata(&path) {
         Ok(meta) => {
@@ -274,6 +325,27 @@ mod tests {
         let empty = tempfile::tempdir().unwrap();
         let first = replace_at(empty.path()).unwrap();
         assert_eq!(load_or_create_at(empty.path()).unwrap().public_key, first.public_key);
+    }
+
+    /// A copied home's key is never replaced when the cmux link adopted it or another process
+    /// holds the key lock: the key stays, and the replacement says why.
+    #[test]
+    fn replacing_never_touches_an_adopted_or_held_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = load_or_create_at(dir.path()).unwrap();
+        std::fs::create_dir_all(dir.path().join("link")).unwrap();
+        std::fs::write(dir.path().join("link/key-adopted.json"), b"{}").unwrap();
+        let refused = replace_at(dir.path()).unwrap_err();
+        assert!(refused.to_string().starts_with("node_key.adopted:"), "{refused}");
+        assert_eq!(public_key_at(dir.path()), Some(kept.public_key));
+        std::fs::remove_file(dir.path().join("link/key-adopted.json")).unwrap();
+        let held = KeyHolder::acquire(dir.path()).unwrap();
+        let refused = replace_at(dir.path()).unwrap_err();
+        assert!(refused.to_string().starts_with("node_key.held:"), "{refused}");
+        assert_eq!(public_key_at(dir.path()), Some(kept.public_key));
+        drop(held);
+        let fresh = replace_at(dir.path()).unwrap();
+        assert_ne!(fresh.public_key, kept.public_key);
     }
 
     #[test]
