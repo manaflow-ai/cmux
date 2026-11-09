@@ -91,7 +91,7 @@ public final class TabModel: Identifiable {
         guard pendingMarkedUnread == marked else { return }
         rollbacks.rolledBack("marked-unread", tab: id)
         pendingMarkedUnread = nil
-        publishMarkedUnread()
+        publishMarkedUnread(newMark: false)
     }
 
     /// An agent needs the person to act in this tab (log in, confirm, approve, pick):
@@ -128,10 +128,12 @@ public final class TabModel: Identifiable {
     /// observers already follow.
     @ObservationIgnored public private(set) var markedUnreadGeneration: UInt64 = 0
 
-    private func publishMarkedUnread() {
+    /// `newMark` false: a refused clear rolled back shows the same mark again, not a new one (a new
+    /// generation would let the next key clear it again, once per key).
+    private func publishMarkedUnread(newMark: Bool = true) {
         let shown = pendingMarkedUnread ?? recordMarkedUnread
         guard markedUnread != shown else { return }
-        if shown { markedUnreadGeneration &+= 1 }
+        if shown, newMark { markedUnreadGeneration &+= 1 }
         markedUnread = shown
     }
     /// The tab's fit as given (`extra.emulation.fit.value`: "16:9" or "1280", browser-fit-v1), nil for none.
@@ -205,15 +207,27 @@ public final class TabModel: Identifiable {
     /// The marker and the Mark as Unread generation a key in this tab already read.
     @ObservationIgnored private var keystrokeRead: NotificationID?
     @ObservationIgnored private var keystrokeMarkRead: UInt64?
+    /// A key's read failed because the daemon was not connected: the next key reads again only
+    /// once it is, so a reconnect lets typing read the marker without a blink per key before it.
+    @ObservationIgnored private var keyReadWaitsForConnection = false
 
     /// Whether a key may read the tab's unread marker: once per marker (Leo, 2026-11-09: "when im
     /// typing in the composer the tab and workspace flicker"). Each key's read hid the dot at once;
     /// a refused one (a daemon that is not connected) brought it back a round trip later and the
     /// next key hid it again, so the tab's and the workspace row's dot blinked once per key.
-    public func takeKeystrokeRead() -> Bool {
-        guard let marker = notification?.notification, keystrokeRead != marker else { return false }
+    /// `connected`: the tab's daemon is connected now.
+    public func takeKeystrokeRead(connected: Bool = true) -> Bool {
+        guard let marker = notification?.notification, keystrokeRead != marker,
+              connected || !keyReadWaitsForConnection else { return false }
         keystrokeRead = marker
+        keyReadWaitsForConnection = false
         return true
+    }
+
+    /// A key's read failed with the daemon not connected: the next key read waits for a connection.
+    public func keystrokeReadAwaitsConnection() {
+        keystrokeRead = nil
+        keyReadWaitsForConnection = true
     }
 
     /// ``takeKeystrokeRead()`` for the Mark as Unread flag: a key clears one mark once.

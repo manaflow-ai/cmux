@@ -92,4 +92,31 @@ struct TypingKeepsUnreadDotTests {
         service.interacted(.keystroke, tab: tab)
         #expect(service.log.filter { $0 == "ack \(tab.id)" }.count == 2)
     }
+
+    /// A key's read that failed with the daemon not connected waits for the connection: keys while
+    /// it is down read nothing (no blink), and the first key after the reconnect reads the marker.
+    @Test func aReadRefusedOfflineReadsAgainAfterTheReconnect() throws {
+        let (_, tab, _) = try Self.unreadTab()
+        #expect(tab.takeKeystrokeRead(connected: true))
+        tab.keystrokeReadAwaitsConnection()
+        #expect(!tab.takeKeystrokeRead(connected: false), "a key read again while the daemon is down")
+        #expect(!tab.takeKeystrokeRead(connected: false))
+        #expect(tab.takeKeystrokeRead(connected: true), "the reconnect left the marker unreadable by keys")
+        #expect(!tab.takeKeystrokeRead(connected: true))
+    }
+
+    /// A refused Mark as Unread clear rolls back to the same mark, not a new one: the keys never
+    /// clear it again, once per key.
+    @Test func aRefusedMarkClearIsNotANewMark() throws {
+        let (_, tab, _) = try Self.unreadTab()
+        tab.applyState(SessionStateMirror.TabRecord(markedUnread: true), progress: nil)
+        #expect(tab.markedUnread)
+        #expect(tab.takeKeystrokeMarkRead())
+        for _ in 0..<Self.keys {
+            tab.expectMarkedUnread(false)
+            tab.dropExpectedMarkedUnread(false)
+            #expect(!tab.takeKeystrokeMarkRead(), "a rolled-back clear let the next key clear the mark again")
+        }
+        #expect(tab.markedUnread)
+    }
 }
