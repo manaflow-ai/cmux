@@ -733,6 +733,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/plan/build",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/compare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/background",
       "params": {
         "$ref": "#/types/ProcessBackgroundParams"
@@ -3496,6 +3514,40 @@
       ],
       "type": "object"
     },
+    "LoopEpisodeSummary": {
+      "description": "The bounded diagnosis shown beside a looping chat. The daemon emits one event when this\nbecomes active and another when progress clears it; the summary lets a newly attached client\nrender the current state without replaying the transcript.",
+      "properties": {
+        "count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "diagnosis": {
+          "type": "string"
+        },
+        "episodeId": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hint": {
+          "type": "string"
+        },
+        "since": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "episodeId",
+        "since",
+        "count",
+        "diagnosis",
+        "hint"
+      ],
+      "type": "object"
+    },
     "MachineLink": {
       "description": "A machine link's whole state (`link`): what every surface draws, from acpmux alone.",
       "oneOf": [
@@ -5521,6 +5573,18 @@
           ],
           "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
         },
+        "loopEpisode": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LoopEpisodeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.\nAdditive so older clients and peers can omit it."
+        },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
           "items": {
@@ -6153,6 +6217,18 @@
             }
           ],
           "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
+        },
+        "loopEpisode": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LoopEpisodeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.\nAdditive so older clients and peers can omit it."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",

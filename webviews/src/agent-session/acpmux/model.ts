@@ -12,6 +12,7 @@ import {
   MARK_CARD,
   MARK_STATUS,
   MARK_STEP,
+  MARK_OPENS_TURN,
   MARK_WORKED,
   rowMark,
   gridScale,
@@ -62,6 +63,7 @@ import {
 } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
+import { PLAN_BUILD_KIND, planBuildHeight, type PlanBuild } from "./planBuild/planBuild";
 import {
   PASTE_FROM_HEIGHT,
   type PasteRange,
@@ -176,6 +178,10 @@ export type AcpmuxBackgroundTurn = {
   /// Its reply went onto the call that started the task (`AcpmuxBackgroundReaction`), so the
   /// transcript draws no line for it.
   attached?: true;
+  /// It ended with more to say than a note (backgroundTurns.ts `isReactionNote`): its rows draw as
+  /// the agent's own turn, at the reply column with a footer of its own, never inside the call that
+  /// started its task (Leo, 2026-11-08: "the text in this situation isn't from the subagent?").
+  ownTurn?: true;
 };
 
 /// How much a background task's end is worth (Leo, 2026-11-03: "there's like... background tasks
@@ -440,6 +446,8 @@ export type AcpmuxRow = {
   failover?: AcpmuxFailover;
   /// A recap row's recap.
   recap?: AcpmuxRecap;
+  /// A plan build row's builds (planBuild/PlanBuildCard.tsx): what a plan approval started off this chat.
+  planBuild?: PlanBuild;
   /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
   memory?: MemoryOffer;
   /// A prompt coach row's rewrite (conversation/promptCoach.ts): the chat's first prompt said at once.
@@ -1192,6 +1200,9 @@ export type AcpmuxSnapshot = {
     /// and its `limits` records); unset from an acpmux without the limit.
     subsessionLimits?: SubsessionLimits;
     status?: string;
+    /** Existing daemon silence signal; no client-side threshold or timer. */
+    stalledSince?: number;
+    loopEpisode?: { episodeId: number; since: number; count: number; diagnosis: string; hint: string };
     enforcement?: Enforcement;
     modes?: {
       availableModes: { id: string; name?: string; description?: string }[];
@@ -1479,6 +1490,17 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
 /// A compact live line keeps its 22px height and composer gap, but is a live indicator for
 /// spacing: classifying it as another step would swallow the run gap before Thinking.
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
+  rowGridMark(row, prev) | (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0);
+/// Whether `row` is the first drawn row of a turn the agent ran on its own that draws as its own
+/// turn (a reply or a tool run with no background line over it, backgroundTurns.ts
+/// `foldsBackground`): `prev`, the drawn row above, is neither its line nor one of its rows. O(1).
+export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+  row.inBackground !== undefined &&
+  (row.kind === "activity" || (row.kind === "assistant" && (row.text?.length ?? 0) > 0)) &&
+  prev !== undefined &&
+  prev.inBackground !== row.inBackground &&
+  !(prev.kind === BACKGROUND_TURN && prev.background?.id === row.inBackground);
+const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
   row.kind === WORKED
     ? MARK_WORKED
     : isEditCard(row)
@@ -2196,6 +2218,8 @@ function fallbackRowHeight(
     return finish(
       8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 50 : 34), 0) + (row.started.length - 1),
     );
+  // A plan's builds (planBuild/PlanBuildCard.tsx): every column reserves its lines, so one height per width.
+  if (row.kind === PLAN_BUILD_KIND && row.planBuild) return finish(planBuildHeight(row.planBuild, width));
   // A finished turn's task lines (conversation/TaskLine.tsx): one tool row each.
   if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.

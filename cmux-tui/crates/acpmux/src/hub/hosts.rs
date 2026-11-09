@@ -1876,6 +1876,7 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
             orphan_exit: None,
+            prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).

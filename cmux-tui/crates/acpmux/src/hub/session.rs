@@ -238,7 +238,7 @@ pub struct Session {
     pub(super) person: AtomicBool,
     /// Its creator asked its agent start to wait on the harness rather than a wall clock
     /// (`NewRequest::wait_start`; the Chief, whose turn answers a person's message): the start
-    /// ends when the harness stops working (`lifecycle.rs` `StartWatch`), and says it is still
+    /// ends when the harness stops working (`start_watch.rs` `StartWatch`), and says it is still
     /// starting. Unlike `person` it proves nothing about who asks and opens nothing else.
     pub(super) wait_start: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
@@ -372,6 +372,9 @@ pub struct Session {
     /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
     /// inside one gets longer before it counts as stalled.
     pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// Bounded completed tool attempts used to identify a repeated failing call
+    /// (`loop_detector.rs`).
+    pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
     /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
     /// before that, so a turn whose prompt has not reached its agent is never stalled.
     pub(super) stalled_counted: StdMutex<Option<String>>,
@@ -901,7 +904,20 @@ pub(crate) fn mark_pasted(msg: &mut Value, blocks: &[Value]) {
     // Only the person's own prompt: another agent's carries its sender (an agent kind of
     // `_meta.provenance`, `fromAgent`). A client draws `agentText` only on the person's bubble.
     // A person's own prompt with provenance (`person_message`, multiplayer) is still theirs.
-    let agents = super::digest::agent_sender(msg.pointer("/_meta/provenance"), None).is_some();
+    // A prompt the daemon made from no person (an unverified client's, a suggested task's
+    // result, a fan-in or inbox digest) already names where it came from: no note either.
+    let provenance = msg.pointer("/_meta/provenance");
+    let synthetic =
+        provenance.and_then(|p| p.get("kind")).and_then(Value::as_str).is_some_and(|kind| {
+            [
+                crate::prompt_provenance::UNVERIFIED_KIND,
+                "offer_result",
+                super::digest::DIGEST_KIND,
+                super::digest::inbox_digest::KIND,
+            ]
+            .contains(&kind)
+        });
+    let agents = synthetic || super::digest::agent_sender(provenance, None).is_some();
     if !agents
         && msg.get("fromAgent").is_none()
         && let Some(agent) = typed_agent_text(blocks)
