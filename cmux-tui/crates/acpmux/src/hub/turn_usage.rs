@@ -57,12 +57,20 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> (Map<String, Valu
         context = claude.get("contextTokens").and_then(Value::as_u64);
         calls = claude.get("modelCalls").and_then(Value::as_u64);
         let tokens = |key: &str| claude.get("usage")?.get(key)?.as_u64();
+        let write = tokens("cache_creation_input_tokens");
+        // The hour-long part of the writes (`cache_creation`, as each call's usage names it):
+        // what prices them at their own tier in the ledger (`crate::pricing`).
+        let write_1h = claude
+            .pointer("/usage/cache_creation/ephemeral_1h_input_tokens")
+            .and_then(Value::as_u64)
+            .map(|n| write.map_or(n, |write| n.min(write)));
         let mut turn = TurnUsage {
             cost_usd: None,
             input_tokens: tokens("input_tokens"),
             output_tokens: tokens("output_tokens"),
             cache_read_tokens: tokens("cache_read_input_tokens"),
-            cache_write_tokens: tokens("cache_creation_input_tokens"),
+            cache_write_tokens: write,
+            cache_write_1h_tokens: write_1h,
         };
         let running = claude.get("cost_usd").and_then(Value::as_f64);
         if let Some(running) = running.filter(|c| c.is_finite() && *c >= 0.0) {
@@ -186,6 +194,7 @@ fn generic_usage(usage: Option<&Value>, fresh_harness: bool) -> TurnUsage {
         output_tokens: output,
         cache_read_tokens: cache_read,
         cache_write_tokens: cache_write,
+        cache_write_1h_tokens: None,
     }
 }
 

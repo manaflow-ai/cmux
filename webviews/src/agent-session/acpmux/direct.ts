@@ -118,6 +118,7 @@ import { noteTranscriptReplace } from "./flickerLog";
 import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
+import { approvePlan, clearPlanScope, editPaths, rememberPlanEdit } from "./planScopeDriftStore";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import {
   cliHost,
@@ -2320,7 +2321,7 @@ export class AcpmuxDirectClient {
   private retryInputs = new Map<string, string>();
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
   /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
-  private promptAccepts = new Map<string, () => void>();
+  private promptAccepts = new Map<string, (accepted?: { steer?: unknown; state?: unknown }) => void>();
   /// The prompt ids this client sent: acpmux's refusal of one answers its request (a failed bubble
   /// with Retry), so its `prompt_refused` record adds no notice (``noticeRefusal``).
   private readonly sentPrompts = new Set<string>();
@@ -4132,7 +4133,7 @@ export class AcpmuxDirectClient {
     else if (notification.method === "_acpmux/prompt_accepted") {
       const promptId = notification.params?.promptId;
       if (typeof promptId === "string") {
-        this.promptAccepts.get(promptId)?.();
+        this.promptAccepts.get(promptId)?.(notification.params);
         this.promptShown?.(promptId);
       }
     }
@@ -6444,6 +6445,7 @@ export class AcpmuxDirectClient {
   /// Mux events that move the live summary, queue or permission.
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
+    const sessionId = event.sessionId ?? this.selectedSessionId;
     if (event.kind === "queue_updated") {
       // An edit keeps the prompt's place and its sender: acpmux keeps an agent's provenance and
       // names the editor beside it (hub/queue_edit.rs `editedBy`), so its row stays the agent's.
@@ -6622,6 +6624,17 @@ export class AcpmuxDirectClient {
       if (!asked && card && card.permissionId === String(msg.permissionId ?? ""))
         this.askedPermissions.set(card.permissionId, card);
     } else if (event.kind === "permission_decision") {
+      if (sessionId) {
+        const permissionId = String(msg.permissionId ?? "");
+        const permission =
+          this.askedPermissions.get(permissionId) ??
+          this.groupedPermissions.get(permissionId) ??
+          this.waitingPermissions.get(permissionId) ??
+          (this.pendingPermission?.permissionId === permissionId ? this.pendingPermission : undefined);
+        const decision = permission && permissionDecision(permission, msg.outcome);
+        if (permission?.plan && decision && (decision.kind === "allowed" || decision.kind === "allowedAlways"))
+          approvePlan(sessionId, permission.plan);
+      }
       this.recordQuestion(event, msg);
       this.recordPermission(event, msg);
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
@@ -6634,9 +6647,21 @@ export class AcpmuxDirectClient {
         this.pendingPermission =
           this.nextWaitingPermission() ??
           (this.permissions.state.supported ? undefined : [...this.groupedPermissions.values()].at(-1));
-    } else if (event.kind === "permission_auto" && typeof msg.fullAccess === "string")
-      this.recordFullAccess(event, msg);
-    else if (event.kind === "secret_request")
+    } else if (event.kind === "permission_auto") {
+      if (sessionId) {
+        const permission = permissionFromMessage({ ...msg, sessionId }, sessionId);
+        const optionId = typeof msg.optionId === "string" ? msg.optionId : undefined;
+        const decision =
+          permission && optionId ? permissionDecision(permission, { outcome: "selected", optionId }) : undefined;
+        const optionAllowed =
+          decision?.kind === "allowed" ||
+          decision?.kind === "allowedAlways" ||
+          (decision === undefined && msg.chatAllowance === true);
+        const autoApproved = msg.cancelled !== true && (typeof msg.fullAccess === "string" || optionAllowed);
+        if (autoApproved && permission?.plan) approvePlan(sessionId, permission.plan);
+      }
+      if (typeof msg.fullAccess === "string") this.recordFullAccess(event, msg);
+    } else if (event.kind === "secret_request")
       this.pendingSecret = {
         secretId: String(msg.secretId ?? ""),
         name: String(msg.name ?? ""),
@@ -7191,6 +7216,7 @@ export class AcpmuxDirectClient {
 
   private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
+    const sessionId = event.sessionId ?? this.selectedSessionId;
     if (event.dir === "mux" && event.kind === NATIVE_HISTORY_KIND) {
       // Draws nothing: where the transcript's older turns end. The oldest one held is the seeded
       // page's (a page of the log seq order puts first).
@@ -7200,6 +7226,17 @@ export class AcpmuxDirectClient {
       return;
     }
     const update = sessionUpdate(event);
+    if (sessionId && update && (event.kind === "tool_call" || event.kind === "tool_call_update")) {
+      const tool = String(update._meta?.claude?.tool ?? update.title ?? "").toLowerCase();
+      const editing =
+        update.kind === "edit" ||
+        update.kind === "fileChange" ||
+        update.kind === "delete" ||
+        update.kind === "move" ||
+        (Array.isArray(update.content) && update.content.some((item: any) => item?.type === "diff")) ||
+        /(?:edit|write|patch|replace|notebookedit)/.test(tool);
+      if (editing) rememberPlanEdit(sessionId, editPaths(update));
+    }
     const resultTurnId =
       event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
     if (event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
@@ -7219,6 +7256,9 @@ export class AcpmuxDirectClient {
         if (terminalTurnId !== undefined && terminalTurnId === this.stopTurnId) this.stopAnswered(event);
         return;
       }
+    }
+    if (sessionId && event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
+      clearPlanScope(sessionId);
     }
     // Route child updates before session metadata's early returns too: a helper's init or
     // usage belongs to that helper, just like its text and tools.
@@ -9026,9 +9066,10 @@ export class AcpmuxDirectClient {
     // No chat took it: the sender gets the prompt back (a started chat's composer let go of it).
     if (!sessionId) throw new Error(translate("error.notOpen"));
     // A chat on a Cloud machine: a prompt that starts a turn names the hand-off turn the app opened
-    // for it (cloudHandoffTurn.ts), so the machine reports that turn. Not a steer or a prompt behind
-    // a running turn or the queue (it starts no turn of its own), and never a prompt that already
-    // names one: a Retry keeps its id, so a copy acpmux took runs once.
+    // for it (cloudHandoffTurn.ts), so the machine reports that turn. Not a steer into the turn the
+    // chat shows running or a prompt behind it or the queue (it starts no turn of its own), and never
+    // a prompt that already names one: a Retry keeps its id, so a copy acpmux took runs once. A steer
+    // sent while the chat shows no turn starts one when none runs (Composer.tsx `steersUnseen`).
     // One ask per chat at a time: a send while an ask is out goes behind that prompt (it starts no
     // turn of its own) and under its own id, once the ask ends. Either await lets the selection move:
     // a prompt whose chat is no longer the one shown goes back to its sender, never drawn in the
@@ -9037,7 +9078,8 @@ export class AcpmuxDirectClient {
     // A Retry keeps the id its prompt first went with, named or not: acpmux may hold that copy.
     /// The turn this prompt claimed (`handoffTurnsSent`) and the claim before it.
     let claim: { turn: number; before: number | undefined } | undefined;
-    if (this.handoffTurn && !steer && !namesHandoffTurn(promptId) && !this.retriedPrompts.has(promptId)) {
+    const steersIn = steer && shown === sessionId && this.turnOpen;
+    if (this.handoffTurn && !steersIn && !namesHandoffTurn(promptId) && !this.retriedPrompts.has(promptId)) {
       const generation = this.selectionGeneration;
       let named: number | undefined;
       const asking = this.handoffAsks.get(sessionId);
@@ -9212,7 +9254,10 @@ export class AcpmuxDirectClient {
       released = true;
       accepted?.();
     };
-    const accept = () => {
+    const accept = (accepted?: { steer?: unknown; state?: unknown }) => {
+      // Steered into a turn that already ran, unseen here (Composer.tsx `steersUnseen`): it started
+      // none, so the hand-off turn it claimed is the next prompt's.
+      if (accepted?.steer === true || accepted?.state === "steered") unclaim();
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
@@ -9297,7 +9342,7 @@ export class AcpmuxDirectClient {
     // with files to upload is refused when the selection moved (above).
     const gesture = await ticket;
     try {
-      await this.request("session/prompt", {
+      const answer = await this.request("session/prompt", {
         sessionId,
         // A recording goes only to a harness that takes voice input; one moved to another
         // harness (a switch, a held prompt put back) goes as its transcript.
@@ -9314,7 +9359,9 @@ export class AcpmuxDirectClient {
           ...(gesture ? { cmuxGesture: gesture } : {}),
         },
       });
-      accept();
+      accept(
+        (answer as { stopReason?: unknown } | undefined)?.stopReason === "steered" ? { state: "steered" } : undefined,
+      );
       // A steer's answer comes once the agent read it (Claude Code's `steered`) or its turn ended.
       if (
         steer &&

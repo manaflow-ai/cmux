@@ -34,10 +34,12 @@ const LIST_DESCRIPTION: &str = "The terminals in cmux that run a coding agent (C
 const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux terminal and \
     get its answer, as `cmux terminal <t> send`: types text as one bracketed paste (a \
     multi-line message stays one message), presses Enter, waits, and answers {terminal, \
-    harness, status, state, timed_out, waited_ms, anchored, output}. status is the word \
+    harness, status, state, timed_out, waited_ms, anchored, reply, reply_source, output}. \
+    reply is the agent's own last message from its hooks (reply_source hook) when they gave \
+    it after the send, else the output (reply_source screen). status is the word \
     agents_terminal_list says for the same turn (idle, done when the finished turn is not \
-    viewed yet, blocked, working, ended); state is the wait's own word. output is only what the terminal \
-    printed after the message, less the harness's input box. wait idle (default): until no \
+    viewed yet, blocked, working, ended); state is the wait's own word. output is only what \
+    the terminal printed after the message, less the harness's input box. wait idle (default): until no \
     fresh hook or status says working and the screen has been still for settle_seconds \
     (default 3); state is idle, or blocked when the agent stopped on a dialog (working when \
     the wait timed out). wait \
