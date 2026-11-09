@@ -62,7 +62,7 @@ pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your
 /// Every other harness's first-turn guidance (Codex: `update_plan` is its plan tool).
 pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person's own instructions win). This chat runs in cmux NEXT, which draws your work in the chat:
 - Plan: for a task with more than one step, keep a plan with your plan tool (Codex: update_plan). cmux draws it as a checklist. Write the whole plan first, short items, one in progress; mark each done as you start the next; rewrite it when the plan changes. Do not also write it as a numbered list.
-- Side sessions (only with the tools listed; skip this when they are not): start a sub-session (start_session, worktree: true when it edits files yours may touch) only when the person asked for parallel or background work, and give it the whole task. For work you noticed outside the task, offer it instead (offer_session mid-turn, suggest_tasks at the end of a turn) and do not do it here. Never use a session for a quick lookup or a step you need the answer to now.
+- Side sessions (only with the tools listed; skip this when they are not): start a sub-session (cmux.subsessions_start_session, worktree: true when it edits files yours may touch) only when the person asked for parallel or background work, and give it the whole task. For work you noticed outside the task, offer it instead (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at the end of a turn) and do not do it here. Never use a session for a quick lookup or a step you need the answer to now.
 - Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a link. Never invent an id.
 - Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision the person must make, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
@@ -455,9 +455,9 @@ mod tests {
         let codex = first_turn_text(Family::Codex, &on, &[]).unwrap();
         for tool in [
             "update_plan",
-            "start_session",
-            "offer_session",
-            "suggest_tasks",
+            "cmux.subsessions_start_session",
+            "cmux.sessions_offer_session",
+            "cmux.sessions_suggest_tasks",
             "recap",
             "inline code",
         ] {

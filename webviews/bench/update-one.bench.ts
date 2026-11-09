@@ -257,7 +257,12 @@ const vite = await createServer({
   server: { port: 0, host: "127.0.0.1", strictPort: false },
   logLevel: "error",
 });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  ...(process.env.CMUX_CHROME_HEADLESS_SHELL
+    ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
+    : { channel: "chrome" }),
+  headless: true,
+});
 type Result = { surface: Surface; kind: Kind; size: number; p50: number; p95: number; renders: number; longMs: number };
 const results: Result[] = [];
 let failed = false;

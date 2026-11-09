@@ -111,5 +111,10 @@ export default agentPaneEntry({
       snapshot: snapshot(),
       play: openRun,
     },
+    "scheduled-check-hover": {
+      note: '"Scheduled check" under the pointer: its words light all the way through, as "Ran 2 commands" does, not only its chevron (Leo, 2026-11-09: "this scheduled check thing isn\'t highlighted all the way through like other tool calls are").',
+      snapshot: snapshot(),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+    },
   },
 });
