@@ -16,7 +16,8 @@
 //!   `CMUX_CLOUD_ACCESS_TOKEN`, the team `--team` or `CMUX_CLOUD_TEAM`.
 //!   `--vm-api` (else `CMUX_VM_API_URL`, else the VM API of the deployment
 //!   whose platform origin that is) is where the device reads its tunnel.
-//! - stdout gets one JSON line per status: `{"event":"tunnel-ready",
+//! - stdout gets `{"event":"tunnel-starting","socket":…}` first, then one
+//!   JSON line per status: `{"event":"tunnel-ready",
 //!   "socket":…,"device_id":…,"address_v4":…}` (then `cmux wg dial --hub
 //!   <socket> %h %p` reaches the mesh), `tunnel-retrying`, and a last
 //!   `tunnel-unavailable` (`"reason":"no mesh"`), `tunnel-failed` or
@@ -248,7 +249,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         identity,
         platform: source,
         vm_api,
-        socket: args.socket.clone(),
+        socket: args.socket,
         launcher,
         timing: tunnel::TunnelTiming::default(),
         jitter: super::jitter,
@@ -269,6 +270,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 return 1;
             }
         };
+        emit(&json!({"event": "tunnel-starting", "socket": handle.socket().display().to_string()}));
         let mut status = handle.status();
         let signal = crate::wait_for_shutdown_signal_async();
         tokio::pin!(signal);

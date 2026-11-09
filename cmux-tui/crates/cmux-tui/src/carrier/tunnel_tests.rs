@@ -391,9 +391,9 @@ async fn stop_ends_a_retry_wait_and_failures_end_after_the_bound() {
     let mut timing = quick();
     timing.retry_floor = Duration::from_secs(600);
     timing.retry_ceiling = Duration::from_secs(600);
-    let mut rig = rig("stopwait", timing).await;
-    rig.platform.answer("/attach", vec![(503, json!({"code": "mesh.node.unavailable"}))]);
-    let handle = start(rig.plan.take().unwrap()).unwrap();
+    let mut waiting = rig("stopwait", timing).await;
+    waiting.platform.answer("/attach", vec![(503, json!({"code": "mesh.node.unavailable"}))]);
+    let handle = start(waiting.plan.take().unwrap()).unwrap();
     wait_status(&handle, |s| matches!(s, TunnelStatus::Retrying(_))).await;
     let stopped = tokio::time::timeout(Duration::from_secs(5), handle.stop()).await;
     assert_eq!(stopped.expect("stop ends the wait"), TunnelStatus::Stopped);
