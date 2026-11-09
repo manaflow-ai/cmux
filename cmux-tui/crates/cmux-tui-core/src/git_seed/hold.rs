@@ -95,13 +95,13 @@ pub(super) enum Op {
 /// Whether `folder` may take a hold: absent, or an empty folder (the copy goes to a new folder of
 /// its own; a hold never stands over files it did not write).
 pub(super) fn fresh(folder: &Path) -> Result<(), SeedRefusal> {
-    match std::fs::read_dir(folder) {
-        Ok(mut entries) if entries.next().is_some() => Err(SeedRefusal {
+    if std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some()) {
+        return Err(SeedRefusal {
             code: "seed.folder_not_empty",
             message: "the folder exists and is not empty".into(),
-        }),
-        _ => Ok(()),
+        });
     }
+    Ok(())
 }
 
 /// Runs the hold on a thread of its own: it owns the barrier until the copy ends it or the lease
