@@ -52,21 +52,23 @@ struct SidebarPinFlight {
         glyph?.layer?.mask = nil
         if let title {
             for glyph in [glyph, leavingGlyph].compactMap(\.self) { SidebarDragSpring.offset(glyph, by: title.offset, token, now: now) }
-            if let glyph { Self.clipToPill(glyph, riding: title.offset, token, now: now) }
+            for glyph in [glyph, leavingGlyph].compactMap(\.self) { Self.clipToFill(glyph, riding: title.offset, token, now: now) }
         }
         revealed.forEach(SidebarDragSpring.attach)
         for layer in revealed.compactMap(\.layer) { SidebarDragSpring.appear(layer, token, now: now) }
     }
 
-    /// A pin's glyph rides the title from the list row's title, one icon column left of the item's (the item's title
-    /// sits after its pin), so on the first frames the glyph's place is left of the item's pill (PIN8 films, SB-PIN: the
-    /// pin drew outside the pill). The part outside the pill does not draw: the glyph's mask is the pill's sides, and it
-    /// rides the glyph's offset back on the same spring and begin, so the mask stays on the pill on every frame and the
-    /// pin comes out from under the pill's edge with the title. `landFlights` takes the mask off.
-    static func clipToPill(_ glyph: NSView, riding offset: CGPoint, _ token: MotionSpring, now: CFTimeInterval) {
-        guard offset.x != 0, let item = glyph.superview as? SidebarItemRowView, let layer = glyph.layer else { return }
-        let inset = item.fillInset, height = item.bounds.height
-        let pill = glyph.convert(NSRect(x: inset, y: 0, width: max(0, item.bounds.width - inset * 2), height: height), from: item)
+    /// The pin glyph rides the title, and the two titles are one icon column apart (the item's sits after its pin): on
+    /// a pin the glyph starts one column left of its place, left of the item's pill (PIN8 films, SB-PIN), and on an
+    /// unpin the item's fading pin ends one column left of the row's title, left of the row's fill (PIN9 films,
+    /// SB-UNPIN). The part outside the fill does not draw: the glyph's mask is the fill's sides (the item's pill, the
+    /// row's bounds), and it rides the glyph's offset back on the same spring and begin, so it stays on the fill on every
+    /// frame and the pin comes out from (or goes under) the fill's edge with the title. The move's end takes it off
+    /// (`landFlights`; an unpin's copy goes).
+    static func clipToFill(_ glyph: NSView, riding offset: CGPoint, _ token: MotionSpring, now: CFTimeInterval) {
+        guard offset.x != 0, let owner = glyph.superview, let layer = glyph.layer else { return }
+        let inset = (owner as? SidebarItemRowView)?.fillInset ?? 0, height = owner.bounds.height
+        let pill = glyph.convert(NSRect(x: inset, y: 0, width: max(0, owner.bounds.width - inset * 2), height: height), from: owner)
         // Only the sides clip: the glyph's whole height and the item's around it stay (a pin centers on its row).
         let mask = CALayer()
         CATransaction.begin()
