@@ -135,11 +135,21 @@ where
     Fut: Future<Output = Value> + Send + 'static,
 {
     let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
-    serve_as(name, session, tools, instructions, call).await
+    // Each call connects anew, so a restarted daemon serves the next one.
+    serve_as(name, session, tools, instructions, move |session, params| {
+        let call = call.clone();
+        async move {
+            match crate::daemon::connect(false).await {
+                Ok(daemon) => call(daemon, session, params).await,
+                Err(e) => error_result(format!("{e:#}")),
+            }
+        }
+    })
+    .await
 }
 
-/// [`serve`] for session `session` (empty: a server that runs in no acpmux chat, the acpmux
-/// server's guest mode, `acpmux_mcp_guest.rs`).
+/// [`serve`] for a session (or bridge address, `acpmux_mcp_bridge.rs`) given, not read from the
+/// env. `call(session, params)` connects to the daemon itself, only if it needs it.
 pub(crate) async fn serve_as<F, Fut>(
     name: &'static str,
     session: String,
@@ -148,7 +158,7 @@ pub(crate) async fn serve_as<F, Fut>(
     call: F,
 ) -> Result<()>
 where
-    F: Fn(Arc<Client>, String, Value) -> Fut + Clone + Send + 'static,
+    F: Fn(String, Value) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Value> + Send + 'static,
 {
     // Stdin may stay open after the agent died (`parent_watch.rs`).
@@ -185,22 +195,11 @@ where
             "ping" => json!({}),
             "tools/list" => json!({"tools": tools}),
             "tools/call" => {
-                // A card waits on the person: the next request is read meanwhile. Each call
-                // connects anew, so a restarted daemon serves the next one.
+                // A card waits on the person: the next request is read meanwhile.
                 let (tx, session, params, call) =
                     (tx.clone(), session.clone(), message["params"].clone(), call.clone());
                 tokio::spawn(async move {
-                    // A server in no acpmux chat (the guest) never carries a caller token,
-                    // even one left in its env: the daemon takes it for no session.
-                    let daemon = if session.is_empty() {
-                        crate::daemon::connect_without_caller(false).await
-                    } else {
-                        crate::daemon::connect(false).await
-                    };
-                    let result = match daemon {
-                        Ok(daemon) => call(daemon, session, params).await,
-                        Err(e) => error_result(format!("{e:#}")),
-                    };
+                    let result = call(session, params).await;
                     let _ = tx.send(response(&id, result)).await;
                 });
                 continue;

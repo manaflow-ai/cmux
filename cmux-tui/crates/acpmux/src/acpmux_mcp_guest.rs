@@ -328,7 +328,7 @@ pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>
         String::new(),
         tools,
         steer,
-        move |daemon, _, params| {
+        move |_, params| {
             let artifacts = artifacts.clone();
             let app = app.clone();
             async move {
@@ -351,15 +351,27 @@ pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>
                     };
                 }
                 match name {
-                    NEW => new(&app, &args).await,
-                    MACHINES => machines().await,
+                    NEW => return new(&app, &args).await,
+                    MACHINES => return machines().await,
+                    "search" | "send_status" => {}
+                    n if KEPT.contains(&n) => {}
+                    other => {
+                        return error_result(crate::mcp_hint::unknown_tool(
+                            other,
+                            crate::mcp_hint::names(&tools_list()),
+                        ));
+                    }
+                }
+                // Only a tool that reads the daemon connects, and with no caller token, even one
+                // left in its env: the daemon takes a guest for no session (module docs).
+                let daemon = match crate::daemon::connect_without_caller(false).await {
+                    Ok(daemon) => daemon,
+                    Err(e) => return error_result(format!("{e:#}")),
+                };
+                match name {
                     "search" => search_tool(&daemon, "", &args).await,
                     "send_status" => send_status::call(&daemon, "", &args).await,
-                    n if KEPT.contains(&n) => call_as(&daemon, &params, None).await,
-                    other => error_result(crate::mcp_hint::unknown_tool(
-                        other,
-                        crate::mcp_hint::names(&tools_list()),
-                    )),
+                    _ => call_as(&daemon, &params, None).await,
                 }
             }
         },
