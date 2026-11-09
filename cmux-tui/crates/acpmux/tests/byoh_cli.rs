@@ -412,3 +412,36 @@ fn a_custom_harness_gets_the_icon_it_sets_or_a_smart_default() {
     let refused = rpc(&user, "_acpmux/harness/icon", json!({"id": "no-such", "icon": "🦊"}));
     assert!(refused.get("error").is_some(), "{refused}");
 }
+
+#[test]
+fn byo_endpoint_cli_refuses_an_id_another_source_has() {
+    let user = User::new("byosrc");
+    // `corp` comes from the acpmux config (another source than the harness folder).
+    std::fs::write(
+        user.root.join("amx").join("config.json"),
+        json!({"permissionPolicy": "approve-all", "harnesses": {"corp": {"argv": ["true"]}}})
+            .to_string(),
+    )
+    .unwrap();
+    let dir = user.root.join("xdg").join("cmux").join("harnesses");
+    for force in [false, true] {
+        let mut args = vec![
+            "harness",
+            "add",
+            "corp",
+            "--example",
+            "openai-endpoint",
+            "--base-url",
+            "https://api.example.com/v1",
+            "--model",
+            "m",
+        ];
+        if force {
+            args.push("--force");
+        }
+        let out = user.run(&args);
+        assert!(!out.status.success(), "added over another source's id: {}", text(&out));
+        assert!(text(&out).contains("another source"), "{}", text(&out));
+        assert!(!dir.join("corp.toml").exists());
+    }
+}

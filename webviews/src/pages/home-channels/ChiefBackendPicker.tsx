@@ -283,7 +283,7 @@ function BringYourOwn({
   // Closed without a passing check, it is removed (`owned`, the Settings Endpoint form's rule); a
   // change of kind or URL starts over.
   const [target, setTarget] = useState<AddTarget | null>(null);
-  const owned = useOwnedEndpoint((id) => void service.removeBackend?.(id).catch(() => {}));
+  const owned = useOwnedEndpoint((id) => service.removeBackend?.(id));
   const startOver = () => {
     owned.discard();
     setTarget(null);
@@ -314,6 +314,8 @@ function BringYourOwn({
     let at: AddTarget | undefined;
     if (endpoint) {
       try {
+        // A remove this form asked for (a kind or URL change) answers before the next id is picked.
+        await owned.settled();
         at = target ?? (await newTarget(service, full, kind));
       } catch {
         // No list: the host makes the id from the name and refuses one it has.

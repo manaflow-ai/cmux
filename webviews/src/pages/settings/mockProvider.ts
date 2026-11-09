@@ -322,7 +322,10 @@ export class MockSettingsProvider {
         return {};
       },
       "cmux.settings.agents.state": () => this.agents.state,
-      "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.agents.run": async (params) => {
+        if ((params as { action?: string }).action === "remove") await this.agents.endpoint.holdRemove;
+        return this.agents.run(params as unknown as AgentsRun);
+      },
       "cmux.settings.context_menus.set": (params) => {
         const menus = this.host.context_menus;
         if (menus)

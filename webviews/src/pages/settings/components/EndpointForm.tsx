@@ -89,11 +89,15 @@ export function EndpointForm({ done }: { done: () => void }) {
   // add writes it again, never another one (`target`); closed without a passing check, it is removed
   // (`owned`, shared/useOwnedEndpoint.ts). A change of preset or URL starts over.
   const [target, setTarget] = useState<AddTarget | null>(null);
-  const owned = useOwnedEndpoint((id) => void store.runAgents({ action: "remove", id }));
+  const owned = useOwnedEndpoint((id) => store.runAgents({ action: "remove", id }));
   const preset = endpointPreset(presetId);
   const busy = endpointBusy(status);
   const problem = endpointProblemAt(draft, preset.key, target);
-  const targetFor = async () => target ?? (await newTarget(service, draft, preset.idBase));
+  // A remove the form asked for (a preset or URL change) answers before the next add's id is picked.
+  const targetFor = async () => {
+    await owned.settled();
+    return target ?? (await newTarget(service, draft, preset.idBase));
+  };
   // Another endpoint: the earlier add (another preset's, or another URL's) is removed, and the next
   // add is a new id that asks for this one's key.
   const startOver = () => {

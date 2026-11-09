@@ -1061,3 +1061,91 @@ fn byo_endpoint_adds_wait_on_an_os_lock_other_processes_share() {
     assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap(), "locked");
     worker.join().unwrap();
 }
+
+#[test]
+fn byo_endpoint_a_remove_and_an_add_of_one_id_never_leave_a_profile_without_its_key() {
+    // A form's cleanup removes `team` while another add of `team` (with a new key) runs: the remove
+    // and the add take the same OS lock, so the remove never deletes the key of an add that came
+    // between its move and its deletion.
+    for round in 0..20 {
+        let root = scratch(&format!("rmrace{round}"));
+        let src = sources(&root);
+        let home = root.join("home");
+        let events = std::sync::Mutex::new(Vec::<&'static str>::new());
+        let store = |_: &StoreCommand| -> anyhow::Result<()> {
+            events.lock().unwrap().push("store");
+            Ok(())
+        };
+        let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
+        let first = admin::add_endpoint_keyed(
+            &p,
+            &src,
+            &admin::EndpointKey {
+                value: Some(GOOD_KEY),
+                store: &store,
+                ..admin::EndpointKey::NONE
+            },
+        )
+        .unwrap();
+        let (profile, meta) = load(&first.path, "team");
+        let cfg = config("team", profile, meta);
+        let forget = |_: &StoreCommand| -> anyhow::Result<()> {
+            events.lock().unwrap().push("delete");
+            Ok(())
+        };
+        let barrier = std::sync::Barrier::new(2);
+        let path = first.path.clone();
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                barrier.wait();
+                let _ = admin::remove("team", &cfg, &src, &home, &forget);
+            });
+            s.spawn(|| {
+                barrier.wait();
+                let p = params("openai-endpoint", "team", "https://two.example.com/v1", "m", None);
+                let _ = admin::add_endpoint_keyed(
+                    &p,
+                    &src,
+                    &admin::EndpointKey {
+                        value: Some(BAD_KEY),
+                        store: &store,
+                        ..admin::EndpointKey::NONE
+                    },
+                );
+            });
+        });
+        let events = events.into_inner().unwrap();
+        // Either the add came first (refused: the profile was there) and the remove then took it
+        // and its key, or the remove came first and the add's profile and key both stand.
+        if path.exists() {
+            assert_eq!(
+                events.last(),
+                Some(&"store"),
+                "round {round}: a profile whose key was deleted: {events:?}"
+            );
+            assert!(std::fs::read_to_string(&path).unwrap().contains("two.example.com"));
+        } else {
+            assert_eq!(events.last(), Some(&"delete"), "round {round}: {events:?}");
+        }
+    }
+}
+
+#[test]
+fn byo_endpoint_an_add_never_writes_over_another_sources_id_even_with_replace() {
+    let root = scratch("othersrc");
+    let src = sources(&root);
+    let (log, store) = recording(false);
+    let taken = |id: &str| id == "corp";
+    let mut p = params("openai-endpoint", "corp", "https://api.example.com/v1", "m", None);
+    p.replace = true;
+    let e = admin::add_endpoint_keyed(
+        &p,
+        &src,
+        &admin::EndpointKey { value: Some(GOOD_KEY), store: &store, taken: &taken },
+    )
+    .unwrap_err();
+    assert_eq!(e.reason(), Some("harness.exists"), "{e}");
+    assert!(e.message().contains("another source"), "{e}");
+    assert!(log.lock().unwrap().is_empty());
+    assert!(!root.join("harnesses").join("corp.toml").exists());
+}

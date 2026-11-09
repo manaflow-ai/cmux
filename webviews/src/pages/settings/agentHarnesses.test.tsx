@@ -399,3 +399,31 @@ test("Endpoint: a URL change after a failed check removes that add before the ne
   expect(form().querySelector('[data-endpoint-status="failed"]')).toBeNull();
   page.unmount();
 });
+
+test("Endpoint: after a start-over the next add waits for the remove to answer, so the two never race", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await act(async () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!.click());
+  await settle();
+  let release = () => {};
+  page.provider.agents.endpoint.holdRemove = new Promise<void>((resolve) => (release = resolve));
+  // Another URL: the fetched endpoint's remove is asked for and held.
+  await changeValue(endpointInput(form(), "baseUrl")!, "http://127.0.0.1:8080/v1");
+  await settle();
+  const adds = () => ops(page.provider, "cmux.chief.backend.add").length;
+  const before = adds();
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  // No add while the remove is out.
+  expect(adds()).toBe(before);
+  await act(async () => release());
+  await settle();
+  // Then the add, at the id the remove freed: a new add, not a replace.
+  const add = ops(page.provider, "cmux.chief.backend.add").at(-1) as Record<string, unknown>;
+  expect(adds()).toBe(before + 1);
+  expect(add).toMatchObject({ id: "local-models", baseUrl: "http://127.0.0.1:8080/v1" });
+  expect("replace" in add).toBe(false);
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  page.unmount();
+});

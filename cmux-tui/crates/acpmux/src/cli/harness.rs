@@ -292,11 +292,17 @@ async fn add_endpoint_cmd(
         .map_err(|e| anyhow!("{e}"))?;
     let p = &p;
     // No key here (`cmux harness secret set` stores it and points the profile at it): without
-    // `--keychain-item` the profile names no item, so a keyless endpoint never fails on one.
+    // `--keychain-item` the profile names no item, so a keyless endpoint never fails on one. An id
+    // another source has (a built-in, managed or cmux.json harness) is refused, as the daemon does.
+    let cfg = Config::load()?;
+    let taken = |id: &str| cfg.profile(id).is_some();
     let added = crate::harness_admin::add_endpoint_keyed(
         p,
         &sources,
-        &crate::harness_admin::EndpointKey::NONE,
+        &crate::harness_admin::EndpointKey {
+            taken: &taken,
+            ..crate::harness_admin::EndpointKey::NONE
+        },
     )
     .map_err(|e| anyhow!("{e}"))?;
     if let Some(icon) = icon {

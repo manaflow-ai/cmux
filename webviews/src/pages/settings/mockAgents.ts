@@ -65,6 +65,7 @@ export type MockEndpoint = {
   /** Set by a test: the add (or the check) answers only when this settles. */
   holdAdd?: Promise<void>;
   holdDoctor?: Promise<void>;
+  holdRemove?: Promise<void>;
 };
 
 export class MockAgents {

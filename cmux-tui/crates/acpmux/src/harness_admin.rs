@@ -473,11 +473,13 @@ impl EndpointKey<'static> {
     pub const NONE: Self = Self { value: None, store: &no_store, taken: &never };
 }
 
-/// Every endpoint add, one at a time across processes (the daemon and the
-/// CLI): an OS lock on `.endpoint-add.lock` in the harness folder, held from
-/// the id check through the profile and its key, so two adds of one id never
-/// both pass the check and a later key never lands under another profile.
-/// Released when the file closes.
+/// Every endpoint add and every remove, one at a time across processes (the
+/// daemon and the CLI): an OS lock on `.endpoint-add.lock` in the harness
+/// folder, held from the id check through the profile and its key (a remove:
+/// through the move and the key's deletion), so two adds of one id never both
+/// pass the check, a later key never lands under another profile, and a remove
+/// never deletes the key of an add that came between. Released when the file
+/// closes.
 fn lock_endpoint_adds(dir: &Path) -> Result<std::fs::File, AdminError> {
     ensure_dir(dir)?;
     let file = std::fs::OpenOptions::new()
@@ -573,10 +575,17 @@ fn add_endpoint(
     let path = dir.join(format!("{id}.toml"));
     let default = byo_endpoint::default_item(kind, &id);
     let _one = lock_endpoint_adds(dir)?;
-    if (path.exists() || (key.taken)(&id)) && !p.replace {
+    // Another source's id (a built-in, a managed or cmux.json profile) is never written over,
+    // `replace` or not: a user file there would only be ignored on reload. `replace` writes
+    // over this folder's own file only.
+    if !path.exists() && (key.taken)(&id) {
         return Err(AdminError::Exists(format!(
-            "{} already has a profile; pass replace to write it again",
-            id
+            "{id} is already a harness from another source; pick another id"
+        )));
+    }
+    if path.exists() && !p.replace {
+        return Err(AdminError::Exists(format!(
+            "{id} already has a profile; pass replace to write it again"
         )));
     }
     let item = match (given, key.value) {
@@ -732,7 +741,9 @@ pub fn remove(
     if !profiles::valid_id(id) {
         return Err(AdminError::Invalid(format!("{id:?} is not a harness id")));
     }
-    let path = user_dir(sources)?.join(format!("{id}.toml"));
+    let user = user_dir(sources)?;
+    let _one = lock_endpoint_adds(&user)?;
+    let path = user.join(format!("{id}.toml"));
     if !path.is_file() {
         if cfg.harnesses.contains_key(id) {
             let from = match cfg.profile_meta.get(id).map(|m| m.source) {
