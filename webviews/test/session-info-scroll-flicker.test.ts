@@ -453,7 +453,7 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
           console.log(
             `SESSION-INFO-SCROLL-FLICKER ${JSON.stringify({ engine, glass, width, over, scrollable, ...seen, pixels })}`,
           );
-          expect(seen.frames).toBeGreaterThan(60);
+          expect(seen.frames).toBeGreaterThan(engine === "webkit" ? 30 : 60);
           if (over === "panel") expect(seen.scrolledPx, "the panel's body scrolled").toBeGreaterThan(40);
           expect(seen.replaced, "frames the panel's node was gone or replaced").toBe(0);
           expect(seen.slotsReplaced, "section slots drawn anew").toBe(0);

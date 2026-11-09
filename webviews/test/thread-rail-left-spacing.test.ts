@@ -7,7 +7,7 @@ import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { papercutPane, sessionInfoPushAlways } from "./support/papercutChat";
+import { papercutPane } from "./support/papercutChat";
 
 await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -31,12 +31,20 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
     page.evaluate(() =>
       Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
     );
-  const railSide = (page: Page, side: "left" | "right") =>
-    page.evaluate(async (side) => {
-      const url = "/chatDisplay.ts";
-      const display = (await import(/* @vite-ignore */ url)) as { setChatDisplay(value: unknown): void };
-      display.setChatDisplay({ "agentPane.display.rail.side": side });
-    }, side);
+  /// Settings > Agent Chat > Prompt Rail Side and Session Info's placement, written together (the
+  /// display event carries every key: one written alone resets the other).
+  const railSide = (page: Page, side: "left" | "right", push = false) =>
+    page.evaluate(
+      async ({ side, push }) => {
+        const url = "/chatDisplay.ts";
+        const display = (await import(/* @vite-ignore */ url)) as { setChatDisplay(value: unknown): void };
+        display.setChatDisplay({
+          "agentPane.display.rail.side": side,
+          "agentPane.display.sessionInfo.placement": push ? "push" : "overlay",
+        });
+      },
+      { side, push },
+    );
   const closeSessionInfo = async (page: Page) => {
     await page.evaluate(() =>
       (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
@@ -114,8 +122,7 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
       }
     });
 
-  const openSessionInfo = async (page: Page, push: boolean) => {
-    await sessionInfoPushAlways(page, push);
+  const openSessionInfo = async (page: Page) => {
     const toggle = page.locator("button.acpmux-session-info-toggle");
     if ((await page.locator("aside.acpmux-session-info").count()) === 0) await toggle.click({ force: true });
     await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
@@ -129,9 +136,9 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
           await closeSessionInfo(page);
           const sides: Record<string, unknown> = {};
           for (const side of ["left", "right"] as const) {
-            await railSide(page, side);
+            await railSide(page, side, push);
             await page.locator(`.acpmux-minimap__rail[data-side="${side}"]:not(.acpmux-scrollmap)`).waitFor();
-            await openSessionInfo(page, push);
+            await openSessionInfo(page);
             sides[side] = {
               ...(await spacing(page)),
               placement: await page.locator("aside.acpmux-session-info").getAttribute("data-placement"),
