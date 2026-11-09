@@ -39,6 +39,8 @@ fn receipted_input_never_reaches_a_legacy_host_without_ack_support() {
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
+        input_order: None,
+        input_room: Default::default(),
     };
 
     let error = match attachment.begin_input_confirmed(b"must-not-send") {
@@ -305,6 +307,8 @@ fn terminate_waits_for_the_authoritative_host_receipt() {
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
+        input_order: None,
+        input_room: Default::default(),
     };
     let responder = thread::spawn(move || {
         let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -358,6 +362,8 @@ fn clear_history_control_write_failure_after_header_is_ambiguous() {
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
+        input_order: None,
+        input_room: Default::default(),
     };
     let peer = thread::spawn(move || {
         let mut header = [0; crate::terminal_host_protocol::HEADER_LEN];

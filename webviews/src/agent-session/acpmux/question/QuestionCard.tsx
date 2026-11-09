@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { experimentArm } from "../../../experiments/experiment";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
@@ -23,6 +23,8 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
+import { composerHasDraft, promptHoldsDraft } from "../composerTyped";
+import "../needsYou/needsYou.css";
 import { HtmlPreview } from "./HtmlPreview";
 import { inlineText, plainText } from "./inlineText";
 import {
@@ -38,6 +40,8 @@ import {
   type QuestionReply,
 } from "./model";
 import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
+import { QUESTION_KEY_REQUEST_EVENT, type QuestionKeyRequestEvent } from "./keyReply";
+import { shownPreview, previewText } from "./questionCardModel";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
 /// Arrow keys may repeat; a held digit, Enter or Space answers once.
@@ -100,7 +104,9 @@ export const QuestionCard = memo(function QuestionCard({
 type ReplyHandler = (reply: QuestionReply) => void | Promise<unknown>;
 
 /// The pill over a pending card. Folding hides the card but keeps it mounted, so the person's
-/// picks and Other text survive; the ask stays pending until answered or skipped.
+/// picks and Other text survive; the ask stays pending until answered or skipped. It draws as a quiet
+/// "Needs your input" tag (Leo 2026-11-05, of the old amber block: "kind of ugly"): the one
+/// Needs you dot (needsYou.css), the words and the fold chevron on one small-radius rect tinted with the mark, as JumpPill's.
 function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
   const t = useT();
   const cardId = useId();
@@ -114,17 +120,16 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
         aria-controls={cardId}
         onClick={() => setOpen((shown) => !shown)}
       >
-        <span className="acpmux-question-status-dot" aria-hidden="true" />
-        {t("question.needsInput")}
-        <ChevronDown size={12} strokeWidth={1.6} className="acpmux-question-status-chevron" />
+        <span className="acpmux-question-status-pill">
+          <span className="acpmux-needs-you-dot" aria-hidden="true" />
+          {t("question.needsInput")}
+          <ChevronDown size={12} className="acpmux-question-status-chevron" />
+        </span>
       </button>
       <PendingQuestion id={cardId} hidden={!open} question={question} onReply={onReply} />
     </div>
   );
 }
-
-/// The prompt's typed text, without the placeholder MarkdownField keeps beside the editor.
-const composerText = (composer: Element) => composer.querySelector(".acpmux-md-root")?.textContent?.trim() ?? "";
 
 /// A refused reply's message when it is already in the person's language: the app's reply
 /// (NativeError's userMessage) or the pane's own words for a lost or timed-out request
@@ -141,13 +146,24 @@ function localizedMessage(error: unknown): string | undefined {
 /// prompt keeps it, so a typed digit or Enter never answers the ask by surprise.
 function keyboardIsIdle(document: Document): boolean {
   const active = document.activeElement;
-  if (!active || active === document.body) {
-    const composer = document.querySelector(".acpmux-composer-prompt");
-    const shell = document.querySelector<HTMLTextAreaElement>(".acpmux-shell-field");
-    return (!composer || composerText(composer) === "") && !shell?.value.trim();
-  }
+  if (!active || active === document.body) return !composerHasDraft(document);
   const composer = active.closest(".acpmux-composer-prompt");
-  return composer !== null && composerText(composer) === "";
+  return composer !== null && !promptHoldsDraft(composer);
+}
+
+function enterReply(question: AgentQuestion, state: CardState): string | undefined {
+  if (!canSubmit(state)) return undefined;
+  try {
+    const sent = reply(question, cardAnswer(state));
+    const { optionId, answers, annotations } = sent;
+    return JSON.stringify({
+      optionId,
+      answers,
+      ...(annotations === undefined ? {} : { annotations }),
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 // The rows are buttons with radio or checkbox roles (a radiogroup or group), not native inputs:
@@ -175,6 +191,7 @@ function PendingQuestion({
   // The ask a person already answered: the owner clears it a moment later, and until then a
   // second click or key must not answer it again. A refused reply clears it for a retry.
   const [sentFor, setSentFor] = useState<string | undefined>();
+  const [keyPendingFor, setKeyPendingFor] = useState<string | undefined>();
   // The last reply's refusal, shown until the next try: the card's sentence, then the pane's words
   // for a refusal it knows (transportErrors.ts) or a message already in the person's language (the
   // app's or the pane's own). acpmux's English is for its CLI.
@@ -196,28 +213,66 @@ function PendingQuestion({
   // The same, read at once: a second click before the card renders again (a consent's double click)
   // must not answer twice either.
   const sending = useRef<string | undefined>(undefined);
+  const refuseReply = useCallback((askId: string, error: unknown) => {
+    // The ask stays pending: say why on the card and take input again.
+    if (sending.current === askId) sending.current = undefined;
+    setSentFor((current) => (current === askId ? undefined : current));
+    if (isHostRefusal(error)) {
+      setRefused({ reason: errorMessage(error) });
+      return;
+    }
+    const reason = localizedMessage(error);
+    if (reason) setRefused({ reason });
+    else {
+      console.warn("agent pane: an answer was refused", error);
+      setRefused({});
+    }
+  }, []);
   const send = (sentReply: QuestionReply | undefined) => {
     if (!sentReply || sent || sending.current === question.id) return;
     sending.current = question.id;
     setSentFor(question.id);
     setRefused(undefined);
     const askId = question.id;
-    Promise.resolve(onReply(sentReply)).catch((error: unknown) => {
-      // The ask stays pending: say why on the card and take input again.
-      if (sending.current === askId) sending.current = undefined;
-      setSentFor((current) => (current === askId ? undefined : current));
-      if (isHostRefusal(error)) {
-        setRefused({ reason: errorMessage(error) });
-        return;
-      }
-      const reason = localizedMessage(error);
-      if (reason) setRefused({ reason });
-      else {
-        console.warn("agent pane: an answer was refused", error);
-        setRefused({});
-      }
-    });
+    Promise.resolve(onReply(sentReply)).catch((error: unknown) => refuseReply(askId, error));
   };
+  useEffect(() => {
+    const view = group.current?.ownerDocument.defaultView;
+    if (!view) return;
+    let currentRequest: string | undefined;
+    const receive = (event: Event) => {
+      const request = (event as QuestionKeyRequestEvent).detail;
+      if (
+        !request ||
+        request.sessionId !== question.source.session ||
+        request.permissionId !== (question.source.permission ?? question.id)
+      )
+        return;
+      currentRequest = request.id;
+      sending.current = question.id;
+      // Mark only the card busy: disabling Other or changing its editing state before the
+      // native host redeems its snapshot would revoke the exact DOM evidence it is checking.
+      setKeyPendingFor(question.id);
+      setRefused(undefined);
+      void request.result.then(
+        () => {
+          if (currentRequest !== request.id) return;
+          setKeyPendingFor(undefined);
+          setSentFor(question.id);
+        },
+        (error: unknown) => {
+          if (currentRequest !== request.id) return;
+          setKeyPendingFor(undefined);
+          refuseReply(question.id, error);
+        },
+      );
+    };
+    view.addEventListener(QUESTION_KEY_REQUEST_EVENT, receive);
+    return () => {
+      currentRequest = undefined;
+      view.removeEventListener(QUESTION_KEY_REQUEST_EVENT, receive);
+    };
+  }, [question.id, question.source.session, question.source.permission, refuseReply]);
   /// Gives the keyboard back: the composer claims an idle keyboard on this event (composerFocus.ts).
   const resign = () => {
     const card = group.current;
@@ -371,7 +426,10 @@ function PendingQuestion({
         className="acpmux-question"
         data-consent=""
         aria-labelledby={legendId}
-        aria-busy={sent || undefined}
+        aria-busy={sent || keyPendingFor === question.id || undefined}
+        data-cmux-question-session={question.source.session}
+        data-cmux-question-id={question.source.permission ?? question.id}
+        data-cmux-question-enter-reply={enterReply(question, state)}
       >
         <legend id={legendId} className="acpmux-question-head">
           <span className="acpmux-hidden-label">
@@ -444,7 +502,10 @@ function PendingQuestion({
       hidden={hidden}
       className="acpmux-question"
       aria-labelledby={legendId}
-      aria-busy={sent || undefined}
+      aria-busy={sent || keyPendingFor === question.id || undefined}
+      data-cmux-question-session={question.source.session}
+      data-cmux-question-id={question.source.permission ?? question.id}
+      data-cmux-question-enter-reply={enterReply(question, state)}
       data-preview={showPreview || undefined}
       data-preview-layout={showPreview ? layout : undefined}
     >
@@ -569,34 +630,15 @@ function PendingQuestion({
             onClick={() => dispatch({ type: "submit" })}
           >
             {t("question.submit")}
-            <Keycap>⌘↩</Keycap>
+            <span className="acpmux-question-keys">
+              <Keycap>⌘</Keycap>
+              <Keycap>↩</Keycap>
+            </span>
           </button>
         )}
       </div>
     </fieldset>
   );
-}
-
-/// The option whose preview shows: the first of `rows` (the hovered row, then the highlighted one)
-/// that has a preview, else the first option with one. The Other row has none.
-export function shownPreview(options: Option[], rows: (number | undefined)[]): Option | undefined {
-  for (const row of rows) {
-    const option = row === undefined ? undefined : options[row];
-    if (option?.preview) return option;
-  }
-  return options.find((option) => option.preview);
-}
-
-/// A preview's text as Claude Code draws it, Markdown in a monospace box: an agent often wraps its
-/// mockup or code in a fence, which the box stands for, so the fence lines go (a fence and its info
-/// string alone on a line, never a line with an inline code span) and the rest keeps every space
-/// and line break (ASCII mockups line up only that way).
-export function previewText(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => !/^\s*(`{3,}|~{3,})[^`~]*$/.test(line))
-    .join("\n")
-    .replace(/^\n+|\s+$/g, "");
 }
 
 /// The highlighted (or hovered) option's preview, labelled with its option. In the `inline` layout
@@ -727,7 +769,7 @@ function ChoiceMark({ multi, chosen }: { multi: boolean; chosen: boolean }) {
       data-chosen={chosen || undefined}
       aria-hidden="true"
     >
-      {multi && chosen && <Check size={11} strokeWidth={2} />}
+      {multi && chosen && <Check size={12} />}
     </span>
   );
 }
@@ -771,7 +813,8 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
 }
 
 /// An ask that ended unanswered: the same card, its questions, and in the answer's place how it
-/// ended when the record says (Skipped, or the turn stopped before an answer), else Not answered.
+/// ended when the record says (Skipped, the turn stopped before an answer, or Answered in chat when
+/// the person replied in their own words instead), else Not answered.
 function CancelledQuestion({ question }: { question: AgentQuestion }) {
   const t = useT();
   const reason = question.state.kind === "cancelled" ? question.state.reason : undefined;
@@ -780,7 +823,9 @@ function CancelledQuestion({ question }: { question: AgentQuestion }) {
       ? "question.outcome.skipped"
       : reason === "stopped"
         ? "question.outcome.stopped"
-        : "question.outcome.none";
+        : reason === "answeredInChat"
+          ? "question.outcome.answeredInChat"
+          : "question.outcome.none";
   return (
     <div className="acpmux-question-cancelled" data-reason={reason}>
       {question.items.map((item) => (

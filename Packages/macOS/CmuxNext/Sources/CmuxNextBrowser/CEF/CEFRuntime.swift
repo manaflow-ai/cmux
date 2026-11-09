@@ -24,6 +24,10 @@ final class CEFRuntime {
 
     var state: State = .idle
     private(set) var shim: CEFShimLibrary?
+    /// Whether first-party pages serve the live web loop (``setLivePages(_:)``), kept until the shim loads.
+    var livePages = false
+    /// The answer for a first-party page file of a tab that is not a page host while ``livePages`` (``CEFPageSchemes/liveFallback``).
+    var liveFallback: (@MainActor (URL, String?) async -> CEFPageResponse)?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     var pump: CEFMessagePump?
@@ -34,8 +38,8 @@ final class CEFRuntime {
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
-    /// Profiles Chromium opened in this process (their files stay open
-    /// until shutdown, so a deleted one's directory waits for the next launch).
+    let extensionActionReads = CEFExtensionActionReads()
+    /// Profiles Chromium opened in this process (their files stay open until shutdown, so a deleted one's directory waits for the next launch).
     var usedProfiles: Set<BrowserProfileID> = []
     /// Each proxied browser profile's proxy (#24432); a profile not here is direct.
     var profileProxies: [BrowserProfileID: BrowserProfileProxy] = [:]
@@ -47,6 +51,8 @@ final class CEFRuntime {
     var tabBeingAdded: CEFTab?
     /// Tabs Chromium created itself, until a pane adopts them.
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
+    /// The spare window and the page made ahead in it (`CEFSpareWindow`): this runtime's own.
+    private(set) lazy var spareWindow = CEFSpareWindow()
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
@@ -88,11 +94,17 @@ final class CEFRuntime {
     var nextRequest: Int32 = 1
     /// In-process DevTools calls waiting for their result (with deadlines).
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
+    /// Each browser's DevTools calls and freezes, in the order they were made (``CEFDevToolsCallOrder``).
+    let devToolsOrder = CEFDevToolsCallOrder()
     /// Results Chromium sends while `shim.devToolsCall` is still running: a
     /// method the browser process answers synchronously (for example
     /// `Emulation.setEmitTouchEventsForMouse` or `setGeolocationOverride`)
     /// replies before its caller can wait. Non-nil only during that call.
     var synchronousDevToolsResults: [CEFDevToolsKey: Result<String, any Error>]?
+    /// Calls ``startDevTools(_:method:params:timeout:while:)`` sent whose caller does not wait yet (a page picture
+    /// asked for in one turn and awaited in a later one), with the answer when it came first. Dropped when the
+    /// browser closes or quit begins (the caller then gets `closed`).
+    var unawaitedDevTools: [CEFDevToolsKey: Result<String, any Error>?] = [:]
     let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
     /// `cmux_shim_tab_evaluate` calls waiting for their answer (fork API 29, `CEFRuntime+Evaluate`).
     let evaluations = CEFReplyWaiters<Int32, CEFEvaluationResult>()
@@ -109,8 +121,8 @@ final class CEFRuntime {
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
     var shutdownTimeout: Task<Void, Never>?
-    /// Recent renderer and helper process failures (`debug.crashes`).
-    let crashLog = BrowserCrashLog()
+    /// Recent renderer and helper process failures (`debug.crashes`); the ones a person saw also go to crash reporting.
+    let crashLog = BrowserCrashLog(), failureReports = CEFFailureReports()
     /// Watches helper exits (GPU, utility, extension renderers) from start.
     var childMonitor: CEFChildProcessMonitor?
     /// Runs once CEF is initialized (the App re-installs its crash signal
@@ -124,8 +136,7 @@ final class CEFRuntime {
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
         self?.isPlacedDevToolsWindow(window) ?? false
     }
-    /// The one app-wide observer of display changes: each Chromium host view's resize wait is capped
-    /// by the displays' frames (`CEFLayerHosting.displaysChanged`). Made when CEF is ready.
+    /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
     private var displayObservation: MainActorObservation?
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
@@ -298,6 +309,10 @@ final class CEFRuntime {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                 observeDisplays()
                 ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
+                ChromiumAccessibilityPress.install { [weak self] window, frame in
+                    guard let window else { return }
+                    self?.windowRequests.linkClicks.recordAccessibilityPress(in: window, frame: frame)
+                }
                 onReady?()
             }
             self.trigger = trigger
@@ -419,7 +434,8 @@ final class CEFRuntime {
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
             // Debug Settings (DEV and NIGHTLY), read when Chromium starts: on the first page, well after
             // the override file loaded; Release keeps the default.
-            asyncLiveResize: BrowserResizeTunables.dragResizeAtLaunch != .synced
+            asyncLiveResize: true,
+            initialProfileDirectory: storage.initialProfileDirectory
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
@@ -446,6 +462,7 @@ final class CEFRuntime {
                                                       entry.entry)
             if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
         }
+        applyLivePages()
         // Every document's start scripts and report channels, once for every browser, in the
         // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
         if CEFForkFeatures(shim).rendererPaths {
@@ -506,7 +523,7 @@ final class CEFRuntime {
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
-        if let host = hosts[key] ?? CEFSpareWindow.shared.take(for: key, runtime: self) { return host }
+        if let host = hosts[key] ?? spareWindow.take(for: key, runtime: self) { return host }
         usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host

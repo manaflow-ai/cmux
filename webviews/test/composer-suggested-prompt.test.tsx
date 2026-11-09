@@ -82,6 +82,7 @@ async function render(
   draft?: string,
   plusExtensions?: import("../src/agent-session/acpmux/composerPlusRegistry").ComposerPlusExtension[],
   onPlusCommand?: (id: string) => void,
+  extra: Record<string, unknown> = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
@@ -106,6 +107,7 @@ async function render(
         onNewChat={() => {}}
         localName="studio"
         projectChoices={[{ cwd: APP, label: "app" }]}
+        {...extra}
       />,
     ),
   );
@@ -114,6 +116,10 @@ async function render(
 let sent = 0;
 const APP = "/Users/you/src/app";
 const shown = () => host.querySelector(".acpmux-md-placeholder")?.textContent;
+// MenuPopup portals migrated composer menus to the shared popup host, so menu rows live under
+// document.body rather than the composer render root. Keep trigger assertions scoped to `host` and
+// inspect the portaled surface through this helper.
+const menuDocument = () => dom.window.document;
 /** The empty composer's own placeholder (#22667, as Claude's): shown when nothing is suggested. */
 const IDLE = "Type / for commands";
 const key = () => host.querySelector(".acpmux-md-placeholder-key")?.textContent;
@@ -219,6 +225,20 @@ test("a chat with turns gets no suggestion", async () => {
   expect(shown()).toBe(IDLE);
 });
 
+// The suggestion is a new chat's, as the location strip is (locationRow.ts): an existing chat that
+// opens, or whose summary arrived before its rows, never offers one (Leo 2026-10-30, on an existing
+// tab's composer showing a new chat's controls).
+test("an existing chat opening or loading its rows gets no suggestion", async () => {
+  // The host has not said which chat this is yet.
+  await render(fresh([prChat()]), undefined, undefined, undefined, undefined, undefined, { chatKnown: false });
+  expect(shown()).toBe(IDLE);
+  // Its summary (four turns) arrived, its history rows not yet.
+  await render(
+    noChat([prChat()], { sessionId: "chat", summary: { sessionId: "chat", cwd: APP, turnCount: 4 } as never }),
+  );
+  expect(shown()).toBe(IDLE);
+});
+
 test("Tab writes the suggestion without sending; Shift-Tab does not take it; Esc puts it away", async () => {
   sent = 0;
   await render(fresh([prChat()]));
@@ -314,13 +334,13 @@ test("the + menu renders Add rows from the shared registry", async () => {
   await render(fresh([]));
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
-  const ids = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")].map(
+  const ids = [...menuDocument().querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")].map(
     (row) => row.dataset.value,
   );
   expect(ids).toContain("add.files");
   expect(ids).toContain("add.project");
   expect(ids).toContain("add.mention");
-  expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
+  expect(menuDocument().querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
 });
 
 test("the + menu runs the advertised plan mode and opens the existing project chooser", async () => {
@@ -341,31 +361,28 @@ test("the + menu runs the advertised plan mode and opens the existing project ch
   await render(snapshot, undefined, (id) => modes.push(id));
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
-  const plan = host.querySelector<HTMLElement>('[data-value="add.mode.claude-plan"]')!;
+  const plan = menuDocument().querySelector<HTMLElement>('[data-value="add.mode.claude-plan"]')!;
   expect(plan).toBeTruthy();
-  await act(async () => plan.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  await act(async () => plan.click());
   expect(modes).toEqual(["claude-plan"]);
   await act(async () => plus.click());
-  const project = host.querySelector<HTMLElement>('[data-value="add.project"]')!;
-  await act(async () => project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  const project = menuDocument().querySelector<HTMLElement>('[data-value="add.project"]')!;
+  await act(async () => project.click());
   expect(host.querySelector(".acpmux-location-button[aria-expanded=true]")).toBeTruthy();
 });
 
-test("the + menu keeps the full draft as a selected skill or goal's arguments", async () => {
+test("the + menu keeps the full draft as a selected goal's arguments", async () => {
   const commands = [
     { name: "review", description: "Review the change", source: "skill" as const },
     { name: "goal", description: "Set a goal", source: "agent" as const },
   ];
   const snapshot = noChat([], { summary: { sessionId: "", cwd: APP } as never, commands });
-  for (const [row, command] of [
-    ["add.skill.review", "review"],
-    ["add.goal", "goal"],
-  ] as const) {
+  for (const [row, command] of [["add.goal", "goal"]] as const) {
     await render(snapshot, undefined, undefined, "Keep these words before the caret");
     const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
     await act(async () => plus.click());
-    const choice = host.querySelector<HTMLElement>(`[data-value="${row}"]`)!;
-    await act(async () => choice.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+    const choice = menuDocument().querySelector<HTMLElement>(`[data-value="${row}"]`)!;
+    await act(async () => choice.click());
     expect(field().textContent).toContain(`/${command} Keep these words before the caret`);
     await act(async () => root?.unmount());
     root = undefined;
@@ -382,12 +399,14 @@ test("the + menu uses the current pane language for existing actions", async () 
     await render(fresh([]));
     const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
     await act(async () => plus.click());
-    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe(
+    expect(menuDocument().querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe(
       "Dateien oder Bilder anhängen",
     );
-    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe("Projekt auswählen");
-    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
-    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-description')).toBeNull();
+    expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe(
+      "Ordner auswählen",
+    );
+    expect(menuDocument().querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
+    expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-description')).toBeNull();
   } finally {
     await act(async () => setPaneLanguage("en"));
     globalThis.__cmuxPaneStrings = prior;
@@ -416,9 +435,9 @@ test("the + menu renders and dispatches host command-palette extensions", async 
   );
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
-  expect(host.querySelector('[data-value="browser"] .acpmux-menu-label')?.textContent).toBe("Browser");
-  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
-  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(menuDocument().querySelector('[data-value="browser"] .acpmux-menu-label')?.textContent).toBe("Browser");
+  const row = menuDocument().querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.click());
   expect(called).toEqual(["palette.openBrowser"]);
 });
 
@@ -454,45 +473,158 @@ test("the + menu keeps host sections separate and stays open for an unsupported 
   ]);
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
-  expect([...host.querySelectorAll(".acpmux-menu-header")].map((node) => node.textContent)).toEqual([
-    "Add",
-    "Search tools",
-    "Sessions",
-    "Open Tabs",
-  ]);
-  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
-  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
-  expect(host.querySelector('[data-value="browser"]')).toBeTruthy();
+  // Untitled groups, as ChatGPT's + menu: attach, the composer's actions, then each host group.
+  expect(menuDocument().querySelectorAll(".acpmux-composer-plus .acpmux-menu-header")).toHaveLength(0);
+  expect(
+    [...menuDocument().querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].map((group) =>
+      [...group.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map((row) => row.dataset.value),
+    ),
+  ).toEqual([["add.files"], ["add.project", "add.mention"], ["browser"], ["chat"], ["tab"]]);
+  const row = menuDocument().querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.click());
+  expect(menuDocument().querySelector('[data-value="browser"]')).toBeTruthy();
 });
 
-test("the + menu scrolls keyboard-selected skills into view before Enter picks one", async () => {
-  const commands = Array.from({ length: 24 }, (_, index) => ({
+test("the + menu lists no skill: its one Commands and skills… row opens the slash list with the draft", async () => {
+  const commands = Array.from({ length: 30 }, (_, index) => ({
     name: `skill${index}`,
     description: `Skill ${index}`,
     source: "skill" as const,
   }));
   await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
-  const scrolled: string[] = [];
-  const original = dom.window.HTMLElement.prototype.scrollIntoView;
-  dom.window.HTMLElement.prototype.scrollIntoView = function (options?: ScrollIntoViewOptions) {
-    if (options?.block === "nearest") scrolled.push(this.id);
-  };
+  await act(async () => plus.click());
+  const rows = [...menuDocument().querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
+  expect(rows.some((row) => row.dataset.value?.startsWith("add.skill."))).toBe(false);
+  expect(rows.some((row) => row.querySelector(".acpmux-menu-label")?.textContent?.startsWith("/"))).toBe(false);
+  const skills = rows.filter((row) => row.dataset.value === "add.commands");
+  expect(skills.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Commands and skills…"]);
+  await act(async () => skills[0]!.click());
+  expect(field().textContent).toBe("/");
+  expect(host.querySelector("#acpmux-slash-menu, .acpmux-slash-menu")).toBeTruthy();
+});
+
+test("the + menu lists at most three recent commands, then Commands and skills…; a recent row writes its command", async () => {
+  // Leo, 2026-11-01: "our + button results are still really bad" (every skill was a + row).
+  const commands = Array.from({ length: 30 }, (_, index) => ({
+    name: `skill${index}`,
+    description: `Skill ${index}`,
+    source: "skill" as const,
+  }));
+  localStorage.setItem(
+    "cmux.acpmux.recentSlashCommands",
+    JSON.stringify(["skill3", "not-advertised", "skill1", "skill9", "skill4"]),
+  );
   try {
+    await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
+    const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
     await act(async () => plus.click());
-    await act(async () => plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
-    const last = plus.getAttribute("aria-activedescendant")!;
-    expect(scrolled).toContain(last);
-    for (let index = 0; index < 2; index++)
-      await act(async () =>
-        plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })),
-      );
-    const skill = plus.getAttribute("aria-activedescendant")!;
-    expect(host.ownerDocument.getElementById(skill)?.getAttribute("data-value")).toBe("add.skill.skill23");
-    expect(scrolled).toContain(skill);
-    await act(async () => plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-    expect(field().textContent).toContain("/skill23 ");
+    const group = [...menuDocument().querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].find((section) =>
+      section.querySelector('[data-value="add.commands"]'),
+    )!;
+    const labels = [...group.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent,
+    );
+    expect(labels).toEqual(["/skill3", "/skill1", "/skill9", "Commands and skills…"]);
+    const every = [...menuDocument().querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
+    expect(every.filter((row) => row.querySelector(".acpmux-menu-label")?.textContent?.startsWith("/"))).toHaveLength(
+      3,
+    );
+    const recent = group.querySelector<HTMLElement>('[data-value="commands.recent.skill9"]')!;
+    await act(async () => recent.click());
+    expect(field().textContent?.trim()).toBe("/skill9");
+    expect(JSON.parse(localStorage.getItem("cmux.acpmux.recentSlashCommands")!)[0]).toBe("skill9");
   } finally {
-    dom.window.HTMLElement.prototype.scrollIntoView = original;
+    localStorage.removeItem("cmux.acpmux.recentSlashCommands");
   }
+});
+
+// Claude Code's own guess at the next prompt after a turn (acpmux `prompt_suggestion`; Leo
+// 2026-11-03: "i know there's suggested prompts that you can right arrow/tab to do stuff with...
+// maybe we can expose it in cmux-next too"). An existing chat's empty prompt shows it as the ghost
+// text with the Tab keycap; Tab, or Right-arrow in the empty field, writes it and never sends.
+// Typing spends it, a draft already there hides it, and keys over a non-empty prompt or an open
+// menu do what they did before.
+const AGENT_SUGGESTION = "Run the tests and commit";
+const afterTurn = (fields: Partial<AcpmuxSnapshot> = {}) =>
+  noChat([], {
+    sessionId: "chat",
+    summary: { sessionId: "chat", cwd: APP, turnCount: 2 } as never,
+    rows: [user("Rename the helper", 1)],
+    promptSuggestion: { text: AGENT_SUGGESTION, seq: 9 },
+    ...fields,
+  });
+type TypingField = HTMLElement & {
+  acpmuxMarkdownField?: { insertTyped(text: string): void; type(markdown: string): boolean };
+};
+const typeText = (text: string) =>
+  act(async () =>
+    [...host.querySelectorAll<TypingField>("*")]
+      .find((node) => node.acpmuxMarkdownField)!
+      .acpmuxMarkdownField!.insertTyped(text),
+  );
+
+test("an existing chat's agent suggestion shows as the empty prompt's ghost text with the Tab keycap", async () => {
+  await render(afterTurn());
+  expect(shown()).toBe(`${AGENT_SUGGESTION}Tab`);
+  expect(key()).toBe("Tab");
+});
+
+test("an older acpmux that sends none, or a turn running, shows the plain placeholder", async () => {
+  await render(afterTurn({ promptSuggestion: undefined }));
+  expect(shown()).toBe(IDLE);
+  expect(key()).toBeUndefined();
+  await render(afterTurn({ isWorking: true }));
+  expect(shown()).not.toContain(AGENT_SUGGESTION);
+  expect(key()).toBeUndefined();
+});
+
+test("Tab or Right-arrow writes the agent suggestion without sending; with a modifier neither does", async () => {
+  for (const name of ["Tab", "ArrowRight"]) {
+    sent = 0;
+    act(() => root?.unmount());
+    root = undefined;
+    await render(afterTurn());
+    await press(name, { shiftKey: true });
+    await press(name, { metaKey: true });
+    expect(field().textContent).toBe("");
+    await press(name);
+    expect(field().textContent).toBe(AGENT_SUGGESTION);
+    expect(sent).toBe(0);
+  }
+});
+
+test("typing spends the agent suggestion: emptying the field again does not bring it back", async () => {
+  await render(afterTurn());
+  await typeText("x");
+  expect(host.querySelector<HTMLElement>(".acpmux-md-placeholder")?.hidden).toBe(true);
+  await act(async () => {
+    [...host.querySelectorAll<TypingField>("*")]
+      .find((node) => node.acpmuxMarkdownField)!
+      .acpmuxMarkdownField!.type("");
+  });
+  expect(field().textContent).toBe("");
+  expect(shown()).toBe(IDLE);
+  await press("Tab");
+  await press("ArrowRight");
+  expect(field().textContent).toBe("");
+  // The next turn's suggestion (a newer record) shows again.
+  await render(afterTurn({ promptSuggestion: { text: "Open a PR", seq: 20 } }));
+  expect(shown()).toBe("Open a PRTab");
+});
+
+test("a suggestion that arrives over a draft is not shown, and keys over the draft keep their behaviour", async () => {
+  await render(afterTurn(), undefined, undefined, "half a thought");
+  expect(field().textContent).toBe("half a thought");
+  await press("ArrowRight");
+  await press("Tab");
+  expect(field().textContent).toBe("half a thought");
+});
+
+test("with the / menu open, Tab picks the command, not the agent suggestion", async () => {
+  await render(afterTurn({ commands: [{ name: "review", description: "Review the diff", source: "agent" }] }));
+  await typeText("/rev");
+  await press("Tab");
+  expect(field().textContent).not.toContain(AGENT_SUGGESTION);
+  expect(field().textContent).toStartWith("/review");
 });

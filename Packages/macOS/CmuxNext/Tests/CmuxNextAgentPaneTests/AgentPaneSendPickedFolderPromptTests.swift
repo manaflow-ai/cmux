@@ -158,7 +158,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         let owner = UUID()
         let recorded = await Task.detached { [journal] in journal.record(entry, owner: owner) }.value
         #expect(recorded)
-        journal.connectionEnded(owner: owner, byDaemon: false)
+        journal.connectionEnded(owner: owner)
         transport.promptJournal = journal
         transport.webModes = { _, _, _ in nil }
         #expect(await transport.pick(pane.folder) == pane.folder)
@@ -331,9 +331,11 @@ struct AgentPaneSendPickedFolderPromptTests {
             transport.close(connection: first)
         }
         let second = try await transport.open(b)
+        // A barrier frame that daemon B itself receives, after anything the open would send first. Not
+        // `_acpmux/status`: the pane answers that one from its daemon's socket and never relays it (#27102).
         #expect(await transport.send(connection: second, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#,
-            #"{"jsonrpc":"2.0","id":1,"method":"_acpmux/status","params":{}}"#]) == nil)
-        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("_acpmux/status") } == true })
+            #"{"jsonrpc":"2.0","id":1,"method":"_acpmux/harnesses","params":{}}"#]) == nil)
+        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("_acpmux/harnesses") } == true })
         #expect(pane.server.peers.last?.frames.contains { $0.contains("acp.trust.set") } == false)
         transport.close(connection: second)
         pane.server.hold("acp.trust.set")

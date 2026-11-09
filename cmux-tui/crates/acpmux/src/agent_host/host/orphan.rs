@@ -14,6 +14,34 @@ const ORPHAN_END_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 /// own wait for the answer (`link::connect`).
 const HELLO_LINGER: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// How long the end of the harness group waits for a blocking thread to read the process tree
+/// before it reads it on the event loop itself ([`blocking_or_inline`]).
+// timeout: a blocking thread that never comes (a pids cap at its spawn) must not wedge the host.
+const TREE_READ_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// `work` on a blocking thread, or inline on the caller's task once `wait` passed with no thread
+/// taking it. A host's runtime has one thread of its own: its one blocking thread waits on the
+/// harness for its whole life (`wait_exit_unreaped`), so any other blocking work needs a new one.
+/// When that thread cannot be made (EAGAIN under a cgroup's `pids.max`), tokio queues the work
+/// until a thread is free, which here is never: the event loop stopped for good, and every daemon
+/// that connected after waited on a hello no one read.
+pub(super) async fn blocking_or_inline<T, F>(wait: std::time::Duration, work: F) -> T
+where
+    T: Send + 'static,
+    F: Fn() -> T + Send + Sync + 'static,
+{
+    let work = Arc::new(work);
+    let queued = work.clone();
+    match tokio::time::timeout(wait, tokio::task::spawn_blocking(move || queued())).await {
+        Ok(Ok(value)) => value,
+        // A panic, or no thread in time: the queued copy, if it ever runs, only reads.
+        Ok(Err(_)) | Err(_) => {
+            tracing::warn!("no blocking thread within {wait:?}; reading on the event loop");
+            work()
+        }
+    }
+}
+
 /// What a host with no controller still holds for a next daemon ([`OrphanExit`]).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct Pending {
@@ -52,7 +80,7 @@ fn orphan_step(
     pending: Pending,
 ) -> OrphanStep {
     if alone < wait {
-        OrphanStep::Wait(wait - alone)
+        OrphanStep::Wait(wait.saturating_sub(alone))
     } else if !pending.none() {
         OrphanStep::Wait(wait)
     } else {
@@ -63,8 +91,21 @@ fn orphan_step(
 /// Whether a next daemon needs `entry` in its log: all but stderr lines, the harness's raw lines
 /// kept beside their translation (`Tap` `in`), and its exit, which a daemon that finds no host
 /// learns anyway (it loads the chat idle).
-fn needs_a_daemon(entry: &Entry) -> bool {
+pub(super) fn needs_a_daemon(entry: &Entry) -> bool {
     !matches!(entry, Entry::Err { .. } | Entry::Exit { .. } | Entry::Tap { dir: TapDir::In, .. })
+}
+
+/// Whether a hello that came while the host ends its harness still waits (one rule, for
+/// holding a new hello and for answering the held ones):
+/// - until the exit entry is in the log (`exit_in`): the waiter task marks the leader reaped
+///   before the main loop logs the exit (which also waits for the harness's output to close), so
+///   a reaped leader is not yet an exit a daemon can read;
+/// - not once the end stopped waiting for the exit (`given_up`, `end_by`): no daemon is left
+///   unanswered;
+/// - not once the leader is reaped while its output is held back by the buffer cap
+///   (`reaped_and_held_back`): only a daemon draining that output lets the exit entry come.
+pub(super) fn hello_waits(exit_in: bool, given_up: bool, reaped_and_held_back: bool) -> bool {
+    !exit_in && !given_up && !reaped_and_held_back
 }
 
 /// A host's own end ([`OrphanExit`]), and what it tracks for it.
@@ -81,8 +122,8 @@ pub(super) struct Orphan {
     /// The census said clear, and its answer went round the event queue once more, so every
     /// event any task sent before it (a line, a connection) is handled before the end.
     confirming: bool,
-    /// Hellos that came while the harness ends, answered once it is reaped: no daemon starts a
-    /// turn on a harness that is ending.
+    /// Hellos that came while the harness ends, answered once its exit entry is in: no daemon
+    /// starts a turn on a harness that is ending, and each reads the exit.
     held: Vec<(u64, ControllerFrame)>,
     /// When the end gives up waiting for the harness's exit entry (output held back by the
     /// buffer cap with no daemon to drain it can keep it out for good).
@@ -99,15 +140,10 @@ pub(super) struct Orphan {
 }
 
 impl Orphan {
-    /// Holds connection `id`'s hello `frame` while the harness ends (`alive`: its leader is not
-    /// reaped yet): true when it is held, to be answered once it is.
-    pub(super) fn hold_hello(
-        &mut self,
-        id: u64,
-        frame: &ControllerFrame,
-        alive: &std::sync::atomic::AtomicBool,
-    ) -> bool {
-        let held = self.ending && alive.load(std::sync::atomic::Ordering::SeqCst);
+    /// Holds connection `id`'s hello `frame` while the harness ends and its exit entry is not in
+    /// the log yet ([`hello_waits`]): true when it is held, to be answered once it no longer waits.
+    pub(super) fn hold_hello(&mut self, id: u64, frame: &ControllerFrame, waits: bool) -> bool {
+        let held = self.ending && waits;
         if held {
             self.held.push((id, frame.clone()));
         }
@@ -146,11 +182,10 @@ impl State {
         if let Some(pg) =
             self.pgid.filter(|_| self.leader_alive.load(std::sync::atomic::Ordering::SeqCst))
         {
-            self.under = tokio::task::spawn_blocking(|| {
+            self.under = blocking_or_inline(TREE_READ_WAIT, || {
                 super::super::tree::descendants(&[std::process::id()])
             })
-            .await
-            .unwrap_or_default();
+            .await;
             // SAFETY: the harness leads this process group.
             unsafe { libc::killpg(pg, libc::SIGTERM) };
             let alive = self.leader_alive.clone();
@@ -166,6 +201,13 @@ impl State {
         }
     }
 
+    /// Whether a hello during the end still waits ([`hello_waits`]), from this host's state.
+    pub(super) fn hello_waits(&self) -> bool {
+        let reaped = !self.leader_alive.load(std::sync::atomic::Ordering::SeqCst);
+        let given_up = self.orphan.end_by.is_some_and(|by| std::time::Instant::now() >= by);
+        hello_waits(self.exit_h.is_some(), given_up, reaped && self.output_held_back())
+    }
+
     /// What this host still holds for a next daemon ([`Pending`]).
     async fn pending(&self) -> Pending {
         let translator = !self.held.is_empty()
@@ -176,7 +218,7 @@ impl State {
         Pending {
             requests: self.orphan.open.len(),
             unwritten: self.orphan.unwritten,
-            unlogged: self.entries.iter().filter(|(_, e, _)| needs_a_daemon(e)).count(),
+            unlogged: self.entries.iter().filter(|e| e.needed).count(),
             translator,
             connections: 0,
         }
@@ -185,7 +227,7 @@ impl State {
     /// As the host starts serving and after every event: a controller's hello ends the wait (its
     /// generation moves on); its absence starts one ([`OrphanExit`]). True once the host's own
     /// end is done: the harness exited and no controller is there to log it. A daemon that
-    /// connected while the harness ended is answered once it is reaped (`hold_hello`): it logs
+    /// connected while the harness ended is answered once its exit entry is in (`hold_hello`): it logs
     /// the rest and the exit, as of a harness that crashed, and the host then ends as every host
     /// does (`finished`). A connection that has not said hello yet gets [`HELLO_LINGER`]; what
     /// the harness wrote as it ended that a next daemon needs gets the whole wait again, for a
@@ -194,8 +236,7 @@ impl State {
     /// good.
     pub(super) async fn orphan_follow(&mut self, events: &mpsc::Sender<Event>) -> bool {
         if self.orphan.ending {
-            let reaped = !self.leader_alive.load(std::sync::atomic::Ordering::SeqCst);
-            if reaped || self.exit_h.is_some() {
+            if !self.hello_waits() {
                 for (id, hello) in std::mem::take(&mut self.orphan.held) {
                     self.on_frame(id, Some(hello)).await;
                 }
@@ -207,7 +248,7 @@ impl State {
             if self.exit_h.is_none() {
                 return self.orphan.end_by.is_some_and(|by| now >= by);
             }
-            let unlogged = self.entries.iter().any(|(_, e, _)| needs_a_daemon(e));
+            let unlogged = self.entries.iter().any(|e| e.needed);
             if self.pending_conns.is_empty() && !unlogged {
                 return true;
             }
@@ -225,7 +266,7 @@ impl State {
         let Some(exit) = &self.spec.orphan_exit else { return false };
         if self.controller.is_some() {
             if self.orphan.since.take().is_some() {
-                self.orphan.generation += 1;
+                self.orphan.generation = self.orphan.generation.wrapping_add(1);
             }
         } else if self.orphan.since.is_none() && !self.orphan.ending {
             let wait = std::time::Duration::from_millis(exit.idle_ms);
@@ -271,7 +312,9 @@ impl State {
         // yet may be a next daemon's). From here to the group's SIGTERM no other event is handled.
         let mut pending = self.pending().await;
         pending.connections = self.pending_conns.len();
-        pending.unlogged += usize::from(census.is_some() && self.next_h != self.orphan.census_at);
+        pending.unlogged = pending
+            .unlogged
+            .saturating_add(usize::from(census.is_some() && self.next_h != self.orphan.census_at));
         if let OrphanStep::Wait(after) = orphan_step(wait, since.elapsed(), pending) {
             self.orphan_wait(events, after);
             return;
@@ -311,7 +354,7 @@ impl State {
     async fn orphan_end(&mut self, events: &mpsc::Sender<Event>) {
         tracing::info!("no daemon came back for this host's wait and its agent is idle; ending it");
         self.orphan.ending = true;
-        let by = ORPHAN_END_GRACE + self.orphan_idle().max(HELLO_LINGER);
+        let by = ORPHAN_END_GRACE.saturating_add(self.orphan_idle().max(HELLO_LINGER));
         self.orphan.end_by = Some(std::time::Instant::now() + by);
         self.orphan_wait(events, by);
         self.terminate_group(ORPHAN_END_GRACE).await;
@@ -325,7 +368,7 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, OrphanStep, Pending, TapDir, needs_a_daemon, orphan_step};
+    use super::{Entry, OrphanStep, Pending, TapDir, hello_waits, needs_a_daemon, orphan_step};
     use std::time::Duration;
 
     /// A host with no controller looks at its agent only once its whole wait passed, ends it
@@ -361,5 +404,57 @@ mod tests {
         assert!(!needs_a_daemon(&Entry::Tap { dir: TapDir::In, msg }));
         assert!(!needs_a_daemon(&Entry::Err { line: "warn".into() }));
         assert!(!needs_a_daemon(&Entry::Exit { code: Some(0) }));
+    }
+
+    /// A daemon that connects while the host ends its harness waits until the exit entry is in
+    /// the log, so its log has the exit and it never starts a turn on a dying harness. The waiter
+    /// task marks the leader reaped before the main loop logs the exit, so "reaped" is not
+    /// "exit in" (orphan_exit `a_daemon_connecting_while_the_harness_ends_is_told_it_exited`,
+    /// `last_h` 0, red on base). It never waits past the end's deadline, nor while only a daemon
+    /// can drain the output the buffer cap holds back after the reap (review of #30897).
+    #[test]
+    fn a_hello_during_the_end_waits_for_the_exit_entry() {
+        // (exit_in, given_up, reaped_and_held_back) -> waits
+        assert!(hello_waits(false, false, false), "reaped or not, the exit is not logged yet");
+        assert!(!hello_waits(true, false, false), "the exit is in");
+        assert!(!hello_waits(false, true, false), "the end stopped waiting for the exit");
+        assert!(!hello_waits(false, false, true), "only a daemon can drain the capped output");
+    }
+
+    /// The wedge of a host whose second blocking thread could not be made: its one blocking
+    /// thread waits on the harness, so work queued behind it never ran and the event loop stopped
+    /// (2026-11-06, a host spawned under a review box's `pids.max`). A pool capped at one thread
+    /// stands in for the failed spawn: the read still happens, on the caller's task.
+    #[test]
+    fn work_with_no_blocking_thread_free_runs_inline() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (release, held) = std::sync::mpsc::channel::<()>();
+            // The harness waiter: holds the only blocking thread until the test ends.
+            let waiter = tokio::task::spawn_blocking(move || held.recv().ok());
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let read = tokio::time::timeout(
+                Duration::from_secs(10),
+                super::blocking_or_inline(Duration::from_millis(100), || 7),
+            )
+            .await;
+            assert_eq!(read.ok(), Some(7), "the read waited for a thread that never came");
+            release.send(()).unwrap();
+            waiter.await.unwrap();
+        });
+    }
+
+    #[test]
+    fn work_runs_on_a_free_blocking_thread() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let main = std::thread::current().id();
+        let ran_on = runtime.block_on(super::blocking_or_inline(Duration::from_secs(10), || {
+            std::thread::current().id()
+        }));
+        assert_ne!(ran_on, main, "a free blocking thread takes the work off the event loop");
     }
 }

@@ -14,21 +14,33 @@ const DROP_GRACE: Duration = Duration::from_secs(10);
 type Outages = HashMap<(String, u64), Instant>;
 
 impl Hub {
+    pub(super) async fn wait_peer_notice_loop(&self) {
+        if self.peer_notices_finished.load(Ordering::Acquire) {
+            return;
+        }
+        let notified = self.peer_notices_done.notified();
+        if self.peer_notices_finished.load(Ordering::Acquire) {
+            return;
+        }
+        // timeout: shutdown joins the loop's cache flush inside its own grace, never forever.
+        let _ = tokio::time::timeout(Duration::from_secs(2), notified).await;
+    }
+
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {
         // Purge fencing and transcript persistence belong to the real link
         // boundary, never to its later row deadline (a new handshake may be busy).
+        let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
+            return;
+        };
         {
             let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
-                return;
-            };
             let link = current.link();
             if link.attempts <= 1 {
                 tracing::warn!(peer, "peer disconnected: {reason}");
             } else {
                 tracing::debug!(peer, attempts = link.attempts, "peer still unreachable: {reason}");
             }
-            self.with_tombstones(peer, generation, |t| t.link_ended());
+            current.purge_tombstones.link_ended();
         }
         self.peer_snapshots.flush(Some(peer));
     }
@@ -50,11 +62,17 @@ impl Hub {
     }
 
     pub(super) async fn peer_notice_loop(self: Arc<Self>) {
-        let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
+        let Some(mut rx) = self.peer_notices_rx.lock().await.take() else {
+            self.peer_notices_finished.store(true, Ordering::Release);
+            self.peer_notices_done.notify_waiters();
+            return;
+        };
         // A dedicated persistent signal: hub.shutdown's stored Notify permit
         // belongs to the main daemon, including before its waiter registers.
         let mut stop = self.peer_notices_stop.subscribe();
         let mut drops = Outages::new();
+        let mut cache_tick =
+            tokio::time::interval(Duration::from_millis(super::peer_cache::SAVE_EVERY_MS));
         loop {
             if *stop.borrow() {
                 break;
@@ -84,6 +102,17 @@ impl Hub {
                 }
                 // No timer task outlives this loop or daemon shutdown.
                 _ = stop.changed() => break,
+                _ = cache_tick.tick() => {
+                    let dirty: Vec<_> = self.peers.lock().unwrap_or_else(|e| e.into_inner())
+                        .values()
+                        .filter(|p| p.cache_is_dirty())
+                        .map(|p| (p.name.clone(), p.generation))
+                        .collect();
+                    for (peer, generation) in dirty {
+                        self.save_peer_cache(&peer, generation, false);
+                    }
+                    continue;
+                }
             };
             let Some((peer, generation, notice)) = incoming else { break };
             let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
@@ -107,6 +136,13 @@ impl Hub {
                     self.save_after_drop(&peer, generation, !ongoing);
                 }
                 notice => {
+                    // Rows came (a list, a changed row) or the link is up: the peer's chats are
+                    // read ahead soon (`peer_snapshot/warm.rs`).
+                    let warms = match &notice {
+                        PeerNotice::Connected | PeerNotice::Sessions(_) => true,
+                        PeerNotice::SessionChanged { kind, .. } => kind != "purged",
+                        _ => false,
+                    };
                     // A link that brought rows (or a planned restart, which never
                     // enters the grace path) ends the outage: its next drop starts
                     // a new one, even after this one's rows went unreachable.
@@ -115,6 +151,9 @@ impl Hub {
                         current.outage_ended.store(false, Ordering::SeqCst);
                     }
                     self.apply_peer_notice(&peer, generation, notice);
+                    if warms {
+                        self.warm_peer_copies(&peer);
+                    }
                 }
             }
             if settles {
@@ -122,5 +161,18 @@ impl Hub {
                 self.watches.peer_settled();
             }
         }
+        let dirty: Vec<_> = self
+            .peers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .filter(|p| p.cache_is_dirty())
+            .map(|p| (p.name.clone(), p.generation))
+            .collect();
+        for (peer, generation) in dirty {
+            self.save_peer_cache(&peer, generation, true);
+        }
+        self.peer_notices_finished.store(true, Ordering::Release);
+        self.peer_notices_done.notify_waiters();
     }
 }

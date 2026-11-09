@@ -3,7 +3,7 @@
 // the Update Ready hover card are their own small pages (surface.tsx) on the shared page base,
 // whose body is `user-select: none` (desktop chrome). Their change titles and lines are text a
 // person reads and quotes: a drag selects them, a double-click selects a word, and the selection is
-// what Copy copies. Selecting never runs the card's buttons (See What's New, the x, See all changes),
+// what Copy copies. Selecting never runs the card's buttons (What's New, the x, See all changes),
 // and those buttons still work on a click.
 //
 // The page is the real stylesheets and the real components (bundled) in Chromium and WebKit; the
@@ -111,7 +111,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
       });
       afterAll(async () => browser?.close());
 
-      async function open(kind: "ready" | "updated", width?: number): Promise<Page> {
+      async function open(kind: "ready" | "updated", width?: number, highlights: typeof data = data): Promise<Page> {
         const page = await browser.newPage({ viewport: { width: 420, height: 400 } });
         await page.setContent(
           `<!doctype html><html style="--page-text:#ddd;--page-text-2:#aaa;--page-text-3:#888"><head><style>${css}</style></head><body><div id="root"${width ? ` style="width:${width}px"` : ""}></div></body></html>`,
@@ -121,7 +121,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         page.on("pageerror", (error) => errors.push(error.stack ?? String(error)));
         await page.addScriptTag({ content: script });
         if (errors.length > 0) throw new Error(`the bundle threw as it loaded: ${errors.join("; ")}`);
-        await page.evaluate(([k, d]) => (window as any).mount(k, d), [kind, data] as const);
+        await page.evaluate(([k, d]) => (window as any).mount(k, d), [kind, highlights] as const);
         return page;
       }
 
@@ -139,31 +139,29 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         await page.mouse.up();
       }
 
-      test("the Updated card's changes select with a drag and a double-click, and fire nothing", async () => {
+      test("the Updated card's title and top change select with a drag and a double-click, and fire nothing", async () => {
         const page = await open("updated");
-        // One line per area (updateSummary.ts): "Sidebar: workspace groups at a glance; …", then
-        // "Improved: tables scroll" (one line even at 244 px in DejaVu Sans, CI's fallback font).
-        await dragAcross(page, ".wn-card-areas li:nth-child(2)");
-        expect(await selection(page)).toContain("tables scroll");
+        // The card is short (2026-10-31, "too much text"): "Updated to Nightly", the top change
+        // ("Sidebar: workspace groups at a glance") and What's New.
+        await dragAcross(page, ".wn-card-note");
+        expect(await selection(page)).toContain("workspace groups at a glance");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
 
-        const word = page.locator(".wn-card-areas li .wn-card-phrases").nth(1);
+        const word = page.locator(".wn-card-note .wn-card-area");
         const box = (await word.boundingBox())!;
         await page.mouse.dblclick(box.x + 12, box.y + box.height / 2);
-        expect((await selection(page)).trim()).toBe("tables");
+        expect((await selection(page)).trim()).toBe("Sidebar");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
         expect(await page.locator(".wn-card").count()).toBe(1);
 
-        // Its eyebrow and the count of the rest are text too.
-        // The eyebrow says "Nightly · Oct 19"; the raw build is only its tooltip (e98d3a1ad827).
-        await dragAcross(page, ".wn-card-eyebrow");
-        expect(await selection(page)).toContain("Oct 19");
+        await dragAcross(page, ".wn-card-title");
+        expect(await selection(page)).toContain("Updated to");
         await page.close();
       });
 
       test("the Updated card's buttons still work on a click", async () => {
         const page = await open("updated");
-        await page.locator(".wn-card-primary").click();
+        await page.locator(".wn-card-link").click();
         await page.locator(".wn-card").hover();
         await page.locator(".wn-card-close").click();
         expect(await calls(page)).toEqual({ openChangelog: 1, dismiss: 1 });
@@ -172,24 +170,37 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         await page.close();
       });
 
-      // Design #2 "Readable" (u4466 follow-up: "improve design of that too"): in the sidebar's card
-      // a change title wraps onto a second line instead of being cut with an ellipsis, so it can be
-      // read and selected whole; a very long one stops at two lines.
-      test("in a sidebar-wide card a long change wraps to two lines, never cut on one", async () => {
-        const page = await open("updated", 244);
-        const rows = page.locator(".wn-card-areas li");
-        const metrics = (index: number) =>
-          rows.nth(index).evaluate((li) => ({
-            height: li.getBoundingClientRect().height,
-            line: parseFloat(getComputedStyle(li).lineHeight),
-          }));
-        // The Sidebar line holds both workspace group changes; the Improved line is short.
-        const long = await metrics(0);
-        const short = await metrics(1);
-        // One line for a short title; two lines (not one, not three) for the long one.
-        expect(short.height).toBeLessThan(short.line * 1.5 + 4);
-        expect(long.height).toBeGreaterThan(long.line * 1.5);
-        expect(long.height).toBeLessThan(long.line * 2.5 + 4);
+      // The top change keeps the card's one line (since Leo 2026-11-07 the card is the composer's
+      // one-line height; the hover preview has every change in full). A long one is cut at the
+      // card's edge, and a drag across it still selects it whole (u4466). The fixture's
+      // own top change ("Sidebar: workspace groups at a glance") is about as wide as the card's
+      // 220px text column at 12px, so whether it wraps depends on the font (it wraps in DejaVu Sans,
+      // CI's fallback): these cases use a top change that clearly fits and one that clearly does not.
+      const topChange = (title: string, category = "improved") => ({
+        ...data,
+        items: [{ id: "top", title, summary: null, category }],
+        moreCount: 0,
+      });
+      const noteLines = (page: Page) =>
+        page.locator(".wn-card-note").evaluate((note) => ({
+          height: note.getBoundingClientRect().height,
+          line: parseFloat(getComputedStyle(note).lineHeight),
+        }));
+
+      test("in a sidebar-wide card the top change keeps one line when it fits", async () => {
+        const page = await open("updated", 244, topChange("Tables scroll"));
+        expect(await page.locator(".wn-card-note").innerText()).toContain("tables scroll");
+        const metrics = await noteLines(page);
+        expect(metrics.height).toBeLessThan(metrics.line * 1.5 + 4);
+        await page.close();
+      });
+
+      test("in a sidebar-wide card a top change too wide for one line keeps one line and selects whole", async () => {
+        const page = await open("updated", 244, topChange("Workspace groups keep their pins across windows", "new"));
+        const metrics = await noteLines(page);
+        expect(metrics.height).toBeLessThan(metrics.line * 1.5 + 4);
+        await page.locator(".wn-card-note").selectText();
+        expect(await selection(page)).toContain("keep their pins across windows");
         await page.close();
       });
 
@@ -199,7 +210,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         expect(await selection(page)).toContain("groups at a");
         await dragAcross(page, ".wn-pop-line");
         expect(await selection(page)).toContain("match the rows");
-        await dragAcross(page, ".wn-pop-from");
+        await dragAcross(page, ".wn-pop-span-from");
         expect(await selection(page)).toContain("3801702");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
         await page.locator(".wn-pop-all").click();

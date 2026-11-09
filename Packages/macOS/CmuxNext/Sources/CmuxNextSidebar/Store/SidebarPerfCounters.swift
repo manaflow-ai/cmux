@@ -18,6 +18,16 @@ import Foundation
 /// - `main_ns`: main-thread time spent in the measured paths, nanoseconds.
 /// - `order_builds`: `SidebarModel.workspaceOrder` builds (one per structural change at most, never per query).
 /// - `mirror_ns`: main-thread time in `SidebarMirror` calls (request encode, the Rust call, reading the reply), nanoseconds.
+/// - `row_invalidations`: listed rows whose observed content changed (`SidebarRowFeed`): one change in one workspace
+///   marks that workspace's row only, never every row (TYPING UNDER LOAD F6).
+/// - `row_maps`: row mappings `SidebarRowFeed` ran (a new row, a dirty row, every row after an inputs change).
+/// - `row_views_made`: row views a list made while it applied rows (none for a new workspace row while the list's spare
+///   waits: `SidebarListView.makeSpareRow`).
+/// - `spare_row_views`: spare workspace row views made after a frame committed.
+/// - `row_frames`: row frames a list apply computed (`SidebarListView.frame(for:)` in `apply`): the rows it can draw
+///   (realized, in the realization rect, or reopened), never every listed row (m23, sidebar row insert and remove).
+/// - `layout_rows`: rows `SidebarLayout.make` laid out (every listed row per full layout): a change that touches one row
+///   lays out none, at 50 rows as at 200 (SIDEBAR INSERT: a create's row becoming its workspace's row).
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -34,6 +44,12 @@ nonisolated enum SidebarPerfCounters {
         case mainNanoseconds = "main_ns"
         case mirrorNanoseconds = "mirror_ns"
         case orderBuilds = "order_builds"
+        case rowInvalidations = "row_invalidations"
+        case rowMaps = "row_maps"
+        case rowViewsMade = "row_views_made"
+        case spareRowViews = "spare_row_views"
+        case rowFrames = "row_frames"
+        case layoutRows = "layout_rows"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])

@@ -2,6 +2,7 @@
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -308,7 +309,7 @@ private struct TeamStep: View {
                         }
                     }
                 }
-                .animation(theme.motion.smooth.animation, value: phase)
+                .animation(theme.motion.smooth.animation.unlessReduceMotion, value: phase)
             }
         }
         .onChange(of: phase, initial: true) { _, phase in
@@ -316,7 +317,7 @@ private struct TeamStep: View {
                 showsCreate = false
                 return
             }
-            withAnimation(theme.motion.smooth.animation.delay(0.1)) { showsCreate = true }
+            withAnimation(theme.motion.smooth.animation.delay(0.1).unlessReduceMotion) { showsCreate = true }
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(theme.colors.bg.color.ignoresSafeArea())
@@ -401,7 +402,7 @@ private struct TeamStep: View {
                 .foregroundStyle(theme.colors.label2)
             Spacer(minLength: 0)
             if isRetrying {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
             } else {
                 Button("Retry", action: retry)
                     .font(theme.type.rowSubtitle.weight(.semibold))
@@ -527,7 +528,7 @@ private struct PairMacStep: View {
             }
             .buttonStyle(PairMacCTAStyle(emphasis: cta.emphasis))
             .accessibilityIdentifier(PairMacCallToAction.accessibilityIdentifier)
-            .animation(theme.motion.snappy.animation, value: cta.emphasis)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: cta.emphasis)
         }
         .onAppear { foundAtStart = onlineMac != nil }
         .onChange(of: onlineMac != nil) { _, found in
@@ -567,7 +568,13 @@ private struct PairMacStep: View {
     private var art: some View {
         let settled = foundAtStart || (reduceMotion && onlineMac != nil)
         let waiting = !settled && foundAt == nil && !reduceMotion
-        return TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !(riding || waiting))) { context in
+        // Frames only while something moves: every display frame during the
+        // ride, the 1.5 s pulse of each 2.4 s wait cycle (none in the 0.9 s
+        // gap), one frame when settled (S6, `ConnectMacArtSchedule`).
+        let schedule = ConnectMacArtSchedule(mode: riding ? .riding
+            : waiting ? .pulses(since: waitingSince, period: 2.4, active: WelcomeArt.IdleStyle.waiting.duration)
+            : .still)
+        return TimelineView(schedule) { context in
             let t: Double = {
                 if settled { return .infinity }
                 if let foundAt { return WelcomeArt.rideStart + context.date.timeIntervalSince(foundAt) }
@@ -607,7 +614,7 @@ private struct PairMacCTAStyle: ButtonStyle {
             .contentShape(.rect)
             .opacity(pressed ? 0.85 : 1)
             .scaleEffect(primary && pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation, value: pressed)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: pressed)
     }
 }
 

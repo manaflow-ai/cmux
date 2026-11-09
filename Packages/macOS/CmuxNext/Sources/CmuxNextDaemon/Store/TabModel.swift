@@ -89,6 +89,8 @@ public final class TabModel: Identifiable {
     /// failed. A newer pending value (a second toggle) stays.
     public func dropExpectedMarkedUnread(_ marked: Bool) {
         guard pendingMarkedUnread == marked else { return }
+        rollbacks.rolledBack("marked-unread", tab: id)
+        holdKeyReads()
         pendingMarkedUnread = nil
         publishMarkedUnread()
     }
@@ -112,6 +114,7 @@ public final class TabModel: Identifiable {
     /// A failed old clear never restores over a newer request or a newer clear.
     public func dropExpectedAttentionClear(_ request: TabAttention) {
         guard pendingAttentionClear == request else { return }
+        rollbacks.rolledBack("attention-clear", tab: id)
         pendingAttentionClear = nil
         attention = recordAttention
     }
@@ -176,6 +179,9 @@ public final class TabModel: Identifiable {
         return titleText
     }
 
+    /// A live daemon terminal: a pty that is not dead and not a creation's stand-in (a provisional surface).
+    public var isLiveTerminal: Bool { kind == .pty && !dead && !ProvisionalTab.isProvisional(surface: surface) }
+
     /// Whether the tab holds an unread notification. A notification this
     /// client read (``expectNotificationRead()``) shows read before the
     /// daemon's echo.
@@ -195,9 +201,42 @@ public final class TabModel: Identifiable {
         readingNotification = notification.notification
     }
 
+    /// This tab's optimistic indicator writes rolled back, against the native budget.
+    @ObservationIgnored let rollbacks = IndicatorRollbackBudget()
+    /// When keys may read this tab's dot again after a read of theirs rolled back (Leo, 2026-11-09:
+    /// "when im typing in the composer the tab and workspace flicker"). Each key's read hid the dot
+    /// at once; a refused one (a daemon that is not connected) brought it back a round trip later
+    /// and the next key hid it again, so the tab's and the workspace row's dot blinked once per key.
+    /// A rollback holds key reads off for ``keyReadBackoff`` (2 s, doubling to 30 s); the daemon's
+    /// record changing the dot resets it. No marker id is cached: ids restart with the daemon.
+    @ObservationIgnored private var keyReadsResumeAt: ContinuousClock.Instant?
+    @ObservationIgnored private var keyReadBackoff: Duration = .seconds(2)
+    /// The clock key reads are timed by; tests set it.
+    @ObservationIgnored var keyReadClock: () -> ContinuousClock.Instant = { .now }
+
+    /// Whether a key may read the tab's unread notification or Mark as Unread now.
+    public func keyMayRead() -> Bool {
+        keyReadsResumeAt.map { keyReadClock() >= $0 } ?? true
+    }
+
+    /// A read rolled back: keys wait before the next one, longer each time in a row.
+    private func holdKeyReads() {
+        keyReadsResumeAt = keyReadClock() + keyReadBackoff
+        keyReadBackoff = min(keyReadBackoff * 2, .seconds(30))
+    }
+
+    /// The daemon's record changed the dot: the next key reads at once again.
+    private func resumeKeyReads() {
+        keyReadsResumeAt = nil
+        keyReadBackoff = .seconds(2)
+    }
+
     /// Rolls back ``expectNotificationRead()`` when the acknowledge failed.
     public func dropExpectedNotificationRead() {
-        if readingNotification != nil { readingNotification = nil }
+        guard readingNotification != nil else { return }
+        rollbacks.rolledBack("notification-read", tab: id)
+        holdKeyReads()
+        readingNotification = nil
     }
 
     /// The tree's notification marker arrived: a read or replaced
@@ -250,6 +289,9 @@ public final class TabModel: Identifiable {
     public var page: String? {
         kind == .conversation ? conversation?.page : nil
     }
+
+    /// Home's docked chat page tab (`WorkspaceModel.homeDockPage`), where a Chief's turns post.
+    public var isHomeDockPage: Bool { page == WorkspaceModel.homeDockPage }
 
     /// What a page tab shows (`page-tab-route-v1`); nil for none or any other tab.
     public var pageRoute: String? {
@@ -319,7 +361,7 @@ public final class TabModel: Identifiable {
         if terminalState != s.terminalState { terminalState = s.terminalState }
         if end != s.end { end = s.end }
         if relaunch != s.relaunch { relaunch = s.relaunch }
-        if notification != s.notification { notification = s.notification }
+        if notification != s.notification { notification = s.notification; resumeKeyReads() }
         settleReadingNotification()
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
@@ -349,6 +391,7 @@ public final class TabModel: Identifiable {
         if pendingAttentionClear != record.attention { pendingAttentionClear = nil }
         let shownAttention = pendingAttentionClear == nil ? record.attention : nil
         if attention != shownAttention { attention = shownAttention }
+        if recordMarkedUnread != record.markedUnread { resumeKeyReads() }
         recordMarkedUnread = record.markedUnread
         if pendingMarkedUnread == record.markedUnread { pendingMarkedUnread = nil }
         publishMarkedUnread()

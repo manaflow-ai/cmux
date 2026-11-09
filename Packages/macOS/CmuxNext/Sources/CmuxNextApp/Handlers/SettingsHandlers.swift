@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextSettings
@@ -51,25 +52,36 @@ enum SettingsHandlers {
         // The changelog page's provider exists from launch, so a What's New tab that the session
         // restores (or Reopen Closed brings back) shows its title and page (cx-warpr).
         ChangelogPageTab.register(context.services)
+        WebPageTab.registerGitHub(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
-                            whatsNewUnavailable: { [weak services = context.services] in
-                                services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
-                            },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
+        // Install an Earlier Nightly…: Settings > Updates at its Channels card, whose Switch installs any
+        // recent build (`cmux nightly install` is the CLI form); a new focus each open scrolls back to it.
+        registry.bind("updates.installEarlierBuild", unavailable: { [weak services = context.services] in
+            services?.updater.installEarlierBuildUnavailableReason
+        }, invoke: { [weak registry, weak services = context.services] invocation in
+            do {
+                try services?.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: "#/settings/updates?focus=channels:\(UUID().uuidString.prefix(8))")
+            } catch {
+                registry?.refuse(String(describing: error))
+            }
+        })
         OnboardingHandlers.bind(into: registry, context: context)
-        // Keep preview surfaces out of menus and the palette while Labs is off. Compose this
-        // with the browser import gate installed above so unrelated settings remain intact.
+        // Keep the App Store out of menus and the palette while Labs is off (What's New is not
+        // behind Labs). Compose this with the browser import gate installed above so unrelated
+        // settings remain intact.
         let previousSettingOffReason = registry.settingOffReason
         registry.settingOffReason = { [weak services = context.services] id in
             if services?.settings?.snapshot.previewFeatures != true,
-               id == "appStore.show" || id == "appStore.showInstalled" || id == "updates.whatsNew" {
+               id == "appStore.show" || id == "appStore.showInstalled" {
                 return previewTitle
             }
             return previousSettingOffReason(id)
         }
         SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
+        LiveWebHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
 
         registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in
@@ -185,7 +197,7 @@ enum SettingsHandlers {
         try AppearanceHandlers.requireUnmanaged(path, context)
         let explicit = invocation["on"]?.boolValue
         let writer = SettingWriter(invocation.origin)
-        Task {
+        context.services.registry.track(Task { // a capturing caller (`action.run`, the CLI) answers once the write applied
             do {
                 let root = try await settings.file.document()
                 if let descriptor {
@@ -193,10 +205,9 @@ enum SettingsHandlers {
                 } else {
                     try await settings.set(.bool(explicit ?? !(root.value(at: path)?.boolValue ?? false)), at: path)
                 }
-            } catch {
-                logger.error("toggle setting \(setting, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+            } catch { logger.error("toggle setting \(setting, privacy: .public) failed: \(String(describing: error), privacy: .public)") }
+            return nil
+        })
     }
 
     /// `browser.defaultEngine`: applies at once (the next new tab uses it),

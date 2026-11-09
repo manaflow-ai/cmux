@@ -13,10 +13,13 @@ import { useCallback, useId, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
-import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
+import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "../conversation/headerToggle";
+import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
+import { useTranscriptDisclosure } from "../conversation/transcriptDisclosureModel";
 import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
 import "./DisclosureRow.css";
+import { openSessionAttributes } from "../conversation/menuParts";
 
 export type DisclosureRowProps = {
   /// Stable row identity; the transcript provider scopes it to the parent session. Unused when the
@@ -34,6 +37,8 @@ export type DisclosureRowProps = {
   openTitle?: string;
   /// Opens the row's chat: the line's click does this, and the chevron alone opens the panel.
   onOpen?: () => void;
+  /// The chat `onOpen` opens, for the right-click's Go to Chat (menuParts.ts `openSessionAttributes`).
+  openSession?: string;
   children?: ReactNode;
   defaultOpen?: boolean;
   /// The state, when the caller holds it.
@@ -50,8 +55,15 @@ export type DisclosureRowProps = {
   actions?: ReactNode;
   /// Before the toggle, outside its button.
   leading?: ReactNode;
+  /// A second line under the row (a received message's first line, stacked: messageLineLook.ts),
+  /// at the text column; a click on it toggles the row as the line does.
+  below?: ReactNode;
+  /// Shared activity-row treatment for transcript notices.
+  lineClassName?: string;
   /// The row's own class, next to `cv-disclosure`.
   className?: string;
+  /// More attributes on the row's root (a sent message's `data-send-state`).
+  attributes?: Record<string, string | undefined>;
 };
 
 export function DisclosureRow({
@@ -64,6 +76,7 @@ export function DisclosureRow({
   openLabel,
   openTitle,
   onOpen,
+  openSession,
   children,
   defaultOpen = false,
   open,
@@ -73,7 +86,10 @@ export function DisclosureRow({
   toggleLabel,
   actions,
   leading,
+  below,
+  lineClassName,
   className,
+  attributes,
 }: DisclosureRowProps) {
   const [stored, setStored] = useTranscriptDisclosure(disclosureKey, defaultOpen);
   const held = open !== undefined;
@@ -101,15 +117,30 @@ export function DisclosureRow({
       {status && <span className="cv-disclosure__status">{status}</span>}
     </>
   );
-  const chevron = <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
+  const chevron = <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
   return (
-    <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
+    <div
+      className={className ? `cv-disclosure ${className}` : "cv-disclosure"}
+      data-open={collapse.open || undefined}
+      {...attributes}
+    >
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
-      <div className="cv-disclosure__line" data-find-skip ref={onOpen ? collapse.headerRef : undefined}>
+      <TranscriptActivityRowShell
+        className={`cv-disclosure__line${lineClassName ? ` ${lineClassName}` : ""}`}
+        attributes={{ "data-find-skip": "", [HEADER_TOGGLE_ATTRIBUTE]: "" }}
+        headerRef={onOpen ? collapse.headerRef : undefined}
+        onClick={headerToggleClick(collapse.toggle)}
+      >
         {leading}
         {onOpen ? (
           <>
-            <button type="button" className="cv-disclosure__open" title={openTitle ?? openLabel} onClick={onOpen}>
+            <button
+              type="button"
+              className="cv-disclosure__open"
+              title={openTitle ?? openLabel}
+              {...(openSession ? openSessionAttributes(openSession) : {})}
+              onClick={onOpen}
+            >
               {content}
             </button>
             <button
@@ -138,7 +169,19 @@ export function DisclosureRow({
           </button>
         )}
         {actions}
-      </div>
+      </TranscriptActivityRowShell>
+      {below !== undefined && below !== null && below !== "" && (
+        // The toggle's label reads these words for a screen reader; this is the pointer's target.
+        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div
+          className="cv-msgline__preview cv-disclosure__below"
+          aria-hidden
+          data-find-skip=""
+          onClick={collapse.toggle}
+        >
+          {below}
+        </div>
+      )}
       {collapse.present && (
         <div id={bodyId} {...collapse.bodyProps}>
           <div className="cv-disclosure__panel">{children}</div>

@@ -10,13 +10,16 @@ public import Foundation
 /// moves to the next tab at once. History: 1300 ms (2026-10-14), then 250 ms when Lawrence found
 /// it slow (2026-10-18, msg 1754), then back to Chrome's (2026-10-28, msg 15729: "we need to wait
 /// a lot longer before opening the hover cards (see how long chrome takes and match them
-/// properly)").
+/// properly)"), then 400 ms (Leo 2026-11-01: "i need these hover previews to appear a hell of a
+/// lot faster than they do now"): Chrome's floor for a narrow tab plus a beat, so a pointer
+/// passing over the sidebar still opens nothing, and the warm rules below keep later cards
+/// instant.
 public nonisolated struct HoverCardTiming {
     public nonisolated init() {}
     /// The cold delay: how long the pointer rests on a row or a tab before the first card opens.
     /// Rows and tabs wait the same (no width scaling). `sidebar.hoverCards.delay` overrides it
     /// (`DesignSettings.hoverCardDelay`).
-    public static let showDelay: Duration = .milliseconds(1300)
+    public static let showDelay: Duration = .milliseconds(400)
     /// Warm mode: after a card goes, a hover this soon shows the next one at once (Chrome's
     /// `kShowWithoutDelayTimeBuffer`); a gap between rows this short keeps the card. While a card shows, the next target's card replaces it at once and the card
     /// slides over (`HoverCardPanel`).
@@ -28,6 +31,17 @@ public nonisolated struct HoverCardTiming {
     /// mid-crossfade (Lawrence 2026-10-28, msg 15501: "card animation needs to be better, if i
     /// move across it very fast"). A deliberate move to the next row comes later and glides.
     public static let sweepInterval: Duration = .milliseconds(150)
+    /// Hover intent for the cold card (goal sidebar-hover-instant; Leo 2026-11-01): a pointer that
+    /// stops on a row or a tab gets its card once it stops, not after `showDelay`, which stays the
+    /// longest wait for a pointer still creeping over one. Stopped means no move for `settleQuiet`
+    /// (a moving mouse or trackpad sends one every display frame, 8 to 16 ms), or two moves at most
+    /// `settleSample` apart slower than `settleSpeed` points per second (a hand easing onto the
+    /// row). A pass over the sidebar or the strip keeps moving faster than that, so it opens
+    /// nothing, the reason for the delay (Lawrence 2026-10-28). Only the default delay settles: a
+    /// delay set in `sidebar.hoverCards.delay` is a fixed wait.
+    public static let settleQuiet: Duration = .milliseconds(40)
+    public static let settleSample: Duration = .milliseconds(50)
+    public static let settleSpeed: Double = 200
 }
 
 extension DesignSettings {

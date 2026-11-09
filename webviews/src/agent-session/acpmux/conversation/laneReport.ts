@@ -6,10 +6,46 @@
  * by the snapshot reducer and must not be reparsed on every render.
  */
 
+import { withoutRelayHead, withoutRelayLabel } from "./relayEnvelope";
+import { bareSender } from "./senderIdentity";
+
 export type LaneNoticeKind = "report" | "inbox";
 export type LaneNoticeVerdict = "SHIP" | "BLOCK" | "FIX" | "HOLD";
 
-export type LaneNoticeThread = { readonly id: string; readonly sender: string };
+export type LaneNoticeDelivery = {
+  readonly sender: string;
+  /// The key the sender's chat is asked for by (inboxNotice.ts `senderKey`), when acpmux recorded
+  /// who sent it; else `sender`.
+  readonly lookup?: string;
+  readonly text: string;
+  readonly promptId?: string;
+  /// acpmux could not verify its sender (senderIdentity.ts): the line's subtle marker.
+  readonly unverified?: true;
+  /// Its sender's harness family, from its sender record.
+  readonly harness?: string;
+  /// Its sender's session, from its sender record (the thread's may name another sender's).
+  readonly session?: string;
+  /// When acpmux recorded it (ms).
+  readonly at?: number;
+};
+export type LaneNoticeThread = {
+  readonly id: string;
+  readonly sender: string;
+  /// The newest sender as acpmux recorded it (inboxNotice.ts `SenderRef`), for a row with no
+  /// messages to ask for that chat by.
+  readonly senderRecord?: { readonly session?: string; readonly label?: string };
+  /// The newest sender's key (`LaneNoticeDelivery.lookup`).
+  readonly lookup?: string;
+  readonly preview?: string;
+  readonly messages?: readonly LaneNoticeDelivery[];
+  readonly label?: string;
+  readonly promptIds?: readonly string[];
+  readonly fromSession?: string;
+  readonly fromHarness?: string;
+  readonly count?: number;
+  /// acpmux could not verify the newest sender (senderIdentity.ts).
+  readonly unverified?: true;
+};
 
 export type LaneNotice = {
   readonly kind: LaneNoticeKind;
@@ -20,13 +56,17 @@ export type LaneNotice = {
   readonly threads?: readonly LaneNoticeThread[];
 };
 
-export type LaneNoticeMessage = {
+export type LaneNoticePayload = {
   readonly name: string;
   readonly text: string;
   readonly raw: string;
   readonly details?: unknown;
   /** True when acpmux has classified this payload as a lane report. */
   readonly report?: boolean;
+  /** A person's own words (`IncomingMessage.fromPerson`): never a notice. */
+  readonly fromPerson?: boolean;
+  /** A tool's notice (agentNotice.ts): its own row, never a report or an inbox notice. */
+  readonly notice?: unknown;
   /** Structured inbox threads from acpmux's inbox_notice payload. */
   readonly noticeThreads?: readonly { readonly id: string; readonly sender: string }[];
 };
@@ -65,7 +105,7 @@ function detailsText(value: unknown, legacy: string[]): string | undefined {
   return legacy.length ? legacy.join("\n") : undefined;
 }
 
-function reportNotice(message: LaneNoticeMessage, legacy: boolean): LaneNotice {
+function reportNotice(message: LaneNoticePayload, legacy: boolean): LaneNotice {
   const lines = message.text.split("\n");
   const verdictText = message.text.replace(/^\s*\[[^\]\n]+\]\s*/, "");
   const review = REVIEW.exec(message.text) ?? NEW_VERDICT.exec(verdictText);
@@ -110,13 +150,96 @@ function reportNotice(message: LaneNoticeMessage, legacy: boolean): LaneNotice {
   };
 }
 
-function inboxNotice(message: LaneNoticeMessage): LaneNotice {
+function inboxNotice(message: LaneNoticePayload): LaneNotice {
   const threads: LaneNoticeThread[] = [...(message.noticeThreads ?? [])];
   // Structured thread ids are authoritative; the text repeats them for older clients.
+  const lines = message.text.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!.trim();
+    const match =
+      /^-\s+(?:\[blocker\]\s+)?(\d+)\s+new\s+in\s+(.+?)\s+from\s+(.+?)(?:\s*:\s*(.*?))?\s*\(thread\s+([^\s)]+)\)/i.exec(
+        line,
+      );
+    if (!match) continue;
+    const [, countText, , fromText, inlinePreview, id] = match;
+    // An older acpmux wrote what it could not verify into the name ("lane (self-declared,
+    // unauthenticated)"): the line names it bare and marks it (senderIdentity.ts). That suffix
+    // holds a comma, so the senders split only on a comma outside parentheses.
+    const named = fromText!
+      .split(/,\s*(?![^()]*\))/)
+      .map((name) => bareSender(name))
+      .filter((sender) => sender.name);
+    const senderNames = named.map((sender) => sender.name);
+    const unverified = named.at(-1)?.declared ? ({ unverified: true } as const) : {};
+    // A thread acpmux named (`noticeThreads`) keeps its sender; the line only repeats it for older
+    // clients, so a name read back from it never replaces it.
+    const existing = threads.find((thread) => thread.id === id);
+    const structured = message.noticeThreads?.some((thread) => thread.id === id) ? existing?.sender : undefined;
+    const lineSender = structured ?? senderNames.at(-1) ?? "inbox";
+    const deliveries: LaneNoticeDelivery[] = [];
+    // A relayed message's preview holds the broker's head first, often cut inside it: the message
+    // alone, or nothing when the cut left none of it (relayEnvelope.ts).
+    const inline = withoutRelayHead(inlinePreview?.trim() ?? "");
+    if (inline) {
+      deliveries.push({ sender: lineSender, text: inline, ...unverified });
+    } else {
+      let current: LaneNoticeDelivery | undefined;
+      const flush = () => {
+        // A quoted message the broker relayed: the message alone (relayEnvelope.ts).
+        if (current) deliveries.push({ ...current, text: withoutRelayLabel(current.text) });
+        current = undefined;
+      };
+      for (let next = index + 1; next < lines.length && !/^\s*-\s+/.test(lines[next]!); next += 1) {
+        const body = /^\s*>\s?(.*)$/.exec(lines[next]!);
+        if (!body) continue;
+        const content = body[1]!.trimEnd();
+        if (!content.trim()) {
+          if (current) current = { ...current, text: `${current.text}\n` };
+          continue;
+        }
+        const signed = /^([^:]+):\s+(.+)$/.exec(content.trimStart());
+        const signer = signed ? bareSender(signed[1]!) : undefined;
+        if (signed && signer && senderNames.includes(signer.name)) {
+          flush();
+          current = {
+            sender: signer.name,
+            text: signed[2]!.trim(),
+            ...(signer.declared && ({ unverified: true } as const)),
+          };
+        } else if (current) {
+          current = { ...current, text: `${current.text}\n${content}` };
+        } else {
+          current = { sender: lineSender, text: content.trim(), ...unverified };
+        }
+      }
+      flush();
+    }
+    const messages = deliveries.length ? deliveries : existing?.messages;
+    const sender =
+      structured ??
+      messages?.at(-1)?.sender ??
+      senderNames.at(-1) ??
+      existing?.sender ??
+      id!.replace(/^(?:from|declared):/, "");
+    const preview = messages?.at(-1)?.text ?? existing?.preview;
+    const next: LaneNoticeThread = {
+      id: id!,
+      sender,
+      ...(preview ? { preview } : {}),
+      ...(messages?.length ? { messages } : {}),
+      ...unverified,
+    };
+    const at = threads.findIndex((thread) => thread.id === id);
+    if (at >= 0) threads[at] = { ...threads[at], ...next };
+    else threads.push(next);
+    // The line's count may exceed the number of preview lines when older clients only expose a
+    // single preview. Keep that one delivery; the count remains in the wrapper text.
+    void countText;
+  }
   if (!threads.length)
     for (const match of message.text.matchAll(THREAD)) {
       const id = match[1]!;
-      const sender = id.replace(/^from:/, "").split("/pr:")[0]!;
+      const sender = id.replace(/^(?:from|declared):/, "").split("/pr:")[0]!;
       if (!threads.some((thread) => thread.id === id)) threads.push({ id, sender });
     }
   // The batch head supplies its localized count. A member previews who wrote, not the harness's instructions.
@@ -126,8 +249,13 @@ function inboxNotice(message: LaneNoticeMessage): LaneNotice {
   return { kind: "inbox", preview, body: message.text.trim(), ...(threads.length ? { threads } : {}) };
 }
 
-export function laneNotice(message: LaneNoticeMessage): LaneNotice | undefined {
+export function laneNotice(message: LaneNoticePayload): LaneNotice | undefined {
   if (!message || typeof message !== "object") return undefined;
+  // A person's own words are never a notice, whatever they look like: a notice shows only part of
+  // its text, and a guest's prompt runs whole (incomingMessage.ts `fromPerson`).
+  if (message.fromPerson) return undefined;
+  // A tool's notice draws its own title and body (IncomingMessageCard.tsx), whatever its text says.
+  if (message.notice) return undefined;
   const cached = parsed.get(message as object);
   if (cached !== undefined || parsed.has(message as object)) return cached;
   const text = message.text.trim();

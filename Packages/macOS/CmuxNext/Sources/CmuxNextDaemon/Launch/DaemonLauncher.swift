@@ -109,9 +109,10 @@ public struct DaemonLauncher: Sendable {
     public let ensureOutcome = EnsureOutcome()
     let clock: any Clock<Duration>
     private let ensureTimeout: Duration
-    /// Hard cap on one `server ensure`. The daemon bounds a restore itself
-    /// (2 minutes, then `server.restore_timeout`), so this only has to be
-    /// longer than that bound plus the time to reach the owner.
+    /// Hard cap on one `server ensure` from a binary that reports no restore
+    /// progress. A bundled binary has none: the daemon ends its wait once the
+    /// owner made no progress for 2 minutes (`server.restore_timeout`), and an
+    /// owner that restores a large registry for longer is awaited, never cut off.
     static let ensureRestoreCap: Duration = .seconds(150)
     private let environmentProvider: @Sendable () async -> [String: String]
 
@@ -165,12 +166,19 @@ public struct DaemonLauncher: Sendable {
     /// state in `stateDirectory`, shared by every build of one account. It
     /// spawns no terminals, so `server ensure` gets the process environment
     /// without any app or terminal identity, and it is never handed off to a
-    /// connecting build's binary.
+    /// connecting build's binary for being another build; only once an update
+    /// deleted its executable (`ChiefConversationOwner.restartIfReplaced`).
+    ///
+    /// `ownerEnvironment`, when given, replaces `processEnvironment` as the base of the owner's
+    /// environment and runs only when `server ensure` spawns an owner, never here: the Chief's
+    /// (`ChiefConversationOwner.ownerEnvironment`) checks the acpmux executable's signature, a
+    /// read of the whole file that held the main thread 2.86 s at launch.
     public static func forChief(
         session: String,
         stateDirectory: URL,
         bundle: Bundle = .main,
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        ownerEnvironment: (@Sendable () async -> [String: String])? = nil
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         // An unsigned (DEV) build proves it is the app to an owner it started with this home's
@@ -180,17 +188,29 @@ public struct DaemonLauncher: Sendable {
         let installKey = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)?.loadOrCreate()
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
+        if let ownerEnvironment {
+            return DaemonLauncher(configuration: configuration, environment: { chiefEnvironment(await ownerEnvironment()) })
+        }
         let environment = chiefEnvironment(processEnvironment)
         return DaemonLauncher(configuration: configuration, environment: { environment })
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
     /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
-    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`).
+    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`). Also the
+    /// R-DAEMON-STATE input lane switch from the app's launch knobs (``DaemonDiagnosticKnobs``):
+    /// the Chief owner follows the same rules as the app's own daemon, so its off switch must reach it too.
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
                     "CMUX_TUI_CHIEF_BRAINS"]
-        return base.filter { kept.contains($0.key) }
+        var environment = base.filter { kept.contains($0.key) }
+        let knobs = DaemonDiagnosticKnobs(processEnvironment: base).daemonEnvironment
+        for name in DaemonDiagnosticKnobs.chiefOwnerDaemonNames {
+            if let value = knobs[name] {
+                environment[name] = value
+            }
+        }
+        return environment
     }
 
     /// The app launcher's `server ensure` environment: the login
@@ -300,6 +320,12 @@ public struct DaemonLauncher: Sendable {
     /// directory, config file and a fixed runtime base.
     func ensureEnvironment() async -> [String: String] {
         var environment = await environmentProvider()
+        // This authority is only for the app launcher's ensure call. The
+        // daemon strips it before spawning the detached owner, so terminals
+        // cannot later switch a shared owner back to their own backend.
+        if environment["CMUX_NEXT_CLOUD_RUNTIME"] == "1" {
+            environment["CMUX_NEXT_CLOUD_LAUNCHER"] = "1"
+        }
         if let stateDirectory = configuration.stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
         // XDG_RUNTIME_DIR would win over TMPDIR in cmux-tui's socket lookup.
@@ -317,14 +343,20 @@ public struct DaemonLauncher: Sendable {
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
         }
-        if let running = await runningOwner() { return running }
-        // The probe runs while the environment is gathered.
-        async let reapGrace = supportsReapGrace()
+        // A NEXT app launch is authoritative for backend selection. Skip the
+        // status fast path so `server ensure` can replace a daemon left alive
+        // by the previous app launch; terminal processes never receive the
+        // one-shot launcher marker.
         let environment = await ensureEnvironment()
+        if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
+           let running = await runningOwner() { return running }
+        async let reapGrace = supportsReapGrace()
         // The bundled binary reports restore progress (`--restore-progress`): the app
-        // then waits while the owner restores and gives up only when the
-        // progress stops for `ensureTimeout` (cx-n3bs). An external binary
-        // may lack the option; the daemon's own restore bound ends it.
+        // then waits while the owner restores, with no fixed cap, and gives up
+        // only when the progress lines stop for `ensureTimeout` (cx-n3bs). The
+        // daemon itself ends the wait once the owner stops working. A fixed cap
+        // killed every owner of a 59 GB registry partway through its restore
+        // (2026-11-08). An external binary may lack the option; the cap bounds it.
         let progress = configuration.binaryIsBundled
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
@@ -334,7 +366,7 @@ public struct DaemonLauncher: Sendable {
             arguments: arguments,
             environment: environment,
             stdin: configuration.installKey?.payload,
-            timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
+            timeout: progress ? nil : max(ensureTimeout, Self.ensureRestoreCap),
             progressIdle: progress ? ensureTimeout : nil,
             clock: clock
         )

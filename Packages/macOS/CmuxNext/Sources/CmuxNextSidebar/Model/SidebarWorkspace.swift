@@ -86,6 +86,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Set only when the user chose an icon or color. When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
+    /// The workspace's own color (workspace-metadata-v1 `color`), whatever icon it shows: the row's
+    /// leading rail or fill under `workspaceColors.indicatorStyle` (#25653).
+    public var color: GroupColor?
     /// The kind of the workspace's selected tab.
     public var kind: SidebarWorkspaceKind
     /// The brand id (CmuxAgentBrands) of the agent in the selected tab, whose
@@ -107,6 +110,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var agentBrand: String?
     /// A custom harness's own icon (user 12922), drawn instead of `agentBrand`'s mark when set.
     public var agentIcon: SidebarAgentIcon?
+    /// The Chief operating this chat, resolved from acpmux ownership tags.
+    public var chiefAvatar: SidebarChiefAvatar?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
     public var agentName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
@@ -140,7 +145,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// every other row.
     public var stage: String?
     /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
-    /// terminal in the home folder): the row reads quiet while idle (`SidebarTunables.quietUnnamedRows`).
+    /// terminal in the home folder): the row reads quiet while idle (`WorkspaceRowView.isQuiet`).
     public var isUnnamed = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
     /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.
@@ -184,6 +189,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         rowKind: WorkspaceRowKind? = nil,
         agentWorking: Bool = false,
         icon: WorkspaceIcon? = nil,
+        color: GroupColor? = nil,
         kind: SidebarWorkspaceKind = .terminal,
         kindBrand: String? = nil,
         unread: UnreadState = .none,
@@ -213,6 +219,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.rowKind = rowKind ?? kind.rowKind
         self.agentWorking = agentWorking
         self.icon = icon
+        self.color = color
         self.kind = kind
         self.kindBrand = kindBrand
         self.unread = unread

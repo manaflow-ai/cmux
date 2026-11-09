@@ -6,7 +6,7 @@ import os
 
 /// After the app updates, brings other machines' daemons to the app's own build, in the
 /// background. One policy for every kind of machine (``DaemonUpdateTarget``), and one instance per
-/// app (``shared``) that every source feeds with ``offer(_:)``:
+/// app (``DaemonUpdates/policy``, made once by `AppServices`) that every source feeds with ``offer(_:)``:
 ///
 /// - the trigger: a target whose build is another commit than the app's bundled build (a dirty
 ///   bundled build never pushes); an ``DaemonUpdateTarget/urgent`` target also with no known build.
@@ -17,17 +17,22 @@ import os
 ///   interrupted (Leo: "OUR SHIT IS HARDLY EVER GOING TO GO IDLE. IT JUST WONT. YOU'LL JUST HAVE TO
 ///   ACCEPT IT BREAKING AT SOME POINT BUT IT RESUMES WHATEVER IT INTERRUPTED. END OF STORY FOR THE
 ///   DAEMON UPDATE."). One that cannot update now (unreachable, another update running) is asked
-///   again with backoff (2 minutes, doubling, at most 30 minutes apart) and is left for the next
-///   launch after 6 hours; an unreachable one shows as offline, never as a failure, and is asked
-///   again at once when it connects (its next offer), also after those 6 hours;
+///   again with backoff (2 minutes, doubling, at most 30 minutes apart; a busy one at most 4, as
+///   a Cloud start holds it a minute or two) and is left for the next launch after 6 hours; an
+///   unreachable one shows as offline, never as a failure, and is asked again at once when it
+///   connects (its next offer), also after those 6 hours;
 /// - one target at a time across every source, urgent targets first;
-/// - one attempt per target and build: a final outcome is kept in ``DaemonUpdateLedger`` across
-///   launches, so a target that rolled back or failed is not tried again until the next build; one
-///   left for the next launch (no binary, still busy after 6 hours) is not tried again in this run;
+/// - a failed or rolled-back update is tried again in the background with the same backoff, up to
+///   ``Dependencies/failureRetries`` more times in a run, saying only "will try again" on the
+///   machine's own line; then it is final;
+/// - a final outcome is kept in ``DaemonUpdateLedger`` across launches, so a target that rolled
+///   back or failed is not tried again until the next build; one left for the next launch (no
+///   binary, still busy after 6 hours) is not tried again in this run;
 /// - a target that cannot take a build in place (``DaemonUpdateOutcome/unsupported(reason:)``) is
-///   no failure: it shows on the board with no notice, and is not tried again, on this build or a
+///   no failure: it shows on the board, and is not tried again, on this build or a
 ///   later one, while it reports the build it ran then (``DaemonUpdateLedger/cannotUpdate``);
-/// - each target's state on ``DaemonUpdateBoard``, which groups the failures into one notice;
+/// - each target's state on ``DaemonUpdateBoard``, never a toast: a failure is a quiet line on the
+///   machine's row in Settings > Updates;
 /// - off with the Debug Settings toggle `agent.updatePeers`, read before every step.
 public actor DaemonUpdatePolicy {
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon-update")
@@ -40,12 +45,15 @@ public actor DaemonUpdatePolicy {
         public var targets: @Sendable () async -> [any DaemonUpdateTarget]
         /// `agent.updatePeers`.
         public var enabled: @Sendable () -> Bool
-        /// Each target's state as it changes (``DaemonUpdateBoard``).
+        /// Each target's state as it changes (the app's ``DaemonUpdateBoard``).
         public var report: @Sendable (DaemonUpdateEvent) async -> Void
         /// Where ``DaemonUpdateLedger`` lives.
         public var directory: URL
         public var clock: any Clock<Duration>
         public var busyBackoff = Backoff(initial: .seconds(120), maximum: .seconds(1800), multiplier: 2, jitter: 0)
+        /// The longest wait after a busy answer (an unreachable one waits up to ``busyBackoff``'s maximum): a Cloud
+        /// machine answers busy while a chat start runs on it (`CloudStartGate`), a minute or two.
+        public var busyMaximum: Duration = .seconds(240)
         /// A target busy for this long is updated mid-turn
         /// (``DaemonUpdateTarget/update(to:whileBusy:)``); before, only at a quiet moment. Zero,
         /// the default (Leo's order above): every update runs mid-turn from the first ask.
@@ -53,11 +61,14 @@ public actor DaemonUpdatePolicy {
         /// A target that answers busy this long, also to updates while busy, is left for the next
         /// launch.
         public var giveUpAfter: Duration = .seconds(6 * 3600)
+        /// How many more times a failed or rolled-back update is tried in a run, each after the next
+        /// ``busyBackoff`` wait (2, then 4 minutes), before its failure is final.
+        public var failureRetries = 2
 
         public init(bundledBuild: @escaping @Sendable () async -> String?,
                     targets: @escaping @Sendable () async -> [any DaemonUpdateTarget] = DaemonUpdatePolicy.noTargets,
                     enabled: @escaping @Sendable () -> Bool = { AgentPaneTunables.updatePeersAutomatically.value },
-                    report: @escaping @Sendable (DaemonUpdateEvent) async -> Void = DaemonUpdatePolicy.showOnBoard,
+                    report: @escaping @Sendable (DaemonUpdateEvent) async -> Void,
                     directory: URL = DaemonUpdatePolicy.defaultDirectory, clock: any Clock<Duration> = ContinuousClock()) {
             self.bundledBuild = bundledBuild
             self.targets = targets
@@ -73,11 +84,6 @@ public actor DaemonUpdatePolicy {
     /// No targets: ``Dependencies/targets`` by default.
     @Sendable public nonisolated static func noTargets() async -> [any DaemonUpdateTarget] { [] }
 
-    /// Applies `event` to ``DaemonUpdateBoard/shared``: ``Dependencies/report`` by default.
-    @Sendable public nonisolated static func showOnBoard(_ event: DaemonUpdateEvent) async {
-        await MainActor.run { DaemonUpdateBoard.shared.apply(event) }
-    }
-
     /// `daemon-update` in this build's own Application Support directory (``BuildIdentity``).
     public nonisolated static let defaultDirectory: URL = {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -85,9 +91,6 @@ public actor DaemonUpdatePolicy {
         return BuildIdentity(bundle: .main).appSupport(support.appendingPathComponent("cmux", isDirectory: true))
             .appendingPathComponent("daemon-update", isDirectory: true)
     }()
-
-    // lint:allow one policy per app process: every machine's update goes through its one queue, one at a time
-    public nonisolated static let shared = DaemonUpdatePolicy(Dependencies(bundledBuild: { await DaemonUpdatePolicy.bundledAcpmuxBuild() }))
 
     /// The bundled acpmux's build (the binary `acpmux host update` pushes); nil when the app has none.
     nonisolated static func bundledAcpmuxBuild() async -> String? {
@@ -114,6 +117,9 @@ public actor DaemonUpdatePolicy {
     private var queue: [Pending] = []
     /// The id of the target whose update runs now.
     private var running: String?
+    /// The id of the target inside its `update(to:whileBusy:)` call now: a turn ``updateNow``
+    /// joins without marking it, since that update answers the refusal (review of #29497).
+    private var updating: String?
     /// The loop that drains ``queue``; nil while it is empty.
     private var drain: Task<Void, Never>?
     /// The drain's backoff wait; ``offer(_:)`` cuts it short.
@@ -130,6 +136,9 @@ public actor DaemonUpdatePolicy {
     /// 6 hours, or disconnected while offline): their next offer clears that line when they need
     /// no update.
     private var offlineShown: Set<String> = []
+    /// Callers of ``updateNow(_:)`` waiting for a turn of their target to end, by target id: each
+    /// stream is finished when that turn ends (any outcome) or the queue drops the target.
+    private var turnWaiters: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
 
     public init(_ dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -150,6 +159,11 @@ public actor DaemonUpdatePolicy {
         var firstBusy: Duration?
         /// Its last answer was ``DaemonUpdateOutcome/unreachable``: its board line says offline.
         var offline = false
+        /// Failed or rolled-back updates of it in this run, each tried again after a backoff.
+        var failures = 0
+        /// Its board line says it will try again (busy, or a failure waiting for its retry): a drop
+        /// must clear that line, or "Update will try again soon" stays with no retry coming.
+        var saysRetrying: Bool { firstBusy != nil || failures > 0 }
     }
 
     /// Queues `target` and returns at once; the queue drains in the background, one target at a
@@ -173,6 +187,77 @@ public actor DaemonUpdatePolicy {
         // turn ends (``drainQueue()``); one the update ran after is spent by it.
         if running != id { enqueue(target, urgent: false) }
         return true
+    }
+
+    /// A chat start that the machine's older daemon refused (a fresh Cloud machine whose image
+    /// baked a cmux-tui from before cmux#29107): `target` is updated at the front of the queue now,
+    /// as the person's Update click would be (neither the ledger nor this run's memory holds it
+    /// back), and this returns once that turn ended, whatever its outcome, so the caller can start
+    /// again on the daemon it left. A turn of `target` already running is joined, never run twice.
+    /// Returns at once while `agent.updatePeers` is off, and when the calling task is cancelled.
+    public func updateNow(_ target: any DaemonUpdateTarget) async {
+        guard dependencies.enabled() else { return }
+        let id = target.id
+        // Its update already runs: that update answers this refusal, so only wait for it. Marking
+        // it would queue a second update once the turn ends.
+        if updating == id {
+            await turnEnded(id)
+            return
+        }
+        // As the person's click: neither the ledger nor this run's memory holds the next turn back.
+        // A turn that already reached its update takes this mark (``attempt``); one still reading
+        // the machine (its `cannotUpdate` check) leaves it, and ``drainQueue()`` queues it again.
+        retried.insert(id)
+        if running == id {
+            offered[id] = target
+        } else {
+            enqueue(target, urgent: true)
+            // Due now, also an urgent entry waiting out a busy backoff (review of #29497).
+            if let index = queue.firstIndex(where: { $0.target.id == id }), queue[index].due > elapsed() {
+                queue[index].due = elapsed()
+                sleeper?.cancel()
+            }
+        }
+        await turnEnded(id)
+        // The joined turn ended before its update ran: the mark queued its next turn, which runs
+        // the update; wait for that one too.
+        if retried.contains(id) { await turnEnded(id) }
+    }
+
+    /// Waits while a turn of target `id` runs now (reading the machine or updating it) and returns true once
+    /// it ended (or the task was cancelled); false at once when no turn of it runs. Nothing is queued: a Cloud
+    /// chat start waits out an update that restarts the daemon its agent is about to start on.
+    public func turnRunning(_ id: String) async -> Bool {
+        guard running == id else { return false }
+        await turnEnded(id)
+        return true
+    }
+
+    /// Whether an ``updateNow`` waits on a turn of target `id` (tests order a join against it).
+    func awaitsTurn(_ id: String) -> Bool { turnWaiters[id] != nil }
+
+    /// Waits until a turn of target `id` ends, or the queue drops it, or the task is cancelled.
+    private func turnEnded(_ id: String) async {
+        guard running == id || queue.contains(where: { $0.target.id == id }) else { return }
+        // One element at most: the stream only ever finishes.
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let key = UUID()
+        turnWaiters[id, default: [:]][key] = continuation
+        await withTaskCancellationHandler {
+            for await _ in stream { break }
+        } onCancel: {
+            continuation.finish()
+        }
+        turnWaiters[id]?[key] = nil
+        if turnWaiters[id]?.isEmpty == true { turnWaiters[id] = nil }
+    }
+
+    /// Ends the waits of ``updateNow(_:)`` on target `id` (nil: on every target).
+    private func endTurnWaits(_ id: String?) {
+        let ended = id.map { turnWaiters.removeValue(forKey: $0).map { Array($0.values) } ?? [] }
+            ?? turnWaiters.values.flatMap(\.values)
+        if id == nil { turnWaiters.removeAll() }
+        for continuation in ended { continuation.finish() }
     }
 
     /// Offers every target of ``Dependencies/targets`` and returns when the queue is empty: each
@@ -229,8 +314,13 @@ public actor DaemonUpdatePolicy {
         let deps = dependencies
         guard deps.enabled(), let local = DaemonBuildCommit(await deps.bundledBuild()), !local.dirty else {
             Self.logger.info("daemon update skipped: off, or the bundled build is unknown or has local changes")
+            let retrying = queue.filter(\.saysRetrying)
             queue.removeAll()
             drain = nil
+            endTurnWaits(nil)
+            for each in retrying {
+                await deps.report(DaemonUpdateEvent(each.target, .cleared))
+            }
             return
         }
         var ledger = DaemonUpdateLedger.read(deps.directory, build: local.hash)
@@ -242,8 +332,9 @@ public actor DaemonUpdatePolicy {
             }
             guard deps.enabled() else {
                 Self.logger.info("daemon update stopped: agent.updatePeers turned off")
-                let retried = queue.filter { $0.firstBusy != nil }
+                let retried = queue.filter(\.saysRetrying)
                 queue.removeAll()
+                endTurnWaits(nil)
                 for each in retried {
                     await deps.report(DaemonUpdateEvent(each.target, .cleared))
                 }
@@ -257,6 +348,7 @@ public actor DaemonUpdatePolicy {
                 queue.append(again)
             }
             running = nil
+            endTurnWaits(pending.target.id)
             // The person clicked Update while this turn read the machine, before any update ran.
             if retried.contains(pending.target.id), let target = offered[pending.target.id] {
                 enqueue(target, urgent: false)
@@ -358,7 +450,9 @@ public actor DaemonUpdatePolicy {
         await deps.report(DaemonUpdateEvent(target, .updating))
         // A click until now is answered by this update.
         retried.remove(target.id)
+        updating = target.id
         let outcome = await target.update(to: local, whileBusy: whileBusy)
+        updating = nil
         Self.logger.info("\(Self.logLine(target.displayName, to: local.hash, whileBusy: whileBusy, outcome), privacy: .public)")
         if outcome == .busy || outcome == .unreachable {
             var again = pending
@@ -366,7 +460,7 @@ public actor DaemonUpdatePolicy {
             let since = again.firstBusy ?? now
             again.firstBusy = since
             again.offline = outcome == .unreachable
-            let delay = again.backoff.next()
+            let delay = again.offline ? again.backoff.next() : min(again.backoff.next(), deps.busyMaximum)
             guard now + delay - since <= deps.giveUpAfter else {
                 // Not settled: its next offer, once it connects, updates it in this run. Its line stays.
                 if again.offline {
@@ -385,6 +479,17 @@ public actor DaemonUpdatePolicy {
             // The first update while busy runs at the cap, not after a backoff that passes it.
             let cap = since + deps.updateBusyAfter
             again.due = now < cap ? min(now + delay, cap) : now + delay
+            return again
+        }
+        // A failure is tried again in the background, quietly, before it is final: an update cut
+        // by a dropped link or a slow start often goes through on the next try.
+        if Self.isFailure(outcome), pending.failures < deps.failureRetries {
+            var again = pending
+            again.failures += 1
+            again.offline = false
+            again.due = elapsed() + again.backoff.next()
+            Self.logger.info("\(target.displayName, privacy: .public) update failed; trying again (\(again.failures, privacy: .public))")
+            await deps.report(DaemonUpdateEvent(target, .retrying))
             return again
         }
         // Not tried again in this run whatever the ledger write does: a ledger that was not written
@@ -418,7 +523,7 @@ public actor DaemonUpdatePolicy {
     /// line kept after 6 hours (``offlineShown``) goes as well: it connected needing no update.
     private func dropped(_ pending: Pending, asked: Bool = false) async -> Pending? {
         let wasOffline = offlineShown.remove(pending.target.id) != nil
-        if pending.firstBusy != nil || asked || wasOffline { await dependencies.report(DaemonUpdateEvent(pending.target, .cleared)) }
+        if pending.saysRetrying || asked || wasOffline { await dependencies.report(DaemonUpdateEvent(pending.target, .cleared)) }
         return nil
     }
 
@@ -442,8 +547,16 @@ public actor DaemonUpdatePolicy {
         }
     }
 
-    /// The board's state after a final outcome, with the build it was about. Only a recorded
-    /// failure notifies: it is recorded once per target and build, so its notice shows once.
+    /// Whether `outcome` is a failed or rolled-back update, tried again before it is final.
+    nonisolated static func isFailure(_ outcome: DaemonUpdateOutcome) -> Bool {
+        switch outcome {
+        case .rolledBack, .failed: true
+        default: false
+        }
+    }
+
+    /// The board's state after a final outcome, with the build it was about. None raises a toast:
+    /// a failure is the machine's quiet row line.
     nonisolated static func event(_ target: any DaemonUpdateTarget, _ outcome: DaemonUpdateOutcome,
                                   local: DaemonBuildCommit) -> DaemonUpdateEvent {
         let build = local.hash
@@ -453,11 +566,11 @@ public actor DaemonUpdatePolicy {
         case .busy: DaemonUpdateEvent(target, .retrying)
         case .unreachable: DaemonUpdateEvent(target, .offline)
         case .needsBinary(let triple): DaemonUpdateEvent(target, .failed(reason: "no build for \(triple)", rolledBack: false), build: build)
-        case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), notify: true, build: build)
+        case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), build: build)
         case .handledElsewhere, .held: DaemonUpdateEvent(target, .cleared)
-        // Not a failure: no notice, the board's grouped line.
+        // Not a failure: the board's grouped line.
         case .unsupported(let reason): DaemonUpdateEvent(target, .cannotUpdate(reason: reason), build: build)
-        case .failed(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: false), notify: true, build: build)
+        case .failed(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: false), build: build)
         }
     }
 }

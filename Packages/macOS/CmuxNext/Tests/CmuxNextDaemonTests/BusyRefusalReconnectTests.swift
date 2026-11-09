@@ -28,6 +28,35 @@ import Testing
         #expect(pacer.failed() == nil, "a real failure still spends the budget")
     }
 
+    /// Past the budget, a busy refusal still keeps a timed retry: the reconnect is not spent, so a
+    /// remote machine's header does not read offline while its daemon is only busy (HQ #4877 G4).
+    @Test func aBusyRefusalPastTheBudgetIsNotEventOnly() {
+        var pacer = RetryPacer(RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 1))
+        _ = pacer.failed()
+        #expect(pacer.waitsForEventOnly)
+        pacer.refusedBusy()
+        #expect(pacer.isExhausted)
+        #expect(!pacer.waitsForEventOnly)
+        _ = pacer.failed()
+        #expect(pacer.waitsForEventOnly)
+    }
+
+    /// Review F3 (fc883e4): the link policies space attempts 1 ms apart, so busy refusals, which spend no
+    /// budget, were asked again about a thousand times a second. They back off toward the cap instead.
+    @Test(arguments: [RetryPolicy.linkReconnect, .linkFirstConnect])
+    func aBusyRefusalUnderALinkPolicyBacksOffTowardTheCap(_ policy: RetryPolicy) {
+        var pacer = RetryPacer(policy)
+        var delays: [Duration] = []
+        for _ in 0..<12 {
+            pacer.refusedBusy()
+            delays.append(pacer.failed() ?? .zero)
+        }
+        #expect(delays.allSatisfy { $0 >= .milliseconds(40) }, "a busy refusal was asked again within 40 ms: \(delays)")
+        #expect(delays.allSatisfy { $0 <= RetryPacer.busyRetryCap }, "\(delays)")
+        #expect(delays.last.map { $0 >= .milliseconds(800) } == true, "busy refusals never backed off toward the cap: \(delays)")
+        #expect(pacer.failures == 0, "busy refusals spend no budget")
+    }
+
     /// A busy refusal noted by a reconnect loop that then stopped does not make the next drop's
     /// first real failure free.
     @Test func aResetForgetsAnUnspentBusyRefusal() {

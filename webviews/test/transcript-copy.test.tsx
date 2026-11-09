@@ -1,6 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { until } from "./support/until";
 
 // VirtualTranscript reaches into browser layout and the Pierre web components while rendering. Keep
 // this focused test's DOM harness local so it can exercise the real transcript without restoring the
@@ -57,6 +58,7 @@ for (const key of domClasses) globals[key] = (dom.window as unknown as Record<st
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { liveToolOutput } = await import("../src/agent-session/acpmux/liveToolOutput");
 
 function fakeViewport(size: { width: number; height: number }) {
   const prototype = dom.window.HTMLElement.prototype;
@@ -203,11 +205,75 @@ test("keyboard transcript selection copies source without a floating button", as
   }
 });
 
+// A running command's output update draws its row alone, not the pane (liveToolOutput.ts): the
+// transcript's rows keep the output the pane drew. Keyboard copy reads the newer output (review of
+// #37907: "keyboard-copying a running command ... omits output that arrived since the last full draw").
+test("keyboard copy of a running command holds the output it took without the pane", async () => {
+  const restore = fakeViewport({ width: 760, height: 600 });
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const copied: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, "clipboard");
+  Object.defineProperty(globalThis.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void copied.push(text) },
+  });
+  const running: AcpmuxRow = {
+    id: "running-1",
+    version: 1,
+    at: 4,
+    kind: "activity",
+    items: [
+      {
+        kind: "tool",
+        text: "Run bun test",
+        tool: {
+          id: "running-call",
+          title: "Run bun test",
+          kind: "execute",
+          status: "in_progress",
+          command: "bun test",
+          output: "pass 1\n",
+        },
+      },
+    ],
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={[...conversation, running]}
+          sessionId="session-one"
+          onToggleActivity={() => {}}
+          expanded={new Set<string>()}
+        />,
+      ),
+    );
+    await act(async () => liveToolOutput.set("running-call", "pass 1\npass 2\n", "pass 1\n"));
+    const row = dom.window.document.querySelector<HTMLElement>('[data-row-id="running-1"]')!;
+    row.focus();
+    await act(async () => {
+      row.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "c", ctrlKey: true }),
+      );
+    });
+    await until(() => copied.length > 0);
+    expect(copied).toEqual(["Run bun test\npass 1\npass 2"]);
+  } finally {
+    liveToolOutput.settle(liveToolOutput.redraw());
+    await act(async () => root.unmount());
+    if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
+    else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+    restore();
+  }
+});
+
 // Leo (2026-10-21): "why is there a copy button for the prompt i sent on teh top left?" then "top
 // left??? just remove it". A prompt drawn as the person's bubble keeps only the Copy in the row under
 // its bubble. Tool rows have no floating action over their duration or disclosure.
 test("transcript rows have no floating Copy; message actions own their copy", async () => {
-  // Another agent's message is a user row drawn as a line, not the person's bubble: it keeps its Copy.
+  // Another agent's message is a user row drawn as a line, not the person's bubble: closed, its line
+  // has no Copy (Leo, 2026-10-30: "all these weird button stuff from messages from other sessions");
+  // opened, its card's corner Copy is its one Copy.
   const incoming: AcpmuxRow = {
     id: "selection-4",
     version: 1,
@@ -240,8 +306,12 @@ test("transcript rows have no floating Copy; message actions own their copy", as
     expect(row("selection-3").getAttribute("data-floating-copy")).toBeNull();
     expect(row("selection-4").querySelector(".cv-user__bubble")).toBeNull();
     expect(row("selection-4").querySelector(".acpmux-row__copy")).toBeNull();
+    expect(copies("selection-4")).toHaveLength(0);
+    expect(row("selection-4").querySelector(".cv-message-pin")).toBeNull();
+    await act(async () => row("selection-4").querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!.click());
     expect(copies("selection-4")).toHaveLength(1);
-    expect(copies("selection-4")[0]!.closest(".cv-received-actions")).not.toBeNull();
+    expect(copies("selection-4")[0]!.closest(".cv-card-copy")).not.toBeNull();
+    expect(copies("selection-4")[0]!.closest(".cv-received-actions")).toBeNull();
   } finally {
     await act(async () => root.unmount());
     restore();

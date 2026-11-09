@@ -222,7 +222,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       if (at === null || t < at) at = t
     }
     for (const a of allAutomations(rows)) {
-      if (!a.enabled) continue
+      if (!a.enabled || a.handoff) continue
       for (const t of a.triggers) {
         if (t.status !== "active" || t.next_at === null) continue
         take(t.next_at > now ? t.next_at : (this.retryAt(fireKey(a.id, t.id, t.next_at)) ?? t.next_at))
@@ -422,6 +422,11 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     return this.submit(entity, principal, frame)
   }
 
+  /** Whether this op's key is decided (the ledger replays it): the Worker skips its pre-op checks (chief-job-gate.ts). */
+  isReplay(entity: string, principal: Principal, frame: OpFrame): boolean {
+    return this.bind(entity).gate(principal, frame) === "replay"
+  }
+
   /** RPC from TeamDO: the run class of agents.allowedClasses at a policy version (newest wins). */
   async applyRunPolicy(entity: string, policy: { version: number; runs_allowed: boolean }): Promise<{ ok: boolean; message?: string }> {
     this.bind(entity)
@@ -457,7 +462,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const engine = this.boundEngine
     if (!engine || engine.currentState.run_policy !== undefined) return
     try {
-      const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { runPolicy(e: string): Promise<{ version: number; runs_allowed: boolean }> }
+      const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity))
       const p = await team.runPolicy(entity)
       this.submitSystem("scheduler.run_policy", p, `run-policy:${p.version}:${p.runs_allowed ? 1 : 0}`)
     } catch (e) {

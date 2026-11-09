@@ -5,6 +5,20 @@
 //! here or one here is no longer offered. Each verb's full argument list is
 //! the app's `cmux action describe cloud <verb>`.
 
+/// Verbs the app still answers that `cmux cloud --help` no longer lists: the
+/// old spelling of a `cmux machine` verb (cmuxterm-hq docs/naming.md).
+/// `cmux cloud <verb> --help` still describes each and names the new one.
+const HIDDEN: &[(&str, &str)] = &[("new-machine", "cmux vm new")];
+
+/// The CLI's own Cloud verb, not an app action: start a chat and send it a prompt
+/// (cloud_start_chat.rs).
+pub(super) const START_CHAT: &str = "start-chat";
+
+/// The CLI-owned runtime backend selector (available before app startup).
+pub(super) const ENV_USAGE: &str = "usage: cmux cloud env get [--backend NAME|ORIGIN] [--json]\n       cmux cloud env set local|dev|preview-N|staging|prod [--json]\n       cmux cloud env check-create --backend NAME|ORIGIN --params JSON [--json]\n\nThe selection is isolated to this app bundle. DEV and NEXT nightly may switch;\nRelease and RC default to prod and accept allowlisted launch backends.\nLaunch the app with --cloud-backend NAME or CMUX_NEXT_CLOUD_BACKEND.\ncheck-create performs a capability-only preflight and never creates a machine.\nSwitching requires a fresh Cloud sign-in.\n";
+
+pub(super) const ENV_USAGE_JA: &str = "使い方: cmux cloud env get [--json]\n        cmux cloud env set local|dev|preview-N|staging|prod [--json]\n        cmux cloud env check-create --backend NAME|ORIGIN --params JSON [--json]\n\n選択はこのアプリのバンドルごとに保存されます。DEV と NEXT nightly は切り替え可能です。\ncheck-create は capability の事前確認だけを行い、マシンを作成しません。\nRelease と RC は既定で prod を使用し、許可された起動先へ切り替え可能です。切り替え後は Cloud に再度サインインしてください。\n";
+
 /// A machine action's target flag.
 const TARGET: &str = "--target machine:MACHINE_ID";
 
@@ -135,21 +149,15 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "open-desktop",
-                "{target} [--viewer web]",
-                "Show the machine's desktop in a browser tab",
-                "マシンのデスクトップをブラウザタブに表示",
+                "{target} [--viewer rd]",
+                "Show the machine's desktop in a new workspace",
+                "マシンのデスクトップを新しいワークスペースに表示",
             ),
             verb(
                 "setup-github",
                 "{target} [--focus]",
                 "Set up git and GitHub on the machine",
                 "マシンに git と GitHub を設定",
-            ),
-            verb(
-                "enroll-machine",
-                "{target} [--ssh-key FILE] [--name HOST]",
-                "Make it an ssh host and acpmux peer of this Mac",
-                "この Mac の ssh ホストと acpmux ピアにする",
             ),
             verb(
                 "apply-machine-config",
@@ -262,6 +270,18 @@ const GROUPS: &[Group] = &[
                 "ポートの転送を停止",
             ),
             verb(
+                "preview-share",
+                "{target} --port PORT",
+                "Copy a one-day link anyone can open to a port",
+                "誰でも開けるポートへの 1 日有効なリンクをコピー",
+            ),
+            verb(
+                "preview-revoke",
+                "{target} --port PORT --link-id ID",
+                "Revoke a port's shared link",
+                "ポートの共有リンクを無効にする",
+            ),
+            verb(
                 "open-browser",
                 "{target} --port PORT [--path /PATH]",
                 "Open a port in a browser tab",
@@ -317,8 +337,32 @@ const GROUPS: &[Group] = &[
                 "Delete a firewall rule",
                 "ファイアウォールルールを削除",
             ),
+            verb(
+                "set-network-access",
+                "{target} --access full|trusted|none",
+                "Set a machine's internet access",
+                "マシンのインターネットアクセスを設定",
+            ),
             verb("domain-list", "", "List domains", "ドメインを一覧表示"),
             verb("publication-list", "", "List publications", "公開設定を一覧表示"),
+            verb(
+                "provision-api",
+                "{target} --port PORT [--name NAME]",
+                "Publish a machine port as an API and create a key",
+                "マシンのポートを API として公開し、キーを作成",
+            ),
+            verb(
+                "api-key-list",
+                "--path PUBLICATION",
+                "List a publication's API keys",
+                "公開設定の API キーを一覧表示",
+            ),
+            verb(
+                "api-key-revoke",
+                "--path PUBLICATION --key KEY_ID --confirm",
+                "Revoke a publication's API key",
+                "公開設定の API キーを失効",
+            ),
         ],
     },
     Group {
@@ -361,18 +405,31 @@ USAGE
   cmux cloud <action> [--target machine:MACHINE_ID] [--<argument> VALUE]...
   cmux cloud <action> --help
 
-These actions run through the cmux app, signed in (`cmux cloud sign-in`).
-An action on one machine needs --target machine:MACHINE_ID, even with one
-machine: `cmux cloud list-machines` prints each machine's target. Without the
-app (CI, a headless agent), `cmux vm --help` talks to the cmux VM API directly.
+These actions run through the cmux app, signed in (`cmux login`).
+The everyday verbs take the VM's name or id, or nothing when you have one VM:
+  cmux cloud ls | status | pause | resume | rm | resize | fork | rename [NAME|ID]
+The others take --target machine:MACHINE_ID: `cmux cloud ls` prints each
+machine's target. Without the app (CI, a headless agent), `cmux machine --help`
+talks to the cmux VM API directly.
 
 QUICK START
-  cmux cloud list-machines --json
-  cmux cloud new-machine --size small --json
+  Start a Cloud chat, send it a prompt and print the reply, in one command
+  (it answers reply, machine_id, session_id, workspace_id and tab_id;
+  `cmux chat --help` has every flag):
+  cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:dev --prompt 'Run the tests' --json
+
+  Then, the next prompt to that chat and its reply (SESSION_ID from the answer):
+  cmux chat send SESSION_ID 'next prompt' --wait
+
+  Machines:
+  cmux cloud ls --json
+  cmux vm new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
-  cmux cloud pause-machine --target machine:MACHINE_ID
-  cmux cloud resume-machine --target machine:MACHINE_ID
-  cmux cloud kill-machine --target machine:MACHINE_ID --confirm
+  cmux cloud status dev
+  cmux cloud pause dev
+  cmux cloud resume dev
+  cmux cloud rm dev --confirm
 ";
 
 const INTRO_JA: &str = "\
@@ -380,21 +437,39 @@ const INTRO_JA: &str = "\
   cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
   cmux cloud <アクション> --help
 
-これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux cloud sign-in`）。
-特定のマシンを操作するアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
-各マシンの target は `cmux cloud list-machines` で確認できます。アプリなしで使う場合
-（CI、画面のないエージェント）は、`cmux vm --help` で cmux VM API を直接使えます。
+これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux login`）。
+よく使う動詞は VM の名前か ID を取ります。VM が 1 台なら省略できます:
+  cmux cloud ls | status | pause | resume | rm | resize | fork | rename [名前|ID]
+ほかのアクションは --target machine:MACHINE_ID を取ります。各マシンの target は
+`cmux cloud ls` で確認できます。アプリなしで使う場合（CI、画面のないエージェント）は、
+`cmux machine --help` で cmux VM API を直接使えます。
 
 クイックスタート
-  cmux cloud list-machines --json
-  cmux cloud new-machine --size small --json
+  Cloud チャットを開始し、プロンプトを送り、返信を表示する（1 コマンド。
+  reply、machine_id、session_id、workspace_id、tab_id を返す。
+  全フラグは `cmux chat --help`）:
+  cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:dev --prompt 'Run the tests' --json
+
+  続けて同じチャットに次のプロンプトを送り、返信を表示する（SESSION_ID は返答から）:
+  cmux chat send SESSION_ID 'next prompt' --wait
+
+  マシン:
+  cmux cloud ls --json
+  cmux vm new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
-  cmux cloud pause-machine --target machine:MACHINE_ID
-  cmux cloud resume-machine --target machine:MACHINE_ID
-  cmux cloud kill-machine --target machine:MACHINE_ID --confirm
+  cmux cloud status dev
+  cmux cloud pause dev
+  cmux cloud resume dev
+  cmux cloud rm dev --confirm
 ";
 
 const OUTRO_EN: &str = "\
+BACKEND (per NEXT app bundle)
+  cmux cloud env get --json
+  cmux cloud env set local|dev|preview-N|staging|prod --json
+DEV and nightly may switch; Release and RC always use prod.
+
 SECRETS (stored in this Mac's Keychain)
   cmux cloud secret set NAME [--repo OWNER/NAME]
   cmux cloud secret ls
@@ -411,6 +486,11 @@ Run `cmux action list --category cloud --json` for the live catalog and
 ";
 
 const OUTRO_JA: &str = "\
+バックエンド（NEXT アプリのバンドルごと）
+  cmux cloud env get --json
+  cmux cloud env set local|dev|preview-N|staging|prod --json
+DEV と nightly は切り替え可能です。Release と RC は既定で prod を使用し、許可された起動先へ切り替え可能です。
+
 シークレット（この Mac のキーチェーンに保存）
   cmux cloud secret set NAME [--repo OWNER/NAME]
   cmux cloud secret ls
@@ -426,6 +506,62 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 `cmux action describe cloud <アクション> --json` で確認できます。
 ";
 
+/// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
+pub(super) const START_CHAT_USAGE: &str = "\
+usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--cwd DIR]
+                             [--login pass|machine|none] [--environment ENV]
+                             [--name MACHINE | --target machine:MACHINE_ID]
+                             [--wait] [--timeout SECONDS] [--json]
+
+Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
+The chat opens as a tab in the machine's workspace in the cmux app.
+This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
+older name; both run the same start.
+
+  --prompt TEXT      What to send (`-` reads it from stdin). Without it the
+                     chat starts and nothing is sent; the answer has ready_ms
+                     and follow_up.send for the first message
+  -- TEXT            The same as --prompt, read as text even when it starts
+                     with `-`
+  --agent AGENT      claude (default), codex, ...
+  --cwd DIR          A folder on the machine (default: a new one under ~/chats)
+  --login pass|machine|none
+                     The agent's login there: yours from this Mac, the
+                     machine's own, or none (default: the machine's login or
+                     your earlier choice)
+  --name MACHINE     Use the machine with this name, or create it
+  --target machine:MACHINE_ID
+                     Use this machine (`cmux cloud list-machines`)
+                     Neither: create a new small machine with a new name
+  --environment ENV  Boot the new machine in this Cloud environment (its
+                     env_ id or its name); not with --target
+  --wait             Wait for the turn to end and print the reply (no
+                     prompt: the chat is ready, nothing to wait for)
+  --timeout SECONDS  How long --wait waits (default 900)
+
+Answers machine_id, machine_name, session_id, workspace_id and tab_id,
+plus reply with --wait, or sent: false and ready_ms with no prompt, and
+new_machine: true when this run made the machine.
+
+EXAMPLES
+  cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
+  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
+  cmux cloud start-chat --agent codex --login machine --json
+
+FOLLOW-UPS (SESSION_ID from the answer)
+  cmux chat send SESSION_ID 'next prompt' --wait
+
+Run from an agent chat, it starts at once, as from a terminal: no card asks
+the person. Only when they turned off cloud.agentsStartWithoutAsking does the
+app ask first with a card in that chat (Start, Not now); `cmux agents dialog
+list` lists it.
+";
+
+/// The new spelling of a hidden old verb.
+pub(super) fn renamed(name: &str) -> Option<&'static str> {
+    HIDDEN.iter().find(|(old, _)| *old == name).map(|(_, new)| *new)
+}
+
 fn find(name: &str) -> Option<&'static Verb> {
     GROUPS.iter().flat_map(|group| group.verbs).find(|verb| verb.name == name)
 }
@@ -433,9 +569,9 @@ fn find(name: &str) -> Option<&'static Verb> {
 fn usage_line(verb: &Verb) -> String {
     let flags = verb.usage.replace("{target}", TARGET);
     if flags.is_empty() {
-        format!("cmux cloud {}", verb.name)
+        format!("cmux vm {}", verb.name)
     } else {
-        format!("cmux cloud {} {flags}", verb.name)
+        format!("cmux vm {} {flags}", verb.name)
     }
 }
 
@@ -449,34 +585,55 @@ pub(super) fn overview(japanese: bool) -> String {
         text.push('\n');
         text.push_str(if japanese { group.ja } else { group.en });
         text.push('\n');
-        for verb in group.verbs {
+        for verb in group.verbs.iter().filter(|verb| renamed(verb.name).is_none()) {
             let marker = if verb.usage.contains("--confirm") { " (--confirm)" } else { "" };
             let description = if japanese { verb.ja } else { verb.en };
             text.push_str(&format!("  {:width$}  {description}{marker}\n", verb.name));
         }
     }
+    text.push_str(if japanese {
+        "\nチャットのリポジトリ\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
+    } else {
+        "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
+    });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
-    text
+    // `cmux cloud` is now `cmux vm` (vm.rs `cloud_alias`); the texts keep one spelling.
+    text.replace("cmux cloud ", "cmux vm ").replace("cmux cloud`", "cmux vm`")
 }
 
 /// `cmux cloud <verb> --help`: that verb's usage and what it does. `None` for
 /// a word that is not a Cloud verb, which gets the overview.
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
+    if name == "env" {
+        return Some(if japanese { ENV_USAGE_JA } else { ENV_USAGE }.to_owned());
+    }
+    if name == START_CHAT {
+        return Some(START_CHAT_USAGE.to_owned());
+    }
     let verb = find(name)?;
     let usage = usage_line(verb);
-    Some(if japanese {
-        format!(
-            "使い方: {usage}\n\n{}。\n\n全引数: `cmux action describe cloud {} --json`（アプリ起動中）\n",
-            verb.ja, verb.name
-        )
-    } else {
-        format!(
-            "usage: {usage}\n\n{}.\n\nEvery argument: `cmux action describe cloud {} --json` (with the app running)\n",
-            verb.en, verb.name
-        )
-    })
+    let note = renamed(name).map_or_else(String::new, |new| {
+        if japanese {
+            format!("`cmux vm {name}` は `{new}` の旧名です（`{new} --help`）。\n\n")
+        } else {
+            format!("`cmux vm {name}` is the old name of `{new}` (`{new} --help`).\n\n")
+        }
+    });
+    Some(
+        note + &if japanese {
+            format!(
+                "使い方: {usage}\n\n{}。\n\n全引数: `cmux action describe cloud {} --json`（アプリ起動中）\n",
+                verb.ja, verb.name
+            )
+        } else {
+            format!(
+                "usage: {usage}\n\n{}.\n\nEvery argument: `cmux action describe cloud {} --json` (with the app running)\n",
+                verb.en, verb.name
+            )
+        },
+    )
 }
 
 /// The usage line alone, for a parse error that names the verb.

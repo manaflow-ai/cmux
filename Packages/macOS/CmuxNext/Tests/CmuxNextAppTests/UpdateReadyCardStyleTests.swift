@@ -8,12 +8,13 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 import CmuxNextWakeupsTestSupport
+import CmuxNextTestSupport
 
 /// The Update Ready card's look and preview (Leo 2026-10-20): Automatic Updates is a themed
 /// switch in front of its label (Debug Settings brings the checkbox back), Restart to Update is
 /// the app's primary button, a click on the card pins its changelog preview open and taller, and
 /// Debug Settings "Simulate pending update" shows the newest published notes, even on the newest build.
-@MainActor @Suite(.serialized) struct UpdateReadyCardStyleTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateReadyCardStyleTests {
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         var contentHeight: CGFloat = 2000
@@ -48,8 +49,10 @@ import CmuxNextWakeupsTestSupport
     @Test func aClickPinsThePreviewOpenAndTallerUntilTheNextClick() async throws {
         let (card, window, _) = try await make()
         defer {
+            let popup = card.hoverCards()?.cardWindow
             card.hideNotes()
             window.close()
+            popup?.closeAfterTest()
         }
         try #require(!card.isHidden, "the staged update shows no card")
         window.orderFront(nil)
@@ -197,7 +200,7 @@ import CmuxNextWakeupsTestSupport
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.update-ready-card-style", shortVersion: shortVersion,
                                            build: build, minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
-        let defaults = UserDefaults(suiteName: "UpdateReadyCardStyleTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "UpdateReadyCardStyleTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false

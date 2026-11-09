@@ -1,6 +1,8 @@
 // The agent pane on the shared page host (`cmux-page://cmux.agent/`, CmuxNextAgentPane
 // AgentPageProvider): the old `agentSession` methods become `cmux.agent.*` pane-protocol calls, and
 // the scripts the old host evaluated become events of the stream `cmux.agent.host.events`.
+import { setOutsideDictation, setOutsideLevel } from "./outsideDictation";
+import { deliverHandoffFailure } from "./dictation";
 import { createPageClient, isPageError, type PageClient } from "../../pages/shared/pageClient";
 import { NativeError } from "./nativeError";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
@@ -14,6 +16,8 @@ import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
+import { setAttentionTabs } from "./needsYou/attentionTabs";
+import { setLinkPlaces } from "./chips/cmuxLinkPlaces";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
@@ -23,12 +27,20 @@ import { setSessionStatus } from "./sessionStatus";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
 import { setMachineLink } from "./machineLink";
+import { setRemoteControl } from "./remoteControl";
+import { setPaneNotices } from "./paneNoticeStore";
+import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-info/native/host";
+import { addCloudPreviewPort, seedCloudPreviewPorts } from "./cloudPreviewPorts";
+import { noteChatTheme, SNAPSHOT_WRITE_EVENT } from "./chatSnapshot/live";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
 export const FOCUS_LOCATION = "acpmux-focus-location";
 
-const RENAMED: Record<string, string> = { ready: "handshake", "chat.persistSession": "session.persist" };
+const RENAMED: Record<string, string> = {
+  ready: "handshake",
+  "chat.persistSession": "session.persist",
+};
 
 /// The `cmux.agent` op of an old bridge method.
 export function agentPageOp(method: string): string {
@@ -86,10 +98,18 @@ export function applyHostEvent(event: HostEvent): void {
   const bridge = window.cmuxAcpmuxBridge;
   const value = event.value as never;
   switch (event.kind) {
+    case "imessage.changed":
+      window.dispatchEvent(new Event("cmux-imessage-changed"));
+      return;
+    case "sessionInfoHost":
+      return setNativeSessionInfoHost(event.value);
+    case "sessionInfoAction":
+      return runNativeSessionInfoAction(event.value);
     case "uploads.state":
       return receivePromptUploadState(event.value);
     case "theme": {
-      const theme = event.value as { web?: unknown; agent?: Record<string, unknown> };
+      const theme = event.value as { web?: unknown; agent?: Record<string, unknown>; key?: unknown };
+      noteChatTheme(theme.key);
       (window as { cmuxTheme?: { apply(payload: unknown): void } }).cmuxTheme?.apply(theme.web);
       if (theme.agent) bridge?.applyTheme(theme.agent);
       return;
@@ -109,6 +129,12 @@ export function applyHostEvent(event: HostEvent): void {
       return setSessionStatus(event.value);
     case "machineLink":
       return setMachineLink(event.value);
+    case "paneNotices":
+      // Direct, like remoteControl: a push before the composer mounts is kept.
+      return setPaneNotices(event.value);
+    case "remoteControl":
+      // Direct, like machineLink: a push before Session Info mounts is kept.
+      return setRemoteControl(event.value);
     case "editedFiles":
       // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
       // module loads still sets the value the card then reads.
@@ -131,6 +157,13 @@ export function applyHostEvent(event: HostEvent): void {
     case "readAloud":
       // The app's voice (conversation/readAloud.ts): which message it reads, on every change.
       return setReadAloudState(event.value);
+    case "attentionTabs":
+      // Keep a push that arrives before the Needs you header mounts.
+      return setAttentionTabs(event.value);
+    case "linkPlaces":
+      // The workspaces and tabs a pasted cmux link can name (chips/cmuxLinkPlaces.ts), kept before
+      // the transcript mounts.
+      return setLinkPlaces(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
@@ -149,8 +182,19 @@ export function applyHostEvent(event: HostEvent): void {
       return setFloatingState(event.value);
     case "dictation":
       return bridge?.dictation?.(value);
+    case "micActivity":
+      // Another app's use of the microphone (outsideDictation.ts), while a composer watches.
+      return setOutsideDictation(event.value);
+    case "micLevel":
+      // Its input level, about 12 a second, only while the host meters it (outsideDictation.ts).
+      return setOutsideLevel(event.value);
+    case "dictationHandoff":
+      return deliverHandoffFailure(event.value);
     case "designSelection":
       return bridge?.designSelection?.(value);
+    case "cloudStartProgress":
+      // How a Cloud start goes (cloudStartProgress.ts): the page checks every field.
+      return bridge?.cloudStartProgress?.(event.value);
     case "revealTurn":
       return bridge?.revealTurn?.(String(event.value));
     case "command":
@@ -162,10 +206,26 @@ export function applyHostEvent(event: HostEvent): void {
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;
+    case "chatSnapshot.write":
+      // The tab hides: the chat's drawn copy is written now, before a hidden page freezes.
+      window.dispatchEvent(new Event(SNAPSHOT_WRITE_EVENT));
+      return;
     case "transport":
       return receiveTransportEvent(event.value as TransportEvent);
     case "models.catalog":
       return receiveModelCatalog(event.value);
+    case "cloudPreviewPort":
+      return void addCloudPreviewPort(event.value);
+    case "cloudPreviewPortsKnown": {
+      const value = event.value;
+      const ports =
+        value && typeof value === "object" && Array.isArray((value as { ports?: unknown }).ports)
+          ? (value as { ports: unknown[] }).ports
+          : Array.isArray(value)
+            ? value
+            : [];
+      return seedCloudPreviewPorts(ports);
+    }
   }
 }
 

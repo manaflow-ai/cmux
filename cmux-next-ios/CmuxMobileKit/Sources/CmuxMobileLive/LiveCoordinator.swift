@@ -30,7 +30,7 @@ public final class LiveCoordinator {
     public private(set) var presenceConnected = false
     public internal(set) var chiefStatus: String?
     /// Pairing with the linked Mac (verify/phone-approvals.md): the Mac asks the
-    /// user the first time; Allow then signs with Face ID.
+    /// user the first time; Allow then signs with the approval key.
     public internal(set) var pairingState: LinkPairing.State = .idle
     /// The last time the phone moved to another team because one of the
     /// account's Macs is there (the shell shows a toast).
@@ -211,6 +211,8 @@ public final class LiveCoordinator {
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
         feedStore.useReadMarks(readMarks ?? .forAccount(userID))
+        // Events past the Feed's window wait on disk while the app runs, not in memory.
+        feedStore.useSpill(.inCaches("feed", scope: userID))
         feedStore.replaceAll(archive.load())
         feedStore.onItemsChange = { [weak self] items in
             self?.scheduleFeedSave(archive)
@@ -238,7 +240,9 @@ public final class LiveCoordinator {
             guard let owner, let session else {
                 return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
             }
-            return owner.acpmux.source(sessionID: session, summary: summary)
+            var scoped = summary
+            scoped.accountID = self.userID
+            return owner.acpmux.source(sessionID: session, summary: scoped)
         }
         restoreSnapshot()
         watchNetwork()
@@ -592,6 +596,7 @@ public final class LiveCoordinator {
         if let macID { lastShown[macID] = ContinuousClock.now }
         pairingState = focused.pairingState
         chiefFollowsFocus()
+        ChiefComputer.shared.macChanged()
         phaseChanged(focused)
     }
 
@@ -665,6 +670,9 @@ public final class LiveCoordinator {
     /// Closes a Mac's link and forgets its session.
     private func closeSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        session.pairingRetry?.cancel()
+        for relay in session.cloudChats.values { relay.retire() }
+        session.cloudChats.removeAll()
         session.link.send(.target(nil))
         // Its data on screen is last-known now, and nothing says it is connected.
         if session.fedData { store.handleMacData(.disconnected(at: Date()), macID: id) }
@@ -800,7 +808,7 @@ public final class LiveCoordinator {
     }
 
     /// Signs Chief question answers for the linked Mac with this phone's
-    /// approval key (Face ID); nil without pairing keys or a paired Mac.
+    /// approval key; nil without pairing keys or a paired Mac.
     public func chiefAnswerSigner() -> ChiefAnswerSigner? {
         guard let pairing, let macID = link.target?.macID, focused.pairingState == .paired else { return nil }
         return ChiefAnswerSigner(keys: pairing.keys, macDevice: macID, phoneID: pairing.phoneID)
@@ -814,12 +822,25 @@ public final class LiveCoordinator {
     }
 
     /// Where a notification's session lives: the agent tab bound to it, or
-    /// the tab the Mac named.
-    public func destination(sessionID: String?, workspaceID: String?, tabID: String?) -> AgentChatDestination? {
-        if let sessionID, let place = place(sessionID: sessionID) {
-            return AgentChatDestination(workspaceID: place.workspaceID, tabID: place.tabID)
+    /// the tab the Mac named. A push includes its Mac's identity, so resolve
+    /// that Mac only; the same session or workspace ids on a different Mac
+    /// must never open the wrong chat. Links without a Mac keep the global lookup.
+    public func destination(sessionID: String?, workspaceID: String?, tabID: String?,
+                            macID: String? = nil) -> AgentChatDestination? {
+        if let sessionID {
+            let found: LiveFeed.Place?
+            if let macID {
+                found = sessions[macID]?.place(sessionID: sessionID)
+            } else {
+                found = place(sessionID: sessionID)
+            }
+            if let found {
+                return AgentChatDestination(workspaceID: found.workspaceID, tabID: found.tabID)
+            }
         }
-        guard let workspaceID, let tabID, store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == tabID }) == true else { return nil }
+        guard let workspaceID, let tabID, let workspace = store.workspace(id: workspaceID),
+              (macID == nil || workspace.macID == macID),
+              workspace.tabs.contains(where: { $0.id == tabID }) else { return nil }
         return AgentChatDestination(workspaceID: workspaceID, tabID: tabID)
     }
 
@@ -921,7 +942,7 @@ final class UnboundAgentSource: AgentSessionSource {
     }
 
     static func notStarted(agent: String, mac: String) -> String {
-        "\(agent) hasn't started in this tab yet. Send the first message from cmux on \(mac); the chat continues here."
+        "\(agent) hasn't started in this tab. Send the first message from cmux on \(mac); the chat continues here."
     }
 
     private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []

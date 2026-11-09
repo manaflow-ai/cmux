@@ -3,7 +3,14 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn publish_resource_event(&self) {
+        // It publishes pending directories, which take the workspace registry: every caller holds
+        // no registry, connection or state lock here, whether or not a directory waits (#32408).
+        crate::lock_rank::HeldRank::check(
+            crate::lock_rank::LockRank::WorkspaceRegistry,
+            "workspace.registry",
+        );
         self.publish_journal_event();
         // A terminal's first cwd report can precede its registration, and its
         // shell may then stay quiet. Each committed graph change is where such
@@ -262,6 +269,9 @@ impl Mux {
         let mut snapshot = self.registry_connection.write_path_stats().snapshot();
         (snapshot.wal_commits, snapshot.wal_synced_commits) =
             self.registry_connection.durability_counts();
+        snapshot.registry_wal_frame_bytes = self.registry_connection.wal_frame_bytes();
+        (snapshot.registry_wal_file_bytes, snapshot.registry_wal_file_high_water_bytes) =
+            self.registry_connection.wal_file_bytes();
         snapshot
     }
 
@@ -439,6 +449,9 @@ impl Mux {
     /// Records in `(sequence, through]` other than `terminal.output`, at
     /// most `limit`, and the sequence the read covered through (see
     /// `WorkspaceRegistry::session_journal_without_output_after`).
+    // The roster and the history feed read through `*_kinds_after`; the open
+    // roster replay PR (#39096) still calls this until it moves there too.
+    #[allow(dead_code, reason = "#39096 reads through it until it moves to the kind-scoped read")]
     pub(crate) fn session_journal_without_output_after(
         &self,
         sequence: u64,
@@ -449,6 +462,22 @@ impl Mux {
             .lock()
             .unwrap()
             .session_journal_without_output_after(sequence, through, limit)
+    }
+
+    /// Records in `(sequence, through]` of the kinds `kinds` accepts, and
+    /// the sequence the read covered through (see
+    /// `WorkspaceRegistry::session_journal_kinds_after`).
+    pub(crate) fn session_journal_kinds_after(
+        &self,
+        sequence: u64,
+        through: u64,
+        kinds: crate::workspace_registry::session_journal::kind_read::JournalKinds,
+        limit: usize,
+    ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .session_journal_kinds_after(sequence, through, kinds, limit)
     }
 
     pub(crate) fn session_journal_reader(

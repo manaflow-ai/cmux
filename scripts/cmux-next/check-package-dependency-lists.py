@@ -14,7 +14,10 @@ A list opts in with this marker on its opening line:
 
     dependencies: [  // sorted: scripts/cmux-next/check-package-dependency-lists.py
 
-and the targets in REQUIRED must carry it. Inside a marked list every line is
+and the targets in REQUIRED must carry it. Every target's `dependencies:` list with more than one entry carries it
+too (2026-11-07: a replay of a week of base merges found 25 conflicted merges of Package.swift, each on a one-line
+`dependencies: [...]` array two pull requests had both appended to); `--fix` lays an unmarked one out this way. A
+one-entry list may stay inline (`["X"]`). Inside a marked list every line is
 one complete entry ending in a comma, or a `//` comment line, which belongs to
 the entry below it and moves with it. Entries sort by their text: target names
 ("...") before products (.product(...)), each alphabetically.
@@ -30,10 +33,11 @@ one fails.
 
 Usage: scripts/cmux-next/check-package-dependency-lists.py [--fix] [--fix-imports] [--json] [PACKAGE_SWIFT]
   --fix          rewrite each marked list in canonical order (a merge resolution that
-                 kept both sides' lines in any order becomes canonical)
+                 kept both sides' lines in any order becomes canonical), and lay out each
+                 unmarked list of more than one entry as a marked one
   --fix-imports  declare each new undeclared import in its target's dependencies: a marked list
-                 gets the entry in sorted order, an inline list `["A", "B"]` gets it before `]`, any
-                 other list gets it as its own line before `]`
+                 gets the entry in sorted order; any other list gets it and is then laid out as a
+                 marked list (a target with no list gets an inline `["X"]`)
   --json         print {"problems": [...], "missing": [{"target", "module"}]} on stdout
 
 The pre-push gate (scripts/cmux-next/prepush-gate.py) runs this check on a push that changes the CmuxNext
@@ -69,7 +73,6 @@ IMPORT_BASELINE = frozenset((
     "CmuxNextBridge: CmuxNextDesign", "CmuxNextBridge: CmuxNextWakeups",
     "CmuxNextControlTests: CmuxNextDesign",
     "CmuxNextCookieImport: CmuxNextCompat",
-    "CmuxNextMobileHostTests: CmuxNextMobile",
     "CmuxNextPaletteTests: CmuxNextActions", "CmuxNextPaletteTests: CmuxNextDesign",
     "CmuxNextPhoneAccessTests: CmuxNextMobile",
 ) + tuple(f"CmuxNextAppTests: {module}" for module in (
@@ -151,9 +154,97 @@ def target_name(lines: list[str], start: int) -> str | None:
     return None
 
 
+def split_entries(inside: str) -> list[tuple[list[str], str]] | None:
+    """The entries of an array's inside text as [(comment lines above it, entry text)], None when it cannot be laid
+    out one per line as written (a block comment, or a comment after the last entry). A `//` comment on its own line
+    belongs to the entry below it; one after an entry on that entry's line belongs to that entry."""
+    entries: list[tuple[list[str], str]] = []
+    comments: list[str] = []
+    i, line_has_entry = 0, False
+    while i < len(inside):
+        char = inside[i]
+        if char == "\n":
+            line_has_entry = False
+            i += 1
+        elif char.isspace() or char == ",":
+            i += 1
+        elif inside.startswith("/*", i):
+            return None
+        elif inside.startswith("//", i):
+            end = inside.find("\n", i)
+            end = len(inside) if end < 0 else end
+            comment = inside[i:end].strip()
+            if line_has_entry:  # trailing: it describes the entry before it on this line
+                entries[-1][0].append(comment)
+            else:
+                comments.append(comment)
+            i = end
+        else:
+            start, depth = i, 0
+            while i < len(inside):
+                char = inside[i]
+                if char == '"':
+                    i += 1
+                    while i < len(inside) and inside[i] != '"':
+                        i += 2 if inside[i] == "\\" else 1
+                elif char in "([":
+                    depth += 1
+                elif char in ")]":
+                    depth -= 1
+                elif depth == 0 and (char in ",\n" or inside.startswith("//", i)):
+                    break
+                i += 1
+            entry = inside[start:i].strip()
+            if "\n" in entry:
+                return None
+            entries.append((comments, entry))
+            comments, line_has_entry = [], True
+    return None if comments else entries
+
+
+def unmarked_lists(text: str) -> list[tuple[str, int, int]]:
+    """(target, index of `[`, index of `]`) for each target's `dependencies:` array with more than one entry that does
+    not carry the marker and starts its own line, the ones mark_lists lays out one per line."""
+    code = without_comments(text)
+    found = []
+    for name, (_, open_at, close_at) in target_spans(text).items():
+        span = argument(code, open_at, close_at, "dependencies")
+        if span is None:
+            continue
+        bracket, end = span
+        line_start = text.rfind("\n", 0, bracket) + 1
+        line_end = text.find("\n", bracket)
+        if OPEN.match(text[line_start:line_end]) or not re.fullmatch(r"\s*dependencies:\s*\[", text[line_start:bracket + 1]):
+            continue
+        entries = split_entries(text[bracket + 1:end])
+        if entries is not None and len(entries) > 1:
+            found.append((name, bracket, end))
+    return found
+
+
+def mark_lists(text: str) -> str:
+    """TEXT with every list unmarked_lists finds rewritten as a marked list: one entry per line, sorted, each with a
+    trailing comma, its comments on their own lines above it. A dependency list's order means nothing to SwiftPM."""
+    for _, bracket, end in sorted(unmarked_lists(text), key=lambda found: -found[1]):
+        line_start = text.rfind("\n", 0, bracket) + 1
+        indent = text[line_start:bracket][:len(text[line_start:bracket]) - len(text[line_start:bracket].lstrip())]
+        merged: dict[str, list[str]] = {}  # an entry written twice is one entry, its comments kept
+        for comments, entry in split_entries(text[bracket + 1:end]) or []:
+            merged.setdefault(entry, []).extend(comments)
+        entries = sorted(((comments, entry) for entry, comments in merged.items()), key=lambda pair: pair[1] + ",")
+        body = "".join("".join(f"\n{indent}    {comment}" for comment in comments) + f"\n{indent}    {entry},"
+                       for comments, entry in entries)
+        text = text[:line_start] + f"{indent}dependencies: [ {MARKER}" + body + f"\n{indent}]" + text[end + 1:]
+    return text
+
+
 def check(text: str, fix: bool) -> tuple[list[str], str]:
+    # Reported with fix too, as what it repaired (package_deps_heal.py names those in its pull request).
+    problems = [f"{name}: its dependencies list has more than one entry: put one per line, sorted, under the "
+                f"marker `{MARKER}` (run with --fix)" for name, _, _ in unmarked_lists(text)]
+    if fix:
+        text = mark_lists(text)
     lines = text.split("\n")
-    problems: list[str] = []
     marked: set[str] = set()
     out: list[str] = []
     i = 0
@@ -473,6 +564,7 @@ def main() -> int:
                 print(f"declared {module} in the dependencies of {target}", file=human)
             except (FixError, ListError) as error:
                 print(f"{args.manifest}: could not declare {module} in {target}: {error}", file=sys.stderr)
+        declared = check(declared, True)[1]  # a list that now holds two entries goes one per line
         args.manifest.write_text(declared, encoding="utf-8")
         text = declared
         problems, _ = check(text, False)

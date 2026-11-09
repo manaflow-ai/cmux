@@ -1,0 +1,446 @@
+{
+  "$comment": "HAND-EDITED test vectors of the settings schema export: per row, values a validator must accept and values it must refuse (accepts and refuses in schemas/settings/settings-schema.json), so another validator (the daemon's config actor) can prove it agrees with the app's. A row takes the set of its validation domain (domains: the row's validation in row-facts.json) when there is one, else the set of its kind (kinds: the export's kind, and choice_list for a string_list row with choices). {\"$sample\": NAME} stands for values taken from the row: choices (each choice value, in order), choices_reversed, first_choice (\"a\" when none), min, max, mid, below (min minus the span), above (max plus the span; the span is max minus min, at least 1) and url_key; an object member named $url_key takes the row's url_key as its name. scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+Samples.generated.swift).",
+  "kinds": {
+    "toggle": {
+      "accept": [
+        true,
+        false
+      ],
+      "refuse": [
+        "true",
+        1,
+        null
+      ]
+    },
+    "choice": {
+      "accept": [
+        {"$sample": "choices"}
+      ],
+      "refuse": [
+        "__not_a_choice__",
+        1,
+        true
+      ]
+    },
+    "choice_or_number": {
+      "accept": [
+        {"$sample": "choices"},
+        {"$sample": "min"},
+        {"$sample": "max"},
+        {"$sample": "mid"}
+      ],
+      "refuse": [
+        "__not_a_choice__",
+        true,
+        {"$sample": "below"},
+        {"$sample": "above"},
+        "1"
+      ]
+    },
+    "choice_or_url": {
+      "accept": [
+        {"$sample": "choices"},
+        {"$url_key": "http://mini.tail1234.ts.net:7320"},
+        {"$url_key": "https://100.101.102.103/"}
+      ],
+      "refuse": [
+        "__not_a_choice__",
+        {"$sample": "url_key"},
+        1,
+        {"$url_key": "ftp://mini.tail1234.ts.net"},
+        {"$url_key": "http://mini.tail1234.ts.net/path"},
+        {"$url_key": "http://mini.tail1234.ts.net?x=1"},
+        {"$url_key": "not a url"},
+        {"$url_key": 7320},
+        {"__other__": "http://mini.tail1234.ts.net"},
+        {"$url_key": "http://mini.tail1234.ts.net", "__extra__": "x"}
+      ]
+    },
+    "number": {
+      "accept": [
+        {"$sample": "min"},
+        {"$sample": "max"},
+        {"$sample": "mid"}
+      ],
+      "refuse": [
+        {"$sample": "below"},
+        {"$sample": "above"},
+        "1"
+      ]
+    },
+    "color": {
+      "accept": [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "refuse": [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ]
+    },
+    "sound": {
+      "accept": [],
+      "refuse": [
+        1,
+        true,
+        null
+      ]
+    },
+    "theme": {
+      "accept": [],
+      "refuse": [
+        1,
+        true,
+        null
+      ]
+    },
+    "font_family": {
+      "accept": [],
+      "refuse": [
+        1,
+        true,
+        null
+      ]
+    },
+    "text": {
+      "accept": [],
+      "refuse": [
+        1,
+        true,
+        null
+      ]
+    },
+    "url": {
+      "accept": [
+        "",
+        "https://cmux.com",
+        "example.com/path",
+        "about:blank",
+        "file:///tmp/a.html"
+      ],
+      "refuse": [
+        "not a url",
+        "ftp://example.com",
+        "localhost",
+        1
+      ]
+    },
+    "host_list": {
+      "accept": [
+        [],
+        ["localhost", "*.example.com"]
+      ],
+      "refuse": [
+        "localhost",
+        [1]
+      ]
+    },
+    "folder_list": {
+      "accept": [
+        [],
+        ["/Users/ada/src", "~/notes"]
+      ],
+      "refuse": [
+        "/Users/ada/src",
+        ["relative/path"],
+        [1]
+      ]
+    },
+    "time_range": {
+      "accept": [
+        {"start": "22:00", "end": "07:30"}
+      ],
+      "refuse": [
+        {"start": "25:00", "end": "07:00"},
+        {"start": "22:00"},
+        "22:00-07:00"
+      ]
+    },
+    "number_list": {
+      "accept": [
+        [],
+        [{"$sample": "min"}, {"$sample": "max"}]
+      ],
+      "refuse": [
+        {"$sample": "min"},
+        [{"$sample": "below"}],
+        [{"$sample": "above"}],
+        ["1"]
+      ]
+    },
+    "string_map": {
+      "accept": [
+        {},
+        {"*": "★", "Work": ""}
+      ],
+      "refuse": [
+        "★",
+        [],
+        {"Work": 1}
+      ]
+    },
+    "sound_rules": {
+      "accept": [
+        {},
+        {"ws_1": "none", "Ops": {"sound": "Glass", "volume": 0.5, "events": {"needsInput": "Ping"}}}
+      ],
+      "refuse": [
+        "Glass",
+        [],
+        {"ws_1": 1},
+        {"ws_1": {"volume": "loud"}},
+        {"ws_1": {"events": {"ringing": "Ping"}}}
+      ]
+    },
+    "string_list": {
+      "accept": [
+        [],
+        ["ws-1", "2B7F0C3A-workspace"]
+      ],
+      "refuse": [
+        "ws-1",
+        [1],
+        [""],
+        {}
+      ]
+    },
+    "choice_list": {
+      "accept": [
+        [],
+        [{"$sample": "choices_reversed"}]
+      ],
+      "refuse": [
+        {"$sample": "first_choice"},
+        ["__not_a_choice__"],
+        [1]
+      ]
+    }
+  },
+  "domains": {
+    "domain:chat_roots": {
+      "accept": [
+        [],
+        ["/opt/cmux-chat-data"]
+      ],
+      "refuse": [
+        "/opt/cmux-chat-data",
+        ["~/chats"],
+        ["/"],
+        ["/Volumes/chats"],
+        [1]
+      ]
+    },
+    "domain:custom_densities": {
+      "accept": [
+        [],
+        [{"id": "my-tight", "name": "My Tight", "level": -0.25, "fontSize": 11.5, "tokens": {"sidebarRowHeight": 22}}]
+      ],
+      "refuse": [
+        "my-tight",
+        [{}],
+        [{"id": "Bad Id", "name": "x"}],
+        [{"id": "a", "name": "A", "level": "1"}]
+      ]
+    },
+    "domain:command_labels": {
+      "accept": [
+        [],
+        ["cmux-fleet"],
+        [{"program": "deploy", "label": "Deploying"}, {"match": "^make (\\w+)", "label": "Making {1}", "icon": "mode.build", "link": "https://example.com/{1}"}, {"program": ["a", "b"], "label": "A or B"}]
+      ],
+      "refuse": [
+        "cmux-fleet",
+        [" "],
+        [{"label": "No program or pattern"}],
+        [{"program": "x"}],
+        [{"program": [], "label": "x"}],
+        [{"program": "x", "label": "x", "icon": 1}],
+        [1]
+      ]
+    },
+    "domain:backdrop_selection": {
+      "accept": [
+        "none",
+        "daily",
+        "desktop",
+        "david-death-of-marat",
+        "velde-small-ship-storm",
+        "bosch-ascent-blessed",
+        "goya-witches-flight",
+        "martin-pandemonium",
+        "moran-burning-philadelphia",
+        "goya-burial-sardine",
+        "arbo-wild-hunt",
+        "altdorfer-battle-of-issus",
+        "munch-madonna",
+        "klee-fish-magic",
+        "friedrich-forest-moonlight",
+        "bosch-garden-left",
+        "rembrandt-storm-galilee",
+        "cole-voyage-manhood",
+        "munch-scream",
+        "bruegel-fall-rebel-angels",
+        "wright-vesuvius",
+        "gerome-botsaris",
+        "martin-joshua",
+        "velde-gale",
+        "hogai-nio",
+        "bosch-garden-central",
+        "martin-great-day-wrath",
+        "bonheur-wounded-eagle",
+        "cole-voyage-old-age",
+        "friedrich-abbey-oakwood",
+        "goya-sleep-of-reason",
+        "bosch-garden-fragment",
+        "spilliaert-vertigo",
+        "rothaug-melpomene",
+        "aivazovsky-ship-stormy-seas",
+        "cabanel-fallen-angel",
+        "spilliaert-woman-shoreline",
+        "el-greco-view-of-toledo",
+        "rembrandt-prodigal-son",
+        "velazquez-las-meninas",
+        "matejko-stanczyk",
+        "sargent-madame-x",
+        "millais-joan-of-arc",
+        "cot-storm",
+        "rembrandt-night-watch",
+        "vigee-lebrun-madame-grand",
+        "waterhouse-lady-shalott",
+        "fragonard-swing",
+        "rubens-st-francis-xavier",
+        "vermeer-pearl-earring",
+        "danielson-gambogi-self",
+        "beard-his-majesty",
+        "marc-foxes",
+        "degas-green-dancers",
+        "modigliani-nude-divan",
+        "raphael-sistine-madonna",
+        "bouguereau-virgin-lilies",
+        "wood-american-gothic",
+        "steinlen-chat-noir",
+        "degas-blue-dancers",
+        "botticelli-primavera",
+        "van-gogh-cafe-terrace",
+        "matisse-red-room",
+        "kandinsky-deepened-impulse",
+        "friedrich-wanderer",
+        "klimt-adele",
+        "mucha-job",
+        "van-gogh-starry-night",
+        "klimt-tree-of-life",
+        "klimt-the-kiss",
+        "van-gogh-starry-night-rhone",
+        "delacroix-liberty",
+        "van-gogh-sunflowers",
+        "klimt-mada-primavesi",
+        "schiele-kneeling-orange",
+        "van-gogh-sunflowers-munich",
+        "michelangelo-sistine-ceiling",
+        "mondrian-composition-red-plane",
+        "lemoyne-apotheosis-hercules",
+        "schiele-moa",
+        "aivazovsky-ninth-wave",
+        "popova-painterly-architectonic",
+        "bruegel-tower-babel",
+        "botticelli-birth-of-venus",
+        "kandinsky-yellow-red-blue",
+        "kandinsky-composition-viii",
+        "kramskoi-unknown-woman",
+        "michelangelo-creation-of-adam",
+        "hokusai-great-wave",
+        "holbein-ambassadors",
+        "brueghel-wooden-vessel",
+        "dahl-dresden-moonlight",
+        "bosschaert-wan-li-vase",
+        "cot-springtime",
+        "ruysch-flowers",
+        "van-gogh-flowering-plum",
+        "toulmouche-reluctant-bride",
+        "rosso-musical-angel",
+        "grimshaw-blackman-street",
+        "waterhouse-ophelia",
+        "biard-magdalena-bay",
+        "renoir-vase-roses",
+        "roerich-himalayas",
+        "velde-close-hauled",
+        "sohlberg-flower-meadow",
+        "dahl-cloud-study",
+        "friedrich-two-men-moon",
+        "monet-waterlily-pond",
+        "hesselbom-dusk",
+        "toulmouche-vanity",
+        "hiroshige-zoshigaya",
+        "monet-water-lilies",
+        "monet-water-lilies-1907",
+        "bierstadt-storm-rockies",
+        "korovin-place-opera",
+        "klimt-garden-sunflowers",
+        "redon-butterflies",
+        "aivazovsky-winter-landscape",
+        "aivazovsky-along-coast",
+        "grimshaw-silver-moonlight",
+        "monet-water-lilies-setting-sun",
+        "hiroshige-hota-coast",
+        "durer-praying-hands",
+        "cole-voyage-childhood",
+        "monet-impression-sunrise",
+        "monet-woman-parasol",
+        "velde-cannon-shot",
+        "cross-pink-cloud",
+        "laurence-mckinley",
+        "van-gogh-irises",
+        "kramskoi-christ-in-the-desert",
+        "turner-temeraire",
+        "leonardo-vitruvian-man",
+        "bruegel-hunters-snow",
+        "cole-voyage-youth",
+        "friedrich-monk-by-the-sea",
+        "van-gogh-wheat-field-cypresses",
+        "monet-cliff-pourville",
+        "van-gogh-almond-blossom",
+        "van-gogh-fishing-boats",
+        "hokusai-umezawa",
+        "whistler-falling-rocket",
+        "dore-fall-of-satan",
+        "dore-wolves-sheep",
+        "dore-leviathan",
+        "dore-paradise-lost-book-vi",
+        "dore-moses-tables",
+        "dore-empyrean",
+        "dore-raven",
+        "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
+        "file:/Users/Shared/Harbor.png",
+        "folder:/Users/Shared/Wallpapers"
+      ],
+      "refuse": [
+        "system:relative/path.heic",
+        "system:",
+        "file:relative.png",
+        "file:",
+        "folder:relative",
+        "folder:",
+        "__not_a_backdrop__",
+        1,
+        true
+      ]
+    },
+    "domain:search_template": {
+      "accept": [
+        "",
+        "https://search.example/?q=%s",
+        "https://search.example/find?q={searchTerms}"
+      ],
+      "refuse": [
+        "https://search.example/",
+        "search.example",
+        "not a url %s",
+        1
+      ]
+    }
+  }
+}

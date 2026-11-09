@@ -76,7 +76,7 @@ fn narrower_policy(p: PermissionPolicy) -> Option<PermissionPolicy> {
         PermissionPolicy::ApproveAll => Some(PermissionPolicy::ApproveEdits),
         PermissionPolicy::ApproveEdits => Some(PermissionPolicy::ApproveReads),
         PermissionPolicy::ApproveReads => Some(PermissionPolicy::Ask),
-        PermissionPolicy::Ask => Some(PermissionPolicy::DenyAll),
+        PermissionPolicy::Ask | PermissionPolicy::Review => Some(PermissionPolicy::DenyAll),
         PermissionPolicy::DenyAll => None,
     }
 }
@@ -293,6 +293,8 @@ impl Hub {
                             || !crate::web_modes::mode_of(&sm).is_some_and(|m| {
                                 crate::hub::start_mode::FULL_ACCESS_MODES.contains(&m.as_str())
                             }),
+                        // The target sees what the source saw (`additional_dirs.rs`).
+                        additional_directories: sm.additional_directories.clone(),
                         ..Default::default()
                     })
                     .await?;
@@ -325,6 +327,7 @@ impl Hub {
             updated_at: at,
             drafts: Vec::new(),
             web: false,
+            cloud_mobile: false,
         };
         if let Err(e) = self.handoffs.put(&record) {
             let _ = self.kill(&target, true).await;
@@ -394,11 +397,14 @@ impl Hub {
         self: &Arc<Self>,
         p: &Value,
         control: crate::hub::Control,
+        sender: Option<crate::prompt_provenance::HandoffSender>,
     ) -> Result<Value, RpcError> {
         let id = required(p, "handoffId")?;
         let _id = self.handoffs.lock(format!("id:{id}")).await;
         let mut r = self.handoffs.get(id).ok_or_else(|| not_found(id))?;
         let web = control == crate::hub::Control::Web;
+        let cloud_mobile =
+            web && p.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile");
         // A start refused before delivery kept its promptId for the retry.
         let prompt_id = text_param(p, "promptId")
             .or(r.prompt_id.as_deref())
@@ -426,11 +432,12 @@ impl Hub {
                     ));
                 }
                 // A remote device's retry resends (if it must) as a Web turn.
-                if web && !r.web {
+                if web && (!r.web || (cloud_mobile && !r.cloud_mobile)) {
                     r.web = true;
+                    r.cloud_mobile |= cloud_mobile;
                     self.handoffs.put(&r)?;
                 }
-                return self.handoff_deliver(r, true).await;
+                return self.handoff_deliver(r, true, sender).await;
             }
             State::Draft => {}
         }
@@ -458,11 +465,12 @@ impl Hub {
         // Who starts it decides the target's turn: a remote device's start
         // is a Web turn (the remote floor).
         r.web = web;
+        r.cloud_mobile = cloud_mobile;
         r.updated_at = now();
         // Recorded before the send, so a lost reply or a restart is
         // reconciled by promptId instead of sent again.
         self.handoffs.put(&r)?;
-        self.handoff_deliver(r, false).await
+        self.handoff_deliver(r, false, sender).await
     }
 
     /// `_acpmux/handoff_discard`: close the never-prompted target. The
@@ -526,6 +534,7 @@ impl Hub {
         self: &Arc<Self>,
         mut r: Record,
         retry: bool,
+        sender: Option<crate::prompt_provenance::HandoffSender>,
     ) -> Result<Value, RpcError> {
         let prompt_id = r.prompt_id.clone().unwrap_or_else(|| r.handoff_id.clone());
         let target = self.resolve(&r.target.session_id)?;
@@ -537,7 +546,7 @@ impl Hub {
         let (turn_id, outcome) = match found {
             Some(t) => (Some(t), "already_started"),
             None if retry && r.state == State::Started => (None, "already_started"),
-            None => match self.handoff_send(&target, &r, &prompt_id).await {
+            None => match self.handoff_send(&target, &r, &prompt_id, sender).await {
                 Ok(t) => (t, "started"),
                 Err(e) => {
                     // The target never recorded the prompt: back to draft,
@@ -581,6 +590,7 @@ impl Hub {
         target: &Arc<Session>,
         r: &Record,
         prompt_id: &str,
+        sender: Option<crate::prompt_provenance::HandoffSender>,
     ) -> Result<Option<String>, RpcError> {
         let mut blocks = vec![json!({"type": "text", "text": r.text})];
         if let Some(note) = references(r) {
@@ -588,6 +598,8 @@ impl Hub {
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
+            race_guard: None,
+            cloud_turn: None,
             prompt_id: Some(prompt_id.to_owned()),
             message_id: None,
             message_sender: None,
@@ -598,12 +610,18 @@ impl Hub {
             // A Web start is checked against the target in the remote guard,
             // and its turn there is a Web turn (the remote floor).
             control: if r.web { crate::hub::Control::Web } else { crate::hub::Control::Local },
+            cloud_mobile: r.cloud_mobile,
             trust_gate: false,
             steer_only: false,
             interrupt: false,
             steer_now: false,
             interrupt_turn: None,
-            provenance: None,
+            // The proven person's start is theirs (None); any other is unverified, never theirs.
+            provenance: sender.map(|s| {
+                crate::prompt_provenance::unverified(&target.id, s.transport, Default::default())
+            }),
+            human_authenticated: false,
+            unproven_owner: false,
             agent: None,
             class: None,
             after_turn: None,
@@ -611,8 +629,10 @@ impl Hub {
             display_parts: None,
             full_access_device: None,
             no_queue: false,
+            admitted: false,
             send_now: false,
             thread: None,
+            wake_or_fail: false,
             inbox: false,
         };
         let (hub, session) = (self.clone(), target.clone());

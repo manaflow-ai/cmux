@@ -21,11 +21,12 @@ impl HostedReader {
             cell_width: cell_pixels.map(|pixels| pixels.0).unwrap_or(geometry.cell_width),
             cell_height: cell_pixels.map(|pixels| pixels.1).unwrap_or(geometry.cell_height),
         };
-        let changed = match pty.commit_hosted_geometry(&mut geometry, next_geometry, false) {
-            Ok(changed) => changed,
+        let commit = match pty.commit_hosted_geometry(&mut geometry, next_geometry, false) {
+            Ok(commit) => commit,
             Err(_) => return Flow::Break,
         };
         drop(geometry);
+        let changed = pty.publish_geometry_commit(commit);
         if changed && let Some(mux) = mux.upgrade() {
             mux.emit(MuxEvent::SurfaceResized {
                 surface: surface.id,
@@ -124,8 +125,7 @@ impl HostedReader {
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         });
         drop(geometry);
-        surface.publish_pending_directory();
-        surface.publish_pending_progress();
+        surface.queue_pending_publications();
         pty.stream_progress.notify();
         pty.request_frame(generation);
         if let Some(mux) = mux.upgrade() {
@@ -134,7 +134,7 @@ impl HostedReader {
             }
             mux.emit_terminal_resized(surface.id, cols, rows, None);
             if let Some((offset, at_bottom)) = scroll_changed {
-                mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                pty.frame_requests.publish_scroll_now(&mux, surface.id, offset, at_bottom);
             }
         }
         Flow::Continue

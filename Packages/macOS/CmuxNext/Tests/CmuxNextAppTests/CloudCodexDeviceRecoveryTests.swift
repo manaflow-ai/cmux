@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextCloud
 @testable import CmuxNextApp
 import CmuxNextDesign
@@ -19,7 +20,7 @@ struct CloudCodexDeviceRecoveryTests {
         }
         defer { center.stopObserving(token); events.continuation.finish() }
         let task = Task {
-            await CloudPresenter.presentCodexDeviceCode(prompt, in: .app, center: center,
+            await CloudPresenter.codexDeviceCode(prompt, asker: .dialog({ .app }, center: center),
                 open: { _ in Issue.record("Cancelled prompt opened a browser") })
         }
         var iterator = events.stream.makeAsyncIterator()
@@ -33,7 +34,7 @@ struct CloudCodexDeviceRecoveryTests {
         let prompt = try makePrompt()
         let center = CmuxDialogCenter(host: CmuxDialogHeadlessHost())
         let task = Task {
-            await CloudPresenter.presentCodexDeviceCode(prompt, in: .app, center: center,
+            await CloudPresenter.codexDeviceCode(prompt, asker: .dialog({ .app }, center: center),
                 open: { _ in Issue.record("Cancelled prompt opened a browser") })
         }
         task.cancel()
@@ -52,7 +53,7 @@ struct CloudCodexDeviceRecoveryTests {
             center.press(record.id, button: shown == 1 ? "open" : "signedIn")
         }
         defer { center.stopObserving(token) }
-        #expect(await CloudPresenter.presentCodexDeviceCode(prompt, in: .app, center: center,
+        #expect(await CloudPresenter.codexDeviceCode(prompt, asker: .dialog({ .app }, center: center),
                                                           open: { opened.append($0) }))
         #expect(opened == [prompt.verificationURL])
         #expect(shown == 2)

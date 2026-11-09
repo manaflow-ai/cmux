@@ -9,9 +9,10 @@ drives the tips over the socket (`debug.updater {action: "tips", press?, at?}`: 
 card's menu item sends, `at` picks as at launch at that moment, so the expiry is read only when a
 tip would show):
 
-  1. a tip shows; Mute Tips for 1 Day hides it; no tip 23 h later; a tip again 25 h later;
-  2. Mute Tips for 1 Week: no tip 6 days later; a tip again 8 days later;
-  3. Hide This Tip: that tip never comes back the next day;
+  1. a tip shows; Mute Tips for 1 Day hides it; no tip 23 h later; 15 days later the mute has ended
+     and a tip shows (a tip on screen holds every tip for 14 days: FeatureTipBudget);
+  2. Mute Tips for 1 Week: no tip 6 days later; a tip again 15 days later;
+  3. Hide This Tip: that tip never comes back, 15 days later another one shows;
   4. a timed mute ends when Settings > Show Tips is turned off and on again;
   5. Never Show Tips writes sidebar.cards.tips = false; after a restart still no tip;
      settings.set sidebar.cards.tips true shows tips again;
@@ -19,7 +20,8 @@ tip would show):
      menu's items); window snapshots of the card, and with the agent capture helper (if its daemon
      runs) the card with the menu open, light and dark;
   7. each hint once: a hint the card showed is recorded as seen; after a restart it does not come
-     back; day after day every hint shows once, all different; with every hint seen no card shows.
+     back; the next day none (the 14-day budget); every 15 days every hint shows once, all
+     different; with every hint seen no card shows.
 
 `press: "reset"` forgets what the hints remember (a fresh install) before the steps that pick.
 
@@ -230,8 +232,8 @@ try:
     check(state.get("tip") is None and bool(state.get("mutedUntil")), f"Mute Tips for 1 Day hides the tip and records the end: {state}")
     state = tips(at=now + 23 * HOUR)
     check(state.get("tip") is None, f"23 h later: still muted, no tip: {state}")
-    state = tips(at=now + 25 * HOUR)
-    check(bool(state.get("tip")) and state.get("mutedUntil") is None, f"25 h later: the mute ended, a tip shows: {state}")
+    state = tips(at=now + 15 * DAY)
+    check(bool(state.get("tip")) and state.get("mutedUntil") is None, f"15 days later: the mute ended, a tip shows: {state}")
 
     # 2. one week (the mute's end comes from the app clock: now)
     real = time.time()
@@ -239,15 +241,15 @@ try:
     check(state.get("tip") is None and bool(state.get("mutedUntil")), f"Mute Tips for 1 Week hides the tip: {state}")
     state = tips(at=real + 6 * DAY)
     check(state.get("tip") is None, f"6 days later: still muted: {state}")
-    state = tips(at=real + 8 * DAY)
-    check(bool(state.get("tip")) and state.get("mutedUntil") is None, f"8 days later: a tip shows: {state}")
+    state = tips(at=real + 15 * DAY)
+    check(bool(state.get("tip")) and state.get("mutedUntil") is None, f"15 days later: a tip shows: {state}")
 
     # 3. hide this tip only
     hidden = state.get("tip")
     state = tips(press="tip-hide")
     check(state.get("tip") is None and state.get("mutedUntil") is None, f"Hide This Tip hides only today's tip, no mute: {state}")
-    state = tips(at=real + 9 * DAY)
-    check(bool(state.get("tip")) and state.get("tip") != hidden, f"the next day another tip shows, never {hidden}: {state}")
+    state = tips(at=real + 30 * DAY)
+    check(bool(state.get("tip")) and state.get("tip") != hidden, f"15 days on another tip shows, never {hidden}: {state}")
 
     # 4. a timed mute ends when Settings > Show Tips turns on again (all reads inside the week)
     tips(press="reset")
@@ -260,8 +262,7 @@ try:
     check(bool(state.get("mutedUntil")), f"tips off: the week's mute is still recorded: {state}")
     rpc("settings.set", {"path": "sidebar.cards.tips", "value": True})
     state = wait_for(lambda: (lambda s: s if s.get("enabled") == "true" else None)(tips(at=real + 2 * DAY)), "the setting turns tips on") or {}
-    check(bool(state.get("tip")) and state.get("mutedUntil") is None,
-          f"Show Tips on again ends the timed mute: a tip shows 2 days into the week: {state}")
+    check(state.get("mutedUntil") is None, f"Show Tips on again ends the timed mute 2 days into the week: {state}")
 
     # 5. never
     real = time.time()
@@ -300,8 +301,10 @@ try:
     app = launch()
     state = loaded_tips(start)
     check(state.get("tip") is None and first in (state.get("seen") or "").split(","), f"after a restart the same hint does not come back: {state}")
+    state = tips(at=start + DAY)
+    check(state.get("tip") is None, f"the next day no hint: one every 14 days: {state}")
     shown = [first]
-    for day in range(1, 16):
+    for day in range(15, 15 * 16, 15):
         state = tips(at=start + day * DAY)
         if not state.get("tip"):
             break
@@ -309,8 +312,8 @@ try:
         wait_for(lambda: hint in (tips(at=start + day * DAY).get("seen") or "").split(","), f"hint {hint} recorded seen")
         shown.append(hint)
     check(len(shown) == len(set(shown)) and len(shown) >= 5, f"day after day each hint shows once, all different: {shown}")
-    check(sorted(shown) == sorted((tips(at=start + 20 * DAY).get("seen") or "").split(",")), f"every hint shown is recorded seen: {shown}")
-    state = tips(at=start + 30 * DAY)
+    check(sorted(shown) == sorted((tips(at=start + 300 * DAY).get("seen") or "").split(",")), f"every hint shown is recorded seen: {shown}")
+    state = tips(at=start + 400 * DAY)
     check(state.get("tip") is None, f"every hint seen: none picked a month later: {state}")
     rpc("action.run", {"action": "hints.show", "origin": "script"})
     labels = [h.get("title") for h in (wait_for(lambda: (rpc("debug.hints") or {}).get("hints"), "hint labels", 10) or [])]

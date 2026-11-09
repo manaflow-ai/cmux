@@ -16,8 +16,8 @@ import CmuxNextCompat
 ///   prompt id at most once: its ledger and its session log answer one it has seen as `duplicate`.
 /// - A connection the daemon closed while the app runs drops the prompts its page sent: the pane
 ///   shows each as not sent, with Retry, so the pane owns them from then on.
-/// - An entry older than ``maximumAge`` is dropped, never sent. The file holds at most
-///   ``maximumEntries``; a prompt larger than ``maximumParamsBytes`` is not kept.
+/// - An entry older than ``maximumAge`` is dropped, never sent. All newer entries are kept so a
+///   prompt of any size or a burst of prompts cannot disappear during a restart.
 ///
 /// The host sends again only what it recorded from a frame the page rules let through; the page
 /// can never set `resend` itself (``AcpmuxPaneMethods/knownParams``). The pane's Retry sends a
@@ -28,8 +28,6 @@ import CmuxNextCompat
 public nonisolated final class AgentPanePromptJournal: Sendable {
     /// How long a prompt may wait for its send again; an older one is dropped.
     public static let maximumAge: TimeInterval = 24 * 60 * 60
-    static let maximumEntries = 64
-    static let maximumParamsBytes = 8 << 20
     static let fileName = "agent-pane-unsent-prompts.json"
 
     /// The app's journal: `<Application Support>/<bundle id>/agent-pane-unsent-prompts.json`. Nil
@@ -106,6 +104,9 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private let state = Mutex(State())
     /// The newest generation on disk; a write of an older one is skipped.
     private let written = Mutex(0)
+    /// The journal on disk could not be read and could not be moved aside yet: nothing is written
+    /// over it until a move works.
+    private let unreadableKept = Mutex(false)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
 
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -116,12 +117,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }
 
     /// Records a prompt the page sent on connection `owner`, on disk before it returns. Call off
-    /// the main thread. False when it is not kept (too large, or the connection ended).
+    /// the main thread. False only when the connection has already ended.
     func record(_ entry: Entry, owner: UUID) -> Bool {
-        guard entry.params.utf8.count <= Self.maximumParamsBytes else {
-            Self.logger.info("agent pane prompt not journaled: too large")
-            return false
-        }
         var kept = false
         change { state in
             guard !state.ended.contains(owner) else { return false }
@@ -129,10 +126,6 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
             state.entries.append(entry)
             state.holders[key] = .page(owner)
-            while state.entries.count > Self.maximumEntries {
-                let dropped = state.entries.removeFirst()
-                state.holders[Self.key(dropped.daemon, dropped.promptId)] = nil
-            }
             kept = true
             return true
         }
@@ -235,27 +228,16 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
     }
 
-    /// Connection `owner` ended. `byDaemon`: the daemon's side closed it, and its page was told,
-    /// so the prompts that page sent are the page's again (Retry); the rest are left over. The
-    /// change is made at once (no file read on the caller's thread) and written off it.
-    func connectionEnded(owner: UUID, byDaemon: Bool) {
-        let snapshot = state.withLock { state -> (Int, [Entry], [PendingTrust])? in
+    /// Connection `owner` ended: the prompts it held are left over, for the next connection to
+    /// send again. Nothing on disk changes.
+    func connectionEnded(owner: UUID) {
+        state.withLock { state in
             state.ended.insert(owner)
-            guard state.loaded else { return nil }
-            var changed = false
+            guard state.loaded else { return }
             for (key, holder) in state.holders where holder.owner == owner {
                 state.holders[key] = nil
-                if byDaemon, case .page = holder {
-                    state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
-                    changed = true
-                }
             }
-            guard changed else { return nil }
-            state.generation += 1
-            return (state.generation, state.entries, state.pendingTrust)
         }
-        guard let (generation, entries, pendingTrust) = snapshot else { return }
-        queue.async { [self] in write(entries, pendingTrust: pendingTrust, generation: generation) }
     }
 
     /// The prompts kept now (tests).
@@ -285,23 +267,57 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         return write(entries, pendingTrust: pendingTrust, generation: generation)
     }
 
-    /// Reads the file once; an unreadable one is an empty journal.
+    /// Reads the file once; an unreadable one is set aside (kept beside it) and the journal starts empty.
     private func load(_ state: inout State) {
         guard !state.loaded else { return }
         state.loaded = true
-        guard let data = try? Data(contentsOf: url) else { return }
-        guard let document = try? Self.decoder.decode(Document.self, from: data) else {
-            Self.logger.error("agent pane prompt journal unreadable; starting empty")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let data = try? Data(contentsOf: url) else {
+            setAsideUnreadableFile()
             return
         }
-        state.entries = Array(document.entries.suffix(Self.maximumEntries))
+        guard let document = try? Self.decoder.decode(Document.self, from: data) else {
+            setAsideUnreadableFile()
+            Self.logger.error("agent pane prompt journal unreadable; set aside, starting empty")
+            return
+        }
+        state.entries = document.entries
         state.pendingTrust = document.pendingTrust
+    }
+
+    /// Preserve an existing journal when its bytes cannot be read or decoded; a later write must
+    /// never overwrite the only copy of prompts waiting for acknowledgement. A move that fails leaves
+    /// `unreadableKept` set: every write tries the move again first, and writes nothing until it works.
+    private func setAsideUnreadableFile() {
+        unreadableKept.withLock { kept in kept = !moveUnreadableFileAside() }
+    }
+
+    /// Moves the file beside itself; true when it is gone from `url` (moved, or no longer there).
+    private func moveUnreadableFileAside() -> Bool {
+        let files = FileManager.checked
+        guard files.fileExists(atPath: url.path) else { return true }
+        let aside = url.deletingPathExtension()
+            .appendingPathExtension("unreadable-\(Int(now().timeIntervalSince1970))")
+            .appendingPathExtension(url.pathExtension)
+        do {
+            try files.moveItem(at: url, to: aside)
+            return true
+        } catch {
+            Self.logger.error("agent pane prompt journal unreadable and not set aside; not overwritten: \(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 
     @discardableResult
     private func write(_ entries: [Entry], pendingTrust: [PendingTrust], generation: Int) -> Bool {
         written.withLock { last in
             guard generation > last else { return true }
+            // An unreadable journal still in place is never written over (setAsideUnreadableFile).
+            let blocked = unreadableKept.withLock { kept in
+                if kept { kept = !moveUnreadableFileAside() }
+                return kept
+            }
+            if blocked { return false }
             do {
                 let data = try Self.encoder.encode(Document(entries: entries, pendingTrust: pendingTrust))
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

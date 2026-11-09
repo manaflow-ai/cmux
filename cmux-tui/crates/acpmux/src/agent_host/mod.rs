@@ -37,8 +37,8 @@ pub(crate) mod tree;
 pub(crate) mod unresolved;
 mod wait;
 pub use wait::{
-    HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async, wait_dead_within, within,
-    within_on,
+    HostTimeout, QUERY_BUDGET, dead, death_watches, host_dead_now, wait_dead_async,
+    wait_dead_within, within, within_on,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -214,14 +214,16 @@ pub struct SpawnSpec {
     /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
     #[serde(default)]
     pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
-    /// The CPU class the harness starts at (`cpu_class.rs`), decided by the daemon. A spec from
-    /// a daemon that predates it starts the harness as before.
-    #[serde(default)]
-    pub cpu_class: crate::cpu_class::CpuClass,
     /// When the host ends on its own while no daemon controls it (`host.rs`, `orphan_step`).
     /// None: never (a daemon whose idle hibernation is off, or one that predates it).
     #[serde(default)]
     pub orphan_exit: Option<OrphanExit>,
+    /// The `agents.promptSuggestions` MDM or the team policy forces, as the daemon holds it when it
+    /// starts this host (`claude_stdio::prompt_suggestions::managed`): the host is its own process,
+    /// so without it a forced value never reached the translator it builds. None: nothing forced
+    /// (or a daemon that predates it).
+    #[serde(default)]
+    pub prompt_suggestions_managed: Option<bool>,
 }
 
 /// A host's own end once no daemon controls it (`SpawnSpec::orphan_exit`). Hosts outlive their
@@ -264,8 +266,18 @@ pub struct TranslatorSpec {
     /// Claude Code's fast mode at spawn (the session's `fast-mode` option).
     #[serde(default)]
     pub fast: bool,
+    /// The chat's prompt suggestions at spawn (its `prompt-suggestions` option, on unless off).
+    #[serde(default = "suggestions_default")]
+    pub prompt_suggestions: bool,
+    /// The chat's session recap choice at spawn (its `session-recap` option).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recap: Option<String>,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+}
+
+fn suggestions_default() -> bool {
+    true
 }
 
 impl SpawnSpec {
@@ -635,6 +647,24 @@ pub fn terminate_unadoptable(
     Err(crate::platform::unsupported("agent hosts"))
 }
 
+/// The environment variable a host starts its harness with, set to its `start_nonce`. Every
+/// process under the harness inherits it, a helper that left the group with setsid too, so what
+/// a host killed outright left running is still found once its parent link is gone
+/// (`end_left_behind`).
+pub const HOST_MARK: &str = "ACPMUX_HOST_NONCE";
+
+/// SIGKILL what still runs from the host incarnation `start_nonce`: the processes that carry its
+/// `HOST_MARK`. For a host proven dead, which can no longer end its harness and what it started.
+/// The nonce is random per host, and each process is signalled only while it still runs with the
+/// start time it had when found.
+#[cfg(unix)]
+pub fn end_left_behind(start_nonce: &str) {
+    tree::kill_still_running(&tree::marked(HOST_MARK, start_nonce));
+}
+/// Windows port: hosts come in a later landing.
+#[cfg(not(unix))]
+pub fn end_left_behind(_start_nonce: &str) {}
+
 /// Remove a dead host's record, lock and socket.
 pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
     let _ = std::fs::remove_file(record_path(dir, &record.session_id));
@@ -742,6 +772,36 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
 #[cfg(not(unix))]
 pub fn write_record_atomic(_path: &Path, _record: &HostRecord) -> Result<()> {
     Err(crate::platform::unsupported("agent host records"))
+}
+
+/// `frame` as the bytes `write_frame` writes (length prefix and JSON), encoded once so
+/// it can be sent and kept without another copy. None when it is over the limit.
+pub fn encode_frame<T: Serialize>(frame: &T) -> Option<std::sync::Arc<[u8]>> {
+    encode_frame_within(frame, MAX_FRAME)
+}
+
+/// [`encode_frame`] with a body of at most `max` bytes.
+pub(crate) fn encode_frame_within<T: Serialize>(
+    frame: &T,
+    max: usize,
+) -> Option<std::sync::Arc<[u8]>> {
+    let body = serde_json::to_vec(frame).ok()?;
+    if body.len() > max {
+        return None;
+    }
+    let len = u32::try_from(body.len()).ok()?;
+    let mut buf = Vec::with_capacity(body.len().saturating_add(4));
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(&body);
+    Some(buf.into())
+}
+
+/// An entry frame serialized from a borrowed entry: the same bytes as
+/// `HostFrame::Entry { h, e }`, without copying the entry first.
+#[derive(Serialize)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub(crate) enum EntryFrame<'a> {
+    Entry { h: u64, e: &'a Entry },
 }
 
 pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(

@@ -13,7 +13,9 @@
 //! - `trust.untrusted`: the user answered Don't trust.
 //!
 //! The level is `trust::session_level`: acpmux's decision, else the session's
-//! own agent's level. A record that cannot be read is no answer. The check is
+//! own agent's level. A record that cannot be read is no answer. A queued or started
+//! prompt's check with no answer once the daemon's shutdown began answers that the daemon
+//! restarts instead (`Hub::check_dispatch`): the next daemon checks it again. The check is
 //! here, in the daemon, so a page cannot get around it.
 //!
 //! A Web client cannot answer the question (`acp.trust.set` is refused for it
@@ -89,6 +91,7 @@ pub(super) async fn check(
         | method::SESSION_SET_MODE
         | method::SESSION_SET_CONFIG_OPTION
         | method::MUX_SET_TOOLS
+        | method::MUX_SET_DIRECTORIES
         // A reconnect starts the server's configured command again, in the chat's folder.
         | method::MUX_MCP_RECONNECT => session_key(params).ok().map(str::to_owned),
         method::MUX_HANDOFF_START => params
@@ -116,6 +119,7 @@ pub(super) async fn check(
             | method::SESSION_SET_MODE
             | method::SESSION_SET_CONFIG_OPTION
             | method::MUX_SET_TOOLS
+            | method::MUX_SET_DIRECTORIES
             | method::MUX_MCP_RECONNECT
     );
     if same_agent && !web && running(&session) { pending_passes(answered) } else { answered }
@@ -135,13 +139,16 @@ fn running(session: &crate::hub::Session) -> bool {
 /// Web client still waits: its folder needs a person's decision.
 fn pending_passes(answered: Result<(), RpcError>) -> Result<(), RpcError> {
     match answered {
-        Err(e)
-            if e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.pending")) =>
-        {
-            Ok(())
-        }
+        Err(e) if is_pending(&e) => Ok(()),
         answered => answered,
     }
+}
+
+/// The gate's refusal for a folder with no answer (`trust.pending`): no answer was read, which
+/// is also what a record that cannot be read gives (`folder_answered`). Not `trust.untrusted`,
+/// the person's own No.
+pub(crate) fn is_pending(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.pending"))
 }
 
 /// `web`: the prompt came from a Web client or a peer forwarding for one.
@@ -238,7 +245,9 @@ pub(super) fn for_web(origin: Origin, params: &Value) -> bool {
     match origin {
         Origin::Web => true,
         Origin::Peer => params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("web"),
-        Origin::LocalApp | Origin::Local => false,
+        Origin::LocalApp => false,
+        // The phone's prompt through the local relay: Web decisions only.
+        Origin::Local => super::remote_guard::cloud_mobile(params),
     }
 }
 
@@ -250,7 +259,8 @@ pub(super) fn gated(origin: Origin, params: &Value) -> bool {
         Origin::Peer => matches!(via, Some("web" | "app")),
         // Native inline /btw uses the app marker on the local status socket so the
         // daemon applies the same folder-trust gate as a LocalApp WebSocket.
-        Origin::Local => via == Some("app"),
+        // The cmux-tui mobile relay's phone prompts (`via: cloud-mobile`) are gated too.
+        Origin::Local => matches!(via, Some("app" | "cloud-mobile")),
     }
 }
 
@@ -330,5 +340,17 @@ mod tests {
         assert!(gated(Origin::Local, &params));
         assert!(!gated(Origin::Local, &serde_json::json!({})));
         assert!(gated(Origin::LocalApp, &serde_json::json!({})));
+    }
+
+    /// The cmux-tui mobile relay reaches acpmux over the local socket: a phone's
+    /// prompt there is folder-trust gated, on Web decisions only, and the queued
+    /// prompt keeps that gate (`PromptRun::trust_gate` comes from `gated`).
+    #[test]
+    fn local_cloud_mobile_marker_is_trust_gated_for_the_web() {
+        let phone = serde_json::json!({"_meta": {"acpmux": {"via": "cloud-mobile"}}});
+        assert!(gated(Origin::Local, &phone));
+        assert!(for_web(Origin::Local, &phone));
+        assert!(!for_web(Origin::Local, &serde_json::json!({"_meta": {"acpmux": {"via": "app"}}})));
+        assert!(!for_web(Origin::LocalApp, &phone));
     }
 }

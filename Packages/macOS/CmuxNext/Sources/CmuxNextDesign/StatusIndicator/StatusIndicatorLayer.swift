@@ -39,24 +39,25 @@ public final class StatusIndicatorLayer {
         /// scope). `color` overrides the loading color
         /// (`appearance.statusIndicator.color`).
         public static func current(loading color: ThemeRGB?) -> Colors {
-            Colors(loading: color?.nsColor.cgColor ?? Palette.textSecondary.cgColor,
-                   attention: Palette.attention.cgColor,
-                   danger: Palette.danger.cgColor,
-                   success: Palette.success.cgColor,
-                   accent: Palette.textPrimary.cgColor,
-                   working: Palette.accentFill.cgColor)
+            var colors = Colors(loading: color?.nsColor.cgColor ?? Palette.textSecondary.cgColor,
+                                attention: Palette.statusAttention.cgColor, // the one needs-input dot
+                                danger: Palette.danger.cgColor,
+                                success: Palette.success.cgColor,
+                                accent: Palette.textPrimary.cgColor,
+                                working: Palette.accentFill.cgColor)
+            colors.spinner = ThemeContext.active?.spinnerInk.nsColor.cgColor
+            return colors
         }
 
         /// The sidebar's status colors (Lawrence msg 11983: "blue, orange/yellow for needs attention,
-        /// and red for errors"): unread ``Palette/statusUnread``, needs attention
-        /// ``Palette/statusAttention`` and errors ``Palette/statusError``, the system colors, so
-        /// light and dark match and each color means one thing in every row. Call inside the
-        /// host's drawing appearance.
+        /// and red for errors"): unread ``Palette/statusUnread`` and errors ``Palette/statusError``,
+        /// the system colors, so light and dark match and each color means one thing in every row.
+        /// Needs attention is ``Palette/statusAttention`` in every host already (`current`), the
+        /// tab strip's yellow dot. Call inside the host's drawing appearance.
         /// - Parameter color: Overrides the loading color (`appearance.statusIndicator.color`).
-        /// - Returns: The theme's colors with the three status colors replaced.
+        /// - Returns: The theme's colors with the unread and error colors replaced.
         public static func status(loading color: ThemeRGB?) -> Colors {
             var colors = current(loading: color)
-            colors.attention = Palette.statusAttention.cgColor
             colors.danger = Palette.statusError.cgColor
             colors.unread = Palette.statusUnread.cgColor
             return colors
@@ -64,6 +65,10 @@ public final class StatusIndicatorLayer {
 
         /// The unread dot's color; nil draws ``Palette/notificationBlue``.
         public var unread: CGColor?
+
+        /// The spinner's color (``ThemeTokens/spinnerInk``, set in a theme scope); nil draws
+        /// `accent` (else `loading`) at 66%.
+        public var spinner: CGColor?
 
         /// The default unread dot: ``Palette/notificationBlue``.
         static var defaultUnread: CGColor { Palette.notificationBlue.cgColor }
@@ -76,7 +81,7 @@ public final class StatusIndicatorLayer {
             case .danger: danger
             case .success: success
             case .accent: accent ?? loading
-            case .spinner: (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
+            case .spinner: spinner ?? (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
             case .unread: unread ?? Self.defaultUnread
             case .working: working ?? accent ?? loading
             }
@@ -190,9 +195,28 @@ public final class StatusIndicatorLayer {
 
     // MARK: Geometry
 
-    /// The square the glyph fills: the host's bounds scaled by the setting.
+    /// The diameter a dot glyph (the `.dot` glyph, or a mark drawing ``StaticStatusGlyph/dot``) paints,
+    /// centered in the host whatever the host's size; nil paints it at its share of the host. A host
+    /// whose dots share a column sets one diameter for them all (the sidebar's `statusDotSize`,
+    /// Lawrence msg 19696: "dots are different size now which is very bad").
+    public var dotDiameter: CGFloat? {
+        didSet { if dotDiameter != oldValue, plan.glyph != .none { rebuild() } }
+    }
+
+    /// The share of its square the dot art fills (12 of the art's 20 units), measured once.
+    private static let dotArtShare = StaticStatusGlyph.dot.path(in: CGRect(x: 0, y: 0, width: 1, height: 1)).boundingBoxOfPath.width
+
+    /// The square the glyph fills: the host's bounds scaled by the setting, or, for a dot with a
+    /// ``dotDiameter``, the square in which the dot paints that diameter.
     var glyphRect: CGRect {
-        let side = min(bounds.width, bounds.height) * config.settings.scale
+        var side = min(bounds.width, bounds.height) * config.settings.scale
+        if let dotDiameter {
+            switch plan.glyph {
+            case .dot where config.dotScale > 0: side = dotDiameter / CGFloat(config.dotScale)
+            case .mark(.vector(.dot)) where Self.dotArtShare > 0: side = dotDiameter / Self.dotArtShare
+            default: break
+            }
+        }
         return CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
     }
 

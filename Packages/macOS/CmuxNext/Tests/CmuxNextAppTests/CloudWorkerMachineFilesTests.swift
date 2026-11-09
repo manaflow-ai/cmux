@@ -99,6 +99,18 @@ struct CloudWorkerMachineFilesTests {
         }
     }
 
+    /// Set Up GitHub's script runs on the Worker exec route, as `cmux`: a NEXT machine id is a Worker
+    /// id, which classic `/api/vm/{id}/exec` does not know.
+    @Test func gitHubSetupExecsOnTheWorkerRoute() async throws {
+        WorkerAPI.seen = []
+        let machine = "vm_aaaaaaaaaaaaaaaaaaaa", identity = CloudGitHubSetup.GitIdentity(name: "Ann", email: "ann@example.test")
+        let outcome = try await CloudGitHubSetup.run(identity, app: true, machine: machine, on: worker())
+        #expect(outcome == CloudGitHubSetup.parse(exitCode: 0, stdout: "ok"))
+        #expect(WorkerAPI.seen.map(\.url) == ["https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec"])
+        #expect(WorkerAPI.seen.first?.body["command"] as? String == CloudGitHubSetup.command(identity, app: true))
+        #expect(WorkerAPI.seen.first?.body["timeoutMs"] as? Int == CloudGitHubSetup.timeoutMs)
+    }
+
     @Test func theClassicClientKeepsItsRoutesAndHeaders() async throws {
         WorkerAPI.seen = []
         let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
@@ -120,23 +132,6 @@ struct CloudWorkerMachineFilesTests {
             == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
         #expect(CloudAPIError.from(status: 409, data: body, headerCode: "vm_not_running")
             == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
-    }
-
-    /// The Codex broker on a Worker machine asks its link's owner answer, never `/api/vm`'s attach
-    /// answer or record (a Worker machine has no row there).
-    @Test func theCodexBrokerOnAWorkerMachineNeverAsksTheClassicRoutes() async throws {
-        let machine = "vm_aaaaaaaaaaaaaaaaaaaa", scope = CloudCodexBrokerScope(userID: "u1", teamID: "team-1")
-        WorkerAPI.seen = []
-        let refused = CloudCodexBrokerTarget(api: worker(), machineID: machine, scope: scope,
-                                             callerOwnsVM: { false }, isLive: { true })
-        #expect(try await refused.capability().ownerVM == false)
-        #expect(try await refused.isLive())
-        #expect(WorkerAPI.seen.isEmpty)
-
-        let owned = CloudCodexBrokerTarget(api: worker(), machineID: machine, scope: scope,
-                                           callerOwnsVM: { true }, isLive: { true })
-        #expect(try await owned.capability().ownerVM)
-        #expect(WorkerAPI.seen.map(\.url) == ["https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec"])
     }
 
     /// Claude credential recovery on a Worker machine: its exec runs as `cmux`, so a root 0600

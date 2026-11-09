@@ -16,15 +16,17 @@
 //
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
-import { batchLaneNotices } from "./laneNoticeBatches";
-import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
+import { batchLaneNotices, flattenInboxRows, noticeOf } from "./laneNoticeBatches";
+import { isLiveLine, PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
 
 /// The group's row id: one while any message waits.
 export const PENDING_MESSAGES_ROW_ID = "pending-messages";
 
 /// Whether `row` is another session's message the agent has not read yet in the running turn.
 export const isWaitingMessage = (row: AcpmuxRow) =>
-  row.kind === "user" && row.steer === "waiting" && row.incoming?.kind === "message";
+  row.kind === "user" &&
+  row.steer === "waiting" &&
+  (row.incoming?.kind === "message" || row.incoming?.kind === "inbox");
 
 /// A waiting message's prompt id: the queue entry's, or the steer's.
 const promptIdOf = (row: AcpmuxRow) => row.queuedMessage?.promptId ?? row.steerPromptId;
@@ -53,16 +55,26 @@ export function searchablePendingRows(
   sourceRows: readonly AcpmuxRow[],
   queuedRows: readonly AcpmuxRow[],
 ): readonly AcpmuxRow[] {
-  const all = queuedRows.length ? [...sourceRows, ...queuedRows] : sourceRows;
+  const raw = queuedRows.length ? [...sourceRows, ...queuedRows] : sourceRows;
+  const all = flattenInboxRows(raw);
   const waiting = all.filter((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row));
-  if (waiting.length < 2) return all;
+  if (waiting.length === 0) return all;
   const kept = new Set(dedupeMessages(waiting));
-  return all.filter((row) => (row.kind !== QUEUED_MESSAGE && !isWaitingMessage(row)) || kept.has(row));
+  const visible = flattenInboxRows([...kept]);
+  return all
+    .filter(
+      (row) =>
+        (row.kind !== QUEUED_MESSAGE && !isWaitingMessage(row)) || (kept.has(row) && noticeOf(row)?.kind !== "inbox"),
+    )
+    .concat(visible.filter((row) => !kept.has(row)));
 }
 
-/// The key a message's sender is grouped under.
+/// The key a message's sender is grouped under: its chat here, else what its chat is asked for by
+/// (a relayed sender's `MACHINE/SESSION`), else its name. Two machines' chats can share a name.
 export const senderKey = (row: AcpmuxRow) =>
-  row.incoming?.kind === "message" ? (row.incoming.message.sessionId ?? row.incoming.message.name) : row.id;
+  row.incoming?.kind === "message"
+    ? (row.incoming.message.sessionId ?? row.incoming.message.lookup ?? row.incoming.message.name)
+    : row.id;
 
 /// The group's messages by sender, each sender once in the order it first wrote, its messages oldest first.
 export function bySender(rows: readonly AcpmuxRow[]): { key: string; rows: AcpmuxRow[] }[] {
@@ -74,6 +86,16 @@ export function bySender(rows: readonly AcpmuxRow[]): { key: string; rows: Acpmu
     else groups.set(key, [row]);
   }
   return [...groups].map(([key, list]) => ({ key, rows: list }));
+}
+
+/// `rows`, then what waits at the transcript's end (`waiting`: the group of waiting messages, a
+/// guest's held prompt), with a running turn's live line kept the last row: the shimmer stays at
+/// the bottom, under what waits, as a held prompt already sits over it in its turn (Leo, 2026-11-03:
+/// "thinking shimmer not being at the bottom looks bad").
+export function withWaitingRows(rows: AcpmuxRow[], waiting: readonly AcpmuxRow[]): AcpmuxRow[] {
+  if (waiting.length === 0) return rows;
+  const last = rows.at(-1);
+  return last && isLiveLine(last) ? [...rows.slice(0, -1), ...waiting, last] : [...rows, ...waiting];
 }
 
 let version = 0;
@@ -90,17 +112,22 @@ export function pendingMessagesRow(
   if (members.length === 0) return undefined;
   const held = last?.pendingMessages?.rows;
   if (held && held.length === members.length && held.every((row, index) => row === members[index])) return last;
+  const flat = members.some((row) => row.inboxDelivery === true || noticeOf(row)?.kind === "inbox");
+  const flattened = flattenInboxRows(members);
+  // Inbox deliveries already form the flat message run required by the waiting card. Keep
+  // report batching out of that run so no notice/report group can nest inside the outer card.
+  const displayRows = flat ? flattened : batchLaneNotices(flattened);
   return {
     id: PENDING_MESSAGES_ROW_ID,
     version: ++version,
     at: members[0]!.at,
     kind: PENDING_MESSAGES,
     // Find counts the messages' words; the group opens for a match in one of them.
-    text: members
+    text: displayRows
       .map((row) => (row.incoming?.kind === "message" ? row.incoming.message.text : (row.text ?? "")))
       .join("\n\n"),
     untyped: true,
-    joined: members.map((row) => row.id),
-    pendingMessages: { rows: members, displayRows: batchLaneNotices(members) },
+    joined: [...members.map((row) => row.id), ...displayRows.map((row) => row.id)],
+    pendingMessages: { rows: members, displayRows, ...(flat ? { flat: true } : {}) },
   };
 }

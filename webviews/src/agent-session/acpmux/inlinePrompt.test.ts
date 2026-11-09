@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { inlineToken, type ComposerAttachment } from "./attachments";
 import type { AcpmuxRow, QueuedPrompt } from "./model";
-import { takeBackSteer } from "./conversation/PendingSteer";
+import { takeBackSteer } from "./conversation/pendingSteerModel";
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const saved = { window: scope.window, document: scope.document };
@@ -21,8 +21,11 @@ const settle = async (done: () => boolean) => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 };
-type Hooks = { answer: (method: string, params: any) => Promise<unknown>; emit: (target: string, step: any) => void };
-async function connect(hold = false, refuse = false) {
+type Hooks = {
+  answer: (method: string, params: any) => Promise<unknown>;
+  emit: (target: string, step: any) => void;
+};
+async function connect(hold = false, refuse = false, unreadable = false) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const sent: any[] = [];
@@ -39,7 +42,7 @@ async function connect(hold = false, refuse = false) {
           if (refuse) throw new Error("attachment test refused");
           return hold ? new Promise(() => undefined) : { stopReason: "end_turn" };
         }
-        if (method === "_acpmux/attachment") return { mimeType: "image/png", data: "AQID" };
+        if (method === "_acpmux/attachment") return unreadable ? {} : { mimeType: "image/png", data: "AQID" };
         return answer(method, params);
       };
     }
@@ -79,7 +82,13 @@ const movie: ComposerAttachment = {
   mimeType: "video/mp4",
   size: 12,
   path: "/tmp/clip.mp4",
-  video: { durationMs: 1000, width: 20, height: 10, poster: "data:image/jpeg;base64,AQID", frames: [] },
+  video: {
+    durationMs: 1000,
+    width: 20,
+    height: 10,
+    poster: "data:image/jpeg;base64,AQID",
+    frames: [],
+  },
 };
 const shape = (blocks: any[]) => blocks.map((block) => (block.type === "text" ? block.text : block.type));
 test("send retains ID-bound image and video order through a reply before echo", async () => {
@@ -106,7 +115,9 @@ test("send retains ID-bound image and video order through a reply before echo", 
       ],
     };
     io.emit(sent.sessionId, { mux: "user_message", msg: record });
-    await settle(() => io.rows().some((row) => row.id.startsWith("user-") && row.text === "before\nbetween\nafter"));
+    await settle(() =>
+      io.rows().some((row) => row.promptId === sent._meta.acpmux.promptId && row.text === "before\nbetween\nafter"),
+    );
     const row = io.rows().find((row) => row.text === "before\nbetween\nafter") as any;
     expect(row.inlineParts[2].companionOf).toBe(row.inlineParts[1].blockIndex);
     expect(row.inlineParts[4].video).toEqual(movie.video);
@@ -185,7 +196,9 @@ test("an inline paste goes exactly once on retry and edits keep whole tokens", a
       mux: "user_message",
       msg: { promptId: sent._meta.acpmux.promptId, text: "a\npasted\nb\nc" },
     });
-    await settle(() => io.rows().some((row) => row.id.startsWith("user-") && row.text === "a\npasted\nb\nc"));
+    await settle(() =>
+      io.rows().some((row) => row.promptId === sent._meta.acpmux.promptId && row.text === "a\npasted\nb\nc"),
+    );
     const row = io.rows().find((row) => row.text === "a\npasted\nb\nc")!;
     const draft = await io.client.resendPrompt(row.id, row.text!);
     await io.client.send(draft.input, draft.attachments);
@@ -244,17 +257,28 @@ test("queue acceptance retains ordered metadata before the prompt reply", async 
     expect(io.queue()[0].inlineParts?.[1]).toMatchObject({ video: movie.video });
     io.emit(sent.sessionId, {
       mux: "queue_updated",
-      msg: { promptId: sent._meta.acpmux.promptId, text: "removed", inlineParts: [{ kind: "text", text: "removed" }] },
+      msg: {
+        promptId: sent._meta.acpmux.promptId,
+        text: "removed",
+        inlineParts: [{ kind: "text", text: "removed" }],
+      },
     });
     await settle(() => io.queue()[0]?.prompt === "removed");
     expect(io.queue()[0].inlineParts?.some((part) => part.kind !== "text")).toBe(false);
     io.emit(sent.sessionId, {
       mux: "user_message",
-      msg: { promptId: sent._meta.acpmux.promptId, text: "removed", inlineParts: [{ kind: "text", text: "removed" }] },
+      msg: {
+        promptId: sent._meta.acpmux.promptId,
+        text: "removed",
+        inlineParts: [{ kind: "text", text: "removed" }],
+      },
     });
     await settle(() => io.rows().some((row) => row.text === "removed"));
     const row = io.rows().find((row) => row.text === "removed")!;
-    expect(await io.client.resendPrompt(row.id, row.text!)).toEqual({ input: "removed", attachments: [] });
+    expect(await io.client.resendPrompt(row.id, row.text!)).toEqual({
+      input: "removed",
+      attachments: [],
+    });
   } finally {
     io.client.close?.();
   }
@@ -276,7 +300,13 @@ test("a queued prompt keeps paste and file metadata when its transcript echo omi
         inlineParts: [
           { kind: "text", text: "look" },
           { kind: "text", text: "pasted content", pasted: true, placed: true },
-          { kind: "file", name: "notes.txt", uri: "file:///tmp/notes.txt", mimeType: "text/plain", size: 12 },
+          {
+            kind: "file",
+            name: "notes.txt",
+            uri: "file:///tmp/notes.txt",
+            mimeType: "text/plain",
+            size: 12,
+          },
           { kind: "text", text: "then" },
         ],
       },
@@ -328,10 +358,13 @@ test("strip echo Retry and Edit retain local bytes, original path and video", as
         ],
       },
     });
-    await settle(() => io.rows().some((r) => r.id.startsWith("user-") && r.text === "strip"));
-    const row = io.rows().find((r) => r.id.startsWith("user-") && r.text === "strip")!;
+    await settle(() => io.rows().some((r) => r.promptId === sent._meta.acpmux.promptId && r.text === "strip"));
+    const row = io.rows().find((r) => r.promptId === sent._meta.acpmux.promptId && r.text === "strip")!;
     expect(await io.client.resendPrompt(row.id, "strip")).toEqual({ input: "strip", attachments });
-    expect(await io.client.resendPrompt(row.id, "edited")).toEqual({ input: "edited", attachments });
+    expect(await io.client.resendPrompt(row.id, "edited")).toEqual({
+      input: "edited",
+      attachments,
+    });
   } finally {
     io.client.close?.();
   }
@@ -363,7 +396,13 @@ test("strip-mode files keep type and byte count in the actual prompt metadata an
         text: "Use this key",
         inlineParts: [
           { kind: "text", text: "Use this key" },
-          { kind: "file", name: file.name, mimeType: file.mimeType, size: 2048, uri: "file:///tmp/production-key.pem" },
+          {
+            kind: "file",
+            name: file.name,
+            mimeType: file.mimeType,
+            size: 2048,
+            uri: "file:///tmp/production-key.pem",
+          },
         ],
       },
     });
@@ -423,7 +462,7 @@ test("a placed prompt marks its attachments placed, through the echo; an unplace
         ],
       },
     });
-    const echoed = () => io.rows().find((row) => row.id.startsWith("user-") && row.text === "look");
+    const echoed = () => io.rows().find((row) => row.promptId === sent._meta.acpmux.promptId && row.text === "look");
     await settle(() => echoed() !== undefined);
     expect(echoed()!.inlineParts?.[1]).toMatchObject({ placed: true });
 
@@ -471,3 +510,47 @@ test("a mixed draft marks only the attachment it placed in the text", async () =
   ]);
   expect(placedBy(built.display)).toEqual(["one.png:true", "two.png:-"]);
 });
+// A prompt of only a document or a recording echoes with no text and no images: its recorded part
+// is what it says, so its row stays drawn with its footer, never hidden as a blank prompt.
+for (const kind of ["document", "audio"] as const) {
+  test(`a ${kind}-only echo keeps a drawn row with its recorded part`, async () => {
+    const io = await connect();
+    try {
+      await io.client.send("warm");
+      const sessionId = io.sent[0].sessionId;
+      const name = kind === "audio" ? "memo.mp3" : "spec.pdf";
+      io.emit(sessionId, {
+        mux: "user_message",
+        msg: { text: "", inlineParts: [{ kind, name, mimeType: "application/octet-stream", blockIndex: 0 }] },
+      });
+      await settle(() => io.rows().some((row) => row.inlineParts?.some((part) => part.kind === kind)));
+      const row = io.rows().find((row) => row.inlineParts?.some((part) => part.kind === kind))!;
+      expect(row.kind).toBe("user");
+      expect(row.incoming?.kind).not.toBe("hidden");
+    } finally {
+      io.client.close?.();
+    }
+  });
+}
+
+// After a reload or eviction acpmux may no longer hold a sent image's bytes. Retry then fails as a
+// whole, with the image named, instead of sending the prompt empty or without that image.
+for (const recorded of [false, true]) {
+  test(`Retry of an image-only prompt whose image cannot be read back fails${recorded ? " (recorded parts)" : ""}`, async () => {
+    const io = await connect(false, false, true);
+    try {
+      await io.client.send("warm");
+      const sessionId = io.sent[0].sessionId;
+      const image = { id: "gone-sha", mimeType: "image/png", name: "gone.png" };
+      io.emit(sessionId, {
+        mux: "user_message",
+        msg: { text: "", images: [image], ...(recorded ? { inlineParts: [{ kind: "image", ...image }] } : {}) },
+      });
+      await settle(() => io.rows().some((row) => row.images?.some((each) => each.id === "gone-sha")));
+      const row = io.rows().find((row) => row.images?.some((each) => each.id === "gone-sha"))!;
+      await expect(io.client.resendPrompt(row.id, "")).rejects.toThrow("gone.png");
+    } finally {
+      io.client.close?.();
+    }
+  });
+}

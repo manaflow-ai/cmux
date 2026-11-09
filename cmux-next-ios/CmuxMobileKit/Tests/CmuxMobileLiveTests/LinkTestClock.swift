@@ -24,6 +24,15 @@ final class LinkTestClock: Clock, @unchecked Sendable {
     func isSleeping(until deadline: Instant) -> Bool {
         lock.withLock { sleepers.contains { $0.deadline == deadline } }
     }
+    /// Every deadline has a sleeper; one listed twice needs two (two timers
+    /// can share a deadline, and the test must wait for both).
+    func isSleeping(untilAll deadlines: [Instant]) -> Bool {
+        lock.withLock {
+            deadlines.allSatisfy { deadline in
+                sleepers.filter { $0.deadline == deadline }.count >= deadlines.filter { $0 == deadline }.count
+            }
+        }
+    }
 
     func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
         let id = UUID()

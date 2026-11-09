@@ -134,3 +134,165 @@ fn a_session_capability_list_holds_only_unique_capability_tokens() {
         assert!(error.contains(refusal), "{capabilities}: {error}");
     }
 }
+
+/// Same workload before/after the fix: an app syncing 32 connected
+/// machines repeatedly. Count real WAL commits and changed SQLite rows,
+/// rather than timing an in-memory stand-in for the durable registry.
+#[test]
+fn repeated_session_puts_do_not_commit() {
+    const MACHINES: usize = 32;
+    const PUTS: usize = 1_024;
+    let root = temp_root("idle-puts");
+    let _cleanup = RemoveOnDrop(root.clone());
+    let mut registry = WorkspaceRegistry::open(&root, "idle-puts").unwrap();
+    let capabilities = capabilities_of_at_least(REPORTED_CAPABILITY_BYTES);
+    let transport = json!({"kind":"ssh","host":"build-box"});
+    let sessions: Vec<_> = (0..MACHINES).map(|i| format!("remote-{i}")).collect();
+    for session in &sessions {
+        registry
+            .put_session(
+                session,
+                Some("build-box"),
+                Some("main"),
+                &transport,
+                Some(&capabilities),
+                None,
+            )
+            .unwrap();
+    }
+    // A timestamp far in the past makes a mistaken heartbeat update
+    // observable without depending on sleeps or the clock's resolution.
+    registry.connection.get().execute("UPDATE sessions SET last_seen_ms = 1", []).unwrap();
+    let before = registry.personal_snapshot().unwrap();
+    let commits = registry.connection.durability_counts().0;
+    let rows = registry.connection.get().total_changes();
+    let started = std::time::Instant::now();
+    for i in 0..PUTS {
+        let (_, created) = registry
+            .put_session(
+                &sessions[i % MACHINES],
+                Some("build-box"),
+                Some("main"),
+                &transport,
+                Some(&capabilities),
+                None,
+            )
+            .unwrap();
+        assert!(!created);
+    }
+    let elapsed = started.elapsed();
+    let commits = registry.connection.durability_counts().0 - commits;
+    let rows = registry.connection.get().total_changes() - rows;
+    println!(
+        "session_put_workload: machines={MACHINES} puts={PUTS} wal_commits={commits} changed_rows={rows} elapsed_ms={:.3}",
+        elapsed.as_secs_f64() * 1_000.0
+    );
+    assert_eq!(commits, 0, "unchanged registrations must not append WAL frames");
+    assert_eq!(rows, 0, "unchanged registrations must not write any table");
+    assert_eq!(registry.personal_snapshot().unwrap(), before);
+}
+
+#[test]
+fn a_session_put_compares_effective_fields_and_preserves_personal_state() {
+    let mut registry = WorkspaceRegistry::in_memory("session-put-fields").unwrap();
+    let transport = json!({"kind":"ssh","host":"build-box"});
+    let capabilities = json!(["profiles-v1"]);
+    registry
+        .put_session(
+            "remote-1",
+            Some("build-box"),
+            Some("main"),
+            &transport,
+            Some(&capabilities),
+            None,
+        )
+        .unwrap();
+    registry.set_session_icon("remote-1", Some("🧪")).unwrap();
+    registry.import_session_organization("remote-1", &[], &[]).unwrap();
+    let before = registry.personal_snapshot().unwrap();
+    let (same, created) =
+        registry.put_session("remote-1", None, None, &transport, None, None).unwrap();
+    assert!(!created);
+    assert_eq!(same.icon.as_deref(), Some("🧪"));
+    assert!(same.migrated);
+    assert_eq!(registry.personal_snapshot().unwrap(), before);
+    // Validation still applies to a would-be no-op.
+    assert!(
+        registry
+            .put_session("remote-1", None, None, &transport, None, Some("prof_missing"))
+            .is_err()
+    );
+    assert!(
+        registry
+            .put_session("remote-1", None, None, &transport, Some(&json!(["Bad"])), None)
+            .is_err()
+    );
+    assert_eq!(registry.personal_snapshot().unwrap(), before);
+
+    let revisions = registry.personal_revision().unwrap() + 1..;
+    for (revision, (machine, session, transport, capabilities)) in revisions.zip([
+        (Some("renamed-box"), None, transport.clone(), None),
+        (None, Some("renamed-session"), transport.clone(), None),
+        (None, None, json!({"kind":"ssh","host":"new-host"}), None),
+        (None, None, json!({"kind":"ssh","host":"new-host"}), Some(json!([]))),
+    ]) {
+        let (record, created) = registry
+            .put_session("remote-1", machine, session, &transport, capabilities.as_ref(), None)
+            .unwrap();
+        assert!(!created);
+        assert_eq!(record.icon.as_deref(), Some("🧪"));
+        assert!(record.migrated);
+        assert_eq!(registry.personal_revision().unwrap(), revision);
+        let before_retry = registry.personal_snapshot().unwrap();
+        let (retry, _) = registry
+            .put_session("remote-1", machine, session, &transport, capabilities.as_ref(), None)
+            .unwrap();
+        assert_eq!(retry, record);
+        assert_eq!(registry.personal_snapshot().unwrap(), before_retry);
+    }
+    drop(registry);
+}
+
+/// A session whose transport flaps writes one fact per put. Each fact names
+/// the capability list by hash instead of carrying it: Leo's registry took
+/// 5.57M such puts in a week at 6.4-7.0 KB each (2026-11-09).
+#[test]
+fn a_flapping_session_put_journals_the_capability_hash_not_the_list() {
+    const PUTS: usize = 256;
+    let mut registry = WorkspaceRegistry::in_memory("session-put-fact").unwrap();
+    let capabilities = capabilities_of_at_least(REPORTED_CAPABILITY_BYTES);
+    let list_bytes = serde_json::to_string(&capabilities).unwrap().len();
+    for i in 0..PUTS {
+        let transport = json!({"kind":"ssh","host":format!("build-box-{}", i % 2)});
+        registry
+            .put_session("remote-1", Some("build-box"), None, &transport, Some(&capabilities), None)
+            .unwrap();
+    }
+    let (count, bytes, first, last): (i64, i64, String, String) = registry
+        .connection
+        .get()
+        .query_row(
+            "SELECT COUNT(*), SUM(length(payload_json)),
+                    (SELECT payload_json FROM session_journal WHERE kind = 'personal.session.put' ORDER BY sequence LIMIT 1),
+                    (SELECT payload_json FROM session_journal WHERE kind = 'personal.session.put' ORDER BY sequence DESC LIMIT 1)
+             FROM session_journal WHERE kind = 'personal.session.put'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap();
+    let per_put = usize::try_from(bytes).unwrap() / usize::try_from(count).unwrap();
+    println!(
+        "session_put_fact: puts={count} journal_bytes={bytes} per_put={per_put} capability_list_bytes={list_bytes}"
+    );
+    assert_eq!(usize::try_from(count).unwrap(), PUTS);
+    assert!(per_put < 1_024, "a put journals {per_put} bytes; the list is {list_bytes}");
+    let first: Value = serde_json::from_str(&first).unwrap();
+    let last: Value = serde_json::from_str(&last).unwrap();
+    assert_eq!(first["capabilities_changed"], json!(true));
+    assert_eq!(last["capabilities_changed"], json!(false));
+    assert_eq!(first["capabilities_sha256"], last["capabilities_sha256"]);
+    assert_eq!(last["session"]["capabilities"], Value::Null);
+    // The row keeps the whole list for restore.
+    let stored = super::read_session(&registry.connection.get(), "remote-1").unwrap().unwrap();
+    assert_eq!(stored.capabilities.as_ref(), Some(&capabilities));
+}

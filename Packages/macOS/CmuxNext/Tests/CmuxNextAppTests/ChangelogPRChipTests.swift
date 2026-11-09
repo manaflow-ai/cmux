@@ -77,12 +77,20 @@ import Testing
         #expect(reply == ["pullRequest": .null, "reading": .bool(false)])
     }
 
-    @Test(arguments: ["https://example.com/o/r/pull/1", "https://github.com/o/r/issues/1", "http://github.com/o/r/pull/1",
+    @Test(arguments: ["https://example.com/o/r/pull/1", "https://github.com/o/r/issues/1/files", "http://github.com/o/r/pull/1",
                       "https://github.com/o/r/pull/1?x=1", "javascript:alert(1)", ""])
-    func prInspectRefusesAnythingButAPullRequest(_ url: String) async throws {
+    func prInspectRefusesAnythingButAPullRequestOrIssue(_ url: String) async throws {
         let rig = Rig()
         await #expect(throws: PageError.self) { _ = try await rig.call("pr.inspect", ["url": .string(url)]) }
         #expect(rig.asked.isEmpty)
+    }
+
+    /// An issue link's card asks too (Leo 2026-11-08: an issue's card showed only its link), by the
+    /// same plain-URL rule as a pull request's.
+    @Test func prInspectTakesAnIssue() async throws {
+        let rig = Rig()
+        _ = try await rig.call("pr.inspect", ["url": .string("https://github.com/o/r/issues/1")])
+        #expect(rig.asked == [try #require(URL(string: "https://github.com/o/r/issues/1"))])
     }
 
     // MARK: browser.list and browser.openIn

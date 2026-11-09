@@ -47,7 +47,7 @@ const pathTitled: Project[] = [
 
 // The new chat's hero picker (EmptyState: inline, opening below the question) in no project, over
 // projects whose folders have app icons (Leo, "why is this all misaligned in the agent chat project
-// selectin"): the glyphs of Do not work in a project and New project, and each app icon, sit in one
+// selectin"): the glyphs of No folder and Add folder…, and each app icon, sit in one
 // icon column, with every title on one text inset.
 const appIcon = (fill: string, mark: string) =>
   "data:image/svg+xml;base64," +
@@ -178,7 +178,7 @@ export default componentEntry<Props>({
       play: open,
     },
     "open-path-titled": {
-      note: 'A folder titled by its own path (Leo, ":( alignemnt"): Do not work in a project, New project and the folder share one icon column and one text inset, the folder shows its path once, and a hairline splits the actions from the folders.',
+      note: 'A folder titled by its own path (Leo, ":( alignemnt"): No folder, Add folder… and the folder share one icon column and one text inset, the folder shows its path once, and a hairline splits the actions from the folders.',
       props: {
         projects: pathTitled,
         current: pathTitled[0]!.cwd,
@@ -191,7 +191,7 @@ export default componentEntry<Props>({
       play: open,
     },
     "open-app-icons": {
-      note: 'The new chat\'s hero picker in no project (Leo, "why is this all misaligned in the agent chat project selectin"): Do not work in a project (checked), New project and three projects with app icons share one 16px icon column and one text inset.',
+      note: 'The new chat\'s hero picker in no project (Leo, "why is this all misaligned in the agent chat project selectin"): No folder (checked), Add folder… and three projects with app icons share one 16px icon column and one text inset.',
       props: { ...hero, projects: appProjects, noProject: true, onNoProject: () => undefined },
       chipHost: { projectIcons: appIcons },
       play: open,
@@ -235,6 +235,22 @@ export default componentEntry<Props>({
           ctx.document.querySelector<HTMLInputElement>('[role="combobox"]')?.value.includes("/home/you/src/atlas-web"),
         );
       },
+    },
+    "machine-tags": {
+      note: "Projects on three machines (Leo, \"we can have them be delineated rather than just this is a computer symbol\"): each other machine's projects carry its computer in that machine's own color and its name, and this Mac's carry none.",
+      props: {
+        projects: [
+          { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
+          { cwd: "/home/you/src/relay", label: "relay", host: "linux-box", peer: "linux-box" },
+          { cwd: "/home/you/src/ml-train", label: "ml-train", host: "gpu-box", peer: "gpu-box" },
+          { cwd: "/workspace/api-server", label: "api-server", host: "build-box", peer: "build-box" },
+        ],
+        current: "/Users/you/src/atlas-web",
+        currentLabel: "atlas-web",
+        icon,
+        onPick: () => undefined,
+      },
+      play: open,
     },
     "no-matches": {
       note: "A query with no results shows the quiet empty state without changing the anchor.",

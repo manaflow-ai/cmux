@@ -5,9 +5,13 @@ is reported as failed with its valid count, never as a median over the opens tha
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
+import tempfile
 import types
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
@@ -34,6 +38,29 @@ def load_bench(*args):
     return module
 
 
+def subagent_turn(sid, count, drop=None):
+    """A subagents turn as acpmux stores it (`{"seq","at","dir","kind","msg"}` lines): each child's spawn,
+    its thought and calls under its own session id, its completion, then the chat's reply. A `drop` child
+    has no spawn line."""
+    def update(session, body):
+        return {"seq": 0, "at": 0, "dir": "in", "kind": "notification",
+                "msg": {"method": "session/update", "params": {"sessionId": session, "update": body}}}
+
+    lines = [update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Splitting."}})]
+    for k in range(count):
+        child = f"{sid}-sub-{k}"
+        if k != drop:
+            lines.append(update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": child, "name": f"Auditor {k}"}))
+        lines.append(update(child, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": f"Reading area {k} first."}}))
+        lines.append(update(child, {"sessionUpdate": "tool_call", "toolCallId": f"{child}-c0", "status": "completed"}))
+    for k in range(count):
+        lines.append(update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": f"{sid}-sub-{k}", "state": "completed"}))
+    lines.append(update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Every subagent reported."}}))
+    for seq, line in enumerate(lines, 1):
+        line["seq"] = seq
+    return lines
+
+
 class FakeApp:
     def __init__(self, replies):
         self.replies = replies
@@ -46,6 +73,84 @@ class FakeApp:
 
 def open_(first, empty=0.0, **extra):
     return {"first_content_ms": first, "longest_empty_ms": empty, "flashes": 0, **extra}
+
+
+
+class SubagentClickTests(unittest.TestCase):
+    class Run:
+        """`debug.agent_pane click` as the app answers it (DebugAgentPaneClick.click): `text` or `selector` names
+        the element; one the page does not show answers "no visible element matches". `chat_state` answers with an
+        empty state. (`hover` takes a point, never a selector, so the bench never asks it by selector.)"""
+        def __init__(self, shown):
+            self.shown, self.clicked = shown, []
+
+        def rpc(self, method, params=None, timeout=40):
+            assert method == "debug.agent_pane"
+            if params["action"] == "chat_state":
+                return {"pane": "p"}
+            target = params.get("text") or params.get("selector")
+            assert target and params["action"] == "click"
+            self.clicked.append(target)
+            if target not in self.shown:
+                return {"pane": "p", "error": "no visible element matches"}
+            return {"pane": "p", "clicked": True, "x": 1.0, "y": 2.0}
+
+    def test_clicks_the_newest_subagent_the_chat_shows(self):
+        bench = load_bench("--runs=3")
+        # The chat holds Auditor 0..3; this build renders only 0 and 2.
+        run = self.Run({"Auditor 0", "Auditor 2"})
+        reply = bench.click_subagent(run)
+        self.assertEqual(run.clicked, ["Auditor 3", bench.subagent_task(3), "Auditor 2"])
+        self.assertEqual(reply["subagent"], "Auditor 2")
+        self.assertIs(reply["clicked"], True, "the app's own clicked flag is kept")
+        self.assertNotIn("error", reply)
+
+    def test_an_older_rendered_line_still_opens(self):
+        bench = load_bench("--runs=3")
+        run = self.Run({"Auditor 0"})
+        self.assertEqual(bench.click_subagent(run)["subagent"], "Auditor 0")
+
+    def test_a_line_named_by_its_task_is_clicked_by_its_task(self):
+        # Since 2026-11-04 the tray and a finished line read the task first: no element is the name alone.
+        bench = load_bench("--runs=3")
+        run = self.Run({bench.subagent_task(1)})
+        reply = bench.click_subagent(run)
+        self.assertEqual(reply["subagent"], bench.subagent_task(1))
+        self.assertIs(reply["clicked"], True)
+
+    def test_a_line_matched_by_no_text_is_clicked_by_its_selector(self):
+        bench = load_bench("--runs=3")
+        run = self.Run({bench.SUBAGENT_LINES[1]})
+        reply = bench.click_subagent(run)
+        self.assertEqual(run.clicked[-2:], list(bench.SUBAGENT_LINES))
+        self.assertEqual(reply["subagent"], bench.SUBAGENT_LINES[1])
+
+    def test_no_shown_line_keeps_the_error_and_says_what_the_page_shows(self):
+        bench = load_bench("--runs=3")
+        run = self.Run({".cv-tool"})
+        reply = bench.click_subagent(run)
+        self.assertEqual(reply["error"], "no visible element matches")
+        self.assertEqual(set(reply["probe"]), {"chat_state"})
+
+    def test_a_finished_turns_closed_group_opens_before_the_click(self):
+        # The seeded chat's subagents all ended, so their group starts closed and none of their lines is in the page.
+        bench = load_bench("--runs=3")
+        run = self.Run({bench.GROUP_TOGGLE})
+        answer = run.rpc
+
+        def rpc(method, params=None, timeout=40):
+            reply = answer(method, params, timeout)
+            if params.get("selector") == bench.GROUP_TOGGLE and reply.get("clicked"):
+                run.shown.discard(bench.GROUP_TOGGLE)
+                run.shown.add(bench.SUBAGENT_LINES[0])
+            return reply
+
+        run.rpc = rpc
+        with mock.patch.object(bench.time, "sleep"):
+            self.assertEqual(bench.open_subagent_groups(run), 1)
+        reply = bench.click_subagent(run)
+        self.assertEqual(reply["subagent"], bench.SUBAGENT_LINES[0])
+        self.assertIs(reply["clicked"], True)
 
 
 class SummaryTests(unittest.TestCase):
@@ -63,7 +168,7 @@ class SummaryTests(unittest.TestCase):
         self.assertFalse(summary["complete"])
         self.assertEqual((summary["n"], summary["ok"]), (3, 2))
         self.assertIsNone(summary["first_content_ms"]["median"])
-        self.assertEqual(cos.cell(summary, "sidebar"), "FAILED (2/3 valid)")
+        self.assertEqual(cos.cell(summary, "sidebar"), "FAILED (2/3 valid; timed_out 1)")
 
     def test_timed_out_open_with_numbers_still_fails_the_case(self):
         # The trace gave up but still reported the times it had: they are not the open's.
@@ -71,15 +176,41 @@ class SummaryTests(unittest.TestCase):
         summary = cos.summarize([open_(100), open_(200), slow])
         self.assertFalse(summary["complete"])
         self.assertEqual((summary["n"], summary["ok"], summary["timed_out"]), (3, 2, 1))
-        self.assertEqual(cos.cell(summary, "big"), "FAILED (2/3 valid)")
+        self.assertEqual(cos.cell(summary, "big"), "FAILED (2/3 valid; timed_out 1)")
         errored = cos.summarize([open_(100), open_(120, error="wait: closed")])
-        self.assertEqual(cos.cell(errored, "subagent"), "FAILED (1/2 valid)")
+        self.assertEqual(cos.cell(errored, "subagent"), "FAILED (1/2 valid; error 1)")
 
     def test_missing_empty_time_is_missing_not_zero(self):
         summary = cos.summarize([open_(100, 50), {"first_content_ms": 120, "flashes": 0}])
         self.assertFalse(summary["complete"])
         self.assertIsNone(summary["longest_empty_ms"])
-        self.assertEqual(cos.cell(summary, "restore"), "FAILED (1/2 valid)")
+        self.assertEqual(cos.cell(summary, "restore"), "FAILED (1/2 valid; no_empty_time 1)")
+
+    def test_an_open_with_no_content_that_did_not_time_out_is_invalid_as_no_content(self):
+        # #32448's step 3bbdee10: the loading watchdog ended the wait (pane_painted/loading_left with no
+        # web paint, after the trace's frame cap), so the trace said timed_out false with no first content.
+        blank = {"timed_out": False, "first_content_ms": None, "longest_empty_ms": 4800.0, "frame_count": 400,
+                 "marks_ms": {"spare_adopted": 40.0, "pane_painted": 900.0}}
+        self.assertEqual(cos.invalid_reason(blank), "no_content")
+        self.assertEqual(cos.invalid_reason({**blank, "timed_out": True}), "timed_out")
+        self.assertEqual(cos.invalid_reason(open_(100, frame_count=0)), "no_frames")
+        self.assertIsNone(cos.invalid_reason(open_(100, frame_count=12)))
+        summary = cos.summarize([open_(100), blank, blank])
+        self.assertFalse(summary["complete"])
+        self.assertEqual((summary["ok"], summary["timed_out"], summary["no_first_content"]), (1, 0, 2))
+        self.assertEqual(summary["invalid"], {"no_content": 2})
+        self.assertEqual(cos.cell(summary, "sidebar"), "FAILED (1/3 valid; no_content 2)")
+
+    def test_marks_medians_cover_every_open_that_ran_the_mark_even_when_incomplete(self):
+        # An incomplete case once reported marks_median_ms {}, which hid spare_adopted on 21 of 24 opens.
+        blank = {"timed_out": False, "first_content_ms": None, "longest_empty_ms": 4800.0,
+                 "marks_ms": {"spare_adopted": 30.0, "web_paint": None}}
+        summary = cos.summarize([open_(100, marks_ms={"spare_adopted": 10.0, "web_paint": 90.0}),
+                                 open_(200, marks_ms={"spare_adopted": 20.0, "web_paint": 190.0}),
+                                 blank, {"error": "arm: None", "marks_ms": {"spare_adopted": 999.0}}])
+        self.assertFalse(summary["complete"])
+        self.assertEqual(summary["marks_median_ms"], {"spare_adopted": 20.0, "web_paint": 140.0})
+        self.assertEqual(summary["marks_n"], {"spare_adopted": 3, "web_paint": 2})
 
     def test_error_and_empty_cases_fail(self):
         self.assertFalse(cos.summarize([{"error": "arm: None"}])["complete"])
@@ -154,6 +285,181 @@ class TableTests(unittest.TestCase):
         table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {"idle": {"sidebar": ok}}})
         self.assertNotIn("FAILED:", table)
         self.assertEqual(sum("FAILED" in line for line in table.splitlines()), 1)  # the legend's one mention
+
+
+
+class ClickRowTests(unittest.TestCase):
+    """The click cases read workspace ids from debug.sidebar_rows, whose keys are SidebarRowKey descriptions."""
+
+    def test_workspace_id_reads_the_row_key(self):
+        bench = load_bench()
+        self.assertEqual(bench.workspace_id({"key": "workspace(ws_1a2b)"}), "ws_1a2b")
+        self.assertEqual(bench.workspace_id({"key": "workspace(mac:ws_1a2b)"}), "mac:ws_1a2b")
+        self.assertIsNone(bench.workspace_id({"key": "group(grp_1)"}))
+        self.assertIsNone(bench.workspace_id({"key": "item(home)"}))
+        self.assertIsNone(bench.workspace_id(None))
+
+    def test_shown_workspace_makes_one_when_home_is_shown(self):
+        bench = load_bench()
+        calls = []
+        replies = [{"windows": [{"rows": [{"key": "item(home)", "selected": True}]}]},
+                   {"windows": [{"rows": [{"key": "item(home)", "selected": False},
+                                          {"key": "workspace(ws_new)", "selected": True}]}]}]
+
+        class Run:
+            app = types.SimpleNamespace(action=lambda name, **kw: calls.append(name) or {})
+
+            def rpc(self, method, params=None, timeout=40):
+                return replies.pop(0) if len(replies) > 1 else replies[0]
+
+        self.assertEqual(bench.shown_workspace(Run()), "ws_new")
+        self.assertEqual(calls, ["workspace.newAtBottom"])
+
+
+class SeedCacheTests(unittest.TestCase):
+    """seed() writes each template once on the seeding daemon and caches it; a second run (another
+    arm) reads it back and starts no daemon, and still copies fresh ids into a fresh store."""
+
+    class Peer:
+        started = 0
+        sends = 0
+
+        def __init__(self, app, root, agent):
+            self.home = os.path.join(root, "peer")
+            self.chats = {}
+
+        def start(self):
+            type(self).started += 1
+
+        def stop(self):
+            pass
+
+        def _chat(self, texts):
+            sid = str(uuid.uuid4())
+            self.chats[sid] = {"id": sid, "meta": json.dumps({"id": sid}).encode(),
+                               "events": {"000000.ndjson": "".join(f'{{"sid": "{sid}", "t": "{t}"}}\n' for t in texts).encode()}}
+            return sid
+
+        def new_chat(self, text):
+            return self._chat([text])
+
+        # How the seeding daemon writes a subagents turn: what chat_open_agent.py's `subagents` sends, one stored
+        # line each. `drop` names a child whose spawn the log lacks, as the bad 328 KB template of 2026-11-05 did
+        # (its children's work drew as the chat's own); `bad` says how many turns write it so.
+        bad = 0
+
+        def acpmux(self, *args, timeout=None):
+            type(self).sends += 1
+            chat = self.chats[args[1]]
+            text = args[2]
+            if text.startswith("subagents:"):
+                lines = subagent_turn(args[1], int(text[10:]), drop=0 if type(self).bad > 0 else None)
+                type(self).bad -= 1
+            else:
+                lines = [{"sid": args[1], "t": text}]
+            chat["events"]["000000.ndjson"] += "".join(json.dumps(line) + "\n" for line in lines).encode()
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        def templates(self):
+            return self.chats[self._chat(["answered"])], self.chats[self._chat(["closed"])]
+
+    def fake_icl(self):
+        def private_write(path, data):
+            with open(path, "wb") as handle:
+                handle.write(data)
+
+        return types.SimpleNamespace(
+            PeerDaemon=self.Peer, bundled_acpmux=lambda app: __file__,
+            read_chat=lambda home, sid: dict(self.peer_chats()[sid]),
+            seed_store=lambda home, count, share, answered, closed: {"sessions": count},
+            private_dir=lambda path: os.makedirs(path, exist_ok=True), private_write=private_write)
+
+    def peer_chats(self):
+        return self.last_peer.chats
+
+    def run_seed(self, *flags):
+        bench = load_bench("--conditions", "idle", "--cases", "big", "--runs", "1", "--turns", "5", "--small-turns", "3", *flags)
+        bench.icl = self.fake_icl()
+        real = self.Peer.__init__
+        test = self
+
+        def init(peer, *args):
+            real(peer, *args)
+            test.last_peer = peer
+
+        root = tempfile.mkdtemp(dir=self.tmp.name)
+        with mock.patch.object(self.Peer, "__init__", init), \
+                mock.patch.dict(os.environ, {"CMUX_BENCH_SEED_CACHE": os.path.join(self.tmp.name, "cache")}):
+            home, per, seeded = bench.seed(root)
+        return home, per, seeded
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.Peer.started = self.Peer.sends = self.Peer.bad = 0
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def big_events(self, home, per):
+        with open(os.path.join(home, "sessions", per["idle"]["big"][0], "events", "000000.ndjson"), "rb") as handle:
+            return handle.read()
+
+    def test_the_second_run_reads_the_cache_and_starts_no_daemon(self):
+        home, per, first = self.run_seed()
+        self.assertEqual(first["seed_cache"], {"small": "miss", "subagent": "miss", "big": "miss", "store": "miss"})
+        self.assertEqual(self.Peer.started, 1)
+        sends = self.Peer.sends
+        cold = self.big_events(home, per)
+        home2, per2, second = self.run_seed()
+        self.assertEqual(second["seed_cache"], {"small": "hit", "subagent": "hit", "big": "hit", "store": "hit"})
+        self.assertEqual((self.Peer.started, self.Peer.sends), (1, sends))
+        self.assertNotEqual(per["idle"]["big"], per2["idle"]["big"])  # fresh ids per run: every open stays cold
+        warm = self.big_events(home2, per2)
+        self.assertEqual(warm.replace(per2["idle"]["big"][0].encode(), b"ID"), cold.replace(per["idle"]["big"][0].encode(), b"ID"))
+        self.assertEqual(warm.count(b"turn: "), 5)
+
+    def test_no_seed_cache_seeds_again_and_writes_nothing(self):
+        _home, _per, seeded = self.run_seed("--no-seed-cache")
+        self.assertEqual(set(seeded["seed_cache"].values()), {"off"})
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "cache")))
+        self.run_seed("--no-seed-cache")
+        self.assertEqual(self.Peer.started, 2)
+
+    def test_a_subagent_template_whose_child_has_no_spawn_is_seeded_again(self):
+        self.Peer.bad = 1
+        _home, _per, seeded = self.run_seed("--no-seed-cache")
+        self.assertEqual(self.Peer.bad, -1)  # the subagents turn ran twice, the second one good
+        self.assertIn("seeded again", seeded["subagent_template"])
+        self.assertIn("before its spawn", seeded["subagent_template"])
+
+    def test_a_subagent_template_bad_on_every_seed_stops_the_bench_as_seed_invalid(self):
+        self.Peer.bad = 99
+        with self.assertRaises(SystemExit) as stopped:
+            self.run_seed("--no-seed-cache")
+        self.assertIn("seed invalid", str(stopped.exception))
+
+    def test_a_bad_cached_subagent_template_is_never_used(self):
+        self.Peer.bad = 99
+        with self.assertRaises(SystemExit):
+            self.run_seed()  # the bad seeds are never cached
+        self.Peer.bad = 0
+        _home, _per, seeded = self.run_seed()
+        self.assertEqual(seeded["seed_cache"]["subagent"], "miss")
+        self.assertEqual(seeded["subagent_template"], "ok")
+
+    def test_a_good_subagent_template_passes(self):
+        bench = load_bench("--runs", "5")
+        sid = "chat-1"
+        events = "".join(json.dumps(line) + "\n" for line in subagent_turn(sid, 6)).encode()
+        self.assertIsNone(bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
+        events = "".join(json.dumps(line) + "\n" for line in subagent_turn(sid, 6, drop=3)).encode()
+        self.assertIn("before its spawn", bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
+        self.assertIn("spawned 5 of 6", bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
+
+    def test_a_new_turn_count_seeds_only_the_big_chat(self):
+        self.run_seed()
+        _home, _per, seeded = self.run_seed("--turns", "6")
+        self.assertEqual(seeded["seed_cache"], {"small": "hit", "subagent": "hit", "big": "miss", "store": "hit"})
 
 
 if __name__ == "__main__":

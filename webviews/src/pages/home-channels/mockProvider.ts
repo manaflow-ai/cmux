@@ -4,6 +4,7 @@
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { MockPageStreams } from "../shared/pageStreams";
 import { threadOf } from "./model";
+import { fixtureRank, type PaletteRankRequest } from "./paletteRank";
 import {
   HomeOps,
   type HomeAttachment,
@@ -772,7 +773,16 @@ export class MockHomeProvider implements PageClient {
           conversation: id,
           pinned,
           markedUnread,
-          ...(pinned ? { pinPosition: op === HomeOps.pin && !current.pinned ? Date.now() : current.pinPosition } : {}),
+          ...(pinned
+            ? {
+                pinPosition:
+                  op === HomeOps.pin && typeof params.position === "number"
+                    ? params.position
+                    : op === HomeOps.pin && !current.pinned
+                      ? Date.now()
+                      : current.pinPosition,
+              }
+            : {}),
         };
         const updated = { ...current, pinned, markedUnread, pinPosition: change.pinPosition };
         this.data.conversations[index] = updated;
@@ -838,7 +848,26 @@ export class MockHomeProvider implements PageClient {
         return {} as R;
       }
       case HomeOps.capabilities:
-        return { start: true, invite: true, chiefs: true } as R;
+        return { start: true, invite: true, chiefs: true, chiefWork: true } as R;
+      case HomeOps.chiefWork:
+        if (!this.chiefs.has(String(params.chief))) throw pageError("cmux.page.invalid_params", "unknown Chief");
+        return {
+          agents: [
+            { id: "builder", name: "Builder", state: "working", task: "Build a hello page" },
+            { id: "reviewer", name: "Reviewer", state: "waiting", task: "Review the finished preview" },
+          ],
+          tasks: [
+            {
+              id: "builder/preview",
+              sessionId: "builder",
+              title: "Preview server",
+              command: "bun run dev",
+              status: "running",
+            },
+          ],
+          taskSources: ["harness"],
+          truncated: false,
+        } as R;
       case HomeOps.directory:
         return { people: this.directory() } as R;
       case HomeOps.startConversation: {
@@ -896,6 +925,11 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.chiefAvatar:
         return { avatar: this.pictures.get(String(params.chief)) ?? null } as R;
+      case HomeOps.avatar:
+        return { avatar: this.pictures.get(String(params.participant)) ?? null } as R;
+      case HomeOps.paletteRank:
+        // The fixture ranker (a case-insensitive substring filter in row order), not the daemon's.
+        return fixtureRank(params as unknown as PaletteRankRequest) as R;
       case "cmux.chief.profile.list":
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         return {

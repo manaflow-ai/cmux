@@ -64,8 +64,10 @@ extension AuthCoordinator {
             ))
             return
         }
+        #endif
 
-        if autoLoginCredentials != nil {
+        // After the DEBUG-only mock and fixture states, as before; a capture build (`environmentAutoLogin`) too.
+        if launch.environmentAutoLogin, autoLoginCredentials != nil {
             authLog.debug("Auto-login credentials detected")
             apply(.primed(
                 clearAuthRequested: false,
@@ -78,7 +80,6 @@ extension AuthCoordinator {
             ))
             return
         }
-        #endif
 
         apply(.primed(
             clearAuthRequested: false,
@@ -168,18 +169,19 @@ extension AuthCoordinator {
             }
             return
         }
+        #endif
 
-        if let credentials = autoLoginCredentials,
+        if launch.environmentAutoLogin,
+           let credentials = autoLoginCredentials,
            AuthLaunchOptions.shouldStartAutoLogin(
                hasCredentials: true,
                hasStoredTokens: hasStoredTokens
            ),
            credentials.email.isEmpty == false {
-            authLog.debug("Starting auto-login")
+            authLog.info("Starting auto-login")
             await performAutoLogin(credentials, generation: generation, storeWriteHighWater: storeWriteHighWater)
             return
         }
-        #endif
 
         if hasStoredTokens {
             sessionCache.setHasTokens(true)
@@ -255,14 +257,18 @@ extension AuthCoordinator {
                 authLog.info("Auto-login superseded by a newer session transition; leaving state untouched")
                 return
             }
-            authLog.error("Auto-login failed: \(error.localizedDescription, privacy: .private)")
+            // The kind (type, domain, code) is public: a launch that never signed in from its credentials
+            // file says which step refused it, while the message, which can name the account, stays private.
+            let kind = error as NSError
+            authLog.error("Auto-login failed (\(String(describing: type(of: error)), privacy: .public) \(kind.domain, privacy: .public) \(kind.code, privacy: .public)): \(error.localizedDescription, privacy: .private)")
             // No expected refresh token: auto-login only starts against an
             // empty token store, so there is no dead session's token to
             // compare against; the staleness guards inside cover the rest.
             await clearStaleSessionState(
                 generation: generation,
                 storeWriteHighWater: storeWriteHighWater,
-                expectedRefreshToken: nil
+                expectedRefreshToken: nil,
+                reason: "auto-login failed"
             )
         }
     }
@@ -281,17 +287,32 @@ extension AuthCoordinator {
                 await applySignedInUser(user, publication: .revalidation)
                 return
             }
-            authLog.info("Cached session validation returned no current user")
-            // Snapshot the dead session's refresh token right before the
-            // clear so the clear can be compare-and-clear at the token store.
-            let expectedRefreshToken = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+            // Stack answers a nil user for every `/users/me` failure, a dropped
+            // or timed-out request included, so a nil user alone is not a dead
+            // session. The live token store decides, as in the catch below: the
+            // SDK deletes the refresh token only when Stack definitively rejects
+            // it, so a surviving one means this was a transient failure and the
+            // cached session stays. Clearing here signed users out on a network
+            // blip during launch restore.
+            let survivingRefreshToken = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
                 await client.refreshToken()
             }
             guard generation == sessionGeneration else { return }
+            if survivingRefreshToken != nil {
+                authLog.error(
+                    "Cached session validation returned no current user but a refresh token survives; preserving cached session"
+                )
+                preserveCachedSessionAfterValidationFailure()
+                return
+            }
+            authLog.error(
+                "Cached session validation returned no current user and no refresh token survives; routing to login"
+            )
             await clearStaleSessionState(
                 generation: generation,
                 storeWriteHighWater: storeWriteHighWater,
-                expectedRefreshToken: expectedRefreshToken
+                expectedRefreshToken: nil,
+                reason: "validation returned no current user and no refresh token survives"
             )
         } catch {
             // Same staleness rule for the failure paths: a stale clear here
@@ -337,7 +358,8 @@ extension AuthCoordinator {
                 await clearStaleSessionState(
                     generation: generation,
                     storeWriteHighWater: storeWriteHighWater,
-                    expectedRefreshToken: nil
+                    expectedRefreshToken: nil,
+                    reason: "validation failed and no refresh token survives"
                 )
                 return
             }
@@ -352,7 +374,8 @@ extension AuthCoordinator {
                 await clearStaleSessionState(
                     generation: generation,
                     storeWriteHighWater: storeWriteHighWater,
-                    expectedRefreshToken: survivingRefreshToken
+                    expectedRefreshToken: survivingRefreshToken,
+                    reason: "validation failed with a session-clearing error"
                 )
             case .preserveCachedSession:
                 preserveCachedSessionAfterValidationFailure()
@@ -385,12 +408,19 @@ extension AuthCoordinator {
     /// compare against; the clear falls back to unconditional, where the
     /// only exposure is a refresh-less store racing a sign-in's write
     /// (anomalous: the SDK always persists a refresh token with a session).
+    ///
+    /// `reason` is logged at error level when the clear goes ahead, so every
+    /// sign-out this triggers leaves a record of why.
     func clearStaleSessionState(
         generation: UInt64,
         storeWriteHighWater: UInt64,
-        expectedRefreshToken: String?
+        expectedRefreshToken: String?,
+        reason: String = "unspecified"
     ) async {
         guard tokenStoreWriteHighWater == storeWriteHighWater else { return }
+        authLog.error(
+            "Clearing stale session state reason=\(reason, privacy: .public) compareAndClear=\(expectedRefreshToken != nil, privacy: .public)"
+        )
         if let expectedRefreshToken {
             await client.clearLocalSession(ifRefreshTokenMatches: expectedRefreshToken)
         } else {

@@ -2,6 +2,7 @@ import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Foundation
 
@@ -87,11 +88,14 @@ extension AppActions {
                 return
             }
             let work = ActionWork {
-                guard let reason = await services.home.archiveChief(chief) else { return nil }
+                guard let reason = await services.home.directory.archiveChiefReason(chief) else { return nil }
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
-            registry.track(work)
+            registry.trackOrRefuse(work)
         })
+        // The primary Chief (texts to the cmux line reach it): Settings' Primary row and `cmux chief primary`.
+        // action-wait-allow: the account decides (the name may match no Chief); the flag lives only on the account's record
+        registry.bindEffect("home.setPrimaryChief", effect: { invocation in let chief = invocation["chief"]?.stringValue; return .waiting(.network) { await services.home.directory.setPrimaryChiefWork(chief) } })
         registry.bind("home.deleteChief", invoke: { invocation in
             guard let chief = invocation["chief"]?.stringValue, !chief.isEmpty else {
                 registry.refuse(HomeStrings.deleteFailed)
@@ -101,7 +105,7 @@ extension AppActions {
                 guard let reason = await services.home.deleteChief(chief) else { return nil }
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
-            registry.track(work)
+            registry.trackOrRefuse(work)
         })
         // Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [ on Home: the next or previous conversation in
         // the list, wrapping as a pane's tabs do; opening it gives its message box the keyboard.

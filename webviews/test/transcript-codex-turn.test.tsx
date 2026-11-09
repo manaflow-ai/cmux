@@ -10,7 +10,7 @@ import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow"
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { callDescription } from "../src/agent-session/acpmux/direct";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const shell = (id: string, extra: Partial<Tool> = {}): AcpmuxActivity => ({
@@ -41,18 +41,14 @@ const words = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-test("folded thoughts use the shared trailing chevron grid", async () => {
+test("folded thoughts use the shared inline disclosure gap", async () => {
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
-  expect(
-    /\.cv-thought\.is-toggle \{\s*display: grid;\s*grid-template-columns: auto minmax\(0, 1fr\) auto var\(--cv-disclosure-slot\);/.test(
-      css,
-    ),
-  ).toBe(true);
-  const chevron = css.match(/\.cv-tool__chevron \{([^}]+)\}/)?.[1];
-  expect(chevron).toMatch(/grid-column: 4;/);
-  expect(chevron).toMatch(/justify-self: end;/);
+  expect(css).toMatch(/--cv-disclosure-gap: var\(--ds-space-1, 4px\)/);
+  expect(css).toMatch(
+    /\.cv-tool__chevron \{[\s\S]*margin-inline-start: calc\(var\(--cv-disclosure-gap\) - var\(--cv-tool-gap\)\)/,
+  );
 });
 
 test("a finished run that is one group folds to its closed line", () => {
@@ -67,19 +63,22 @@ test("a finished run that is one group folds to its closed line", () => {
   expect(listed).toContain('aria-expanded="true"');
 });
 
-test("a command reads as its description, the raw line only in its Shell block", () => {
+test("a known command reads as what it did without the setup, read off the command, not its description", () => {
   const html = renderToStaticMarkup(
     <CommandRow item={shell("x", { command: 'export PATH="/a:$PATH"; bun test', description: "Run the web tests" })} />,
   );
-  expect(words(html)).toContain("Run the web tests");
+  // Leo, 2026-11-07: "you ran a specific thing" (commandActions.ts); the table reads what ran.
+  expect(words(html)).toContain("Ran tests with bun");
+  expect(words(html)).not.toContain("Run the web tests");
   expect(html).not.toContain("export PATH");
   const plain = renderToStaticMarkup(<CommandRow item={shell("y")} />);
   expect(words(plain)).toContain("Ran echo y");
 });
 
-test("a lone shell call reads as its description, and never as the bare tool name", () => {
+test("a lone shell call the table does not know reads as its description, else its command, never the bare tool name", () => {
   const described = renderToStaticMarkup(<ToolRow item={shell("x", { description: "List the build folder" })} />);
   expect(words(described)).toContain("List the build folder");
+  expect(words(renderToStaticMarkup(<ToolRow item={shell("x")} />))).toContain("Ran echo x");
   const bare = renderToStaticMarkup(<ToolRow item={shell("y", { command: undefined })} />);
   expect(words(bare)).toContain("Ran a command");
   expect(words(bare)).not.toMatch(/\bBash\b/);
@@ -122,8 +121,9 @@ test("the check and time show only on hover or focus; the failure mark always", 
 });
 
 // Leo (2026-10-21): "let's only show the green/red checkmark + time on hover for ours". A failed
-// call that is not a shell still says so in red at rest; a running one keeps its spinner.
-test("a failed tool call keeps its red mark at rest; a running one its spinner", () => {
+// call that is not a shell still says so in red at rest. A running one shows no spinner (Leo,
+// 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT").
+test("a failed tool call keeps its red mark at rest; a running one no spinner", () => {
   const failed = renderToStaticMarkup(
     <ToolRow item={shell("bad", { command: undefined, title: "Fetch docs", kind: "fetch", status: "failed" })} />,
   );
@@ -132,12 +132,12 @@ test("a failed tool call keeps its red mark at rest; a running one its spinner",
   const running = renderToStaticMarkup(
     <CommandRow item={shell("live", { status: "in_progress", endedAt: undefined })} />,
   );
-  expect(running).toContain("cv-spinner");
+  expect(running).not.toContain("cv-spinner");
   expect(running).not.toContain("cv-command__ok");
   expect(running).not.toContain("cv-command__time");
 });
 
-test("the hover check and time fade as a message's hover row does", async () => {
+test("the hover check and time follow the pointer's dwell as a message's hover row does", async () => {
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
@@ -145,6 +145,6 @@ test("the hover check and time fade as a message's hover row does", async () => 
     /\.cv-tool :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-out\)/,
   );
   expect(css).toMatch(
-    /\.cv-tool:hover :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-in\) var\(--cv-actions-ease\) var\(--cv-actions-in-delay\)/,
+    /\.cv-tool:hover :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-in\) var\(--cv-actions-in-ease\);/,
   );
 });

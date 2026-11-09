@@ -124,6 +124,15 @@ export function useRouteAuthSwitch(apply: (sessionId: string, routeId: string) =
 export function authBlocksSend(auth: SessionAuth | undefined): boolean {
   return auth?.state === "signedOut" || auth?.state === "expired" || auth?.state === "routeAuthNeeded";
 }
+export function authLoginText(auth: SessionAuth | undefined, t: Translate = translate): string {
+  return t(
+    auth?.state === "expired" ||
+      auth?.state === "routeAuthNeeded" ||
+      (auth?.state === "signedOut" && auth.source === "turn")
+      ? "turn.signInAgain"
+      : "harness.logIn",
+  );
+}
 export function authText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
   if (!auth) return undefined;
   const harness = auth.harness ?? t("picker.model");
@@ -133,7 +142,7 @@ export function authText(auth: SessionAuth | undefined, t: Translate = translate
       : auth.state === "expired"
         ? t("turn.authExpired")
         : auth.state === "routeAuthNeeded"
-          ? `${t("picker.account")} · ${t("harness.logIn")}`
+          ? `${t("picker.account")} · ${authLoginText(auth, t)}`
           : auth.state === "routeUnreachable"
             ? t("turn.failure.unreachableVia", { harness, via: auth.routeId ?? t("picker.account") })
             : auth.state === "peerUnreachable"
@@ -150,10 +159,14 @@ export function authText(auth: SessionAuth | undefined, t: Translate = translate
   return [label, auth.detail, recovery].filter(Boolean).join(" · ");
 }
 
+/// The model chip's word before the model. A chat whose machine is down gets none: the link is the
+/// machine's, not the model's, and the quiet row's machine link says it in the sidebar's words
+/// (MachineLinkStatus.tsx); "Unavailable" there read as the model being unavailable. The chip's
+/// label (authText) still names the cause.
 export function authChipText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
   return authBlocksSend(auth)
-    ? t("harness.logIn")
-    : auth?.state === "routeUnreachable" || auth?.state === "peerUnreachable"
+    ? authLoginText(auth, t)
+    : auth?.state === "routeUnreachable"
       ? t("picker.unavailable")
       : undefined;
 }
@@ -175,7 +188,26 @@ export async function sessionLogin(
   await open({ kind: "terminal", text: command, ...(cwd ? { cwd } : {}), run: true });
 }
 
-export type SessionAuthQuery = { sessionId: string } | { target: { harness: string; host?: string; routeId?: string } };
+/// What `/login` runs (Lawrence, via Leo: "in gui, having /resume would be nice, maybe /login as
+/// well"): acpmux's own sign-in for a chat it found signed out (its command keeps the route's
+/// account home); else, for a chat acpmux says is on this Mac (`host: null`, never a missing or
+/// unknown host) with no route, the harness's declared login (`catalog[].auth.login`), so a
+/// signed-in chat can sign in again or switch accounts. A route may name its own account home and
+/// another host signs in there, so neither gets the default login.
+export function slashLogin(
+  auth: SessionAuth | undefined,
+  declared: string | undefined,
+): { kind: "session" } | { kind: "terminal"; command: string } | undefined {
+  if (canSessionLogin(auth)) return { kind: "session" };
+  const command = declared?.trim();
+  if (!command || !auth || auth.host !== null || auth.routeId || auth.login?.kind === "route" || auth.login?.host)
+    return undefined;
+  return { kind: "terminal", command };
+}
+
+export type SessionAuthQuery =
+  | { sessionId: string }
+  | { target: { harness: string; host?: string; routeId?: string; cwd?: string } };
 export type ReadSessionAuth = (query: SessionAuthQuery, refresh?: boolean) => Promise<unknown>;
 
 export function useSessionAuth(

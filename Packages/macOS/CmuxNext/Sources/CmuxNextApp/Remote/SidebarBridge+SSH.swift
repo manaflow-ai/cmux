@@ -8,12 +8,9 @@ extension SidebarBridge {
     /// sign-in failed, unreachable, install needed, installing), then the
     /// daemon's connection and capability level, like a Cloud machine.
     static func sshMachine(_ session: SSHMachineSession, machines: MachineRegistry) -> SidebarMachine {
-        let status = sshStatus(session, compatibility: machines.compatibility(of: session.daemon))
-        var detail = RemoteStrings.detail(session)
-        if status == .updateRequired || status == .updateAvailable, let compat = machines.compatibility(of: session.daemon) {
-            detail = CloudStrings.compatibility(compat)
-        }
-        let tooltip = sshTooltip(destination: session.host.destination, session: session.host.session, detail: detail)
+        let compat = machines.compatibility(of: session.daemon), header = sshHeader(session, compatibility: compat), status = header?.status ?? .connecting
+        let detail = header?.compatibilityDetail == true ? compat.map(CloudStrings.compatibility) : RemoteStrings.detail(session)
+        let tooltip = sshTooltip(destination: session.host.destination, session: session.host.session, detail: detail, updates: machines.updates)
         return SidebarMachine(id: MachineID(session.machineID), name: session.host.label, kind: .ssh, status: status, detail: tooltip)
     }
 
@@ -23,7 +20,7 @@ extension SidebarBridge {
     /// for this Mac and a machine the app does not know.
     static func machineHeader(_ machineID: String, in machines: MachineRegistry) -> SidebarMachine? {
         if let cloud = machines.session(machineID) {
-            return CloudCreationRows.machine(cloud, compatibility: machines.compatibility(of: cloud.daemon), limits: machines.cloudLimits)
+            return CloudCreationRows.machine(cloud, compatibility: machines.compatibility(of: cloud.daemon), limits: machines.cloudLimits, updates: machines.updates)
         }
         if let ssh = machines.sshSession(machineID) { return sshMachine(ssh, machines: machines) }
         return machines.server(machineID)?.sidebarMachine(machines: machines)
@@ -37,52 +34,33 @@ extension SidebarBridge {
     }
 
     /// What a chat that needs machine `machineID` finds its link doing: only a link that dropped
-    /// or never came up reconnects on use (``MachineLinkState/reconnectsOnUse(_:)``).
+    /// or never came up reconnects on use (``MachineLinkState/reconnectsOnUse(_:)``), never an SSH session in use (G5).
     static func paneUse(_ machineID: String, in machines: MachineRegistry) -> AgentPaneMachineLink.Use {
-        guard let status = machineHeader(machineID, in: machines)?.status else { return .stuck }
-        switch status.linkState {
-        case .connected: return .up
-        case .connecting: return .coming
-        case .offline, .paused, .attention: return MachineLinkState.reconnectsOnUse(status) ? .down : .stuck
+        switch SidebarBridgeRules().paneUse(waitsForUser: machines.sshSession(machineID)?.waitsForUser == true, header: machineHeader(machineID, in: machines)?.status) {
+        case "up": .up
+        case "coming": .coming
+        case "down": .down
+        default: .stuck
         }
     }
 
     /// An ssh machine header's tooltip: the destination (with its cmux-tui session when not the
-    /// default), then `detail`, then the machine's daemon update line (``DaemonUpdateBoard``). One
+    /// default), then `detail`, then the machine's daemon update line (`updates`, the app's board). One
     /// place for the live header and `debug.daemon_update`'s fixture.
-    static func sshTooltip(destination: SSHDestination, session: String, detail: String?) -> String {
+    static func sshTooltip(destination: SSHDestination, session: String, detail: String?, updates: DaemonUpdateBoard) -> String {
         [destination.description + (session == RemoteSessionName.defaultName ? "" : " · " + session), detail,
-         DaemonUpdateBoard.shared.detail(sshHost: destination.host)]
+         updates.detail(sshHost: destination.host)]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     static func sshStatus(_ session: SSHMachineSession, compatibility: DaemonCompatibility?) -> SidebarMachine.Status {
-        let connected = if case .connected = session.daemon.store.connectionState { true } else { false }
-        let status = sshStatus(link: session.linkStatus, startupFailed: session.daemonFailure != nil, daemonConnected: connected, compatibility: compatibility)
-        return status == .connected && session.updateOffered ? .updateAvailable : status
+        sshHeader(session, compatibility: compatibility)?.status ?? .connecting
     }
 
-    /// `startupFailed`: the daemon gave up after SSH reached the machine
-    /// (`SSHMachineSession.daemonFailure`): Failed to start, not Connecting (cx-zdh8).
-    static func sshStatus(link: SSHConnectionMachine.Status, startupFailed: Bool, daemonConnected: Bool,
-                          compatibility: DaemonCompatibility?) -> SidebarMachine.Status {
-        switch link {
-        case .offline: return .offline
-        case .installing: return .installing
-        case .reconnecting: return .reconnecting
-        case .authFailed, .hostKeyUntrusted: return .authFailed
-        case .unreachable: return .unreachable
-        case .needsInstall(.protocolMismatch), .needsInstall(.refused(.protocolOlder)): return .updateRequired
-        case .needsInstall(.refused(.protocolNewer)): return .failed
-        case .needsInstall, .installFailed: return .installRequired
-        case .failed: return daemonConnected ? .connected : .failed
-        case .connecting, .connected:
-            guard daemonConnected else {
-                if let compatibility, compatibility.level == .incompatible, startupFailed { return .updateRequired }
-                return startupFailed ? .failed : .connecting
-            }
-            if compatibility?.level == .limited { return .updateAvailable }
-            return .connected
-        }
+    /// The link's status, except a connected machine offered a newer cmux-tui says Update Available (`SidebarBridgeRules.sshStatus`).
+    private static func sshHeader(_ session: SSHMachineSession, compatibility: DaemonCompatibility?) -> (status: SidebarMachine.Status, compatibilityDetail: Bool)? {
+        let connected = if case .connected = session.daemon.store.connectionState { true } else { false }
+        let link = session.linkStatus.sidebarStatus(startupFailed: session.daemonFailure != nil, daemonConnected: connected, compatibility: compatibility, retriesSpent: session.retriesSpent)
+        return SidebarBridgeRules().sshStatus(link: link, updateOffered: session.updateOffered, compatibilityKnown: compatibility != nil)
     }
 }

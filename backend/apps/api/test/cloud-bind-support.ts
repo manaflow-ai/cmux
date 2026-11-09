@@ -21,10 +21,17 @@ export interface CloudStub {
   readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<any>
   bindMachine(entity: string, body: BindBody): Promise<{ ok: boolean; value?: any; code?: string; message?: string }>
   mintLinkToken(entity: string, principal: Principal, params: unknown): Promise<{ ok: boolean; value?: any; code?: string; message?: string }>
-  fakeControl(cmd: { advance_ms?: number }): Promise<{ files: Array<{ name: string; path: string; content: string; mode: number }>; audit: Array<Record<string, unknown>>; now: number }>
+  fakeControl(cmd: {
+    advance_ms?: number
+    power_refuse?: number
+    vm_state?: { name: string; state: string }
+  }): Promise<{ files: Array<{ name: string; path: string; content: string; mode: number }>; audit: Array<Record<string, unknown>>; now: number }>
 }
-const namespace = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
-export const cloudStub = (team: string) => namespace.get(namespace.idFromName(team)) as unknown as CloudStub
+
+export const cloudStub = (team: string) => {
+  const namespace = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
+  return namespace.get(namespace.idFromName(team)) as unknown as CloudStub
+}
 
 // Users 50..99 of the allowlisted test users (other cloud test files use other ranges).
 let seq = 50
@@ -32,7 +39,7 @@ export const person = (team?: string) => {
   const user = cloudTestUser(++seq)
   const t = team ?? personalTeamIdFor(user)
   const p: Principal = { identity: `user:${user}`, user, team: t, kind: "session" }
-  return { team: t, user, p, stub: cloudStub(t) }
+  return { team: t, user, p, get stub() { return cloudStub(t) } }
 }
 export const installOf = (p: Principal, classes: ReadonlyArray<string> = ["read", "mutate-own", "mutate-shared", "execute"], installKind = "cli"): Principal => {
   const install = `inst_${(p.user ?? "").slice(5, 9)}${"7".repeat(16)}`

@@ -21,6 +21,41 @@ pub(super) struct SteerNow {
     pub(super) successors: std::collections::VecDeque<(String, String)>,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct PreparedTurn {
+    pub(super) prompt_id: String,
+    pub(super) turn_id: String,
+    pub(super) queued: bool,
+    pub(super) abandoned: bool,
+    pub(super) attempt_id: String,
+    pub(super) generation: u64,
+    pub(super) connection_id: String,
+}
+
+/// Dropping a waiting prepare future (deadline, cancel, disconnect) releases only that attempt.
+/// Once ready is returned, the caller owns explicit abandonment; snapshot latency is unbounded.
+struct PreparationWait<'a> {
+    session: &'a Session,
+    prompt: &'a str,
+    generation: u64,
+    attempt: &'a str,
+    connection: &'a str,
+    ready: bool,
+}
+
+impl Drop for PreparationWait<'_> {
+    fn drop(&mut self) {
+        if !self.ready {
+            self.session.abandon_prepared(
+                self.prompt,
+                self.generation,
+                self.attempt,
+                self.connection,
+            );
+        }
+    }
+}
+
 pub struct Session {
     pub id: String,
     pub(super) meta: StdMutex<SessionMeta>,
@@ -28,6 +63,9 @@ pub struct Session {
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
     pub(super) spawn_lock: Mutex<()>,
+    pub(super) fork_lock: Mutex<()>,
+    /// Serializes close/purge with transfer retirement before an ID can be reused.
+    pub(super) close_lock: Mutex<()>,
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
     /// change); the idle pass takes it exclusively while it lists and ends the harness.
     pub(super) harness_use: tokio::sync::RwLock<()>,
@@ -37,6 +75,9 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
+    /// `session.json` in version order (fuzz row g finding g2).
+    pub(super) meta_writer: super::meta_save::MetaWriter,
     /// Message projection ids, loaded once from the journal on first use; only
     /// message acceptance/recovery touches this, never streamed tokens.
     /// Dedupe key is message id plus the target session for sender copies.
@@ -53,8 +94,10 @@ pub struct Session {
     /// next agent's load begins. None is ever dropped unended: only such an abandoned start
     /// (one past the agent start budget) leaves one behind, a few bytes for the session's life.
     pub(super) replaying: StdMutex<Vec<u64>>,
-    /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
-    /// False from a deferred daemon start until the first append or the log load.
+    /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`): set only
+    /// once the count is done, under `append_lock`. False from a deferred daemon start until the
+    /// first append, the first replay or the log load. `Hub::scan_events` reads it without the
+    /// lock: true means its `last_seq` already counts the tail.
     pub(super) caught_up: AtomicBool,
     /// Whether its log is read after a deferred daemon start (`log_load.rs`): once, by the
     /// background pass or the first request for it, under this lock. `log_loaded` mirrors it
@@ -72,13 +115,35 @@ pub struct Session {
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
     pub(super) auto_resume: auto_resume::Pending,
     pub(super) turn_lock: Mutex<()>,
+    /// Set while a prompt holds `turn_lock` for its turn (`subsession_runs.rs` `ClaimedTurn`):
+    /// from the moment it takes the lock, before `start_turn` shows its turn in `turn`, until
+    /// its guard drops. A prompt that comes meanwhile queues and is accepted at once
+    /// (`queue_slot`), instead of waiting unanswered for the lock (fuzz row g, g1).
+    pub(super) turn_claimed: AtomicBool,
+    /// Makes a new prompt's check whether it must wait and its place in the `queued` count one
+    /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
+    /// free. A leaf lock, held for no await.
+    pub(super) admit: StdMutex<()>,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
     pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
+    /// When the person left it and the recap made meanwhile (`away_recap.rs`).
+    pub(super) away: StdMutex<super::away_recap::Away>,
+    /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
+    /// not land within the grace (`shutdown.rs` `settle_ends`).
+    pub(super) ending: StdMutex<Option<TurnInfo>>,
+    /// A detach is ending the agent it took under the child lock (`detach_child`): a shutdown
+    /// that meets that lock waits for the detach rather than count the agent as kept.
+    pub(super) detaching: AtomicBool,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Cloud owner capture reservations. Pending reservations serialize prepare calls; accepted
+    /// reservations are retained briefly so a retried prepare can replay its stable turn id.
+    pub(super) prepared: StdMutex<std::collections::VecDeque<PreparedTurn>>,
+    pub(super) prepared_done: StdMutex<std::collections::VecDeque<PreparedTurn>>,
+    pub(super) cloud_generation: AtomicU64,
     /// Durable team notices, indexed once per session; receiving one never queues a turn.
     pub(super) team_information: StdMutex<Option<super::team_information::State>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
@@ -87,6 +152,12 @@ pub struct Session {
     /// Being moved to another daemon (`transfer_out.rs`): the transfer id. It takes no prompt
     /// and starts nothing queued until the move commits (it closes) or aborts.
     pub(super) moving: StdMutex<Option<String>>,
+    /// Fencing epoch for the daemon that owns this session. A move increments it; transfer
+    /// requests carry the value so a delayed writer from the previous owner cannot mutate state.
+    pub(super) ownership_epoch: AtomicU64,
+    /// Cleared when durable transfer history cannot be read; ownership must fail closed until
+    /// the daemon can establish the fencing floor.
+    pub(super) ownership_epoch_valid: AtomicBool,
     /// Latest durable transfer event (sequence, blocked), rebuilt once from the log.
     /// None until a restored log has been read successfully.
     pub(super) transfer_authority: StdMutex<Option<(u64, bool)>>,
@@ -95,6 +166,12 @@ pub struct Session {
     /// Inbox digests waiting for their turn, by prompt id: the messages each took, which its turn
     /// takes over (`digest.rs` `take_joined`, `inbox_digest.rs`).
     pub(super) inbox_digests: StdMutex<HashMap<String, Arc<super::digest::DigestTurn>>>,
+    /// What the messages waiting inbox digests took out of the queue hold, charged against
+    /// `queueMaxBytes` until each digest's turn takes them over or they go back in
+    /// (`queue_admission.rs`). Changed and read only under the `queue` lock, in the same critical
+    /// section that moves the messages, so a new prompt always sees them in one place or the
+    /// other (`DigestTurn::charge`, `DigestTurn::release`).
+    pub(super) digest_bytes: AtomicU64,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending
@@ -109,6 +186,12 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// How many open sub-sessions below it wait on the person, and since when in ms; (0, 0)
+    /// while none does (`asks_below.rs`).
+    pub(super) asks_below: StdMutex<(u32, u64)>,
+    /// A turn ended unseen while that work still ran: the chat turns unread when the work ends
+    /// (manaflow-ai/cmux#25563, `work_below.rs`).
+    pub(super) unread_after_work: AtomicBool,
     /// Agent permission requests read but not yet past their group
     /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
     /// last one lands. A group is not shown while one is on its way.
@@ -136,6 +219,10 @@ pub struct Session {
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
+    /// Its harness profile's launch changed since its agent started: the agent restarts on the
+    /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
+    /// changed` until a start runs the new profile.
+    pub(super) profile_respawn: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
@@ -143,6 +230,15 @@ pub struct Session {
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
     /// (`hosts.rs`), never by the config read later.
     pub(super) backgrounds_work: AtomicBool,
+    /// The person started this chat or wrote to it (`NewRequest::person`, a person's prompt):
+    /// its agent start has no deadline while its harness works on it, and says it is still
+    /// starting (`lifecycle.rs` `person_start`). Never set by an agent's or a lane's request.
+    pub(super) person: AtomicBool,
+    /// Its creator asked its agent start to wait on the harness rather than a wall clock
+    /// (`NewRequest::wait_start`; the Chief, whose turn answers a person's message): the start
+    /// ends when the harness stops working (`start_watch.rs` `StartWatch`), and says it is still
+    /// starting. Unlike `person` it proves nothing about who asks and opens nothing else.
+    pub(super) wait_start: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -157,8 +253,9 @@ pub struct Session {
     /// (`start_defaults.rs`).
     pub(super) applied: StdMutex<Applied>,
     /// Set once the session is purged, so late events do not recreate its
-    /// files while the directory is being removed.
-    pub(super) purged: AtomicBool,
+    /// files while the directory is being removed. Shared with the audit writer, which drops an
+    /// entry of this copy that reaches it after the purge, even once a new chat took the id.
+    pub(super) purged: Arc<AtomicBool>,
     /// Set before a purge when the same chat, brought back under this id, replaces this copy
     /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
     /// purge record says `replaced` so the app keeps what it holds for the chat too.
@@ -172,9 +269,22 @@ pub struct Session {
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,
+    /// Woken by a Stop of its turn and a stop of the chat: a prompt whose agent start waits to be
+    /// tried again (`start_retry.rs`) ends that wait at once.
+    pub(super) start_retry_wake: Notify,
+    /// A prompt's agent start waits to be tried again (`start_retry.rs`): the row reads `starting`.
+    pub(super) start_retry_waits: AtomicBool,
+    /// The turn's Stop count while a retry's agent start runs (`start_retry.rs`, `NO_RETRY`
+    /// otherwise): a Stop since ends that start.
+    pub(super) start_retry_cancels: AtomicU64,
     /// The turn id whose forced cancellation was already published. A second
     /// Stop for the same turn must not publish another forced answer.
     pub(super) cancel_forced_turn: StdMutex<Option<String>>,
+    /// The turn whose own prompt is not handed to its agent yet, and whether a Stop fenced it
+    /// meanwhile (`cancel.rs`). A fenced prompt is never written (`steer_end.rs`), so its Stop
+    /// sends the agent no `session/cancel`: with no prompt of the turn to stop, a harness could
+    /// keep that cancel and end the next turn with it.
+    pub(super) unwritten_prompt: StdMutex<Option<(String, bool)>>,
     /// The forced `turn_result` already written for a turn, if any. This is
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.
@@ -215,6 +325,9 @@ pub struct Session {
     /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
     /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
     pub(super) status_writes: AtomicU64,
+    /// Counts status changes (`Hub::write_status`): a step that may or may not set the status
+    /// reads it before and after, as an adoption does around its recovery (`hosts.rs`).
+    pub(super) status_changes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
@@ -232,6 +345,11 @@ pub struct Session {
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
+    /// The message each recent prompt id's acceptance named (`message_events.rs` `name_message`):
+    /// prompt id, message id, sender session, newest last, at most [`KEPT_MESSAGES`]. A later send
+    /// of the same prompt id is answered as a duplicate, and that answer names the same kept
+    /// message, so every send of one prompt id hears the one acceptance (`turns.rs`).
+    pub(super) kept_messages: StdMutex<std::collections::VecDeque<(String, String, String)>>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
@@ -253,12 +371,21 @@ pub struct Session {
     /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
     /// inside one gets longer before it counts as stalled.
     pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// Bounded completed tool attempts used to identify a repeated failing call
+    /// (`loop_detector.rs`).
+    pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
+    /// Its command calls while its harness's sandbox refuses them, newest last and bounded
+    /// (`harness_sandbox.rs`): one that completes ends the failure. Empty otherwise.
+    pub(super) harness_sandbox_calls: StdMutex<std::collections::VecDeque<String>>,
     /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
     /// before that, so a turn whose prompt has not reached its agent is never stalled.
     pub(super) stalled_counted: StdMutex<Option<String>>,
     /// Bumps on every sign of the model and every new or held count (`stalled_turn.rs`): a
     /// stalled end decided at one value is not carried out at another.
     pub(super) stalled_gen: AtomicU64,
+    /// The turn a refused sign-in's end is scheduled for (`turn_retry.rs`): its later retries
+    /// schedule no second end.
+    pub(super) sign_in_refused_turn: StdMutex<Option<String>>,
     /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
     /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
     pub(super) last_model_at: AtomicU64,
@@ -291,11 +418,21 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The sections of the last `system/init` its log kept whole (`logged_init.rs`).
+    pub(super) logged_init: StdMutex<crate::claude_stdio::LoggedInit>,
+    /// The state update sections its log last kept (`update_repeats.rs`).
+    pub(super) update_repeats: StdMutex<super::update_repeats::UpdateRepeats>,
+    /// The turns Claude Code runs that the person did not start (`background_turn.rs`).
+    pub(super) background_turns: StdMutex<super::background_turn::BackgroundTurns>,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Files its tool calls just edited, for the who-else notice (`touched.rs`).
+    pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
+    /// The sessions it was told share its files, once each (`touched.rs`).
+    pub(super) overlaps_told: StdMutex<std::collections::HashSet<String>>,
     /// Its agent's `start_session` tool calls that run, with their input (`lineage.rs`).
     pub(super) start_calls: StdMutex<std::collections::HashMap<String, Value>>,
     /// The places typing into it, and who sent its prompts (`composers.rs`).
@@ -303,6 +440,35 @@ pub struct Session {
 }
 
 impl Session {
+    /// The fencing epoch currently held by this session owner.
+    pub(crate) fn ownership_epoch(&self) -> u64 {
+        self.ownership_epoch.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn ownership_epoch_is_valid(&self) -> bool {
+        self.ownership_epoch_valid.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn invalidate_ownership_epoch(&self) {
+        self.ownership_epoch_valid.store(false, Ordering::SeqCst);
+    }
+
+    /// Transfer ownership to a new daemon incarnation. Epoch zero is the legacy value; every
+    /// move gets a strictly larger value, including a move retried after an abort.
+    pub(super) fn bump_ownership_epoch(&self) -> u64 {
+        self.ownership_epoch.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Restore an epoch observed in the durable transfer log without ever moving it backwards.
+    pub(super) fn restore_ownership_epoch(&self, epoch: u64) {
+        self.ownership_epoch.fetch_max(epoch, Ordering::SeqCst);
+    }
+    /// The person wrote to this chat (`Session::person`): its next agent start waits as long as
+    /// its harness works on it.
+    pub(crate) fn person_wrote(&self) {
+        self.person.store(true, Ordering::SeqCst);
+    }
+
     /// Fence untagged compaction metadata for this live session. Claude's
     /// boundary and summary lines carry no turn id, so a forced Stop keeps
     /// them out of the controller log until this session is replaced.
@@ -339,8 +505,17 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Read only the needed fields without copying large metadata payloads. The
+    /// callback must not acquire other session/hub locks or call back into this session.
+    pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
+        read(&self.meta.lock().unwrap_or_else(|e| e.into_inner()))
+    }
     pub fn turn(&self) -> Option<TurnInfo> {
         self.turn.lock().unwrap().clone()
+    }
+    /// Whether a prompt holds the turn lock for its turn (`turn_claimed`).
+    pub(super) fn turn_claimed(&self) -> bool {
+        self.turn_claimed.load(Ordering::SeqCst)
     }
     pub fn queued(&self) -> u64 {
         self.queued.load(Ordering::SeqCst)
@@ -348,12 +523,260 @@ impl Session {
     pub fn queue(&self) -> Vec<QueuedPrompt> {
         self.queue.lock().unwrap().clone()
     }
+    pub async fn wait_queue_moved(&self) {
+        self.queue_moved.notified().await;
+    }
+
+    /// Call only after backend preparation authorization for this exact scope succeeds.
+    /// `prepared` is also the generation lock; no cloud generation writer may bypass it.
+    pub(crate) async fn prepare_turn(
+        &self,
+        prompt_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: &str,
+    ) -> anyhow::Result<(String, bool, bool, u64, String)> {
+        anyhow::ensure!(
+            !prompt_id.is_empty() && !attempt_id.is_empty() && !connection_id.is_empty(),
+            "preparation identity is empty"
+        );
+        {
+            let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+            let current = self.cloud_generation.load(Ordering::SeqCst);
+            anyhow::ensure!(generation >= current, "cloud generation is stale");
+            if generation > current {
+                // A prompt can hold turn_lock before `turn` is populated. Refuse that handoff
+                // too; restoring a generation must never silently replace an active harness.
+                let _idle = self.turn_lock.try_lock().map_err(|_| {
+                    anyhow::anyhow!("cannot replace generation during prompt handoff")
+                })?;
+                anyhow::ensure!(
+                    self.turn().is_none() && !self.harness_turn.load(Ordering::SeqCst),
+                    "cannot replace generation during active turn"
+                );
+                self.cloud_generation.store(generation, Ordering::SeqCst);
+                pending.clear();
+                self.prepared_done.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                self.queue_moved.notify_waiters();
+            }
+        }
+        let mut wait = PreparationWait {
+            session: self,
+            prompt: prompt_id,
+            generation,
+            attempt: attempt_id,
+            connection: connection_id,
+            ready: false,
+        };
+        let mut registered = false;
+        loop {
+            let notified = self.queue_moved.notified();
+            tokio::pin!(notified);
+            // Register before checking state so notify_waiters cannot be lost between the
+            // locked check and the await below.
+            notified.as_mut().enable();
+            let mut handoff_busy = false;
+            {
+                let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+                anyhow::ensure!(
+                    self.cloud_generation.load(Ordering::SeqCst) == generation,
+                    "cloud generation changed while preparing turn"
+                );
+                if let Some(done) = self
+                    .prepared_done
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .find(|p| p.prompt_id == prompt_id)
+                    .cloned()
+                {
+                    anyhow::ensure!(
+                        done.generation == generation,
+                        "accepted preparation generation mismatch"
+                    );
+                    wait.ready = true;
+                    // Reauthorization has a fresh attempt; the accepted prompt is immutable.
+                    return Ok((
+                        done.turn_id,
+                        done.queued,
+                        true,
+                        generation,
+                        attempt_id.to_owned(),
+                    ));
+                }
+                if registered {
+                    anyhow::ensure!(
+                        pending.iter().any(|p| p.prompt_id == prompt_id
+                            && !p.abandoned
+                            && p.generation == generation
+                            && p.attempt_id == attempt_id
+                            && p.connection_id == connection_id),
+                        "preparation attempt was abandoned or replaced"
+                    );
+                } else {
+                    // Turn identity is deterministic, so abandoned slots need no allocation.
+                    // A retry rejoins the tail instead of overtaking another live turn.
+                    pending.retain(|p| !p.abandoned);
+                    if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
+                        anyhow::ensure!(
+                            existing.generation == generation
+                                && existing.attempt_id == attempt_id
+                                && existing.connection_id == connection_id,
+                            "preparation is owned by another attempt"
+                        );
+                        registered = true;
+                    }
+                    if !registered {
+                        let queued = self.turn().is_some()
+                            || self.queued() != 0
+                            || self.queue().iter().any(|q| !q.held)
+                            || pending.iter().any(|p| !p.abandoned);
+                        pending.push_back(PreparedTurn {
+                            prompt_id: prompt_id.to_owned(),
+                            turn_id: prompt_id.to_owned(),
+                            queued,
+                            abandoned: false,
+                            attempt_id: attempt_id.to_owned(),
+                            generation,
+                            connection_id: connection_id.to_owned(),
+                        });
+                        registered = true;
+                    }
+                }
+                if let Some(first) = pending.iter().find(|p| !p.abandoned)
+                    && first.prompt_id == prompt_id
+                    && self.turn().is_none()
+                    && self.queue().iter().all(|q| q.held)
+                    && self.queued() == 0
+                {
+                    match self.turn_lock.try_lock() {
+                        Ok(_idle) => {
+                            wait.ready = true;
+                            return Ok((
+                                first.turn_id.clone(),
+                                first.queued,
+                                false,
+                                generation,
+                                attempt_id.to_owned(),
+                            ));
+                        }
+                        Err(_) => handoff_busy = true,
+                    }
+                }
+            }
+            if handoff_busy {
+                // Turn completion may notify just before releasing turn_lock. Also wake on
+                // the release itself, rather than losing the only completion notification.
+                tokio::select! {
+                    _ = &mut notified => {},
+                    _ = self.turn_lock.lock() => {},
+                }
+            } else {
+                notified.await;
+            }
+        }
+    }
+
+    pub(super) fn prepared_turn_id(&self, prompt_id: &str) -> Option<String> {
+        self.prepared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|p| p.prompt_id == prompt_id && !p.abandoned)
+            .map(|p| p.turn_id.clone())
+    }
+
+    /// Validate an execute envelope against a live or just-accepted reservation. The caller
+    /// still claims the external capability immediately before harness dispatch.
+    pub(crate) fn validate_prepared(
+        &self,
+        prompt_id: &str,
+        turn_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            self.cloud_generation.load(Ordering::SeqCst) == generation,
+            "cloud generation is stale"
+        );
+        let done = self.prepared_done.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            pending.iter().chain(done.iter()).any(|p| !p.abandoned
+                && p.prompt_id == prompt_id
+                && p.turn_id == turn_id
+                && p.generation == generation
+                && p.attempt_id == attempt_id
+                && connection_id.is_none_or(|connection| p.connection_id == connection)),
+            "execution does not match prepared attempt"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn abandon_prepared(
+        &self,
+        prompt_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: &str,
+    ) -> bool {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        if self.cloud_generation.load(Ordering::SeqCst) != generation {
+            return false;
+        }
+        let Some(item) = pending.iter_mut().find(|p| {
+            p.prompt_id == prompt_id
+                && !p.abandoned
+                && p.generation == generation
+                && p.attempt_id == attempt_id
+                && p.connection_id == connection_id
+        }) else {
+            return false;
+        };
+        item.abandoned = true;
+        self.queue_moved.notify_waiters();
+        true
+    }
+
+    pub(crate) fn abandon_prepared_connection(&self, connection_id: &str) {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        for item in pending.iter_mut().filter(|p| p.connection_id == connection_id) {
+            item.abandoned = true;
+        }
+        self.queue_moved.notify_waiters();
+    }
+
+    pub(super) fn accept_prepared(&self, prompt_id: &str, turn_id: &str) {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(pos) = pending.iter().position(|p| {
+            p.prompt_id == prompt_id
+                && !p.abandoned
+                && p.turn_id == turn_id
+                && p.generation == self.cloud_generation.load(Ordering::SeqCst)
+        }) else {
+            return;
+        };
+        let Some(item) = pending.remove(pos) else {
+            return;
+        };
+        let mut done = self.prepared_done.lock().unwrap_or_else(|e| e.into_inner());
+        done.push_back(item);
+        while done.len() > 64 {
+            done.pop_front();
+        }
+        self.queue_moved.notify_waiters();
+    }
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
-    /// A failed turn holds the prompts that waited behind it (`queue.rs` `pause_queue`).
+    /// A prompt a hold keeps waits for the person's Resume (`queue.rs` `pause_queue`,
+    /// `QueuedPrompt::waits_for_resume`). What a failed turn held goes in again by itself after
+    /// its wait, so that pauses nothing.
     pub fn queue_paused(&self) -> bool {
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| q.held)
+        let stop_held = self.stop_hold.load(Ordering::SeqCst) != 0;
+        let queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        queue.iter().any(|q| q.held && q.waits_for_resume(stop_held))
     }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.permissions
@@ -364,10 +787,20 @@ impl Session {
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
     }
+    /// An open sub-session below it waits on the person (`asks_below.rs`).
+    pub(crate) fn waits_below(&self) -> bool {
+        self.asks_below.lock().unwrap_or_else(|e| e.into_inner()).0 > 0
+    }
+    pub(crate) fn has_pending_permissions(&self) -> bool {
+        !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
+    }
     pub(super) fn status(&self) -> SessionStatus {
         self.meta.lock().unwrap().status
     }
 }
+/// How many prompt ids' kept messages a session remembers (`Session::kept_messages`).
+pub(super) const KEPT_MESSAGES: usize = 256;
+
 /// Tags that have not expired, as a flat map.
 pub fn live_tags(m: &SessionMeta) -> Value {
     let now = now_ms();
@@ -382,7 +815,7 @@ pub fn live_tags(m: &SessionMeta) -> Value {
 
 /// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
 /// secret across the cut leaves no head: the sub-session tools' prompt
-/// preview (`TurnInfo::masked_preview`); the owner's views keep it raw.
+/// preview and every summary's running turn (`TurnInfo::masked_preview`).
 pub(crate) fn masked_preview(s: &str, max: usize) -> String {
     short_text(&crate::secret_scan::mask(s), max)
 }
@@ -423,19 +856,79 @@ pub(crate) fn prompt_text_parts(blocks: &[Value]) -> (String, Vec<Value>) {
         text.push_str(part);
         units += part.encode_utf16().count();
         if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
-            pasted.push(json!({"start": start, "end": units}));
+            let mut range = serde_json::Map::new();
+            range.insert("start".into(), json!(start));
+            range.insert("end".into(), json!(units));
+            // A paste that reads as another agent's output names it (`agent_text.rs`), so a
+            // client draws it as that agent's, never as the person's words.
+            let found = crate::agent_text::detect(part);
+            if found.agent() {
+                range.insert("agent".into(), agent_mark(&found));
+            }
+            pasted.push(Value::Object(range));
         }
     }
     (text, pasted)
 }
 
+/// `{from?, signals}`: what [`crate::agent_text::detect`] found, as a record names it.
+fn agent_mark(found: &crate::agent_text::Detected) -> Value {
+    let mut mark = serde_json::Map::new();
+    mark.insert("signals".into(), json!(found.signals));
+    if let Some(from) = &found.from {
+        mark.insert("from".into(), json!(from));
+    }
+    Value::Object(mark)
+}
+
+/// `agentText` of a prompt record: what reads as another agent's output in the typed (unmarked)
+/// text of `blocks`, the first block that does; `None` when none does. The text itself is the
+/// person's to say: a client notes it beside their bubble, never as their words alone.
+fn typed_agent_text(blocks: &[Value]) -> Option<Value> {
+    blocks
+        .iter()
+        .filter(|b| !crate::prompt_context::is_context(b))
+        .filter(|b| b.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) != Some(true))
+        .filter_map(|b| b.get("text").and_then(Value::as_str))
+        .map(crate::agent_text::detect)
+        .find(crate::agent_text::Detected::agent)
+        .map(|found| agent_mark(&found))
+}
+
 /// Adds `pasted` (the ranges of `blocks`' pasted text, `prompt_text_parts`) to the prompt
-/// record `msg`, whose `text` is `prompt_text(blocks)`; none when nothing was pasted, or
+/// record `msg`, whose `text` is `prompt_text(blocks)`, and `agentText` when its typed text
+/// reads as another agent's output (`typed_agent_text`); none when nothing was pasted, or
 /// when `msg` records some other text the ranges would not fit.
 pub(crate) fn mark_pasted(msg: &mut Value, blocks: &[Value]) {
     let (text, pasted) = prompt_text_parts(blocks);
-    if !pasted.is_empty() && msg.get("text").and_then(Value::as_str) == Some(text.as_str()) {
+    if msg.get("text").and_then(Value::as_str) != Some(text.as_str()) {
+        return;
+    }
+    if !pasted.is_empty() {
         msg["pasted"] = Value::Array(pasted);
+    }
+    // Only the person's own prompt: another agent's carries its sender (an agent kind of
+    // `_meta.provenance`, `fromAgent`). A client draws `agentText` only on the person's bubble.
+    // A person's own prompt with provenance (`person_message`, multiplayer) is still theirs.
+    // A prompt the daemon made from no person (an unverified client's, a suggested task's
+    // result, a fan-in or inbox digest) already names where it came from: no note either.
+    let provenance = msg.pointer("/_meta/provenance");
+    let synthetic =
+        provenance.and_then(|p| p.get("kind")).and_then(Value::as_str).is_some_and(|kind| {
+            [
+                crate::prompt_provenance::UNVERIFIED_KIND,
+                "offer_result",
+                super::digest::DIGEST_KIND,
+                super::digest::inbox_digest::KIND,
+            ]
+            .contains(&kind)
+        });
+    let agents = synthetic || super::digest::agent_sender(provenance, None).is_some();
+    if !agents
+        && msg.get("fromAgent").is_none()
+        && let Some(agent) = typed_agent_text(blocks)
+    {
+        msg["agentText"] = agent;
     }
 }
 
@@ -498,5 +991,30 @@ impl SessionStderr {
             self.open.insert(source, stream);
         }
         clean
+    }
+}
+
+/// A held `spawn_lock` that a list sees: taking it and letting it go each count as a change
+/// (`list_guard::Events::changed`), so a cached session list never shows a start that began or
+/// ended since it was built. A row's `starting` reads the lease; an update waits on it.
+pub(super) struct SpawnLease<'a> {
+    guard: Option<tokio::sync::MutexGuard<'a, ()>>,
+    events: &'a super::list_guard::Events,
+}
+
+impl Drop for SpawnLease<'_> {
+    fn drop(&mut self) {
+        // Released first, then counted: a list built after the count reads it free.
+        drop(self.guard.take());
+        self.events.changed();
+    }
+}
+
+impl Hub {
+    /// `session.spawn_lock`, held as a [`SpawnLease`].
+    pub(super) async fn spawn_lease<'a>(&'a self, session: &'a Session) -> SpawnLease<'a> {
+        let guard = session.spawn_lock.lock().await;
+        self.events.changed();
+        SpawnLease { guard: Some(guard), events: &self.events }
     }
 }

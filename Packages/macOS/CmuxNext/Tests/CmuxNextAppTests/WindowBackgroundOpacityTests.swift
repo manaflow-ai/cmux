@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextPages
 @testable import CmuxNextSettings
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// Ghostty config. Moving Opacity through the Settings page repaints the window at once (the
 /// slider's preview and its write) and turns Material into the explicit choice that matches
 /// Ghostty's blur; resetting Opacity returns both rows to Ghostty.
-@MainActor @Suite(.serialized) struct WindowBackgroundOpacityTests {
+@MainActor @Suite(.serialized, .closesItsWindows, .ghosttyOverrides) struct WindowBackgroundOpacityTests {
     /// The page's own writes: the bundled Settings page with a real gesture.
     static let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
     static let opacityKey = "appearance.backgroundOpacity"
@@ -43,7 +44,6 @@ import Testing
         func tearDown() {
             window.close()
             GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
-            GhosttyConfigBackground.loaded = GhosttyConfigBackground()
             ThemeScope.app.store.apply(original)
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
@@ -61,10 +61,11 @@ import Testing
 
         let original = ThemeScope.app.store.input
         GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
-        // The config files' own values, as `GhosttyRuntime.loadConfig` records them.
-        GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur)
         ThemeScope.app.store.apply(ThemeBridge.input(colors))
         let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        // The config files' own values, the harness's: a load of this Mac's config elsewhere in the process records
+        // its own in `GhosttyConfigBackground.loaded` (#36891).
+        terminal.ghostty = { GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur) }
         terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
 
@@ -77,6 +78,14 @@ import Testing
         surface.paintWindowSurface(of: window)
         return Harness(settings: settings, terminal: terminal, page: SettingsPageProvider(settings: settings),
                        window: window, surface: surface, url: url, original: original)
+    }
+
+    /// `body` on a harness with Ghostty's config `colors`; the harness is torn down after it.
+    func withHarness(_ json: String = "{}", ghostty colors: GhosttyThemeColors = ghostty(opacity: 1, blur: 0),
+                     _ body: (Harness) async throws -> Void) async throws {
+        let harness = try await make(json, ghostty: colors)
+        defer { harness.tearDown() }
+        try await body(harness)
     }
 
     /// Waits for the observers (`ObservationStream`) to see a change.
@@ -175,6 +184,20 @@ import Testing
         #expect(abs(harness.tintOpacity - 0.5) < 0.001)
         #expect(harness.settings.snapshot.windowBackground.material == .frosted)
         #expect(harness.surface.backdrop(in: harness.window).material == .frosted)
+    }
+
+    /// #36891: a load of this Mac's Ghostty config anywhere in the process (another suite's, or the
+    /// shared runtime's own reload) records this Mac's values while this test runs. A write in
+    /// Ghostty mode still names the material of the harness's Ghostty blur.
+    @Test func ghosttyValuesWrittenElsewhereMidTestKeepTheHarnesssBlur() async throws {
+        try await withHarness(ghostty: Self.ghostty(opacity: 0.9, blur: 20)) { harness in
+            // What a load of this Mac's config (no blur) records meanwhile.
+            let recorded = GhosttyConfigBackground.loaded
+            defer { GhosttyConfigBackground.loaded = recorded }
+            GhosttyConfigBackground.loaded = GhosttyConfigBackground()
+            try await set(harness, Self.opacityKey, 0.5)
+            #expect(harness.settings.snapshot.windowBackground.material == .frosted)
+        }
     }
 
     /// A Material the user chose survives Opacity's reset: only Opacity goes back to Ghostty's.

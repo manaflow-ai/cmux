@@ -2,6 +2,8 @@ use super::*;
 
 // The app fallback and the app scopes exist on unix only (cli.rs).
 #[cfg(unix)]
+mod action_argument_contract;
+#[cfg(unix)]
 mod action_surface_parity;
 #[cfg(unix)]
 mod cli_name_hints;
@@ -189,7 +191,9 @@ mod remote_cli_docs {
             // Cloud verbs are app actions whose existence is checked by the
             // socket. Require a catalog match rather than generic parsing.
             // Resource commands still resolve through the CLI parser.
+            // `cmux agents` routes before the core parser; its own grammar decides.
             let parser = builtin_command(&parser_words)
+                || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
                 missing.push(words.join(" "));
@@ -222,6 +226,10 @@ mod remote_cli_docs {
                 | ["harness", "doctor", ..]
                 | ["link", "machine", "update", ..]
                 | ["docs", "search", ..]
+                // vm.rs owns `machine new` (the app's Cloud create, or the VM API).
+                | ["machine", "new" | "create", ..]
+                // cloud_start_chat.rs: the CLI's own Cloud verb, not an app action.
+                | ["cloud", "start-chat", ..]
         )
     }
 
@@ -240,6 +248,19 @@ mod remote_cli_docs {
     }
 
     #[test]
+    fn documented_agents_commands_resolve_through_the_agents_grammar() {
+        // `cmux agents` routes before the core parser, so its own grammar
+        // decides which documented lines are real; a stale one still fails.
+        let names = action_names();
+        let missing = missing_commands(
+            "`cmux agents chat new`, `cmux agents chat new --harness codex -- \"hi\"`, \
+             `cmux agents chat deliberately-stale-verb`",
+            &names,
+        );
+        assert_eq!(missing, vec!["cmux agents chat deliberately-stale-verb"]);
+    }
+
+    #[test]
     fn a_deliberately_stale_cmux_line_is_rejected() {
         let names = action_names();
         let missing = missing_commands("`cmux cloud deliberately-stale-action`", &names);
@@ -251,6 +272,7 @@ mod remote_cli_docs {
         let missing = action_names()
             .into_iter()
             .filter_map(|name| name.strip_prefix("cloud ").map(str::to_owned))
+            .filter(|name| cloud_help::renamed(name).is_none())
             .filter(|name| !cloud_help::overview(false).contains(name))
             .collect::<Vec<_>>();
         assert!(missing.is_empty(), "cloud help omitted catalog actions: {missing:?}");
@@ -263,9 +285,9 @@ mod remote_cli_docs {
         let args =
             strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
         assert!(app::parse(&args).is_ok());
-        assert!(cloud_help::overview(false).contains("cloud <action>"));
+        assert!(cloud_help::overview(false).contains("vm <action>"));
         assert!(AGENT_HELP.contains("agent open-tab"));
-        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
+        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]"));
     }
 
     #[test]
@@ -405,6 +427,32 @@ fn an_app_actions_own_machine_flag_follows_its_words() {
     assert_eq!(parse_globals(&line).unwrap().1, line);
 }
 
+/// `--confirm` takes no value: `cloud kill-machine --confirm --json` is two
+/// switches, so the reply is JSON and the action gets `confirm: true` and no
+/// `json` argument. Both orders parse the same.
+#[cfg(unix)]
+#[test]
+fn confirm_does_not_swallow_a_following_json() {
+    for line in [
+        &["cloud", "kill-machine", "--target", "machine:m1", "--confirm", "--json"][..],
+        &["cloud", "kill-machine", "--target", "machine:m1", "--json", "--confirm"][..],
+    ] {
+        let (global, command) = parse_action_globals(&strings(line)).unwrap();
+        assert_eq!(global.output, OutputMode::Json, "{line:?}");
+        assert_eq!(
+            command,
+            strings(&["cloud", "kill-machine", "--target", "machine:m1", "--confirm"]),
+            "{line:?}"
+        );
+        let app::AppCommand::Call { params, .. } =
+            app::run_action("cloud kill-machine", &command[2..], app::ActionName::Cli).unwrap()
+        else {
+            panic!("expected a call")
+        };
+        assert_eq!(params["args"], serde_json::json!({"confirm": true}), "{line:?}: {params}");
+    }
+}
+
 #[test]
 fn global_value_options_reject_empty_inline_values() {
     let error = parse_globals(&strings(&["--socket=", "workspace", "list"])).unwrap_err();
@@ -508,6 +556,17 @@ fn server_stats_help_routes_to_the_stats_topic() {
 }
 
 #[test]
+fn help_workflow_shows_the_workflow_usage_not_the_root_help() {
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let help = scope_help_for("workflow", crate::localization::catalog_for_locale(locale));
+        assert!(help.contains("USAGE"), "{locale}: {help}");
+        assert!(help.contains("cmux workflow start <file>"), "{locale}: {help}");
+        assert!(help.contains("cmux workflow pause|resume <run-id>"), "{locale}: {help}");
+        assert!(!help.contains("GLOBAL OPTIONS"), "{locale}: root help shown instead: {help}");
+    }
+}
+
+#[test]
 fn every_scope_has_dedicated_help() {
     let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
     for scope in PUBLIC_SCOPES {
@@ -564,14 +623,54 @@ fn cmux_refuses_cmux_tui_only_scopes_by_name_in_every_spelling() {
             assert!(failure.error.0.contains("is not part of cmux"), "{args:?}: {}", failure.error);
         }
     }
-    // `cmux` has no session scope, so its `ls` shorthand lists workspaces.
+    // `cmux ls` lists workspaces (a session holds one person's workspaces).
     assert!(matches!(parse(&strings(&["ls"]), Surface::Cmux), Ok(ParsedCommand::Command { .. })));
     assert!(!catalog.local_server.cmux_root_help.contains("raw"));
     // A typo suggests only a scope cmux shows.
-    let Err(failure) = parse(&strings(&["sesion", "list"]), Surface::Cmux) else {
+    let Err(failure) = parse(&strings(&["projecton", "show"]), Surface::Cmux) else {
         panic!("accepted a typo");
     };
-    assert!(!failure.error.0.contains("session"), "{}", failure.error);
+    assert!(!failure.error.0.contains("projection"), "{}", failure.error);
+}
+
+/// Round 1 of the agent benchmark (T1, T11): the `cmux` on a cmux-tui pane's
+/// PATH had no `session` scope, so `cmux session current snapshot` (the whole
+/// topology) and `cmux session current stop` worked only as `cmux-tui`.
+#[test]
+fn cmux_accepts_the_session_and_client_scopes_like_cmux_tui() {
+    for args in [
+        vec!["session", "current", "snapshot"],
+        vec!["session", "current", "show"],
+        vec!["session", "current"],
+        vec!["session", "list"],
+        vec!["session", "current", "stop"],
+        vec!["session", "current", "journal", "read"],
+        vec!["client", "list"],
+    ] {
+        for surface in [Surface::Cmux, Surface::CmuxTui] {
+            assert!(
+                matches!(parse(&strings(&args), surface), Ok(ParsedCommand::Command { .. })),
+                "{surface:?} refused {args:?}"
+            );
+        }
+    }
+    let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } =
+        parse(&strings(&["session", "current"]), Surface::Cmux).unwrap()
+    else {
+        panic!("session current is not a request")
+    };
+    assert_eq!(request.operation.name().unwrap(), "session.get");
+    for help in [vec!["session", "--help"], vec!["help", "session"], vec!["client", "--help"]] {
+        assert!(
+            matches!(parse(&strings(&help), Surface::Cmux), Ok(ParsedCommand::Help(Some(_)))),
+            "{help:?}"
+        );
+    }
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        assert!(help.lines().any(|line| line.starts_with("  session ")), "{locale}");
+        assert!(help.lines().any(|line| line.starts_with("  client ")), "{locale}");
+    }
 }
 
 #[test]
@@ -751,6 +850,46 @@ fn cmux_server_is_the_machine_server() {
         panic!("server status was not routed to the machine server");
     };
     assert_eq!(cmux_server::cli::parse(&routed).unwrap().verb_str(), "status");
+}
+
+#[test]
+fn cmux_pair_runs_the_machine_servers_invite_pairing() {
+    // Invite pairing: the app shows the code, the new machine runs `cmux pair CODE`.
+    let args = |line: &[&str], surface| {
+        machine_server::args_for(&strings(line), surface).map(|r| r.map_err(|(e, _)| e.0))
+    };
+    let machine = |line: &[&str]| Some(Ok(ServerRoute::Machine(strings(line))));
+    assert_eq!(
+        args(&["pair", "ABCDE-12345"], Surface::Cmux),
+        machine(&["pair", "--invite=ABCDE-12345"])
+    );
+    assert_eq!(
+        args(&["pair", "ABCDE", "12345", "--name", "Studio"], Surface::Cmux),
+        machine(&["pair", "--invite=ABCDE12345", "--name", "Studio"])
+    );
+    assert_eq!(
+        args(&["--json", "pair", "--name", "Studio box", "abcde-12345"], Surface::Cmux),
+        machine(&["pair", "--invite=abcde-12345", "--name", "Studio box", "--json"])
+    );
+    assert_eq!(args(&["pair", "--help"], Surface::Cmux), machine(&["--help"]));
+    let Some(Err(error)) = args(&["pair"], Surface::Cmux) else {
+        panic!("cmux pair without a code ran")
+    };
+    assert!(error.contains("cmux pair CODE"), "{error}");
+    let Some(Err(error)) = args(&["--session", "build", "pair", "ABCDE-12345"], Surface::Cmux)
+    else {
+        panic!("cmux pair with --session ran")
+    };
+    assert!(error.contains("--session"), "{error}");
+    assert_eq!(args(&["pair", "ABCDE-12345"], Surface::CmuxTui), None, "cmux-tui has no pair verb");
+    // The routed words parse as the machine server's `pair` verb with its invite.
+    let Some(Ok(ServerRoute::Machine(routed))) = args(&["pair", "ABCDE-12345"], Surface::Cmux)
+    else {
+        panic!("cmux pair was not routed to the machine server");
+    };
+    let parsed = cmux_server::cli::parse(&routed).unwrap();
+    assert_eq!(parsed.verb_str(), "pair");
+    assert_eq!(parsed.value("invite"), Some("ABCDE-12345"));
 }
 
 #[test]
@@ -1113,4 +1252,141 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
     assert_eq!(acp_scope_args(&strings(&["acp", "ls", "--json"])), os(&["ls", "--json"]));
     assert_eq!(acp_scope_args(&rewritten(&["help", "harness"])), os(&["harness", "--help"]));
     assert_eq!(acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
+}
+
+#[test]
+fn space_list_supports_json_and_has_dedicated_help() {
+    let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
+        parse(&strings(&["space", "list", "--json"]), Surface::Cmux).unwrap()
+    else {
+        panic!("expected the space list request")
+    };
+    assert!(matches!(global.output, OutputMode::Json));
+    assert_eq!(request.operation.name().unwrap(), "room.list");
+    let help = scope_help_for("space", crate::localization::catalog());
+    for verb in ["list", "new", "switch", "rename", "move workspace", "move tab", "close"] {
+        assert!(help.contains(&format!("cmux space {verb}")), "{verb}: {help}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn space_mutations_accept_global_json_without_changing_the_action() {
+    for words in [
+        vec!["space", "new", "Work"],
+        vec!["space", "switch", "Work"],
+        vec!["space", "rename", "Work", "Office"],
+        vec!["space", "close", "Office"],
+        vec!["space", "move", "workspace", "ws_1", "Work"],
+        vec!["space", "move", "tab", "tab_1", "Work"],
+    ] {
+        let mut raw = strings(&words);
+        raw.push("--json".into());
+        let (global, remaining) = parse_globals(&raw).unwrap();
+        assert!(matches!(global.output, OutputMode::Json));
+        assert_eq!(remaining, strings(&words));
+        assert!(app::parse(&remaining).unwrap().is_some());
+    }
+}
+
+/// `cmux --help` opens with what a person does first (sign in, chat, VMs, devices), then the
+/// agents' COMMON TASKS within the first screen (#28414), and lists the person's scopes before
+/// the pane and terminal plumbing.
+#[test]
+fn root_help_lists_vm_and_its_old_name_in_its_own_language() {
+    for (locale, foreign) in [("en_US.UTF-8", "マシン"), ("ja_JP.UTF-8", "Run Cloud machine")] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        assert!(!help.contains(foreign), "{locale}: the other language's text");
+        let vm = help.lines().find(|line| line.starts_with("  vm ")).unwrap_or_default();
+        assert!(vm.contains("`cmux cloud`"), "{locale}: {vm}");
+        assert!(!help.lines().any(|line| line.starts_with("  cloud ")), "{locale}");
+    }
+}
+
+#[test]
+fn root_help_leads_with_person_verbs_and_keeps_the_agents_tasks_near_the_top() {
+    for (locale, start, common, person, control) in [
+        (
+            "en_US.UTF-8",
+            "START HERE",
+            "COMMON TASKS",
+            "YOU AND YOUR CHATS",
+            "AGENT AND SCRIPT CONTROL",
+        ),
+        (
+            "ja_JP.UTF-8",
+            "はじめに",
+            "よく使う操作",
+            "あなたとチャット",
+            "エージェントとスクリプトの操作",
+        ),
+    ] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        let line = |prefix: &str| {
+            help.lines()
+                .position(|line| line.starts_with(prefix))
+                .unwrap_or_else(|| panic!("{locale}: no line starts with {prefix:?}"))
+        };
+        assert!(line(start) < line(common), "{locale}");
+        for verb in ["login", "chat", "vm", "device"] {
+            assert!(line(&format!("  cmux {verb} ")) < line(common), "{locale}: {verb}");
+            assert!(line(&format!("  {verb} ")) > line(person), "{locale}: {verb}");
+            assert!(line(&format!("  {verb} ")) < line(control), "{locale}: {verb}");
+        }
+        assert!(line(common) < 12, "{locale}: COMMON TASKS left the first screen");
+        assert!(line("  pane ") > line(control), "{locale}");
+    }
+}
+
+/// `cmux terminal list --agents --json` (bench rounds 1 and 3): `--agents`
+/// takes no value, so a `--json` after it is the output mode, not its value.
+#[test]
+fn w4j_a_json_switch_after_list_agents_is_the_output_mode() {
+    let (global, command) =
+        parse_globals(&strings(&["terminal", "list", "--agents", "--json"])).unwrap();
+    assert_eq!(global.output, OutputMode::Json);
+    assert_eq!(command, strings(&["terminal", "list", "--agents"]));
+}
+
+/// `pane <p> move --new-screen --help` prints the pane help: `--new-screen`
+/// takes no value, so it does not swallow `--help`.
+#[test]
+fn w4j_pane_move_help_is_the_pane_help() {
+    for args in [
+        &["pane", "current", "move", "--new-screen", "--help"][..],
+        &["pane", "move", "--new-tab", "--help"],
+        &["pane", "pane_1", "move", "--to-pane", "x", "--focus", "--help"],
+    ] {
+        let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(args), Surface::Cmux) else {
+            panic!("{args:?} is not help");
+        };
+        assert_eq!(topic, "pane", "{args:?}");
+    }
+    let (global, _) = parse_globals(&strings(&["pane", "move", "--new-screen", "--json"])).unwrap();
+    assert_eq!(global.output, OutputMode::Json);
+}
+
+/// W5-Q (bench r4 #10): `cmux help keys` was an unknown scope. It now prints
+/// the TUI's key bindings (the prefix and each bound action, in the
+/// person's language), on both surfaces.
+#[test]
+fn w5q_help_keys_lists_the_tui_key_bindings() {
+    for surface in [Surface::Cmux, Surface::CmuxTui] {
+        let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(&["help", "keys"]), surface)
+        else {
+            panic!("help keys must be a help topic on {surface:?}");
+        };
+        assert_eq!(topic, "keys");
+    }
+    // Fixed bindings, not the person's config: a changed `split-right` on
+    // the machine must not change this result.
+    let keys = crate::config::Keys::default;
+    let split = keys().shortcut_label(crate::config::Action::SplitRight).expect("split is bound");
+    let english =
+        scope_help_with_keys("keys", crate::localization::catalog_for_locale("en_US.UTF-8"), keys);
+    assert!(english.contains("Split right"), "{english}");
+    assert!(english.contains(&split), "{split}: {english}");
+    let japanese =
+        scope_help_with_keys("keys", crate::localization::catalog_for_locale("ja_JP.UTF-8"), keys);
+    assert!(japanese.contains("右に分割"), "{japanese}");
 }

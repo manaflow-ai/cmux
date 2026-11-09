@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
+public import CmuxNextCompat
 import CmuxNextIcons
 public import CmuxNextRemoteView
 import Foundation
@@ -34,11 +35,12 @@ public final class RemoteViewPageTab: BrowserTab {
     @ObservationIgnored private let session: RemoteViewPageSession?
 
     /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`; `cloudTransport`
-    /// reaches a Cloud machine's desktop over the app's Cloud tunnel.
+    /// reaches a Cloud machine's desktop over the app's Cloud tunnel; `loginKeychain` is the app's one
+    /// guard of the Keychain UI switch (a VNC sign-in).
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
          closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void,
          cloudTransport: RemoteViewPageSession.CloudDesktopTransport? = nil,
-         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil) {
+         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil, loginKeychain: LoginKeychain) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -55,6 +57,7 @@ public final class RemoteViewPageTab: BrowserTab {
         case let .connect(record):
             let session = RemoteViewPageSession.make(record: record, closeTab: closeTab, cloudTransport: cloudTransport, cloudRd: cloudRd,
                                                      displayName: displayName)
+            session?.useLoginKeychain(loginKeychain)
             self.session = session
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):
@@ -67,22 +70,18 @@ public final class RemoteViewPageTab: BrowserTab {
             session = nil
             contentView = RemoteViewUnavailableView(content: .unavailable(reason))
         }
-        #if DEBUG
         Self.live.add(self)
-        #endif
     }
 
-    #if DEBUG
-    /// Every live remote view tab, for `debug.remote_view` (weak).
-    // singleton-allow: a DEBUG-only weak registry the debug socket method reads; moved from CmuxNextApp as is, only public for the move.
+    /// Every live remote view tab, for `remote_view.*` and `debug.remote_view` (weak).
+    // singleton-allow: a weak registry the control socket's remote view methods read; it holds no tab alive.
     public static let live = NSHashTable<RemoteViewPageTab>.weakObjects()
 
     /// The Connect button of a tab that asks first; nil for any other tab.
     public var debugConnect: (() -> Void)? { (contentView as? RemoteViewUnavailableView)?.onConnect }
 
-    /// The tab's session, when it streams (development path or mock).
+    /// The tab's session, when it streams.
     public var debugSession: RemoteViewPageSession? { session }
-    #endif
 
     public func load(_ url: URL) {
         if RemoteViewTabRecord.matches(url) { return }

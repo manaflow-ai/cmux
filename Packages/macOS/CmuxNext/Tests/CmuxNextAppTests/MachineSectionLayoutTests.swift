@@ -1,62 +1,39 @@
 import AppKit
+import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextPages
 @testable import CmuxNextServer
+import CmuxNextSettings
 import Foundation
 import Testing
 
-/// The right sidebar's Machines section groups (cloud sidebar redesign, ask-2663fecb03): every style keeps
-/// every machine, this Mac comes first with no header, and the kinds follow in one fixed order.
+/// The right sidebar's Machines section rows as the app reads them (the layout, words and controls
+/// are the page's: webviews/src/pages/machines, model.test.ts and machines-section.test.tsx).
 @Suite struct MachineSectionLayoutTests {
-    private static let local = MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)
-    /// Out of kind order on purpose: grouping must not depend on the registry's order.
-    private static let rows = [local] + [
-        MachineSectionRow(id: "s1", name: "studio", isConnected: true, isLocal: false, kind: .server),
-        MachineSectionRow(id: "h1", name: "linux-box", isConnected: true, isLocal: false, kind: .ssh),
-        MachineSectionRow(id: "c1", name: "atlas-web", isConnected: true, isLocal: false, kind: .cloud),
-        MachineSectionRow(id: "c2", name: "gpu-box", isConnected: false, isLocal: false, kind: .cloud, isConnecting: true),
-    ]
-
-    @Test func groupedStylesPutThisMacFirstThenCloudSSHAndServersUnderHeaders() {
-        for style in [MachineSectionStyle.compact, .grouped] {
-            let groups = style.groups(Self.rows)
-            #expect(groups.map(\.kind) == [nil, .cloud, .ssh, .server])
-            #expect(groups.map { $0.rows.map(\.id) } == [["local"], ["c1", "c2"], ["h1"], ["s1"]])
-            #expect(groups[0].title == nil)
-            #expect(groups[1].title == AddMachineStrings.group(.cloud))
-            #expect(Set(groups.map(\.id)).count == groups.count)
-        }
-    }
-
-    @Test func aKindWithNoMachineHasNoGroup() {
-        #expect(MachineSectionStyle.compact.groups([Self.local]).map(\.kind) == [nil])
-        #expect(MachineSectionStyle.compact.groups([]).isEmpty)
-        #expect(MachineSectionStyle.flat.groups([]).isEmpty)
-    }
-
-    @Test func theFlatStyleIsOneUntitledListInTheGivenOrder() {
-        let groups = MachineSectionStyle.flat.groups(Self.rows)
-        #expect(groups.count == 1)
-        #expect(groups[0].title == nil)
-        #expect(groups[0].rows == Self.rows)
-    }
-
-    @Test func everyStyleKeepsEveryMachine() {
-        for style in MachineSectionStyle.allCases {
-            #expect(style.groups(Self.rows).flatMap(\.rows).count == Self.rows.count)
-        }
-        #expect(MachineSectionStyle.compact.showsStateLine == false)
-        #expect(MachineSectionStyle.grouped.showsStateLine && MachineSectionStyle.flat.showsStateLine)
-    }
-
     @Test func aRowsKindAndStateFollowItsLink() {
-        #expect(Self.local.kind == .local)
+        #expect(MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true).kind == .local)
         #expect(MachineSectionRow(id: "x", name: "x", isConnected: false, isLocal: false).kind == .ssh)
         let connecting = MachineSectionRow(id: "c", name: "c", isConnected: false, isLocal: false, kind: .cloud, isConnecting: true)
-        #expect(connecting.isConnecting && connecting.stateText == AddMachineStrings.connecting)
+        #expect(connecting.isConnecting)
         // A connected link is never "connecting", whatever the caller passed.
         let connected = MachineSectionRow(id: "c", name: "c", isConnected: true, isLocal: false, kind: .cloud, isConnecting: true)
-        #expect(!connected.isConnecting && connected.stateText == AddMachineStrings.connected)
-        #expect(MachineSectionRow(id: "o", name: "o", isConnected: false, isLocal: false).stateText == AddMachineStrings.offline)
-        #expect(Set(MachineKind.allCases.map(\.icon)).count == MachineKind.allCases.count)
+        #expect(!connected.isConnecting)
+    }
+
+    /// A paused Cloud machine is not connecting (cloud dogfood: three paused machines spun forever): its
+    /// row has no spinner even while its daemon retries the link. A resume keeps one; a failed or
+    /// deleted machine has none; a connected link wins.
+    @Test func aCloudMachinesServerStateReplacesTheConnectingSpinner() {
+        func row(_ state: MachineServerState?, connected: Bool = false, connecting: Bool = true) -> MachineSectionRow {
+            MachineSectionRow(id: "c", name: "c", isConnected: connected, isLocal: false, kind: .cloud, isConnecting: connecting,
+                              serverState: state)
+        }
+        #expect(!row(.paused).isConnecting && row(.paused).serverState == .paused)
+        #expect(row(.resuming, connecting: false).isConnecting)
+        #expect(!row(.failed).isConnecting && !row(.deleted).isConnecting)
+        let connected = row(.paused, connected: true)
+        #expect(connected.serverState == nil && !connected.isConnecting)
+        #expect(row(nil).isConnecting)
     }
 
     @Test func theFixtureHasEveryRemoteKindAndState() {
@@ -64,210 +41,248 @@ import Testing
         #expect(Set(fixture.map(\.kind)) == [.cloud, .ssh, .server])
         #expect(fixture.contains { $0.isConnecting })
         #expect(fixture.contains { !$0.isConnected && !$0.isConnecting })
+        #expect(fixture.contains { $0.serverState == .paused && !$0.isConnecting })
         #expect(Set(fixture.map(\.id)).count == fixture.count)
         #expect(!fixture.contains { $0.isLocal })
     }
 }
 
-/// The Machines section is AppKit (no-swiftui-DESIGN wave 1): its rows react to model changes, its
-/// buttons run their actions, and New Workspace shows only under the pointer or while the row's menu is open.
-@MainActor @Suite struct MachineSectionViewTests {
-    private static let rows = [
-        MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true),
-        MachineSectionRow(id: "c1", name: "atlas-web", isConnected: true, isLocal: false, kind: .cloud),
-        MachineSectionRow(id: "c2", name: "gpu-box", isConnected: false, isLocal: false, kind: .cloud, isConnecting: true),
-        MachineSectionRow(id: "h1", name: "build-host", isConnected: false, isLocal: false, kind: .ssh),
-    ]
-
-    private static func section(_ opened: @escaping @MainActor (String) -> Void = { _ in },
-                                add: @escaping @MainActor () -> Void = {}) -> MachineSectionView {
-        let view = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: opened, addMachine: add, newWorkspaceMenuItem: { _ in
-            NSMenuItem(title: "registry row", action: nil, keyEquivalent: "")
-        }))
-        view.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
-        return view
+/// The Machines section page's provider: the snapshot the page reads (the wire shape of
+/// webviews/src/pages/machines/types.ts), its actions through the registry, the native menus, and no
+/// stream events while the section is hidden.
+@MainActor @Suite struct MachineSectionPageProviderTests {
+    @MainActor final class Box {
+        var rows: [MachineSectionRow] = [MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)]
+        var ran: [String] = []
+        var presented: [(String, CGPoint)] = []
     }
 
-    @Test func eachStyleShowsItsHeadersAndStates() {
-        let view = Self.section()
-        view.update(Self.rows, style: .compact)
-        #expect(view.shownLines == ["This Mac", AddMachineStrings.group(.cloud)!, "atlas-web", "gpu-box",
-                                    AddMachineStrings.group(.ssh)!, "build-host · \(AddMachineStrings.offline)", AddMachineStrings.addMachine])
-        view.update(Self.rows, style: .flat)
-        #expect(view.shownLines == ["This Mac · \(AddMachineStrings.connected)", "atlas-web · \(AddMachineStrings.connected)",
-                                    "gpu-box · \(AddMachineStrings.connecting)", "build-host · \(AddMachineStrings.offline)",
-                                    AddMachineStrings.addMachine])
+    static func provider(_ box: Box, joined: JoinedMachineStore? = nil) -> MachineSectionPageProvider {
+        MachineSectionPageProvider(dependencies: .init(
+            rows: { box.rows }, style: { .grouped }, joined: { joined },
+            newWorkspace: { box.ran.append("new:\($0)"); return true }, addMachine: { box.ran.append("add"); return true },
+            present: { menu, point in box.presented.append((menu.items.first?.title ?? "", point)) },
+            menu: { kind, row in
+                let menu = NSMenu()
+                menu.addItem(withTitle: "\(kind):\(row.id)", action: nil, keyEquivalent: "")
+                return menu
+            }))
     }
 
-    @Test func rowsFollowTheModelAndKeepTheirViews() {
-        let view = Self.section()
-        view.update(Self.rows, style: .compact)
-        let kept = view.rowViews["c1"]
-        view.update(Array(Self.rows.prefix(2)), style: .compact)
-        #expect(view.rowViews.keys.sorted() == ["c1", "local"])
-        #expect(view.rowViews["c1"] === kept)
-        #expect(!view.shownLines.contains(AddMachineStrings.group(.ssh)!))
-        view.layoutSubtreeIfNeeded()
-        let frames = view.subviews.map(\.frame).sorted { $0.minY < $1.minY }
-        #expect(view.subviews.count == 4) // This Mac, the Cloud header, atlas-web, Add Machine…
-        #expect(frames.allSatisfy { $0.width == 280 })
-        #expect(zip(frames, frames.dropFirst()).allSatisfy { $0.maxY <= $1.minY })
+    static let context = PageCallContext(page: PageDescriptor.machines.id, userGesture: true, gestureEvent: 1)
+
+    @Test func theSnapshotCarriesEachRowAndTheJoinedState() async throws {
+        let box = Box()
+        let machine = JoinedMachine(id: "m_1", name: "lane-vm-3", state: .online, platform: "linux", mintedBy: "you@example.com")
+        box.rows.append(.joined(machine, health: nil))
+        box.rows.append(MachineSectionRow(id: "c3", name: "night-batch", isConnected: false, isLocal: false, kind: .cloud,
+                                          isConnecting: true, serverState: .paused, health: .warning, healthStep: .update))
+        let store = JoinedMachineStore(service: { nil })
+        store.openMenu = "m_1"
+        let snapshot = try await Self.provider(box, joined: store).call(MachineSectionPageProvider.snapshotOp, params: .object([:]),
+                                                                       context: Self.context)
+        #expect(snapshot["style"]?.stringValue == "grouped")
+        #expect(snapshot["openMenu"]?.stringValue == "m_1")
+        guard case .array(let rows)? = snapshot["rows"] else { Issue.record("no rows"); return }
+        let ids = rows.map { $0["id"]?.stringValue }
+        #expect(ids == ["local", "joined:m_1", "c3"])
+        #expect(rows[0]["kind"]?.stringValue == "local" && rows[0]["isLocal"]?.boolValue == true)
+        #expect(rows[1]["joined"]?["mintedBy"]?.stringValue == "you@example.com")
+        #expect(rows[1]["kind"]?.stringValue == "joined")
+        #expect(rows[2]["serverState"]?.stringValue == "paused" && rows[2]["isConnecting"]?.boolValue == false)
+        #expect(rows[2]["health"]?.stringValue == "warning" && rows[2]["healthStep"]?.stringValue == "update")
     }
 
-    /// Joined machines (Labs `labs.machineJoin`): a mesh-only one sits under the Joined header after the
-    /// other kinds, a linked one stays in its link's group; both are the joined row with its "…" menu,
-    /// and the store's busy, failed and open-menu state reaches them.
-    @Test func joinedMachinesSitInTheirGroupsAsJoinedRows() throws {
-        let linkedMachine = JoinedMachine(id: "m_1", name: "lane-vm-3", state: .online, meshPeerId: "h1", mintedBy: "you@example.com")
-        let meshMachine = JoinedMachine(id: "m_2", name: "gpu-west", state: .offline)
-        let linked = MachineSectionRow(id: "h1", name: "lane-vm-3", isConnected: true, isLocal: false, kind: .ssh, joined: linkedMachine)
-        let mesh = MachineSectionRow.joined(meshMachine, health: nil)
-        #expect(mesh.kind == .joined && !mesh.isLinked && linked.isLinked)
-        var menus: [String] = []
-        let view = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { _ in }, addMachine: {}, joinedMenu: { machine, row in
-            menus.append("\(machine.id)@\(row.id)")
-            return NSMenu()
-        }))
-        view.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
-        view.update([Self.rows[0], mesh, linked], style: .compact, joined: .init(busy: ["m_2"], openMenu: "m_1"))
-        let lines = view.shownLines
-        #expect(lines.first == "This Mac")
-        let ssh = try #require(lines.firstIndex(of: AddMachineStrings.group(.ssh)!))
-        let joined = try #require(lines.firstIndex(of: AddMachineStrings.group(.joined)!))
-        #expect(ssh < joined)
-        #expect(lines[ssh + 1].hasPrefix("lane-vm-3 · "))
-        #expect(lines[joined + 1].hasPrefix("gpu-west · "))
-        #expect(view.rowViews.keys.sorted() == ["local"], "joined machines are joined rows, never plain ones")
-        #expect(view.joinedViews.keys.sorted() == [mesh.id, "h1"].sorted())
-        let linkedView = try #require(view.joinedViews["h1"]), meshView = try #require(view.joinedViews[mesh.id])
-        #expect(linkedView.snapshot?.menuOpen == true && linkedView.snapshot?.isLinked == true)
-        #expect(meshView.snapshot?.busy == true && meshView.snapshot?.isLinked == false)
-        #expect(linkedView.add.isEnabled && !meshView.add.isEnabled)
-        _ = linkedView.more.pressMenu?()
-        #expect(menus == ["m_1@h1"])
-        // The store's state alone changing reaches the rows.
-        view.update([Self.rows[0], mesh, linked], style: .compact, joined: .init())
-        #expect(view.joinedViews[mesh.id]?.snapshot?.busy == false)
-        #expect(view.joinedViews[mesh.id] === meshView)
-    }
-
-    @Test func newWorkspaceShowsUnderThePointerAndRunsOnlyWhenConnected() throws {
-        var opened: [String] = []
-        let view = Self.section { opened.append($0) }
-        view.update(Self.rows, style: .compact)
-        let row = try #require(view.rowViews["c1"])
-        #expect(!row.revealsNewWorkspace)
-        row.setPointerInside(true)
-        #expect(row.revealsNewWorkspace)
-        row.newButton.performClick(nil)
-        row.setPointerInside(false)
-        #expect(!row.revealsNewWorkspace)
-        let down = try #require(view.rowViews["h1"])
-        #expect(!down.newButton.isEnabled)
-        #expect(down.newButton.accessibilityPerformPress() == false)
-        #expect(down.contextMenu()?.items.first?.isEnabled == false)
-        #expect(opened == ["c1"])
-        #expect(row.contextMenu()?.items.map(\.title) == [AddMachineStrings.newWorkspace])
-        // With no registry row the machine has no right-click menu (no inline fallback).
-        #expect(MachineSectionRowView(newWorkspace: { _ in }).contextMenu() == nil)
-    }
-
-    @Test func addMachineRunsItsAction() {
-        var added = 0
-        let view = Self.section(add: { added += 1 })
-        view.update(Self.rows, style: .grouped)
-        #expect(view.addRow.accessibilityPerformPress())
-        #expect(added == 1)
-    }
-
-    /// Keyboard (Full Keyboard Access), as the SwiftUI buttons had: New Workspace shows while it has focus,
-    /// and Space or Return runs Add Machine… when it has focus.
-    @Test func keyboardFocusShowsNewWorkspaceAndSpaceRunsAddMachine() throws {
-        var added = 0
-        let view = Self.section(add: { added += 1 })
-        view.update(Self.rows, style: .compact)
-        let row = try #require(view.rowViews["c1"])
-        #expect(!row.revealsNewWorkspace)
-        #expect(row.newButton.becomeFirstResponder())
-        #expect(row.revealsNewWorkspace)
-        #expect(row.newButton.resignFirstResponder())
-        #expect(!row.revealsNewWorkspace)
-        func key(_ characters: String, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
-            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
-                                          characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 0))
+    @Test func newWorkspaceAddMachineAndMenusRunThroughTheApp() async throws {
+        let box = Box()
+        let provider = Self.provider(box)
+        _ = try await provider.call(MachineSectionPageProvider.newWorkspaceOp, params: ["machine": "local"], context: Self.context)
+        _ = try await provider.call(MachineSectionPageProvider.addMachineOp, params: .object([:]), context: Self.context)
+        #expect(box.ran == ["new:local", "add"])
+        _ = try await provider.call(MachineSectionPageProvider.menuOp, params: ["row": "local", "menu": "row", "x": 10, "y": 20],
+                                    context: Self.context)
+        #expect(box.presented.map(\.0) == ["row:local"])
+        #expect(box.presented.first?.1 == CGPoint(x: 10, y: 20))
+        await #expect(throws: PageError.self) {
+            try await provider.call(MachineSectionPageProvider.menuOp, params: ["row": "gone", "menu": "row"], context: Self.context)
         }
-        #expect(MachineSectionAddRow.activates(try key(" ")))
-        #expect(MachineSectionAddRow.activates(try key("\r")))
-        #expect(!MachineSectionAddRow.activates(try key("a")))
-        #expect(!MachineSectionAddRow.activates(try key(" ", .command)))
-        #expect(!MachineSectionAddRow.activates(try key(" ", .shift)))
-        view.addRow.keyDown(with: try key(" "))
-        #expect(added == 1)
-        view.addRow.keyboardAccess = { false }
-        #expect(!view.addRow.acceptsFirstResponder && !view.addRow.canBecomeKeyView)
-        view.addRow.keyboardAccess = { true }
-        #expect(view.addRow.acceptsFirstResponder && view.addRow.canBecomeKeyView)
-        #expect(view.addRow.becomeFirstResponder() && view.addRow.showsFocus)
-        #expect(view.addRow.resignFirstResponder() && !view.addRow.showsFocus)
     }
 
-    /// A name or header that fits is drawn whole (a label's frame is its text plus padding), and every
-    /// name, and Add Machine…, starts on one text column after the icon column.
-    @Test func namesThatFitAreWholeAndShareOneColumn() {
-        for style in MachineSectionStyle.allCases {
-            let view = Self.section()
-            view.update(Self.rows, style: style)
-            view.layoutSubtreeIfNeeded()
-            var starts: Set<CGFloat> = []
-            for row in view.rowViews.values {
-                row.layoutSubtreeIfNeeded()
-                #expect(row.nameLabel.frame.width >= row.nameLabel.naturalSize.width - 0.5, "\(style) \(row.row.name)")
-                if !row.stateLabel.isHidden {
-                    #expect(row.stateLabel.frame.width >= row.stateLabel.naturalSize.width - 0.5, "\(style) \(row.row.name)")
-                }
-                starts.insert(row.nameLabel.frame.minX)
+    /// Page script with no click or key behind it runs nothing: New Workspace, Add Machine and the menus
+    /// need the person's own gesture.
+    @Test func actionsWithoutAPersonsGestureAreRefused() async throws {
+        let box = Box()
+        let provider = Self.provider(box)
+        let scripted = PageCallContext(page: PageDescriptor.machines.id, userGesture: false, gestureEvent: nil)
+        for (op, params) in [(MachineSectionPageProvider.newWorkspaceOp, ["machine": "local"] as JSONValue),
+                             (MachineSectionPageProvider.addMachineOp, .object([:])),
+                             (MachineSectionPageProvider.menuOp, ["row": "local", "menu": "row"] as JSONValue)] {
+            await #expect(throws: PageError.self) { try await provider.call(op, params: params, context: scripted) }
+        }
+        #expect(box.ran.isEmpty)
+        #expect(box.presented.isEmpty)
+    }
+
+    /// New Workspace runs only on a machine the section shows and that is connected; any other id (a fleet
+    /// daemon the rows leave out, a link that is down) is refused even with the person's click.
+    @Test func newWorkspaceRunsOnlyOnAConnectedRowOfTheSection() async throws {
+        let box = Box()
+        box.rows.append(MachineSectionRow(id: "down", name: "down", isConnected: false, isLocal: false))
+        let provider = Self.provider(box)
+        for id in ["fleet-lane-7", "down", ""] {
+            await #expect(throws: PageError.self) {
+                try await provider.call(MachineSectionPageProvider.newWorkspaceOp, params: ["machine": .string(id)], context: Self.context)
             }
-            view.addRow.layoutSubtreeIfNeeded()
-            starts.insert(view.addRow.label.frame.minX)
-            #expect(starts.count == 1, "\(style): \(starts)")
         }
+        #expect(box.ran.isEmpty)
+        _ = try await provider.call(MachineSectionPageProvider.newWorkspaceOp, params: ["machine": "local"], context: Self.context)
+        #expect(box.ran == ["new:local"])
     }
 
-    /// The click reaches Add Machine… as AppKit dispatches it: a view's hitTest takes a point in its
-    /// superview's coordinates, and each view hands its subviews the point in its own. The section sits
-    /// at a nonzero origin in a flipped host, so a double or missing conversion would miss. Only the
-    /// icon and the text take the click, not the empty width after them.
-    @Test func addMachineTakesTheClickOnlyOverItsIconAndText() {
-        let view = Self.section()
-        view.update(Self.rows, style: .compact)
-        let host = FlippedHost(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
-        view.frame.origin = NSPoint(x: 0, y: 37)
-        host.addSubview(view)
-        view.layoutSubtreeIfNeeded()
-        let add = view.addRow
-        add.layoutSubtreeIfNeeded()
-        #expect(add.frame.minY > 0)
-        let text = NSPoint(x: add.label.frame.midX, y: add.label.frame.midY)
-        #expect(view.hitTest(host.convert(text, from: add)) === add)
-        #expect(add.hitTest(view.convert(text, from: add)) === add)
-        let past = NSPoint(x: add.bounds.maxX - 2, y: add.bounds.midY)
-        #expect(view.hitTest(host.convert(past, from: add)) !== add)
-        #expect(add.hitTest(view.convert(past, from: add)) == nil)
-    }
-
-    @Test func theSectionAndItsHostImportNoSwiftUI() throws {
-        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appending(path: "Sources")
-        for path in ["CmuxNextServer/AddMachine/MachineSectionView.swift", "CmuxNextServer/AddMachine/MachineSection.swift",
-                     "CmuxNextApp/RightSidebar/MachineSectionHostView.swift"] {
-            let source = try String(contentsOf: sources.appending(path: path), encoding: .utf8)
-            #expect(!source.contains("import SwiftUI"), "\(path)")
-            #expect(!source.contains("NSHostingView"), "\(path)")
+    /// A menu opens only on a row the section shows, and only a menu that row has, even with the person's
+    /// click: a fleet daemon the rows leave out, an unknown menu, or a joined menu on a machine that is not
+    /// joined present nothing.
+    @Test func aMenuOpensOnlyOnAShownRowWithThatMenu() async throws {
+        let box = Box()
+        let machine = JoinedMachine(id: "m_1", name: "lane-vm-3", state: .online, platform: "linux", mintedBy: nil)
+        box.rows.append(.joined(machine, health: nil))
+        let provider = Self.provider(box)
+        let refused: [JSONValue] = [["row": "fleet-lane-7", "menu": "row"], ["row": "local", "menu": "joined"],
+                                    ["row": "local", "menu": "revoke"], ["menu": "row"]]
+        for params in refused {
+            await #expect(throws: PageError.self) {
+                try await provider.call(MachineSectionPageProvider.menuOp, params: params, context: Self.context)
+            }
         }
+        #expect(box.presented.isEmpty)
+        _ = try await provider.call(MachineSectionPageProvider.menuOp, params: ["row": "joined:m_1", "menu": "joined"], context: Self.context)
+        let titles = box.presented.map(\.0)
+        #expect(titles == ["joined:joined:m_1"])
     }
-}
 
-/// A flipped container, so a point given to it is in the same top-down coordinates as the section's.
-private final class FlippedHost: NSView {
-    override var isFlipped: Bool { true }
+    /// Remove runs only on the person's click, on a joined row the section shows: never page script
+    /// alone, a fleet daemon the rows leave out, or a machine that is not joined. On a joined row it
+    /// runs the store's Remove on that row's machine.
+    @Test func removeRunsOnlyOnAShownJoinedRowWithAClick() async throws {
+        let box = Box()
+        box.rows.append(.joined(JoinedMachine(id: "m_1", name: "lane-vm-3", state: .online, platform: "linux", mintedBy: nil), health: nil))
+        let fake = JoinedMachineRowsTests.Fake()
+        let store = fake.store()
+        await store.refresh()
+        let provider = Self.provider(box, joined: store)
+        // A hidden section removes nothing, even on a click.
+        await #expect(throws: PageError.self) {
+            try await provider.call(MachineSectionPageProvider.removeOp, params: ["row": "joined:m_1"], context: Self.context)
+        }
+        provider.setShown(true)
+        let scripted = PageCallContext(page: PageDescriptor.machines.id, userGesture: false, gestureEvent: nil)
+        await #expect(throws: PageError.self) {
+            try await provider.call(MachineSectionPageProvider.removeOp, params: ["row": "joined:m_1"], context: scripted)
+        }
+        for row in ["local", "fleet-lane-7", "m_1", ""] {
+            await #expect(throws: PageError.self) {
+                try await provider.call(MachineSectionPageProvider.removeOp, params: ["row": .string(row)], context: Self.context)
+            }
+        }
+        #expect(fake.removed.isEmpty)
+        let answer = try await provider.call(MachineSectionPageProvider.removeOp, params: ["row": "joined:m_1"], context: Self.context)
+        #expect(answer["removed"]?.boolValue == true)
+        #expect(fake.removed == ["m_1"])
+    }
+
+    /// A joined machine with no workspace link of its own has no New Workspace: its row menu is refused.
+    @Test func aJoinedOnlyRowHasNoRowMenu() async throws {
+        let box = Box()
+        box.rows.append(.joined(JoinedMachine(id: "m_1", name: "lane-vm-3", state: .online, platform: "linux", mintedBy: nil), health: nil))
+        let provider = Self.provider(box)
+        await #expect(throws: PageError.self) {
+            try await provider.call(MachineSectionPageProvider.menuOp, params: ["row": "joined:m_1", "menu": "row"], context: Self.context)
+        }
+        #expect(box.presented.isEmpty)
+    }
+
+    /// While the section is hidden its stream reads no row at all; showing it reads them again.
+    @Test func aHiddenSectionReadsNoRows() async throws {
+        let box = Box()
+        final class Reads { var count = 0 }
+        let reads = Reads()
+        let store = JoinedMachineStore(service: { nil })
+        let provider = MachineSectionPageProvider(dependencies: .init(
+            rows: { reads.count += 1; return box.rows }, style: { .grouped }, joined: { store },
+            newWorkspace: { _ in true }, addMachine: { true }, present: { _, _ in }, menu: { _, _ in nil }))
+        let subscription = try await provider.subscribe(MachineSectionPageProvider.changesStream, filter: .object([:]),
+                                                        context: Self.context) { _ in }
+        defer { subscription.cancel() }
+        for _ in 0..<20 { await Task.yield() }
+        let hidden = reads.count
+        provider.setShown(true)
+        for _ in 0..<20 { await Task.yield() }
+        provider.setShown(false)
+        for _ in 0..<20 { await Task.yield() }
+        let afterHide = reads.count
+        // A change the shown section would show (the joined store is observed) wakes nothing while hidden.
+        store.openMenu = "m_7"
+        for _ in 0..<20 { await Task.yield() }
+        #expect(reads.count == afterHide, "hidden: a change reads no rows")
+        #expect(afterHide > hidden, "shown: the stream reads them")
+        #expect(hidden == 1, "only the subscribe's own snapshot read the rows while hidden")
+    }
+
+    /// Add Machine takes no target: it opens the app's own Add Machine card, and only on the person's click.
+    @Test func addMachineTakesNoTargetFromThePage() async throws {
+        let box = Box()
+        let provider = Self.provider(box)
+        _ = try await provider.call(MachineSectionPageProvider.addMachineOp, params: ["machine": "fleet-lane-7"], context: Self.context)
+        #expect(box.ran == ["add"], "a machine the page names changes nothing")
+    }
+
+    /// The row's native menu: New Workspace on This Machine from the registry, off while the link is down.
+    @Test func aRowsMenuIsTheRegistrysNewWorkspaceRow() {
+        let registry = ActionRegistry.standard()
+        let down = MachineSectionRow(id: "h1", name: "build-host", isConnected: false, isLocal: false)
+        let menu = MachineSectionHostView.menu("row", row: down, registry: registry)
+        #expect(menu?.items.map(\.title) == [MachineSectionRow.newWorkspaceTitle])
+        #expect(menu?.items.first?.isEnabled == false)
+        #expect(MachineSectionHostView.menu("joined", row: down, registry: registry) == nil, "only a joined machine has the joined menu")
+    }
+
+    /// While the section is hidden the page hears nothing; showing it sends the newest snapshot once.
+    @Test func aHiddenSectionsStreamSendsNothingUntilItShows() async throws {
+        let box = Box()
+        let store = JoinedMachineStore(service: { nil })
+        let provider = Self.provider(box, joined: store)
+        provider.setShown(true)
+        var events: [JSONValue] = []
+        let subscription = try await provider.subscribe(MachineSectionPageProvider.changesStream, filter: .object([:]),
+                                                        context: Self.context) { events.append($0) }
+        defer { subscription.cancel() }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(events.isEmpty, "the first value is the one the page reads")
+        provider.setShown(false)
+        store.openMenu = "m_9"
+        for _ in 0..<20 { await Task.yield() }
+        #expect(events.isEmpty, "hidden: no event")
+        provider.setShown(true)
+        #expect(events.count == 1)
+        #expect(events.last?["openMenu"]?.stringValue == "m_9")
+        provider.setShown(true)
+        #expect(events.count == 1, "nothing new: nothing sent")
+    }
+
+    /// A page that subscribes while the section is hidden still gets the newest snapshot on the first show.
+    @Test func aStreamOpenedWhileHiddenSendsTheChangeOnTheFirstShow() async throws {
+        let box = Box()
+        let store = JoinedMachineStore(service: { nil })
+        let provider = Self.provider(box, joined: store)
+        var events: [JSONValue] = []
+        let subscription = try await provider.subscribe(MachineSectionPageProvider.changesStream, filter: .object([:]),
+                                                        context: Self.context) { events.append($0) }
+        defer { subscription.cancel() }
+        store.openMenu = "m_3"
+        for _ in 0..<20 { await Task.yield() }
+        #expect(events.isEmpty, "hidden: no event")
+        provider.setShown(true)
+        #expect(events.count == 1)
+        #expect(events.last?["openMenu"]?.stringValue == "m_3")
+    }
 }

@@ -3,7 +3,7 @@
 //! gateway's capacity, the connection, or the agent's death (`resume_cause`, solved by an
 //! automatic continuation in the same session, `auto_resume.rs`).
 //!
-//! A capacity error (`is_capacity_error`) is not a limit: the SR2 gateway's 503 "no
+//! A router capacity error (`is_capacity_error`) is not a single-account limit: the SR2 gateway's 503 "no
 //! non-exhausted ... accounts" comes from the pool the fallback profile would move the session
 //! onto, and a 529 overloaded is the provider's, whichever account asks. The session waits and
 //! goes on where it is (subsession-card, 2026-10-26).
@@ -20,8 +20,8 @@ pub(crate) fn has_status(m: &str, code: &str) -> bool {
 }
 
 /// Does an agent error mean the account cannot serve, not that the prompt
-/// was wrong? Usage and rate limits, and missing or rejected credentials:
-/// all of them are solved by another account, which the fallback provides.
+/// was wrong? Sign-in failures are solved by another account; usage and rate
+/// limits recover on the same account after their reset.
 pub fn is_limit_error(message: &str) -> bool {
     let m = message.to_lowercase();
     m.contains("not logged in")
@@ -30,7 +30,13 @@ pub fn is_limit_error(message: &str) -> bool {
         || m.contains("authentication")
         || m.contains("invalid api key")
         || has_status(&m, "401")
-        || (m.contains("reached your") && m.contains("limit"))
+        || is_usage_limit_error(message)
+}
+
+/// A usage window or rate limit can recover without changing the person's sign-in.
+pub(crate) fn is_usage_limit_error(message: &str) -> bool {
+    let m = message.to_lowercase();
+    (m.contains("reached your") && m.contains("limit"))
         // Claude Code: "You've hit your limit · resets 3pm" (2026-10-20).
         || m.contains("hit your limit")
         || m.contains("hit your usage limit")
@@ -42,6 +48,8 @@ pub fn is_limit_error(message: &str) -> bool {
         || m.contains("insufficient credits")
         || m.contains("quota")
         || has_status(&m, "429")
+        || m.contains("weekly limit")
+        || m.contains("session limit")
 }
 
 /// Does an agent error mean the provider or the gateway had no capacity for the request a
@@ -57,8 +65,14 @@ pub fn is_capacity_error(message: &str) -> bool {
         || (m.contains("no non-exhausted") && m.contains("account"))
 }
 
+/// An HTTP gateway failure is independent of account credentials.
+pub(super) fn is_gateway_error(message: &str) -> bool {
+    let m = message.to_lowercase();
+    (500..=599).any(|code| has_status(&m, &code.to_string())) || m.contains("harness_unavailable")
+}
+
 /// Does an agent error mean the connection to the model dropped, not that the prompt or the
-/// account was at fault? Limit and sign-in errors are excluded: another account solves those.
+/// account was at fault? Limit and sign-in errors are excluded from transport classification.
 pub fn is_transport_error(message: &str) -> bool {
     !is_limit_error(message) && says_connection_dropped(message)
 }
@@ -109,7 +123,8 @@ pub fn says_connection_dropped(message: &str) -> bool {
         "unexpected end of file",
         "early eof",
     ];
-    PHRASES.iter().any(|p| m.contains(p))
+    is_gateway_error(message)
+        || PHRASES.iter().any(|p| m.contains(p))
         || (m.contains("websocket")
             && (m.contains("handshake") || m.contains("closed") || m.contains("disconnect")))
 }
@@ -131,12 +146,27 @@ pub fn is_refused_request(message: &str) -> bool {
         || m.contains("tool use was rejected")
 }
 
+/// Does an agent error say the chat outgrew its model's context window: Claude Code's "Prompt is
+/// too long" (`400 invalid_request_error: prompt is too long: N tokens > M maximum`), "input
+/// length and `max_tokens` exceed context limit", OpenAI's `context_length_exceeded` ("maximum
+/// context length")? A bad request, but not one that fails the same way again once the chat is
+/// compacted (Leo, 2026-11-03, on a Claude chat that sat failed on it: "this should not have
+/// happened. this should have just started compacting").
+pub fn is_context_overflow(message: &str) -> bool {
+    let m = message.to_lowercase();
+    m.contains("prompt is too long")
+        || (m.contains("exceed context limit") && m.contains("input length"))
+        || m.contains("context_length_exceeded")
+        || m.contains("maximum context length")
+        || m.contains("exceeds the context window")
+}
+
 /// Why an agent's error is worth trying again in a moment, if it is: `capacity`
 /// ([`is_capacity_error`]) or `transport` ([`is_transport_error`]). A usage limit, a sign-in
 /// failure (`recovery::auth_kind`: not one that says the provider was unreachable), a bad
 /// request, a refused permission ([`is_refused_request`]) and anything else are not: None.
 pub fn transient_cause(error: &str) -> Option<&'static str> {
-    if is_limit_error(error)
+    if (is_limit_error(error) && !is_gateway_error(error))
         || crate::recovery::auth_kind(error).is_some()
         || is_refused_request(error)
     {
@@ -144,7 +174,7 @@ pub fn transient_cause(error: &str) -> Option<&'static str> {
     }
     if is_capacity_error(error) {
         Some("capacity")
-    } else if is_transport_error(error) {
+    } else if says_connection_dropped(error) {
         Some("transport")
     } else {
         None
@@ -160,27 +190,39 @@ pub(super) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'
 }
 
 /// Why a failed turn is continued by itself, if it is: `capacity` or `transport`
-/// ([`transient_cause`]), or `agent_exited` (its agent process died mid-turn: "agent process
-/// closed"). `raw` is the
+/// ([`transient_cause`]), `agent_exited` (its agent process died mid-turn: "agent process
+/// closed"), or `context` (the chat outgrew its model's window, [`is_context_overflow`]: it is
+/// compacted first, and only where its harness can compact, `auto_resume/compact_first.rs`).
+/// `raw` is the
 /// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr
-/// line, or the sign-in explanation). A limit or sign-in failure (an expired credential too,
-/// unless the error also says the provider was unreachable) in either is never continued:
-/// the fallback profile, or the reconciler that reads `lastTurn`, moves that session. Nor is a
+/// line, or the sign-in explanation). Usage limits retry as capacity on the same profile. A sign-in failure (including an expired credential unless the
+/// provider was unreachable) is never continued. Nor is a
 /// refused request ([`is_refused_request`]) in either: an agent that died of one would be
 /// refused the same way again.
 pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
-    if is_limit_error(raw)
-        || is_limit_error(shown)
+    if (is_limit_error(raw) && !is_usage_limit_error(raw) && !is_gateway_error(raw))
+        || (is_limit_error(shown) && !is_usage_limit_error(shown) && !is_gateway_error(shown))
+        || crate::recovery::auth_kind(raw).is_some()
         || crate::recovery::auth_kind(shown).is_some()
-        || is_refused_request(raw)
-        || is_refused_request(shown)
     {
         return None;
     }
-    if raw.starts_with("agent process closed") {
-        return Some("agent_exited");
+    // Before the refused requests: a prompt past the window is a 400 that compacting answers.
+    if is_context_overflow(raw) || is_context_overflow(shown) {
+        return Some("context");
     }
-    transient_cause(raw)
+    if is_refused_request(raw) || is_refused_request(shown) {
+        return None;
+    }
+    // Limits are account capacity, not sign-in failures. Retry this same conversation when the
+    // reset permits it; do not switch accounts.
+    if is_usage_limit_error(raw) || is_usage_limit_error(shown) {
+        return Some("capacity");
+    }
+    if raw.starts_with("agent process closed") {
+        return transient_cause(shown).or(Some("agent_exited"));
+    }
+    transient_cause(raw).or_else(|| transient_cause(shown))
 }
 
 #[cfg(test)]
@@ -222,7 +264,7 @@ mod tests {
         ] {
             assert!(is_limit_error(m), "{m}");
             assert!(!is_transport_error(m), "{m}");
-            assert_eq!(resume_cause(m, m), None, "{m}");
+            assert_eq!(resume_cause(m, m), Some("capacity"), "{m}");
         }
         assert!(!is_limit_error("agent process closed"));
         assert!(!is_limit_error("You've hit the end of the file"));
@@ -236,7 +278,10 @@ mod tests {
             resume_cause(raw, "agent process closed (claude): Segmentation fault"),
             Some("agent_exited")
         );
-        assert_eq!(resume_cause(raw, "agent process closed (claude): You've hit your limit"), None);
+        assert_eq!(
+            resume_cause(raw, "agent process closed (claude): You've hit your limit"),
+            Some("capacity")
+        );
         // An expired credential is a sign-in failure too (`recovery::auth_kind`: auth.expired).
         assert_eq!(resume_cause(raw, "agent process closed (claude): credential expired"), None);
         // An unreachable provider is still retried, whatever it says of a credential.
@@ -314,6 +359,34 @@ mod tests {
         }
     }
 
+    /// Claude Code's own words when a chat outgrew its model's window (Leo, 2026-11-03: "this
+    /// should not have happened. this should have just started compacting"): a 400 that is
+    /// still worth going on from, once the chat is compacted (`auto_resume/compact_first.rs`).
+    const CONTEXT: &[&str] = &[
+        "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long: 211234 tokens > 200000 maximum\"},\"request_id\":\"req_011CUx2\"}",
+        "Prompt is too long",
+        "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"input length and `max_tokens` exceed context limit: 188000 + 32000 > 200000, decrease input length or `max_tokens` and try again\"}}",
+        "{\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"This model's maximum context length is 128000 tokens.\"}}",
+    ];
+
+    #[test]
+    fn a_chat_that_outgrew_its_context_is_continued_after_compacting() {
+        for m in CONTEXT {
+            assert_eq!(resume_cause(m, m), Some("context"), "{m}");
+            // A dead agent's last line says so too.
+            let shown = format!("agent process closed (claude): {m}");
+            assert_eq!(resume_cause("agent process closed", &shown), Some("context"), "{m}");
+        }
+        // Any other bad request is still refused for good.
+        let other = "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.3: tool_use ids must be unique\"}}";
+        assert_eq!(resume_cause(other, other), None);
+        // A sign-in failure wins over the window's words.
+        let signed_out = "Not logged in · Please run /login (prompt is too long)";
+        assert_eq!(resume_cause(signed_out, signed_out), None);
+        // Not a transient error: nothing else retries it as one.
+        assert_eq!(transient_cause(CONTEXT[0]), None);
+    }
+
     #[test]
     fn limits_sign_in_bad_requests_and_refusals_are_never_continued() {
         for m in [
@@ -323,13 +396,21 @@ mod tests {
             "API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
             "Not logged in · Please run /login",
             "Invalid API key · Fix external API key",
-            "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long\"}}",
+            "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.3: tool_use ids must be unique\"}}",
             "The user doesn't want to proceed with this tool use. The tool use was rejected.",
             "Permission denied: the person refused this command",
             "simulated internal error",
         ] {
             assert_eq!(transient_cause(m), None, "{m}");
-            assert_eq!(resume_cause(m, m), None, "{m}");
+            assert_eq!(
+                resume_cause(m, m),
+                if is_usage_limit_error(m) && !is_refused_request(m) {
+                    Some("capacity")
+                } else {
+                    None
+                },
+                "{m}"
+            );
         }
         // A limit, a sign-in failure or a refused request wins over a capacity or connection
         // word in the same text.
@@ -344,7 +425,15 @@ mod tests {
         ] {
             assert!(is_refused_request(m) || is_limit_error(m) || m.contains("/login"), "{m}");
             assert_eq!(transient_cause(m), None, "{m}");
-            assert_eq!(resume_cause(m, m), None, "{m}");
+            assert_eq!(
+                resume_cause(m, m),
+                if is_usage_limit_error(m) && !is_refused_request(m) {
+                    Some("capacity")
+                } else {
+                    None
+                },
+                "{m}"
+            );
         }
         // The gateway's address is no status: port 4016 is not a 401 nor a 403.
         assert!(!is_refused_request("check your inference gateway (127.0.0.1:4016)"));

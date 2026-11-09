@@ -175,7 +175,9 @@ fn connection_handler_owns_every_router_connection_operation() {
         );
         connection_operations += usize::from(requires_connection);
     }
-    assert_eq!(connection_operations, 56);
+    // 58, and the 34 cloud.* ops still run with the connection's own Cloud session (#37350);
+    // #38293 moved resize, snapshots, restore and fork to the app server.
+    assert_eq!(connection_operations, 92);
 }
 
 #[test]

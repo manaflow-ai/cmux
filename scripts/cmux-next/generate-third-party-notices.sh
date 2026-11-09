@@ -28,6 +28,10 @@
 #   rust-cmux-cli           bin/cmux and bin/cmux-tui-ssh/*  cmux-tui/Cargo.lock
 #   rust-cmux-app-host      bin/cmux-app-host                cmux-tui/Cargo.lock
 #   rust-cmux-browser-host  bin/cmux-browser-host            cmux-tui/Cargo.lock
+#   rust-cmux-agent-screen-detection  bin/cmux-agent-screen-detection
+#                           cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock
+#                           (its own workspace; the herdr-derived part has the
+#                           hand-written section "herdr agent-detection plugin")
 #   rust-cmux-cloud         bin/cmux-cloud                   first-party-apps/cloud/server
 #   rust-cmux-diff-sidecar  bin/cmux-diff-sidecar            Native/DiffSidecar/Cargo.lock (this tree)
 #   rust-optchat-chief      bin/optchat-chief (nightly-next) Native/OptChat/optchat-chief/Cargo.lock (this tree)
@@ -93,10 +97,17 @@ if [[ "$TUI_SOURCE" == pin ]]; then
     exit 1
   fi
   tui_src="$CACHE/cmux-src-$pin"
-  if [[ ! -d "$tui_src" ]]; then
+  # bin/cmux links the cmux VM CLI crates (workers/cmux-vm/cli) by path, from
+  # the pins that have them on; an older pin has none, so they are archived
+  # only when the pin has them. A cache made before they were archived (no
+  # .archived-v2 stamp) is made again.
+  if [[ ! -f "$tui_src/.archived-v2" ]]; then
     git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$ROOT" fetch --quiet origin "$pin"
-    rm -rf "$tui_src.partial" && mkdir -p "$tui_src.partial"
-    git -C "$ROOT" archive "$pin" cmux-tui first-party-apps/cloud/server | tar -x -C "$tui_src.partial"
+    tui_paths=(cmux-tui first-party-apps/cloud/server)
+    if git -C "$ROOT" cat-file -e "$pin:workers/cmux-vm/cli" 2>/dev/null; then tui_paths+=(workers/cmux-vm/cli); fi
+    rm -rf "$tui_src" "$tui_src.partial" && mkdir -p "$tui_src.partial"
+    git -C "$ROOT" archive "$pin" "${tui_paths[@]}" | tar -x -C "$tui_src.partial"
+    touch "$tui_src.partial/.archived-v2"
     mv "$tui_src.partial" "$tui_src"
   fi
   tui_label="at the cmux-tui pin ${pin:0:11}"
@@ -126,6 +137,9 @@ if [[ ! -d "$cua_src" ]]; then
   mv "$cua_src.partial" "$cua_src"
 fi
 cua_rust="$cua_src/libs/cmux-cua/rust"
+# The agent screen-detection plugin is its own Cargo workspace inside cmux-tui.
+asd_rel=cmux-tui/bindings/examples/rust-agent-screen-detection
+asd_src="$tui_src/$asd_rel"
 
 # The remote browser host is a prebuilt, pinned binary (ensure-remote-browser-host.sh),
 # not a build of this tree: its notices come from the crate at the pin's
@@ -173,6 +187,7 @@ if [[ "$WRITE_TREES" == 1 ]]; then
   cargo_tree rust-cmux-cli "$tui_src/cmux-tui" cmux-tui acpmux
   cargo_tree rust-cmux-app-host "$tui_src/cmux-tui" cmux-app-host
   cargo_tree rust-cmux-browser-host "$tui_src/cmux-tui" cmux-browser-host
+  cargo_tree rust-cmux-agent-screen-detection "$asd_src" cmux-agent-screen-detection
   cargo_tree rust-cmux-cloud "$tui_src/first-party-apps/cloud/server" cmux-cloud
   cargo_tree rust-cmux-diff-sidecar "$ROOT/Native/DiffSidecar" cmux-diff-sidecar
   cargo_tree rust-optchat-chief "$ROOT/Native/OptChat/optchat-chief" optchat-chief
@@ -185,6 +200,7 @@ fi
 python3 "$NOTICES/fetch_crates.py" --cache "$CACHE" \
   --lock "$tui_src/cmux-tui/Cargo.lock" \
   --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" \
+  --lock "$asd_src/Cargo.lock" \
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" \
   --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" \
   --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" \
@@ -208,10 +224,14 @@ section() {
     "${tree_arg[@]}" --out "$work/$id.md" "$@"
 }
 
+vm_cli_args=()
+if [[ -d "$tui_src/workers/cmux-vm/cli" ]]; then
+  vm_cli_args=(--workspace "$tui_src/workers/cmux-vm/cli" --first-party 'workers/cmux-vm/cli/crates/*')
+fi
 section rust-cmux-cli "Rust crates: cmux CLI and daemon (bin/cmux)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-tui --root acpmux --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
-  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
+  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*' "${vm_cli_args[@]}"
 section rust-cmux-app-host "Rust crates: app host (bin/cmux-app-host)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-app-host --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
@@ -220,6 +240,10 @@ section rust-cmux-browser-host "Rust crates: browser host (bin/cmux-browser-host
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-browser-host --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
   --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
+section rust-cmux-agent-screen-detection "Rust crates: agent screen-detection plugin (bin/cmux-agent-screen-detection)" \
+  --lock "$asd_src/Cargo.lock" --lock-label "$asd_rel/Cargo.lock $tui_label" \
+  --root cmux-agent-screen-detection --workspace "$asd_src" --repo-root "$tui_src" \
+  --first-party 'cmux-tui/bindings/*' --first-party 'cmux-tui/bindings/examples/*'
 section rust-cmux-cloud "Rust crates: Cloud app server (bin/cmux-cloud)" \
   --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" --lock-label "first-party-apps/cloud/server/Cargo.lock $tui_label" \
   --root cmux-cloud --workspace "$tui_src/first-party-apps/cloud/server" --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
@@ -255,6 +279,7 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --section "$work/ghostty-themes.md"
   --section "$work/rust-cmux-cli.md" --section "$work/rust-cmux-app-host.md"
   --section "$work/rust-cmux-browser-host.md"
+  --section "$work/rust-cmux-agent-screen-detection.md"
   --section "$work/rust-cmux-cloud.md" --section "$work/rust-cmux-diff-sidecar.md"
   --section "$work/rust-optchat-chief.md"
   --section "$work/rust-mobile-host.md"
@@ -263,7 +288,7 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --section "$work/rust-cmux-cua.md"
   --out "$ROOT/THIRD_PARTY_LICENSES.md")
 review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
-  --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock"
+  --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" --lock "$asd_src/Cargo.lock"
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock "$iroh_src/Cargo.lock"
   --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock "$rbh_src/$rbh_crate/Cargo.lock"
   --lock "$cua_rust/Cargo.lock")

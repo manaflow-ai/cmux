@@ -13,6 +13,8 @@ final class TabCell {
     let accessibility = TabAccessibilityElement()
     /// The strip's handler behind the element's Mute tab / Unmute tab action.
     var accessibilityToggleAudio: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
+    /// The strip's handler behind the element's Exit Zoom action, while the tab shows the zoom indicator.
+    var accessibilityToggleZoom: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
     private(set) var item: TabItem
     /// Instant (L4): the content switches in one frame, so the highlight does too.
     var isSelected = false {
@@ -31,6 +33,11 @@ final class TabCell {
     /// The pointer is on the speaker button, or presses it (TabCell+AudioBadge).
     var isAudioHovered = false { didSet { if oldValue != isAudioHovered { updateColors(animated: true, showing: isAudioHovered) } } }
     var isAudioPressed = false { didSet { if oldValue != isAudioPressed { updateColors(animated: false) } } }
+    /// The selected tab of a zoomed pane: VoiceOver says so and offers Exit Zoom. The tab draws
+    /// nothing for it; the pane's indicator is at its top-right (`PaneZoomIndicatorView`).
+    var showsZoom = false {
+        didSet { if oldValue != showsZoom { updateAccessibility() } }
+    }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     /// The strip's window is main (in front); off, the selected tab's fill is dimmer (never
     /// gone: a pane's active tab always looks active), so only it repaints.
@@ -100,9 +107,14 @@ final class TabCell {
         set { setFrame(newValue, laysOut: true) }
     }
 
+    /// How many times the strip wrote this cell's frame (``setFrame(_:laysOut:)``) and laid out its parts
+    /// (``layoutLayers()``): what a strip change cost per cell, for the resize work tests (SMOOTH-STRIP).
+    private(set) var workCounts = (frames: 0, layouts: 0)
+
     /// `laysOut` false: the caller adds the strip move of the new size first, then calls
     /// `layoutLayers()`, so the parts follow the path once (`TabStripView.applyFrames`).
     func setFrame(_ frame: CGRect, laysOut: Bool) {
+        workCounts.frames &+= 1
         let resized = layer.frame.size != frame.size
         layer.frame = frame
         if resized, laysOut { layoutLayers() }
@@ -143,8 +155,8 @@ final class TabCell {
     /// Close button frame in this view's coordinates, or nil when hidden. Set with `setCloseButtonRect(_:pill:)`.
     var closeButtonRect: CGRect?
 
-    /// Title font; the strip updates it when the chrome font size changes.
-    var titleFont = Typography.body {
+    /// Title font; the strip updates it when the tab or chrome font size changes.
+    var titleFont = Typography.tabTitle {
         didSet {
             guard titleFont != oldValue else { return }
             titleLayer.font = titleFont
@@ -154,7 +166,7 @@ final class TabCell {
     }
     private var measuredTitle: (String, CGFloat)?
     /// Set while a hover change lays out, so the x and the title fade.
-    private var animatesCloseChange = false
+    private(set) var animatesCloseChange = false
 
     init(item: TabItem) {
         self.item = item
@@ -179,9 +191,12 @@ final class TabCell {
     private func buildLayers() {
         let root = layer
         root.masksToBounds = false
-        backgroundLayer.cornerCurve = .continuous
+        backgroundLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
+        // Keep a tab's distinguishing suffix visible when its chip is narrow (for example,
+        // "Helper 1" and "Helper 2"). The hover marquee still expands to the full title.
+        titleLayer.truncation = .middle
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
@@ -318,17 +333,27 @@ final class TabCell {
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
-            iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
+            iconLayer.contents = iconImage(tint: item.tint?.markColor ?? AgentIdentityTone.rgb(item.agentTone, tokens: themeScope.tokens)?.nsColor ?? text)
             applySeparatorColor()
         }
         applyCloseColors()
         applyBadgeColor()
     }
 
+    /// The tab shows a status the hovered x stands in for (`TabChromeVisibility.closeReplacesStatus`): its
+    /// spinner, a status mark or the unread dot.
+    var hasStatusMark: Bool {
+        guard metrics.hoverCloseSwap != .beside else { return false }
+        return (spinnerLayer != nil && !isSpinnerExiting) || hasStateMark
+    }
+
+    /// The tab draws its unread or status mark (`badgeColor`, or a status icon set's glyph).
+    var hasStateMark: Bool { item.status != .none || item.isUnread }
+
     /// theme-scoped: resolved by callers inside `themeScope.perform`.
     var badgeColor: NSColor? {
         switch item.status {
-        case .needsInput: return Palette.attention
+        case .needsInput: return Palette.statusAttention // the sidebar's needs-input dot too
         case .success: return Palette.success
         case .failure: return Palette.danger
         case .none: return item.isUnread ? Palette.notificationBlue : nil
@@ -345,6 +370,7 @@ final class TabCell {
     /// Lays the parts out for the cell's width. While a strip move changes that width, the parts follow
     /// the moving bounds frame by frame on the render server (`retimeInner`); at rest they are placed.
     func layoutLayers() {
+        workCounts.layouts &+= 1
         let now = CACurrentMediaTime()
         let path = MotionPath(layer, "bounds.size", now: now)
         if path.isExact, let end = path.end, end > now + 0.001 {
@@ -382,6 +408,7 @@ final class TabCell {
             isSelected: isSelected,
             isHovered: isHovered,
             isClosable: item.isClosable,
+            hasStatus: hasStatusMark,
             style: style,
             metrics: m
         )
@@ -396,11 +423,8 @@ final class TabCell {
         let midY = bounds.height / 2
         let iconSide = m.iconSize
         var closeRect: CGRect?
-        if visibility.showsClose {
+        if let x = visibility.closeButtonOriginX(pillWidth: bounds.width, metrics: m) {
             let side = m.closeButtonSize
-            let x = visibility.showsIcon || !visibility.centersContent
-                ? bounds.width - m.contentTrailingInset - side
-                : (bounds.width - side) / 2
             closeRect = CGRect(x: pixel(x), y: pixel(midY - side / 2), width: side, height: side)
         }
         var iconX = Self.iconX(form: visibility, pillWidth: bounds.width, metrics: m)
@@ -412,6 +436,12 @@ final class TabCell {
                 isClosable: item.isClosable, style: style, metrics: m)
             let restX = Self.iconX(form: rest, pillWidth: bounds.width, metrics: m)
             if rest.showsIcon, pixel(restX) + iconSide <= closeRect.minX + 0.5 { iconX = restX }
+        } else if visibility.closeReplacesStatus, !visibility.showsIcon {
+            // The x took an untitled tab's icon slot: the icon and its marks fade out where they were at rest.
+            let rest = TabChromeVisibility.resolve(
+                width: slot.width, isPinned: item.isPinned, isSelected: isSelected, isHovered: false,
+                isClosable: item.isClosable, hasStatus: hasStatusMark, style: style, metrics: m)
+            iconX = Self.iconX(form: rest, pillWidth: bounds.width, metrics: m)
         }
         let iconFrame = CGRect(x: pixel(iconX), y: pixel(midY - iconSide / 2), width: iconSide, height: iconSide)
         // Lawrence 2026-10-19: nothing but the favicon (or the tab's icon) draws in the leading
@@ -419,19 +449,27 @@ final class TabCell {
         // trailing cluster (TabCell+TrailingMarks). A tab too narrow for its title has no
         // trailing room, so there they keep the icon's corner as before.
         let marksOnIcon = !visibility.showsTitle
-        // On the icon, a working agent keeps its brand mark, with the spinner as a small badge on it.
+        // Agent identity can be a custom image or symbol as well as a brand mark. Working keeps
+        // that artwork under a small spinner badge; browser loading still replaces its favicon.
         let spinnerOnIcon = marksOnIcon && spinnerLayer != nil
-        let spinnerBadgesMark = spinnerOnIcon && { if case .agentMark = item.icon { true } else { false } }()
+        let spinnerBadgesMark = spinnerOnIcon && (item.indicator.isWorking || { if case .agentMark = item.icon { true } else { false } }())
         let showsIconArt = visibility.showsIcon && (!spinnerOnIcon || spinnerBadgesMark)
         // Bounds and position, not frame: a hibernated tab's icon is scaled (TabCell+HibernationRing).
         iconLayer.bounds = CGRect(origin: .zero, size: iconFrame.size)
         iconLayer.position = CGPoint(x: iconFrame.midX, y: iconFrame.midY)
         layoutHibernationRing(iconFrame: iconFrame, visible: showsIconArt)
-        iconLayer.opacity = showsIconArt ? 1 : 0
+        // A hover that gives an untitled tab's slot to the x fades the icon and its marks with the x (and back).
+        let fadesStatus = animatesCloseChange && !onPath && m.hoverCloseSwap != .instant
+        setStatusMark(iconLayer, shown: showsIconArt, was: iconLayer.opacity, animated: fadesStatus, landsShown: true)
         if marksOnIcon {
-            layoutThemeBadge(frame: themeBadgeIconFrame(iconFrame: iconFrame), visible: visibility.showsIcon)
+            // Opacities before this layout, so the hover fades from what showed.
+            let iconMarks = iconMarkLayers
+            let before = iconMarks.map(\.opacity)
+            // Yielding to the x, the marks keep their place and fade out below.
+            let marksPlaced = visibility.showsIcon || visibility.closeReplacesStatus
+            layoutThemeBadge(frame: themeBadgeIconFrame(iconFrame: iconFrame), visible: marksPlaced)
             if let spinnerLayer {
-                if !isSpinnerExiting { spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0 }
+                if !isSpinnerExiting { spinnerLayer.layer.opacity = marksPlaced ? 1 : 0 }
                 if spinnerBadgesMark {
                     let side = pixel(iconFrame.width * 0.55)
                     spinnerLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.maxY - side + Metrics.space1),
@@ -440,14 +478,19 @@ final class TabCell {
                     spinnerLayer.frame = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
                 }
             }
-            layoutStateMark(iconFrame: iconFrame, visible: visibility.showsIcon, onPath: onPath)
+            layoutStateMark(iconFrame: iconFrame, visible: marksPlaced, onPath: onPath)
+            if visibility.closeReplacesStatus || fadesStatus {
+                for (layer, was) in zip(iconMarks, before) {
+                    setStatusMark(layer, shown: visibility.showsIcon, was: was, animated: fadesStatus)
+                }
+            }
         }
 
         if let closeRect {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
             closeBackgroundLayer.frame = closeRect
-            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
+            closeBackgroundLayer.cornerRadius = m.nestedCornerRadius(closeRect, in: bounds)
             let inset = (closeRect.width - m.closeGlyphSize) / 2
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
@@ -470,19 +513,40 @@ final class TabCell {
         setCloseButtonRect(closeRect, pill: bounds)
 
         if visibility.showsTitle {
-            // The title always spans to the trailing inset, so it never moves
-            // or resizes when the x appears; the x overlays its end and the
-            // title fades out before it.
+            // The title spans to the trailing inset while it fits. A clipped
+            // title uses the visible area as its rest width so middle
+            // truncation and the trailing fade share the same edge; the x or
+            // badge still overlays the trailing inset without hiding its tail.
             let titleX = iconFrame.maxX + m.iconTitleSpacing
             let span = max(0, bounds.width - m.contentTrailingInset - titleX)
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
             titleLayer.opacity = 1
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
-            let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath)
+            // Leo 2026-11-05: "the button replaces the spinner on the top when you hover over it". A closable tab's
+            // status holds the x's slot at rest, so the hovered x takes it with nothing else moving; an x shown at
+            // rest (a narrow selected tab) keeps the status beside it.
+            let statusSlot = hasStatusMark && item.isClosable && (closeRect == nil || visibility.closeReplacesStatus)
+                ? CGRect(x: pixel(bounds.width - m.contentTrailingInset - m.closeButtonSize), y: pixel(midY - m.closeButtonSize / 2),
+                         width: m.closeButtonSize, height: m.closeButtonSize)
+                : nil
+            let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
+                                                 statusHidden: visibility.closeReplacesStatus,
+                                                 animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant)
             // The marquee fades glyphs out across the icon-title gap.
+            let textWidth = titleWidth()
+            let visibleWidth = visibleEnd - titleX
+            // Chrome's tab: never a "…"; a long title runs to the trailing end and fades there.
+            let truncation = Self.titleTruncation(textWidth: textWidth, visibleWidth: visibleWidth)
+            if titleLayer.truncation != truncation { titleLayer.truncation = truncation }
+            let restWidth = span
             let geometry = TitleFadeGeometry(
-                textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,
-                leadingPadding: m.iconTitleSpacing, trailingPadding: 0, fadeWidth: m.titleFadeWidth
+                textWidth: textWidth, span: span, visibleWidth: visibleWidth,
+                leadingPadding: m.iconTitleSpacing, trailingPadding: 0,
+                // Keep the existing trailing fade for every clipped title;
+                // the rest width above keeps the suffix inside that visible
+                // area before the close button or badge.
+                fadeWidth: m.titleFadeWidth,
+                restWidth: restWidth
             )
             let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
             if onPath {

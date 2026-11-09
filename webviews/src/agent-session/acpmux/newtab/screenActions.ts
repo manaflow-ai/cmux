@@ -1,10 +1,12 @@
 // The new tab screen's actions as host requests (plans/cmux-next/new-tab.md section 5). An agent
 // row starts the chat in this page; everything else asks the host to replace the tab.
-import type { AllChatsPage } from "./AllChatsList";
+import type { AllChatsPage } from "./allChatsListModel";
 import type { NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
+import { rememberPick } from "../lastPick";
 import { translate } from "../i18n";
+import { isStartCancelled, startCancelled } from "../transportErrors";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -24,29 +26,41 @@ export function newTabScreenActions(deps: {
   inputReady?(token: string): void;
   /// A folder the user picked on the page goes through the host first (startFolder.tsx): `start`
   /// runs only with a folder it took; the home folder is asked about once.
-  requestFolder?(cwd: string, start: (folder: string) => void, cancel?: () => void): void;
+  /// `cancel` ends the send: with the host's refusal of the path, else as cancelled (a newer request,
+  /// another chat, Use Private Folder).
+  requestFolder?(cwd: string, start: (folder: string) => void, cancel?: (refusal?: unknown) => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
+  clearError?(): void;
+  showError?(error: unknown): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
-  const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
+  // The agent a chat starts on is the pick the next New Tab starts on (lastPick.ts): the app's copy
+  // and this page's, so an older harness and model picked elsewhere no longer win over it.
+  const remember = (agent: string, model: string | undefined, folder: string | undefined) =>
+    rememberPick({ harness: agent, ...(model ? { model } : {}) }, folder, callNative);
   return {
     onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
       const queuedStart = !!harness && !peer && !noProject;
       const current = deps.startScope?.(queuedStart) ?? (() => true);
-      const cancelled = () => new Error(translate("switch.cancelled"));
-      remember(harness);
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
       // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
       // queued ("Not sent").
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<void>((resolve, settleFailed) => {
+        // A start this visit no longer owns (another chat, another start, the client gone) was
+        // cancelled, whatever its request then said: the page says nothing about it.
+        const reject = (error: unknown) =>
+          settleFailed(isStartCancelled(error) || !current() ? startCancelled() : error);
         const start = (folder?: string) => {
-          if (!current()) return reject(cancelled());
+          if (!current()) return reject(startCancelled());
+          // In the folder the chat starts in, which the next New Tab there reads; a chat on another
+          // machine names that machine's agents, so this Mac's new chats keep theirs.
+          if (!peer) remember(harness, model, folder);
           // The screen owns its draft and machine pick until the start succeeds. A rejected start
           // must not unmount it; its caller displays the refusal beside the unchanged field.
           const opened = callNative("chat.new", {
@@ -60,7 +74,7 @@ export function newTabScreenActions(deps: {
           if (!queuedStart) {
             opened
               .then(async (started) => {
-                if (!current()) throw cancelled();
+                if (!current()) throw startCancelled();
                 if (!started) throw new Error(translate("switch.noSession"));
                 if (!peer && asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
                 // The send names this start's session; a later selected chat cannot take it.
@@ -82,11 +96,17 @@ export function newTabScreenActions(deps: {
           // Keep the local send in the same turn as the harness switch: its queue owns the prompt
           // while Trust is pending. Awaiting the start before sending would lose that queue.
           const sent = asks ? callNative("chat.send", message) : Promise.resolve();
+          // The switch's queue holds the prompt as the chat's first row, "Starting Claude Code…"
+          // (harnessSwitch.ts), and hands it back to the chat's composer if the start fails. So the
+          // page becomes that chat at once, never after the start: a busy daemon can take a minute
+          // and a half to give a harness session (Leo 2026-10-30: "I TSHOULDN'T FUCKING MATTER IF
+          // MY COMPUTER IS LOADED" / "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN CHATS").
+          if (asks) deps.leave();
           const accepted = opened.then((started) => {
-            if (!current()) throw cancelled();
+            if (!current()) throw startCancelled();
             if (started) {
               if (asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
-              deps.leave();
+              if (!asks) deps.leave();
             } else if (!asks) throw new Error(translate("switch.noSession"));
           });
           Promise.all([accepted, sent]).then(() => resolve(), reject);
@@ -100,11 +120,33 @@ export function newTabScreenActions(deps: {
         if (noProject) start();
         else if (peer) start(picked);
         else if (picked && (picked !== cwd || saved)) {
-          if (deps.requestFolder)
-            deps.requestFolder(picked, start, () => reject(new Error(translate("switch.cancelled"))));
+          if (deps.requestFolder) deps.requestFolder(picked, start, (refusal) => reject(refusal ?? startCancelled()));
           else start(picked);
         } else start(deps.chatCwd);
       });
+    },
+    onFixFromLink: (url, selectedCwd, harness, model) => {
+      const current = deps.startScope?.(false) ?? (() => true);
+      deps.clearError?.();
+      return callNative("chat.fix_from_link", {
+        url,
+        ...(selectedCwd ? { cwd: selectedCwd } : {}),
+        ...(harness ? { harness } : {}),
+        ...(model ? { model } : {}),
+      })
+        .then((result) => {
+          if (!current()) throw startCancelled();
+          const sessionId =
+            result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
+              ? (result as { sessionId: string }).sessionId
+              : undefined;
+          // l10n-allow: internal transport shape failure; the user sees the host error surface.
+          if (!sessionId) throw new Error("fix-from-link did not return a session");
+          deps.selectSession(sessionId);
+        })
+        .catch((error) => {
+          if (!isStartCancelled(error)) deps.showError?.(error);
+        });
     },
     savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {
@@ -112,6 +154,17 @@ export function newTabScreenActions(deps: {
         return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
       ignore(callNative("tab.open", { kind: "browser", text: url }));
     },
+    // Open in Profile… and Open in New Profile: the same browser open, in the profile the row names.
+    onOpenInProfile: (url, id) => ignore(callNative("tab.open", { kind: "browser", text: url, profile: id })),
+    onOpenInNewProfile: (url, name) =>
+      ignore(
+        callNative("tab.open", {
+          kind: "browser",
+          text: url,
+          newProfile: true,
+          ...(name ? { profileName: name } : {}),
+        }),
+      ),
     onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
     // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
     onShell(command) {
@@ -125,7 +178,7 @@ export function newTabScreenActions(deps: {
     },
     // A chat opens in a new workspace (the host's Open Chat path), so this page stays the New
     // Tab page instead of turning into an empty chat.
-    onOpenChat: (key) => ignore(callNative("chats.open", { key })),
+    onOpenChat: (key) => callNative("chats.open", { key }).then(() => undefined),
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
     onViewChat: (key) => ignore(callNative("chats.watch", { key })),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
@@ -133,11 +186,14 @@ export function newTabScreenActions(deps: {
     onTouched: () => ignore(callNative("newTab.touched")),
     onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
+    // `inPlace`: it takes this page's tab, never a split (picks still go where links do).
     onCreate: (kind) =>
       ignore(
         callNative(
           "tab.open",
-          kind === "terminal" ? { kind, text: "", run: false, ...(cwd ? { cwd } : {}) } : { kind, text: "" },
+          kind === "terminal"
+            ? { kind, text: "", run: false, inPlace: true, ...(cwd ? { cwd } : {}) }
+            : { kind, text: "", inPlace: true },
         ),
       ),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),

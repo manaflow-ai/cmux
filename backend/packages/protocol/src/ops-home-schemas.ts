@@ -223,6 +223,7 @@ export const ConversationSummary = Schema.Struct({
   last_message: Schema.optionalKey(Message),
   read_cursors: Schema.Record(Schema.String, Seq),
   kind: Schema.optionalKey(ConversationKind),
+  channel_chief: Schema.optionalKey(Schema.String.annotate({ description: "A channel's own Chief (channel.create): it is woken only by this conversation." })),
   team: Schema.optionalKey(Schema.String),
   created_by: Schema.optionalKey(Schema.String),
   state: Schema.optionalKey(Schema.Literals(["active", "archived"])),

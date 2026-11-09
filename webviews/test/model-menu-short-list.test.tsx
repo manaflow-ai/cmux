@@ -189,7 +189,10 @@ async function mount({
       <ComposerPickers
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
-        onModel={(next) => setState((current) => ({ ...current, model: next }))}
+        onModel={(next) => {
+          sent.push({ id: "model", value: next });
+          setState((current) => ({ ...current, model: next }));
+        }}
         onMode={() => undefined}
         onEffort={(id, value) => {
           sent.push({ id, value });
@@ -227,6 +230,62 @@ const rowText = (row: Element) => row.textContent?.replace("✓", "").trim() ?? 
 async function open() {
   await act(async () => chipButton().click());
   await settle();
+}
+
+test("Fable uses its reported 1M option under one plain model name", async () => {
+  const { sent } = await mount({ harness: "claude", family: "claude" });
+  await open();
+  const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
+  expect(fable.map(label)).toEqual(["Fable 5.1"]);
+  await act(async () => fable[0]!.click());
+  expect(sent).toContainEqual({ id: "model", value: "claude-fable-5-1[1m]" });
+});
+
+for (const model of ["claude-fable-5-1", "claude-fable-5-1[1m]"])
+  test(`a chat already on ${model} keeps its checked Fable row without changing the session`, async () => {
+    const { sent } = await mount({ harness: "claude", family: "claude", model });
+    await open();
+    const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
+    expect(fable.map(label)).toEqual(["Fable 5.1"]);
+    expect(fable[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(sent).toEqual([]);
+  });
+
+for (const state of ["expired", "signedOut"] as const) {
+  test(`full picker offers Sign in again for ${state} auth before send`, async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    let logins = 0;
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[{ id: "claude", name: "Claude Code", models: CLAUDE_CODE_MODELS }]}
+          harness="claude"
+          model="claude-opus-5-5"
+          label="Opus 5.5"
+          efforts={[]}
+          recents={[]}
+          onLand={() => undefined}
+          onEffort={() => undefined}
+          sessionAuth={{
+            state,
+            source: "turn",
+            evidenceAt: 1,
+            harness: "claude",
+            host: null,
+            login: { kind: "terminal", command: "claude auth login" },
+          }}
+          onSessionLogin={() => logins++}
+        />,
+      ),
+    );
+    await open();
+    const login = doc().querySelector<HTMLButtonElement>(".acpmux-mp-auth-action");
+    expect(login?.textContent).toBe("Sign in again");
+    await act(async () => login!.click());
+    expect(logins).toBe(1);
+  });
 }
 
 for (const [title, harness, family] of [
@@ -267,7 +326,8 @@ for (const [title, harness, family] of [
       await mount({ harness, family });
       await open();
       const rows = modelRows();
-      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓");
+      // The symbols row's menu names its keys ⌘1 to ⌘9 (a bare digit picks the same row).
+      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent?.replace("⌘", "") ?? "✓");
       expect(keysShown).toEqual(
         rows.map((row, index) => (row.getAttribute("aria-checked") === "true" ? "✓" : String(index + 1))),
       );
@@ -305,7 +365,23 @@ for (const harnessFixed of [false, true]) {
       ),
     );
     await open();
-    expect(modelRows().map(label)).toEqual(choices.slice(0, 6).map((choice) => choice.name));
+    const top = choices.slice(0, 6).map((choice) => choice.name);
+    if (!harnessFixed) {
+      // A rail's menu is the columns menu: the top models, then the harness's other models under
+      // the "Legacy models" caption in the same column.
+      const list = [...doc().querySelector('.acpmux-cols [role="listbox"]')!.children];
+      const caption = list.findIndex((item) => item.textContent === "Legacy models");
+      const names = (items: Element[]) =>
+        items
+          .filter((item) => item.getAttribute("role") === "option")
+          .map((item) => item.querySelector(".acpmux-cols-name")?.textContent ?? "");
+      expect(caption, list.map((item) => item.textContent).join(", ")).toBeGreaterThan(0);
+      expect(names(list.slice(0, caption))).toEqual(top);
+      expect(names(list.slice(caption + 1)).sort()).toEqual(["Choice 6", "Choice 7"]);
+      return;
+    }
+    expect(modelRows().map(label)).toEqual(top);
+    // A started chat's More models opens the full picker.
     expect(menu()!.textContent).toContain("More models");
     expect(modelRows().map(label)).not.toContain("Choice 6");
     expect(modelRows().map(label)).not.toContain("Choice 7");

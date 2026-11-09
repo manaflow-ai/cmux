@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import os
 public import CmuxNextDesign
 public import CmuxNextWakeups
 public import Foundation
@@ -28,7 +29,10 @@ public final class AgentPaneRelaunchWake {
     nonisolated static let maximumBytes = 8 * 1024 * 1024
     let file: URL?
     /// Asks a live page what it holds, within the limit (``AgentPaneView/wakeState(limit:)``).
-    public var read: @MainActor (AgentPaneView, Duration) async -> AgentPaneWakeState? = { await $0.wakeState(limit: $1) }
+    /// As the app quits: prompts the page holds for a folder trust answer go into their drafts.
+    public var read: @MainActor (AgentPaneView, Duration) async -> AgentPaneWakeState? = {
+        await AgentPaneWakeState.quitting($0, limit: $1)
+    }
 
     /// Reads the saved states.
     private let reader: LaunchFileReader
@@ -62,6 +66,8 @@ public final class AgentPaneRelaunchWake {
         var files: [String: String]?
         /// The file in the attachments directory holding each attachment's text, by attachment id.
         var texts: [String: String]?
+        /// The file in the attachments directory holding each subagent draft's text, by draft key.
+        var subagentDraftTexts: [String: String]?
     }
 
     /// Starts the launch read of the last quit's states (what ``take(on:)`` reads) on `work`'s files lane at
@@ -78,28 +84,47 @@ public final class AgentPaneRelaunchWake {
     /// Whether the last quit may have left tab `key` a state no page took: the launch read runs, or it
     /// left one.
     public func mayHold(_ key: String) -> Bool {
-        guard let launch, !claimed.contains(key) else { return false }
-        return launch.value.map { $0[key] != nil } ?? true
+        mayHold([key])
+    }
+
+    /// Whether any of the equivalent keys may have a launch state. AgentTabs passes a
+    /// machine-qualified key first and the old bare key second so files from before machine
+    /// scoping remain readable without making the new path ambiguous.
+    public func mayHold(_ keys: [String]) -> Bool {
+        guard let launch, keys.contains(where: { !claimed.contains($0) }) else { return false }
+        return launch.value.map { states in keys.contains { states[$0] != nil } } ?? true
     }
 
     /// Hands tab `key`'s state from the last quit to `model`, a page with none of its own
     /// (``AgentPaneModel/pendingWake``): at once when the launch read has ended (never waiting), else
     /// through ``AgentPaneModel/wakeSource``, which the page's first `ready` awaits.
     public func hand(_ key: String, to model: AgentPaneModel) {
-        guard model.pendingWake == nil, let launch, !claimed.contains(key) else { return }
+        hand([key], to: model)
+    }
+
+    /// Hands the first available state for a machine-qualified key, with compatibility fallbacks.
+    public func hand(_ keys: [String], to model: AgentPaneModel) {
+        guard model.pendingWake == nil, let launch, keys.contains(where: { !claimed.contains($0) }) else { return }
         if let states = launch.value {
-            claimed.insert(key)
-            model.pendingWake = states[key]
+            let match = keys.first { !claimed.contains($0) && states[$0] != nil }
+            keys.forEach { claimed.insert($0) }
+            model.pendingWake = match.flatMap { states[$0] }
         } else {
-            model.wakeSource = { [weak self] in await self?.state(for: key) }
+            model.wakeSource = { [weak self] in await self?.state(for: keys) }
         }
     }
 
     /// Tab `key`'s state from the last quit, once, after the launch read.
     private func state(for key: String) async -> AgentPaneWakeState? {
+        await state(for: [key])
+    }
+
+    private func state(for keys: [String]) async -> AgentPaneWakeState? {
         guard let launch else { return nil }
         let states = await launch.finished()
-        return claimed.insert(key).inserted ? states[key] : nil
+        let match = keys.first { !claimed.contains($0) && states[$0] != nil }
+        keys.forEach { claimed.insert($0) }
+        return match.flatMap { states[$0] }
     }
 
     /// The last quit's states, by tab, once: the file and the attachments' files go, so a crash
@@ -134,9 +159,22 @@ public final class AgentPaneRelaunchWake {
                 }
                 state.attachments = attachments
             }
+            if let folder, let drafts = state.subagentDrafts, let files = saved.subagentDraftTexts {
+                state.subagentDrafts = Self.readBack(drafts, files: files, in: folder)
+            }
             return state.isEmpty ? nil : state
         }
     }
+
+    /// How long a quit asks each live page for its state. The page first
+    /// waits for its typed draft to reach acpmux, at most `draftSettleMs` of
+    /// schemas/agent-pane/wake-state.json (500 ms), then answers with every
+    /// chip's contents inline; this leaves 500 ms more for a large chip to
+    /// cross the bridge. The ask outlasts the quit's composer step limit: the
+    /// quit waits for that step past its limit, up to its deadline
+    /// (`QuitStepLimiter.finishOverruns`). A page that does not answer keeps
+    /// the state it was given, and the quit logs it.
+    public static let askLimit: Duration = .seconds(1)
 
     /// What every chat holds for the next launch, by tab: the last quit's states no page took (after
     /// the launch read), `held` (released pages' states, by tab) over them, then each page in `pages`. A page that has not taken its state yet (no `ready`, only a
@@ -144,7 +182,7 @@ public final class AgentPaneRelaunchWake {
     /// one that does not answer keeps the tab's held state or the one its `ready` took. Tabs
     /// `live` refuses (gone from every tree) keep nothing.
     public func collect(held: [String: AgentPaneWakeState], pages: [(key: String, view: AgentPaneView)],
-                        live: (String) -> Bool, limit: Duration = .seconds(1)) async -> [String: AgentPaneWakeState] {
+                        live: (String) -> Bool, limit: Duration = askLimit) async -> [String: AgentPaneWakeState] {
         let unclaimed = (await launch?.finished() ?? [:]).filter { !claimed.contains($0.key) }
         var states = unclaimed.merging(held) { _, held in held }
         let read = read
@@ -155,6 +193,10 @@ public final class AgentPaneRelaunchWake {
         for (page, ask) in asks {
             let model = page.view.model
             let answer = await ask?.value
+            if let ask, answer == nil, !ask.isCancelled {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.relaunch-wake")
+                    .error("chat \(page.key, privacy: .public) did not answer its quit ask within \(limit, privacy: .public); it keeps the state it was given")
+            }
             states[page.key] = answer ?? model.pendingWake ?? states[page.key] ?? model.handedWake
         }
         return states.filter { key, state in !state.isEmpty && live(key) }
@@ -179,10 +221,13 @@ public final class AgentPaneRelaunchWake {
         // their names and kinds, so no chip's size counts against a tab's JSON.
         for (key, state) in states.sorted(by: { $0.key < $1.key }) {
             guard let bytes = AgentPaneAttachmentFiles.moveOut(state.attachments ?? [], to: folder),
-                  let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder) else { continue }
+                  let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder),
+                  let drafts = Self.moveOut(state.subagentDrafts ?? [:], to: folder) else { continue }
             var held = state
             if state.attachments != nil { held.attachments = texts.attachments }
-            let saved = Saved(state: held, files: bytes.files.isEmpty ? nil : bytes.files, texts: texts.files.isEmpty ? nil : texts.files)
+            if state.subagentDrafts != nil { held.subagentDrafts = drafts.drafts }
+            let saved = Saved(state: held, files: bytes.files.isEmpty ? nil : bytes.files, texts: texts.files.isEmpty ? nil : texts.files,
+                              subagentDraftTexts: drafts.files.isEmpty ? nil : drafts.files)
             guard let size = (try? encoder.encode(saved))?.count, size <= maximumTabBytes, total + size <= maximumBytes else { continue }
             kept[key] = saved
             total += size
@@ -193,11 +238,40 @@ public final class AgentPaneRelaunchWake {
             return
         }
         try? data.write(to: file, options: .atomic)
-        let referenced = Set(kept.values.flatMap { Array(($0.files ?? [:]).values) + Array(($0.texts ?? [:]).values) })
+        let referenced = Set(kept.values.flatMap {
+            Array(($0.files ?? [:]).values) + Array(($0.texts ?? [:]).values) + Array(($0.subagentDraftTexts ?? [:]).values)
+        })
         if referenced.isEmpty { try? manager.removeItem(at: folder) }
         // A tab that did not fit wrote files nothing names: they go.
         for name in (try? manager.contentsOfDirectory(atPath: folder.path)) ?? [] where !referenced.contains(name) {
             try? manager.removeItem(at: folder.appending(path: name))
+        }
+    }
+
+    /// `drafts` with each one's text in a file of its own in `folder` (as a pasted chip's text is), and
+    /// the files by draft key, so no draft's size counts against its tab's JSON; nil when a file can't
+    /// be written.
+    private nonisolated static func moveOut(_ drafts: [String: AgentPaneWakeState.SubagentDraft], to folder: URL)
+        -> (drafts: [String: AgentPaneWakeState.SubagentDraft], files: [String: String])? {
+        guard !drafts.isEmpty else { return (drafts, [:]) }
+        guard let moved = AgentPaneAttachmentFiles.moveOut(draftChips(drafts), .text, to: folder) else { return nil }
+        return (drafts.mapValues { AgentPaneWakeState.SubagentDraft(text: nil, at: $0.at) }, moved.files)
+    }
+
+    /// `drafts` with each one's text read back from the file `files` names for it; a draft whose file
+    /// is gone is left out.
+    private nonisolated static func readBack(_ drafts: [String: AgentPaneWakeState.SubagentDraft], files: [String: String],
+                                             in folder: URL) -> [String: AgentPaneWakeState.SubagentDraft] {
+        let chips = AgentPaneAttachmentFiles.readBack(draftChips(drafts), .text, files: files, in: folder)
+        return Dictionary(chips.compactMap { chip in
+            drafts[chip.id].map { (chip.id, AgentPaneWakeState.SubagentDraft(text: chip.text ?? $0.text, at: $0.at)) }
+        }, uniquingKeysWith: { _, last in last })
+    }
+
+    /// Each draft as a pasted chip named by its draft key, the shape the chips' files take.
+    private nonisolated static func draftChips(_ drafts: [String: AgentPaneWakeState.SubagentDraft]) -> [AgentPaneWakeState.Attachment] {
+        drafts.sorted { $0.key < $1.key }.map { key, draft in
+            AgentPaneWakeState.Attachment(id: key, kind: "pasted", name: "", mimeType: "text/plain", size: 0, text: draft.text)
         }
     }
 }

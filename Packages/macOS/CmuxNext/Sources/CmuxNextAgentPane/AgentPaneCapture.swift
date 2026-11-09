@@ -10,13 +10,14 @@ import UniformTypeIdentifiers
 /// `composer.capture {mode: "screen" | "window"}`. After a click in the pane, macOS `screencapture`
 /// runs its own region pick (`-i`) or window pick (`-iW`), so the selection UI and the Screen
 /// Recording permission are the system's. It answers `{name, mimeType, data}` (base64) for the
-/// page to attach as an image, `{tooLarge: true, name}` for one that does not fit the page's cap,
-/// `{cancelled: true}` when the person presses Esc, or the `capture.failed` error when
-/// `screencapture` could not start or ended with an error.
+/// page to attach as an image (never refused for its size), `{cancelled: true}` when the person
+/// presses Esc, or the `capture.failed` error when `screencapture` could not start or ended with an
+/// error.
 enum AgentPaneCapture {
     nonisolated static let tool = "/usr/sbin/screencapture"
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.capture")
-    /// The page's cap on an attached image (attachments.ts `MAX_IMAGE_BYTES`).
+    /// The size a capture is scaled toward (attachments.ts `MAX_IMAGE_BYTES`); one still over it goes
+    /// as written, and the page saves that original to the chat beside its own preview.
     nonisolated static let maxBytes = 5 * 1024 * 1024
     /// A Retina capture over the cap is scaled to this longest side first, then sent as JPEG.
     nonisolated static let maxSide = 2560
@@ -40,17 +41,19 @@ enum AgentPaneCapture {
     }
 
     /// The page's answer for the bytes `screencapture` wrote: the image named for when it was
-    /// `taken` (as macOS names its own, so two in one prompt differ), `tooLarge` with that name when
-    /// even a scaled copy is over the cap, `cancelled` for none (Esc).
+    /// `taken` (as macOS names its own, so two in one prompt differ), the PNG as written when even a
+    /// scaled copy is over ``maxBytes`` (no capture is refused for its size), `cancelled` for none (Esc).
     nonisolated static func answer(_ png: Data, taken: Date) -> [String: any Sendable] {
         guard !png.isEmpty else { return ["cancelled": true] }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
         let stem = "Screenshot \(formatter.string(from: taken))"
-        guard let image = fit(png) else { return ["tooLarge": true, "name": "\(stem).png"] }
+        let image = fit(png) ?? (data: png, mimeType: "image/png")
         let name = image.mimeType == "image/png" ? "\(stem).png" : "\(stem).jpg"
-        return ["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString()]
+        // cmux took it: its chip wears cmux's icon (AttachmentSource).
+        return ["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString(),
+                "source": AttachmentSource.cmux.json]
     }
 
     /// What one pick produced.

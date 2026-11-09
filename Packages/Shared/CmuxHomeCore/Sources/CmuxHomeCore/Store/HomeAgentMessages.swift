@@ -49,13 +49,30 @@ struct HomeAgentMessages {
     }
 
     /// Insert by the owner's reply/answer keys, never by sorting committed messages on a clock.
-    func inserting(into items: [TranscriptItem], summary: ConversationSummary?) -> [TranscriptItem] {
+    ///
+    /// Two or more messages one Chief sent or got after the same row fold into one row that names
+    /// their agents (``HomeAgentMessageRow/Kind/fold(count:peers:expanded:)``); a group in `expanded`
+    /// keeps that row first and shows every message after it. `seen` is each agent's newest report time the
+    /// person opened (``HomeStore/markAgentSeen(_:in:)``): a pill whose report is newer shows the unread dot.
+    ///
+    /// `started` are the agents known to have started (the Chief's acpmux listed their session,
+    /// ``HomeStore/agentsStarted(_:)``, or the spawn records name one, ``HomeStore/followAgentSessions(_:in:)``):
+    /// one queued at its newest message started since, so its pill says Working.
+    func inserting(into items: [TranscriptItem], summary: ConversationSummary?,
+                   expanded: Set<String> = [], seen: [String: Date] = [:], started: Set<String> = []) -> [TranscriptItem] {
         guard !runs.isEmpty else { return items }
         var byKey: [IdempotencyKey: Int] = [:]
         var byMessageID: [MessageID: Int] = [:]
+        // A Chief's `send` posts under `send-<conversation>-<turn>-<16 hex>` (optchat-chief brain/send.rs):
+        // its turn's sends, by that key less its hash, in order.
+        var sends: [String: [Int]] = [:]
         for (index, item) in items.enumerated() {
             byKey[item.key] = index
             if let messageID = item.messageID { byMessageID[messageID] = index }
+            let key = item.key.rawValue
+            if key.hasPrefix("send-"), key.count > Self.sendHashLength {
+                sends[String(key.dropLast(Self.sendHashLength)), default: []].append(index)
+            }
         }
         var after: [Int: [TranscriptItem]] = [:]
         for run in runs.values.sorted(by: { ($0.author.rawValue, $0.id) < ($1.author.rawValue, $1.id) }) {
@@ -63,30 +80,255 @@ struct HomeAgentMessages {
                 items[index].author == run.author ? index : nil
             }
             let answer = run.answers.compactMap { byMessageID[$0] }.max()
-            guard let anchor = answer ?? reply else { continue }
-            // A nested question is the parent, not merely the thread's root. If only
-            // Chief's reply is loaded, inherit its parent rather than replying to Chief.
-            let parent = run.threadRoot.map { root in
-                answer.flatMap { items[$0].messageID }.map { PartRef(message: $0, partIndex: 0) }
-                    ?? items[anchor].replyTo ?? PartRef(message: root, partIndex: 0)
-            }
+            // A `send` of the run's turn carries its pills (user 2026-11-05, msg 22013: text alongside the
+            // chips): the one on the main line, else the first threaded one. A turn that said nothing by `send`
+            // keeps its pills under the message they answer, else after its reply.
+            let turnSends = run.turn.flatMap { sends["send-\(run.conversation.rawValue)-\($0.rawValue)"] }?
+                .filter { items[$0].author == run.author } ?? []
+            let said = turnSends.first { items[$0].threadRoot == nil } ?? turnSends.first
+            guard let anchor = said ?? answer ?? reply else { continue }
             let chief = summary?.participants.first { $0.id == run.author }?.displayName ?? run.author.rawValue
             for message in run.messages {
+                // A turn that answered several asks in their own threads (user 2026-11-05): an agent's pill goes beside
+                // the send that names it (the main line's first when several do), else beside the turn's first send.
+                let naming = turnSends.filter { Self.mentions(items[$0].plainText, peer: message.peer) }
+                let named = naming.first { items[$0].threadRoot == nil } ?? naming.first
+                let target = named ?? anchor
+                let sent = named ?? said
+                // Beside the Chief's words, the pills take their place: the main line or the thread they went in.
+                // Otherwise a nested question is the parent, not merely the thread's root; if only Chief's reply
+                // is loaded, inherit its parent rather than replying to Chief.
+                let threadRoot = sent.map { items[$0].threadRoot } ?? run.threadRoot
+                let parent = sent.map { items[$0].replyTo } ?? run.threadRoot.map { root in
+                    answer.flatMap { items[$0].messageID }.map { PartRef(message: $0, partIndex: 0) }
+                        ?? items[target].replyTo ?? PartRef(message: root, partIndex: 0)
+                }
                 let from = message.outgoing ? chief : message.peer
                 let to = message.outgoing ? message.peer : chief
                 var item = TranscriptItem(
                     key: IdempotencyKey("agent-message:\(run.author.rawValue):\(run.id):\(message.id)"), seq: nil,
                     author: run.author, parts: [.text("[\(from) → \(to)]\n\(message.text)")], createdAt: message.date,
-                    delivery: .committed, replyTo: parent, threadRoot: run.threadRoot)
+                    delivery: .committed, replyTo: parent, threadRoot: threadRoot)
                 item.isReadOnly = true
-                after[anchor, default: []].append(item)
+                item.agentMessage = HomeAgentMessageRow(
+                    group: HomeAgentMessageRow.groupID(author: run.author, anchor: items[target].key),
+                    kind: Self.kind(from: from, to: to, message))
+                item.agentMessage?.queued = message.outgoing && message.queued
+                after[target, default: []].append(item)
             }
         }
+        // One pill per agent (user 2026-11-05, "Chief teleport indicator" twice): an agent told or heard from after
+        // several rows keeps its pill only in the row of its newest message, which shows where it stands now.
+        var newest: [String: (date: Date, group: String)] = [:]
+        for message in after.values.joined() {
+            guard let row = message.agentMessage, let peer = Self.peer(of: row.kind) else { continue }
+            let later = newest[peer].map { (message.createdAt, row.group) > ($0.date, $0.group) } ?? true
+            if later { newest[peer] = (message.createdAt, row.group) }
+        }
+        let pillGroup = newest.mapValues(\.group)
+        let titles = taskTitles()
         return items.enumerated().flatMap { index, item in
             // Stable sorting keeps the run's numeric step sequence when fragments
             // share a timestamp; their opaque IDs are not a chronological key.
             let messages = (after[index] ?? []).sorted { $0.createdAt < $1.createdAt }
-            return [item] + messages
+            return [item] + Self.folded(messages, expanded: expanded, seen: seen, titles: titles, started: started,
+                                        pillGroup: pillGroup)
+        }
+    }
+
+    /// The agent a message row is with: the Chief's message's addressee, a report's or a note's sender; nil for a fold.
+    private static func peer(of kind: HomeAgentMessageRow.Kind) -> String? {
+        switch kind {
+        case let .message(from, to, outgoing, _): outgoing ? to : from
+        case let .note(peer, _, _): peer
+        case .fold: nil
+        }
+    }
+
+    /// Whether `text` names agent `peer` as a word (`a17`, `[a17]`, `a17's`), not inside a longer token (`a170`, `ma17`).
+    static func mentions(_ text: String, peer: String) -> Bool {
+        guard !peer.isEmpty else { return false }
+        var rest = text[...]
+        while let hit = rest.range(of: peer) {
+            let before = hit.lowerBound == text.startIndex ? nil : text[text.index(before: hit.lowerBound)]
+            let after = hit.upperBound == text.endIndex ? nil : text[hit.upperBound]
+            let word = { (c: Character?) in c.map { $0.isLetter || $0.isNumber || $0 == "_" } ?? false }
+            if !word(before), !word(after) { return true }
+            rest = text[hit.upperBound...]
+        }
+        return false
+    }
+
+    /// The characters a `send` key's hash takes at its end: `-` and 16 hex digits.
+    private static let sendHashLength = 17
+
+    /// A report that is only a status note (the agent stopped with no report) is a note; every other step a message.
+    private static func kind(from: String, to: String, _ message: HomeAgentRun.Message) -> HomeAgentMessageRow.Kind {
+        if !message.outgoing, let reason = HomeAgentMessageRow.statusNote(message.text) {
+            let words = message.text.trimmingCharacters(in: .whitespacesAndNewlines).dropFirst().dropLast()
+            return .note(peer: from, reason: reason, text: String(words))
+        }
+        return .message(from: from, to: to, outgoing: message.outgoing, text: message.text)
+    }
+
+    /// `messages` (one row's, in order) behind one agents row per Chief: one pill per agent the Chief
+    /// told or heard from after that row (user 2026-11-03, msg 19960), status notes included (they stop
+    /// the agent's pill), so a lone task is a pill too and five "stopped without a report" notes are no
+    /// second row.
+    private static func folded(_ messages: [TranscriptItem], expanded: Set<String>, seen: [String: Date],
+                               titles: [String: String], started: Set<String>, pillGroup: [String: String]) -> [TranscriptItem] {
+        guard !messages.isEmpty else { return messages }
+        var groups: [String] = []
+        var byGroup: [String: [TranscriptItem]] = [:]
+        for message in messages {
+            guard let group = message.agentMessage?.group else { continue }
+            if byGroup[group] == nil { groups.append(group) }
+            byGroup[group, default: []].append(message)
+        }
+        return groups.flatMap { fold(byGroup[$0] ?? [], group: $0, expanded: expanded, seen: seen, titles: titles,
+                                     started: started, pillGroup: pillGroup) }
+    }
+
+    /// One agents row for `members`, then every member in order when the group is open.
+    ///
+    /// Each agent, first-seen order: its state is its newest member's (the Chief's message: told; a
+    /// report: reported; a status note: stopped); its title is its task's `Title:` line in any run
+    /// (`titles`, ``taskTitles()``), else the Chief's first message to it in this row.
+    /// An agent whose newest message is in another row (`pillGroup`) has no pill here; a row left with no pill
+    /// is not shown.
+    private static func fold(_ members: [TranscriptItem], group: String, expanded: Set<String>,
+                             seen: [String: Date], titles known: [String: String], started: Set<String>,
+                             pillGroup: [String: String]) -> [TranscriptItem] {
+        guard let first = members.first else { return [] }
+        var peers: [String] = [], seenPeers: Set<String> = []
+        var states: [String: HomeAgentMessageRow.PeerState] = [:], latest: String?, titles: [String: String] = [:]
+        var reportedAt: [String: Date] = [:]
+        for member in members {
+            let peer: String
+            switch member.agentMessage?.kind {
+            case let .message(from, to, outgoing, text)?:
+                peer = outgoing ? to : from
+                states[peer] = !outgoing ? .reported
+                    : member.agentMessage?.queued == true && !started.contains(peer) ? .queued : .told
+                if outgoing, titles[peer] == nil { titles[peer] = HomeAgentMessageRow.title(of: text) }
+                if !outgoing { reportedAt[peer] = member.createdAt }
+                latest = text
+            case let .note(notePeer, _, text)?:
+                peer = notePeer
+                states[peer] = .stopped
+                latest = text
+            default:
+                continue
+            }
+            if seenPeers.insert(peer).inserted { peers.append(peer) }
+        }
+        peers.removeAll { pillGroup[$0].map { $0 != group } ?? false }
+        guard !peers.isEmpty else { return [] }
+        let open = expanded.contains(group)
+        var fold = TranscriptItem(
+            key: IdempotencyKey("agent-messages:\(group)"), seq: nil, author: first.author,
+            parts: [.text("\(open ? "▾" : "▸") \(HomeAgentMessageRow.peerPreview(peers, separator: " · "))")], createdAt: first.createdAt,
+            delivery: .committed, replyTo: first.replyTo, threadRoot: first.threadRoot)
+        fold.isReadOnly = true
+        fold.agentMessage = HomeAgentMessageRow(group: group, kind: .fold(count: members.count, peers: peers, expanded: open))
+        fold.agentMessage?.peerStates = peers.map { states[$0] ?? .told }
+        fold.agentMessage?.latest = latest
+        fold.agentMessage?.peerTitles = peers.map { known[$0] ?? titles[$0] ?? $0 }
+        fold.agentMessage?.peerUnread = peers.map { peer in
+            guard states[peer] == .reported, let at = reportedAt[peer] else { return false }
+            return seen[peer].map { $0 < at } ?? true
+        }
+        return open ? [fold] + members : [fold]
+    }
+
+    /// The agents queued at their newest message, in the order the Chief starts them (lowest id first), leaving
+    /// out `started` ones (their session showed). One pass over the runs, however many agents the chat has.
+    func queuedPeers(started: Set<String>) -> [String] {
+        var newest: [String: HomeAgentRun.Message] = [:]
+        for run in runs.values {
+            for message in run.messages {
+                if let held = newest[message.peer],
+                   (held.date, held.sequence, held.id) >= (message.date, message.sequence, message.id) { continue }
+                newest[message.peer] = message
+            }
+        }
+        return newest.values.filter { $0.outgoing && $0.queued && !started.contains($0.peer) }.map(\.peer)
+            .sorted { (Int($0.dropFirst()) ?? .max, $0) < (Int($1.dropFirst()) ?? .max, $1) }
+    }
+
+    /// `peer`'s chat with the Chief over every run of the conversation (``HomeAgentThread``), or nil
+    /// when no run has a message with it. `items` are the conversation's own rows: the Chief's link
+    /// to the agent's session comes from its words there.
+    func thread(peer: String, in items: [TranscriptItem], me: ParticipantID? = nil) -> HomeAgentThread? {
+        let messages = runs.values.flatMap { run in run.messages.filter { $0.peer == peer } }
+            .sorted { ($0.date, $0.sequence, $0.id) < ($1.date, $1.sequence, $1.id) }
+        guard let first = messages.first, let last = messages.last else { return nil }
+        let task = messages.first(where: \.outgoing)
+        let title = taskTitles(peer: peer)[peer] ?? task.flatMap { HomeAgentMessageRow.title(of: $0.text) } ?? peer
+        var entries = messages.filter { $0.id != task?.id }.map { message in
+            HomeAgentThread.Entry(id: message.id, outgoing: message.outgoing, text: message.text, date: message.date,
+                                  sender: message.outgoing ? message.sender.flatMap(HomeAgentSender.init(meta:)) ?? .chief : .agent)
+        }
+        if let me { Self.addNotes(to: &entries, peer: peer, from: items, me: me) }
+        let state: HomeAgentMessageRow.PeerState = last.outgoing ? (last.queued ? .queued : .told)
+            : HomeAgentMessageRow.statusNote(last.text) != nil ? .stopped : .reported
+        let chief = items.lazy.filter { !$0.isReadOnly }.map(\.plainText)
+        return HomeAgentThread(
+            peer: peer, title: title, state: state, task: task?.text,
+            entries: entries, startedAt: first.date, endedAt: state == .told || state == .queued ? nil : last.date,
+            newestReportAt: messages.last(where: { !$0.outgoing })?.date,
+            workspaceLink: HomeAgentThread.workspaceLink(for: peer, in: chief))
+    }
+
+    /// Each agent's name over every run: the `Title:` line of the earliest message to it that has one (its
+    /// spawn task, `Title: <2-5 words>`), so a later tell ("User (Nov 4): …") never renames its pill or chat
+    /// (user 2026-11-04, msg 21664). An agent with no such message is absent. `peer`: only that agent.
+    private func taskTitles(peer: String? = nil) -> [String: String] {
+        var titles: [String: (date: Date, title: String)] = [:]
+        for run in runs.values {
+            for message in run.messages where message.outgoing && (peer == nil || message.peer == peer) {
+                guard titles[message.peer].map({ message.date < $0.date }) ?? true,
+                      let title = Self.titleLine(of: message.text) else { continue }
+                titles[message.peer] = (message.date, title)
+            }
+        }
+        return titles.mapValues(\.title)
+    }
+
+    /// `text`'s `Title:` line's words; nil when it has none.
+    private static func titleLine(of text: String) -> String? {
+        for line in text.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.lowercased().hasPrefix("title:") else { continue }
+            let title = trimmed.dropFirst("title:".count).trimmingCharacters(in: .whitespaces)
+            if !title.isEmpty { return title }
+        }
+        return nil
+    }
+
+    /// The person's own ``HomeAgentNote``s to `peer` in `items`, labelled You: a Chief message that says the
+    /// same words after it is its relay and shows once (as the person's); a note not relayed yet shows at once.
+    private static func addNotes(to entries: inout [HomeAgentThread.Entry], peer: String, from items: [TranscriptItem],
+                                 me: ParticipantID) {
+        var added = false
+        for item in items where item.author == me && !item.isReadOnly && !item.isRetracted
+            && item.agentMessage == nil && item.feedRow == nil {
+            guard let note = HomeAgentNote(parsing: item.plainText), note.peer == peer else { continue }
+            let words = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // The relay is written after the note; a clock on another machine may run a little behind.
+            let earliest = item.createdAt.addingTimeInterval(-300)
+            if let relay = entries.firstIndex(where: { $0.outgoing && $0.sender != .you && $0.date >= earliest
+                && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == words }) {
+                entries[relay].sender = .you
+            } else {
+                entries.append(HomeAgentThread.Entry(id: "note:\(item.key.rawValue)", outgoing: true, text: words,
+                                                     date: item.createdAt, sender: .you))
+                added = true
+            }
+        }
+        // Stable: messages at the same time keep their order.
+        if added {
+            entries = entries.enumerated().sorted { ($0.element.date, $0.offset) < ($1.element.date, $1.offset) }.map(\.element)
         }
     }
 }

@@ -150,8 +150,7 @@ fn line_of(h: &Harness, seq: u64) -> u64 {
 fn send(text: &str) -> SendCall {
     SendCall {
         text: Some(text.to_owned()),
-        attachments: Vec::new(),
-        reply_to: None,
+        ..SendCall::default()
     }
 }
 
@@ -235,6 +234,96 @@ fn turn_tools_send_attaches_any_file_and_refuses_a_missing_one() {
     assert_eq!(sends(&h).len(), before, "nothing posted");
 }
 
+#[test]
+fn turn_tools_send_delivers_sixty_four_explicit_attachments() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", "send all the reports");
+    h.settle_posts();
+    let attachments: Vec<_> = (0..64)
+        .map(|index| {
+            let path = h.dir.path().join(format!("report-{index:02}.txt"));
+            std::fs::write(&path, format!("report {index}")).unwrap();
+            path.display().to_string()
+        })
+        .collect();
+    let sp = spawner(&h);
+    let answer = run(&mut h, move || {
+        sp.send(SendCall {
+            attachments,
+            ..send("All 64 reports.")
+        })
+    })
+    .unwrap();
+    assert!(answer.contains("64 attachment(s)"), "{answer}");
+    let posted = wait_send(&mut h, "report-63.txt");
+    let names: Vec<_> = posted[0]
+        .1
+        .iter()
+        .filter_map(|part| match part {
+            Part::Attachment { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        names,
+        (0..64)
+            .map(|index| format!("report-{index:02}.txt"))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn turn_tools_send_keeps_originals_when_the_owner_refuses_link_cards() {
+    struct NoPicture;
+    impl optchat_chief::link_preview::Fetcher for NoPicture {
+        fn fetch(
+            &self,
+            _: &str,
+            _: std::time::Instant,
+        ) -> Option<optchat_chief::link_preview::Fetched> {
+            None
+        }
+    }
+    let mut h = Harness::new(default_script());
+    h.brain.set_previewer(Arc::new(NoPicture));
+    h.connect();
+    h.say("user_local", "send https://example.com/report and the file");
+    h.settle_posts();
+    let path = h.dir.path().join("original.pdf");
+    std::fs::write(&path, b"%PDF original").unwrap();
+    h.owner
+        .lock()
+        .unwrap()
+        .rejects
+        .push_back(Some("unsupported_link_preview".into()));
+    let sp = spawner(&h);
+    run(&mut h, move || {
+        sp.send(SendCall {
+            attachments: vec![path.display().to_string()],
+            ..send("Here it is:\nhttps://example.com/report")
+        })
+    })
+    .unwrap();
+    let posted = wait_send(&mut h, "original.pdf");
+    assert_eq!(posted.len(), 2, "card attempt and text retry: {posted:?}");
+    let owner = h.owner.lock().unwrap();
+    let delivered = &owner.messages.last().unwrap().parts;
+    assert!(
+        delivered
+            .iter()
+            .any(|part| matches!(part, Part::Attachment { name, .. } if name == "original.pdf")),
+        "{delivered:?}"
+    );
+    assert!(
+        !delivered
+            .iter()
+            .any(|part| matches!(part, Part::LinkPreview { .. })),
+        "{delivered:?}"
+    );
+    assert!(texts(delivered).contains("https://example.com/report"));
+}
+
 /// The user, 2026-10-26: a screenshot whose upload the owner refused showed
 /// in Home as the text "!alarm-fired-100542Z.png". A file that does not
 /// upload goes as a link to it (a file chip Home can open), never as image
@@ -246,7 +335,7 @@ fn turn_tools_send_a_refused_upload_goes_as_a_file_link() {
     h.say("user_local", "send me the screenshot");
     h.settle_posts();
     h.owner.lock().unwrap().refuse_uploads = Some("chunk_too_large".into());
-    let shot = h.dir.path().join("alarm-fired.png");
+    let shot = h.dir.path().join("alarm[fired]\n.png");
     std::fs::write(&shot, b"\x89PNG fake").unwrap();
     let sp = spawner(&h);
     let call = SendCall {
@@ -255,12 +344,12 @@ fn turn_tools_send_a_refused_upload_goes_as_a_file_link() {
     };
     let answer = run(&mut h, move || sp.send(call)).expect("send answers");
     assert!(answer.starts_with("outcome: done"), "{answer}");
-    let posted = wait_send(&mut h, "alarm-fired.png");
+    let posted = wait_send(&mut h, "Attachment upload failed:");
     let text = texts(&posted[0].1);
     assert_eq!(
         text,
         format!(
-            "The test alarm rang.\n[alarm-fired.png]({})",
+            "The test alarm rang.\nAttachment upload failed: [alarm fired  .png]({})",
             url::Url::from_file_path(&shot).unwrap()
         ),
         "{posted:?}"
@@ -416,6 +505,34 @@ fn turn_tools_sleep_until_event_is_dropped_when_a_message_comes_first() {
 }
 
 #[test]
+fn spawn_place_parser_preserves_machine_names_and_checks_cloud_sizes() {
+    for place in [
+        "here",
+        "local",
+        "mac",
+        "cloud",
+        "cloud:small",
+        "cloud:medium",
+        "cloud:large",
+        "design-mini",
+    ] {
+        let call = Call::parse(
+            "spawn",
+            &json!({"tasks": ["build a hello web page"], "place": format!(" {place} ")}),
+        )
+        .unwrap();
+        assert!(matches!(call, Call::Spawn { place: Some(actual), .. } if actual == place));
+    }
+    let error = Call::parse(
+        "spawn",
+        &json!({"tasks": ["build it"], "place": "cloud:giant"}),
+    )
+    .unwrap_err();
+    assert!(error.contains("no Cloud size giant"), "{error}");
+    assert!(error.contains("small, medium, large"), "{error}");
+}
+
+#[test]
 fn turn_tools_sleep_zero_clears_wakes_and_bounds_hold() {
     assert!(
         Call::parse("sleep", &json!({"seconds": 5})).is_err(),
@@ -509,4 +626,44 @@ fn turn_tools_send_refuses_the_first_long_reply_of_a_turn_then_posts_the_next() 
     h.agents.hold(false);
     h.agents.release();
     h.settle_posts();
+}
+
+/// Leo, 2026-11-02: the 45-word refusal cost a resend each time Chief already
+/// knew its answer was long (a status list he asked for). `long: true` says so
+/// up front: the first send posts as is, and `send` without it is still gated.
+#[test]
+fn turn_tools_send_marked_long_posts_on_the_first_try() {
+    assert_eq!(
+        Call::parse("send", &json!({"text": "hi", "long": true})),
+        Ok(Call::Send(SendCall {
+            long: true,
+            ..send("hi")
+        })),
+        "`long` parses"
+    );
+    assert!(
+        Call::parse("send", &json!({"text": "hi", "long": "yes"})).is_err(),
+        "`long` must be a boolean"
+    );
+    let mut h = Harness::new(default_script());
+    running(&mut h, "list every open PR");
+    let long_text = "item ".repeat(80);
+    let sp = spawner(&h);
+    let gated = long_text.clone();
+    let refused = run(&mut h, move || sp.send(send(&gated)));
+    assert!(
+        refused.is_err(),
+        "unmarked long send is refused once: {refused:?}"
+    );
+    let mut h = Harness::new(default_script());
+    running(&mut h, "list every open PR");
+    let sp = spawner(&h);
+    let call = SendCall {
+        long: true,
+        ..send(&long_text)
+    };
+    let answer = run(&mut h, move || sp.send(call)).expect("send answers");
+    assert!(answer.starts_with("outcome: done"), "{answer}");
+    let posted = wait_send(&mut h, "item item");
+    assert_eq!(posted.len(), 1, "{posted:?}");
 }

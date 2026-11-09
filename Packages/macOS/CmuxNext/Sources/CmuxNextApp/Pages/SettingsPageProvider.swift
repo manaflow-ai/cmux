@@ -42,6 +42,9 @@ final class SettingsPageProvider: PageProvider {
     var environmentsState: (@MainActor () -> JSONValue)?
     var environmentsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
+    var sharesList: (@MainActor () async throws -> JSONValue)?
+    var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
     /// hooks `cmux agent hook` installs; nil in tests without an app.
@@ -219,6 +222,10 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
         case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
+        case "cmux.settings.shares.list": return try await Self.host(sharesList, "shares")()
+        case "cmux.settings.shares.revoke":
+            guard let id = params["share_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("share_id") }
+            return try await Self.host(sharesRevoke, "shares")(id)
         case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
@@ -400,22 +407,7 @@ final class SettingsPageProvider: PageProvider {
     // MARK: Reads
 
     private func list(section: String?) -> JSONValue {
-        let root = settings.snapshot.root
-        return .array(SettingsSchema.all.filter { section == nil || $0.section.rawValue == section }.map { descriptor in
-            var row: JSONValue = [
-                "key": .string(descriptor.id),
-                "value": descriptor.effectiveValue(in: root) ?? .null,
-                "default": settings.defaultValue(of: descriptor) ?? .null,
-                "customized": .bool(settings.isCustomized(descriptor)),
-                "managed": settings.managedSource(for: descriptor).map(Self.managedInfo) ?? .null,
-            ]
-            if descriptor.path == ChatSettings.rootsPath, case .object(var members) = row {
-                members["folders"] = settings.chatRootRows
-                members["user_roots"] = settings.fileRoot.value(at: ChatSettings.rootsPath) ?? .array([])
-                row = .object(members)
-            }
-            return row
-        })
+        settings.pageRows(section: section, managedInfo: Self.managedInfo)
     }
 
     private func snapshot() -> JSONValue {
@@ -429,7 +421,7 @@ final class SettingsPageProvider: PageProvider {
             "schema_hash": "",
             "effective": settings.snapshot.root,
             "managed": .object(managed),
-            "diagnostics": .array(settings.diagnostics.map { ["path": .string($0.path), "message": .string($0.message)] }),
+            "diagnostics": .array(settings.pageDiagnostics.map { ["path": .string($0.path), "message": .string($0.pageMessage)] }),
             "domains": .object(published),
         ]
     }

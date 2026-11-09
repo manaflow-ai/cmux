@@ -13,11 +13,13 @@ impl Translator {
                 match m.as_str() {
                     method::INITIALIZE => {
                         self.pending.lock().await.insert(id.to_string(), Pending::Initialize);
+                        let suggestions = prompt_suggestions::enabled_in_settings();
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": {"subtype": "initialize", "hooks": {}, "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"]}
+                            "request": initialize_request(suggestions)
                         })];
+                        lines.extend(self.suggestion_init(id, suggestions));
                         // Ultracode and fast mode survive a respawn on the live channel
                         // (no CLI flag); the answer ("boot-*") needs no reply.
                         let effort = self.effort.lock().await.clone();
@@ -125,6 +127,7 @@ impl Translator {
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
+                        self.step_stopped.store(false, Ordering::SeqCst);
                         let mut pending = self.pending.lock().await;
                         *self.abandoned.lock().await = pending
                             .iter()
@@ -150,6 +153,7 @@ impl Translator {
                         let val = p.get("value").and_then(Value::as_str).unwrap_or("").to_owned();
                         match cid {
                             "model" => {
+                                let val = super::model_id(&val);
                                 self.pending.lock().await.insert(
                                     id.to_string(),
                                     Pending::Control(Setting::Model, val.clone()),
@@ -214,6 +218,7 @@ impl Translator {
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": settings}}),
                                 ])
                             }
+                            prompt_suggestions::OPTION => self.set_suggestions(id, &val).await,
                             ULTRACODE_OPTION => {
                                 // On runs Ultracode (xhigh plus the setting); Off keeps xhigh.
                                 let effort = match val.as_str() {
@@ -234,6 +239,24 @@ impl Translator {
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": effort_settings(effort)}}),
                                 ])
                             }
+                            super::RECAP_OPTION => {
+                                let Some(choice) =
+                                    ["default", "on", "off"].into_iter().find(|c| *c == val)
+                                else {
+                                    return Outbound::Reply(Message::err(
+                                        id.clone(),
+                                        RpcError::invalid_params(
+                                            "session-recap must be default, on or off",
+                                        ),
+                                    ));
+                                };
+                                // acpmux's own switch: answered here, Claude Code is not asked.
+                                *self.recap.lock().await = choice;
+                                Outbound::Reply(Message::ok(
+                                    id.clone(),
+                                    json!({"configOptions": self.config_options_value().await}),
+                                ))
+                            }
                             other => Outbound::Reply(Message::err(
                                 id.clone(),
                                 RpcError::invalid_params(format!("unknown config option {other}")),
@@ -241,11 +264,8 @@ impl Translator {
                         }
                     }
                     method::SESSION_SET_MODEL => {
-                        let val = p
-                            .get("modelId")
-                            .and_then(Value::as_str)
-                            .unwrap_or("default")
-                            .to_owned();
+                        let val = p.get("modelId").and_then(Value::as_str).unwrap_or("default");
+                        let val = super::model_id(val);
                         self.pending
                             .lock()
                             .await
@@ -271,10 +291,12 @@ impl Translator {
                         let tool = p.get("toolCallId").and_then(Value::as_str);
                         let tool = tool.filter(|t| !t.is_empty());
                         // The foreground shells it may move are the person's once they
-                        // move (`inbound.rs` `origin`).
+                        // move (`inbound.rs` `origin`), unless acpmux moves them on its own
+                        // (`auto`, `hub/auto_background.rs`): those stay `auto_backgrounded`.
+                        let auto = p.get("auto") == Some(&Value::Bool(true));
                         let mut asked = Vec::new();
                         for (call, shell) in self.background_shells.lock().await.iter_mut() {
-                            if !shell.background && tool.is_none_or(|t| t == call) {
+                            if !auto && !shell.background && tool.is_none_or(|t| t == call) {
                                 shell.asked = true;
                                 asked.push(call.clone());
                             }
@@ -297,6 +319,9 @@ impl Translator {
                         Outbound::Lines(vec![
                             json!({"type": "control_request", "request_id": format!("bg-{}", id), "request": request}),
                         ])
+                    }
+                    FOREGROUND_WORK => {
+                        Outbound::Reply(Message::ok(id.clone(), self.foreground_work().await))
                     }
                     MCP_RECONNECT => {
                         let server = p.get("server").and_then(Value::as_str).unwrap_or("");
@@ -352,6 +377,24 @@ impl Translator {
                             "request": request,
                         })])
                     }
+                    RECAP => {
+                        // Only between turns: a recap asked while a turn runs would describe
+                        // work still under way, and the hub asks only an idle chat.
+                        if self.in_turn.load(Ordering::SeqCst) {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("a turn is running"),
+                            ));
+                        }
+                        // Answered like a side question (`side-` in `inbound.rs`).
+                        self.pending.lock().await.insert(id.to_string(), Pending::SideQuestion);
+                        Outbound::Lines(vec![json!({
+                            "type": "control_request",
+                            "request_id": format!("side-{}", id),
+                            "request": {"subtype": "side_question", "question": RECAP_PROMPT},
+                        })])
+                    }
+                    RENAME => self.rename(id, &p).await,
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
@@ -402,6 +445,10 @@ impl Translator {
                 }
             }
             Message::Response { id, result, error } => {
+                // The hub answered the policy gate about a tool call (`policy_gate.rs`).
+                if let Some(reply) = self.gate_answer(id, result.as_ref(), error.is_some()).await {
+                    return Outbound::Lines(vec![reply]);
+                }
                 // The hub answered a permission request we raised.
                 // The request and its form (an elicitation's) are taken under
                 // the request map's lock, as a withdrawal takes them
@@ -475,9 +522,11 @@ impl Translator {
     }
 
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop
-    /// it leaves `cancelled` unset, so the steer Claude Code reads after the step runs on in the
-    /// same turn. Its ack answers `answer` (`MUX_STEP_NOW`), when one waits for it.
+    /// it leaves `cancelled` unset, and the stopped step's result ends the turn and carries the
+    /// steer, which runs as a turn of its own (`carry.rs`). Its ack answers `answer`
+    /// (`MUX_STEP_NOW`), when one waits for it.
     pub(super) fn step_interrupt(&self, answer: Option<&Id>) -> Value {
+        self.step_stopped.store(true, Ordering::SeqCst);
         let request_id = match answer {
             Some(id) => format!("now-{id}"),
             None => format!("int-{}", self.next_control.fetch_add(1, Ordering::SeqCst)),
@@ -503,4 +552,40 @@ fn resource_text(b: &Value) -> String {
         Some(text) => format!("<resource uri=\"{uri}\"{path}>\n{text}\n</resource>"),
         None => format!("<resource uri=\"{uri}\"{path} />"),
     }
+}
+
+/// Claude Code's `initialize` control request.
+///
+/// `perTaskStopAffordance` says this client stops background tasks one by one (a background
+/// process's kill, `_acpmux/process/kill`, and a subagent's stop, `_acpmux/subagent_stop`, both
+/// Claude Code's `stop_task`). Without it Claude Code's headless `interrupt` (what Stop sends)
+/// also kills every running background shell and background subagent, and marks each subagent
+/// stopped by the user so it is never resumed. With it the interrupt stops only the turn, as Esc
+/// does in the CLI, and background work runs on and reports when it ends (Leo, 2026-10-31:
+/// "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING").
+///
+/// `promptSuggestions` asks for a predicted next prompt after each turn (`prompt_suggestions.rs`).
+pub(super) fn initialize_request(suggestions: bool) -> Value {
+    let mut request = json!({
+        "subtype": "initialize",
+        "hooks": {},
+        "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"],
+        "perTaskStopAffordance": true,
+    });
+    // The policy gate is its own matcher: its own timeout, and a failure blocks the call
+    // (`policy_gate.rs`).
+    #[cfg(unix)]
+    request.set(
+        "hooks",
+        json!({"PreToolUse": [{
+            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK], "timeout": 90
+        }, {
+            "matcher": "*", "hookCallbackIds": [super::policy_gate::GATE_CALLBACK],
+            "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"
+        }]}),
+    );
+    if suggestions {
+        request.set("promptSuggestions", json!(true));
+    }
+    request
 }

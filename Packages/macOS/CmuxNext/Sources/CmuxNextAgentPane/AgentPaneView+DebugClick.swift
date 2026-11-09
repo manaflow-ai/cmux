@@ -27,12 +27,15 @@ extension AgentPaneView {
         }
         if (!target) return JSON.stringify({ error: 'no visible element matches' });
         // What the page sees of the click (`page_events` in the result).
-        const seen = [];
+        // `__cmuxDebugClickButtons`: each pointer and mouse event's `buttons` (`pointerdown:1`), as the page read them.
+        const seen = [], buttons = [];
         window.__cmuxDebugClick = seen;
-        for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+        window.__cmuxDebugClickButtons = buttons;
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
             window.addEventListener(type, function note(e) {
                 if (window.__cmuxDebugClick !== seen) return window.removeEventListener(type, note, true);
-                seen.push(type + (e.isTrusted ? '' : '?'));
+                if (type !== 'click') buttons.push(type + ':' + e.buttons);
+                if (type !== 'pointerup') seen.push(type + (e.isTrusted ? '' : '?'));
             }, true);
         }
         target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -57,6 +60,33 @@ extension AgentPaneView {
 
     /// Whether the chat shows in Chromium (its clicks go through DevTools, ``debugPress(x:y:)``).
     public var debugShowsChromium: Bool { page?.showsChromium == true }
+    /// Whether this pane has the native keyboard: its window is key with the first responder in this pane, or a chat
+    /// shown in Chromium has the keys (its own key child window).
+    public var debugHoldsKeyboard: Bool {
+        if chromiumPage?.hasKeys == true { return true }
+        return window?.isKeyWindow == true && (window?.firstResponder as? NSView)?.isDescendant(of: self) == true
+    }
+
+    /// Whether the chat is to show in Chromium but Chromium has not attached yet: the page shows
+    /// nothing until it does, or until it falls back to WebKit.
+    public var debugChromiumStarting: Bool { pageDrawsOverCovers && !debugShowsChromium }
+
+    /// Whether the document has painted, independently of the loading cover's give-up deadline.
+    public var debugPageHasPainted: Bool { model.hasPainted && (page?.hasPainted ?? true) }
+
+    /// Whether the chat's Chromium page is one a window snapshot draws: in this window, not parked,
+    /// hidden or under a clear (alpha 0) ancestor, and with a size.
+    public var debugChromiumPageShown: Bool {
+        guard let page, let window = page.window else { return false }
+        return PageRegistry.shownChromiumPages(in: window).contains { $0.page === page }
+    }
+
+    /// The paint and engine state a scene capture must wait for before drawing the agent pane.
+    public var debugCaptureState: AgentPaneCaptureState {
+        AgentPaneCaptureState(attached: webView.window != nil, loading: webView.isLoading,
+                              chromium: debugShowsChromium, chromiumStarting: debugChromiumStarting,
+                              chromiumShown: debugChromiumPageShown, painted: debugPageHasPainted)
+    }
 
     /// The zoom the chat shows at: view points per page CSS pixel.
     public var debugPageZoom: Double {
@@ -73,16 +103,23 @@ extension AgentPaneView {
 
     /// A trusted DevTools left click at `x`,`y` (CSS pixels) on a chat shown in Chromium; false
     /// otherwise (``PageWebView/debugPress(x:y:)``).
-    public func debugPress(x: Double, y: Double) async -> Bool {
-        await page?.debugPress(x: x, y: y) ?? false
+    public func debugPress(x: Double, y: Double, beforeRelease: (() -> Void)? = nil) async -> Bool {
+        await page?.debugPress(x: x, y: y, beforeRelease: beforeRelease) ?? false
     }
 
     /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel
     /// (``PageWebView/debugSetFiles(selector:paths:)``); nil when it did, else why not. On WebKit the next
     /// file input the page opens (a click on + then Attach files) takes them instead of the panel.
+    /// The pick is the person's, as one in the open panel is (the pane's `onFilesChosen`): its
+    /// gesture, which `chat.upload.begin` spends, and where the files are, so a chat on this Mac
+    /// links them in place. Neither scripted path passes the panel, so without this every
+    /// scripted pick's upload was refused for want of a gesture.
     public func debugSetFiles(selector: String, paths: [String]) async -> String? {
-        if let page, page.showsChromium { return await page.debugSetFiles(selector: selector, paths: paths) }
         let files = paths.map { URL(fileURLWithPath: $0) }
+        model.transport.gestures.record()
+        model.droppedPaths.stash(files, kind: .choose)
+        model.droppedPaths.stashSource(files, items: files.count, claimed: nil, kind: .choose)
+        if let page, page.showsChromium { return await page.debugSetFiles(selector: selector, paths: paths) }
         fileChooser?.debugAnswer = files
         page?.debugQueueFiles(files)
         return nil

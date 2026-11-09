@@ -13,6 +13,13 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 ///   live `output` chunks are fed to the local Ghostty mirror in order; a
 ///   `resized` event (protocol 6+) resets the mirror (`ESC c`) and replays.
 ///   `detached` ends the session.
+/// - Latest screen first (`attach-replay-history-rows-v1`, cmuxterm-hq#7231):
+///   against a daemon that lists it, the attach asks for the screen alone
+///   (`replay_history_rows`), so the terminal is live after one screen of
+///   bytes instead of its whole scrollback. Older rows come when the reader
+///   scrolls up to them (``loadOlderHistory()``): a second attach with
+///   ``historyChunkRows`` more rows replaces the first. An older daemon gets
+///   no field and replays the whole history, as before.
 /// - Input: `send {surface, bytes}` (base64), in order, one per main-queue
 ///   turn and batched while one is being written, several unanswered at
 ///   once (``drainInput()``), on its own `daemon` channel on the link's input lane
@@ -86,6 +93,23 @@ public final class DaemonTerminalSession: TerminalSession {
     public let sizing = TerminalSizingLive()
     /// The daemon takes `note-size-activity` (it listed `shared-sizing-v1`).
     private var sharedSizing = false
+    /// The daemon takes `replay_history_rows` (it listed
+    /// `attach-replay-history-rows-v1`, and its lane did not refuse it).
+    private var tailReplay = false
+    /// History rows the next attach asks for above the screen (nil: all of
+    /// them). Grows by ``historyChunkRows`` with each ``loadOlderHistory()``,
+    /// and a reattach keeps it, so a reader keeps the rows they had.
+    private(set) var historyAllowance: Int? = DaemonTerminalSession.initialHistoryRows
+    /// Rows of the Mac's history older than the mirror's oldest row (the
+    /// last `vt-state`'s `history_rows_omitted`; 0: the mirror has them all).
+    public private(set) var historyRowsOmitted = 0
+    /// The attach a ``loadOlderHistory()`` replaces, while the new one is out.
+    private var replacing: DaemonClient?
+    /// Rows of history the first attach asks for: none, the screen alone.
+    static let initialHistoryRows = 0
+    /// Rows each ``loadOlderHistory()`` adds (a bounded chunk: about 200 KB
+    /// of a typical shell's history).
+    static let historyChunkRows = 2_000
     /// When the last `note-size-activity` went out (``now``'s clock).
     private var lastActivityNote: TimeInterval?
     /// At most one activity note per this many seconds.
@@ -372,6 +396,10 @@ public final class DaemonTerminalSession: TerminalSession {
         sizeClaimed = false
         attached = false
         client = nil
+        if let old = replacing {
+            replacing = nil
+            Task { await old.close() }
+        }
         dropInputLane()
         outbox.removeAll()
         input.removeAll()
@@ -474,6 +502,23 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    /// The reader scrolled up to the mirror's oldest row and the Mac has
+    /// older ones (``historyRowsOmitted``): a second attach with
+    /// ``historyChunkRows`` more rows of history (all of them when that many
+    /// or fewer are left) replaces this one. The mirror resets and the
+    /// screen keeps the reader's place (`TerminalReadingMark`), as for a
+    /// reattach, but the connection stays attached throughout. One at a time;
+    /// a no-op while a key is on its way (it must not be sent twice), and
+    /// against a daemon without `attach-replay-history-rows-v1`.
+    public func loadOlderHistory() {
+        guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
+              let allowance = historyAllowance, inputInFlight == 0, let client else { return }
+        historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
+        log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next allowance \(self.historyAllowance.map(String.init) ?? "all", privacy: .public))")
+        replacing = client
+        Task { await attach() }
+    }
+
     /// The size state and own participant of an attach reply (shared sizing).
     nonisolated static func attachSizing(_ reply: Data) -> (TerminalSizeState?, String?) {
         guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
@@ -565,6 +610,31 @@ public final class DaemonTerminalSession: TerminalSession {
             let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
             leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
             sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
+            tailReplay = identify.map { Self.lists(Self.replayHistoryRowsCapability, $0) } ?? false
+            // `attach-surface` with this view's size (if any) and history
+            // allowance. A lane that refuses the allowance (a Mac app older
+            // than its daemon) gets the same attach without it.
+            func attachSurface(_ size: (columns: Int, rows: Int)?) async throws -> Data {
+                // Each request gets its own literal: a dictionary sent to the
+                // client actor is never touched again here (Swift 6 regions).
+                func send(historyRows: Int?) async throws -> Data {
+                    switch (size, historyRows) {
+                    case let (size?, rows?):
+                        return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows, "replay_history_rows": rows])
+                    case let (size?, nil):
+                        return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows])
+                    case let (nil, rows?):
+                        return try await client.request("attach-surface", params: ["surface": surface, "replay_history_rows": rows])
+                    case (nil, nil):
+                        return try await client.request("attach-surface", params: ["surface": surface])
+                    }
+                }
+                guard tailReplay, let rows = historyAllowance else { return try await send(historyRows: nil) }
+                let reply = try await send(historyRows: rows)
+                guard let error = Self.error(in: reply), error.contains("replay_history_rows") else { return reply }
+                tailReplay = false
+                return try await send(historyRows: nil)
+            }
             sizing.clear()
             lastActivityNote = nil
             // The mirror is not reset yet: a reattach that fails (a Mac host
@@ -587,23 +657,23 @@ public final class DaemonTerminalSession: TerminalSession {
                 // must know the phone's real size (a wider PTY overprinted
                 // and cut every row, 2026-10-23).
                 log.notice("surface \(self.surface, privacy: .public): reattach at the Mac's \(overruled.mac.columns, privacy: .public)x\(overruled.mac.rows, privacy: .public) (asked \(size.columns, privacy: .public)x\(size.rows, privacy: .public) was overruled)")
-                reply = try await client.request("attach-surface", params: ["surface": surface, "cols": overruled.mac.columns, "rows": overruled.mac.rows])
+                reply = try await attachSurface((overruled.mac.columns, overruled.mac.rows))
                 if Self.error(in: reply) != nil {
-                    reply = try await client.request("attach-surface", params: ["surface": surface])
+                    reply = try await attachSurface(nil)
                 } else {
                     attachedWithSize = size
                 }
             } else if initialSize, let size = lastSize ?? pendingSize {
-                reply = try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows])
+                reply = try await attachSurface(size)
                 if Self.error(in: reply) != nil {
                     // A policy that does not pass the size: attach without it.
-                    reply = try await client.request("attach-surface", params: ["surface": surface])
+                    reply = try await attachSurface(nil)
                 } else {
                     lastSize = size
                     attachedWithSize = size
                 }
             } else {
-                reply = try await client.request("attach-surface", params: ["surface": surface])
+                reply = try await attachSurface(nil)
             }
             if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
             guard self.client === client else { heldEvents = nil; return }
@@ -643,6 +713,19 @@ public final class DaemonTerminalSession: TerminalSession {
                 outbox.insert(.size(columns: size.columns, rows: size.rows), at: 0)
             }
             if sizeClaimed { startLeaseRefresh() }
+            if let old = replacing {
+                // The new attach holds the screen and the size now: the old
+                // one releases its size (the same size: no PTY resize) and
+                // closes, so the Mac never reads it as a dropped link.
+                replacing = nil
+                let surface = surface
+                Task {
+                    _ = try? await Self.within(.seconds(2)) {
+                        try await old.request("release-surface-size", params: ["surface": surface])
+                    }
+                    await old.close()
+                }
+            }
             drain()
             drainInput()
             openInputLane(for: client)
@@ -650,6 +733,18 @@ public final class DaemonTerminalSession: TerminalSession {
             heldEvents = nil
             lastError = LinkController.reason(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
+            if let old = replacing {
+                // A failed fetch of older rows: the old attach no longer
+                // feeds the screen, so this is a dropped link, retried below.
+                replacing = nil
+                attached = false
+                Task { await old.close() }
+                dropInputLane()
+                stopLeaseRefresh()
+                markInputDetached()
+                draining = false
+                if handler != nil, !ended { handler?(.connection(connectionState)) }
+            }
             if everAttached, attachRetries < reattachBackoff.count, handler != nil, !ended {
                 // A reattach: keep the last frame and try again (bounded backoff).
                 let delay = reattachBackoff[attachRetries]
@@ -732,7 +827,11 @@ public final class DaemonTerminalSession: TerminalSession {
             } else if attached, let asked = lastSize, asked.columns == reportedColumns, asked.rows == rows {
                 overruled = nil
             }
+        case .historyRowsOmitted(let rows):
+            historyRowsOmitted = rows
         case .resetMirror(let alternate):
+            // A `resized` replay holds the whole history.
+            historyRowsOmitted = 0
             log.notice("surface \(self.surface, privacy: .public): mirror reset cause=resized-event (rows \(self.reportedRows ?? -1, privacy: .public), last size asked \(self.lastSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public))")
             setAlternate(alternate)
             handler?(.output(Data("\u{1B}c".utf8)))
@@ -779,7 +878,7 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     private func drain() {
-        guard attached, !draining, let client, !outbox.isEmpty else { return }
+        guard attached, replacing == nil, !draining, let client, !outbox.isEmpty else { return }
         draining = true
         let next = outbox.removeFirst()
         let surface = surface
@@ -869,7 +968,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// have been typed on the Mac, and a doubled Return runs a command
     /// twice: it is never sent again, and neither is anything after it.
     private func drainInput() {
-        guard attached, !inputWriting else { return }
+        guard attached, replacing == nil, !inputWriting else { return }
         expireInput()
         guard !input.isEmpty, let target = inputClient ?? client else { return }
         if inputInFlight > 0, inputRecovering || inputTarget !== target || inputInFlight >= Self.maxInputInFlight { return }
@@ -1126,6 +1225,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `host-grid-view-v1`: this phone renders a Mac grid larger than its
     /// own (pans, letterboxes), so the daemon need not cap the PTY at it.
     static let hostGridViewCapability = "host-grid-view-v1"
+    /// `replay_history_rows` on `attach-surface`: the replay holds the screen
+    /// and only that many history rows (latest screen first).
+    static let replayHistoryRowsCapability = "attach-replay-history-rows-v1"
     /// What the attach channel lists in `set-client-info`.
     static let clientCapabilities = [sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
 

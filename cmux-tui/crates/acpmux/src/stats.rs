@@ -165,13 +165,26 @@ pub fn summarize(
     options: &StatsOptions,
     live: &HashSet<String>,
 ) -> Result<StatsSummary> {
+    summarize_with(store, options, live, &SessionMeta::input_excludes_cache)
+}
+
+/// `summarize`, with `fresh_input` telling whether a session's harness counts
+/// its input apart from the prompt cache (`SessionMeta::input_excludes_cache`;
+/// the daemon asks its profile's kind first): an older record of one that
+/// does not has the cache taken out of its input (`branches::turn_usage`).
+pub fn summarize_with(
+    store: &dyn Store,
+    options: &StatsOptions,
+    live: &HashSet<String>,
+    fresh_input: &dyn Fn(&SessionMeta) -> bool,
+) -> Result<StatsSummary> {
     let mut fold = Fold::new(*options);
     for meta in store.list()? {
         // The streak looks back the longest range whatever range was asked.
         if meta.updated_at < fold.streak_since() {
             continue;
         }
-        let mut session = SessionFold::new(options);
+        let mut session = SessionFold::new(options, fresh_input(&meta));
         let scanned = store.scan(&meta.id, 0, &mut |record| {
             session.record(&record);
             true
@@ -216,6 +229,8 @@ struct SessionFold {
     /// The open turn began before the log's `forked` record: a copy of the
     /// parent's.
     open_copied: bool,
+    /// Its harness counts input apart from the cache (`SessionMeta::input_excludes_cache`).
+    fresh_harness: bool,
 }
 
 struct Turn {
@@ -242,7 +257,7 @@ enum TurnStatus {
 }
 
 impl SessionFold {
-    fn new(options: &StatsOptions) -> Self {
+    fn new(options: &StatsOptions, fresh_harness: bool) -> Self {
         Self {
             options: *options,
             open: None,
@@ -261,6 +276,7 @@ impl SessionFold {
             waiting_ms: 0,
             last_at: None,
             open_copied: false,
+            fresh_harness,
         }
     }
 
@@ -344,7 +360,7 @@ impl SessionFold {
                     self.close(at, status);
                 }
                 if let Some(turn) = self.turns.last_mut() {
-                    turn.usage = branches::turn_usage(&record.msg);
+                    turn.usage = branches::turn_usage(&record.msg, self.fresh_harness);
                     turn.branch = branches::turn_branch(&record.msg);
                 }
             }
@@ -681,14 +697,6 @@ fn streak(days: &BTreeSet<i64>, today: i64) -> Streak {
 /// `YYYY-MM-DD` for a count of days since 1970-01-01 (Howard Hinnant's
 /// civil-from-days).
 pub fn civil_date(days: i64) -> String {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
+    let (year, month, day) = crate::server::civil_from_days(days);
     format!("{year:04}-{month:02}-{day:02}")
 }

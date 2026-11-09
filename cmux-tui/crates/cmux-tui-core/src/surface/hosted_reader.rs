@@ -263,6 +263,12 @@ impl HostedReader {
             return None;
         }
         let identity = pty.host_identity.clone()?;
+        // An exit or a loss below ends the terminal's Running lifecycle; its
+        // publications the output queued commit first (a resync keeps it
+        // running, and its queued publication still commits).
+        if !resync_requested && let Some(mux) = mux.upgrade() {
+            mux.settle_terminal_publications(surface);
+        }
         if let Some(exit) = received_exit {
             // The host's Exit frame is its report that the child
             // ended, even when an older host omits the status.
@@ -272,6 +278,8 @@ impl HostedReader {
                 .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
             pty.stream_progress.notify();
             if let Some(mux) = mux.upgrade() {
+                // The last output's scroll position goes before the exit.
+                let _ = pty.frame_requests.flush_scroll(&mux, surface.id);
                 mux.surface_exited(surface.id);
             }
             return None;
@@ -324,7 +332,7 @@ struct WakeInputOnReaderEnd(Arc<Surface>);
 impl Drop for WakeInputOnReaderEnd {
     fn drop(&mut self) {
         if let Some(pty) = self.0.as_pty() {
-            pty.stream_progress.notify();
+            pty.reader_gave_up();
             // A reader that gave up on its host leaves the terminal `failed`:
             // push the tab here, with no lock held, so clients show it.
             if matches!(

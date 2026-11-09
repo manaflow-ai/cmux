@@ -169,6 +169,14 @@ pub(super) fn apply(
                 params.insert("tab".into(), Value::String(tab));
             }
             Resolve::Caller => {
+                // A `current` browser is the one nearest the caller (#26648).
+                #[cfg(unix)]
+                if caller_route
+                    && super::caller_browser::wants(params)
+                    && let Some(identity) = caller_identity(socket)
+                {
+                    super::caller_browser::apply(params, &identity).map_err(Failure::Resource)?;
+                }
                 caller_scopes(params, caller_route, || caller_path(reader, &route, socket))?;
             }
         }
@@ -396,8 +404,9 @@ fn caller_scopes(
     if explicit && !caller_route {
         return Err(lookup_error(
             "selector.invalid",
-            "`caller` names the caller's own objects, which are not in a session or machine \
-             named with --socket, --session or --machine; name an id instead"
+            "`caller` names the caller's own objects, and --socket or --session names \
+             another session than the caller's terminal is in (or --machine another \
+             machine); name an id instead, or drop --session to act in your own session"
                 .into(),
         ));
     }
@@ -504,6 +513,18 @@ fn agent_caller_path(socket: &SocketRoute<'_>) -> Result<Option<Map<String, Valu
         }
     }
     Ok(Some(path))
+}
+
+/// The app's `system.identify` answer for this caller (agent session, Chief
+/// turn or terminal), or `None` when nothing names a caller, no app owns
+/// this daemon, or the app does not answer (down, restarting, slow): the
+/// `current` chain then goes to the daemon as before.
+#[cfg(unix)]
+fn caller_identity(socket: &SocketRoute<'_>) -> Option<Value> {
+    let app = socket.app.as_ref()?;
+    super::app::caller_from(|key| std::env::var(key).ok())?;
+    let mut stream = super::app::connect(app).ok()?;
+    super::app::request(&mut stream, "system.identify", json!({}), APP_IDENTIFY_WAIT).ok()?.ok()
 }
 
 #[cfg(unix)]
@@ -747,6 +768,19 @@ pub(super) fn call_as(
     idempotency_key: Option<&str>,
     credential: Option<&str>,
 ) -> Result<Value, Failure> {
+    call_as_on(reader, None, operation, params, idempotency_key, credential)
+}
+
+/// [`call_as`] on the daemon at `socket`, which an older daemon's error
+/// names in its restart fix (cli/older_daemon.rs).
+pub(super) fn call_as_on(
+    reader: &mut Reader,
+    socket: Option<&Path>,
+    operation: ResourceOperation,
+    params: Map<String, Value>,
+    idempotency_key: Option<&str>,
+    credential: Option<&str>,
+) -> Result<Value, Failure> {
     let id = random_request_id().map_err(|error| Failure::Transport(format!("cmux: {error}")))?;
     let mut request = json!({
         "protocol": PROTOCOL,
@@ -765,7 +799,10 @@ pub(super) fn call_as(
     send_request(reader, &encoded)?;
     match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
-        Err(error) => Err(Failure::Resource(error)),
+        Err(error) => Err(Failure::Resource(
+            super::older_daemon::replace(reader, &error, operation.wire_name(), socket)
+                .unwrap_or(error),
+        )),
     }
 }
 

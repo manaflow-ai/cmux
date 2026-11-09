@@ -1,5 +1,7 @@
 """The PR performance-section check: a perf PR records before/after deltas in its description."""
+import contextlib
 import importlib.util
+import io
 import subprocess
 import sys
 import tempfile
@@ -163,9 +165,39 @@ class SectionTests(unittest.TestCase):
         self.assertEqual(self.check("", paths=["scripts/bench.py", "docs/bench.md"])[0], 1)
 
     def test_workflow_lists_both_sides_of_a_rename(self):
-        workflow = (ROOT / ".github/workflows/pr-perf-section-check.yml").read_text()
-        self.assertIn("--no-renames", workflow)
-        self.assertIn("previous_filename", workflow)
+        import yaml
+
+        steps = yaml.safe_load((ROOT / ".github/workflows/pr-body-checks.yml").read_text())["jobs"]["body"]["steps"]
+        listing = next(s for s in steps if s.get("id") == "paths")["run"]
+        paths_line = next(line for line in listing.splitlines() if '"$RUNNER_TEMP/paths.txt"' in line)
+        self.assertIn("--no-renames", paths_line)
+        perf = next(s for s in steps if s.get("name") == "Check the description for a Performance table")["run"]
+        self.assertIn("previous_filename", perf)
+
+
+class LightPathTests(unittest.TestCase):
+    """A small change takes the light path: no Performance table (Leo, 2026-10-31)."""
+
+    def test_small_or_removal_diffs_need_no_table(self):
+        for added, deleted in ((3, 4), (60, 60), (12, 900)):
+            code, message = module.check("Speed up the sidebar", "faster now", {"perf"}, list(CODE), added, deleted)
+            self.assertEqual(code, 0, message)
+            self.assertIn("light path", message)
+
+    def test_larger_diffs_and_unknown_sizes_still_need_one(self):
+        for added, deleted in ((100, 21), (40, 300), (None, None)):
+            code, _ = module.check("Speed up the sidebar", "faster now", set(), list(CODE), added, deleted)
+            self.assertEqual(code, 1, (added, deleted))
+
+    def test_command_line_reads_the_sizes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            body, paths = Path(tmp, "body.md"), Path(tmp, "paths.txt")
+            body.write_text("faster now\n", encoding="utf-8")
+            paths.write_text("Sources/App.swift\n", encoding="utf-8")
+            argv = ["--body-file", str(body), "--paths-file", str(paths), "--title", "Speed up"]
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(module.main(argv + ["--additions", "2", "--deletions", "1"]), 0)
+                self.assertEqual(module.main(argv + ["--additions", "", "--deletions", ""]), 1)
 
 
 class CommandLineTests(unittest.TestCase):

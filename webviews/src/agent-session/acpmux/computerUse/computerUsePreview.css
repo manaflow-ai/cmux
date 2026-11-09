@@ -10,7 +10,7 @@
    pops in just after it; it leaves with a short fade and scale down (cardMotion.ts unmounts it when
    that ends). Motion off or reduced, each state shows at once. */
 /* The column's end while the card shows beside it (App.tsx sets data-cu-preview on .acpmux-main, only
-   in a pane wide enough and with the Inspector closed): the card's 180px, 12px from the edge and a 12px
+   in a pane wide enough and with Session Info closed): the card's 180px, 12px from the edge and a 12px
    gap, or the column's own inset when that is wider. The transcript's rows, the composer and the dock's
    bands read it; model.ts transcriptColumn mirrors it (COMPUTER_USE_PREVIEW_RESERVE). */
 .acpmux-main[data-cu-preview] {
@@ -32,7 +32,7 @@
   --cu-preview-close-press: color-mix(in srgb, black 64%, transparent);
   position: absolute;
   top: calc(var(--acpmux-header-height, 44px) + 8px);
-  right: 12px;
+  right: var(--ds-space-3, 12px);
   z-index: var(--layer-sticky);
   /* As wide as the frame, at most 180px (the column's reserve): a tall window gets a narrow card. */
   width: fit-content;
@@ -47,14 +47,14 @@
   transform: scale(0.96);
   pointer-events: none;
 }
-/* With the Inspector open (either place), directly under its card: the layout's 8px gap, right-aligned
-   with it (the Codex app's preview under its summary panel). The Inspector publishes the place on the
-   shell (inspector/underInspector.ts, once per resize of the panel), and the column keeps no room of
-   its own: the Inspector's shift or push keeps the chat clear of both. Closed, the card is back at the
-   top right. */
-.acpmux-shell[data-inspector-chat-placement] .acpmux-cu-preview {
-  top: var(--acpmux-inspector-under-top, calc(var(--acpmux-header-height, 44px) + 8px));
-  right: var(--acpmux-inspector-under-right, 12px);
+/* With Session Info open (either place), directly under its card: the layout's 8px gap, right-aligned
+   with it (the Codex app's preview under its summary panel). Session Info publishes the place on the
+   shell (session-info/underSessionInfo.ts, once per resize of the panel). Floating, the column keeps its
+   room (data-cu-preview stays), so opening or closing the panel never reflows the chat; Push always's
+   column keeps the chat clear of both instead. Closed, the card is back at the top right. */
+.acpmux-shell[data-session-info-chat-placement] .acpmux-cu-preview {
+  top: var(--acpmux-session-info-under-top, calc(var(--acpmux-header-height, 44px) + 8px));
+  right: var(--acpmux-session-info-under-right, 12px);
 }
 
 .acpmux-cu-preview__open {
@@ -72,7 +72,7 @@
 .acpmux-cu-preview__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: 2px;
-  border-radius: 10px;
+  border-radius: var(--grid-cards-radius, 12px);
 }
 
 .acpmux-cu-preview__frame {
@@ -93,8 +93,9 @@
 
 /* The agent's cursor where the helper draws it (the frame's fractions: the frame box is the image's
    box), the helper's own dart (cursorArt.tsx) at the window's scale: --cu-pointer-width is a share of
-   the frame's width. The tip is the point: the viewBox puts it 1 point in, 1/19 of the width. Each new
-   click plays one ripple (keyed by the click), in the cursor's blue. */
+   the frame's width. The tip is the point: the viewBox puts it 1 point in, 1/19 of the width. A soft
+   shadow lifts it off the window. Each new click plays one soft ripple (keyed by the click), a light
+   wash of the cursor's blue with a thin ring. */
 .acpmux-cu-preview__arrow {
   position: absolute;
   left: calc(var(--cu-pointer-x) * 100%);
@@ -103,11 +104,12 @@
   aspect-ratio: 1;
   overflow: visible;
   transform: translate(-5.263%, -5.263%);
+  filter: drop-shadow(var(--elevation-1, 0 1px 2px color-mix(in srgb, black 7%, transparent)));
   pointer-events: none;
 }
 .acpmux-cu-preview__arrow > path {
   stroke: white;
-  stroke-width: 2px;
+  stroke-width: 1.7px;
   stroke-linejoin: round;
   paint-order: stroke;
 }
@@ -119,9 +121,60 @@
   aspect-ratio: 1;
   margin: -7px 0 0 -7px;
   border-radius: 50%;
-  border: 1.5px solid #2d8cff;
+  /* The helper's cursor blue (cursorArt.tsx), as a light wash with a thin ring. */
+  --cu-ripple-blue: #2d8cff;
+  border: 1px solid color-mix(in srgb, var(--cu-ripple-blue) 55%, transparent);
+  background: color-mix(in srgb, var(--cu-ripple-blue) 18%, transparent);
   opacity: 0;
   pointer-events: none;
+}
+
+/* The person's pointer (cursorArt.tsx PersonPointerArt), a second telepointer at the frame's
+   fractions (--cu-person-x/-y): a 12px arrow with rounded corners in the page's text tone, rimmed in
+   the opaque page colour so it reads over a light or a dark window, with a "You" label on a capsule at
+   its lower right. Fixed size, under the agent's cursor. Outside the window it fades out where it was
+   (the host clamps the point to the edge); still for a while, it dims. */
+.acpmux-cu-preview__person {
+  position: absolute;
+  left: calc(var(--cu-person-x) * 100%);
+  top: calc(var(--cu-person-y) * 100%);
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+  /* The arrow's tip is at (5, 3) of its 24-point box: drawn 12px wide, that is 2.5px, 1.5px in. */
+  transform: translate(-2.5px, -1.5px);
+}
+.acpmux-cu-preview__person[data-outside] {
+  opacity: 0;
+}
+.acpmux-cu-preview__person[data-idle]:not([data-outside]) {
+  opacity: 0.55;
+}
+.acpmux-cu-preview__person-arrow {
+  flex: none;
+  width: 12px;
+  aspect-ratio: 1;
+  overflow: visible;
+}
+.acpmux-cu-preview__person-arrow > path {
+  fill: var(--agent-text);
+  stroke: var(--acpmux-base, var(--agent-accent-text, Canvas));
+  stroke-width: 2px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+}
+.acpmux-cu-preview__person-label {
+  margin-top: 8px;
+  padding: 0 var(--ds-space-2, 8px);
+  /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
+  border-radius: var(--ds-radius-control);
+  background: var(--agent-text);
+  /* The opaque page colour, never the page background (clear in a see-through window). */
+  color: var(--acpmux-base, var(--agent-accent-text, Canvas));
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: 14px;
+  white-space: nowrap;
 }
 
 /* Done: the app's icon (40px) centered over the dimmed window, a 16px green check on the icon's lower
@@ -151,7 +204,8 @@
   aspect-ratio: 1;
   border-radius: 50%;
   background: var(--agent-status-success);
-  color: white;
+  /* The opaque page colour, never a fixed white: a dark theme's success green is light. */
+  color: var(--acpmux-base, var(--agent-accent-text, Canvas));
   box-shadow: 0 0 0 2px var(--agent-page-bg);
 }
 .acpmux-cu-preview__mark[data-icon] > .acpmux-cu-preview__check {
@@ -165,8 +219,8 @@
    preview). Hover lifts its fill a little and scales it up; a press scales it down. */
 .acpmux-cu-preview__close {
   position: absolute;
-  top: 6px;
-  left: 6px;
+  top: var(--ds-space-2, 8px);
+  left: var(--ds-space-2, 8px);
   display: grid;
   place-items: center;
   width: 20px;
@@ -235,6 +289,14 @@
     transition: /* motion-allow: mirrors the helper's own cursor glide (cmux-cua --glide-ms 150) */
       left 150ms var(--agent-ease-out, ease-out),
       top 150ms var(--agent-ease-out, ease-out);
+  }
+  /* The person's pointer comes about 6 times a second (the live tick): it glides between reads, and
+     fades as it leaves, comes back or turns idle. */
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__person {
+    transition:
+      left var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
+      top var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
+      opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
     animation: acpmux-cu-preview-click var(--cmux-motion-large, 240ms) var(--agent-ease-out, ease-out) 150ms both;

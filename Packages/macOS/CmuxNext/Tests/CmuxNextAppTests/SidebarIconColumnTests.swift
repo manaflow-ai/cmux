@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-28, on the top of the sidebar: "the alignment"; on its glyphs: "i feel like this is misaligned
@@ -8,7 +9,7 @@ import Testing
 /// (two blue unread dots right of two red (i) marks). Every leading glyph (a band row's, a pinned row's pin, a
 /// workspace row's icon) centers on one icon column and on its title's center line, and every trailing mark (the
 /// unread dot, an error, Home's dot) centers on one trailing column.
-@MainActor @Suite(.serialized) struct SidebarIconColumnTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct SidebarIconColumnTests {
     typealias Case = HomePinnedRowAlignmentTests.Case
 
     static let home = LayoutItem(id: LayoutItemID("itm_column_home"), ref: .builtIn(.home))
@@ -81,7 +82,9 @@ import Testing
         return CGPoint(x: CGFloat(minX + maxX + 1) / 2 - half, y: CGFloat(minY + maxY + 1) / 2 - half)
     }
 
-    /// Home's glyph, the pin and a workspace row's icon share one center x.
+    /// Home's glyph, the pin and a workspace row's icon share one center x, the icon column's center
+    /// (https://github.com/manaflow-ai/cmux/issues/38061; Lawrence msg 19643 had started every ink at the inset, which
+    /// put the narrow pin's center left of the house's).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func leadingGlyphsShareOneCenterX(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
@@ -90,11 +93,11 @@ import Testing
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
-            let homeX = Self.center(list, try #require(home.glyphInkFrame, "Home drew no glyph"), in: home).x
-            let pinX = Self.center(list, try #require(pin.pinInkFrame, "the pinned row drew no pin"), in: pin).x
-            let iconX = Self.center(list, iconRow.icon.frame, in: iconRow).x
-            #expect(abs(homeX - iconX) <= Self.tolerance, "\(c.testDescription): Home's glyph centers at \(homeX), a row icon at \(iconX)")
-            #expect(abs(pinX - iconX) <= Self.tolerance, "\(c.testDescription): the pin centers at \(pinX), a row icon at \(iconX)")
+            let homeX = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home).midX
+            let pinX = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).midX
+            let iconX = list.convert(iconRow.icon.frame, from: iconRow).midX
+            #expect(abs(homeX - iconX) <= Self.tolerance, "\(c.testDescription): Home's glyph centers at \(homeX), a row icon's column at \(iconX)")
+            #expect(abs(pinX - iconX) <= Self.tolerance, "\(c.testDescription): the pin centers at \(pinX), a row icon's column at \(iconX)")
         }
     }
 
@@ -172,5 +175,23 @@ import Testing
         // A band row's fill is inset by `horizontalInset` in its frame (`SidebarItemRowView.layoutColumnMark`).
         let rowColumn = itemRow.frame.minX + SidebarStyle.trailingColumnCenterX(rowWidth: itemRow.frame.width - SidebarStyle.horizontalInset)
         #expect(abs(chevronX - rowColumn) <= Self.tolerance, "\(look): the header chevron centers at \(chevronX), its rows' marks at \(rowColumn)")
+    }
+
+    /// Pinned-section titles use the same optical midline as machine headers and row glyphs, at every text size.
+    /// Measure the real label's baseline and cap height, independently of the production positioning helper.
+    @Test(arguments: SidebarDensity.allCases, SidebarTextSize.allCases)
+    func aBandHeaderTitleAndChevronShareTheMidLine(density: SidebarDensity, textSize: SidebarTextSize) throws {
+        try SidebarGroupRailAlignmentTests.with(density, .off, textSize: textSize) {
+            let header = SidebarSectionHeaderView(frame: NSRect(x: 0, y: 0, width: 260, height: SidebarDensityTokens.headerHeight))
+            header.configure(title: "Projects", collapsed: true)
+            header.layout()
+            let label = try #require(header.subviews.compactMap { $0 as? ChromeLabel }.first)
+            let font = try #require(label.font)
+            let inkMidY = label.frame.minY + label.firstBaselineOffsetFromTop - font.capHeight / 2
+            #expect(abs(inkMidY - header.bounds.midY) <= Self.tolerance,
+                    "\(density)/\(textSize): title optical center \(inkMidY), row center \(header.bounds.midY)")
+            #expect(abs(header.chevron.frame.midY - inkMidY) <= Self.tolerance,
+                    "\(density)/\(textSize): title and chevron must share a midline")
+        }
     }
 }

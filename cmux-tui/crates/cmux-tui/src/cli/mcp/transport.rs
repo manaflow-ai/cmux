@@ -47,7 +47,7 @@ pub(in crate::cli) struct CallFailure {
 }
 
 impl CallFailure {
-    pub(super) fn local(kind: FailureKind, code: &str, message: impl Into<String>) -> Self {
+    pub(in crate::cli) fn local(kind: FailureKind, code: &str, message: impl Into<String>) -> Self {
         Self {
             kind,
             error: json!({
@@ -109,7 +109,8 @@ pub(super) fn resource(
     let _ = stream.set_read_timeout(Some(wire::SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
     super::super::tab_capabilities::negotiate(&mut reader).map_err(|failure| match failure {
-        resolve::Failure::Resource(error) => {
+        // A local error in the resource shape (a server of another protocol) keeps its code.
+        resolve::Failure::Resource(error) | resolve::Failure::Local { error, .. } => {
             CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
         }
         resolve::Failure::Transport(message) => fail(NotRun, "transport.failed", message),
@@ -164,6 +165,9 @@ pub(super) fn resource(
     ) {
         return opened.map_err(|failure| app_open_failure(failure, key.as_deref()));
     }
+    // `agents workspace create` from a cmux terminal against an older
+    // daemon: sent without `created_by`, as `cmux workspace create` is.
+    wire::drop_unsupported_created_by(&mut reader, &socket, &mut request);
     super::super::launch_credential::attach(&mut reader, &socket, &mut request);
     let encoded = resolve::encode_request_bytes(&request)
         .map_err(|message| fail(NotRun, "validation.invalid", message))?;
@@ -191,6 +195,18 @@ pub(super) fn resource(
                     idempotency_key: key.clone(),
                 });
             }
+            // An older daemon refuses an operation it does not know as a
+            // bare envelope error: name it and the upgrade, as the CLI does.
+            let error = match &plan.operation {
+                WireOperation::Typed(operation) => super::super::older_daemon::replace(
+                    &mut reader,
+                    &error,
+                    operation.wire_name(),
+                    Some(socket.as_path()),
+                )
+                .unwrap_or(error),
+                _ => error,
+            };
             Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() })
         }
         Err(resolve::Failure::Refused) => Err(fail(sent, "session.busy", "session is busy".into())),
@@ -222,6 +238,7 @@ pub(super) fn session_events(
         stream: true,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     };
     if let Some(cursor) = cursor {
         plan.params.set("cursor", cursor.clone());
@@ -249,7 +266,7 @@ pub(super) fn session_events(
         return Ok(());
     }
     negotiated.map_err(|failure| match failure {
-        resolve::Failure::Resource(error) => {
+        resolve::Failure::Resource(error) | resolve::Failure::Local { error, .. } => {
             CallFailure { kind: NotRun, error, idempotency_key: None }
         }
         resolve::Failure::Transport(message) => local("transport.failed", message),

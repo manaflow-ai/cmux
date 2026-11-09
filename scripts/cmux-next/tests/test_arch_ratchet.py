@@ -1277,6 +1277,121 @@ class RatchetTests(Repo):
         self.assertEqual(refusals, [])
         self.assertTrue(any("exception 2026-10-23" in n for n in notes), notes)
 
+    def file_entry(self, slug, **fields):
+        """A reviewed singleton exception for SLUG, FIELDS over it."""
+        return {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": f"fixture {slug}", **REVIEW,
+                **fields}
+
+    def exception_file(self, slug, **fields):
+        """Write one exception as plans/cmux-next/arch-exceptions/SLUG.json and return it."""
+        entry = self.file_entry(slug, **fields)
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/{slug}.json", json.dumps(entry, indent=2) + "\n")
+        return entry
+
+    def test_an_exception_file_the_push_adds_lets_the_row_rise(self):
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": []}))
+        base = self.commit("record")
+        self.add_singleton()
+        refusals, _ = self.check(base=base)
+        self.assertEqual(self.rows(refusals), ["stateful_singletons"])
+        self.assertIn(f"as a new file {ratchet.EXCEPTIONS_DIR}/<id>.json", refusals[0][1])
+        self.exception_file("31999")
+        self.commit("its exception, in a file of its own")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [], notes)
+        self.assertTrue(any("exception 2026-10-23" in n and "fixture 31999" in n for n in notes), notes)
+        refused, out = self.run_push(base=base)
+        self.assertFalse(refused, out)
+
+    def test_an_expired_unparsable_or_nested_exception_file_allows_nothing(self):
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": []}))
+        base = self.commit("record")
+        self.add_singleton()
+        self.exception_file("expired", expiry="2026-10-22")
+        self.commit("an exception that expired before its date")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(self.rows(refusals), ["stateful_singletons"], notes)
+        self.assertTrue(any("ignored exception" in n and "expiry" in n for n in notes), notes)
+        self.remove(f"{ratchet.EXCEPTIONS_DIR}/expired.json")
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/broken.json", '{"date": "2026-10-23", "row": ')
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/sub/nested.json", json.dumps(self.file_entry("nested")))
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/notes.txt", json.dumps(self.file_entry("txt")))
+        self.commit("a file that does not parse, one in a subdirectory, one that is not .json")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(self.rows(refusals), ["stateful_singletons"], notes)
+        self.assertTrue(any(f"unparsable {ratchet.EXCEPTIONS_DIR}/broken.json" in n for n in notes), notes)
+
+    def test_two_branches_that_each_add_an_exception_file_merge_with_no_conflict(self):
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [
+            {"date": "2026-10-20", "row": "app_lines", "allow": 1, "why": "an old list entry", **REVIEW}]}, indent=2))
+        base = self.commit("record")
+        self.git("checkout", "--quiet", "-b", "pr-a")
+        self.add_singleton()
+        self.exception_file("pr-a")
+        self.commit("pr a: a singleton and its exception file")
+        self.git("checkout", "--quiet", "-b", "pr-b", base)
+        self.write(f"{SRC}/CmuxNextDomain/Store+Other.swift", "extension Store {\n    static let other = Store()\n}\n")
+        self.exception_file("pr-b")
+        self.commit("pr b: another singleton and its exception file")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.git("merge", "--quiet", "--no-edit", "pr-a")
+        self.git("merge", "--quiet", "--no-edit", "pr-b")  # check=True: a conflict fails the test
+        head = self.git("rev-parse", "HEAD")
+        refusals, notes = self.check(base=base, head=head)
+        self.assertEqual(refusals, [], notes)
+        refusals, notes = self.check(base=self.git("rev-parse", "pr-a"), head=head)
+        self.assertEqual(refusals, [], "the second PR, merged over the first, is paid by its own file: " + "\n".join(notes))
+        # The old way, appending to the json's list on two branches, conflicts (why the files exist).
+        self.git("checkout", "--quiet", "-b", "list-a", base)
+        data = self.recorded()
+        self.write(counts.RATCHET_JSON, json.dumps(dict(data, exceptions=data["exceptions"] + [{"why": "a"}]), indent=2))
+        self.commit("list a")
+        self.git("checkout", "--quiet", "-b", "list-b", base)
+        self.write(counts.RATCHET_JSON, json.dumps(dict(data, exceptions=data["exceptions"] + [{"why": "b"}]), indent=2))
+        self.commit("list b")
+        merged = subprocess.run(["git", "-C", str(self.repo), "merge", "--no-edit", "list-a"], env=self.env,
+                                capture_output=True, text=True)
+        self.assertNotEqual(merged.returncode, 0, merged.stdout)
+        self.git("merge", "--abort")
+
+    def test_update_applies_an_exception_file_in_its_file_and_keeps_it_verbatim(self):
+        self.assertEqual(self.update()[0], 0)
+        record = self.commit("record")
+        recorded = self.recorded()["totals"]["stateful_singletons"]
+        self.add_singleton()
+        entry = self.exception_file("31999")
+        base = self.commit("a reviewed singleton and its exception file")
+        refusals, notes = self.check(base=record)
+        self.assertEqual(refusals, [], notes)
+        code, out = self.update()
+        self.assertEqual(code, 0, out)
+        data = self.recorded()
+        self.assertEqual(data["totals"]["stateful_singletons"], recorded + 1)
+        self.assertEqual(data["exceptions"], [], "a file's entry is applied in its file, not copied into the list")
+        path = self.repo / ratchet.EXCEPTIONS_DIR / "31999.json"
+        self.assertEqual(json.loads(path.read_text()), dict(entry, applied_sha=base))
+        applied = self.commit("update")
+        refusals, notes = self.check(base=base, head=applied)
+        self.assertEqual(refusals, [], notes)
+        self.assertEqual(self.update()[0], 0, "an applied exception is folded in, not spent twice")
+        self.assertEqual(json.loads(path.read_text()), dict(entry, applied_sha=base))
+        # An applied entry moved verbatim into the json's list is the same entry; edited or deleted it is refused.
+        self.write(counts.RATCHET_JSON, json.dumps(dict(data, exceptions=[json.loads(path.read_text())])))
+        self.remove(f"{ratchet.EXCEPTIONS_DIR}/31999.json")
+        self.commit("moves the applied entry to the list")
+        refusals, notes = self.check(base=applied)
+        self.assertEqual(refusals, [], notes)
+        self.git("reset", "--quiet", "--hard", applied)
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/31999.json", json.dumps(dict(entry, applied_sha=base, allow=2)))
+        self.commit("edits the applied file")
+        refusals, _ = self.check(base=applied)
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+        self.assertIn("applied exception", refusals[0][1])
+        self.remove(f"{ratchet.EXCEPTIONS_DIR}/31999.json")
+        self.commit("deletes the applied file")
+        refusals, _ = self.check(base=applied)
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+
     def test_a_hand_edit_of_method_version_is_refused_and_a_method_change_passes(self):
         self.assertEqual(self.update()[0], 0)
         base = self.commit("record")
@@ -1663,6 +1778,32 @@ class RatchetTests(Repo):
         self.assertEqual(refusals, [])
         self.assertTrue(any(n.startswith("arch-ratchet: stateful_singletons -1 ") for n in notes), notes)
         self.assertFalse(any(ratchet.UPDATE_HINT in n for n in notes), notes)
+
+    def test_pre_push_stdin_judges_the_pushed_ref_in_a_clone_without_the_hook(self):
+        # The fallback entry the fleet's global pre-push hook runs where cmux's hook is not installed (a lane VM's
+        # wt mirror): #35294 pushed +26 App lines from one, and a lane had to move them out (#35386).
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.base)
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{SRC}/CmuxNextApp/Big.swift", "let a = 1\n" * 26)
+        head = self.commit("app lines")
+        line = [f"refs/heads/topic {head} refs/heads/lane/topic {'0' * 40}"]
+
+        def pre_push(lines):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                code = ratchet.pre_push(self.repo, "origin", lines)
+            return code, out.getvalue()
+
+        code, out = pre_push(line)
+        self.assertEqual(code, 1, out)
+        self.assertIn("[app_lines] CmuxNextApp Swift lines: +26", out)
+        # A deletion and a line that is not a pushed ref push no code: nothing to judge, and the push goes on.
+        self.assertEqual(pre_push([f"(delete) {'0' * 40} refs/heads/lane/topic {head}", "garbage"])[0], 0)
+        self.remove(f"{SRC}/CmuxNextApp/Big.swift")
+        self.write(f"{SRC}/CmuxNextDomain/Big.swift", "let a = 1\n" * 26)
+        head = self.commit("the lines go to their own target")
+        code, out = pre_push([f"refs/heads/topic {head} refs/heads/lane/topic {'0' * 40}"])
+        self.assertEqual(code, 0, out)
 
     def test_app_lines_ratchet(self):
         # Report only until the reward-hacking audit of 2026-10-30: the row rose 143,610 -> 164,014 unrefused.

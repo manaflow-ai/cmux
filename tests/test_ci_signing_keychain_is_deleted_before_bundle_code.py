@@ -45,7 +45,22 @@ statically, so a reordered step fails in review and not on a release day:
    a signing job that starts before it. The one way onto an owned Mac is a
    picker output from scripts/ci/signing_runner.py (Leo, 2026-10-28: the
    release signing jobs may run on our own Macs), on a mini held whole for the
-   job; tests/test_ci_signing_owned_mac.py checks those jobs.
+   job; tests/test_ci_signing_owned_mac.py checks those jobs. Two narrow exceptions,
+   each proven here rather than listed:
+   a. A job glaeda gives the exclusive class (test_ci_signing_owned_mac.GLAEDA_EXCLUSIVE_JOBS,
+      that hook's own list) whose first step is that test's CLAIM_GATE may also route
+      through the owned pool variables in OWNED_ROUTE_VARIABLES (nightly.yml's owned-only
+      legacy sign and deltas, Lawrence, 2026-10-30, a7b6a61175c; its nightly-next signing
+      runner and its promote job, Lawrence, 2026-11-04, 2b01de7c296 and 24111ed7f5e).
+      The gate fails the job on any owned Mac without the whole-mini claim before a
+      credential is in reach, however the label was chosen; owned_route_failures() holds
+      the claim script before the first secret and the empty job `env:` here, and
+      test_ci_signing_owned_mac.py holds those, the always() keychain delete and the rest
+      of its rules for every such job that makes a keychain or holds a Sparkle key.
+   b. A job in GATED_SECRET_JOBS reads every signing secret only when its mode
+      variable says so, and that same condition picks a literal ephemeral label
+      before runs-on reads any variable (stable-next.yml's sign: its dry run signs
+      ad hoc with no key on an owned Mac; its publish run signs on Blacksmith).
 8. A job that signs with the release signer (RELEASE_POOL_SIGNERS) makes no
    keychain: it runs on a literal ubuntu label and hands the certificate only
    to its signer script, which keeps the key in its own temporary directory.
@@ -128,6 +143,9 @@ SCRIPT_MADE_KEYCHAINS = {
 RELEASE_POOL_SIGNERS = {
     ("nightly.yml", "signer-app"): "scripts/ci/release-signer/sign-app.sh",
     ("nightly.yml", "signer-dmg"): "scripts/ci/release-signer/notarize-dmg.sh",
+    # The cmux NIGHTLY-identity copy through the same signer (the macOS legacy signer's pool path).
+    ("nightly.yml", "legacy-signer-app"): "scripts/ci/release-signer/sign-app.sh",
+    ("nightly.yml", "legacy-signer-dmg"): "scripts/ci/release-signer/notarize-dmg.sh",
 }
 # Jobs that keep bundle code in the signing job, outside the keychain window
 # only (rule 1, not rule 6). Each entry names its follow-up.
@@ -161,11 +179,237 @@ RUNNER_VARIABLE = re.compile(
 )
 ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
+# Rule 7a: owned pool variables a claim-gated signing job may route through.  Each holds a glaeda fleet label:
+# runner_label_policy's NO_HOSTED_MAC_VARIABLES keeps a GitHub-hosted Mac out of every one, and
+# cloud_overflow_switch.py writes none of them (they are in neither SWITCHED_VARIABLES nor
+# OVERRIDABLE_VARIABLES).  So the job lands either on an ephemeral runner or on an owned Mac, where the claim
+# gate refuses it without glaeda's exclusive claim.  CI_NIGHTLY_SIGN_RUNNER and CI_NIGHTLY_SIGNING_POOL are the
+# narrowest: runner_label_policy holds both to `glaeda-trusted-next-signing`, which glaeda gives only to the
+# trusted main runners of a mini with runner.trustedNextSigning, and its hook admits exactly nightly.yml's
+# exclusive class there on the nightly-next push (glaeda scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING);
+# tests/test_nightly_signing_on_cmux15.py pins the route.
+OWNED_ROUTE_VARIABLES = frozenset({
+    "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "CI_NIGHTLY_SIGN_RUNNER", "CI_NIGHTLY_SIGNING_POOL",
+})
+# Rule 7a's second half: the claim script, which refuses an owned Mac without the claim and clears a keychain a
+# killed job left, runs before the first step that names a secret.
+CLAIM_SCRIPT = "scripts/ci/signing-runner-claim.sh"
+# A step condition that runs the step even after an earlier step failed, so coming after the claim is not
+# enough: `if: always()` (or failure()/cancelled()) on a secret-bearing step would hand it the credential on
+# an owned Mac whose claim the gate had just refused. The same matcher test_ci_signing_owned_mac.py uses.
+RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
+# GitHub prefixes `success() &&` only to a condition that names no status function, so naming `success()` is not
+# enough either: `!success()`, `success() || x` and `success() && a || b` (`||` binds looser than `&&`) all run
+# after a failed step (router-review F1 at 25cfca8de04). Only an explicit leading `success() &&` over an operand
+# with no status function and no `||` keeps the implicit guard.
+STATUS_FUNCTION = re.compile(r"\b(?:success|always|failure|cancelled)\s*\(", re.IGNORECASE)
+GUARDED_BY_SUCCESS = re.compile(r"^success\(\s*\)(?:\s*&&\s*(?P<rest>.+))?$", re.IGNORECASE | re.DOTALL)
+
+
+def runs_after_failure(condition: object) -> bool:
+    """Whether a step with this `if:` can run after an earlier step of its job failed."""
+    text = str(condition or "").strip()
+    expression = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.DOTALL)
+    text = (expression.group(1) if expression else text).strip()
+    if not STATUS_FUNCTION.search(text):
+        return False
+    guarded = GUARDED_BY_SUCCESS.match(text)
+    if not guarded:
+        return True
+    rest = guarded.group("rest") or ""
+    return bool(STATUS_FUNCTION.search(rest)) or "||" in rest
+# The script has to be *run*, unconditionally, from a trusted path, and its failure has to fail the job.  No
+# pattern over shell text can say that: `if false; then bash <path>; fi` and `bash <path> || true` both hold a
+# plausible-looking invocation while skipping the stale-keychain cleanup or swallowing a refused claim, and an
+# optional directory prefix takes `evil/scripts/ci/signing-runner-claim.sh` as readily as the real thing.  So
+# this takes the shape CLAIM_GATE already has, which test_ci_signing_owned_mac.py compares word for word: the
+# step's whole `run:` must be one of these exact commands.  Nothing else is accepted, so every control-flow,
+# chaining, redirection, quoting and path trick fails by construction instead of by a sharper pattern.  A new
+# call site adds its exact line here, a reviewed act.  Each form is the real path and nothing else: bare (a
+# path with a slash is run directly, never looked up on PATH), `./`, or bash on the path or on one of the two
+# sparse-checkout copies (`.nightly-signing-control/` and `.publish-tooling/`) two nightly jobs run it from.
+CLAIM_COMMANDS = frozenset({
+    CLAIM_SCRIPT,
+    f"./{CLAIM_SCRIPT}",
+    f"bash {CLAIM_SCRIPT}",
+    f"bash .nightly-signing-control/{CLAIM_SCRIPT}",
+    f"bash .publish-tooling/{CLAIM_SCRIPT}",
+})
+
+
+def runs_the_claim_script(step: dict, job: dict | None = None) -> bool:
+    """Whether this step's whole `run:` is one of CLAIM_COMMANDS, run by bash from the workspace root.
+
+    CLAIM_COMMANDS are paths relative to the checkout, so a `working-directory` (the step's, or JOB's
+    `defaults.run`) would run another tree's copy of the script: router-review F1 at 9aacf011fd8.
+
+    Detection only: a step found here may still carry an `if:`, because test_ci_signing_owned_mac.py allows one
+    (cmux-next-dev-daily's sign skips its whole body with no source artifact) and relies on the unconditional
+    first-step gate instead.  owned_route_failures() is what refuses a conditional or failure-swallowing claim
+    on an owned route."""
+    if str(step.get("shell", "bash")) != "bash":
+        return False
+    if "working-directory" in step or "working-directory" in (((job or {}).get("defaults") or {}).get("run") or {}):
+        return False
+    return str(step.get("run", "")).strip() in CLAIM_COMMANDS
+
+
+# These declared pools contain only ephemeral Blacksmith members.  Secret-bearing
+# jobs may use them as their pool-backed fallback; the hosted pools are excluded.
+EPHEMERAL_POOL_KEYS = frozenset({
+    "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "linux_arm64",
+    "macos_15", "macos_26", "macos_26_large", "macos_latest", "windows",
+})
+# Rule 7b: (workflow, job) -> (env variable, value that means "sign with the release key").
+GATED_SECRET_JOBS = {("stable-next.yml", "sign"): ("SIGN", "developer-id")}
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
 LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
 # `vars.CI_CLOUD_OVERFLOW_SAVED && '<blacksmith label>' ||`: the overflow failover,
 # a boolean record choosing between two literal Blacksmith Linux labels.
 OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED\s*&&\s*'blacksmith-\d+vcpu-ubuntu-2404'\s*\|\|\s*")
+# `vars.NAME == '<label>' && '<label>' ||`: a variable that only chooses between literal labels.
+# Its value is compared, never used as the label, so the job still runs on the literal it names.
+LITERAL_SELECTOR = re.compile(
+    r"vars\.([A-Za-z0-9_]+)\s*==\s*'([^']*)'\s*&&\s*'([^']*)'\s*\|\|\s*", re.IGNORECASE)
+
+
+# `vars.MODE != '' &&`: a variable tested only for being set, which switches a mode on while some *other*
+# expression gives the label (nightly.yml's one-mini mode, Lawrence, 2026-11-04, 723c3bcbd96:
+# `vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER` runs the signing jobs on the one nightly mini's
+# signing runner). Its own value can never become the runs-on label, so it is a condition, not a route.
+# Two narrowings keep the drop from hiding a route, both of them necessary:
+#   * only a variable named in MODE_VARIABLES is dropped, so an unknown `vars.BAD != '' && ...` still fails as
+#     an unchecked route, exactly as it did before this was added;
+#   * only a clause that selects another `vars.` reference, or the signer's own label MODE_SIGNER_LABEL, is
+#     dropped, so what the mode selects still faces every check below. A clause selecting any other literal
+#     (`vars.CI_NIGHTLY_MINI != '' && 'macos-26'`) is left in place, and the mode variable then fails the guard,
+#     because nothing here validates literal labels: the fork route puts a hosted `macos-26` literal in every
+#     nightly runs-on, so they cannot simply be checked.
+# Only that one occurrence is dropped: a mode variable also read as a label elsewhere still faces every check.
+MODE_VARIABLES = frozenset({"CI_NIGHTLY_MINI"})
+# The one literal a mode clause may select: the label runner_label_policy holds CI_NIGHTLY_SIGN_RUNNER and
+# CI_NIGHTLY_SIGNING_POOL to, which glaeda gives only to the trusted signing runners and whose hook admits only
+# nightly.yml's exclusive class (rule 7a). Since aa9f145374c the signing jobs name it directly:
+# `vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing'`.
+MODE_SIGNER_LABEL = "glaeda-trusted-next-signing"
+PRESENCE_CONDITION = re.compile(
+    r"vars\.(" + "|".join(sorted(MODE_VARIABLES)) + r")\s*!=\s*''\s*&&\s*(?=vars\.|'"
+    + re.escape(MODE_SIGNER_LABEL) + r"'\s*(?:\|\||\}\}))", re.IGNORECASE)
+
+
+def strip_literal_selectors(runs_on: str) -> str:
+    """Drop `vars.X == 'L' && 'L' ||` choices whose label L is ephemeral, and `vars.X != '' &&` presence tests
+    (PRESENCE_CONDITION), which give no label; anything else stays for the checks."""
+    stripped = LITERAL_SELECTOR.sub(
+        lambda m: "" if m.group(2) == m.group(3) and EPHEMERAL_LABEL.match(m.group(3)) else m.group(0), runs_on)
+    return PRESENCE_CONDITION.sub("", stripped)
+
+
+# What may follow an owned route variable that gives the label: the next alternative or the expression's end.
+# Anything else (`!= ''`, `== 'x'`, `&&`) makes it a condition, and what it selects is then the label: router-review
+# F1 at 1e9095d099b: `vars.CI_NIGHTLY_SIGN_RUNNER != '' && 'macos-26'` passed while the label was a hosted Mac.
+GIVES_LABEL = re.compile(r"\s*(?:\|\||\}\})")
+
+
+def owned_label(runs_on: str, match: re.Match) -> bool:
+    """Rule 7a's waiver: this RUNNER_VARIABLE match is an OWNED_ROUTE_VARIABLES name that gives the runs-on label
+    itself, never one only tested in a condition."""
+    return ((match.group(1) or match.group(2)).upper() in OWNED_ROUTE_VARIABLES
+            and bool(GIVES_LABEL.match(runs_on, match.end())))
+
+
+def claim_gated(name: str, job: dict) -> bool:
+    """Rule 7a: glaeda's exclusive class admits the job and its first step is the verbatim claim gate."""
+    import test_ci_signing_owned_mac as owned_mac  # late: that module imports this one
+
+    steps = job.get("steps") or []
+    first = steps[0] if steps and isinstance(steps[0], dict) else {}
+    return (tuple(name.split(" ", 1)) in owned_mac.GLAEDA_EXCLUSIVE_JOBS
+            and first.get("id") == owned_mac.CLAIM_GATE_ID
+            and str(first.get("run", "")).strip() == owned_mac.claim_gate_for(name.split(" ", 1)[0]).strip())
+
+
+def owned_route_failures(name: str, job: dict) -> list[str]:
+    """Rule 7a: what keeps a claim-gated job's owned route from being proven, beyond the first-step gate.
+
+    The gate itself fails the job on an owned Mac without glaeda's exclusive claim, so these are the rules that
+    keep a credential out of reach until the claim is re-checked by the script: one step's whole `run:` is a
+    verbatim CLAIM_COMMANDS line (so no comment, echo, conditional, chained, backgrounded or redirected form
+    stands in for it), it is unconditional and its failure fails the job, it comes before the first step that
+    names a secret, no secret-bearing step overrides the failure with `always()`, `failure()` or `cancelled()`
+    (which would run it anyway after a refused claim), and the job's `env:` names none (every step, the gate
+    included, holds it).
+    tests/test_ci_signing_owned_mac.py holds the same order for the jobs it covers (every keychain and Sparkle-key
+    job); this holds it here for the rest of the exclusive class, which makes no keychain."""
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+    failures = []
+    claim = next((index for index, step in enumerate(steps) if runs_the_claim_script(step, job)), None)
+    first_secret = next((index for index, step in enumerate(steps)
+                         if SIGNING_SECRET_REFERENCE.search(json.dumps(step))), None)
+    if claim is None:
+        failures.append(f"{name}: takes an owned route without a step whose whole run: is one of "
+                        f"{', '.join(sorted(CLAIM_COMMANDS))}, run from the workspace root (no working-directory)")
+    else:
+        # `<=`: the claim step's own env is set before its script runs (router-review F2 at 9aacf011fd8).
+        if first_secret is not None and first_secret <= claim:
+            failures.append(f"{name}: step {first_secret} names a signing secret before or in the claim step "
+                            f"({claim})")
+        # The claim must be neither skippable nor survivable: an `if:` could leave the stale-keychain cleanup
+        # and the claim re-check unrun, and continue-on-error would let a refused claim reach the key steps.
+        if str(steps[claim].get("if", "")).strip():
+            failures.append(f"{name}: the claim step ({claim}) is conditional (if: {steps[claim]['if']}); "
+                            "on an owned route it runs unconditionally")
+        if str(steps[claim].get("continue-on-error", "false")).strip().lower() != "false":
+            failures.append(f"{name}: the claim step ({claim}) has continue-on-error, so a refused claim "
+                            "would not fail the job")
+        # Coming after the claim is not enough: a secret-bearing step whose condition survives a failure runs
+        # anyway on an owned Mac whose claim the gate refused, so the credential is in reach regardless.
+        for index, step in enumerate(steps):
+            if (SIGNING_SECRET_REFERENCE.search(json.dumps(step))
+                    and runs_after_failure(step.get("if"))):
+                label = step.get("name") or step.get("id") or "<step>"
+                failures.append(f"{name}: step {index} {label!r} names a signing secret and runs after a "
+                                f"failed claim (if: {step.get('if')})")
+    if SIGNING_SECRET_REFERENCE.search(json.dumps(job.get("env") or {})):
+        failures.append(f"{name}: job-level env names a signing secret, which every step (the gate's too) holds")
+    return failures
+
+
+def secret_gate_failures(name: str, job: dict) -> list[str] | None:
+    """Rule 7b: None when the job is not in GATED_SECRET_JOBS, else what keeps its proof from holding."""
+    gate = GATED_SECRET_JOBS.get(tuple(name.split(" ", 1)))
+    if not gate:
+        return None
+    variable, value = gate
+    problems = []
+    mode = re.fullmatch(r"\$\{\{\s*(.+?)\s*&&\s*'" + re.escape(value) + r"'\s*\|\|\s*'[^']*'\s*\}\}",
+                        str((job.get("env") or {}).get(variable, "")).strip())
+    if not mode:
+        return [f"{name}: env {variable} is not `${{{{ <condition> && '{value}' || '<other>' }}}}`"]
+    condition = mode.group(1)
+    runs_on = str(job.get("runs-on", ""))
+    picked = re.search(re.escape(condition) + r"\s*&&\s*'([^']*)'", runs_on)
+    picked_pool = re.search(re.escape(condition) + r"\s*&&\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on)
+    picked_ok = (picked and EPHEMERAL_LABEL.match(picked.group(1))) or (picked_pool and picked_pool.group(1) in EPHEMERAL_POOL_KEYS)
+    picked_at = picked.start() if picked else (picked_pool.start() if picked_pool else 0)
+    if not picked_ok or ANY_VARS.search(runs_on[:picked_at]):
+        problems.append(f"{name}: runs-on does not take a literal ephemeral label on `{condition}` before any variable")
+    gated_if = f"env.{variable} == '{value}'"
+    gated_value = re.compile(re.escape(gated_if) + r"\s*&&\s*secrets\.[A-Z0-9_]+\s*\|\|\s*'[^']*'\s*\}\}")
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict) or not SIGNING_SECRET_REFERENCE.search(json.dumps(step)):
+            continue
+        if gated_if in str(step.get("if", "")):
+            continue
+        rest = json.dumps({k: v for k, v in step.items() if k != "env"})
+        env_ok = all(not SIGNING_SECRET_REFERENCE.search(str(v)) or gated_value.search(str(v))
+                     for v in (step.get("env") or {}).values())
+        if SIGNING_SECRET_REFERENCE.search(rest) or not env_ok:
+            label = step.get("name") or step.get("id") or "<step>"
+            problems.append(f"{name}: step {label!r} reads a signing secret outside `{gated_if}`")
+    if SIGNING_SECRET_REFERENCE.search(json.dumps(job.get("env") or {})):
+        problems.append(f"{name}: job-level env reads a signing secret")
+    return problems
 
 
 def commands(run: str) -> list[str]:
@@ -259,7 +503,17 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                         "set CMUX_DEFER_LAUNCH_SMOKES: \"true\" and smoke in a job without secrets"
                     )
     if SIGNING_SECRET_REFERENCE.search(json.dumps(job)):
-        runs_on = str(job.get("runs-on", ""))
+        runs_on = strip_literal_selectors(str(job.get("runs-on", "")))
+        pool_keys = set(re.findall(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on))
+        trusted_ephemeral_pool = bool(pool_keys & EPHEMERAL_POOL_KEYS)
+        gated = secret_gate_failures(name, job)
+        if gated is not None:
+            failures.extend(gated)
+            # Proven above: every signing secret sits behind the condition that picks an ephemeral label.
+            runs_on = ""
+        owned_route = claim_gated(name, job)
+        if owned_route and any(owned_label(runs_on, m) for m in RUNNER_VARIABLE.finditer(runs_on)):
+            failures.extend(owned_route_failures(name, job))
         if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
             failures.append(
                 f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
@@ -268,6 +522,10 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
         for match in RUNNER_VARIABLE.finditer(runs_on):
             dotted, bracketed, fallback = match.groups()
             variable = (dotted or bracketed).upper()
+            if trusted_ephemeral_pool and variable == "RUNNER_POOLS":
+                continue
+            if owned_route and owned_label(runs_on, match):
+                continue
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(
                     f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
@@ -275,6 +533,11 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 )
             # The variable and its literal close the expression (`... || vars.X || 'blacksmith-...' }}`),
             # so nothing after them (an `&&`, another selector) can replace the label they give.
+            elif (trusted_ephemeral_pool and re.search(
+                    r"(?:\|\||&&)\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)",
+                    runs_on[match.end():]) and
+                  re.search(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}$", runs_on)):
+                continue
             elif not (fallback and EPHEMERAL_LABEL.match(fallback) and RUNS_ON_END.match(runs_on, match.end())):
                 failures.append(
                     f"{name}: holds a signing secret and reads vars.{variable} other than as the expression's "
@@ -441,8 +704,22 @@ def check_live_runner_variables(failures: list[str]) -> None:
     )
 
 
+def check_literal_selectors(failures: list[str]) -> None:
+    """A selector is dropped only when it picks the literal it compares against, and that literal is ephemeral."""
+    cases = {
+        "${{ vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}":
+            "${{ 'blacksmith-32vcpu-ubuntu-2404' }}",
+        "${{ vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+        "${{ vars.X == 'glaeda-std-xcode-26.6' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+    }
+    for runs_on, expected in cases.items():
+        if strip_literal_selectors(runs_on) != (runs_on if expected is None else expected):
+            failures.append(f"strip_literal_selectors mishandles {runs_on}")
+
+
 def main() -> int:
     failures: list[str] = []
+    check_literal_selectors(failures)
     check_live_runner_variables(failures)
     signing_jobs = 0
     for path in sorted(WORKFLOWS.glob("*.y*ml")):

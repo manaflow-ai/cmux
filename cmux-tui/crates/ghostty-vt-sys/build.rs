@@ -25,6 +25,7 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
+    println!("cargo:rerun-if-env-changed=CMUX_ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
     emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("include"));
     // Keep the generated binding fingerprint tied to the public terminal API.
@@ -40,7 +41,7 @@ fn main() {
     // Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo
     // profile: the VT parser is on the PTY hot path and a debug zig build
     // is an order of magnitude slower.
-    let zig = env::var("ZIG").unwrap_or_else(|_| "zig".to_string());
+    let zig = build_support::zig_program(env::var("ZIG").ok(), env::var("CMUX_ZIG").ok());
     let prefix = out_dir.join("ghostty-vt");
     let target = env::var("TARGET").unwrap();
     let host = env::var("HOST").unwrap();

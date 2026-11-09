@@ -1,7 +1,8 @@
 //! The runner's tick: due times become run rows, rows become processes.
 
 use crate::catch_up::{CatchUp, plan_fires};
-use crate::run::{Run, RunState, manual_run_id, run_id};
+use crate::gate::{Gate, Verdict, clip_event, verdict};
+use crate::run::{Run, RunState, event_run_id, manual_run_id, run_id};
 use crate::store::{Store, StoreError};
 use crate::trigger::Trigger;
 
@@ -26,10 +27,23 @@ pub trait Executor {
 /// How a run's process ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExecOutcome {
-    Exited { code: i32 },
-    Signaled { signal: i32 },
+    Exited {
+        code: i32,
+    },
+    Signaled {
+        signal: i32,
+    },
     TimedOut,
     Error(String),
+    /// The body never ran: the condition said no (`condition_false`).
+    Skipped {
+        reason: String,
+    },
+    /// The body never ran: the condition failed (`condition_exit_N`,
+    /// `condition_timeout`).
+    Refused {
+        reason: String,
+    },
 }
 
 /// What one tick did.
@@ -41,17 +55,6 @@ pub struct TickReport {
     pub skipped: usize,
     /// Automations whose schedule could not be read, with the reason.
     pub errors: Vec<(String, String)>,
-}
-
-fn hostname() -> Option<String> {
-    let mut buf = [0u8; 256];
-    // SAFETY: gethostname writes at most `buf.len()` bytes into `buf`.
-    if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } != 0 {
-        return None;
-    }
-    // The name ends at the first NUL, or fills the buffer.
-    let name = buf.split(|&b| b == 0).next()?;
-    String::from_utf8(name.to_vec()).ok()
 }
 
 fn start_run(
@@ -67,7 +70,7 @@ fn start_run(
         late_seconds: run.late_seconds,
     };
     run.started_at = Some(now);
-    run.runner = hostname();
+    run.runner = crate::sys::hostname();
     match exec.start(&job) {
         Ok(pid) => {
             run.state = RunState::Running;
@@ -82,19 +85,23 @@ fn start_run(
     store.put_run(&run)
 }
 
-fn busy(runs: &[Run], exec: &dyn Executor) -> bool {
-    runs.iter().any(|r| match r.state {
-        RunState::Queued => true,
-        RunState::Running => r.pid.is_some_and(|p| exec.is_alive(p)),
-        _ => false,
-    })
+/// The guardrails' verdict on a fire of `a` at `now`.
+pub fn gate_verdict(
+    store: &Store,
+    a: &crate::automation::Automation,
+    now: i64,
+    exec: &dyn Executor,
+) -> Result<Verdict, StoreError> {
+    let history = store.runs(&a.id)?;
+    Ok(verdict(&a.gate, &history, now, &|pid| exec.is_alive(pid)))
 }
 
 /// One pass over every enabled automation at `now`.
 pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickReport, StoreError> {
     let mut report = TickReport::default();
     for a in store.list()? {
-        if !a.enabled {
+        // A fenced automation is moving to another store: it never fires here.
+        if !a.enabled || a.fenced() {
             continue;
         }
         let since = store.state(&a.id)?.handled_through;
@@ -116,6 +123,8 @@ pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickRepo
             started_at: None,
             finished_at: (state == RunState::Skipped).then_some(now),
             late_seconds: (now - t).max(0),
+            event: None,
+            dropped: 0,
             pid: None,
             runner: None,
             exit_code: None,
@@ -132,17 +141,27 @@ pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickRepo
             if history.iter().any(|r| r.id == run_id(&a.id, t)) {
                 continue;
             }
-            if busy(&history, exec) && !queue_all {
-                if store.insert_run(&row(
-                    t,
-                    RunState::Skipped,
-                    Some("previous_run_running".into()),
-                ))? {
-                    report.skipped += 1;
+            let stop = match verdict(&a.gate, &history, now, &|pid| exec.is_alive(pid)) {
+                Verdict::Go => None,
+                // `catch_up all` queues behind a live run instead of skipping.
+                Verdict::Busy { .. } if queue_all => None,
+                other => other.reason(),
+            };
+            match stop {
+                Some(why) => {
+                    if store.insert_run(&row(t, RunState::Skipped, Some(why.into())))? {
+                        report.skipped += 1;
+                    }
                 }
-            } else {
-                store.insert_run(&row(t, RunState::Queued, None))?;
+                None => {
+                    store.insert_run(&row(t, RunState::Queued, None))?;
+                }
             }
+        }
+        if let Some(newest) =
+            plan.run.iter().copied().chain(plan.skipped.iter().map(|(t, _)| *t)).max()
+        {
+            store.note_slot(&a.id, newest)?;
         }
         store.set_handled_through(&a.id, plan.handled_through)?;
         // Start the oldest queued run when none is running.
@@ -150,10 +169,26 @@ pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickRepo
         let running = history
             .iter()
             .any(|r| r.state == RunState::Running && r.pid.is_some_and(|p| exec.is_alive(p)));
-        if !running && let Some(next) = history.into_iter().find(|r| r.state == RunState::Queued) {
-            let id = next.id.clone();
-            start_run(store, next, now, exec)?;
-            report.started.push(id);
+        if !running {
+            let (queued, settled): (Vec<Run>, Vec<Run>) =
+                history.into_iter().partition(|r| r.state == RunState::Queued);
+            for mut next in queued {
+                match verdict(&a.gate, &settled, now, &|_| false).reason() {
+                    None => {
+                        let id = next.id.clone();
+                        start_run(store, next, now, exec)?;
+                        report.started.push(id);
+                        break;
+                    }
+                    Some(why) => {
+                        next.state = RunState::Skipped;
+                        next.reason = Some(why.into());
+                        next.finished_at = Some(now);
+                        store.put_run(&next)?;
+                        report.skipped += 1;
+                    }
+                }
+            }
         }
         if matches!(a.trigger, Trigger::At { .. })
             && a.trigger.next_after(now).ok().flatten().is_none()
@@ -173,11 +208,105 @@ pub fn start_manual(
     now: i64,
     exec: &mut dyn Executor,
 ) -> Result<String, StoreError> {
+    start_manual_with_event(store, automation, key, None, now, exec)
+}
+
+/// [`start_manual`] with an event (`run --event`), as a watch line would
+/// bring. A person's run skips the cooldown and cap, never the one live run:
+/// beside a live run it is recorded `skipped: previous_run_running`. Its
+/// condition still runs.
+pub fn start_manual_with_event(
+    store: &Store,
+    automation: &str,
+    key: &str,
+    event: Option<&str>,
+    now: i64,
+    exec: &mut dyn Executor,
+) -> Result<String, StoreError> {
     let a = store.get(automation)?;
+    if let Some(h) = &a.handoff {
+        return Err(crate::store::moving(&a, h));
+    }
     let run = Run {
         id: manual_run_id(&a.id, key),
         automation: a.id.clone(),
         trigger: "manual".into(),
+        event: event.map(clip_event),
+        dropped: 0,
+        scheduled_at: None,
+        state: RunState::Queued,
+        reason: None,
+        created_at: now,
+        started_at: None,
+        finished_at: None,
+        late_seconds: 0,
+        pid: None,
+        runner: None,
+        exit_code: None,
+        version: a.version,
+    };
+    let id = run.id.clone();
+    let history = store.runs(&a.id)?;
+    if history.iter().any(|r| r.id == id) {
+        return Ok(id);
+    }
+    let one_live = Gate::default();
+    if let Verdict::Busy { .. } = verdict(&one_live, &history, now, &|pid| exec.is_alive(pid)) {
+        let skipped = Run {
+            state: RunState::Skipped,
+            reason: Some("previous_run_running".into()),
+            finished_at: Some(now),
+            ..run
+        };
+        store.insert_run(&skipped)?;
+        return Ok(id);
+    }
+    if store.insert_run(&run)? {
+        start_run(store, run, now, exec)?;
+    }
+    Ok(id)
+}
+
+/// What a watch event did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EventOutcome {
+    /// A run started (its id).
+    Started(String),
+    /// The guardrails dropped it (`paused`, `moving`, or a [`Verdict`]
+    /// reason); the automation's dropped count went up.
+    Dropped(&'static str),
+}
+
+/// A watch event of `automation` at `now`: a run with the event when the
+/// guardrails let it, else a counted drop. `key` makes the run id unique.
+/// Drops are counted, never rowed, so a log that spews cannot grow the
+/// history; the next run carries the count.
+pub fn start_event(
+    store: &Store,
+    automation: &str,
+    event: &str,
+    key: &str,
+    now: i64,
+    exec: &mut dyn Executor,
+) -> Result<EventOutcome, StoreError> {
+    let a = store.get(automation)?;
+    let stop = if !a.enabled {
+        Some("paused")
+    } else if a.fenced() {
+        Some("moving")
+    } else {
+        gate_verdict(store, &a, now, exec)?.reason()
+    };
+    if let Some(why) = stop {
+        store.add_dropped(&a.id)?;
+        return Ok(EventOutcome::Dropped(why));
+    }
+    let run = Run {
+        id: event_run_id(&a.id, key),
+        automation: a.id.clone(),
+        trigger: "watch".into(),
+        event: Some(clip_event(event)),
+        dropped: store.take_dropped(&a.id)?,
         scheduled_at: None,
         state: RunState::Queued,
         reason: None,
@@ -194,7 +323,7 @@ pub fn start_manual(
     if store.insert_run(&run)? {
         start_run(store, run, now, exec)?;
     }
-    Ok(id)
+    Ok(EventOutcome::Started(id))
 }
 
 /// Record how a run ended.
@@ -218,6 +347,8 @@ pub fn finish(
         }
         ExecOutcome::TimedOut => (RunState::Failed, Some("timeout".into()), None),
         ExecOutcome::Error(why) => (RunState::Failed, Some(format!("error: {why}")), None),
+        ExecOutcome::Skipped { reason } => (RunState::Skipped, Some(reason), None),
+        ExecOutcome::Refused { reason } => (RunState::Failed, Some(reason), None),
     };
     r.state = state;
     r.reason = reason;

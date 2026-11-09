@@ -13,6 +13,8 @@ public protocol BrowserImportGateHost: AnyObject {
     func browserImportTurnedOff()
     /// Keep in Sync stops (or goes back to) re-reading other browsers' history.
     func setBrowserHistorySyncPaused(_ paused: Bool) async
+    /// Keeping imported cookies in sync stops (or goes back to) bringing changed sites over.
+    func setBrowserCookieSyncPaused(_ paused: Bool) async
 }
 
 /// `browser.import.enabled` (Settings > Browser > Import; on by default). Off, cmux's Import from
@@ -27,7 +29,7 @@ public struct BrowserImportGate {
     /// The actions that bring data over from another browser or app.
     public static let actionIDs: Set<ActionID> = [
         "importFromBrowser", "bookmark.importFromBrowser", "browser.importFromFiles", "browser.importCookies",
-        "import.list", "import.card", "import.suggest", "import.open",
+        "import.list", "import.card", "import.suggest", "import.open", "browser.showCookieImportBanner",
     ]
 
     private weak var host: (any BrowserImportGateHost)?
@@ -53,19 +55,28 @@ public struct BrowserImportGate {
         ImportSuggestionsCenter.shared.importEnabled = snapshot.browserImportEnabled
     }
 
-    /// Follows the setting: the suggestion cards, the browser tab's offer, the import window and Keep in Sync.
+    /// Follows the setting: the suggestion cards, the browser tab's offer, the import window and Keep in Sync;
+    /// with `browser.import.cookieSync`, whether imported cookies are kept in sync (both on).
     public func follow(_ settings: SettingsController) -> Task<Void, Never> {
         let gate = self
         // task-owner: OnboardingService.importSettingFollow (cancelled when settings are replaced)
         return Task {
             var last: Bool?
-            for await on in ObservationStream({ settings.snapshot.browserImportEnabled }) {
+            var cookiesSynced = false
+            for await (on, cookieSync) in ObservationStream({ (settings.snapshot.browserImportEnabled, settings.snapshot.browserImportCookieSync) }) {
                 guard let host = gate.host else { return }
-                ImportSuggestionsCenter.shared.importEnabled = on
-                if !on { host.browserImportTurnedOff() }
-                // Keep in Sync is made on first use: leave it unmade while import was never off.
-                if !on || last == false { await host.setBrowserHistorySyncPaused(!on) }
-                last = on
+                if on != last {
+                    ImportSuggestionsCenter.shared.importEnabled = on
+                    if !on { host.browserImportTurnedOff() }
+                    // Keep in Sync is made on first use: leave it unmade while import was never off.
+                    if !on || last == false { await host.setBrowserHistorySyncPaused(!on) }
+                    last = on
+                }
+                // Started at launch, so it catches up on what changed while cmux was closed; off, it stops at once.
+                if (on && cookieSync) != cookiesSynced {
+                    cookiesSynced = on && cookieSync
+                    await host.setBrowserCookieSyncPaused(!cookiesSynced)
+                }
             }
         }
     }

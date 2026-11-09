@@ -4,6 +4,7 @@
 import type { Page } from "playwright";
 import type { Instrumentation, LatencyAction, LatencyPageSpec } from "./measure";
 import { measureRailFlow, RAIL_DRAG_CASE } from "./rail-flow";
+import { measureRailSweep } from "./rail-sweep";
 
 /** After a run (not measured): resolves once the page holds still, 10 painted frames with no DOM
  *  change and nothing animating (a new session streaming its patch, a slide, a menu closing), so
@@ -655,9 +656,9 @@ async function flowChat(page: Page): Promise<void> {
   await page.waitForSelector(composerEditor);
   await page.waitForFunction(() => !document.querySelector(".nt-screen"));
   await page.keyboard.press("Escape");
-  if (await page.$("aside.acpmux-chat-inspector")) {
+  if (await page.$("aside.acpmux-session-info")) {
     await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-    await page.waitForSelector("aside.acpmux-chat-inspector", { state: "detached" });
+    await page.waitForSelector("aside.acpmux-session-info", { state: "detached" });
   }
   await clearComposer(page);
   await quiet(page);
@@ -709,6 +710,76 @@ function composerMenu(id: string, name: string, key: string, popup: string): Lat
   };
 }
 
+// Typing behind a long draft (Leo, 2026-11-04: interaction cost stays constant as sessions grow).
+// A key into a 10,000- or 200,000-character prompt, with the 3,000-turn chat behind it or not, should
+// paint as soon as a key into an empty one does. The draft is pasted in pieces under the chip limit
+// (pastedText.ts PASTE_CHIP_CHARS, PASTE_CHIP_WORDS), so it stays inline text, as typed or restored
+// prose does; it is laid once per page and each run types one `x` at its end and deletes it after.
+const DRAFT_LINE = "composer latency fixture words keep the prompt long ".repeat(2).trim();
+async function seedDraft(page: Page, chars: number): Promise<void> {
+  const seeded = await page.evaluate(
+    (chars) => (window as unknown as { __latencyDraft?: number }).__latencyDraft === chars,
+    chars,
+  );
+  if (seeded) return;
+  await flowChat(page);
+  if (!chars) return;
+  await page.evaluate(
+    async ({ chars, line, editor }) => {
+      const field = document.querySelector<HTMLElement>(editor)!;
+      // One paste is 8,000 characters and about 1,000 short words on separate lines: a chip at 750
+      // words, so the lines carry few long words instead.
+      const words = line.split(" ").length;
+      const perPaste = Math.max(1, Math.floor(Math.min(8_000 / (line.length + 1), 600 / words)));
+      let laid = 0;
+      while (laid < chars) {
+        const lines: string[] = [];
+        for (let at = 0; at < perPaste && laid < chars; at += 1) {
+          lines.push(line);
+          laid += line.length + 1;
+        }
+        const transfer = new DataTransfer();
+        transfer.setData("text/plain", `\n${lines.join("\n")}.`);
+        const event = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: transfer });
+        field.dispatchEvent(event);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    },
+    { chars, line: DRAFT_LINE, editor: composerEditor },
+  );
+  await quiet(page);
+  const length = await page.evaluate(
+    (editor) => document.querySelector(editor)?.textContent?.length ?? 0,
+    composerEditor,
+  );
+  if (length < chars * 0.9) throw new Error(`draft fixture laid ${length} of ${chars} characters inline`);
+  if (await page.$(".acpmux-attachments .acpmux-attachment")) throw new Error("draft fixture became a paste chip");
+  await page.evaluate((chars) => ((window as unknown as { __latencyDraft?: number }).__latencyDraft = chars), chars);
+}
+
+function draftTyping(chars: number, turns: number): LatencyAction {
+  return {
+    id: `chat.type.character.draft-${chars}${turns ? `.turns-${turns}` : ""}`,
+    name: `type a character (${chars.toLocaleString("en-US")}-character draft${turns ? `, ${turns}-turn chat` : ""})`,
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await seedDraft(page, chars);
+      await page.focus(composerEditor);
+      await page.keyboard.press("ControlOrMeta+End");
+      await quiet(page);
+      return `document.querySelector(${js(composerEditor)})?.lastElementChild?.textContent?.endsWith("x") === true`;
+    },
+    async input(page) {
+      await page.keyboard.press("x");
+    },
+    async settle(page) {
+      await page.keyboard.press("Backspace");
+      await quiet(page);
+    },
+  };
+}
+
 const flowActions: LatencyAction[] = [
   pickerOpen(
     "chat.picker.model.pointer",
@@ -733,7 +804,7 @@ const flowActions: LatencyAction[] = [
     "chat.menu.add.open",
     "add menu open",
     ".acpmux-composer-plus .acpmux-picker-button",
-    ".acpmux-composer-plus [role='listbox']",
+    ".acpmux-menu.acpmux-composer-plus[role='menu']",
   ),
   composerMenu("chat.menu.slash.open", "slash menu open", "/", ".acpmux-slash-menu:not(.acpmux-mention-menu)"),
   composerMenu("chat.menu.mention.open", "mention menu open", "@", ".acpmux-mention-menu"),
@@ -788,15 +859,15 @@ const flowActions: LatencyAction[] = [
       await flowChat(page);
       if (!open) {
         await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-        await page.waitForSelector("aside.acpmux-chat-inspector[data-presence='shown']");
+        await page.waitForSelector("aside.acpmux-session-info[data-presence='shown']");
         await quiet(page);
       }
       return open
-        ? shown("aside.acpmux-chat-inspector[data-presence='shown']")
-        : `document.querySelector("aside.acpmux-chat-inspector") === null`;
+        ? shown("aside.acpmux-session-info[data-presence='shown']")
+        : `document.querySelector("aside.acpmux-session-info") === null`;
     },
     async input(page) {
-      await page.click("button.acpmux-chat-inspector-toggle");
+      await page.click("button.acpmux-session-info-toggle");
     },
     settle: quiet,
   })),
@@ -807,7 +878,7 @@ const flowActions: LatencyAction[] = [
     requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
-      return shown("aside.acpmux-chat-inspector[data-presence='shown']");
+      return shown("aside.acpmux-session-info[data-presence='shown']");
     },
     async input(page) {
       // The same bridge used by the native palette, with native command lookup/IPC excluded.
@@ -883,6 +954,14 @@ export const LONG_CHAT_PAGES: LatencyPageSpec[] = [false, true].map((resident) =
   actions: [longScroll(resident)],
 }));
 
+// The same key with a long draft, and with a 3,000-turn chat (its rows resident) behind it.
+export const DRAFT_TYPING_PAGES: LatencyPageSpec[] = [0, 3000].map((turns) => ({
+  name: `chat draft typing${turns ? ` ${turns} resident` : ""}`,
+  path: `/test/latency/flows.html?mock${turns ? `&turns=${turns}&resident` : ""}`,
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: (turns ? [0, 200_000] : [10_000, 200_000]).map((chars) => draftTyping(chars, turns)),
+}));
+
 export const RAIL_DRAG_PAGE: LatencyPageSpec = {
   name: "chat rail",
   path: "/test/latency/flows.html?mock&turns=3000&resident",
@@ -926,7 +1005,7 @@ const railState = (page: Page) =>
         ticks: document.querySelectorAll("[data-tick]").length,
         list: list ? [list.scrollTop, list.scrollHeight, list.clientHeight] : null,
         card: !!document.querySelector(".acpmux-minimap__card"),
-        inspector: !!document.querySelector("aside.acpmux-chat-inspector"),
+        sessionInfo: !!document.querySelector("aside.acpmux-session-info"),
       });
     })
     .catch((error: unknown) => `unreadable: ${String(error)}`);
@@ -944,9 +1023,9 @@ async function railRestTick(page: Page, above = 0): Promise<RailTick> {
   try {
     // The flows fixture opens Session Info. On older builds the rail stepped aside for it; closed,
     // every build draws the rail beside the text, so every arm measures the same rail.
-    if (await page.$("aside.acpmux-chat-inspector")) {
+    if (await page.$("aside.acpmux-session-info")) {
       await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-      await page.waitForSelector("aside.acpmux-chat-inspector", { state: "detached", timeout: 5_000 });
+      await page.waitForSelector("aside.acpmux-session-info", { state: "detached", timeout: 5_000 });
     }
     await page.waitForSelector(RAIL_LIST, { state: "attached", timeout: 10_000 });
     await page.evaluate((selector) => {
@@ -1069,6 +1148,26 @@ export const RAIL_POINTER_PAGE: LatencyPageSpec = {
   ],
 };
 
+// The rail hover sweep (rail-sweep.ts): the pointer crosses up to 120 ticks of the rail's view and
+// back, one move per painted frame, on the 3,000-prompt chat and a typical 100-prompt one. Each move
+// is timed to the frame that shows its tick lit and the card previewing its prompt.
+const RAIL_SWEEP_TICKS = 120;
+export const RAIL_SWEEP_PAGES: LatencyPageSpec[] = [3000, 100].map((turns) => ({
+  name: `chat rail sweep ${turns}`,
+  path: `/test/latency/flows.html?mock&turns=${turns}&resident`,
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: [
+    {
+      id: `chat.rail.hover.sweep.${turns}`,
+      name: `rail hover sweep (${turns} prompts)`,
+      metricType: "target_painted",
+      requiredInstrumentation: requiredProfiled,
+      measureRun: measureRailSweep(RAIL_SWEEP_TICKS),
+      settle: railAway,
+    },
+  ],
+}));
+
 // Settings (test/latency/settings.html, host delay 40 ms): a sidebar section switch, from the input
 // to the first painted frame that shows the new section complete (its title and the host-read
 // buttons at its end). Two sections with host reads alternate. "click" is a pointer that lands and
@@ -1126,6 +1225,134 @@ export const SETTINGS_PAGE: LatencyPageSpec = {
   actions: settingsActions,
 };
 
+/** Opening another chat with Session Info open, once per arm of the chat-switch-motion experiment
+ *  (flows.harness.ts `switch=`): the frames from the switch until every part of its motion settled. */
+function chatSwitch(arm: string): LatencyPageSpec {
+  return {
+    name: `chat switch ${arm}`,
+    path: `/test/latency/flows.html?mock&switch=${arm}`,
+    ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+    actions: [
+      {
+        id: `chat.switch.${arm}`,
+        name: `open another chat (${arm} motion)`,
+        metricType: "frame_time",
+        requiredInstrumentation: requiredProfiled,
+        async prepare(page) {
+          await page.evaluate("window.__latencyFlows.restoreChat()");
+          await page.waitForSelector(".acpmux-scroll .acpmux-row");
+          if (!(await page.$("aside.acpmux-session-info")))
+            await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+          await page.waitForSelector("aside.acpmux-session-info[data-presence='shown']");
+          await quiet(page);
+          const from = await page.evaluate(() => document.querySelector(".acpmux-thread-title")?.textContent ?? "");
+          // Landed and settled: another title, rows drawn, and no part of the switch still moving.
+          return `(() => {
+            const title = document.querySelector(".acpmux-thread-title")?.textContent ?? "";
+            if (title === ${js(from)} || !document.querySelector(".acpmux-scroll .acpmux-row")) return false;
+            return !document.getAnimations().some((animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime));
+          })()`;
+        },
+        async input(page) {
+          await page.evaluate("window.__latency.markInput('chat-switch'); window.__latencyFlows.openOtherChat()");
+        },
+        async settle(page) {
+          await page.evaluate("window.__latencyFlows.restoreChat()");
+          await quiet(page);
+        },
+      },
+    ],
+  };
+}
+
+const GLASS_WHEEL_STEPS = 12;
+const GLASS_WHEEL_DELTA = 120;
+
+/** The 3,000-turn chat scrolled under its glass (composer, user bubbles, Session Info) over a
+ *  picture, once per glass mode (flows.harness.ts `glass=`): the frame cost of each glass. */
+function glassScroll(mode: string): LatencyPageSpec {
+  return {
+    name: `chat glass ${mode}`,
+    path: `/test/latency/flows.html?mock&turns=3000&resident&glass=${mode}`,
+    ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+    actions: [
+      {
+        id: `chat.glass.${mode}.scroll`,
+        name: `scroll under ${mode} glass`,
+        metricType: "scroll_frame_time",
+        requiredInstrumentation: requiredProfiled,
+        async prepare(page) {
+          await page.waitForSelector(".acpmux-scroll");
+          await page.evaluate(() => {
+            const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            scroll.scrollTop = scroll.scrollHeight;
+          });
+          await quiet(page);
+          const from = await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop);
+          const travel = GLASS_WHEEL_STEPS * GLASS_WHEEL_DELTA;
+          if (from < travel + 100) throw new Error("long transcript does not have a scrollable history");
+          await page.locator(".acpmux-scroll").hover();
+          return `document.querySelector(".acpmux-scroll").scrollTop <= ${from - travel + GLASS_WHEEL_DELTA / 2}`;
+        },
+        async input(page) {
+          for (let step = 0; step < GLASS_WHEEL_STEPS; step += 1) {
+            await page.mouse.wheel(0, -GLASS_WHEEL_DELTA);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+        },
+        settle: quiet,
+      },
+    ],
+  };
+}
+
+export const CHAT_SWITCH_PAGES: LatencyPageSpec[] = ["off", "fade", "stagger", "depth"].map(chatSwitch);
+export const GLASS_PAGES: LatencyPageSpec[] = ["plain", "lens-flat", "lens", "prism", "svg"].map(glassScroll);
+
+const LIVE_WHEEL_STEPS = 12;
+const LIVE_WHEEL_DELTA = 120;
+
+/** The 3,000-turn chat scrolled over a live background (flows.harness.ts `live=`; `none` draws
+ *  none): what the background's loop costs the transcript's frames. */
+function liveScroll(style: string): LatencyPageSpec {
+  return {
+    name: `chat live background ${style}`,
+    path: `/test/latency/flows.html?mock&turns=3000&resident${style === "none" ? "" : `&live=${style}`}`,
+    ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+    actions: [
+      {
+        id: `chat.live-background.${style}.scroll`,
+        name: `scroll over live background (${style})`,
+        metricType: "scroll_frame_time",
+        requiredInstrumentation: requiredProfiled,
+        async prepare(page) {
+          await page.waitForSelector(".acpmux-scroll");
+          await page.evaluate(() => {
+            const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            scroll.scrollTop = scroll.scrollHeight;
+          });
+          await quiet(page);
+          const from = await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop);
+          const travel = LIVE_WHEEL_STEPS * LIVE_WHEEL_DELTA;
+          if (from < travel + 100) throw new Error("long transcript does not have a scrollable history");
+          await page.locator(".acpmux-scroll").hover();
+          return `document.querySelector(".acpmux-scroll").scrollTop <= ${from - travel + LIVE_WHEEL_DELTA / 2}`;
+        },
+        async input(page) {
+          for (let step = 0; step < LIVE_WHEEL_STEPS; step += 1) {
+            await page.mouse.wheel(0, -LIVE_WHEEL_DELTA);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+        },
+        settle: quiet,
+      },
+    ],
+  };
+}
+
+export const LIVE_BACKGROUND_PAGES: LatencyPageSpec[] = ["none", "aurora", "grain"].map(liveScroll);
+
 export const PAGES: LatencyPageSpec[] = [
   DIFF_PAGE,
   MARKDOWN_PAGE,
@@ -1137,4 +1364,12 @@ export const PAGES: LatencyPageSpec[] = [
   SETTINGS_PAGE,
   RAIL_DRAG_PAGE,
   RAIL_POINTER_PAGE,
+  ...RAIL_SWEEP_PAGES,
+  // Experiment comparisons (design/glass.md, design/motion-and-polish.md in leo-workspace): run on
+  // demand with CMUX_LATENCY_EXPERIMENTS=1, never in the CI scoreboard.
+  // Typing behind a long draft: run on demand with CMUX_LATENCY_DRAFTS=1, never in the CI scoreboard.
+  ...(process.env.CMUX_LATENCY_DRAFTS === "1" ? DRAFT_TYPING_PAGES : []),
+  ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? CHAT_SWITCH_PAGES : []),
+  ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
+  ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? LIVE_BACKGROUND_PAGES : []),
 ];

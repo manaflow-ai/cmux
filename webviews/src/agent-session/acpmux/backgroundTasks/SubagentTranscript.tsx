@@ -17,28 +17,19 @@
 // The sentinels' IntersectionObservers (one above the mounted rows, one below a window opened around
 // a task) are the only observers here: each disconnects when it fires, once every row on its side is
 // mounted, and on unmount.
-import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Button } from "../../../ui/Button";
+import { memo, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Markdown } from "../conversation/Markdown";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { SUBAGENTS } from "../subagents/subagentFold";
-
-/// Rows mounted at first, and how many more each scroll to the top adds.
-export const WINDOW = 60;
+import { WINDOW, MOUNTED, windowRange, NestedAgents } from "./subagentTranscriptModel";
 /// A tool call's output shown when opened, at most (the full output stays in the transcript).
 const OUTPUT_CHARS = 4000;
 /// How close to the bottom counts as at the bottom, in px.
 const BOTTOM_SLACK = 24;
-
-/// The rows mounted at first, bounded at both ends: `end` undefined follows the newest row (the
-/// newest window, which grows as rows arrive); a window around an anchor row ends WINDOW rows on, so
-/// opening a task early in a long transcript mounts no more than one window either way.
-export type Range = { start: number; end?: number };
-
-/// The most rows mounted at once while the reader pages up or down: one window gained, one kept.
-export const MOUNTED = 2 * WINDOW;
 
 type Hold = { id?: string; edge: number; fromBottom: number; settled: boolean };
 
@@ -61,15 +52,6 @@ function restore(view: HTMLElement, hold: Hold) {
     return;
   }
   view.scrollTop += row.getBoundingClientRect().bottom - view.getBoundingClientRect().top - hold.edge;
-}
-
-export function windowRange(rows: readonly AcpmuxRow[], anchor?: string): Range {
-  const newest = Math.max(0, rows.length - WINDOW);
-  const at = anchor === undefined ? -1 : rows.findIndex((row) => row.id === anchor);
-  if (at < 0) return { start: newest };
-  const start = Math.min(newest, Math.max(0, at - Math.floor(WINDOW / 4)));
-  const end = start + WINDOW;
-  return end >= rows.length ? { start } : { start, end };
 }
 
 export function SubagentTranscript({
@@ -286,29 +268,27 @@ const TranscriptRow = memo(
   (a, b) => a.row.id === b.row.id && a.version === b.version && a.row.streaming === b.row.streaming,
 );
 
-/// What a nested agent's line in a transcript does (BackgroundTasksPanel.tsx provides it): it opens
-/// that agent's own transcript, and while it runs it carries the agent's stop button, so an agent at
-/// any depth opens and stops from the panel.
-export const NestedAgents = createContext<{
-  open?(agentId: string): void;
-  stop?(agentId: string, name: string): ReactNode;
-}>({});
-
 function NestedAgent({ id, name, running, opens }: { id: string; name: string; running: boolean; opens: boolean }) {
   const { open: openAgent, stop } = useContext(NestedAgents);
   const open = opens ? openAgent : undefined;
   return (
     <div className="acpmux-bg__task" data-state={running ? "running" : "done"}>
-      <button type="button" className="acpmux-bg__task-open" disabled={!open} onClick={() => open?.(id)}>
+      <Button
+        variant="ghost"
+        type="button"
+        className="acpmux-bg__task-open"
+        disabled={!open}
+        onClick={() => open?.(id)}
+      >
         {running ? (
-          <Spinner size={10} loading />
+          <Spinner size={12} loading />
         ) : (
           <span className="acpmux-bg__disclosure" aria-hidden="true">
-            <Icon name="disclosure.collapsed" size={10} row />
+            <Icon name="disclosure.collapsed" size={12} row />
           </span>
         )}
         <span className="acpmux-bg__label">{name}</span>
-      </button>
+      </Button>
       {running && stop?.(id, name)}
     </div>
   );
@@ -320,15 +300,17 @@ function Thought({ text }: { text: string }) {
   if (!text.trim()) return null;
   return (
     <div className="acpmux-bg__thought">
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         className="acpmux-bg__line acpmux-bg__line--fold"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
         <span>{t("backgroundTasks.thought")}</span>
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} row />
-      </button>
+        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
+      </Button>
       {open && <p className="acpmux-bg__thought-text">{text}</p>}
     </div>
   );
@@ -343,16 +325,18 @@ function ToolLine({ item }: { item: AcpmuxActivity }) {
   const failed = call.status === "failed";
   return (
     <div className="acpmux-bg__tool" data-failed={failed || undefined}>
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         className="acpmux-bg__line acpmux-bg__line--fold"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        {call.status === "in_progress" || call.status === "pending" ? <Spinner size={10} loading /> : null}
+        {call.status === "in_progress" || call.status === "pending" ? <Spinner size={12} loading /> : null}
         <span className="acpmux-bg__label">{title}</span>
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} row />
-      </button>
+        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
+      </Button>
       {open && (ran || output) && (
         <pre className="acpmux-bg__output">
           {ran && <code className="acpmux-bg__ran">{ran}</code>}

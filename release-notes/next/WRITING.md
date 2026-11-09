@@ -15,7 +15,7 @@ ours: the What's New Ledger page, the update card and its popover.
 ```
 title: Every chat on your Mac, in one place
 category: new                       (new | improved | fixed | security)
-docs: https://cmux.com/docs/agents        (optional)
+docs: https://cmux.com/docs/next/agents   (optional)
 
 cmux finds your Claude Code, Codex and other agent chats on this Mac and lists them in All
 chats at the bottom of the sidebar. Open one to resume it.
@@ -27,13 +27,51 @@ chats at the bottom of the sidebar. Open one to resume it.
   the setting, the shortcut). Benefit first, then the detail.
 - **Fixed entries** say what works now, not what was broken inside: "Restart to Update works after
   a background download", not "Fix race in installer".
-- **No internal words.** No bead ids, PR numbers, commit hashes, branch, lane or crate names. Use the
-  names people see in the app.
+- **Docs link.** Link a page that exists: a cmux-next page is `https://cmux.com/docs/next/<slug>`, with
+  a slug from `web/data/next-docs/pages.ts` (agents, cli, settings, ...), or a page under
+  `web/app/[locale]/(landing)/docs/`. The validator checks only that it is an https URL.
+- **No internal words.** No bead ids, PR numbers, commit hashes, branch, lane or crate names, and no
+  work-stream codes ("P0 RESIZE KEYS K4", "REOPEN-F7", "part 1 of 2"; `validate.py` rejects them). Use
+  the names people see in the app.
+- **The body adds to the title.** Never the title again, never the rest of its sentence ("And name the
+  check that refuses it"), never "Fixes and improvements".
 - **Never a commit subject.** "fix(sidebar): …" and "sidebar: …" are rejected.
 - **One change, one file.** Join small related changes into one entry, as Conductor does
   ("Sidebar sections collapse, and clearer feature errors").
 - **A picture for each New entry people can see.** Stable and RC releases require one for every New
   entry, in light and dark. Nightlies show a picture when it is there.
+
+## A gallery picture, and a before and after
+
+Leo, 2026-10-20: "tho i think vids and before/afters for our techincal stuff is p important... we
+want things to be PRETTY!!!!" When the change shows in a webview gallery entry, name the state that
+shows it, and for an Improved entry the state it replaced:
+
+```
+title: The Updated card stays glass while open
+category: improved
+gallery: pages.changelog.update-surfaces/card-preview-over-rows
+before: pages.changelog.update-surfaces/card-preview-over-rows-solid
+```
+
+Each value is `ENTRY/VARIANT`, as the gallery names them. Keep the before state as a variant of
+your gallery when you change a look (`-solid`, `-old`), so it can still render after the change.
+When the file merges, `whats-new-gallery.yml` renders both in the dark default theme and puts them
+on pr-media after the privacy check (`scripts/cmux-next/media/whats-new-gallery.py`). The next
+nightly shows the picture beside the entry, with the before after it. A clip wins over both.
+If that nightly cut before the pictures were up, the next one shows the entry again with them.
+
+With no `gallery:` line, a New or Improved entry still gets a picture when its commit changed a
+`*.gallery.ts` file: the first variant the commit added, else the one whose lines it changed most.
+An Improved entry with no `before:` line gets the same state rendered at the commit before it, so a
+look you changed in place still has its before. Name the states when the pick would be wrong (for
+example when the commit touched several entries).
+The pre-push hook (`scripts/cmux-next/prepush-gate.py`, "What's New pictures") refuses a New or
+Improved entry the push adds with none of these: a `gallery:` or `clip:` line, a clip spec
+(`release-notes/next/clips/<id>.json`, below), or a `*.gallery.ts(x)` change on the branch. A native
+change has no gallery state, so it needs the clip spec.
+NOW's `whats_new` line (cmuxterm-hq goal whats-new-pretty) counts the New and Improved entries of the
+last ten nightlies that went out without a picture, or without a before and after.
 
 ## A clip for each change people can see
 

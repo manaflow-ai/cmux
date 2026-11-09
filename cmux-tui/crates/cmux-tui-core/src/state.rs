@@ -28,6 +28,9 @@ mod browser_devices_data_tests;
 pub(crate) mod browser_devices_ops;
 #[cfg(test)]
 mod churn_tree_events_tests;
+pub(crate) mod classic_import_router;
+#[cfg(test)]
+mod classic_import_tests;
 #[cfg(test)]
 mod closed_browser_history_tests;
 pub(crate) mod closed_history;
@@ -48,8 +51,15 @@ mod closed_screen_layout;
 mod closed_tab_groups;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
+pub(crate) mod conductor_import_router;
+pub(crate) mod conductor_import_store;
+#[cfg(test)]
+mod conductor_import_tests;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
+pub(crate) mod created_by;
+#[cfg(test)]
+mod created_by_tests;
 pub(crate) mod ephemeral_moves;
 #[cfg(test)]
 mod ephemeral_moves_tests;
@@ -60,10 +70,16 @@ mod group_delete_tests;
 mod group_icon_tests;
 #[cfg(test)]
 mod group_pin_tests;
+#[cfg(test)]
+mod group_reuse_tests;
+#[cfg(test)]
+mod group_update_latency_tests;
 pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]
 mod home_tests;
+#[cfg(test)]
+mod incognito_terminal_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]
@@ -96,6 +112,8 @@ pub(crate) mod projects_ops;
 pub(crate) mod projects_store;
 pub(crate) mod remote_terminal_tabs;
 pub(crate) mod remote_terminal_tabs_store;
+#[cfg(test)]
+mod reopen_place_tests;
 pub(crate) mod room_delete;
 #[cfg(test)]
 mod room_delete_amendment_tests;
@@ -111,6 +129,9 @@ pub(crate) mod sidebar_doc_ops;
 pub(crate) mod sidebar_doc_order;
 pub(crate) mod sidebar_doc_store;
 pub(crate) mod sidebar_doc_sync;
+pub(crate) mod sidebar_doc_workspace_move;
+#[cfg(test)]
+mod sidebar_doc_workspace_move_tests;
 #[cfg(test)]
 mod tab_attention_tests;
 #[cfg(test)]

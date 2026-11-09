@@ -2,6 +2,7 @@
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import os
 import SwiftUI
 
@@ -312,7 +313,7 @@ public struct WelcomeView: View {
             }
         }
         .alignmentGuide(.top) { $0[.bottom] + 12 }
-        .animation(theme.motion.snap.animation, value: auth.errorMessage)
+        .animation(theme.motion.snap.animation.unlessReduceMotion, value: auth.errorMessage)
     }
 
     private var legal: some View {
@@ -456,7 +457,7 @@ private struct ProviderButton<Icon: View>: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 ZStack {
                     icon().opacity(isBusy ? 0 : 1)
-                    if isBusy { ProgressView().tint(isPrimary ? theme.colors.onAccent.color : theme.colors.label.color) }
+                    if isBusy { CmuxSpinner(tint: isPrimary ? theme.colors.neutralOnAccent.color : theme.colors.label.color) }
                 }
                 .frame(width: min(iconSlot, 30), height: min(iconSlot, 30))
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }
@@ -478,19 +479,21 @@ private struct ProviderStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let shape = RoundedRectangle(cornerRadius: theme.metrics.ctaWelcomeHeight / 2, style: .continuous)
         let outlined = !isPrimary && colorScheme == .light
+        // Sign-in buttons stay black or white whatever accent the user picked
+        // (Sign in with Apple's own colours).
         configuration.label
             .font(theme.type.cta)
-            .foregroundStyle(isPrimary ? theme.colors.onAccent : theme.colors.label)
+            .foregroundStyle(isPrimary ? theme.colors.neutralOnAccent : theme.colors.label)
             // Accessibility sizes: a little less side padding, room for the larger icon.
             .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 20)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, minHeight: theme.metrics.ctaWelcomeHeight)
-            .background(isPrimary ? AnyShapeStyle(theme.colors.accent) : (outlined ? AnyShapeStyle(theme.colors.bg) : AnyShapeStyle(theme.colors.surface)), in: shape)
+            .background(isPrimary ? AnyShapeStyle(theme.colors.neutralAccent) : (outlined ? AnyShapeStyle(theme.colors.bg) : AnyShapeStyle(theme.colors.surface)), in: shape)
             .overlay { if outlined { shape.strokeBorder(theme.colors.separator, lineWidth: 1) } }
             .contentShape(shape)
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation, value: configuration.isPressed)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: configuration.isPressed)
     }
 }
 #endif

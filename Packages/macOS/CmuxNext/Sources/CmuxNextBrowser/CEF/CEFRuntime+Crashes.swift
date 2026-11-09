@@ -1,13 +1,15 @@
+import CmuxNextCompat
 import Darwin
 import Foundation
 
 /// Renderer and helper process failures: the tab-level record from CEF and
 /// the process-level record from `CEFChildProcessMonitor`.
 extension CEFRuntime {
-    func recordRendererExit(_ exit: BrowserProcessExit, tab: CEFTab) {
-        // The tab shows the crash notice; it reloads only when the person presses Reload.
+    func recordRendererExit(_ exit: BrowserProcessExit, tab: CEFTab, pressure: MemoryPressureLevel, reloads: Bool) {
+        // The tab shows the crash notice; it reloads by itself only once after a memory end
+        // (`BrowserExitRecovery`), else when the person presses Reload.
         let shown = tab.host.visibleTab === tab
-        logger.error("renderer ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tab=\(tab.id.rawValue, privacy: .public) shown=\(shown); no automatic reload")
+        logger.error("renderer ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tab=\(tab.id.rawValue, privacy: .public) shown=\(shown) pressure=\(pressure.rawValue, privacy: .public); \(reloads ? "reloads once by itself (memory)" : "no automatic reload", privacy: .public)")
         crashLog.append(BrowserCrashRecord(processType: "renderer", reason: exit.reason, code: exit.code,
                                            tab: tab.id, source: .engine))
     }
@@ -29,6 +31,8 @@ extension CEFRuntime {
         logger.error("helper ended type=\(type, privacy: .public) sub=\(exit.subType ?? "-", privacy: .public) pid=\(exit.pid) reason=\(reason.rawValue, privacy: .public) status=\(exit.status)")
         crashLog.append(BrowserCrashRecord(processType: type, subType: exit.subType, pid: exit.pid, reason: reason,
                                            code: Int(exit.status), source: .process))
+        failureReports.noteHelperExit(processKind: type, subType: exit.subType, reason: reason, status: exit.status,
+                                      runtime: self)
     }
 
     /// Nil for a normal end (exit 0, or SIGTERM, which Chromium sends to

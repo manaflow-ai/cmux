@@ -2,7 +2,7 @@ import Foundation
 
 /// A link over a span of a message's text (UTF-16 range): Markdown link text
 /// the bubble draws underlined and opens on tap.
-public struct ConversationTextLink: Sendable, Hashable {
+public struct ConversationTextLink: Sendable, Hashable, Codable {
     public var location: Int
     public var length: Int
     public var url: URL

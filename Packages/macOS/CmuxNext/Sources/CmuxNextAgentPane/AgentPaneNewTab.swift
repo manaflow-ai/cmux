@@ -4,6 +4,18 @@ public import Foundation
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
 public nonisolated enum AgentPaneTabKind: String, CaseIterable, Codable, Sendable {
     case terminal, browser, agent
+
+    /// The right-column placement kind for the two tools that can reuse an existing pane.
+    public var rightColumnKind: RightColumnPlacement.Kind? {
+        switch self {
+        case .terminal: .terminal
+        case .browser: .browser
+        case .agent: nil
+        }
+    }
+
+    /// Terminal and browser picks leave an agent chat's dock; an agent pick stays in it.
+    public var opensBesideChat: Bool { self != .agent }
 }
 
 /// A tab opened as the new tab page (#16620): one field and a kind switch,
@@ -31,6 +43,10 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The tab the page opened from, as the location bar shows it (its URL or
     /// folder): in the field and selected, so typing replaces it.
     public var location: String?
+    /// What a new chat of this window left when its tab opened another chat (cmux#32276): the
+    /// field's draft, to edit and send or delete; nothing sends it. A page takes it once
+    /// (``AgentUnsentDrafts/takeLeftover(inWindow:)``); nil for none.
+    public var draft: String?
     /// What the location bar suggests besides the typed text.
     public var omnibar: AgentPaneOmnibar
     /// Recent local project folders from agent history, classic sessions and git roots.
@@ -80,11 +96,16 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// headline, so the composer stays where it sat with the greeting off; nil keeps the room.
     public var headlineOff: Bool?
     /// true: the page lists only its own connection's chats, not the store every page shares
-    /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
+    /// (another machine's page, ``warmedOnThisMac(_:)``); nil shares it.
     public var privateChatLists: Bool?
     /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
     /// chats only, never All chats; nil lists All chats where the template does.
     public var allChats: Bool?
+    /// Where the page's new chat starts, as this Mac already knows it (``AgentPaneStartFolders/local(of:)``):
+    /// the page draws its project, or Do not work in a project, on its first frame, and the handshake's
+    /// answer from the store replaces it only when it differs. Set on the context the page gets
+    /// (``AgentPaneModel/newTabForPage``), never on the tab's own, so it draws no other screen.
+    public var start: AgentPaneNewTabStart?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
@@ -108,7 +129,6 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.inputToken = nil
         // nil follows the Debug Settings toggle, read as each page context is made.
         self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
-        self.privateChatLists = AgentPaneTunables.newTabPrivateChatLists.value ? true : nil
     }
 }
 
@@ -204,8 +224,26 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         }
     }
 
+    /// A browser profile the page can open an address in (Open in Profile…, Lawrence 2026-11-05).
+    public struct Profile: Codable, Sendable, Equatable {
+        /// `default` or the profile's UUID, as `tab.open`'s `profile` names it.
+        public var id: String
+        /// The name the person gave it.
+        public var name: String
+        /// Its color name (`blue`), nil without one.
+        public var color: String?
+
+        public init(id: String, name: String, color: String? = nil) {
+            self.id = id
+            self.name = name
+            self.color = color
+        }
+    }
+
     /// Bound for newly introduced recent project suggestions.
     public static let maximumEntries = 40
+    /// Bound for the browser profiles the page lists.
+    public static let maximumProfiles = 200
     /// Bound for the action rows: every Commands palette action fits (hundreds), a runaway list does not.
     public static let maximumActions = 2000
 
@@ -218,9 +256,22 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public var actions: [Action]
     public var commands: [String]
     public var history: [Page]
+    /// The Commands palette's pick history (its `FrecencyStore`) for the rows the bar lists, by the palette's usage
+    /// key (`tab:ID`, `workspace:ID`, `action:ID`): each key's decayed use count. The bar orders matches of one kind
+    /// by it, so what the person picks often and lately comes first here as in the palette (cmuxterm-hq lenses
+    /// slack-firefox-frecency.md). Only keys with uses; at most ``maximumUses``.
+    public var uses: [String: Double]
+
+    /// Bound for ``uses``: the most-used keys only.
+    public static let maximumUses = 200
+
+    /// This Mac's browser profiles, Default first; nil where the host opens no address in a named
+    /// profile (the page then offers no profile rows).
+    public var profiles: [Profile]?
 
     public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], projects: [String] = [],
-                actions: [Action] = [], commands: [String] = [], history: [Page] = []) {
+                actions: [Action] = [], commands: [String] = [], history: [Page] = [], uses: [String: Double] = [:],
+                profiles: [Profile]? = nil) {
         let cap = Self.maximumEntries
         self.tabs = tabs
         self.workspaces = workspaces
@@ -229,9 +280,13 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         self.actions = Array(actions.prefix(Self.maximumActions))
         self.commands = commands
         self.history = history
+        self.uses = uses.count > Self.maximumUses
+            ? Dictionary(uniqueKeysWithValues: uses.sorted { $0.value > $1.value }.prefix(Self.maximumUses).map { ($0.key, $0.value) })
+            : uses
+        self.profiles = profiles.map { Array($0.prefix(Self.maximumProfiles)) }
     }
 
-    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history }
+    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history, uses, profiles }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -242,7 +297,9 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             projects: try values.decodeIfPresent([String].self, forKey: .projects) ?? [],
             actions: try values.decodeIfPresent([Action].self, forKey: .actions) ?? [],
             commands: try values.decodeIfPresent([String].self, forKey: .commands) ?? [],
-            history: try values.decodeIfPresent([Page].self, forKey: .history) ?? []
+            history: try values.decodeIfPresent([Page].self, forKey: .history) ?? [],
+            uses: try values.decodeIfPresent([String: Double].self, forKey: .uses) ?? [:],
+            profiles: try values.decodeIfPresent([Profile].self, forKey: .profiles)
         )
     }
 
@@ -265,6 +322,19 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             },
             "commands": commands,
             "history": history.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
-        ]
+            "uses": uses,
+        ].merging(profiles.map { ["profiles": $0.map { optional([("id", $0.id), ("name", $0.name), ("color", $0.color)]) }] } ?? [:]) { left, _ in left }
+    }
+}
+
+/// A new chat's start folder before the store's answer (``AgentPaneNewTab/start``): the folder, or
+/// none with Choose Folder… offered (the workspace's agent-home folder).
+public nonisolated struct AgentPaneNewTabStart: Codable, Sendable, Equatable {
+    public var cwd: String?
+    public var chooseFolder: Bool?
+
+    public init(cwd: String? = nil, chooseFolder: Bool? = nil) {
+        self.cwd = cwd
+        self.chooseFolder = chooseFolder
     }
 }

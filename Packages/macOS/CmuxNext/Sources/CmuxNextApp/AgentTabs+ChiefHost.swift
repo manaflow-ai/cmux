@@ -3,44 +3,19 @@ import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
 
-/// Which acpmux an agent tab's pane attaches to.
-enum AgentPaneHostKind: Equatable {
-    /// This Mac's own acpmux (the app's chats).
-    case local
-    /// This app's Chief home's acpmux, where the Chief host runs its subagents.
-    case chief
-    /// Another machine's, through that tab's session daemon.
-    case remote
-
-    /// The acpmux that runs `record`'s session: the record says who owns it, so a restored tab
-    /// attaches to the same daemon.
-    ///
-    /// - Parameter listedHere: whether this Mac's own tree lists the tab. Every `chief:<home id>`
-    ///   such a tab names is a Chief home of this Mac (#25262): the record keeps the home it was
-    ///   made under (NIGHTLY's per-build home before it moved to the shared one, a tagged build's
-    ///   home), so it may differ from `chiefHost` and is still never another machine's.
-    init(_ record: AgentSessionRef, localHost: String?, chiefHost: String?, listedHere: Bool) {
-        if let localHost, record.host == localHost {
-            self = .local
-        } else if let chiefHost, record.host == chiefHost {
-            self = .chief
-        } else if listedHere, record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix) {
-            self = .chief
-        } else {
-            self = .remote
-        }
-    }
-}
-
 extension AgentTabStore {
+    /// ``AgentPaneHostKind`` of `record` with this store's hosts, this Mac's former ones included for a tab its own tree lists.
+    func hostKind(_ record: AgentSessionRef, listedHere: Bool) -> AgentPaneHostKind {
+        AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost, listedHere: listedHere, formerLocalHosts: resolveFormerLocalHosts())
+    }
+
     /// The machine tab `key`'s chat runs on when that is another machine: the tab's pane attaches
     /// there (``view(for:)``'s `.remote`), through the daemon whose tree lists it. Nil for a chat on
     /// this Mac or its Chief home, whichever tree lists the tab: the composer strip's machine link
     /// and its Reconnect name this machine.
-    func remoteMachineID(of key: String) -> String? {
-        let key = resolve(key)
-        guard let (record, _) = lookup(key), let daemon = daemonForTab(key), !daemon.isLocal,
-              AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost, listedHere: false) == .remote else { return nil }
+    func remoteMachineID(of key: String, machine: String? = nil) -> String? {
+        let scoped = tabKey(key, machine: machine)
+        guard let (record, _) = record(for: scoped), let daemon = daemon(for: scoped), !daemon.isLocal, hostKind(record, listedHere: false) == .remote else { return nil }
         return daemon.machineID
     }
 
@@ -69,6 +44,7 @@ struct ChiefHomeAcpmux {
     /// - Parameters:
     ///   - local: this Mac's pane host; a Chief on the app's own acpmux
     ///     (``ChiefHome/usesAppAcpmux``) attaches its tabs there.
+    ///   - daemons: the app's local acpmux daemons, given to every pane host made here.
     ///   - ensureHost: starts the Chief brain host when none runs
     ///     (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
     ///   - startHost: asks for the Chief brain host when a tab finds nothing on the Chief home's
@@ -76,14 +52,11 @@ struct ChiefHomeAcpmux {
     ///     whether one runs or is starting. A restored Chief chat connects after a relaunch
     ///     without Home being shown (#25570).
     ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
-    ///     on the app's acpmux: the daemon its subagents ran on before the move. `peerApprover`: the app's approver key.
-    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void,
-         startHost: @escaping @Sendable () async -> Bool,
-         peerApprover: AgentPanePeerApprover? = nil, ownHost: (@Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding)? = nil) {
+    ///     on the app's acpmux: the daemon its subagents ran on before the move; nil: an ``AcpmuxHost``. `peerApprover`: the app's approver key.
+    init(home: ChiefHome, local: any AgentPaneHostProviding, daemons: AcpmuxLocalDaemons, ensureHost: @escaping @Sendable () async -> Void,
+         startHost: @escaping @Sendable () async -> Bool, peerApprover: AgentPanePeerApprover? = nil, ownHost: (@Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding)? = nil) {
         let host = Self.host(muxHome: home.muxHome)
         self.host = host
-        // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
-        let tag = "optchat-chief:" + host.dropFirst("chief:".count)
         let environment = Self.environment(home: home)
         // One daemon: the Chief's new sessions are this Mac's, so their tabs attach like any chat
         // and the app's own handoff heals that daemon. A subagent started before the move
@@ -91,10 +64,10 @@ struct ChiefHomeAcpmux {
         // starting that daemon again when it ended, never to the app's daemon, which lacks the
         // chat and would say "This chat isn't available" (Lawrence 2026-10-21).
         if home.usesAppAcpmux {
-            let own: any AgentPaneHostProviding = ownHost?(environment) ?? AcpmuxHost(environment: environment, peerApprover: peerApprover)
+            let own: any AgentPaneHostProviding = ownHost?(environment) ?? AcpmuxHost(daemons: daemons, environment: environment, peerApprover: peerApprover)
             let sessionsHome = home.acpmuxHome
             let router: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding = { local in
-                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome, parentTag: tag)
+                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome)
             }
             paneHost = router(local)
             localRouter = router
@@ -108,9 +81,9 @@ struct ChiefHomeAcpmux {
             let heal = ChiefAcpmuxHeal(home: home, environment: environment, ensureHost: ensureHost)
             healReplaced = { @Sendable () async -> Bool in await heal.heal() }
         }
-        let chief = AcpmuxHost(environment: environment, startsDaemons: false, healReplaced: healReplaced, startOwner: startHost, peerApprover: peerApprover)
+        let chief = AcpmuxHost(daemons: daemons, environment: environment, startsDaemons: false, healReplaced: healReplaced, startOwner: startHost, peerApprover: peerApprover)
         paneHost = chief
-        localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag) }
+        localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment) }
     }
 
     /// The acpmux of the Chief home `home` (its socket is `socketPath`), nil without one.

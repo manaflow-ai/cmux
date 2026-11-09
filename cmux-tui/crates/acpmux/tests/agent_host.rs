@@ -8,8 +8,14 @@
 mod carried_hold;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "agent_host/managed_suggestions.rs"]
+mod managed_suggestions;
 #[path = "agent_host/orphan_exit.rs"]
 mod orphan_exit;
+// Debug builds only, as the watch it tests (`daemon/owner_exit.rs`).
+#[cfg(debug_assertions)]
+#[path = "agent_host/test_owner.rs"]
+mod test_owner;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process =
     daemon_env::Process::stand_in().with_env(&[("LC_API_TOKEN", "synthetic-locale-shaped-secret")]);
@@ -53,8 +59,8 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         router_owner_fifo: None,
         cwd_pin: None,
-        cpu_class: Default::default(),
         orphan_exit: None,
+        prompt_suggestions_managed: None,
     }
 }
 

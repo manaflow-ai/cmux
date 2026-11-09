@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 @testable import CmuxNextPopups
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// window with all three traffic lights and the page title, the browser
 /// tab's omnibar as its location bar, the requested page size, and no close on Escape or with
 /// the opener.
-@MainActor @Suite(.serialized) struct BrowserPopupWindowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserPopupWindowTests {
     // MARK: Geometry (Blink `create_window.cc`, `WindowSizer`, `AdjustToFit`)
 
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 875)
@@ -155,6 +156,14 @@ import Testing
             view is NSTextField && !view.isDescendant(of: page) && !bars.contains { view.isDescendant(of: $0) }
         }
         #expect(otherFields.isEmpty, "no second address field beside the omnibar: \(otherFields)")
+    }
+
+    @Test func theLocationIconDragsThePageWithItsTitle() async throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        tab.simulate(.titleChanged("Sign in - Example"))
+        try await waitUntil { tab.state.title == "Sign in - Example" }
+        #expect(window.addressBar.pageTitle?() == "Sign in - Example", "a dragged popup link is named after its page, as a tab's is")
     }
 
     @Test func typingAnAddressInAPagePopupLoadsItInThePopup() async throws {

@@ -12,7 +12,9 @@
 //! sides would block). It holds only its own reader fd; dropping the
 //! `TestPty` drops the writer and kills and reaps the shell.
 
+use super::Shell;
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::Duration;
 
@@ -89,6 +91,62 @@ impl Drop for TestPty {
         let _ = self.spawned.child.kill();
         let _ = self.spawned.child.wait();
     }
+}
+
+/// The shell a shell-integration test runs. On macOS always one, on every
+/// host: the system's /bin/zsh, and bash 5.3 and fish 4.9.3 from
+/// `scripts/ci/pinned-shell.sh` (sha256-pinned; bash compiled and fish
+/// unpacked once per host into ~/Library/Caches/cmux/pinned-shells, which
+/// needs the network and a C compiler on the first run). A shell it cannot
+/// get fails the test, so a Mac never passes a test without its shell.
+#[cfg(target_os = "macos")]
+pub(super) fn shell_path(shell: Shell) -> Option<PathBuf> {
+    Some(match shell {
+        Shell::Zsh => PathBuf::from("/bin/zsh"),
+        Shell::Bash => pinned("bash-5.3"),
+        Shell::Fish => pinned("fish-4.9.3"),
+    })
+}
+
+/// The shell a shell-integration test runs, or `None` where it is not
+/// installed (Linux CI has bash 5.2 and no zsh or fish); the test then
+/// calls `skip`.
+#[cfg(not(target_os = "macos"))]
+pub(super) fn shell_path(shell: Shell) -> Option<PathBuf> {
+    let find = |candidates: &[&str]| candidates.iter().map(PathBuf::from).find(|p| p.is_file());
+    match shell {
+        Shell::Zsh => find(&["/bin/zsh", "/usr/bin/zsh"]),
+        Shell::Bash => find(&["/usr/local/bin/bash", "/usr/bin/bash", "/bin/bash"]),
+        Shell::Fish => find(&["/usr/local/bin/fish", "/usr/bin/fish"]),
+    }
+}
+
+/// A pinned shell build (`scripts/ci/pinned-shell.sh`, cached per host).
+#[cfg(target_os = "macos")]
+fn pinned(name: &str) -> PathBuf {
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../scripts/ci/pinned-shell.sh");
+    let output = cmux_process::Command::new("/bin/bash")
+        .arg(&script)
+        .arg(name)
+        .output()
+        .unwrap_or_else(|error| panic!("{}: {error}", script.display()));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    eprint!("{stderr}");
+    assert!(
+        output.status.success(),
+        "{name}: {} failed, so the shell under test cannot run: {stderr}",
+        script.display()
+    );
+    PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
+}
+
+/// Says that a test did not run because its shell is missing (never on
+/// macOS, where `shell_path` always has one). nextest keeps a passing
+/// shell-integration test's output (`.config/nextest.toml`), so the step log
+/// shows the line and a skip never reads as a pass.
+pub(super) fn skip(tag: &str, what: &str, why: &str) {
+    eprintln!("{tag} {what}: {why}");
 }
 
 /// The DA1 queries in `window` that end past its first `start` bytes (the

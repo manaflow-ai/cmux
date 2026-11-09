@@ -10,7 +10,9 @@ use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
-pub(crate) use topology_load::load_resource_topology;
+pub(crate) use topology_load::{
+    load_resource_topology, load_resource_topology_scoped, load_topology_frame,
+};
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -813,17 +815,45 @@ impl WorkspaceRegistry {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        self.pending_agent_hooks_for_terminal(terminal_id, None)
+    }
+
+    /// Hooks committed before a live projection, including records whose caller timed
+    /// out after commit admission. Reading the retry queue avoids scanning terminal history.
+    /// Quarantined rows (at the attempt cap) are skipped, so one permanently failing hook
+    /// cannot stall every later hook of its terminal.
+    pub(crate) fn pending_agent_hook_projections_before(
+        &self,
+        terminal_id: &TerminalPublicId,
+        sequence: u64,
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        self.pending_agent_hooks_for_terminal(terminal_id, Some(sequence))
+    }
+
+    fn pending_agent_hooks_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+        before: Option<u64>,
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        let before =
+            before.map(i64::try_from).transpose().context("pending hook sequence is too large")?;
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
              WHERE terminal_id = ?1 AND attempt < ?2
+               AND (?4 IS NULL OR event_sequence < ?4)
              ORDER BY event_sequence ASC, idempotency_key ASC
              LIMIT ?3",
         )?;
         let rows = statement
             .query_map(
-                params![terminal_id.as_str(), AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_RETRY_PAGE_SIZE],
+                params![
+                    terminal_id.as_str(),
+                    AGENT_HOOK_MAX_ATTEMPTS,
+                    AGENT_HOOK_RETRY_PAGE_SIZE,
+                    before
+                ],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
@@ -4218,9 +4248,12 @@ fn validate_touched_resource_invariants(
                     &mut browsers,
                 )?;
             }
-            ResourceChange::SetTabOrder { pane_id, tab_ids } => {
+            // An order change writes only the pane's tabs' positions: the set (set_resource_tab_order) and the
+            // contiguous positions (below) are its invariants, so it touches no tab's own rows, as
+            // `SetWorkspaceOrder` above. Validating every tab of the pane per create cost O(tabs in the pane):
+            // about 5 queries per tab, under the registry lock a person's next click waits on.
+            ResourceChange::SetTabOrder { pane_id, .. } => {
                 panes.insert(pane_id.to_string());
-                tabs.extend(tab_ids.iter().map(ToString::to_string));
             }
             ResourceChange::UpsertTerminal { public_id, .. }
             | ResourceChange::TombstoneTerminal { public_id, .. } => {
@@ -4549,7 +4582,15 @@ fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow
     Ok(())
 }
 
+/// Tabs [`validate_touched_tab`] checked in this test process (nextest runs each test alone): a commit's
+/// validation must be O(changed), never O(tabs in the pane).
+#[cfg(test)]
+pub(crate) static TABS_VALIDATED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 fn validate_touched_tab(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::Result<()> {
+    #[cfg(test)]
+    TABS_VALIDATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stored = transaction
         .query_row(
             "SELECT pane_id, content_kind, content_id, deleted_revision

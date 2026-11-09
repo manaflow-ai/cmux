@@ -17,6 +17,11 @@
   --agent-motion-out: var(--cmux-motion-quick, 80ms);
   /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
   --agent-motion-move: var(--cmux-motion-standard, 180ms);
+  /* A sent prompt's one motion: its room, its bubble and the thread's rise (the scale's send step;
+     shared/theme.ts scales it as the host scaled the move step). */
+  --agent-motion-send: var(--cmux-motion-send, 265ms);
+  --agent-motion-send-fade: var(--agent-motion-send);
+  --agent-ease-send: var(--cmux-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }
@@ -81,8 +86,8 @@
    - over art or a see-through window, Lens and Spectrum: the glass's own tint and frost, the lens's
      bend at the stack's outer rim, and the glass's specular rim inside the card's ring (the ring
      stays the edge, so focus still lifts it);
-   - the same under Plain glass: the look from before the lens, the surface at 60% under an 18px
-     blur and the light rim above;
+   - the same under Plain glass: the look from before the lens, the surface under the popover level's
+     blur (design-scale glass levels) and the light rim above;
    - Reduce Transparency: the solid composer surface (--glass-opaque, which glass.css holds). */
 :root:not([data-cmux-see-through]) .acpmux-composer {
   --glass-tint: var(--acpmux-composer-surface);
@@ -90,26 +95,27 @@
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-composer {
   --glass-tint: var(--acpmux-composer-surface);
-  --glass-backdrop: blur(18px) saturate(1.08);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 /* The card and its strip, the input box itself, are more glass than the stack around them (Leo
    2026-10-21, "a bit more glass on the input box"). Glass is never opaque, and the transcript
    scrolls under the card (Leo 2026-10-19), so on an opaque window too the card is glass: the
-   composer surface at 70% under a 24px shared surface blur, so a row passing under it frosts while
+   popover level, the composer surface at 70% under a 24px blur, so a row passing under it frosts while
    the prompt remains at 4.5:1 or more over the brightest and the darkest page
    (composer-glass.test.ts). The gallery keeps the previous 78% level and a clearer candidate beside
-   this choice. Over art or a see-through window under Plain glass it is clearer, at 50%.
+   this choice. Over art or a see-through window under Plain glass it is clearer, at the level's art
+   tint (50%), under the same blur.
    Lens and Spectrum keep the liquid glass's own tint and frost; Reduce Transparency the solid
    surface (glass.css). The queued prompts keep the stack's tokens above. */
 :root:not([data-cmux-see-through]) .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip),
 :root:not([data-cmux-see-through]) .nt-composer > .nt-box {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 70%, transparent);
-  --glass-backdrop: blur(24px) saturate(1.25);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
   :is(.acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip), .nt-composer > .nt-box) {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 50%, transparent);
-  --glass-backdrop: var(--surface-blur);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 .acpmux-composer,
 .nt-composer {
@@ -239,6 +245,60 @@
 :root[data-theme="dark"] .acpmux-shell {
   --acpmux-composer-shadow: 0 0 transparent;
 }
+/* The input box in the shared glass material (glass.css, "GLASS MATERIAL"; Leo 2026-11-05 on the
+   Dock beside it: "the glass is a pretty big deal"). Its rim and depth stand in for the composer's
+   own: the specular rim lit from above-left inside the card ring, the sheen under its top edge, and
+   the soft two-step shadow, dark themes too (over art a dark page is no longer a flat slab). Over art
+   or a see-through window under Plain glass its frost keeps the art's colors vivid. The tint stays
+   the card's own (above), so the prompt's contrast is unchanged. Lens and Spectrum over art keep the
+   lens's rim. Reduce Transparency (the system's or the host's) keeps the solid card exactly as it was:
+   no material rim, no frost and its old shadow (none in a dark theme). */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+    --acpmux-composer-shadow: var(--glass-material-depth);
+  }
+  :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
+    .acpmux-composer
+    > .acpmux-composer-box.ui-glass-material {
+    --acpmux-composer-rim: var(--glass-material-rim);
+  }
+  :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency])
+    .acpmux-composer
+    > .acpmux-composer-box.ui-glass-material {
+    --glass-backdrop: var(--glass-material-backdrop);
+  }
+}
+/* In a dark theme the material's light on the input box is half the shared material's (Leo
+   2026-11-07, "super duper prominent glass"): at full strength its 48% white top line and the
+   blurred band under it drew a bright frame round the card, the loudest edge in the pane.
+   --acpmux-composer-glint scales the top-lit line, its return along the bottom and the sheen. A
+   light theme keeps them: white light on a near-white card is the faint highlight it should be,
+   and halving it would uncover the dark hairline along the top instead. The glass's tint, frost
+   and depth are unchanged, and appearance.borders none (--glass-rim 0) still clears the light.
+   Other glass surfaces keep the shared material (glass.css). */
+.acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --acpmux-composer-glint: 0.5;
+  --glass-material-specular: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(95% * var(--glass-rim)), transparent),
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(48% * var(--glass-rim) * var(--acpmux-composer-glint)), transparent)
+  );
+  --glass-material-return: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(60% * var(--glass-rim)), transparent),
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(16% * var(--glass-rim) * var(--acpmux-composer-glint)), transparent)
+  );
+  --glass-material-sheen: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(34% * var(--glass-rim)), transparent),
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(7% * var(--glass-rim) * var(--acpmux-composer-glint)), transparent)
+  );
+}
+/* In the dock no transcript row is ever under the card (conversation.css masks rows out under the
+   bottom stack), so Chromium's underlay (glass.css, "CHROMIUM OVER THE WINDOW GLASS"), which is
+   there to hide crisp text under floating glass, hid only the wallpaper: at 70% under the card's own
+   tint the card covered about 85% of the art and read as a dark slab. The docked card draws its tint
+   alone, so the wallpaper shows through it. Everywhere else the underlay stays. */
+.acpmux-dock > .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --glass-underlay: 0%;
+}
 
 /* Composer chips: Plan, the mode, model and effort pickers, +, the mic and Steer. A press keeps the
    hover's pill, with no brighter or tinted tone, and no shrink or dip (Leo 2026-10-19: no mousedown
@@ -306,6 +366,69 @@
    prompt's placeholder say "Press Esc again to stop". */
 .acpmux-composer-bar .acpmux-send.acpmux-cancel[data-escape-armed] {
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+}
+
+/* Send and Stop's morph (composer/SendSlotGlyph.tsx, experiment send-stop-morph): while the slot
+   turns, the old glyph and the new one stand in the button's one grid cell, so its 28 px box never
+   moves. One run on the structural step; under Reduce Motion or motion off the copy is never drawn
+   and these rules play nothing. */
+.acpmux-send > .acpmux-send-layer {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.acpmux-send > .acpmux-send-layer[data-send-layer="out"] {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"]) .acpmux-send > .acpmux-send-layer {
+    animation-duration: var(--agent-motion-move, 180ms);
+    animation-timing-function: var(--agent-ease-out);
+    animation-fill-mode: both;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="scale"][data-send-layer="in"] {
+    animation-name: acpmux-send-scale-in;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="scale"][data-send-layer="out"] {
+    animation-name: acpmux-send-scale-out;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="rotate"][data-send-layer="in"] {
+    animation-name: acpmux-send-rotate-in;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="rotate"][data-send-layer="out"] {
+    animation-name: acpmux-send-rotate-out;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="blur"][data-send-layer="in"] {
+    animation-name: acpmux-send-blur-in;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="blur"][data-send-layer="out"] {
+    animation-name: acpmux-send-blur-out;
+  }
+}
+@keyframes acpmux-send-scale-in {
+  from { opacity: 0; transform: scale(0.7); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes acpmux-send-scale-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.7); }
+}
+@keyframes acpmux-send-rotate-in {
+  from { opacity: 0; transform: rotate(-90deg) scale(0.7); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes acpmux-send-rotate-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: rotate(90deg) scale(0.7); }
+}
+@keyframes acpmux-send-blur-in {
+  from { opacity: 0; filter: blur(3px); }
+  to { opacity: 1; filter: none; }
+}
+@keyframes acpmux-send-blur-out {
+  from { opacity: 1; filter: none; }
+  to { opacity: 0; filter: blur(3px); }
 }
 
 /* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's dimmed
@@ -439,13 +562,17 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    brighter (Leo 2026-10-21: "a subtle hairline border that brightens slightly on focus"; before it
    the ring flashed, 10-19, and then drew nothing): a focused composer, the chat's and the New
    Tab's, its strip and its queue keep the one-device-pixel rim and take
-   --acpmux-composer-edge-focus, 28% text where the resting edge is 18%. No ring, no glow, no wider
+   --acpmux-composer-edge-focus, 22% text where the resting edge is 18%. No ring, no glow, no wider
    line, nothing moves. Over art the glass card's top-lit rim stays as it rests. The prompt itself
-   draws no ring (desktop.css, cx-ncc.57). A page that is not the key one rests (below). */
+   draws no ring (desktop.css, cx-ncc.57). A page that is not the key one rests (below).
+   The step was 28% until Leo found the focused frame too loud (2026-11-07: "the border on the
+   composer, like it being this, like super duper prominent glass, I feel like is sort of strange"):
+   22% still reads as a brighten beside a resting card, without outlining it (gallery
+   agent-pane.composer-rim). */
 .acpmux-composer,
 .nt-composer,
 .nt-box {
-  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 28%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg, var(--acpmux-base)));
 }
 /* Under Increase Contrast the resting edge is already the full text color, so 28% would dim it on
    focus: keep the resting edge there (the shared ring below marks a focused box). */
@@ -618,19 +745,22 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   margin-right: 6px;
   color: var(--agent-accent);
 }
-/* Another agent's message: its received line (conversation.css .cv-received) across the row,
-   its actions at the line's end. The line is 26px tall: it takes the row's padding, so the row
-   stays about as tall as one of the person's. */
-.acpmux-queued .cv-received {
-  grid-column: 1 / -1;
-  min-width: 0;
-  margin: -3px 0;
+/* acpmux's ask to resume a failed subagent (ComposerQueue.tsx `entry.retry`): "Resume subagent"
+   before the subagent's name, the prompt's own words never drawn (Leo, 2026-10-30: "this looks weird
+   and unrendered"). Opened, the error follows on its own line. */
+.acpmux-queued-kind[data-kind="retry"] {
+  vertical-align: top;
+  margin-right: 6px;
 }
-.acpmux-queued .cv-received__line {
-  padding-right: 0;
+.acpmux-queued-detail {
+  display: block;
+  color: var(--acpmux-composer-dim);
 }
-.acpmux-queued .cv-received__line > .acpmux-queued-actions {
-  margin: 0 0 0 auto;
+/* The prompts the pane holds for the folder's trust answer (ComposerQueue.tsx, trustHeld.ts) follow
+   one note, drawn as the paused note is but muted: it waits on the trust question above, not on an
+   error. */
+.acpmux-queue-paused.acpmux-queue-held {
+  color: var(--acpmux-composer-dim);
 }
 
 /* A long queue's fold (ComposerQueue.tsx): one quiet line under the list, outside its scrolling,
@@ -651,9 +781,17 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    the transcript do not jump a row in one frame. Reduce Motion and the host's zero-duration policy
    still apply it at once. */
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-composer-queue[data-fit-ready] {
+  .acpmux-composer-queue[data-fit-ready]:not([data-held]) {
     transition: max-height var(--agent-motion-move) var(--agent-ease-out);
   }
+}
+/* A row the pointer opens or closes: its actions sit on its last line, and the list grows or shrinks
+   at its top by exactly the row's change, at once (ComposerQueue.tsx `resized`), so nothing under
+   the pointer moves (Leo, 2026-10-30: "its expansion animation makes the hovered buttons shift
+   layout"). A one-line row is unchanged. */
+.acpmux-queued > .acpmux-queued-actions,
+.acpmux-queued > .acpmux-queued-menu > .acpmux-queued-actions {
+  align-self: end;
 }
 /* The fold's line continues the list's tray and side edges, down to the strip. */
 .acpmux-queue-foldbar {
@@ -772,6 +910,46 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1px;
 }
+/* A video's tile (QueuedImages.tsx): its first frame, with a play glyph and its length over the
+   frame's foot, as the composer's video chip draws them; past one row, "+N" (Leo, 2026-11-05). */
+.acpmux-queued-tiles {
+  display: contents;
+}
+.acpmux-queued-images:not(:has(.acpmux-queued-image-remove)) {
+  /* Not edited: one row, never wrapping (an edit wraps, so each remove control shows). A pane too
+     narrow for the tiles cuts the last of them, never the "+N" after them. */
+  flex-wrap: nowrap;
+}
+.acpmux-queued-images:not(:has(.acpmux-queued-image-remove)) > .acpmux-queued-tiles {
+  display: flex;
+  gap: inherit;
+  min-width: 0;
+  overflow: hidden;
+  /* Room for a focused tile's ring (1.5px and 1px out) inside the clip. */
+  margin: -4px;
+  padding: 4px;
+}
+.acpmux-queued-image-slot[data-video] .acpmux-queued-image {
+  position: relative;
+}
+.acpmux-queued-video.acpmux-attachment-video-length {
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-queued-images-more {
+  flex: none;
+  white-space: nowrap;
+  align-self: center;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  font-weight: 600;
+}
 .acpmux-queued-image-remove {
   position: absolute;
   top: -5px;
@@ -782,15 +960,16 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   height: 16px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
-  background: var(--acpmux-composer-bg);
-  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
-  color: var(--agent-text);
+  border-radius: 50%;
+  /* The strip's solid, inverted badge (composerAttachments.css .acpmux-attachment-remove). */
+  background: var(--agent-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
+  color: var(--acpmux-base, Canvas);
 }
 .acpmux-queued-image-remove:hover {
-  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+  background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
 }
 .acpmux-queued-image-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
+  outline-offset: 1.5px;
 }

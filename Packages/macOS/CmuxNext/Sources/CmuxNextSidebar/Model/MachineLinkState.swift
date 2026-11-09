@@ -2,6 +2,8 @@
 /// little green dot ... as if you were working on your own computer, but now it's remote"): the
 /// sidebar's machine header (`SectionHeaderRowView`) and the agent pane's composer strip
 /// (`AgentPaneMachineLink`) both read it from ``SidebarMachine/Status``, so the two never disagree.
+/// The mapping is Rust's (`cmux-layout-reducer` `sidebar_bridge::link`, which also maps acpmux's own
+/// link state); this type only names its words.
 public nonisolated enum MachineLinkState: String, Hashable, Sendable {
     /// Its daemon finished the handshake (`DaemonHandshake`): a green dot. Never a bare socket or
     /// ssh connect, which reads as connecting.
@@ -15,14 +17,28 @@ public nonisolated enum MachineLinkState: String, Hashable, Sendable {
     /// Reachable, but cmux-tui must be installed first: the attention dot.
     case attention
 
+    /// A status's dot and whether using the machine may reconnect it on its own.
+    public struct Shown: Hashable, Sendable {
+        public let link: MachineLinkState
+        public let reconnectsOnUse: Bool
+
+        public init(link: MachineLinkState, reconnectsOnUse: Bool) {
+            self.link = link
+            self.reconnectsOnUse = reconnectsOnUse
+        }
+    }
+
+    /// Rust's table, read once: a status it does not name is down and waits for a person.
+    private static let table: [String: Shown] = SidebarBridgeRules().statusLinks() ?? [:]
+
+    static func shown(_ status: SidebarMachine.Status) -> Shown {
+        table[status.rawValue] ?? Shown(link: .offline, reconnectsOnUse: false)
+    }
+
     /// Whether using the machine (opening its chat, sending to it) may reconnect it on its own:
     /// a link that dropped or never came up, not one a person must fix (sign-in, an update).
     public static func reconnectsOnUse(_ status: SidebarMachine.Status) -> Bool {
-        switch status {
-        case .offline, .unreachable, .failed, .disconnected: true
-        case .connected, .updateAvailable, .connecting, .reconnecting, .installing, .installRequired,
-             .authFailed, .updateRequired, .paused, .pausedIdle: false
-        }
+        shown(status).reconnectsOnUse
     }
 }
 
@@ -31,13 +47,5 @@ extension SidebarMachine.Status {
     @MainActor public var words: String { SectionHeaderRowView.statusWords(self) }
 
     /// This status as the dot draws it (``MachineLinkState``).
-    public var linkState: MachineLinkState {
-        switch self {
-        case .connected, .updateAvailable: .connected
-        case .connecting, .reconnecting, .installing: .connecting
-        case .offline, .unreachable, .authFailed, .failed, .updateRequired: .offline
-        case .paused, .pausedIdle: .paused
-        case .installRequired, .disconnected: .attention
-        }
-    }
+    public var linkState: MachineLinkState { MachineLinkState.shown(self).link }
 }

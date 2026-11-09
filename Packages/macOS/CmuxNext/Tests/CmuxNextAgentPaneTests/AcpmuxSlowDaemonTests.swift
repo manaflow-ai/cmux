@@ -30,7 +30,7 @@ struct AcpmuxSlowDaemonTests {
                                             daemonArguments: [], childEnvironment: [:]).attached(to: home)
         let daemon = try SlowDaemon(socketPath: environment.socketPath, home: home.path, statusDelay: .seconds(5))
         defer { daemon.stop() }
-        let host = AcpmuxHost(resolve: { environment })
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment })
 
         let started = ContinuousClock.now
         let handshake = try await host.reconnectHandshake(sessionId: "s")
@@ -40,16 +40,47 @@ struct AcpmuxSlowDaemonTests {
         #expect(daemon.methods.allSatisfy { ["initialize", "_acpmux/status"].contains($0) }, "sent \(daemon.methods)")
     }
 
+    /// A status call that hears nothing is asked again on a new connection, so a daemon that answers
+    /// the next call is reached in seconds: after a restart the pane said "Waiting for the agent
+    /// service" for minutes (Leo, 2026-11-06), its lookup waiting on a call nothing would answer.
+    /// The first call here is never answered (an hour); the second is answered at once.
+    @Test func anUnansweredStatusCallIsAskedAgain() async throws {
+        let root = URL(fileURLWithPath: "/tmp/asd-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let environment = AcpmuxEnvironment(executable: try Self.ownExecutable(), home: home,
+                                            socketPath: home.appendingPathComponent("s.sock").path,
+                                            daemonArguments: [], childEnvironment: [:]).attached(to: home)
+        let daemon = try SlowDaemon(socketPath: environment.socketPath, home: home.path, statusDelays: [.seconds(3600), .zero])
+        defer { daemon.stop() }
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment })
+
+        // task-owner: awaited or cancelled below; its wait ends on the answer or this cancel
+        let handshake = Task { try await host.reconnectHandshake(sessionId: "s") }
+        // task-owner: cancelled below once the handshake settles
+        let limit = Task {
+            try await Task.sleep(for: .seconds(60))
+            handshake.cancel()
+        }
+        let result = await handshake.result
+        limit.cancel()
+        let connected = try result.get()
+        #expect(connected.connection?.url.port == 9, "the handshake did not connect to the daemon's endpoint")
+        #expect(daemon.methods.filter { $0 == "_acpmux/status" }.count >= 2, "the unanswered status call was not asked again")
+    }
+
     /// This app's own daemon, alive and listening but never answering, is kept while the pane
     /// asks again and again (each attempt waits for its answer). The old watch stopped it after
     /// three missed 2 s status calls spanning 20 s and a 5 s confirm, about 27 s in; this test
     /// watches for 45 s of wall clock because that watch ran on the real clock.
-    @Test func aDaemonThatDoesNotAnswerIsNeverStopped() async throws {
+    @Test(.enabled(if: CopiedListenerProbe.runs, "Needs a copied nc listener, which this Mac ends at exec: https://github.com/manaflow-ai/cmux/issues/30978"))
+    func aDaemonThatDoesNotAnswerIsNeverStopped() async throws {
         let fixture = try OwnedFixture()
         let silent = try await fixture.silentDaemon()
         defer { fixture.remove(silent) }
         try fixture.writePidFile(silent.processIdentifier)
-        let host = AcpmuxHost(environment: fixture.environment)
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment)
 
         // The pane's loop: a handshake, and another as soon as one ends.
         // task-owner: cancelled and awaited below, before the daemon is killed
@@ -77,7 +108,7 @@ struct AcpmuxSlowDaemonTests {
         let fixture = try OwnedFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         try fixture.writePidFile(try await Self.exitedPid())
-        let host = AcpmuxHost(environment: fixture.environment)
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment)
 
         async let first = host.reconnectHandshake(sessionId: nil)
         async let second = host.reconnectHandshake(sessionId: nil)
@@ -184,9 +215,17 @@ struct AcpmuxSlowDaemonTests {
         private let path: String
         private let recorded = Mutex<[String]>([])
         var methods: [String] { recorded.withLock { $0 } }
+        /// The delay of each `_acpmux/status` answer in turn; the last one holds for every later call.
+        private let statusDelays: [Duration]
+        private let statusCalls = Mutex(0)
 
-        init(socketPath: String, home: String, statusDelay: Duration) throws {
+        convenience init(socketPath: String, home: String, statusDelay: Duration) throws {
+            try self.init(socketPath: socketPath, home: home, statusDelays: [statusDelay])
+        }
+
+        init(socketPath: String, home: String, statusDelays: [Duration]) throws {
             path = socketPath
+            self.statusDelays = statusDelays
             let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
             self.descriptor = descriptor
             var address = sockaddr_un()
@@ -206,12 +245,12 @@ struct AcpmuxSlowDaemonTests {
                     var noSigPipe: Int32 = 1
                     _ = setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
                     let connection = Connection(client)
-                    Thread.detachNewThread { self.serve(connection, home: home, statusDelay: statusDelay) }
+                    Thread.detachNewThread { self.serve(connection, home: home) }
                 }
             }
         }
 
-        private func serve(_ connection: Connection, home: String, statusDelay: Duration) {
+        private func serve(_ connection: Connection, home: String) {
             var buffer = Data()
             var chunk = [UInt8](repeating: 0, count: 4096)
             while true {
@@ -236,7 +275,11 @@ struct AcpmuxSlowDaemonTests {
                     if method == "_acpmux/status" {
                         connection.later()
                         let reply = data
-                        let seconds = Double(statusDelay.components.seconds)
+                        let call = statusCalls.withLock { calls in
+                            defer { calls += 1 }
+                            return calls
+                        }
+                        let seconds = Double(statusDelays[min(call, statusDelays.count - 1)].components.seconds)
                         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds) {
                             connection.send(reply, delayed: true)
                         }

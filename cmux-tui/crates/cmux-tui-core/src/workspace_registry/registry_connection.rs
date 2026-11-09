@@ -77,6 +77,12 @@ pub(crate) struct RegistryConnection {
     /// Flushes the WAL to disk off every request path (`wal_durability`);
     /// `None` for an in-memory registry.
     durability: Option<super::wal_durability::WalDurability>,
+    /// A read-only connection to the same file for reads of committed data
+    /// that need neither the workspace registry lock nor this connection's
+    /// lock ([`Self::read_committed`]). In WAL mode a reader sees the last
+    /// committed state and never waits for a writer. `None` for an
+    /// in-memory registry or when it could not open.
+    reader: Option<std::sync::Mutex<Connection>>,
     #[cfg(test)]
     pub(super) journal_hooks: std::sync::Mutex<JournalCommitHooks>,
 }
@@ -99,6 +105,23 @@ pub(crate) fn slow_durable_commit_delay() -> Option<std::time::Duration> {
             .filter(|ms| *ms > 0)
             .map(std::time::Duration::from_millis)
     })
+}
+
+/// Debug seam (`CMUX_TUI_TEST_REGISTRY_COMMIT_DELAY_MS=N`, debug builds
+/// only): every registry commit takes N ms longer inside `COMMIT`, holding
+/// SQLite's write lock and the connection lock, as a commit on a slow disk
+/// does, so a test can see which requests wait for one.
+pub(crate) fn registry_commit_delay() -> Option<std::time::Duration> {
+    #[cfg(debug_assertions)]
+    {
+        std::env::var("CMUX_TUI_TEST_REGISTRY_COMMIT_DELAY_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|ms| *ms > 0)
+            .map(std::time::Duration::from_millis)
+    }
+    #[cfg(not(debug_assertions))]
+    None
 }
 
 /// Install the registry connection's commit hook: the debug span mark
@@ -163,15 +186,25 @@ impl RegistryConnection {
         database_path: Option<&std::path::Path>,
     ) -> Arc<Self> {
         let durability = database_path.map(|path| {
-            super::wal_durability::WalDurability::attach(
+            super::wal_durability::WalDurability::attach_with_commit_delay(
                 &connection,
                 path,
                 slow_durable_commit_delay(),
                 false,
+                registry_commit_delay(),
             )
         });
+        let reader =
+            database_path.and_then(|path| match super::open_registry_database_read_only(path) {
+                Ok(reader) => Some(std::sync::Mutex::new(reader)),
+                Err(error) => {
+                    eprintln!("cmux-tui: registry reader connection unavailable: {error:#}");
+                    None
+                }
+            });
         Arc::new(Self {
             connection: Arc::new(ReentrantMutex::new(connection)),
+            reader,
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
@@ -179,6 +212,19 @@ impl RegistryConnection {
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
         })
+    }
+
+    /// Run `read` on the registry's read-only connection: committed data,
+    /// with no workspace registry lock and no wait for a writer (WAL). Its
+    /// own mutex is a leaf held only for `read`. `None` when there is no
+    /// reader (an in-memory registry): the caller reads under the registry.
+    pub(crate) fn read_committed<T>(
+        &self,
+        read: impl FnOnce(&Connection) -> anyhow::Result<T>,
+    ) -> Option<anyhow::Result<T>> {
+        let reader = self.reader.as_ref()?;
+        let connection = reader.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Some(read(&connection))
     }
 
     /// Flush every registry commit made so far, soon, off this thread
@@ -192,6 +238,18 @@ impl RegistryConnection {
     /// (committed, synced) registry commits for `server-stats` `write_path`.
     pub(crate) fn durability_counts(&self) -> (u64, u64) {
         self.durability.as_ref().map(|durability| durability.counts()).unwrap_or_default()
+    }
+
+    /// Bytes of the WAL frames this registry's commits appended (`server-stats`
+    /// `write_path.registry_wal_frame_bytes`); 0 for an in-memory registry.
+    pub(crate) fn wal_frame_bytes(&self) -> u64 {
+        self.durability.as_ref().map(|durability| durability.wal_frame_bytes()).unwrap_or_default()
+    }
+
+    /// (size now, high-water) of this registry's WAL file (`server-stats`
+    /// `write_path.registry_wal_file_bytes` and `registry_wal_file_high_water_bytes`); 0 in memory.
+    pub(crate) fn wal_file_bytes(&self) -> (u64, u64) {
+        self.durability.as_ref().map(|durability| durability.wal_file_bytes()).unwrap_or_default()
     }
 
     /// The connection for a request thread. The caller holds the workspace

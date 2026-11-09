@@ -10,13 +10,24 @@ description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, 
 [lints]
 workspace = true
 
+[features]
+# In-place hot-patching under `dx serve --hot-patch` (src/hotpatch.rs). Debug
+# builds only; no shipped build enables it.
+hotpatch = ["dep:subsecond"]
+
 [dependencies]
 cmux-json.workspace = true
 cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
+# The tab a pane selects after a close (close_focus::tab), the app's own rule.
+cmux-focus-core.workspace = true
+# The daemon checks URLs with the URL parser (`url`); the app links the crate without it.
+cmux-bookmarks-core = { workspace = true, features = ["url"] }
+cmux-bookmarks-ops = { workspace = true }
 cmux-unix-socket.workspace = true
+cmux-url-input.workspace = true
 cmux-pty.workspace = true
 cmux-holder.workspace = true
 cmux-process.workspace = true
@@ -24,9 +35,15 @@ cmux-flow-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
+cmux-classic-import.workspace = true
+cmux-conductor-import.workspace = true
+cmux-palette-ranker.workspace = true
 cmux-config.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true
+# The Tasks page link (tasks_link.rs): the owner socket protocol and its client.
+cmux-tasks.workspace = true
+cmux-tasks-core.workspace = true
 cmux-tui-cloud-conversations.workspace = true
 cmux-tui-platform.workspace = true
 cmux-tui-image-paste.workspace = true
@@ -37,20 +54,25 @@ cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true
+subsecond = { workspace = true, optional = true }
 serde_json.workspace = true
+toml.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 libc.workspace = true
 regex.workspace = true
 jsonschema.workspace = true
 flate2.workspace = true
+zstd.workspace = true
 wait-timeout.workspace = true
 tungstenite.workspace = true
 cmux-local-auth.workspace = true
+cmux-local-url.workspace = true
 cmux-link.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
 parking_lot = { workspace = true, features = ["arc_lock"] }
+arc-swap.workspace = true
 fs4.workspace = true
 sha2.workspace = true
 socket2.workspace = true
@@ -72,6 +94,8 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# The Cloud API calls the daemon's cloud.* ops answer (server/cloud_api.rs).
+cmux-cloud-api.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
@@ -79,6 +103,10 @@ tokio.workspace = true
 # client the cmux-tui binary already links for cmux.wire/1.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+# The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.
+cmux-sdk = { path = "../../bindings/rust", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),

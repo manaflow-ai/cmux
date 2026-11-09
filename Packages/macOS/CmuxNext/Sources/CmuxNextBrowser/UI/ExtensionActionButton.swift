@@ -68,14 +68,18 @@ final class ExtensionActionButton: ClickableButton, PointerHoverReporting {
     }
 
     private func applyIcon(_ action: CEFExtensionAction) {
-        // The extension's own image keeps its size (the bar's height) in the larger button.
-        let size = OmnibarStyle.barHeight
+        // The extension's own image fills the button (28 pt at Standard).
+        let size = OmnibarStyle.buttonSize
         if let data = action.iconPNG, let icon = NSImage(data: data) {
             icon.size = NSSize(width: size, height: size)
+            imageScaling = .scaleProportionallyUpOrDown
             image = icon
         } else {
+            // The toolbar glyph side, as the Extensions button draws it (one ink box with the arrows);
+            // the button centers it, and it is drawn at this side, so nothing stretches it (REOPEN-F7).
             let icon = NSImage.icon(.browserToolbarExtensions, size: OmnibarStyle.toolbarIconSize)
             icon.accessibilityDescription = action.name
+            imageScaling = .scaleNone
             image = icon
         }
     }

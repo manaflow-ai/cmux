@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import QuartzCore
 // Hit testing, hover, clicks, context menu, and wheel scrolling.
 extension TabStripView {
@@ -54,7 +54,6 @@ extension TabStripView {
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
         onHoverTab?(id)
-        TabSeparatorVisibility.apply(to: self)
     }
 
     /// `moved`: a pointer event (true) or content that moved under a still
@@ -107,9 +106,7 @@ extension TabStripView {
 
     public override func mouseEntered(with event: NSEvent) {
         if closingWatch.trackingEvent(event, entered: true) { return }
-        buttonReveal.pointerInStrip = true
-        closingWatch.pointerReturned()
-        updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
+        pointerEntered(at: event.locationInWindow)
     }
 
     public override func mouseMoved(with event: NSEvent) {
@@ -119,8 +116,7 @@ extension TabStripView {
 
     public override func mouseExited(with event: NSEvent) {
         if closingWatch.trackingEvent(event, entered: false) { return }
-        pointerLeft()
-        hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+        pointerExited(at: event.locationInWindow)
     }
 
     /// An exit, or the strip moved away under a still pointer (`geometryDidChange`).
@@ -200,7 +196,13 @@ extension TabStripView {
             return
         }
         if pressedNewTab {
-            newTabButton.isPressed = isInNewTabButton(point)
+            let inside = isInNewTabButton(point)
+            newTabButton.isPressed = inside
+            if !inside {
+                // Leaving + cancels the hold. A later release inside still
+                // performs the ordinary click, without restarting the timer.
+                _ = newTabHold.end()
+            }
             return
         }
         if let id = pressedAudioID {
@@ -348,9 +350,7 @@ extension TabStripView {
         guard model.tab(id) != nil else { return }
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)
-            if let point, let frame = TabClosingModeHit.laidOut(self).first(where: { $0.id == id })?.frame {
-                closingHit.closePressed(at: convert(point, to: tabsClip), on: frame)
-            }
+            if let point { closingHit.closePressed(at: convert(point, to: tabsClip)) }
         }
         model.send(.close(id, source: source))
     }

@@ -10,8 +10,10 @@ extension SidebarRegionMetrics {
     /// The bands above the list in Minimal Mode (`sidebar.minimal`): their rows (Home, App Store, pinned
     /// items) take the list's minimal row height, so a pinned row is as tall as the workspace rows and
     /// group headers under it at every density (Lawrence 2026-10-22). They were 24 pt over 20 pt rows.
+    /// Otherwise their rows are the band's (``SidebarRowTokens/band``): at Expanded, Comfortable's 28 pt
+    /// row, not the app's one-line 24 pt under 37 pt list rows (Lawrence 2026-11-04).
     @MainActor static func standard(minimal: Bool) -> SidebarRegionMetrics {
-        minimal ? standard(rowHeight: SidebarLayoutMetrics.standard.minimal.rowHeight) : standard
+        standard(rowHeight: minimal ? SidebarLayoutMetrics.standard.minimal.rowHeight : SidebarRowTokens.current.band.rowHeight)
     }
 
     @MainActor private static func standard(rowHeight row: CGFloat) -> SidebarRegionMetrics {
@@ -28,6 +30,6 @@ extension SidebarRegionMetrics {
             favoriteHeight: row * 2 + Metrics.space2,
             // A row glyph's center from a line's leading edge (the line
             // starts at the inset; the row glyph at twice the inset).
-            glyphColumn: SidebarStyle.horizontalInset + SidebarStyle.iconBox / 2)
+            glyphColumn: SidebarStyle.horizontalInset + SidebarStyle.iconColumnBox / 2)
     }
 }

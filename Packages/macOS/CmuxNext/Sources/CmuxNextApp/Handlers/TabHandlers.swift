@@ -4,8 +4,11 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFiles
 import CmuxNextLayout
+import CmuxNextTabs
+import CmuxNextWindowRules
 
 /// Tab actions (category `.tab` except `tabGroup.*`): create, close,
 /// select, reorder, rename, pin, and move to other panes, splits, columns,
@@ -20,10 +23,11 @@ enum TabHandlers {
         TabHandlers.bindMoreActions(into: registry, context: ctx)
         PaneTabBarHandlers.bind(into: registry, context: ctx)
         TabRestart.bind(into: registry, context: ctx)
+        registry.bindEffect("debug.tabBarPlayground", effect: { [playground = TabBarPlaygroundWindow()] _ in playground.show(); return .done })
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
+        registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0, slot: TabLifecycle.keySlot(ctx, $0)) })
         registry.bind("newTab.default", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
         registry.bind("newTab.ofKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, followsSetting: false) })
         registry.bind("newTab.toRight", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, position: .afterCurrent) })
@@ -34,7 +38,7 @@ enum TabHandlers {
         registry.bind(NewTabPage.action, invoke: { ctx.paneController($0)?.newTabPage() })
         registry.bind(NewTabSubmit.action, invoke: { NewTabSubmit.run($0, ctx) })
         registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })
-        registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
+        registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0, slot: TabLifecycle.keySlot(ctx, $0)) })
         registry.bind("openBrowser.webkit", invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .webkit) })
         let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs.cefUnavailableReason() }
         registry.bind("openBrowser.chromium", unavailable: chromiumReason, invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .cef) })
@@ -42,7 +46,7 @@ enum TabHandlers {
         registry.bind("browser.openInWebKit", invoke: { TabLifecycle.reopen(ctx, $0, on: .webkit) })
         registry.bind("closeTab", invoke: { TabLifecycle.close(ctx, $0) })
         // Close Other Tabs keeps every selected tab when the menu is on one of several (Chrome).
-        // Each close names what it closes; with nothing to close the row is disabled with the reason.
+        // Each close names what it closes; with nothing to close the row is disabled with the reason. The tab it starts from stays and is selected (cmux-ad i7).
         let closes: [(ActionID, String, @MainActor (AppActionContext, ActionInvocation, PaneController, StripTabID) -> [StripTabID])] = [
             ("closeOtherTabsInPane", RefusalStrings.noOtherTabsToClose, { ctx, invocation, pane, id in
                 pane.stripModel.closedByCloseOthers(keepingAll: ctx.actingTabs(invocation, pane, id)) }),
@@ -54,7 +58,7 @@ enum TabHandlers {
                 guard let (pane, tab) = ctx.tab(invocation) else { return }
                 let closed = closing(ctx, invocation, pane, tab)
                 guard !closed.isEmpty else { return ctx.refuse(none) }
-                CloseUndoToasts.close(in: pane, closed)
+                CloseUndoToasts.close(in: pane, closed, selecting: pane.stripModel.selectionKeeping(tab, kept: id == "closeOtherTabsInPane" ? ctx.actingTabs(invocation, pane, tab) : []))
             })
             ctx.setTargetReason(id) { invocation in
                 ctx.tab(invocation).flatMap { pane, tab in closing(ctx, invocation, pane, tab).isEmpty ? none : nil }
@@ -63,28 +67,25 @@ enum TabHandlers {
         registry.bind("duplicateTab", invoke: { invocation in
             guard let (pane, clicked) = ctx.tab(invocation) else { return }
             let ids = ctx.actingTabs(invocation, pane, clicked)
-            guard !ids.allSatisfy({ isPageTab($0, in: pane, ctx) }) else { return ctx.refuse(RefusalStrings.pageTabOpensOnce) }
-            for id in ids {
-                if let tab = pane.tab(id), tab.kind == .browser {
+            let (actions, refusal) = duplicates(ids, in: pane, ctx)
+            if let refusal { return ctx.refuse(refusal) }
+            for (id, action) in zip(ids, actions) {
+                switch action {
+                case "browser":
                     // Same engine as the original (cookies live in one engine), next to it, with its history.
-                    BrowserTabDuplicate(pane: pane).open(tab)
-                } else if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
-                    pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
-                } else if ctx.services.agentTabs.isAgentTab(id.rawValue) {
-                    pane.duplicateAgentTab(id.rawValue)
-                } else if isPageTab(id, in: pane, ctx) {
-                    // One tab per page per window: the page is already there.
-                    continue
-                } else {
-                    pane.newTerminalTab(cwd: pane.tab(id)?.cwd)
+                    if let tab = pane.tab(id) { BrowserTabDuplicate(pane: pane).open(tab) }
+                case "localBrowser": pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
+                case "agent": pane.duplicateAgentTab(id.rawValue, then: NewTabSlot.placing(after: pane.tab(id), joins: true, services: ctx.services, then: nil))
+                case "terminal":
+                    // Right after the original, in its group, as a browser tab's duplicate goes (BrowserTabDuplicate).
+                    pane.newTerminalTab(cwd: pane.tab(id)?.cwd, then: NewTabSlot.placing(after: pane.tab(id), joins: true, services: ctx.services, then: nil))
+                default: continue // one tab per page per window: the page is already there; another Mac's chat stays there
                 }
             }
         })
-        // A page tab alone (or a selection of only page tabs) has nothing to duplicate.
+        // A page tab or another Mac's chat alone (or a selection of only those) has nothing to duplicate.
         ctx.setTargetReason("duplicateTab") { invocation in
-            ctx.tab(invocation).flatMap { pane, clicked in
-                ctx.actingTabs(invocation, pane, clicked).allSatisfy { isPageTab($0, in: pane, ctx) } ? RefusalStrings.pageTabOpensOnce : nil
-            }
+            ctx.tab(invocation).flatMap { pane, clicked in duplicates(ctx.actingTabs(invocation, pane, clicked), in: pane, ctx).refusal }
         }
         ctx.services.closedTabs = ClosedTabsFeed(services: ctx.services)
         // Cmd-Shift-T (reopen-closed.md 4): the newest closed group of the key window at any
@@ -103,13 +104,15 @@ enum TabHandlers {
         })
     }
 
-    /// A page tab, which Duplicate Tab leaves alone (one tab per page per window); a browser or
-    /// agent tab duplicates even when it shows a page.
-    private static func isPageTab(_ id: StripTabID, in pane: PaneController, _ ctx: AppActionContext) -> Bool {
-        if pane.tab(id)?.kind == .browser || id.rawValue.hasPrefix(LocalBrowserTab.prefix) || ctx.services.agentTabs.isAgentTab(id.rawValue) {
-            return false
-        }
-        return id.rawValue.hasPrefix(LocalPageTab.prefix) || pane.tab(id)?.page != nil
+    /// What Duplicate Tab does with each of `ids` (Rust's `tabs::duplicate`), else why it copies none. Another Mac's chat is skipped as a page is (its session never leaves that Mac).
+    private static func duplicates(_ ids: [StripTabID], in pane: PaneController, _ ctx: AppActionContext) -> (actions: [String], refusal: String?) {
+        let chats = ctx.services.agentTabs, actions = WindowRules().duplicate(ids.map { id in
+            let tab = pane.tab(id)
+            return WindowRules.DuplicateFacts(browser: tab?.kind == .browser, localBrowser: id.rawValue.hasPrefix(LocalBrowserTab.prefix),
+                                              agent: ctx.services.agentTabs.isAgentTab(id.rawValue),
+                                              localPage: id.rawValue.hasPrefix(LocalPageTab.prefix), page: tab?.page != nil)
+        })?.enumerated().map { $1 == "agent" && chats.lookup(ids[$0].rawValue)?.record.host != chats.localHost ? "elsewhere" : $1 } ?? []
+        return actions.contains { !["skip", "elsewhere"].contains($0) } ? (actions, nil) : ([], actions.contains("elsewhere") ? RefusalStrings.agentTabOtherHost : RefusalStrings.pageTabOpensOnce)
     }
 
     private static func bindSelection(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -123,8 +126,9 @@ enum TabHandlers {
             // The tabs the strip shows: a member of a collapsed group has no visible number.
             let ids = pane.stripModel.visibleOrderedTabs.map(\.id)
             guard !ids.isEmpty else { return ctx.refuseQuietly(RefusalStrings.paneHasNoTabs) }
-            // 9 always selects the last tab.
-            pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
+            // 9 always selects the last tab (Rust's `tabs::tab_by_number`).
+            guard let index = WindowRules().tabByNumber(number, count: ids.count), ids.indices.contains(index) else { return }
+            pane.select(ids[index])
         })
         // `palette.goToTab` is an alias of `tab.search`, which TabSearchHandlers binds (a tab target
         // reveals the tab, as here; no target opens Search Tabs). A second bind here replaced it.
@@ -137,7 +141,7 @@ enum TabHandlers {
         // `cmux pane <id> focus` / `cmux screen <id> focus`: the same reveal, by target.
         registry.bind("pane.focus", invoke: { invocation in
             guard let ref = invocation.target, ref.kind == .pane else { return ctx.refuse(RefusalStrings.paneArgumentRequired) }
-            revealPane(paneID: ref.id, ctx: ctx)
+            revealPane(paneID: ref.id, invocation: invocation, ctx: ctx)
         })
         registry.bind("screen.focus", invoke: { invocation in
             guard let ref = invocation.target, ref.kind == .screen else { return ctx.refuse(RefusalStrings.noScreen("")) }
@@ -159,34 +163,29 @@ enum TabHandlers {
     }
 
     /// pane.focus: the pane's workspace and screen shown, the pane focused.
-    static func revealPane(paneID: String, ctx: AppActionContext) {
+    /// On the invocation's machine; a bare id two machines share is refused (cmux#30755).
+    static func revealPane(paneID: String, invocation: ActionInvocation, ctx: AppActionContext) {
         guard ActionRunScope.viewChangeAllowed() else { return }
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            for screen in workspace.screens {
-                if let pane = screen.panes.first(where: { $0.id == paneID || $0.resourceID?.rawValue == paneID }) {
-                    return reveal(workspace: workspace, screen: screen, pane: pane, tab: nil, ctx: ctx)
-                }
-            }
-        }
-        let _: Bool? = ctx.notFound(RefusalStrings.noPaneID(paneID))
+        guard let pane = ctx.targetPane(paneID, invocation) ?? ctx.notFound(RefusalStrings.noPaneID(paneID)),
+              let (workspace, screen) = owner(of: pane, ctx) ?? ctx.notFound(RefusalStrings.noPaneID(paneID)) else { return }
+        reveal(workspace: workspace, screen: screen, pane: pane, tab: nil, ctx: ctx)
     }
 
     /// screen.focus: the screen's workspace shown, the screen selected.
     static func revealScreen(screenID: String, ctx: AppActionContext) {
         guard ActionRunScope.viewChangeAllowed() else { return }
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            if let screen = workspace.screens.first(where: { $0.id == screenID || $0.resourceID?.rawValue == screenID }) {
+        // Each machine's index, local first (the order `allWorkspaces` walked).
+        for daemon in ctx.services.machines.daemons {
+            if let screen = daemon.store.screen(idOrResource: screenID), let workspace = daemon.store.workspace(holding: screen) {
                 return reveal(workspace: workspace, screen: screen, pane: nil, tab: nil, ctx: ctx)
             }
         }
         let _: Bool? = ctx.notFound(RefusalStrings.noScreen(screenID))
     }
 
+    /// The workspace and screen holding this very `pane`, from each machine's index (O(machines)).
     private static func owner(of pane: PaneModel, _ ctx: AppActionContext) -> (WorkspaceModel, ScreenModel)? {
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            if let screen = workspace.screens.first(where: { $0.panes.contains { $0 === pane } }) { return (workspace, screen) }
-        }
-        return nil
+        ctx.services.machines.daemons.lazy.compactMap { $0.store.location(of: pane) }.first.map { ($0.workspace, $0.screen) }
     }
 
     /// The one reveal of tab.focus, pane.focus and screen.focus: the window
@@ -214,47 +213,43 @@ enum TabHandlers {
     }
 
     private static func bindMoves(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("moveSurfaceLeft", invoke: { reorder(ctx, $0, by: -1) })
-        registry.bind("moveSurfaceRight", invoke: { reorder(ctx, $0, by: 1) })
-        registry.bind("moveSurfaceToPreviousPane", invoke: { moveToSiblingPane(ctx, $0, offset: -1) })
-        registry.bind("moveSurfaceToNextPane", invoke: { moveToSiblingPane(ctx, $0, offset: 1) })
-        let directions: [(ActionID, LayoutDirection)] = [
-            ("moveSurfaceToPaneLeft", .left), ("moveSurfaceToPaneRight", .right),
-            ("moveSurfaceToPaneUp", .up), ("moveSurfaceToPaneDown", .down),
+        // Each move says why it has nowhere to go: its menu row is disabled with the reason, a run is refused with it.
+        // A pinned tab moves among the pinned tabs, an unpinned one among the rest (Chrome): the daemon puts a move across the boundary back.
+        typealias Destination = @MainActor @Sendable (PaneController, StripTabID) -> (PaneController, Int)?
+        let toward = { (direction: LayoutDirection) -> (String, Destination) in
+            (RefusalStrings.noPaneInDirectionOfTab(RefusalStrings.direction(direction)), { pane, _ in end(of: neighborPane(of: pane, direction)) })
+        }
+        let moves: [(ActionID, (String, Destination))] = [
+            ("moveSurfaceLeft", (RefusalStrings.tabAtEdge, { pane, id in pane.stripModel.moveIndex(of: id, by: -1).map { (pane, $0) } })),
+            ("moveSurfaceRight", (RefusalStrings.tabAtEdge, { pane, id in pane.stripModel.moveIndex(of: id, by: 1).map { (pane, $0) } })),
+            ("moveSurfaceToPreviousPane", (RefusalStrings.screenHasNoOtherPane, { pane, _ in end(of: siblingPane(of: pane, offset: -1)) })),
+            ("moveSurfaceToNextPane", (RefusalStrings.screenHasNoOtherPane, { pane, _ in end(of: siblingPane(of: pane, offset: 1)) })),
+            ("moveSurfaceToPaneLeft", toward(.left)), ("moveSurfaceToPaneRight", toward(.right)),
+            ("moveSurfaceToPaneUp", toward(.up)), ("moveSurfaceToPaneDown", toward(.down)),
         ]
-        for (id, direction) in directions {
-            registry.bind(id, invoke: { moveToNeighborPane(ctx, $0, direction: direction) })
+        for (id, (none, destination)) in moves {
+            registry.bind(id, invoke: { invocation in
+                guard let (pane, tab) = ctx.tab(invocation) else { return }
+                guard let (target, index) = destination(pane, tab) else { return ctx.refuseQuietly(none) }
+                pane.move(tab, toPane: target, index: index)
+            })
+            ctx.setTargetReason(id) { invocation in ctx.tab(invocation).flatMap { pane, tab in destination(pane, tab) == nil ? none : nil } }
         }
     }
 
-    private static func reorder(_ ctx: AppActionContext, _ invocation: ActionInvocation, by offset: Int) {
-        guard let (pane, id) = ctx.tab(invocation) else { return }
-        // A pinned tab moves among the pinned tabs, an unpinned one among the rest (Chrome):
-        // the daemon puts a move across the boundary back, so it would do nothing.
-        guard let target = pane.stripModel.moveIndex(of: id, by: offset) else { return ctx.refuseQuietly(RefusalStrings.tabAtEdge) }
-        pane.move(id, toPane: pane, index: target)
+    /// `pane` with the index after its last tab.
+    private static func end(of pane: PaneController?) -> (PaneController, Int)? { pane.map { ($0, $0.pane.tabs.count) } }
+
+    /// The previous or next pane of `pane`'s screen in visual order, wrapping; nil when it is the only one.
+    private static func siblingPane(of pane: PaneController, offset: Int) -> PaneController? {
+        guard let content = pane.workspace, let order = content.layoutModel.screen(containing: pane.layoutPaneID)?.layout.visualPanes,
+              order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else { return nil }
+        return content.panes[order[(index + offset + order.count) % order.count]]
     }
 
-    /// Previous or next pane in the active screen's visual order, wrapping.
-    private static func moveToSiblingPane(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int) {
-        guard let (pane, id) = ctx.tab(invocation), let content = pane.workspace else { return }
-        guard let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-        let order = screen.layout.visualPanes
-        guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
-            return ctx.refuseQuietly(RefusalStrings.screenHasNoOtherPane)
-        }
-        let next = order[(index + offset + order.count) % order.count]
-        guard let target = content.panes[next] else { return }
-        pane.move(id, toPane: target, index: target.pane.tabs.count)
-    }
-
-    private static func moveToNeighborPane(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: LayoutDirection) {
-        guard let (pane, id) = ctx.tab(invocation), let content = pane.workspace else { return }
-        guard let neighbor = PaneHandlers.neighbor(of: pane.layoutPaneID, direction: direction, in: content),
-              let target = content.panes[neighbor] else {
-            return ctx.refuseQuietly(RefusalStrings.noPaneInDirectionOfTab(RefusalStrings.direction(direction)))
-        }
-        pane.move(id, toPane: target, index: target.pane.tabs.count)
+    /// The pane next to `pane` in `direction`; nil at the screen's edge.
+    private static func neighborPane(of pane: PaneController, _ direction: LayoutDirection) -> PaneController? {
+        pane.workspace.flatMap { content in PaneHandlers.neighbor(of: pane.layoutPaneID, direction: direction, in: content).flatMap { content.panes[$0] } }
     }
 
     private static func bindMetadata(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -278,11 +273,11 @@ enum TabHandlers {
                 // On one of several selected tabs, Pin pins them all unless all are pinned (Chrome's Pin Tabs).
                 let strip = invocation.actsOnTabSelection ? ctx.services.paneController(for: pane)?.stripModel : nil
                 let ids = strip?.actingTabs(for: StripTabID(tab.id)) ?? [StripTabID(tab.id)], pin = strip?.pinsAll(ids) ?? !tab.pinned
-                return ids.forEach { commands.setTabPinned($0.rawValue, pinned: pin, origin: invocation.origin) }
+                return ids.forEach { commands.setTabPinned($0.rawValue, pinned: pin, origin: invocation.origin, machineID: invocation.targetMachineID) }
             }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }
-            commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin)
+            commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin, machineID: invocation.targetMachineID)
         })
         // A tab only this app holds (an internal page, a session-only browser tab) has no daemon
         // record to pin: its menu has no Pin row, rather than one that refuses.
@@ -292,16 +287,41 @@ enum TabHandlers {
         }
         // The tab menu reads Pin Tab or Unpin Tab for the right-clicked tab.
         ActionTargetTitles.set("palette.toggleTabPin", in: registry) { invocation in
-            guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
+            guard let id = invocation.target?.id, let (tab, _) = ctx.targetTab(id, invocation) else { return nil }
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
         PinnedPage.bind(registry, ctx: ctx)
-        // Edit Source (u18051): a tab rendering a local HTML or SVG file opens its source in the code editor (Open as Text).
-        registry.bindEffect("browser.editSource", effect: { invocation in
-            guard let (tab, pane) = ctx.daemonTab(invocation), let file = FileOpenKind.sourceFile(ofPage: tab.url) else { return .refused(FilePageStrings.notAFile) }
-            ctx.services.linkOpener.openFile(file, from: ctx.services.paneController(for: pane), asText: true); return .done
-        })
-        ActionTargetVisibility.hide("browser.editSource", in: registry) { ($0.target?.id).flatMap { ctx.services.locateTab($0) }.map { FileOpenKind.sourceFile(ofPage: $0.0.url) == nil } ?? false }
+        // Edit Source and Open as Page (u18051, u18462): a rendered page and its source in the code editor, one action apart.
+        for (id, asText) in [("browser.editSource", true), ("file.openAsPage", false)] as [(ActionID, Bool)] {
+            registry.bindEffect(id, effect: { switchView($0, ctx, asText: asText) })
+            ActionTargetVisibility.hide(id, in: registry) { otherView($0, ctx, asText: asText) == nil }
+        }
+    }
+
+    /// The file the targeted (else focused) tab's other view shows (``FileOpenKind/otherView(asText:editorFile:markdownFile:pageURL:)``).
+    private static func otherView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> (file: URL, machine: DaemonService, tab: String)? {
+        let s = ctx.services
+        guard let id = (invocation.target?.kind == .tab ? invocation.target?.id : nil) ?? s.windows.active?.focusedPane?.stripModel.selectedID?.rawValue else { return nil }
+        let key = FilePageHandlers.providerKey(id, s)
+        if let kind = FilePageKind.allCases.first(where: { $0.page == LocalPageTab.page(of: key) }) {
+            guard let location = FilePageHandlers.service(kind, s).location(key),
+                  location.machine.isLocal || FilePageKind.isMarkdown(location.file),
+                  let file = FileOpenKind.otherView(asText: asText, editorFile: kind == .editor ? location.file : nil,
+                                                   markdownFile: kind == .markdown ? location.file : nil, pageURL: nil) else { return nil }
+            return (file, location.machine, id)
+        }
+        guard let file = FileOpenKind.otherView(asText: asText, editorFile: nil, markdownFile: nil,
+                                                pageURL: ctx.targetTab(id, invocation)?.0.url ?? s.cache.existingBrowser(id)?.tab.state.url?.absoluteString) else { return nil }
+        return (file, s.daemon, id)
+    }
+
+    private static func switchView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> ActionEffect {
+        guard let location = otherView(invocation, ctx, asText: asText) else { return .refused(FilePageStrings.notAFile) }
+        // The source pane is the tab's own, found on its machine (#28731), as the menu row resolved it.
+        let source = ctx.targetTab(location.tab, invocation).flatMap { ctx.services.paneController(for: $0.1) }
+            ?? ctx.services.paneController(showingTab: location.tab) // an app-only tab (a Cloud file page) has no store record
+        ctx.services.linkOpener.openFile(location.file, on: location.machine, from: source, asText: asText)
+        return .done
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

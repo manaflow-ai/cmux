@@ -89,6 +89,10 @@ public struct RootView: View {
     @State private var accountUserID: String?
     /// A pairing code opened while signed out: applied once the account's live data starts.
     @State private var heldInvite: PairInvite?
+    /// A Mac's invite for a new machine (`https://cmux.com/pair?i=…`): Pair Another Machine, its code filled in.
+    @State private var machineInvite: MachineInvite?
+    /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
+    @State private var shellModel = KeptModel<ShellModel>()
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -139,7 +143,7 @@ public struct RootView: View {
                             theme.haptics.success()
                         }
                     case .shell:
-                        ShellView(store: store, auth: auth, settings: settings, sidebar: sidebar, live: live, options: options)
+                        ShellView(store: store, auth: auth, settings: settings, sidebar: sidebar, live: live, options: options, kept: shellModel)
                     }
                 }
                 // The launch-to-Welcome swap is a cut on both sides (an
@@ -147,8 +151,8 @@ public struct RootView: View {
                 // transaction); every other swap crossfades, Welcome's exit
                 // after sign-in included.
                 .transition(welcomeCut && destination == .welcome
-                    ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation))
-                    : .opacity.animation(theme.motion.gentle.animation))
+                    ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                    : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
             } else {
                 // Welcome redraws this mark on its first frame and animates it
                 // from there, so on that path the swap is a true cut: an
@@ -159,10 +163,10 @@ public struct RootView: View {
                     .ignoresSafeArea()
                     .transition(destination == .welcome
                         ? .identity
-                        : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation))
+                        : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation.unlessReduceMotion))
             }
         }
-        .animation(theme.motion.gentle.animation, value: destination)
+        .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
@@ -189,9 +193,16 @@ public struct RootView: View {
                     launchFinished = true
                 }
             } else {
-                withAnimation(theme.motion.gentle.animation) { launchFinished = true }
+                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { launchFinished = true }
             }
             #if DEBUG
+            // Test-only (compiled out of Release): a launch is handed a URL as the system opens one
+            // (.onOpenURL below). `simctl openurl` of an https link cmux.com's site association does
+            // not claim lands in Safari, so UI tests and fleet simulator runs open `/pair?i=` here.
+            if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_OPEN_URL"], let url = URL(string: text),
+               let opened = OpenedURL(url: url) {
+                open(opened)
+            }
             if options.setupPairDemo { await runSetupPairDemo() }
             #endif
         }
@@ -206,23 +217,31 @@ public struct RootView: View {
         // The account's own preferences (setup done, its Mac per team, last
         // tab) come back before the first frame of its session, so the same
         // account signing in again skips setup (verify/persistence.md).
-        .onChange(of: auth.isSignedIn ? auth.user?.id : nil, initial: true) { _, id in
-            guard let id, !auth.isMock else { return }
+        .onChange(of: auth.isResolved ? (auth.isSignedIn ? auth.user?.id : "") : nil, initial: true) { _, id in
+            guard auth.isResolved, !auth.isMock else { return }
+            // A restored session publishes the active push account too. A
+            // signed-out launch removes the old marker while retaining keys.
+            PushActiveAccountMirror.shared.update(userID: id?.isEmpty == true ? nil : id)
+            guard let id, !id.isEmpty else { return }
             AccountPreferences.standard.activate(userID: id)
             accountUserID = id
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
+        // A Mac's invite for a new machine (`https://cmux.com/pair?i=…`) opens Pair Another Machine.
         // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
         .onOpenURL { url in
-            if let link = CmuxLink(url: url) { return NotificationRouter.shared.open(link: link) }
-            guard let invite = PairInvite(url: url) else { return }
-            if let live { live.accept(invite) } else { heldInvite = invite }
+            if let opened = OpenedURL(url: url) { open(opened) }
         }
-        // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, a cloud group's page).
+        // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, `/pair?i=`, a cloud group's page).
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-            guard let url = activity.webpageURL, let link = CmuxLink(url: url) else { return }
-            NotificationRouter.shared.open(link: link)
+            guard let url = activity.webpageURL, let opened = OpenedURL(webpage: url) else { return }
+            open(opened)
+        }
+        .sheet(item: $machineInvite) { invite in
+            NavigationStack {
+                MachineInviteSheet(invite: invite) { machineInvite = nil }
+            }
         }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
@@ -235,6 +254,18 @@ public struct RootView: View {
         }
         .onChange(of: settings.appearance, initial: true) { _, mode in
             applyAppearance(mode)
+        }
+    }
+
+    private func open(_ opened: OpenedURL) {
+        switch opened {
+        case .machineInvite(let invite):
+            log.info("opening a Mac's invite for a new machine")
+            machineInvite = invite
+        case .link(let link):
+            NotificationRouter.shared.open(link: link)
+        case .macPairingCode(let invite):
+            if let live { live.accept(invite) } else { heldInvite = invite }
         }
     }
 
@@ -297,11 +328,22 @@ public struct RootView: View {
     /// same account signs in again (verify/persistence.md). Removing it from
     /// the Macs is its own action (Settings → Devices).
     private func signedOut() {
+        // Unexpected session loss (without the manual sign-out hook) also
+        // makes queued notifications inert on this device.
+        if !auth.isMock { PushActiveAccountMirror.shared.update(userID: nil) }
         // A live Chief call (even minimized) ends with the account; a call asked for while signed out is dropped.
         ChiefLiveCall.shared.signedOut()
         ChiefCallLauncher.shared.cancelPending()
+        AgentChatLauncher.shared.cancelPending()
+        AgentSessionDirectory.shared.newChatDraft = nil
+        // Send Message… needs a signed-in shell's Chief.
+        ChiefMessenger.shared.compose = nil
+        // A pending approval/reply or notification route belongs to the old
+        // account, including if sign-out came from an expired server session.
+        PushReplies.shared.signedOut()
         let ending = live
         live = nil
+        shellModel.discard { $0.cloudChats = nil }
         setupPlan = nil
         asksNotifications = nil
         if auth.isMock {
@@ -315,15 +357,15 @@ public struct RootView: View {
         store.resetForSignOut()
         // The chats loaded in this launch go too: the next background would save them again.
         AgentSessionDirectory.shared.removeAll()
+        // A shared thumbnail cache can still hold this account's file
+        // excerpts or images. Clear it, including in-flight reads, before a
+        // different account can open an artifact grid in the same process.
+        ArtifactThumbnailCacheLifecycle.clearForSignOut()
         // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
         PushRetryStore.app?.removeAll()
         // The App Group is resolved and emptied off the main thread, after any snapshot save in flight.
         let snapshotsCleared = PushSnapshots.clearForSignOut()
-        Task.detached(priority: .utility) {
-            await snapshotsCleared.value
-            let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
-            PushOutbox(group: group)?.removeAll()
-        }
+        PushReplies.shared.clearOutboxForSignOut(after: snapshotsCleared)
         welcomeCut = false
         log.info("signed out: account state reset, device identity kept")
     }
@@ -357,6 +399,11 @@ public struct RootView: View {
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).
         auth.willSignOut = AccountSignOut().willSignOut {
+            // Disarm queued replies before the sign-out network work suspends.
+            PushReplies.shared.signedOut()
+            // Withhold content before network sign-out can leave this device.
+            // The marker lives independently of the pairing keys we retain.
+            await PushActiveAccountMirror.shared.clearBeforeSignOut()
             await PushRegistration.shared.unregister()
             // Screen Sharing: end the session on screen and sign this phone out of the device hub
             // while the account can still reach it (docs/device-hub/PROTOCOL.md, sign-out).
@@ -429,6 +476,24 @@ public struct RootView: View {
     }
 }
 
+/// One model, built by the first caller and handed to every later one until `discard()`.
+@MainActor
+final class KeptModel<Model: AnyObject> {
+    private var kept: Model?
+
+    func model(make: () -> Model) -> Model {
+        if let kept { return kept }
+        let made = make()
+        kept = made
+        return made
+    }
+
+    func discard(cleanup: (Model) -> Void = { _ in }) {
+        if let kept { cleanup(kept) }
+        kept = nil
+    }
+}
+
 /// The signed-in shell: the UIKit drawer container with the team sidebar under
 /// a four-tab `TabView`.
 struct ShellView: View {
@@ -438,24 +503,32 @@ struct ShellView: View {
     /// RootView's coordinator; it can arrive after the shell is built.
     private let live: LiveCoordinator?
 
-    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?, options: ShellLaunchOptions) {
-        let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
-        shell.attach(live: live)
-        #if DEBUG
-        // Synthetic connection metadata for captures; never reads a real machine.
-        if auth.isMock, UserDefaults.standard.bool(forKey: "cmux-mobile-link-status-demo"),
-           let mac = store.activeTeam?.macs.first {
-            let phase = LinkMachine.Phase.connected(.wireGuard, .direct, rttMillis: 27)
-            let status = phase.statusLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
-            let detail = phase.diagnosticLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
-            if store.macLinkStatus[mac.id] != status { store.macLinkStatus[mac.id] = status }
-            if store.macLinkDiagnostics[mac.id] != detail { store.macLinkDiagnostics[mac.id] = detail }
-        }
-        #endif
-        if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
-        if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
-            shell.tab = .settings
-            shell.settingsPath = [page]
+    /// RootView re-creates this view on every update, and each creation runs this initializer. The
+    /// model is built (and wired to `live`, which writes the shared Feed and browser wiring) once, by
+    /// the first creation; later ones get the same model, so no throwaway model overwrites that wiring
+    /// with closures that die with it.
+    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?,
+         options: ShellLaunchOptions, kept: KeptModel<ShellModel>) {
+        let shell = kept.model {
+            let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
+            shell.attach(live: live)
+            #if DEBUG
+            // Synthetic connection metadata for captures; never reads a real machine.
+            if auth.isMock, UserDefaults.standard.bool(forKey: "cmux-mobile-link-status-demo"),
+               let mac = store.activeTeam?.macs.first {
+                let phase = LinkMachine.Phase.connected(.wireGuard, .direct, rttMillis: 27)
+                let status = phase.statusLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+                let detail = phase.diagnosticLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+                if store.macLinkStatus[mac.id] != status { store.macLinkStatus[mac.id] = status }
+                if store.macLinkDiagnostics[mac.id] != detail { store.macLinkDiagnostics[mac.id] = detail }
+            }
+            #endif
+            if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
+            if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
+                shell.tab = .settings
+                shell.settingsPath = [page]
+            }
+            return shell
         }
         _shell = State(initialValue: shell)
         self.options = options
@@ -473,6 +546,15 @@ struct ShellView: View {
         .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
+        }
+        .sheet(item: $shell.cloudChats) { item in
+            CloudChatsScreen(shell: shell, attention: item.attention)
+        }
+        .sheet(item: $shell.messagingChief) { subject in
+            ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
+        }
+        .sheet(item: $shell.messagingChiefText) { draft in
+            ChiefMessageAboutSheet(subject: nil, initialText: draft.text, sending: shell.sendingToChief) { text in shell.sendToChief(text) }
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
@@ -510,6 +592,18 @@ struct ShellView: View {
             if shell.open(route) { NotificationRouter.shared.opened() }
         }
         .modifier(NotificationRouteObserver(shell: shell))
+        // A named Home conversation link may arrive before the Mac's Home
+        // rows or Cloud Chief are loaded; continue the pending route as those
+        // owners publish their identities, instead of opening another Chief.
+        .onChange(of: MacHomeFeed.shared.rows) { _, _ in
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+        }
+        .onChange(of: ChiefSources.shared.cloud.conversationID) { _, _ in
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+        }
+        .onChange(of: ChiefSources.shared.mac.conversationID) { _, _ in
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+        }
         // Design/terminal P10: remember where the user is; finish a launch
         // restore once the workspace is listed (or its Mac says it is gone).
         // Back to the workspace and tab that were open (P10), once, on the
@@ -523,24 +617,7 @@ struct ShellView: View {
         .onChange(of: shell.lastOpenLocation) { _, location in
             shell.locationChanged(location)
         }
-        .onChange(of: shell.store.activeWorkspaces) { _, _ in
-            shell.continueRestore()
-        }
-        .onChange(of: shell.store.macData) { _, _ in
-            shell.continueRestore()
-            // Its Mac answered or went away: open the route, or the Feed.
-            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
-        }
-        .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
-            shell.terminalTabs.liveDataChanged()
-        }
-        .onChange(of: shell.store.workspaces) { _, _ in
-            // A terminal page shown before the tree arrived (a launch
-            // restore) attaches now (design/terminal R1-0).
-            shell.terminalTabs.liveDataChanged()
-            // A tapped notification waits for its Mac's tree (a cold launch), then opens.
-            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
-        }
+        .modifier(WorkspaceDataObserver(shell: shell))
         .onChange(of: pushKinds, initial: true) { _, preferences in
             PushRegistration.shared.setPreferences(preferences)
         }
@@ -562,6 +639,7 @@ struct ShellView: View {
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
@@ -581,6 +659,36 @@ private struct NotificationRouteObserver: ViewModifier {
             }
             .onChange(of: shell.tab) { _, tab in
                 if tab != .feed { NotificationRouter.shared.userNavigated() }
+            }
+    }
+}
+
+/// Follows the workspaces and the Macs' data (restore, terminal pages, a
+/// waiting notification route). Its own modifier: the reads re-run only this
+/// modifier's body, not ShellView's, which rebuilt the drawer, the tabs and
+/// every bar's toolbar on each Mac tree update.
+private struct WorkspaceDataObserver: ViewModifier {
+    let shell: ShellModel
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: shell.store.activeWorkspaces) { _, _ in
+                shell.continueRestore()
+            }
+            .onChange(of: shell.store.macData) { _, _ in
+                shell.continueRestore()
+                // Its Mac answered or went away: open the route, or the Feed.
+                if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+            }
+            .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
+                shell.terminalTabs.liveDataChanged()
+            }
+            .onChange(of: shell.store.workspaces) { _, _ in
+                // A terminal page shown before the tree arrived (a launch
+                // restore) attaches now (design/terminal R1-0).
+                shell.terminalTabs.liveDataChanged()
+                // A tapped notification waits for its Mac's tree (a cold launch), then opens.
+                if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
             }
     }
 }
@@ -646,6 +754,7 @@ extension CmuxMobileModel.TransportKind {
 private struct LiveCallHost: ViewModifier {
     let shell: ShellModel
     private let call = ChiefLiveCall.shared
+    private let voice = AgentVoiceMode.shared
 
     func body(content: Content) -> some View {
         content
@@ -654,9 +763,15 @@ private struct LiveCallHost: ViewModifier {
                     LiveCallPill(call: call, session: session)
                         .padding(.top, 2)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                } else if let session = voice.session {
+                    // Voice mode on an agent session: captions, mute and end, over every screen.
+                    AgentVoiceBar(mode: voice, session: session)
+                        .padding(.top, 2)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .animation(theme.motion.snappy.animation, value: call.isMinimized)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: call.isMinimized)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: voice.session?.id)
             .fullScreenCover(isPresented: Binding(
                 get: { call.showsScreen },
                 set: { if !$0 { call.isMinimized = true } }
@@ -669,9 +784,22 @@ private struct LiveCallHost: ViewModifier {
                 let user = shell.auth.isSignedIn ? shell.auth.user : nil
                 call.configure(store: shell.store, accountID: user?.id,
                                userName: user?.name.split(separator: " ").first.map(String.init))
-                ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+                ChiefCallLauncher.shared.handler = { [shell] chief in shell.callChief(chief) }
+                voice.install(accountID: user?.id)
+                voice.openKeySettings = { [shell] in shell.openChiefCallSettings() }
+                // One audio line at a time: voice mode ends a Chief call, a Chief call ends voice mode.
+                voice.endOtherAudio = { [call] in call.close() }
+                AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
+                ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
+                ChiefMessenger.shared.composeText = { [weak shell] text in shell?.messagingChiefText = ChiefTextDraft(text: text) }
             }
-            .onDisappear { ChiefCallLauncher.shared.handler = nil }
+            .onDisappear {
+                ChiefCallLauncher.shared.handler = nil
+                voice.install(accountID: nil)
+                AgentChatLauncher.shared.handler = nil
+                ChiefMessenger.shared.compose = nil
+                ChiefMessenger.shared.composeText = nil
+            }
     }
 }
 
@@ -714,6 +842,10 @@ struct ShellTabs: View {
                     sizing: shell.sizingService,
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
+                    cloudPages: shell.live == nil || ChiefCloudConfig.current() == nil ? nil : SettingsCloudPages(
+                        automations: { AnyView(CloudAutomationsScreen()) },
+                        connectGitHub: { AnyView(GitHubConnectRow()) }
+                    ),
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {
@@ -726,6 +858,9 @@ struct ShellTabs: View {
         .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+        // A closed ask's notification leaves Notification Center; only when an ask opens or
+        // closes, or the Feed finishes reading its Macs.
+        .task(id: NeedsYouNotices.key(FeedStore.shared)) { await NeedsYouNotices.sync(FeedStore.shared) }
     }
 }
 

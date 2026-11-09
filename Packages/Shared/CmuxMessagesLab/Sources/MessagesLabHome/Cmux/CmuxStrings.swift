@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import Foundation
 
 /// cmux's own transcript strings (Resources/CmuxHome.xcstrings, every app
@@ -66,6 +67,10 @@ enum CmuxStrings {
     static var send: String {
         String(localized: "home.compose.send", defaultValue: "Send", table: "CmuxHome", bundle: .module)
     }
+    /// The compose button after the person stops the Chief's turn.
+    static var continueTurn: String {
+        String(localized: "home.compose.continue", defaultValue: "Continue", table: "CmuxHome", bundle: .module)
+    }
     /// Reply to Selection (ChatController+ReplyQuote.swift): the menu item, the card's line and its remove button.
     static var replyToSelection: String {
         String(localized: "home.message.replyToSelection", defaultValue: "Reply to Selection", table: "CmuxHome", bundle: .module)
@@ -78,15 +83,29 @@ enum CmuxStrings {
     static var replyingToSelection: String {
         String(localized: "home.replyQuote.replyingToSelection", defaultValue: "Replying to Selection", table: "CmuxHome", bundle: .module)
     }
+    // MARK: The Chief composer's `/` menu (SlashSkillMenuView)
+
+    static var slashSkillsTitle: String {
+        String(localized: "home.slashSkills.title", defaultValue: "Skills", table: "CmuxHome", bundle: .module)
+    }
+    /// The menu's only row when no skill matches the command typed.
+    static func slashSkillsNoMatch(_ query: String) -> String {
+        String(format: String(localized: "home.slashSkills.noMatch", defaultValue: "No skills match “%@”", table: "CmuxHome", bundle: .module), query)
+    }
+    /// The source tag of a Chief skill.
+    static var slashSkillsSourceChief: String {
+        String(localized: "home.slashSkills.source.chief", defaultValue: "Chief", table: "CmuxHome", bundle: .module)
+    }
+    /// The source tag of the person's own Claude Code skill.
+    static var slashSkillsSourceClaude: String {
+        String(localized: "home.slashSkills.source.claude", defaultValue: "Claude", table: "CmuxHome", bundle: .module)
+    }
+
     static var replyQuoteRemove: String {
         String(localized: "home.replyQuote.remove", defaultValue: "Remove Quote", table: "CmuxHome", bundle: .module)
     }
     static var copyLink: String {
         String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: .module)
-    }
-    /// The placeholder of the thread header's rename field.
-    static var threadTitlePlaceholder: String {
-        String(localized: "home.thread.titlePlaceholder", defaultValue: "Thread Title", table: "CmuxHome", bundle: .module)
     }
     static var notDelivered: String {
         String(localized: "label.notDelivered", defaultValue: "Not Delivered", table: "CmuxHome", bundle: .module)
@@ -123,6 +142,12 @@ enum CmuxStrings {
         String(localized: "home.menu.tryAgain", defaultValue: "Try Again", table: "CmuxHome", bundle: .module)
     }
 
+    /// The context menu item on a person's committed Chief message: run the
+    /// Chief's turn again for that message (distinct from a failed send).
+    static var retryReply: String {
+        String(localized: "home.menu.retryReply", defaultValue: "Retry Reply", table: "CmuxHome", bundle: .module)
+    }
+
     /// The context menu item that sends a bubble's text to another chat or agent.
     static var forward: String {
         String(localized: "home.menu.forward", defaultValue: "Forward…", table: "CmuxHome", bundle: .module)
@@ -133,12 +158,33 @@ enum CmuxStrings {
         String(localized: "home.menu.deleteFailed", defaultValue: "Delete", table: "CmuxHome", bundle: .module)
     }
 
+    /// The context menu item on my message in a Chief chat that deletes it (#36019).
+    static var deleteMessage: String {
+        String(localized: "home.menu.deleteMessage", defaultValue: "Delete", table: "CmuxHome", bundle: .module)
+    }
+
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
+    static var viewVideoLarger: String {
+        String(localized: "home.video.viewLarger", defaultValue: "View Larger", table: "CmuxHome", bundle: .module)
+    }
+    static var closeVideoViewer: String {
+        String(localized: "home.video.closeViewer", defaultValue: "Close Video", table: "CmuxHome", bundle: .module)
+    }
     static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: .module) }
     /// An attachment's Copy (the file and an image's pixels): Messages' own Copy title.
     static var copyAttachment: String { Strings.menuCopy }
     static var saveAttachmentAs: String {
         String(localized: "home.attachment.saveAs", defaultValue: "Save As…", table: "CmuxHome", bundle: .module)
+    }
+    /// An agent-message fold's link while folded: how many messages it holds ("Agent messages (6)").
+    static func showAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.show", defaultValue: "Agent messages (%lld)",
+                              table: "CmuxHome", bundle: .module), count)
+    }
+    /// The same link while its messages show in full.
+    static func hideAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.hide", defaultValue: "Hide agent messages (%lld)",
+                              table: "CmuxHome", bundle: .module), count)
     }
     /// A link's Open Link and Copy Link Address rows (a link in text, a link card, a link preview).
     static var openLink: String {
@@ -193,5 +239,46 @@ enum CmuxStrings {
     /// The card's click menu: a link ("Open #22590", "Open github.com").
     static func planOpenLink(_ name: String) -> String {
         String(format: String(localized: "home.plan.openLink", defaultValue: "Open %@", table: "CmuxHome", bundle: .module), name)
+    }
+
+    /// A table card's menu item that opens a picture of a cell full size (`alt`: its description).
+    static func tableOpenPicture(_ alt: String) -> String {
+        let name = alt.isEmpty ? String(localized: "home.table.picture", defaultValue: "Picture", table: "CmuxHome", bundle: .module) : alt
+        return String(format: String(localized: "home.table.openPicture", defaultValue: "Open Picture: %@", table: "CmuxHome", bundle: .module), name)
+    }
+
+    // MARK: The large picture viewer (HomePictureViewer)
+
+    static var closePictureViewer: String { String(localized: "home.picture.close", defaultValue: "Close", table: "CmuxHome", bundle: .module) }
+    static var picturePrevious: String { String(localized: "home.picture.previous", defaultValue: "Previous Picture", table: "CmuxHome", bundle: .module) }
+    static var pictureNext: String { String(localized: "home.picture.next", defaultValue: "Next Picture", table: "CmuxHome", bundle: .module) }
+    static var pictureToolMove: String { String(localized: "home.picture.tool.move", defaultValue: "Move", table: "CmuxHome", bundle: .module) }
+    static var pictureToolArrow: String { String(localized: "home.picture.tool.arrow", defaultValue: "Arrow", table: "CmuxHome", bundle: .module) }
+    static var pictureToolBox: String { String(localized: "home.picture.tool.box", defaultValue: "Box", table: "CmuxHome", bundle: .module) }
+    static var pictureToolPen: String { String(localized: "home.picture.tool.pen", defaultValue: "Pen", table: "CmuxHome", bundle: .module) }
+    static var pictureToolText: String { String(localized: "home.picture.tool.text", defaultValue: "Text", table: "CmuxHome", bundle: .module) }
+    static var pictureUndo: String { String(localized: "home.picture.undo", defaultValue: "Undo", table: "CmuxHome", bundle: .module) }
+    static var pictureCompare: String { String(localized: "home.picture.compare", defaultValue: "Compare Side by Side", table: "CmuxHome", bundle: .module) }
+    /// The picture viewer's comparison styles (``HomePictureCompare/Style``): the control's VoiceOver name and its segments' tooltips.
+    static var pictureStyle: String { String(localized: "home.picture.style", defaultValue: "Comparison Style", table: "CmuxHome", bundle: .module) }
+    static var pictureStyleSideBySide: String { String(localized: "home.picture.style.sideBySide", defaultValue: "Side by Side", table: "CmuxHome", bundle: .module) }
+    static var pictureStyleFlip: String { String(localized: "home.picture.style.flip", defaultValue: "Flip in Place (Space, B, A)", table: "CmuxHome", bundle: .module) }
+    static var pictureStyleSlider: String { String(localized: "home.picture.style.slider", defaultValue: "Slider", table: "CmuxHome", bundle: .module) }
+    static var pictureCopy: String { String(localized: "home.picture.copy", defaultValue: "Copy Picture", table: "CmuxHome", bundle: .module) }
+    static var pictureSave: String { String(localized: "home.picture.save", defaultValue: "Save Picture…", table: "CmuxHome", bundle: .module) }
+    static var pictureReply: String { String(localized: "home.picture.reply", defaultValue: "Send in Chat", table: "CmuxHome", bundle: .module) }
+    /// The picture viewer's switch between a comparison's rows ("Light | Dark"), for VoiceOver.
+    static var pictureRowSwitch: String { String(localized: "home.picture.rowSwitch", defaultValue: "Picture Set", table: "CmuxHome", bundle: .module) }
+    static var pictureViewer: String { String(localized: "home.picture.viewer", defaultValue: "Picture Viewer", table: "CmuxHome", bundle: .module) }
+    static var pictureLoading: String { String(localized: "home.picture.loading", defaultValue: "Loading Picture", table: "CmuxHome", bundle: .module) }
+    static var pictureLoadFailed: String { String(localized: "home.picture.loadFailed", defaultValue: "This picture could not be loaded.", table: "CmuxHome", bundle: .module) }
+    static var pictureTextPlaceholder: String { String(localized: "home.picture.textPlaceholder", defaultValue: "Type, then press Return", table: "CmuxHome", bundle: .module) }
+    /// A picture with no name in the viewer's title (its table cell and alt text are empty).
+    static var pictureUntitled: String {
+        String(localized: "home.table.picture", defaultValue: "Picture", table: "CmuxHome", bundle: .module)
+    }
+    /// The viewer's place in its pictures: "2 of 4".
+    static func pictureCounter(_ index: Int, _ count: Int) -> String {
+        String(format: String(localized: "home.picture.counter", defaultValue: "%1$ld of %2$ld", table: "CmuxHome", bundle: .module), index, count)
     }
 }

@@ -18,6 +18,9 @@ async fn chat(fails_over: bool) -> (Arc<Hub>, Arc<Session>) {
     let mut cfg =
         json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
     if fails_over {
+        // A sign-in failure fails over; a usage limit waits for its reset (`auto_resume.rs`).
+        cfg["harnesses"]["fake"]["argv"] =
+            json!(["/usr/bin/env", "FAKE_AUTH_FAIL=1", "python3", fake]);
         cfg["harnesses"]["fake"]["fallback"] = json!("fake-fallback");
         let fallback = ["/usr/bin/env", "FAKE_FALLBACK=1", "python3", fake];
         cfg["harnesses"]["fake-fallback"] = json!({"argv": fallback});
@@ -112,7 +115,7 @@ async fn a_stop_during_a_failover_keeps_the_prompt_from_the_fallback() {
     let (hub, s) = chat(true).await;
     let run = prompt(&hub, &s, "slow-limit");
     record(&hub, &s, "out", "session/prompt", |_| true).await;
-    // The first agent answers its usage limit in a second; its fallback's start waits here.
+    // The first agent answers a sign-in failure in a second; its fallback's start waits here.
     let spawning = s.spawn_lock.lock().await;
     record(&hub, &s, "mux", "failover", |_| true).await;
     // The failover lets the first agent go and puts the turn back (`detach_child`).
@@ -290,4 +293,78 @@ async fn an_automatic_release_names_only_the_prompts_it_let_go() {
     let held: Vec<(String, bool)> =
         s.queue().iter().map(|q| (q.prompt_id.clone(), q.held)).collect();
     assert!(held.contains(&("p-agent".to_owned(), true)), "{held:?}");
+}
+
+/// acpmux's inbox notice a failed turn held goes in again by itself, as another agent's message
+/// does: it pauses nothing (no "Paused after an error" over it, `Session::queue_paused`), its
+/// hold record says it retries, and the queue lists it as the notice it is. Leo, 2026-11-05, on
+/// one held under "Paused after an error" until Resume: "Why is the thing still queued? ...
+/// don't show these kinds of things."
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failed_turn_lets_its_inbox_notice_go_in_by_itself() {
+    let (hub, s) = chat(false).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![1_000]);
+    let _running = prompt(&hub, &s, "until-cancel");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    let turn = s.turn().unwrap().turn_id;
+    let provenance =
+        json!({"kind": super::inbox::NOTICE_KIND, "noticeId": "p-notice", "threads": []});
+    let opts = PromptOptions {
+        prompt_id: Some("p-notice".to_owned()),
+        provenance: Some(provenance.clone()),
+        ..Default::default()
+    };
+    let (h, session) = (hub.clone(), s.clone());
+    let blocks = vec![
+        json!({"type": "text", "text": "[inbox] New messages from other agents in 3 threads."}),
+    ];
+    let _notice =
+        tokio::spawn(async move { h.prompt_with(&session, blocks, "acpmux", false, opts).await });
+    until("the notice queues", || s.queue().len() == 1).await;
+    let row = hub.session_summary(&s);
+    assert_eq!(row["queue"][0]["inboxNotice"], provenance, "{row}");
+
+    hub.pause_queue(&s, &turn);
+    let paused = record(&hub, &s, "mux", "queue_paused", |_| true).await;
+    assert_eq!(paused.msg["held"], json!(["p-notice"]), "{:?}", paused.msg);
+    assert_eq!(paused.msg["retrying"], json!(["p-notice"]), "{:?}", paused.msg);
+    assert!(s.queue().iter().all(|q| q.held), "{:?}", s.queue());
+    assert!(!s.queue_paused(), "a held notice paused the queue");
+    assert_eq!(hub.session_summary(&s)["queuePaused"], false);
+
+    // Its wait ends and it is let go, with no Resume.
+    let resumed = record(&hub, &s, "mux", "queue_resumed", |_| true).await;
+    assert_eq!(resumed.msg["promptIds"], json!(["p-notice"]), "{:?}", resumed.msg);
+    assert!(s.queue().iter().all(|q| !q.held), "{:?}", s.queue());
+}
+
+/// The person's own prompt a failed turn held goes in again by itself too, `PERSON_RETRIES`
+/// times; after those it waits for their Resume, and only then is the queue paused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failed_turn_holds_the_persons_prompt_for_resume_only_after_its_retries() {
+    let (hub, s) = chat(false).await;
+    let _running = prompt(&hub, &s, "until-cancel");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    let turn = s.turn().unwrap().turn_id;
+    let _mine = prompt_as(&hub, &s, "then the tests", "p-mine", None);
+    until("it queues", || s.queue().len() == 1).await;
+    hub.pause_queue(&s, &turn);
+    let paused = record(&hub, &s, "mux", "queue_paused", |_| true).await;
+    assert_eq!(paused.msg["retrying"], json!(["p-mine"]), "{:?}", paused.msg);
+    assert!(!s.queue_paused(), "a prompt that goes in by itself paused the queue");
+
+    // Let go as often as it may be: the next hold waits for Resume.
+    for q in s.queue.lock().unwrap().iter_mut() {
+        (q.held, q.retries) = (false, super::queue::PERSON_RETRIES);
+    }
+    hub.pause_queue(&s, &turn);
+    let paused = record(&hub, &s, "mux", "queue_paused", |m| m["retrying"] == json!([])).await;
+    assert_eq!(paused.msg["held"], json!(["p-mine"]), "{:?}", paused.msg);
+    assert!(s.queue_paused());
 }

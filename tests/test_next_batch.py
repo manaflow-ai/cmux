@@ -64,6 +64,9 @@ class Classify(unittest.TestCase):
             PANE: "web",
             "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/locales/ko.js": "web",
             "webviews/src/pages/settings/generated/strings.json": "web",
+            "web/data/next-docs/settings-reference.generated.json": "web",
+            "web/data/next-docs/cli-reference.generated.json": "web",
+            "web/data/next-docs/pages.ts": "source",
             "schemas/settings/settings-schema.json": "swift",
             "plans/cmux-next/action-surfaces.json": "swift",
             "cmux-tui/bindings/python/cmux/raw/_generated/models.py": "sdk",
@@ -639,8 +642,7 @@ class BaseReds(unittest.TestCase):
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
         self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
 
-    def test_an_old_gh_without_the_escape_flag_is_asked_again_without_it(self):
-        # gh 2.45 refuses --allow-escape-sequences as an unknown flag and reads nothing (2026-10-30).
+    def test_job_log_uses_the_flag_with_old_gh_fallback(self):
         controller = self.controller()
         controller.gh.gh.side_effect = [
             subprocess.CompletedProcess([], 1, "", "unknown flag: --allow-escape-sequences\n\nUsage:  gh api"),
@@ -718,6 +720,22 @@ class BaseReds(unittest.TestCase):
         controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
         # The daemon red is the older run's; generated files passed in the newest run, so its older red is not.
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
+
+    def test_cancelled_base_tier_runs_never_count_toward_the_lookback(self):
+        # The base tier kick cancels superseded base tier runs before a Mac job starts; more of them than
+        # the lookback must not hide the newest run with a verdict.
+        controller = self.controller()
+        title = "cmux-next base tier · "
+        cancelled = [{"id": 100 + n, "status": "completed", "conclusion": "cancelled", "head_branch": nb.BASE,
+                      "display_title": title + f"{n:x}" * 40} for n in range(nb.BASE_TIER_LOOKBACK + 2)]
+        tier = {"id": 2, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
+                "display_title": title + "c" * 40, "created_at": "2026-10-30T12:00:00Z"}
+        controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], cancelled + [tier]]
+        jobs = {1: [{"id": 7, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success"}],
+                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "failure"}]}
+        controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
 
     def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
@@ -812,8 +830,35 @@ class BaseReds(unittest.TestCase):
         steps = [{"name": "Build", "conclusion": "failure"}]
         controller.gh.gh.return_value = subprocess.CompletedProcess(
             [], 0, "2026-10-19T03:02:59.1Z the test helper died on signal 11\n", "")
-        self.assertIn("cmux app scheme compile (Debug): crash signal 11",
+        self.assertIn("cmux app scheme compile (Debug): the test process crashed (signal 11) (job 5, never a base red)",
                       controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}))
+
+    def test_a_non_test_job_cut_short_or_crash_never_matches_a_base_red(self):
+        controller = self.controller()
+        steps = [{"name": "Build", "conclusion": "failure"}]
+        # No test name is present: test_reds still records the abnormal end, and the
+        # job must remain keyed to its own run instead of inheriting a base job red.
+        cut_short = ("2026-10-19T03:02:59.1Z ##[error]no \"Test run with\" summary line "
+                     "(crash, kill or truncation); 0 tests started\n")
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, cut_short, "")
+        result = controller.expand_job("cmux-next generated files", 5, {"steps": steps})
+        self.assertTrue(any("never a base red" in item for item in result), result)
+
+        crashed = "2026-10-19T03:02:59.1Z ##[error]Process completed with exit code 139.\n"
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crashed, "")
+        result = controller.expand_job("cmux app scheme compile (Debug)", 6, {"steps": steps})
+        self.assertTrue(any("never a base red" in item for item in result), result)
+
+    def test_a_lost_runner_is_infra_keyed_by_its_own_job_with_no_log_read(self):
+        """cmux#33162's react-apps-base-check (3), job 126154996598: a step left in_progress, none failed."""
+        controller = self.controller()
+        steps = [{"name": "Set up job", "status": "completed", "conclusion": "success"},
+                 {"name": "Run base reds and compare", "status": "in_progress", "conclusion": None}]
+        controller.gh.gh.side_effect = AssertionError("a lost runner's log is never read")
+        name = "web / react-apps-base-check (3)"
+        (only,) = controller.expand_job(name, 8, {"conclusion": "failure", "steps": steps})
+        self.assertTrue(only.startswith(f"{name}: infra, not a verdict (job 8: "), only)
+        self.assertIn("re-run it", only)
 
     def test_an_unreadable_no_verdict_compile_log_is_keyed_by_its_own_job(self):
         controller = self.controller()
@@ -1612,6 +1657,16 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(tools["with"]["ref"], "${{ github.sha }}")
         regen = next(step for step in steps if step.get("id") == "regen")
         self.assertIn(".next-batch-tools/scripts/cmux-next/regenerate-swift-exports.sh", regen["run"])
+
+    def test_swift_regeneration_provisions_bun_before_the_generator(self):
+        """regenerate-swift-exports.sh ends with export-next-docs.ts, which needs bun (or Node 22.18+): a mini
+        without either would fail every Swift regeneration before its patch."""
+        steps = self.jobs["regen"]["steps"]
+        setup = next(n for n, step in enumerate(steps) if str(step.get("uses", "")).startswith("oven-sh/setup-bun@"))
+        regen = next(n for n, step in enumerate(steps) if step.get("id") == "regen")
+        self.assertLess(setup, regen)
+        self.assertTrue(steps[setup]["with"]["bun-version"])
+        self.assertTrue(any("private-bun.sh" in step.get("run", "") for step in steps[setup:regen]))
 
     def test_regen_linux_runs_the_web_formatter_and_lint_autofix(self):
         script = "\n".join(step.get("run", "") for step in self.jobs["regen-linux"]["steps"])

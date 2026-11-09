@@ -35,7 +35,7 @@ jobs:
   select:
     if: github.repository == 'manaflow-ai/cmux'
     name: select conflicting PRs
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 5
     permissions:
       contents: read
@@ -64,7 +64,7 @@ jobs:
     needs: select
     if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
     name: catch up #${{ matrix.pr.number }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -89,6 +89,7 @@ jobs:
             scripts/merge-pbxproj.py
             scripts/merge-baseline.py
             scripts/merge-daemon-capabilities.py
+            scripts/merge-insertions.py
             scripts/ci/merge_main_resolver.py
             scripts/normalize-pbxproj.py
           sparse-checkout-cone-mode: false
@@ -98,8 +99,62 @@ jobs:
         with:
           ref: ${{ matrix.pr.sha }}
           path: pr
-          fetch-depth: 0
+          # A depth-0 checkout fetches *every branch and tag* in this repo:
+          # 2026-10-31 runs spent 269-285 seconds here, often to discover an
+          # authored conflict and skip. Fetch just this PR's head first.
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
+
+      # An accurate three-way merge still needs the complete common ancestry.
+      # Unshallow this checked-out PR and the exact base SHA, without fetching
+      # thousands of unrelated branch refs/tags or historical file blobs.
+      # A full worktree remains available for generated-file rebuilds.
+      - name: Fetch just the PR and base ancestry
+        working-directory: pr
+        env:
+          BASE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ matrix.pr.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$HEAD_SHA" ]] || {
+            echo "::error::checkout did not land on the selected PR head $HEAD_SHA"
+            exit 1
+          }
+          if [[ -f .git/shallow ]]; then
+            git fetch -q --no-tags --filter=blob:none --unshallow origin "$BASE_SHA"
+          else
+            git fetch -q --no-tags --filter=blob:none origin "$BASE_SHA"
+          fi
+          merge_base="$(git merge-base HEAD "$BASE_SHA")" || {
+            echo "::error::no common ancestor between the selected head and base $BASE_SHA"
+            exit 1
+          }
+          # Fetch every blob the merge reads (the head, base and merge-base
+          # trees, outside the sparse-excluded verify media) in one request,
+          # before the merge. Left to the merge, git 2.55's checkout prefetch
+          # also asks the remote for the blobs merge-ort just wrote for
+          # cleanly merged files; GitHub refuses the whole batch ("not our
+          # ref"), and the merge dies with exit 128 after deleting the base's
+          # removed files but before writing the index or MERGE_HEAD (57 of
+          # 100 runs on 2026-11-07, e.g. run 42375127414). With nothing left
+          # to fetch, that prefetch asks for nothing.
+          for commit in HEAD "$BASE_SHA" "$merge_base"; do
+            git ls-tree -r --full-tree "$commit"
+          done \
+            | awk -F '\t' '$2 !~ /^cmux-next-ios\/verify\// { split($1, f, " "); if (f[2] == "blob") print f[3] }' \
+            | sort -u > "$RUNNER_TEMP/merge-blobs"
+          git rev-list --objects --no-walk --missing=print HEAD "$BASE_SHA" "$merge_base" \
+            | sed -n 's/^?//p' | sort -u | comm -12 - "$RUNNER_TEMP/merge-blobs" > "$RUNNER_TEMP/missing-blobs"
+          if [[ -s "$RUNNER_TEMP/missing-blobs" ]]; then
+            echo "Fetching $(wc -l < "$RUNNER_TEMP/missing-blobs") blobs the merge reads."
+            git -c fetch.negotiationAlgorithm=noop fetch -q --no-tags --no-write-fetch-head \
+              --recurse-submodules=no --filter=blob:none --stdin origin < "$RUNNER_TEMP/missing-blobs"
+          fi
 
       - name: Merge feat-cmux-next
         id: merge
@@ -125,16 +180,47 @@ jobs:
           printf -v pbxproj '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-pbxproj.py"
           printf -v baseline '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-baseline.py"
           printf -v capabilities '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-daemon-capabilities.py"
+          printf -v insertions '%q -I %q %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-insertions.py"
           git config merge.xcstrings-v2.driver "$xcstrings"
           git config merge.pbxproj-v1.driver "$pbxproj"
           git config merge.cmux-baseline-v1.driver "$baseline"
           git config merge.cmux-capabilities-v1.driver "$capabilities"
-          git fetch --quiet origin "$BASE_SHA"
-          if git merge --no-commit --no-ff "$BASE_SHA" >/dev/null 2>&1; then
+          git config merge.cmux-insertions-v1.driver "$insertions"
+          # Git reads merge attributes from the checked-out PR, so a head older than a
+          # driver's .gitattributes line would line-merge that path. The trusted base's
+          # attributes go in info/attributes, which wins over the tree's.
+          attributes="$(git rev-parse --git-path info/attributes)"
+          mkdir -p "$(dirname "$attributes")"
+          cp ../trusted/.gitattributes "$attributes"
+          # The previous step fetched this exact base SHA and verified the
+          # common ancestor, so merge here uses only the selected history.
+          if git merge --no-commit --no-ff "$BASE_SHA" > "$RUNNER_TEMP/merge.log" 2>&1; then
+            status=0
+          else
+            status=$?
+          fi
+          if ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            if [[ "$status" -eq 0 ]]; then
+              echo "#$PR_NUMBER already contains $BASE_SHA; nothing to catch up." | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # Not a conflict: git stopped the merge (a fetch, a refused
+            # overwrite, a crash). Never rebuild and commit a half-written tree.
+            echo "::error::git merge exited $status without starting a merge of $BASE_SHA into #$PR_NUMBER"
+            cat "$RUNNER_TEMP/merge.log"
+            exit 1
+          fi
+          if [[ "$status" -eq 0 ]]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git diff --name-only --diff-filter=U > "$RUNNER_TEMP/unmerged"
+          if [[ ! -s "$RUNNER_TEMP/unmerged" ]]; then
+            echo "::error::git merge exited $status with no unmerged paths in #$PR_NUMBER"
+            cat "$RUNNER_TEMP/merge.log"
+            exit 1
+          fi
           if ! python3 ../trusted/scripts/cmux-next/generated_catch_up.py authored \
               --gitattributes ../trusted/.gitattributes < "$RUNNER_TEMP/unmerged" > "$RUNNER_TEMP/authored"; then
             echo "#$PR_NUMBER conflicts outside generated files ($(paste -sd' ' "$RUNNER_TEMP/authored")); left for its author." | tee -a "$GITHUB_STEP_SUMMARY"

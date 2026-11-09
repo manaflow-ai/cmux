@@ -142,6 +142,11 @@ test("five ended reports collapse to one count and preserve all five independent
   expect(toggle.textContent).toBe("5 reviews ended · 4 SHIP, 1 BLOCK");
   expect(toggle.textContent).not.toContain("\n");
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  // One chevron, the trailing one: the icon column holds the reviews' glyph, never a second
+  // disclosure chevron (cmux#28749 drew two).
+  expect(toggle.querySelectorAll(".cv-tool__chevron")).toHaveLength(1);
+  expect(toggle.querySelector(".cv-tool__icon .cv-rotor, .cv-tool__icon [data-icon^='disclosure.']")).toBeNull();
+  expect(toggle.querySelector(".cv-tool__icon")?.innerHTML).not.toBe("");
   expect(host.querySelector(".cv-received")).toBeNull();
   await click(".cv-lane-batch__toggle");
   expect(host.querySelectorAll(".cv-received")).toHaveLength(5);
@@ -170,6 +175,29 @@ test("a single report shows its verdict; its full P2 remains readable and metada
   await click(".cv-received__more");
   expect(host.querySelector(".cv-received__details pre")?.textContent).toContain("secret-session-single-block");
   expect(host.querySelector(".cv-received__details pre")?.textContent).toContain(SHA);
+  expect(host.querySelectorAll(".cv-received__details pre")).toHaveLength(1);
+});
+
+test("structured lane report details appear exactly once after opening Details", async () => {
+  const details = { session: "structured-report-session", commits: [SHA] };
+  const text = "SHIP at 1234567890ab · no findings · turn 1, idle";
+  await mount([
+    {
+      id: "structured-details",
+      version: 1,
+      at: 100,
+      kind: "user",
+      text,
+      incoming: { kind: "message", message: { name: "review", report: true, text, raw: text, details } },
+    },
+  ]);
+  await click(".cv-disclosure__toggle");
+  expect(host.querySelector(".cv-received__details pre")).toBeNull();
+  await click(".cv-received__more");
+  const serialized = JSON.stringify(details, null, 2);
+  expect(host.querySelectorAll(".cv-received__details pre")).toHaveLength(1);
+  expect(host.querySelector(".cv-received__details pre")?.textContent).toBe(serialized);
+  expect(host.textContent!.split(serialized)).toHaveLength(2);
 });
 
 test("Find opens the batch and only the member holding its match", async () => {
@@ -215,8 +243,11 @@ test("three inbox notices share one line and expose each notice when opened", as
   });
   await mount(rows);
   const toggle = host.querySelector(".cv-lane-batch__toggle")!;
-  expect(toggle.textContent).toContain("3 inbox threads");
-  for (const sender of senders) expect(toggle.textContent).toContain(sender);
+  // "Received N messages", no session names at rest: they are its hover (Leo, 2026-11-02).
+  expect(toggle.textContent).toBe("Received 3 messages");
+  // Its hover lists each message (MessageGroupHover.tsx, test/agent-message-rows-unified.test.tsx),
+  // never a title of names (Leo, 2026-11-07, on that list: "this is not useful").
+  expect(toggle.getAttribute("title")).toBeNull();
   expect(toggle.textContent).not.toContain("\n");
   expect(host.querySelector(".cv-received")).toBeNull();
   await click(".cv-lane-batch__toggle");

@@ -47,6 +47,11 @@ const REPLY_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 /// checked (`Err` names what was wrong with it).
 pub enum Ask {
     Github(Result<TokenAsk, String>),
+    GithubRepos(Result<super::github_repos::ReposAsk, String>),
+    /// Which GitHub account is connected (`github_status.rs`): no token.
+    GithubStatus(Result<(), String>),
+    /// The session host's relay Register ticket (`carrier_ticket.rs`).
+    CarrierTicket(Result<(), String>),
     Handoff(Result<HandoffReport, String>),
 }
 
@@ -59,6 +64,12 @@ impl From<Result<TokenAsk, String>> for Ask {
 impl From<Result<HandoffReport, String>> for Ask {
     fn from(report: Result<HandoffReport, String>) -> Ask {
         Ask::Handoff(report)
+    }
+}
+
+impl From<Result<super::github_repos::ReposAsk, String>> for Ask {
+    fn from(ask: Result<super::github_repos::ReposAsk, String>) -> Ask {
+        Ask::GithubRepos(ask)
     }
 }
 
@@ -81,11 +92,11 @@ impl Stop {
         *self.lock() = true;
     }
 
-    fn is_set(&self) -> bool {
+    pub(super) fn is_set(&self) -> bool {
         *self.lock()
     }
 
-    fn lock(&self) -> MutexGuard<'_, bool> {
+    pub(super) fn lock(&self) -> MutexGuard<'_, bool> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -169,6 +180,11 @@ fn run<H: Http>(
                 } else {
                     match ask {
                         Ask::Github(ask) => answer(client.as_deref_mut(), ask, now(), log),
+                        Ask::GithubRepos(ask) => answer_repos(client.as_deref_mut(), ask, now()),
+                        Ask::GithubStatus(ask) => answer_status(client.as_deref_mut(), ask, now()),
+                        Ask::CarrierTicket(ask) => {
+                            answer_carrier(client.as_deref_mut(), ask, now())
+                        }
                         Ask::Handoff(report) => {
                             answer_report(client.as_deref_mut(), report, now(), log)
                         }
@@ -208,6 +224,52 @@ pub fn answer<H: Http>(
     let reply = github::reply_for(&ask, &client.github_token(&ask, now_wall_ms));
     log(&github::note_for(&ask, &reply));
     reply
+}
+
+/// Catalog discovery shares the bounded worker, never the agent poll loop.
+pub fn answer_repos<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    ask: Result<super::github_repos::ReposAsk, String>,
+    now_wall_ms: u64,
+) -> Value {
+    let ask = match ask {
+        Ok(ask) => ask,
+        Err(why) => return github::refusal("request.invalid", &why),
+    };
+    let Some(client) = client else {
+        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
+    };
+    client.github_repos(&ask, now_wall_ms)
+}
+
+/// The connected GitHub account, read off the agent poll loop like the repos.
+pub fn answer_status<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    ask: Result<(), String>,
+    now_wall_ms: u64,
+) -> Value {
+    if let Err(why) = ask {
+        return github::refusal("request.invalid", &why);
+    }
+    let Some(client) = client else {
+        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
+    };
+    client.github_status(now_wall_ms)
+}
+
+/// A relay Register ticket, asked off the agent poll loop like the status.
+pub fn answer_carrier<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    ask: Result<(), String>,
+    now_wall_ms: u64,
+) -> Value {
+    if let Err(why) = ask {
+        return github::refusal("request.invalid", &why);
+    }
+    let Some(client) = client else {
+        return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
+    };
+    client.carrier_ticket(now_wall_ms)
 }
 
 /// The reply for one hand-off report: a refusal before a bind or for a

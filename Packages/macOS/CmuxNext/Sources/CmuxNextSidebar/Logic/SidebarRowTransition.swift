@@ -9,8 +9,8 @@ import CoreGraphics
 nonisolated enum SidebarRowTransition {
     /// Where an inserted row (a row of `new` that `old` lacks) starts: under
     /// the header that unfolds it at full height, or else at the top of its
-    /// run of inserted rows at zero height (cx-ai79). A run (a workspace and
-    /// its tab rows, a group header) opens as one slot: each row's top tracks
+    /// run of inserted rows at zero height (cx-ai79). A run (a group header
+    /// and its members) opens as one slot: each row's top tracks
     /// the rows above it in the run, so none overlaps a row still sliding down.
     static func insertFrame(_ row: SidebarRow, target: CGRect, runTop: CGFloat?, from old: SidebarLayout, to new: SidebarLayout) -> CGRect {
         if let header = foldingHeader(of: row, open: new, closed: old, placedIn: new) {
@@ -51,24 +51,44 @@ nonisolated enum SidebarRowTransition {
         foldingHeader(of: row, open: old, closed: new, placedIn: new)?.y
     }
 
+    /// Whether a collapse hides `row` (a row of `old` that `new` lacks): its group or section folded (`foldedY`), or
+    /// a group it is nested in (a header above it at a lower `depth`) did (ask-71821f1cda, Codex review of #36457).
+    static func isFolded(_ row: SidebarRow, from old: SidebarLayout, to new: SidebarLayout) -> Bool {
+        if foldedY(row, from: old, to: new) != nil { return true }
+        guard row.depth > 0, var index = old.position(of: row.key) else { return false }
+        var depth = row.depth
+        while depth > 0, index > 0 {
+            index -= 1
+            let above = old.rows[index]
+            guard above.section == row.section else { return false }
+            guard above.key.isGroupHeader, above.depth < depth else { continue }
+            if let hidden = new.row(for: above.key), isFolded(hidden), !isFolded(above) { return true }
+            depth = above.depth
+        }
+        return false
+    }
+
     /// The nearest header that shows `row` in `open` and hides it in
-    /// `closed`, as it sits in `placedIn`: its workspace (inline tabs), then
-    /// its group, then its section.
+    /// `closed`, as it sits in `placedIn`: its group, then its section.
+    /// A group's one row (`standsForGroup`) has no header in `open`: it is
+    /// the open header (`standingHeader`), so collapsing its group folds it
+    /// under the header that takes its place (F1 of #36457), and opening the
+    /// group unfolds it where that header was.
     private static func foldingHeader(of row: SidebarRow, open: SidebarLayout, closed: SidebarLayout,
                                       placedIn layout: SidebarLayout) -> SidebarRow? {
         var headers: [SidebarRowKey] = []
-        if case let .tab(workspace, _) = row.key { headers.append(.workspace(workspace)) }
         if let group = row.group, row.key != .group(group) { headers.append(.group(group)) }
         if row.key != .section(row.section) { headers.append(.section(row.section)) }
+        let standing = row.standingHeader
         for key in headers {
-            guard let shown = open.row(for: key), let hidden = closed.row(for: key) else { continue }
-            if isFolded(hidden) && !isFolded(shown) { return layout.row(for: key) }
+            let own = standing?.key == key ? standing : nil
+            guard let shown = open.row(for: key) ?? own, let hidden = closed.row(for: key) else { continue }
+            if isFolded(hidden) && !isFolded(shown) { return layout.row(for: key) ?? own }
         }
         return nil
     }
 
     private static func isFolded(_ header: SidebarRow) -> Bool {
-        if case .workspace = header.key { return header.tabDisclosure == .collapsed }
         return header.isCollapsed
     }
 }

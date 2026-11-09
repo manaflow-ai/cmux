@@ -67,11 +67,11 @@ scope.mermaid = {
 
 const { createRoot } = await import("react-dom/client");
 const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
-const { isChart } = await import("../src/agent-session/acpmux/conversation/DiagramBlock");
+const { isChart } = await import("../src/agent-session/acpmux/conversation/diagramBlockModel");
 // The page loads the highlighted code card once it has painted (App.tsx); so does this file. Left to
 // load when the first card asks for it, the card was its plain fallback on a fast runner and the
 // highlighted card on a loaded one (react-apps-check, run 39553495850).
-const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/codeBlockModel");
 await loadHighlightedCode();
 
 /// Yields to React and the renderers until `ready` holds: a loaded runner gets more yields, not a
@@ -86,7 +86,8 @@ async function settleUntil(ready: () => boolean, what: string) {
   }
 }
 
-const diagramSvg = () => host.querySelector(".cv-diagram[data-language='mermaid'] svg");
+/// The drawn diagram: the chart area's svg, not the bar's icons (Save is an svg too).
+const diagramSvg = () => host.querySelector(".cv-diagram[data-language='mermaid'] .cv-diagram__chart svg");
 
 async function show(source: string, streaming = false) {
   root ??= createRoot(host);
@@ -116,7 +117,7 @@ test("a mermaid fence draws as SVG through Ondine, not a code block", async () =
   await settleUntil(() => diagramSvg() !== null, "the diagram");
   const diagram = host.querySelector<HTMLElement>(".cv-diagram[data-language='mermaid']");
   expect(diagram).not.toBeNull();
-  const svg = diagram!.querySelector("svg");
+  const svg = diagram!.querySelector(".cv-diagram__chart svg");
   expect(svg?.getAttribute("class") ?? "").toContain("ondine");
   expect(svg?.textContent).toContain("Valid?");
   expect(svg?.textContent).toContain("Done");
@@ -146,7 +147,7 @@ test("markup in labels stays inert", async () => {
   );
   await settleUntil(() => diagramSvg() !== null, "the diagram");
   const diagram = host.querySelector(".cv-diagram[data-language='mermaid']")!;
-  expect(diagram.querySelector("svg")).not.toBeNull();
+  expect(diagram.querySelector(".cv-diagram__chart svg")).not.toBeNull();
   expect(diagram.querySelector("script, img, foreignObject, iframe")).toBeNull();
   for (const element of diagram.querySelectorAll("*")) {
     for (const attribute of element.attributes) {

@@ -19,14 +19,20 @@ export default agentPaneEntry({
   title: "Chat another app runs",
   area: "Agent pane",
   height: 520,
-  covers: ["agent-session/acpmux/direct.ts#AcpmuxDirectClient"],
+  covers: ["agent-session/acpmux/LiveChatChoice.tsx#LiveChatChoice"],
   variants: {
     "choice-alone": {
       note: "Before, and still for a chat that cannot be watched: the choice over an empty pane",
       snapshot: noChat([], { liveChat: choice }),
     },
     "view-only": {
-      note: "Now: the chat View Only, following the terminal, with Fork It and Open Anyway over it",
+      note: "Now: the chat View Only, following the terminal, asking nothing until the person replies or takes over",
+      snapshot: chat(transcript, {
+        summary: { ...chat(transcript).summary!, watching: "claude" },
+      }),
+    },
+    "take-over-refused": {
+      note: "A reply or Take Over that acpmux refuses as live: Fork It and Open Anyway over the watched chat",
       snapshot: chat(transcript, {
         summary: { ...chat(transcript).summary!, watching: "claude" },
         liveTakeOver: choice,

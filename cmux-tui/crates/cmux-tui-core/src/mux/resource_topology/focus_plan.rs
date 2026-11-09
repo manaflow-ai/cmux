@@ -119,7 +119,8 @@ pub(super) fn focus_pane_plan(
     let workspace_id = state.workspaces[workspace_index].public_id.clone();
     let screen_id = state.workspaces[workspace_index].screens[screen_index].public_id.clone();
     let pane_id = state.resource_indexes.pane_ids[&pane].clone();
-    let topology = registry.resource_topology_snapshot()?;
+    // Only the workspace the focus leaves and the one it focuses change.
+    let topology = registry.resource_topology_with_active(std::slice::from_ref(&workspace_id))?;
     let previous = topology.active_workspace.clone();
     let mut after = topology.clone();
     after.active_workspace = Some(workspace_id.clone());
@@ -171,7 +172,8 @@ pub(super) fn focus_pane_plan(
         result,
         deltas,
         move |state| apply_focus_path(&mux, state, pane),
-    ))
+    )
+    .keeping_dock_columns())
 }
 
 pub(super) fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {

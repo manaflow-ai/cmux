@@ -124,10 +124,18 @@ struct MarkdownParser {
     }
 
     func parse() -> [MarkdownBlock] {
+        parseWithStarts().blocks
+    }
+
+    /// The blocks and the line each one starts on.
+    func parseWithStarts() -> (blocks: [MarkdownBlock], starts: [Int]) {
         var blocks: [MarkdownBlock] = []
+        var starts: [Int] = []
         var index = 0
+        var blockStart = 0
         func append(_ kind: MarkdownBlock.Kind) {
             blocks.append(MarkdownBlock(id: blocks.count, kind: kind))
+            starts.append(blockStart)
         }
         while index < lines.count {
             let line = lines[index]
@@ -136,6 +144,7 @@ struct MarkdownParser {
                 index += 1
                 continue
             }
+            blockStart = index
             // Fenced code.
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 let fence = String(trimmed.prefix(3))
@@ -195,8 +204,8 @@ struct MarkdownParser {
                 index += 1
                 continue
             }
-            // Table: a pipe row followed by a delimiter row.
-            if trimmed.contains("|"), index + 1 < lines.count, Self.isTableDelimiter(lines[index + 1]) {
+            // Table: a pipe row followed by a delimiter row with as many cells.
+            if index + 1 < lines.count, Self.startsTable(trimmed, delimiter: lines[index + 1]) {
                 let header = Self.cells(trimmed)
                 let alignments = Self.cells(lines[index + 1].trimmingCharacters(in: .whitespaces)).map(Self.alignment)
                 var rows: [[String]] = []
@@ -249,12 +258,16 @@ struct MarkdownParser {
                 let currentTrimmed = current.trimmingCharacters(in: .whitespaces)
                 if currentTrimmed.isEmpty { break }
                 if !body.isEmpty, Self.startsBlock(currentTrimmed, raw: current) { break }
+                // GFM lets a table interrupt a paragraph: a table right under a bold line is a table
+                // (Leo 2026-11-08: "whoa table broke rendering here?"), as the web transcript reads it.
+                if !body.isEmpty, index + 1 < lines.count, lines[index + 1].contains("|"),
+                   Self.startsTable(currentTrimmed, delimiter: lines[index + 1]) { break }
                 body.append(currentTrimmed)
                 index += 1
             }
             append(.paragraph(body.joined(separator: "\n")))
         }
-        return blocks
+        return (blocks, starts)
     }
 
     private static func startsBlock(_ trimmed: String, raw: Substring) -> Bool {
@@ -272,6 +285,12 @@ struct MarkdownParser {
         let compact = line.replacingOccurrences(of: " ", with: "")
         guard compact.count >= 3, let first = compact.first, "-*_".contains(first) else { return false }
         return compact.allSatisfy { $0 == first }
+    }
+
+    /// A pipe row over a delimiter row with as many cells, as GFM reads a table's start.
+    static func startsTable(_ trimmed: String, delimiter: Substring) -> Bool {
+        trimmed.contains("|") && isTableDelimiter(delimiter)
+            && cells(trimmed).count == cells(delimiter.trimmingCharacters(in: .whitespaces)).count
     }
 
     static func isTableDelimiter(_ line: Substring) -> Bool {

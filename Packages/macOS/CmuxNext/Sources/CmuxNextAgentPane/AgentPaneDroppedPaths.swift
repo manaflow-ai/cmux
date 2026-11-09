@@ -13,15 +13,17 @@ import CmuxNextWakeups
 /// names, with the same names in any order. Any other ask uses it up and answers nothing.
 public final class AgentPaneDroppedPaths {
     /// Which gesture brought the files in. A drop's record and a paste's are kept apart, so one never
-    /// answers for the other.
+    /// answers for the other. `choose`: the person's pick in the page's file input (+ > Attach files,
+    /// ``PageOpenPanel``): a chat on this Mac links the picked files where they are, as it does a
+    /// Finder drop, instead of streaming a copy of each (a several-GB video took minutes and failed
+    /// once the pick outlived the gesture's lifetime; Leo, 2026-10-31: "video attachments (big
+    /// attachments?) still sucks").
     public nonisolated enum Kind: String, Sendable {
-        case drop, paste
+        case drop, paste, choose
     }
 
     /// How long after the drop or paste the page may ask: it asks as soon as it has read the files.
     public nonisolated static let lifetime: TimeInterval = 5
-    /// The most files one ask names.
-    public nonisolated static let maximumNames = 100
 
     struct Item {
         var url: URL
@@ -37,15 +39,36 @@ public final class AgentPaneDroppedPaths {
     }
 
     private var held: [Kind: Record] = [:]
+    /// What the last drop's or paste's pasteboard said about where its contents came from, for the
+    /// page's `chat.attach.source` (``AgentPaneModel/attachSource(_:names:apps:)``): its file URLs,
+    /// how many items it held, and the app it says wrote it. Kept apart from ``held``, since each
+    /// record answers one ask.
+    private var sourced: [Kind: (urls: [URL], items: Int, claimed: String?, at: TimeInterval, madeAt: TimeInterval)] = [:]
     private let now: @MainActor () -> TimeInterval
+    /// The Mac's own clock (seconds since 1970): what the page's `Date.now()` reads too, so a source
+    /// record and the page's gesture can be put in order (``source(_:names:gestureAt:)``).
+    private let wall: @MainActor () -> TimeInterval
+    /// How far the page's gesture time may read before its record's: the page reads the same clock
+    /// (`Date.now()`) after the record was made, cut to whole milliseconds, so it is at most that much
+    /// earlier. No more: an older gesture's late ask a few milliseconds before a newer record of its
+    /// kind must not take it.
+    nonisolated static let gestureSlack: TimeInterval = 0.001
     /// Exact copies of the person's recording drops, never their parent folders. These remain
     /// usable by this pane's existing file open/drag actions after the preview path disappears.
     private(set) var retainedPaths: [String] = []
+    /// The files and folders this pane handed the page from the person's own drop, paste or
+    /// pick, newest last, bounded to ``linkedLimit``: a new chat's first send to Cloud may carry these
+    /// to the machine (``AgentPaneModel/cloudCarriedFiles(_:)``). Page script can't add one.
+    private(set) var linkedFiles: [String] = []
+    /// Far past any one drop (a batch of a thousand files keeps every one); paths only, no handles.
+    nonisolated static let linkedLimit = 4096
     /// Invalidates async drop work when the pane switches to a different chat.
     private(set) var generation = UUID()
 
-    public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+    public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                wall: @escaping @MainActor () -> TimeInterval = { Date().timeIntervalSince1970 }) {
         self.now = now
+        self.wall = wall
     }
 
     /// Records the file URLs a drop or paste brought in, in place of the last ones of that kind; none
@@ -54,15 +77,11 @@ public final class AgentPaneDroppedPaths {
     public func stash(_ urls: [URL], kind: Kind) {
         held.removeValue(forKey: kind)?.expiry.cancel()
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
-        guard !paths.isEmpty, paths.count <= Self.maximumNames else { return }
-        var budget = AgentPaneUpload.maximumTotalBytes
+        guard !paths.isEmpty else { return }
+        // A preview's file of any size is pinned: its copy is a clone, never read into memory.
         let items = paths.map { url -> Item in
             let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)
-            var snapshot = needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil
-            if let pinned = snapshot {
-                if pinned.size > budget { snapshot = nil } else { budget -= pinned.size }
-            }
-            return Item(url: url, needsSnapshot: needsSnapshot, snapshot: snapshot)
+            return Item(url: url, needsSnapshot: needsSnapshot, snapshot: needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil)
         }
         let id = UUID(), expiry = DemandTimer(owner: "agent-pane.droppedPaths.expiry")
         held[kind] = Record(items: items, at: now(), id: id, expiry: expiry)
@@ -70,6 +89,43 @@ public final class AgentPaneDroppedPaths {
             guard self?.held[kind]?.id == id else { return }
             self?.held[kind] = nil
         }
+    }
+
+    /// Records what a drop's or paste's pasteboard said, with its file URLs and its item count:
+    /// where its contents came from, as only the person's own drop or paste can say
+    /// (``source(_:names:)``). One with no files and no claim says nothing, and clears the record.
+    /// `madeAt` (seconds since 1970): when the gesture happened, for one recorded after its page took
+    /// it (a Chromium drop, reported by the page's drop message: the drag's entry); now otherwise.
+    public func stashSource(_ urls: [URL], items: Int, claimed: String?, kind: Kind, madeAt: TimeInterval? = nil) {
+        let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
+        sourced[kind] = paths.isEmpty && claimed == nil ? nil : (paths, max(items, paths.count), claimed, now(), madeAt ?? wall())
+    }
+
+    /// What the last drop or paste of `kind` said, for the files `names` names, within ``lifetime``:
+    /// the file URLs among them, and its claim. Only an ask for that gesture's own files answers,
+    /// and uses the record up: no more files than the pasteboard held items, and every file URL it
+    /// held named (a drop of files and pictures names both). Any other ask answers nothing and
+    /// leaves the record for the page's own ask. `gestureAt` (the page's clock when it took the
+    /// gesture, seconds since 1970): an ask for a gesture taken before the record was made is for an
+    /// older gesture, one that reached the host late, so it answers nothing and leaves the newer
+    /// gesture its record. Nil (an older page) skips that check.
+    func source(_ kind: Kind, names: [String], gestureAt: TimeInterval? = nil) -> (urls: [URL], claimed: String?)? {
+        guard let record = sourced[kind] else { return nil }
+        if let gestureAt, gestureAt + Self.gestureSlack < record.madeAt { return nil }
+        guard now() - record.at <= Self.lifetime else {
+            sourced[kind] = nil
+            return nil
+        }
+        guard !names.isEmpty, names.count <= record.items else { return nil }
+        var left = record.urls
+        var picked: [URL] = []
+        for name in names {
+            guard let index = left.firstIndex(where: { Self.named($0, name) }) else { continue }
+            picked.append(left.remove(at: index))
+        }
+        guard left.isEmpty else { return nil }
+        sourced[kind] = nil
+        return (picked, record.claimed)
     }
 
     /// The recorded URLs of `kind` for the files `names` names (WebKit's `File.name`, the URL's last
@@ -107,13 +163,23 @@ public final class AgentPaneDroppedPaths {
         if retainedPaths.count > 100 { retainedPaths.removeFirst(retainedPaths.count - 100) }
     }
 
+    /// Records files handed to the page as link items, keeping the newest ``linkedLimit``.
+    func linked(_ paths: [String]) {
+        let fresh = Set(paths)
+        linkedFiles.removeAll { fresh.contains($0) }
+        linkedFiles.append(contentsOf: paths)
+        if linkedFiles.count > Self.linkedLimit { linkedFiles.removeFirst(linkedFiles.count - Self.linkedLimit) }
+    }
+
     /// A pane can move between chat sessions. Clear pending drops as well as already-retained
     /// copies so the next chat cannot consume or open the prior chat's recording.
     func clearForSessionChange() {
         generation = UUID()
         held.values.forEach { $0.expiry.cancel() }
         held.removeAll()
+        sourced.removeAll()
         retainedPaths.removeAll()
+        linkedFiles.removeAll()
     }
 
     /// Whether WebKit names the file at `url` `name`. String equality is canonical: a name WebKit

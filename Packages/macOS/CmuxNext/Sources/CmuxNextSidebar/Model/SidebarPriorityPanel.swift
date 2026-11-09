@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesign
 
 /// One chat in the sidebar's Priority view: every agent chat on every machine, the ones that need
 /// the person first. The App ranks them (`AgentPriorityRanking`); the sidebar only draws them in
@@ -27,6 +28,11 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
     public var title: String
     /// The project (the session folder's name), else nil.
     public var project: String?
+    /// The session's agent brand mark (`AgentBrandID`, `SidebarItemInfo.agentBrand(forHarness:)`), nil when
+    /// its harness has none.
+    public var brand: String?
+    /// Stable fallback color when the harness has no registered mark.
+    public var agentColor: GroupColor?
     /// The machine it runs on, nil on this Mac; its tag takes the machine's color.
     public var machine: String?
     /// The latest line from the chat, up to two lines in the row.
@@ -36,17 +42,27 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
     public var unread: Bool
     /// Pinned to the Priority view: first in its tier, and kept while idle.
     public var pinned: Bool
+    /// The id of the chat's one pending tool permission when the row can answer it (Allow, Deny, y
+    /// and n): the App read it from this Mac's acpmux. Nil for a question, several prompts or another
+    /// machine's chat; those open the chat. An answer names it, so it never answers a later request.
+    public var answerRequest: String?
+    /// The row shows Allow and Deny.
+    public var answerable: Bool { answerRequest != nil }
 
     public init(id: String, title: String, project: String? = nil, machine: String? = nil, preview: String? = nil,
-                state: State, unread: Bool = false, pinned: Bool = false) {
+                state: State, unread: Bool = false, pinned: Bool = false, brand: String? = nil,
+                agentColor: GroupColor? = nil, answerRequest: String? = nil) {
         self.id = id
         self.title = title
         self.project = project
+        self.brand = brand
+        self.agentColor = agentColor
         self.machine = machine
         self.preview = preview
         self.state = state
         self.unread = unread
         self.pinned = pinned
+        self.answerRequest = answerRequest
     }
 
     /// Needs the person: waiting on them, finished unseen, failed, lost or Red CI.
@@ -95,7 +111,12 @@ public nonisolated enum SidebarPriorityAction: Hashable, Sendable {
     /// Hide the row until its state changes or an hour passes.
     case snooze(String)
     case archive(String)
+    /// Allow (once) or Deny the chat's pending tool permission `request` (its id), from an answerable
+    /// row's buttons or its y and n keys. A request that ended meanwhile is answered nothing.
+    case answer(String, request: String, allow: Bool)
     case setCollapsed(Bool)
+    /// The person dragged the chat; the view now shows `order` (top first). It keeps that place.
+    case place(String, order: [String])
     /// The titlebar bell: show or hide the view.
     case toggleShown
 }

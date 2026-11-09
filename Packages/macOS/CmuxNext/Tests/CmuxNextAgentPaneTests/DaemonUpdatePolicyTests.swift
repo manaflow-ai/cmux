@@ -23,7 +23,6 @@ import Testing
         #expect(await target.currentBuild() == Self.bundled)
         #expect(fixture.states("old") == [.updating, .updated(build: Self.bundled)])
         #expect(fixture.ledger.targets == ["old": "updated"])
-        #expect(fixture.notices.isEmpty)
     }
 
     @Test func targetsOnTheBuildOrUnknownAreLeftAlone() async throws {
@@ -82,7 +81,6 @@ import Testing
         #expect(await target.currentBuild() == "abc123def")
         #expect(fixture.states("huge-blue") == [.updating, .updated(build: "abc123def")])
         #expect(fixture.ledger.targets == ["huge-blue": "updated"])
-        #expect(fixture.notices.isEmpty)
     }
 
     /// A target asked again that reached the build meanwhile (someone ran `host update` by hand)
@@ -136,28 +134,26 @@ import Testing
         #expect(fixture.states("huge-blue") == [.updating, .retrying, .updating, .retrying, .updating, .retrying,
                                                 .updating, .updated(build: "abc123def")])
         #expect(fixture.ledger.targets == ["huge-blue": "updated"])
-        #expect(fixture.notices.isEmpty)
     }
 
-    /// A target that answers busy also to an update while busy (unreachable, another update
-    /// running) keeps the backoff (2, 4, 8, 16, then every 30 minutes) and is left for the next
-    /// launch after six hours, unrecorded.
+    /// A target that answers busy also to an update while busy (another update running, a Cloud
+    /// start holding it) keeps a backoff of 2, then every 4 minutes (`busyMaximum`; an unreachable
+    /// one goes to 30, below) and is left for the next launch after six hours, unrecorded.
     @Test func aTargetBusyAlsoWhileBusyIsLeftAfterSixHours() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
         let clock = PolicyTestClock()
-        let target = fixture.target("unreachable", build: Self.older, outcomes: [.busy])
+        let target = fixture.target("busy", build: Self.older, outcomes: [.busy])
         await fixture.policy([target], clock: clock).run()
 
-        let minutes: [Int64] = [2, 4, 8, 16] + Array(repeating: 30, count: 11)
+        let minutes: [Int64] = [2] + Array(repeating: 4, count: 89)
         #expect(clock.sleeps == minutes.map { .seconds($0 * 60) })
         #expect(fixture.whileBusy == Array(repeating: true, count: minutes.count + 1))
         #expect(await target.currentBuild() == Self.older)
         // Left: the board forgets it rather than promise a retry.
-        #expect(fixture.states("unreachable").suffix(3) == [.retrying, .updating, .cleared])
+        #expect(fixture.states("busy").suffix(3) == [.retrying, .updating, .cleared])
         // Not recorded: the next launch tries again.
         #expect(fixture.ledger.targets.isEmpty)
-        #expect(fixture.notices.isEmpty)
     }
 
     /// An unreachable machine (Leo's toast: ssh timed out connecting) is offline, not failed: no
@@ -178,7 +174,6 @@ import Testing
         #expect(fixture.states("swarm").suffix(3) == [.offline, .updating, .offline])
         #expect(!fixture.states("swarm").contains(.retrying) && !fixture.states("swarm").contains(.cleared))
         #expect(fixture.ledger.targets.isEmpty)
-        #expect(fixture.notices.isEmpty)
 
         await policy.offer(target)
         await policy.drained()
@@ -285,9 +280,8 @@ import Testing
         await fixture.policy([target], board: apply).run()
         await fixture.policy([target], board: apply).run()
 
-        #expect(fixture.calls == ["cmux16"])
+        #expect(fixture.calls == ["cmux16", "cmux16", "cmux16"], "tried twice more in the first run, then final for the build")
         #expect(board.targets["cmux16"]?.state == .failed(reason: "disk full", rolledBack: false))
-        #expect(fixture.notices.map(\.id) == ["cmux16"])
     }
 
     /// A machine too old to update in place (Cloud `machine_update_unsupported`) is no failure: no
@@ -304,7 +298,6 @@ import Testing
         await fixture.policy([target], bundled: "fedcba987 2026-10-21").run()
 
         #expect(fixture.calls == ["old-vm"], "asked again on a later build")
-        #expect(fixture.notices.isEmpty, "a toast for a machine that cannot update in place")
         #expect(fixture.states("old-vm") == [.updating, .cannotUpdate(reason: reason), .cannotUpdate(reason: reason), .cannotUpdate(reason: reason)])
         #expect(fixture.ledger.targets == ["old-vm": "unsupported"])
 
@@ -348,21 +341,55 @@ import Testing
         #expect(fixture.calls == ["refused"])
         await fixture.policy([target], bundled: "fedcba987 2026-10-21").run()
         #expect(fixture.calls == ["refused", "refused"])
-        #expect(fixture.notices.isEmpty)
     }
 
-    @Test func aRollbackIsRecordedAndTriedAgainOnlyOnTheNextBuild() async throws {
+    /// huge-blue, 2026-11-06: its update rolled back when ssh's link dropped under the restart, and
+    /// the app raised a toast over Leo's message ("why is this still happening yo"). A rollback is
+    /// tried again in the background after a backoff, saying only "will try again" on the
+    /// machine's line, and the retry updates it.
+    @Test func aRollbackIsTriedAgainInTheBackgroundAndUpdates() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
-        let target = fixture.target("peer", build: Self.older, outcomes: [.rolledBack(reason: "new daemon reported 0123456ff"), .updated(build: nil)])
-        await fixture.policy([target]).run()
-        await fixture.policy([target]).run()
-        #expect(fixture.calls == ["peer"])
-        #expect(fixture.ledger.targets == ["peer": "rolledBack"])
-        #expect(fixture.notices.map(\.state) == [.failed(reason: "new daemon reported 0123456ff", rolledBack: true)])
+        let clock = PolicyTestClock()
+        let lost = "Connection to UNKNOWN port 65535 timed out"
+        let target = fixture.target("huge-blue", build: Self.older, outcomes: [.rolledBack(reason: lost), .updated(build: nil)])
+        await fixture.policy([target], clock: clock).run()
+        #expect(fixture.calls == ["huge-blue", "huge-blue"])
+        #expect(fixture.states("huge-blue") == [.updating, .retrying, .updating, .updated(build: "abc123def")])
+        #expect(clock.sleeps == [.seconds(120)], "the retry waits out a backoff")
+        #expect(fixture.ledger.targets == ["huge-blue": "updated"])
+    }
 
-        await fixture.policy([target], bundled: "fedcba987 2026-10-21").run()
-        #expect(fixture.calls == ["peer", "peer"])
+    /// Review of #36960 (F1): a failure waiting for its retry says "will try again"; when its turn
+    /// finds the machine already on the build (updated some other way), the line clears instead of
+    /// staying with no retry coming.
+    @Test func aRetryThatFindsTheMachineCurrentClearsItsLine() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let target = fixture.target("peer", build: Self.older, outcomes: [.rolledBack(reason: "new daemon reported 0123456ff")])
+        await fixture.policy([target], board: { event in
+            if event.state == .retrying { target.reach(DaemonUpdatePolicyTests.bundled) }
+        }).run()
+        #expect(fixture.calls == ["peer"])
+        #expect(fixture.states("peer") == [.updating, .retrying, .cleared])
+    }
+
+    /// A rollback that keeps rolling back is tried 1 + ``DaemonUpdatePolicy/Dependencies/failureRetries``
+    /// times, then recorded, and tried again only on the next build.
+    @Test func aRollbackIsRecordedAfterItsRetriesAndTriedAgainOnTheNextBuild() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let clock = PolicyTestClock()
+        let target = fixture.target("peer", build: Self.older, outcomes: [.rolledBack(reason: "new daemon reported 0123456ff")])
+        await fixture.policy([target], clock: clock).run()
+        await fixture.policy([target], clock: clock).run()
+        #expect(fixture.calls == ["peer", "peer", "peer"])
+        #expect(clock.sleeps == [.seconds(120), .seconds(240)])
+        #expect(fixture.ledger.targets == ["peer": "rolledBack"])
+        #expect(fixture.states("peer").last == .failed(reason: "new daemon reported 0123456ff", rolledBack: true))
+
+        await fixture.policy([target], bundled: "fedcba987 2026-10-21", clock: clock).run()
+        #expect(fixture.calls.count == 6)
     }
 
     /// Review of #25387: the ledger can't be written (its directory is a file). The failure is
@@ -379,8 +406,7 @@ import Testing
         await policy.drained()
         await policy.run()
 
-        #expect(fixture.calls == ["cmux16"], "a rolled-back build was tried again because its ledger was not written")
-        #expect(fixture.notices.count == 1)
+        #expect(fixture.calls == ["cmux16", "cmux16", "cmux16"], "a rolled-back build was tried again because its ledger was not written")
     }
 
     /// Review of #25387: the bundled acpmux's `--version` never answers. The probe ends at its
@@ -414,7 +440,6 @@ import Testing
         let target = fixture.target("arm", build: Self.older, outcomes: [.needsBinary(target: "aarch64-unknown-linux-musl")])
         await fixture.policy([target]).run()
         #expect(fixture.ledger.targets.isEmpty)
-        #expect(fixture.notices.isEmpty)
         #expect(fixture.states("arm").last == .failed(reason: "no build for aarch64-unknown-linux-musl", rolledBack: false))
     }
 
@@ -428,7 +453,6 @@ import Testing
         let apply: @Sendable (DaemonUpdateEvent) async -> Void = { event in await MainActor.run { board.apply(event) } }
         await fixture.policy([target], board: apply).run()
         #expect(fixture.ledger.targets.isEmpty)
-        #expect(fixture.notices.isEmpty)
         #expect(board.targets["vm"] == nil)
     }
 
@@ -499,6 +523,94 @@ import Testing
         #expect(fixture.calls == ["first", "second"])
     }
 
+    /// A chat start the machine's older daemon refused: ``DaemonUpdatePolicy/updateNow(_:)``
+    /// updates it and returns once that turn ended, so the start can go again on the new daemon.
+    @Test(.timeLimit(.minutes(1))) func updateNowUpdatesTheTargetAndReturnsAfterItsTurn() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let target = fixture.target("vm", build: Self.older, outcomes: [.updated(build: Self.bundled)])
+        await fixture.policy([]).updateNow(target)
+
+        #expect(fixture.calls == ["vm"])
+        #expect(await target.currentBuild() == Self.bundled)
+        #expect(fixture.ledger.targets == ["vm": "updated"])
+    }
+
+    /// As the person's Update click: an earlier failure on this build does not hold it back.
+    @Test(.timeLimit(.minutes(1))) func updateNowIsNotHeldBackByAnEarlierFailure() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let target = fixture.target("vm", build: Self.older, outcomes: [.failed(reason: "network"), .updated(build: Self.bundled)])
+        // No background retry: the failure is final for the build, as after its retries.
+        let policy = fixture.policy([], failureRetries: 0)
+        await policy.offer(target)
+        await policy.drained()
+        #expect(fixture.ledger.targets == ["vm": "failed"])
+
+        await policy.updateNow(target)
+        #expect(fixture.calls == ["vm", "vm"])
+        #expect(await target.currentBuild() == Self.bundled)
+    }
+
+    /// The background offer's update of that machine already runs: the start waits for it, and
+    /// no second update runs.
+    @Test(.timeLimit(.minutes(1))) func updateNowJoinsAnUpdateThatAlreadyRuns() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let started = UpdateSignal()
+        let release = UpdateSignal()
+        let returned = UpdateSignal()
+        let target = fixture.target("vm", build: Self.older, outcomes: [.updated(build: Self.bundled)], started: started, release: release)
+        let policy = fixture.policy([])
+        await policy.offer(target)
+        await started.wait()
+        // task-owner: this test; awaited through `returned` below
+        let waiter = Task {
+            await policy.updateNow(target)
+            returned.fire()
+        }
+        release.fire()
+        await returned.wait()
+        await waiter.value
+        await policy.drained()
+
+        #expect(fixture.calls == ["vm"])
+        #expect(await target.currentBuild() == Self.bundled)
+    }
+
+    /// A refusal that arrives while the machine's update already runs waits for that update and
+    /// never queues a second one, also when it fails (review of #29497).
+    @Test(.timeLimit(.minutes(1))) func updateNowJoiningARunningUpdateNeverRunsItTwice() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let started = UpdateSignal()
+        let release = UpdateSignal()
+        let target = fixture.target("vm", build: Self.older,
+                                    outcomes: [.failed(reason: "disk full"), .updated(build: Self.bundled)],
+                                    started: started, release: release)
+        // No background retry: only the join is under test.
+        let policy = fixture.policy([], failureRetries: 0)
+        await policy.offer(target)
+        await started.wait()
+        // task-owner: this test; awaited below
+        let waiter = Task { await policy.updateNow(target) }
+        while !(await policy.awaitsTurn("vm")) { await Task.yield() }
+        release.fire()
+        await waiter.value
+        await policy.drained()
+
+        #expect(fixture.calls == ["vm"])
+        #expect(await target.currentBuild() == Self.older)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func updateNowWithTheToggleOffReturnsAtOnce() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let target = fixture.target("vm", build: Self.older, outcomes: [.updated(build: nil)])
+        await fixture.policy([], enabled: false).updateNow(target)
+        #expect(fixture.calls.isEmpty)
+    }
+
     @Test func toggleOffRunsNothing() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
@@ -560,7 +672,6 @@ nonisolated final class PolicyFixture: Sendable {
     var overlapped: Bool { log.withLock { $0.overlapped } }
     var events: [DaemonUpdateEvent] { log.withLock { $0.events } }
     var targetReads: Int { log.withLock { $0.targetReads } }
-    var notices: [DaemonUpdateEvent] { events.filter(\.notify) }
     func states(_ id: String) -> [DaemonUpdateEvent.State] { events.filter { $0.id == id }.map(\.state) }
     var ledger: DaemonUpdateLedger {
         DaemonUpdateLedger.read(root, build: DaemonBuildCommit(DaemonUpdatePolicyTests.bundled)?.hash ?? "")
@@ -591,7 +702,7 @@ nonisolated final class PolicyFixture: Sendable {
     func policy(_ targets: [FakeUpdateTarget], bundled: String = DaemonUpdatePolicyTests.bundled, clock: any Clock<Duration> = PolicyTestClock(),
                 enabled: Bool = true, isEnabled: (@Sendable () -> Bool)? = nil,
                 board: (@Sendable (DaemonUpdateEvent) async -> Void)? = nil,
-                updateBusyAfter: Duration? = nil, directory: URL? = nil) -> DaemonUpdatePolicy {
+                updateBusyAfter: Duration? = nil, directory: URL? = nil, failureRetries: Int? = nil) -> DaemonUpdatePolicy {
         var dependencies = DaemonUpdatePolicy.Dependencies(
             bundledBuild: { bundled },
             targets: {
@@ -607,6 +718,7 @@ nonisolated final class PolicyFixture: Sendable {
             clock: clock
         )
         if let updateBusyAfter { dependencies.updateBusyAfter = updateBusyAfter }
+        if let failureRetries { dependencies.failureRetries = failureRetries }
         return DaemonUpdatePolicy(dependencies)
     }
 }

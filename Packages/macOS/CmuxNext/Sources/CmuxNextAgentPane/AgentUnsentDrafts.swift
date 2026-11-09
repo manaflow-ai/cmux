@@ -1,70 +1,249 @@
 public import Foundation
+import os
+import CmuxNextCompat
 
 /// A new chat's typed text from before it has an acpmux session (cx-z5vd), by tab, in a JSON file
 /// beside the launch snapshot: after a relaunch that tab opens as the chat with its draft, not as
 /// the New Tab page. Once the chat has a session acpmux keeps its draft, and this copy is gone.
+///
+/// A kept draft is never lost to a load: until a page has been handed tab `key`'s draft
+/// (``seed(for:session:local:)``), the page's empty text is a page that has not loaded it yet, not a
+/// clear, and is ignored; its non-empty text is merged with the kept one (the kept text first, the
+/// typed text after it), never written over it. Once the page has it, the page's text is the draft,
+/// and an empty one (the person deleted it, or sent it) clears it. A file this run cannot read is
+/// set aside, never replaced by an empty or a partial one.
 public final class AgentUnsentDrafts {
     public static let fileName = "agent-unsent-drafts.json"
-    /// A longer text is not kept (acpmux's own draft limit).
-    static let maximumCharacters = 1_000_000
-
+    nonisolated private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.unsent-drafts")
     let file: URL?
     /// Saves leave the main thread: typing in a new chat saves every settled edit.
     private let store: AgentPaneStateFile?
     private var drafts: [String: String]
+    /// Tabs whose draft came from the file and no page has been handed yet.
+    /// (Each with the draft the file held: what the page's text merges with until it takes the seed.)
+    private var undelivered: [String: String]
+    /// The file exists but could not be read: the first save that runs sets it aside first.
+    private let unreadable: UnreadableFile
+    /// The window tab `key` shows in (its workspace's window), for its new chat's leftover
+    /// (``leave(_:inWindow:)``): the window's next New Tab page takes it (cmux#32276).
+    /// (By the tab's id and machine.)
+    public var windowOfTab: (_ key: String, _ machine: String?) -> String? = { _, _ in nil }
+    /// This Mac's machine id. Its tabs' drafts keep the bare tab id (the file's keys before tabs had
+    /// a machine); another machine's tab keeps its own slot (``slot(_:machine:)``), so closing a remote
+    /// tab whose id a local tab also has never clears the local tab's draft.
+    let localMachine: () -> String?
 
-    public init(file: URL?) {
+    /// - Parameter files: The app's state files (`AppServices`), so the file has one writer.
+    public init(file: URL?, files: AgentPaneStateFiles, localMachine: @escaping () -> String? = { nil }) {
         self.file = file
-        store = file.map(AgentPaneStateFile.at)
-        let data = store?.read()
-        drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        self.localMachine = localMachine
+        store = file.map(files.at)
+        drafts = [:]
+        undelivered = [:]
+        unreadable = UnreadableFile()
+        guard let store else { return }
+        let data = store.read()
+        if let data, let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+            drafts = decoded
+            undelivered = decoded
+        } else {
+            // No file, or one this run could not read or decode: the first save, on the file's queue
+            // (no disk check here, on the main thread), sets aside whatever file is there by then.
+            unreadable.pending.withLock { $0 = true }
+            if data != nil { Self.logger.error("unsent drafts unreadable; set aside on the next write") }
+        }
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).
-    public convenience init(directory: URL?) {
-        self.init(file: directory?.appending(path: Self.fileName))
+    public convenience init(directory: URL?, files: AgentPaneStateFiles, localMachine: @escaping () -> String? = { nil }) {
+        self.init(file: directory?.appending(path: Self.fileName), files: files, localMachine: localMachine)
+    }
+
+    /// Where tab `key` of `machine` keeps its draft: the bare id on this Mac (or no machine), else
+    /// the machine and the id.
+    public func slot(_ key: String, machine: String?) -> String {
+        guard let machine, !machine.isEmpty, machine != localMachine() else { return key }
+        return machine + "\u{0}" + key
+    }
+
+    /// The tab and machine a slot names (``slot(_:machine:)``).
+    private func tab(ofSlot slot: String) -> (key: String, machine: String?) {
+        let parts = slot.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false)
+        return parts.count == 2 ? (String(parts[1]), String(parts[0])) : (slot, localMachine())
+    }
+
+    private func window(ofSlot slot: String) -> String? {
+        let tab = tab(ofSlot: slot)
+        return windowOfTab(tab.key, tab.machine)
     }
 
     /// Tab `key`'s kept text as a new chat's seed; nil for a tab whose chat has a session, or
-    /// (`local` false) one on another machine.
+    /// (`local` false) one on another machine. Once the page takes it (its handshake), it is the
+    /// page's: its empty text clears it. Until then the tab still waits for it, so a stand-in page
+    /// (a host that failed before its handshake) cannot clear it with its empty prompt. Before
+    /// (cmux#28204 review at 3da4b376), making the seed counted as delivered.
     public func seed(for key: String, session: String?, local: Bool = true) -> AgentPaneSeedSource? {
         guard local, session == nil, let text = drafts[key] else { return nil }
-        return AgentPaneSeedSource(AgentPaneSeed(draft: text))
+        let source = AgentPaneSeedSource(AgentPaneSeed(draft: text))
+        source.onDraftTaken = { [weak self] in _ = self?.undelivered.removeValue(forKey: key) }
+        return source
     }
 
     /// Keeps the typed text of `model`'s chat for the tab `key` names when it runs, until the chat
-    /// has a session. Call it after the tab's own `onSessionChange` is set.
-    public func wire(_ model: AgentPaneModel, key: @escaping () -> String) {
-        model.onUnsentDraft = { [weak self] text in self?.set(text, for: key()) }
+    /// has a session. Call it after the tab's own `onSessionChange` is set. It also hands the model
+    /// its tab (``AgentPaneModel/tabKey``), which what a pane keeps per view is kept by: every tab's
+    /// model is wired here, a spare's when a tab adopts it. `machine` is the tab's machine (``slot(_:machine:)``).
+    public func wire(_ model: AgentPaneModel, machine: @escaping () -> String? = { nil }, key: @escaping () -> String) {
+        model.tabKey = { key() }
+        let slotted = { [weak self] in self?.slot(key(), machine: machine()) ?? key() }
+        model.onUnsentDraft = { [weak self] text in self?.typed(text, for: slotted()) }
+        model.onNewChatLeftover = { [weak self] text in
+            guard let self, let window = window(ofSlot: slotted()) else { return }
+            leave(text, inWindow: window)
+        }
+        model.onNewChatLeftoverTaken = { [weak self] text in
+            guard let self, let window = window(ofSlot: slotted()) else { return }
+            tookLeftover(text, inWindow: window)
+        }
+        // A New Tab page the host gave no leftover (the first page of a workspace, a restored one)
+        // reads its window's as its context reaches it.
+        model.newChatLeftoverDraft = { [weak self] in
+            guard let self, let window = window(ofSlot: slotted()) else { return nil }
+            return leftover(inWindow: window)
+        }
         let started = model.onSessionChange
         model.onSessionChange = { [weak self] session in
-            self?.set("", for: key())
+            self?.set("", for: slotted())
             started?(session)
         }
     }
 
-    /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
-    public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
+    /// A new chat of `window` left `text` when its tab opened another chat (cmux#32276): kept in the
+    /// window's one slot, on disk with the tabs' drafts, after what an earlier one left (never
+    /// over it), for the window's next New Tab page (``leftover(inWindow:)``). Nothing sends it.
+    public func leave(_ text: String, inWindow window: String) {
+        guard !Self.isBlank(text) else { return }
+        let slot = Self.leftoverKey(window)
+        set(drafts[slot].map { $0 + "\n\n" + text } ?? text, for: slot)
+    }
 
-    /// Keeps `text` as tab `key`'s draft; blank text forgets it.
-    public func set(_ text: String, for key: String) {
-        let keep = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.count <= Self.maximumCharacters
-        let value = keep ? text : nil
-        guard drafts[key] != value else { return }
+    /// What new chats of `window` left, for the New Tab page about to show there: the page's field
+    /// shows it as a draft. A Cmd-T or split page reads it as the app makes it (`NewTabPage.open`,
+    /// `NewTabPage.split`); any other reads it through ``AgentPaneModel/newTabForPage``. It stays in the
+    /// slot until a page reports it showed it (``tookLeftover(_:inWindow:)``): a page that never shows (its
+    /// tab failed to open) leaves it for the next one.
+    public func leftover(inWindow window: String) -> String? { drafts[Self.leftoverKey(window)] }
+
+    /// A New Tab page of `window` showed `text` from the window's slot as its draft
+    /// (`chat.leftoverTaken`): the slot gives it up, once, keeping what another new chat left after
+    /// it was read. Other windows' slots are never touched.
+    public func tookLeftover(_ text: String, inWindow window: String) {
+        let slot = Self.leftoverKey(window)
+        guard !text.isEmpty, let left = drafts[slot] else { return }
+        let shown = Array((text + "\n\n").utf8)
+        if left == text {
+            set("", for: slot)
+        } else if left.utf8.starts(with: shown) {
+            set(String(decoding: left.utf8.dropFirst(shown.count), as: UTF8.self), for: slot)
+        }
+    }
+
+    /// A window's slot among the tabs' drafts: no tab id has this prefix.
+    static func leftoverKey(_ window: String) -> String { "left-in-new-chat:" + window }
+
+    /// Whether tab `key` (of `machine`) holds a new chat's typed text (its close earns an undo toast).
+    public func hasDraft(_ key: String, machine: String? = nil) -> Bool { drafts[slot(key, machine: machine)] != nil }
+
+    /// Tab `key`'s kept text, if any.
+    public func draft(for key: String) -> String? { drafts[key] }
+
+    /// The page of tab `key` sent its text (`chat.unsentDraft`). Until the page takes the kept
+    /// draft (its seed, ``seed(for:session:local:)``), each text it sends is only its typing: it is
+    /// merged with the draft the file held, and an empty one leaves that draft as it was. Before
+    /// (cmux#28204 review at 027ee470), the first text counted as delivery, so a second ("x", then
+    /// "xy") replaced the merge and lost the kept draft.
+    public func typed(_ text: String, for key: String) {
+        guard let kept = undelivered[key] else {
+            set(text, for: key)
+            return
+        }
+        set(Self.isBlank(text) ? kept : Self.merged(typed: text, kept: kept), for: key)
+    }
+
+    /// Keeps `text` as tab `key`'s (of `machine`) draft; blank text forgets it (the tab's chat started or closed,
+    /// or its page cleared a draft it had). Draft text is written whole, with no user-facing size
+    /// ceiling. The return value remains true for compatibility with callers.
+    @discardableResult
+    public func set(_ text: String, for key: String, machine: String? = nil) -> Bool {
+        let key = slot(key, machine: machine)
+        let value = Self.isBlank(text) ? nil : text
+        guard drafts[key] != value else { return true }
         drafts[key] = value
+        if value == nil { undelivered.removeValue(forKey: key) }
+        save()
+        return true
+    }
+
+    /// The store gave provisional tab `key` of `machine` its id `real`.
+    public func move(_ key: String, to real: String, machine: String? = nil) {
+        let (key, real) = (slot(key, machine: machine), slot(real, machine: machine))
+        guard key != real, let text = drafts.removeValue(forKey: key) else { return }
+        drafts[real] = text
+        if let kept = undelivered.removeValue(forKey: key) { undelivered[real] = kept }
         save()
     }
 
-    /// The store gave provisional tab `key` its id `real`.
-    public func move(_ key: String, to real: String) {
-        guard key != real, let text = drafts.removeValue(forKey: key) else { return }
-        drafts[real] = text
-        save()
+    /// The kept text first, then the typed text after it (as the page merges them,
+    /// composerDraft.ts `mergedDraft`), only for text the page sent before it was handed the kept
+    /// draft. Dedupe is exact only: the same text, or one that is already this merge's result. Never
+    /// by substring: a kept "bug" and a typed "debugging" are both kept.
+    public static func merged(typed: String, kept: String) -> String {
+        if typed == kept { return typed }
+        if typed.hasPrefix(kept + "\n\n") { return typed }
+        if kept.hasSuffix("\n\n" + typed) { return kept }
+        return kept + "\n\n" + typed
+    }
+
+    private static func isBlank(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func save() {
         guard let store else { return }
         let drafts = drafts
-        store.write { drafts.isEmpty ? nil : try JSONEncoder().encode(drafts) }
+        let unreadable = unreadable
+        let url = store.url
+        store.write {
+            // On the file's queue, before the write: an unreadable file is kept beside it, so what
+            // it held can still be recovered; a failed move throws, which leaves the file as it is.
+            try unreadable.setAside(url)
+            return drafts.isEmpty ? nil : try JSONEncoder().encode(drafts)
+        }
+    }
+
+    /// Whether the file still has to be set aside before a save; shared with the file's queue.
+    nonisolated private final class UnreadableFile: Sendable {
+        let pending = Mutex<Bool>(false)
+
+        /// Runs on the file's queue only. The file this store could not read when it loaded is moved
+        /// beside it before the first save, even when it reads now: this store never loaded what it
+        /// holds, so writing over it would lose those drafts. Before (cmux#28204 review at c736d691),
+        /// a file that decoded on the retry (a read that failed once) was written over.
+        func setAside(_ url: URL) throws {
+            guard pending.withLock({ $0 }) else { return }
+            let files = FileManager.checked
+            if files.fileExists(atPath: url.path) {
+                let aside = url.deletingPathExtension()
+                    .appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970))")
+                    .appendingPathExtension(url.pathExtension)
+                do {
+                    try files.moveItem(at: url, to: aside)
+                } catch {
+                    AgentUnsentDrafts.logger.error("unsent drafts not saved: the unreadable file could not be set aside")
+                    throw error
+                }
+            }
+            pending.withLock { $0 = false }
+        }
     }
 }

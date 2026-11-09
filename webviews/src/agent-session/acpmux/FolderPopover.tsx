@@ -1,8 +1,11 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { AddProjectDialog } from "./AddProjectPanel";
+import type { BrowseRequest } from "./AddProjectPanel";
+import type { BrowseResult } from "./addProjectPanelModel";
+import { ExtraFolderList } from "./ExtraFolderList";
+import type { ExtraFolderRows } from "./extraFolders";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
@@ -18,8 +21,13 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// another shares that name, a short suffix that tells it apart (projectSuffix.ts); the full path is
 /// the row's tooltip. A repository's row picks the current folder, else its main checkout, else its
 /// newest worktree; its other worktrees, newest first, open under it with → (← or the count closes
-/// them). The current folder is checked. Actions stay directly under search, before the scrolling
-/// folders: No project, New Worktree, Add project and Choose folder, where the host offers them. The shared Combobox keeps the keyboard in the field:
+/// them). The current folder is checked. The actions sit under the scrolling folders, each with its
+/// glyph (Leo, 2026-11-06: "it's just folder / that's your project"): Add folder…, Add another folder…, New Worktree and No
+/// folder last, where the host offers them.
+/// A folder is the one thing the menu picks (Leo, 2026-11-06: "what even is the deal with add
+/// project? ... why not just add fodler? what's special about project?"): Add folder… is the host's
+/// folder panel, and a folder picked there is listed with the others from then on. The shared
+/// Combobox keeps the keyboard in the field:
 /// typing filters by repository, branch and path, and lists a worktree on its own when the words
 /// name it; ↑/↓ move through the rows and the actions; Return picks; Escape closes back to the
 /// strip. A typed absolute or `~/` path is offered as typed. `note` is a quiet line under the list:
@@ -35,9 +43,8 @@ export function FolderPopover({
   onNewWorktree,
   onNoProject,
   noProject = false,
-  localName,
-  peers,
   note,
+  extra,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -47,37 +54,59 @@ export function FolderPopover({
   folders: FolderChoice[];
   current?: string;
   onPick(cwd: string): void;
-  /// The host's folder panel: Add project's Browse and Choose folder….
-  onBrowse?(): void;
+  /// The host's folder panel: Add folder….
+  onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree of the current folder.
   onNewWorktree?(): void;
-  /// Do not work in a project (Leo 2026-10-18, as ChatGPT and Claude Code offer): the chat starts
-  /// in no project. Checked while `noProject`.
+  /// No folder (Leo 2026-10-18): the chat starts in no folder of
+  /// the user's (its private one). Checked while `noProject`.
   onNoProject?(): void;
   noProject?: boolean;
-  localName?: string;
-  peers?: string[];
   /// A quiet line under the list.
   note?: string;
+  /// The new chat's extra folders (extraFolders.ts): Add another folder… turns the list into a pick
+  /// of one more folder the chat sees beside its own, and the ones added are listed under it.
+  extra?: ExtraFolderRows;
 }) {
-  const [adding, setAdding] = useState(false);
+  // Add another folder… was chosen: a pick adds a folder the chat also sees instead of moving the chat.
+  const [addingExtra, setAddingExtra] = useState(false);
   const [query, setQuery] = useState("");
   // The repositories whose worktrees are open under their row, by group key.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const highlighted = useRef<string | undefined>(undefined);
+  const [highlightAuto, setHighlightAuto] = useState(true);
   const trigger = useRef<HTMLButtonElement>(null);
   // Escape (not a blur) closes back to the strip's control.
   const escaped = useRef(false);
-  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
+  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  const setOpen = (next: boolean) => {
+    if (next) setHighlightAuto(true);
+    setPopoverOpen(next);
+  };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
     if (!next) {
       setQuery("");
       setExpanded(new Set());
+      setAddingExtra(false);
     }
   });
   useLocationOpener(menu, () => setOpen(true));
-  const groups = useMemo(() => groupByRepo(folders, current), [folders, current]);
+  // Add another folder… gives the menu a fresh field (the Combobox's key): the keyboard stays in it.
+  useEffect(() => {
+    if (!addingExtra) return;
+    trigger.current?.ownerDocument
+      .querySelector<HTMLInputElement>(".acpmux-folder-popover .acpmux-location-search")
+      ?.focus();
+  }, [addingExtra]);
+  const extraFolders = extra?.folders;
+  // While adding, the project and the folders already added are not offered again.
+  const offered = useMemo(
+    () =>
+      addingExtra ? folders.filter((folder) => folder.id !== current && !extraFolders?.includes(folder.id)) : folders,
+    [addingExtra, folders, current, extraFolders],
+  );
+  const groups = useMemo(() => groupByRepo(offered, current), [offered, current]);
   // Repositories that share a name (two clones both called "cmux") are told apart by their path.
   const suffixes = useMemo(
     () => projectSuffixes(groups.map((group) => ({ cwd: group.lead.id, label: group.name }))),
@@ -103,30 +132,62 @@ export function FolderPopover({
     });
   const typed = query.trim();
   const typedPath = /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
-  // Actions stay directly under search; Tab reaches them and arrows navigate the matching folders.
-  const actions: { value: string; text: string; run(): void }[] = [
-    ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noProject"), run: onNoProject }] : []),
-    ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
-    ...(onBrowse
+  // Actions stay under the folders; the arrows reach them after the last folder.
+  const actions: {
+    value: string;
+    text: string;
+    run(): Promise<BrowseResult> | BrowseResult | void;
+  }[] = addingExtra
+    ? extra?.onBrowse
       ? [
-          { value: ACTION + "add", text: t("project.add"), run: () => setAdding(true) },
-          { value: ACTION + "browse", text: t("composer.chooseFolderMenu"), run: onBrowse },
+          {
+            value: ACTION + "browse",
+            text: t("composer.addFolder"),
+            run: () =>
+              Promise.resolve(extra.onBrowse?.()).then((path) => {
+                if (typeof path === "string" && path) extra.onAdd(path);
+                return undefined;
+              }),
+          },
         ]
-      : []),
-  ];
+      : []
+    : [
+        ...(onBrowse ? [{ value: ACTION + "browse", text: t("composer.addFolder"), run: onBrowse }] : []),
+        ...(extra
+          ? [{ value: ACTION_EXTRA, text: t("composer.addAnotherFolder"), run: () => setAddingExtra(true) }]
+          : []),
+        ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
+        ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noFolder"), run: onNoProject }] : []),
+      ];
   const pinned = actions.map((action) => action.value);
   const suggestions = [...pinned, ...shown.keys(), ...(typedPath ? [typedPath] : [])];
   const close = () => {
     setOpen(false);
     setQuery("");
     setExpanded(new Set());
+    setAddingExtra(false);
     if (escaped.current) trigger.current?.focus();
     escaped.current = false;
   };
   const submit = (value: string) => {
+    // Add another folder… keeps the menu open: its list now adds a folder.
+    if (value === ACTION_EXTRA) {
+      setAddingExtra(true);
+      setQuery("");
+      setExpanded(new Set());
+      return;
+    }
     const action = actions.find((candidate) => candidate.value === value);
+    const addsExtra = addingExtra;
     close();
-    if (action) action.run();
+    if (addsExtra && !action) {
+      if (value && (shown.has(value) || value === typedPath)) extra?.onAdd(value);
+      return;
+    }
+    if (action)
+      void Promise.resolve()
+        .then(() => action.run())
+        .catch(() => undefined);
     else if (value && value !== current && (shown.has(value) || value === typedPath)) onPick(value);
   };
   const row = (value: string) => {
@@ -138,6 +199,9 @@ export function FolderPopover({
           data-first={action === actions[0] ? "" : undefined}
           data-choose={action.value === ACTION + "browse" ? "" : undefined}
         >
+          <span className="acpmux-location-action-icon" aria-hidden="true">
+            <ActionIcon action={action.value} />
+          </span>
           <span className="acpmux-menu-label">{action.text}</span>
           {action.value === ACTION + "none" && (
             <span className="acpmux-location-check" aria-hidden="true">
@@ -269,25 +333,37 @@ export function FolderPopover({
             close();
           } else {
             setOpen(next);
-            if (!next) setQuery("");
+            // Every close ends Add another folder…'s mode, an outside click as much as Escape (cmux#34408).
+            if (!next) {
+              setQuery("");
+              setExpanded(new Set());
+              setAddingExtra(false);
+            }
           }
         }}
         anchor={open ? anchor : null}
         label={label}
-        className="acpmux-menu acpmux-location-menu acpmux-folder-popover"
+        className={
+          "acpmux-menu acpmux-location-menu acpmux-folder-popover" +
+          (highlightAuto && query.trim() === "" ? " acpmux-folder-highlight-auto" : "")
+        }
         side={side}
         flip={flip}
         finalFocus={false}
       >
         <Combobox
+          // A fresh field for Add another folder…'s pick.
+          key={addingExtra ? "extra" : "folder"}
           suggestions={suggestions}
           pinnedSuggestions={pinned}
+          pinnedPlacement="bottom"
           cancelOnBlur={false}
           onQuery={setQuery}
           onSubmit={submit}
           onCancel={close}
-          onHighlight={(value) => {
+          onHighlight={(value, by) => {
             highlighted.current = value;
+            setHighlightAuto(by === "none");
           }}
           // Tab completes a folder's path into the field, never an action's.
           onCommand={(event) => {
@@ -295,37 +371,59 @@ export function FolderPopover({
             if (arrow(event.key)) event.preventDefault();
             if (event.key === "Tab" && highlighted.current?.startsWith(ACTION)) event.preventDefault();
           }}
-          label={t("project.search")}
-          placeholder={t("project.search")}
+          label={t(addingExtra ? "composer.addFolderSearch" : "composer.folderSearch")}
+          placeholder={t(addingExtra ? "composer.addFolderSearch" : "composer.folderSearch")}
           inputClassName="acpmux-location-search"
           listClassName="acpmux-location-folders"
           itemClassName="acpmux-menu-item"
           renderItem={row}
           autoHighlight
           inline
+          // Thousands of projects (Leo 2026-11-04): only the rows in view mount.
+          virtualRows={{ estimate: 28 }}
         />
         {shown.size === 0 && !typedPath && (
-          <div className="acpmux-location-empty">{t(typed ? "project.none" : "project.noneYet")}</div>
+          <div className="acpmux-location-empty">{t(typed ? "composer.folderNone" : "composer.folderNoneYet")}</div>
         )}
+        {extra && !addingExtra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}
         {note && <p className="acpmux-location-note">{note}</p>}
       </Popover>
-      <AddProjectDialog
-        open={adding}
-        localName={localName}
-        peers={peers}
-        onBrowse={onBrowse}
-        onClose={() => setAdding(false)}
-        onPick={(cwd) => {
-          setAdding(false);
-          onPick(cwd);
-        }}
-      />
     </span>
   );
 }
 
 /// An action row's value: never a path.
 const ACTION = "\u0000action:";
+const ACTION_EXTRA = ACTION + "extra";
+
+/// An action's glyph in the folders' icon column: + adds, a folder with + adds one more, the branch
+/// is a worktree, × is no folder.
+function ActionIcon({ action }: { action: string }) {
+  if (action === ACTION + "worktree") return <BranchIcon />;
+  return (
+    <svg
+      className="acpmux-icon"
+      width={12}
+      height={12}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {action === ACTION + "none" ? (
+        <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />
+      ) : action === ACTION_EXTRA ? (
+        <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.5h5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5zM8 7v4M6 9h4" />
+      ) : (
+        <path d="M8 3v10M3 8h10" />
+      )}
+    </svg>
+  );
+}
 
 function CheckIcon() {
   return (
@@ -374,8 +472,8 @@ function ChevronRightIcon() {
   return (
     <svg
       className="acpmux-icon"
-      width={10}
-      height={10}
+      width={12}
+      height={12}
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"

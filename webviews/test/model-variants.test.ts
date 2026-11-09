@@ -37,6 +37,17 @@ describe("groupVariants", () => {
     expect(providerOf(rows[4]!)).toEqual({ key: "claude-opus-5-5", name: "Opus 5.5" });
   });
 
+  // Lawrence 2026-11-05: the Provider column read "Opencode-..." for OpenCode's Go plan.
+  test("OpenCode's plans read as their product names", async () => {
+    const { providerOf } = await variants();
+    expect(providerOf({ id: "opencode-go/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" }).provider).toBe(
+      "OpenCode Go",
+    );
+    expect(providerOf({ id: "opencode-zen/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" }).provider).toBe(
+      "OpenCode Zen",
+    );
+  });
+
   test("the rows of one model are one, in first-row order; a bare id is its own model", async () => {
     const { groupVariants } = await variants();
     const groups = groupVariants(rows);

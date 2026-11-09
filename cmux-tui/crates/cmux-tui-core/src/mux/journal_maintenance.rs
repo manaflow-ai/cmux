@@ -5,6 +5,9 @@ use super::*;
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
 const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
 const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
+/// Live rows a pending output cleanup may hold back from sealing: 64
+/// segments' worth.
+const OUTPUT_CLEANUP_SEAL_HOLD_RECORDS: u64 = 65_536;
 /// A maintenance tick this long is logged: its steps hold the workspace
 /// registry lock that `tab.update` and `list-workspaces` wait on, so a slow
 /// tick stalls the app's requests (a 12-15 s stall on 2026-10-21 left no
@@ -339,6 +342,17 @@ impl Mux {
             if target == 0 {
                 return Ok(TickOutcome::WorkRemains);
             }
+            // The live rows are mostly output that the pending cleanup
+            // removes; sealing them first is wasted work. The seal waits, so
+            // work remains: a settled worker would sleep past the cleanup.
+            // It waits only while the live rows stay few: a cleanup that
+            // stalls must not stop sealing for good (one registry held
+            // 5.77M live rows, 59 GB, through a week of a pending cleanup).
+            if self.output_cleanup_pending()
+                && head.saturating_sub(sealed_through) < OUTPUT_CLEANUP_SEAL_HOLD_RECORDS
+            {
+                return Ok(TickOutcome::WorkRemains);
+            }
 
             for batch in 0..JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK {
                 if sealed_through >= target {
@@ -645,12 +659,17 @@ impl Mux {
                 let head = page.head_sequence;
                 let empty = page.records.is_empty();
                 for record in page.records {
-                    reducer.apply(&record)?;
+                    reducer.apply_read(&record)?;
                 }
                 if empty {
                     break head;
                 }
             };
+            if reducer.last_sequence() < head_sequence
+                && cursor.tail_is_pruned(reducer.last_sequence())?
+            {
+                reducer.skip_pruned_tail(head_sequence);
+            }
             cursor.finish()?;
             return reducer.finish(head_sequence);
         }
@@ -666,7 +685,7 @@ impl Mux {
                     break;
                 }
                 sequence = record.sequence;
-                reducer.apply(&record)?;
+                reducer.apply_read(&record)?;
             }
             if empty || sequence >= head {
                 break head;
@@ -768,6 +787,14 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .corrupt_agent_projection_for_test(terminal_id);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reject_resource_effect_commits_for_test(&self) {
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .reject_resource_effect_commits_for_test();
     }
 }
 

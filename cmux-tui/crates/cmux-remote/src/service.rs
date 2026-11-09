@@ -129,6 +129,9 @@ pub struct ServiceMultiplexer {
     next_stream: AtomicU64,
     generation: watch::Receiver<u64>,
     fatal: watch::Receiver<Option<String>>,
+    /// Set (before `fatal`) when the reader stopped because the daemon no
+    /// longer has the session, so every failure reports that typed end.
+    session_unavailable: Arc<AtomicBool>,
     reader: ReaderTask,
     cleanup: Arc<TerminalCleanup>,
 }
@@ -288,6 +291,7 @@ struct ReaderLoop {
     cleanup: Arc<TerminalCleanup>,
     accepted: mpsc::Sender<IncomingStream>,
     fatal: watch::Sender<Option<String>>,
+    session_unavailable: Arc<AtomicBool>,
     generation: watch::Receiver<u64>,
     shutdown: watch::Receiver<bool>,
     role: EndpointRole,
@@ -367,6 +371,8 @@ enum StreamFailure {
     GenerationChanged(u64),
     Reset(String),
     Transport(String),
+    /// The daemon no longer has the session: no reconnect can resume it.
+    SessionUnavailable,
 }
 
 impl fmt::Debug for ServiceMultiplexer {
@@ -393,6 +399,7 @@ impl ServiceMultiplexer {
         let cleanup = TerminalCleanup::new();
         let (accepted_tx, accepted) = mpsc::channel(128);
         let (fatal_tx, fatal) = watch::channel(None);
+        let session_unavailable = Arc::new(AtomicBool::new(false));
         let incoming_budget = IncomingBudget::new(incoming_budget_bytes);
         let generation = endpoint.subscribe_generation();
         let (shutdown, shutdown_rx) = watch::channel(false);
@@ -403,6 +410,7 @@ impl ServiceMultiplexer {
             cleanup: cleanup.clone(),
             accepted: accepted_tx,
             fatal: fatal_tx,
+            session_unavailable: session_unavailable.clone(),
             generation: generation.clone(),
             shutdown: shutdown_rx,
             role,
@@ -419,6 +427,7 @@ impl ServiceMultiplexer {
             }),
             generation,
             fatal,
+            session_unavailable,
             reader: ReaderTask { shutdown, handle: StdMutex::new(Some(handle)) },
             cleanup,
         })
@@ -440,7 +449,7 @@ impl ServiceMultiplexer {
         let terminal = LaneTerminalState::new(service);
         let mut streams = self.streams.lock().await;
         if let Some(message) = self.fatal.borrow().clone() {
-            return Err(ServiceError::Transport(message));
+            return Err(self.fatal_error(message));
         }
         if streams.len() >= MAX_OPEN_STREAMS {
             return Err(ServiceError::TooManyStreams);
@@ -507,15 +516,30 @@ impl ServiceMultiplexer {
 
     pub async fn accept(&self) -> Result<Option<IncomingStream>, ServiceError> {
         if let Some(message) = self.fatal.borrow().clone() {
-            return Err(ServiceError::Transport(message));
+            return Err(self.fatal_error(message));
         }
         let incoming = self.accepted.lock().await.recv().await;
         if incoming.is_none()
             && let Some(message) = self.fatal.borrow().clone()
         {
-            return Err(ServiceError::Transport(message));
+            return Err(self.fatal_error(message));
         }
         Ok(incoming)
+    }
+
+    /// Whether the reader stopped because the daemon no longer has the
+    /// session (it expired or was closed). Permanent for this multiplexer:
+    /// the caller should stop redialing and offer a new session.
+    pub fn session_unavailable(&self) -> bool {
+        self.session_unavailable.load(Ordering::Acquire)
+    }
+
+    fn fatal_error(&self, message: String) -> ServiceError {
+        if self.session_unavailable() {
+            ServiceError::SessionUnavailable
+        } else {
+            ServiceError::Transport(message)
+        }
     }
 
     /// Observe terminal reader failures without polling an application stream.
@@ -685,14 +709,14 @@ impl ServiceStream {
     }
 
     pub async fn send_on(&self, lane: Lane, payload: Bytes) -> Result<(), ServiceError> {
-        let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
+        let lane = if is_tunnel(self.service) { Lane::Tunnel } else { lane };
         let _outbound = self.outbound[lane as usize].lock().await;
         self.require_active()?;
         if self.terminal.closing.load(Ordering::Acquire) {
             return Err(ServiceError::Closed);
         }
         let state = self.state.load(Ordering::Acquire);
-        let closed = if self.service == Service::TcpTunnel {
+        let closed = if is_tunnel(self.service) {
             state & (STREAM_LOCAL_FIN | STREAM_RESET) != 0
         } else {
             state != 0
@@ -774,7 +798,7 @@ impl ServiceStream {
             && (chunk.finished || chunk.reset)
         {
             receiver.remote_finished_delivered = true;
-            if self.service == Service::TcpTunnel {
+            if is_tunnel(self.service) {
                 let flag =
                     if chunk.reset { STREAM_REMOTE_FIN | STREAM_RESET } else { STREAM_REMOTE_FIN };
                 self.state.fetch_or(flag, Ordering::AcqRel);
@@ -798,7 +822,7 @@ impl ServiceStream {
             return Ok(());
         }
         self.terminal.closing.store(true, Ordering::Release);
-        let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
+        let lane = if is_tunnel(self.service) { Lane::Tunnel } else { lane };
         let lanes = close_lanes(self.service, &lane);
         for lane in lanes {
             let _outbound = self.outbound[*lane as usize].lock().await;
@@ -812,13 +836,13 @@ impl ServiceStream {
             self.terminal.local.fetch_or(bit, Ordering::AcqRel);
         }
         self.require_active()?;
-        let committed = if self.service == Service::TcpTunnel {
+        let committed = if is_tunnel(self.service) {
             STREAM_LOCAL_FIN
         } else {
             STREAM_LOCAL_FIN | STREAM_REMOTE_FIN
         };
         let previous = self.state.fetch_or(committed, Ordering::AcqRel);
-        if self.service != Service::TcpTunnel || previous & STREAM_REMOTE_FIN != 0 {
+        if !is_tunnel(self.service) || previous & STREAM_REMOTE_FIN != 0 {
             let lane_mask = lanes.iter().fold(0, |mask, lane| mask | lane_bit(*lane));
             self.closed.lock().await.insert_on(self.id, lane_mask);
             self.registrations.lock().await.remove(&self.id);
@@ -834,7 +858,7 @@ impl ServiceStream {
         // carrier cannot deliver FIN ahead of the reason. Tunnel streams must
         // use the tunnel lane for both frames.
         self.close_on(lane).await?;
-        if self.service == Service::TcpTunnel {
+        if is_tunnel(self.service) {
             // A rejected OPEN is terminal; unlike an accepted tunnel, it does
             // not wait for the peer's half-close. Mark it complete so Drop
             // does not send a RESET after the ordered rejection and FIN.
@@ -851,7 +875,7 @@ impl ServiceStream {
         }
     }
 
-    pub(crate) async fn wait_for_failure(&self) -> ServiceError {
+    pub async fn wait_for_failure(&self) -> ServiceError {
         let mut failure = self.failure.subscribe();
         loop {
             if let Some(failure) = failure.borrow().clone() {
@@ -868,6 +892,7 @@ impl ServiceStream {
             StreamFailure::GenerationChanged(actual) => self.generation_error(actual),
             StreamFailure::Reset(message) => ServiceError::Reset(message),
             StreamFailure::Transport(message) => ServiceError::Transport(message),
+            StreamFailure::SessionUnavailable => ServiceError::SessionUnavailable,
         }
     }
 
@@ -884,7 +909,7 @@ fn drain_failed_receiver(receiver: &mut StreamReceiver) {
 impl Drop for ServiceStream {
     fn drop(&mut self) {
         let previous = self.state.fetch_or(STREAM_RESET, Ordering::AcqRel);
-        let complete = if self.service == Service::TcpTunnel {
+        let complete = if is_tunnel(self.service) {
             previous & (STREAM_LOCAL_FIN | STREAM_REMOTE_FIN)
                 == STREAM_LOCAL_FIN | STREAM_REMOTE_FIN
         } else {
@@ -945,6 +970,7 @@ async fn reader_loop(reader: ReaderLoop) {
         cleanup,
         accepted,
         fatal,
+        session_unavailable,
         mut generation,
         mut shutdown,
         role,
@@ -971,6 +997,9 @@ async fn reader_loop(reader: ReaderLoop) {
                 break;
             }
             Err(error) => {
+                if error.is_session_unavailable() {
+                    session_unavailable.store(true, Ordering::Release);
+                }
                 let _ = fatal.send(Some(error.to_string()));
                 break;
             }
@@ -994,8 +1023,8 @@ async fn reader_loop(reader: ReaderLoop) {
                     break;
                 }
             };
-            if (control.0 == Service::TcpTunnel && frame.lane != Lane::Tunnel)
-                || (control.0 != Service::TcpTunnel && frame.lane == Lane::Tunnel)
+            if (is_tunnel(control.0) && frame.lane != Lane::Tunnel)
+                || (!is_tunnel(control.0) && frame.lane == Lane::Tunnel)
             {
                 let _ = fatal.send(Some("service open frame used an invalid lane".into()));
                 break;
@@ -1120,7 +1149,7 @@ async fn reader_loop(reader: ReaderLoop) {
             let _ = fatal.send(Some(format!("frame for unknown stream {}", frame.stream)));
             break;
         };
-        if service == Service::TcpTunnel
+        if is_tunnel(service)
             && (frame.lane != Lane::Tunnel || stream_generation != Some(frame.generation))
         {
             let _ = fatal.send(Some("tunnel stream frame crossed its generation boundary".into()));
@@ -1221,11 +1250,7 @@ async fn reader_loop(reader: ReaderLoop) {
         };
         match sender.try_send(chunk) {
             Ok(()) if !finished => {}
-            Ok(())
-                if service != Service::TcpTunnel
-                    || reset
-                    || prior_state & STREAM_LOCAL_FIN != 0 =>
-            {
+            Ok(()) if !is_tunnel(service) || reset || prior_state & STREAM_LOCAL_FIN != 0 => {
                 streams.lock().await.remove(&frame.stream);
                 closed
                     .lock()
@@ -1256,7 +1281,12 @@ async fn reader_loop(reader: ReaderLoop) {
     let message =
         fatal.borrow().clone().unwrap_or_else(|| "service multiplexer reader stopped".into());
     fatal.send_replace(Some(message.clone()));
-    fail_all_streams(&streams, StreamFailure::Transport(message)).await;
+    let failure = if session_unavailable.load(Ordering::Acquire) {
+        StreamFailure::SessionUnavailable
+    } else {
+        StreamFailure::Transport(message)
+    };
+    fail_all_streams(&streams, failure).await;
 }
 
 async fn reset_registered_stream(
@@ -1348,7 +1378,7 @@ async fn send_reset_or_close_session(
 fn reset_no_longer_needed(completion: Option<&(Arc<AtomicU8>, Service)>) -> bool {
     let Some((state, service)) = completion else { return false };
     let state = state.load(Ordering::Acquire);
-    if *service == Service::TcpTunnel {
+    if is_tunnel(*service) {
         state & (STREAM_LOCAL_FIN | STREAM_REMOTE_FIN) == STREAM_LOCAL_FIN | STREAM_REMOTE_FIN
     } else {
         state & (STREAM_LOCAL_FIN | STREAM_REMOTE_FIN) != 0
@@ -1415,8 +1445,7 @@ async fn reset_tunnel_streams(streams: &Mutex<HashMap<u64, StreamRegistration>>,
         let stale = streams
             .iter()
             .filter(|(_, registration)| {
-                registration.service == Service::TcpTunnel
-                    && registration.generation != Some(generation)
+                is_tunnel(registration.service) && registration.generation != Some(generation)
             })
             .map(|(stream, _)| *stream)
             .collect::<Vec<_>>();
@@ -1434,7 +1463,7 @@ fn default_lane(service: Service) -> Lane {
         | Service::TerminalBytes
         | Service::ComputerUse => Lane::Interactive,
         Service::WorkspaceRpc => Lane::Control,
-        Service::TcpTunnel => Lane::Tunnel,
+        Service::TcpTunnel | Service::LocalSocket | Service::Acpmux => Lane::Tunnel,
     }
 }
 
@@ -1473,16 +1502,23 @@ fn rejected_open_tombstone_lane_mask(service: Service, open_lane: Lane) -> u8 {
     tombstone_lane_mask(service, open_lane) | legal_tombstone_lane_mask(service)
 }
 
+/// A raw byte stream on the Tunnel lane, bound to its generation and never
+/// replayed: [`Service::TcpTunnel`], [`Service::LocalSocket`] and
+/// [`Service::Acpmux`].
+fn is_tunnel(service: Service) -> bool {
+    matches!(service, Service::TcpTunnel | Service::LocalSocket | Service::Acpmux)
+}
+
 fn open_lane(service: Service) -> Lane {
-    if service == Service::TcpTunnel { Lane::Tunnel } else { Lane::Control }
+    if is_tunnel(service) { Lane::Tunnel } else { Lane::Control }
 }
 
 fn reset_lane(service: Service) -> Lane {
-    if service == Service::TcpTunnel { Lane::Tunnel } else { Lane::Control }
+    if is_tunnel(service) { Lane::Tunnel } else { Lane::Control }
 }
 
 fn generation_for_service(service: Service, generation: u64) -> Option<u64> {
-    (service == Service::TcpTunnel).then_some(generation)
+    is_tunnel(service).then_some(generation)
 }
 
 #[derive(Debug)]
@@ -1495,7 +1531,26 @@ pub enum ServiceError {
     TooManyStreams,
     Closed,
     Reset(String),
-    GenerationChanged { expected: u64, actual: u64 },
+    GenerationChanged {
+        expected: u64,
+        actual: u64,
+    },
+    /// The daemon no longer has the session (it outlived its resume lease or
+    /// was closed): nothing on it can be resumed, and redialing cannot help.
+    SessionUnavailable,
+}
+
+impl ServiceError {
+    /// Whether the error is the typed end of the session (see
+    /// [`ConnectionError::SessionUnavailable`]), at any layer.
+    pub fn is_session_unavailable(&self) -> bool {
+        matches!(
+            self,
+            Self::SessionUnavailable
+                | Self::Client(ConnectionError::SessionUnavailable)
+                | Self::Daemon(DaemonError::Connection(ConnectionError::SessionUnavailable))
+        )
+    }
 }
 
 impl fmt::Display for ServiceError {
@@ -1512,6 +1567,9 @@ impl fmt::Display for ServiceError {
             Self::GenerationChanged { expected, actual } => {
                 write!(formatter, "service stream generation changed from {expected} to {actual}")
             }
+            Self::SessionUnavailable => formatter.write_str(
+                "the remote session ended: the daemon no longer has it (it expired or was closed)",
+            ),
         }
     }
 }

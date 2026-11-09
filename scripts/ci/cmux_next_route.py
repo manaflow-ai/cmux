@@ -78,6 +78,9 @@ FULL_INPUTS = (
     "scripts/ci/select_package_tests.py",
     "scripts/cmux-next/ci-target-graph.py",
     "scripts/cmux-next/swift-test-with-hang-sampler.sh",
+    # Which suites run in which test process, for every target (#26809).
+    "scripts/cmux-next/main-thread-heavy-suites.py",
+    "scripts/cmux-next/swift-test-shards.py",
     "scripts/cmux-next/compile-string-catalogs.sh",
     "scripts/select-ci-xcode.sh",
     "scripts/ci/xcode-pins.txt",
@@ -103,6 +106,8 @@ DAEMON_PATHS = (
     "scripts/cmux-next/check-daemon-capabilities.sh",
     "scripts/cmux-next/cmux-tui.pin",
     PACKAGE + "Tests/CmuxNextAppTests/FirstLaunchTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
     # The classic import and migration suites start the live daemon too.
     PACKAGE + "Tests/CmuxNextAppTests/ClassicImportTests.swift",
     PACKAGE + "Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
@@ -132,15 +137,29 @@ SWIFT_JOB_INPUTS = (
     "scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh",
     "tests/test_check_app_personalities.sh",
     ".github/actions/setup-cmux-tui-rust/",
+    ".github/actions/runner-cargo-home/",
     # check-app-ffi-pin.sh's sources (the pinned CCmuxAppFFI release) and the
     # sidebar layout reducer's cargo test.
     "cmux-tui/crates/cmux-app-ffi/",
     "cmux-tui/crates/cmux-focus-core/",
+    "cmux-tui/crates/cmux-cloud-start-core/",
+    "cmux-tui/crates/cmux-cloud-config/",
+    "cmux-tui/crates/cmux-cloud-handlers/",
+    "cmux-tui/crates/cmux-cloud-machine/",
+    "cmux-tui/crates/cmux-cloud-tasks/",
+    "cmux-tui/crates/cmux-cookie-sync/",
+    "cmux-tui/crates/cmux-daemon-conn-core/",
+    "cmux-tui/crates/cmux-daemon-launch-core/",
+    "cmux-tui/crates/cmux-local-auth/",
+    "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",
     "cmux-tui/crates/cmux-rd-core/",
     "cmux-tui/crates/cmux-rd-proto/",
     "cmux-tui/crates/cmux-rd-ffi/",
+    # The SDK's C ABI (the app's daemon client). The SDK it wraps (cmux-tui/bindings/rust/)
+    # reaches the app only through the pinned FFI release, whose repin routes the Swift jobs.
+    "cmux-tui/crates/cmux-sdk-ffi/",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )
@@ -225,17 +244,22 @@ BUNDLE_INPUTS = (
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
     "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",
-    "scripts/cmux-next/build-agent-activity-web.sh", "scripts/cmux-next/build-palette-ranker.sh",
+    "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
-    "schemas/sync-motion/*",
-    # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
-    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
+    "schemas/sync-motion/*", "schemas/agent-pane/*",
+    # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
+    "schemas/layout-grid/layout-grid.json",
+    # The cloud catalog's wire types the Cloud page imports (src/pages/cloud/ops.ts).
+    "clients/ts/cloud/src/generated.ts",
+    "schemas/type-scale/type-scale.json",
+    # The design scale the shared tooltip tokens import (src/ui/tooltipTokens.ts).
+    "schemas/design-scale/design-scale.json",
 )
-BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
+BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
 # and that the app takes as a `.copy` resource: a change to them needs no compile.
@@ -247,11 +271,31 @@ CHECKED_WEB_BUNDLES = (
 # (tests/test_ci_warm_sources.py), and their tests. actionlint and the CI unit tests (ci.yml's
 # guards) and the routing replay (the checks job) cover them on Linux, and `gh-merge-green
 # --revert` undoes one in a command.
+# Top-level paths no Mac compile reads: the Cloud VM image (images/), Go and Bun services, the
+# agent and review-bot configs. Nothing in cmux.xcodeproj, a Package.swift or a scripts/ build script
+# names them (test_no_app_input_is_named_by_a_build_input keeps that true), so a change to one runs no
+# Release or scheme compile: #29013 (images/cmux-vm/inputs.lock.json) waited 80 minutes on a fleet
+# Release compile its diff could not change. A test target that reads one still runs (consumed()).
+NO_APP_INPUT = (
+    "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
+    "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
+)
+
+
+def no_app_input(path: str) -> bool:
+    return any(fnmatch.fnmatch(path, pattern) for pattern in NO_APP_INPUT)
+
+
 CI_ONLY = (
-    ".github/workflows/*", ".github/warm-sources.json", "scripts/ci/*", "scripts/gh-merge-green",
+    ".github/workflows/*", ".github/warm-sources.json", ".github/checkout-lean.json", "scripts/ci/*", "scripts/gh-merge-green",
     "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
     "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
     "tests/test_base_red_excuse.py", "tests/test_test_reds.py", "tests/fixtures/test_reds/*", "tests/test_ci_*.py",
+    # The unrecognized-selector lint: cmux-next-crash-class.yml runs it on Linux, and its fleet step
+    # wrapper only reads the table. No compile reads any of the three (#29032 changed only the table
+    # and waited on the fleet Release compile).
+    "scripts/cmux-next/objc-selector-table.json", "scripts/cmux-next/check-objc-selectors.py",
+    "scripts/cmux-next/check-objc-selectors.sh",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
@@ -274,6 +318,8 @@ def web_fast(path: str) -> bool:
     """Web sources, their checked bundles, docs: ci-web and the checks job cover them all."""
     if any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW + CHECKED_WEB_BUNDLES):
         return True
+    if no_app_input(path):
+        return True
     return any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE)
 
 
@@ -287,14 +333,16 @@ def ci_only(path: str) -> bool:
 # never from a list here: a file moved to a macOS lane routes to the Mac tiers again. No cmux-next
 # Mac tier reads the registry itself.
 REGISTRY = "tests/test-execution.toml"
+# The registry's area fragments (scripts/ci/test_execution_registry.py), which replaced REGISTRY.
+REGISTRY_FRAGMENT = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
 LINUX_LANE = "linux-guard"
 
 
 def linux_guard_tests(root: Path) -> frozenset[str]:
     """The registry's linux-guard test files; none when it or its reader cannot be read, so they keep their tiers."""
     try:
-        from test_execution_registry import load_registry  # noqa: PLC0415 - a copied router may come without it
-        entries = load_registry(root / REGISTRY)
+        from test_execution_registry import load_tree  # noqa: PLC0415 - a copied router may come without it
+        entries = load_tree(root)
     except (ImportError, OSError, ValueError, SyntaxError):
         return frozenset()
     return frozenset(str(entry.get("path")) for entry in entries
@@ -302,7 +350,8 @@ def linux_guard_tests(root: Path) -> frozenset[str]:
 
 
 def linux_only_test(path: str, linux_tests: frozenset[str]) -> bool:
-    return path in linux_tests or (path == REGISTRY and bool(linux_tests))
+    registry = path == REGISTRY or REGISTRY_FRAGMENT.fullmatch(path) is not None
+    return path in linux_tests or (registry and bool(linux_tests))
 
 
 # A test target's "reads" (ci-target-graph.py) are the repository paths its sources name in string
@@ -731,9 +780,16 @@ def linux_values(expression: str) -> bool:
         elif re.fullmatch(r"'[^']*'", value):
             if "ubuntu" not in value:
                 return False
-        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value):
+        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value) and value not in PORTABLE_RUNNERS:
             return False
     return True
+
+
+# Portable placement (scripts/ci/portable_job_placement.py) puts a job that needs neither Linux nor
+# Blacksmith on fleet Linux or a free mini. The job runs the same scripts either way, none of the
+# app's Mac tiers, so its outputs count as Linux here: an edit to such a job runs no Mac tier.
+PORTABLE_RUNNERS = frozenset(
+    f"needs.portable-placement.outputs.{output}" for output in ("linux_runner", "mini_runner"))
 
 
 def linux_runs_on(value) -> bool:
@@ -966,8 +1022,8 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
         (web_fast(path) or ci_only(path) or linux_only_test(path, linux_tests))
         and (path in unread or not consumed(path, tree_inputs_early, read)) for path in changed
     ):
-        kinds = sorted({"CI" if ci_only(path) else "Linux-lane test" if linux_only_test(path, linux_tests) else "web"
-                        for path in changed})
+        kinds = sorted({"CI" if ci_only(path) else "Linux-lane test" if linux_only_test(path, linux_tests)
+                        else "non-app" if no_app_input(path) else "web" for path in changed})
         result.reasons.append(f"only {' and '.join(kinds)} files changed: Linux checks cover them (no Mac tier)")
         return result
     packages = package_inputs(root, graph)
@@ -991,6 +1047,8 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
             result.webview = True
         elif any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE):
             pass
+        elif no_app_input(path):
+            result.reasons.append(f"{path} is in no Mac build input {NO_SWIFT_COMPILE_REASON}")
         elif path.startswith(CMUX_TUI):
             # Rust: the daemon tier (tree inputs, below) builds and tests it. Only the
             # CCmuxAppFFI sources reach the Swift compiles, and only the app scheme's build

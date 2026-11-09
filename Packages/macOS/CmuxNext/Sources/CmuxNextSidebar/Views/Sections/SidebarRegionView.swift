@@ -27,6 +27,10 @@ final class SidebarRegionView: NSView {
     var onToggleSection: ((LayoutSectionID) -> Void)?
     /// A drag dropped `subject`: the shown sections in their new order (R77).
     var onReorder: ((SidebarRegionDragSubject, [LayoutSection]) -> Void)?
+    /// An app section dropped in another pinned band. The host forwards the
+    /// document's move; nil clears its drop outline.
+    var sectionDropTarget: ((LayoutSectionID, NSPoint?) -> SidebarLayoutOp?)?
+    var onSectionDrop: ((SidebarLayoutOp) -> Void)?
     /// Whether a window point is over the workspace list (a workspace tile
     /// dropped there unpins); nil point ends the drag. The sidebar outlines the list.
     var dropToListProbe: ((NSPoint?) -> Bool)?
@@ -43,14 +47,14 @@ final class SidebarRegionView: NSView {
     /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
     var docSpentPress: LayoutItemID?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
-    /// A workspace tile's close x: closes that workspace (the sidebar sends `.close`).
-    var onCloseWorkspace: ((WorkspaceID) -> Void)?
     /// The sidebar's edit mode (`SidebarView.isEditingItems`): every item but a client-only one
     /// wiggles and shows its ✕, which asks `onRemoveItem` to take it out.
     var isEditing = false {
         didSet { if isEditing != oldValue { for (id, view) in itemViews { edit(view, id) } } }
     }
     var onRemoveItem: ((LayoutItemID) -> Void)?
+    /// A double-click on a pinned workspace's row: rename it in place (the list's one editor).
+    var onRenameItem: ((LayoutItemID) -> Void)?
     /// The region's height changed outside its host's layout (a drag's
     /// preview, a landed drop): the host lays its bands out again.
     var onHeightChange: (() -> Void)?
@@ -143,12 +147,17 @@ final class SidebarRegionView: NSView {
     func update(_ content: Content, width: CGFloat) {
         // `layoutResult` is always the layout of the shown content at `width`
         // (`relayout` keeps it so), so the same inputs need no new layout.
-        if content == self.content && width == self.width { return }
+        if content == self.content && width == self.width {
+            // The same layout, but an app section's provider may hand a new view (its mount was made again).
+            if appViewsReplaced(content) { apply(displayed(content)) }
+            return
+        }
         SidebarPerfCounters.add(.bandUpdates)
         let shown = displayed(content)
         let result = Self.layout(shown, width: width)
         guard content != self.content || result != layoutResult else {
             self.width = width
+            if appViewsReplaced(content) { apply(shown) }
             return
         }
         self.content = content
@@ -212,6 +221,16 @@ final class SidebarRegionView: NSView {
         })
     }
 
+    /// Whether the provider now hands a different view for a shown app section than the band draws:
+    /// the section's old mount ended (its app left the list, or it failed and was mounted again).
+    private func appViewsReplaced(_ content: Content) -> Bool {
+        guard let appView else { return false }
+        return content.sections.contains { section in
+            guard section.content == .app, let drawn = appViews[section.id] else { return false }
+            return appView(section) !== drawn
+        }
+    }
+
     private func displayed(_ content: Content) -> Content {
         var shown = content
         if let reorderSections { shown.sections = reorderSections }
@@ -244,7 +263,10 @@ final class SidebarRegionView: NSView {
                 view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):
-                guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
+                // The provider's view now, not the first one drawn: a section mounted again gets a new
+                // view, and the old one is the dead mount's (its error, a "removed" app).
+                guard let section = sections[id], let view = appView?(section) ?? appViews[id] else { continue }
+                if let drawn = appViews[id], drawn !== view { drawn.removeFromSuperview() }
                 liveApps.insert(id)
                 let new = view.superview !== self
                 if view.superview !== self {
@@ -277,6 +299,7 @@ final class SidebarRegionView: NSView {
                 view.configure(info, style: style)
                 view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
                 view.activatesOnPress = item.ref.activatesOnPress
+                view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
                 edit(view, id)
@@ -320,7 +343,7 @@ final class SidebarRegionView: NSView {
             }
             let card = CALayer()
             card.cornerCurve = .continuous
-            card.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
+            card.cornerRadius = Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1)
             layer?.insertSublayer(card, at: 0)
             card.frame = frame
             cardLayers[id] = card
@@ -358,7 +381,11 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
-        view.onPressBegan = { [weak self] in self?.endStaleDrag() }
+        view.onPressBegan = { [weak self] in
+            self?.endStaleDrag()
+            // A press on another row ends a rename in progress, as a press on the list's rows does.
+            if let rename = self?.docList?.inlineRename, rename.isActive { rename.end(commit: true) }
+        }
         addSubview(view)
         itemViews[id] = view
         // A client-only item (What's New) only opens: no drag, no menu.
@@ -366,21 +393,18 @@ final class SidebarRegionView: NSView {
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] point in self?.finishDrag(at: point) }
         view.onRemove = { [weak self] in self?.onRemoveItem?(id) }
+        view.onRename = { [weak self] in self?.onRenameItem?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
         }
-        // A workspace tile's hover more button opens the same menu under itself; its x closes the
-        // workspace as a workspace row's x does (SidebarItemRowView+HoverActions).
+        // A workspace tile's hover more button opens the same menu under itself (SidebarItemRowView+HoverActions).
+        // A pinned item has no hover x (Lawrence msg 19392): Close Workspace is in this menu.
         view.onMore = { [weak self, weak view] in
             guard let view, let button = view.hoverMore, let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             view.showsMenu = true
             defer { view.showsMenu = false }
             _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY : 0), in: button)
-        }
-        view.onClose = { [weak self, weak view] in
-            guard let workspace = view?.info.workspace else { return }
-            self?.onCloseWorkspace?(workspace)
         }
         return view
     }
@@ -389,7 +413,7 @@ final class SidebarRegionView: NSView {
         let view = SidebarSectionHeaderView()
         view.onPress = { [weak self] in self?.onToggleSection?(id) }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.section(id), from: start, event) ?? false }
-        view.onDragEnded = { [weak self] in self?.finishDrag() }
+        view.onDragEnded = { [weak self] point in self?.finishDrag(at: point) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutSection(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)

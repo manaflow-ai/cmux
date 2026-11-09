@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextHomeModel
 import Observation
 
 /// The Home page's two columns with a real divider: the resize cursor over a
@@ -209,14 +210,6 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         place(width)
     }
     #endif
-
-    /// The page moved in its window without a resize (the window's sidebar opened or closed
-    /// beside it): the list's header and the chat's compose re-read the traffic lights now.
-    public func windowControlsMoved() {
-        guard window != nil, !isHidden else { return }
-        list.updateWindowControlsAvoidance()
-        chatColumn.updateWindowControlsAvoidance()
-    }
 
     /// Back to the standard width (the divider's double-click).
     public func resetWidth() {

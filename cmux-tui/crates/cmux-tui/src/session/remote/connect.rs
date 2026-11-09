@@ -185,7 +185,7 @@ impl RemoteSession {
         // how we were installed, so it can translate for us or name our
         // update command when it refuses (server/api_revision_wire.rs).
         if ident.get("api_revision").is_some() {
-            use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
+            use crate::version_report::{DISTRIBUTION_VERSION, InstallChannel};
             client_info.set(
                 "api_revision",
                 json!(
@@ -245,6 +245,11 @@ impl RemoteSession {
         }
         if self.supports_capability(PLACEMENT_SHIFT_CAPABILITY) {
             negotiated.push(PLACEMENT_SHIFT_CAPABILITY);
+        }
+        // `restart` on the shutdown notice: reconnect after `daemon restart`,
+        // exit after `daemon stop` (app/daemon_reconnect.rs).
+        if self.supports_capability(cmux_tui_core::server::DAEMON_SHUTDOWN_RESTART_CAPABILITY) {
+            negotiated.push(cmux_tui_core::server::DAEMON_SHUTDOWN_RESTART_CAPABILITY);
         }
         if !negotiated.is_empty() {
             client_info.set("capabilities", json!(negotiated));

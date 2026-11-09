@@ -22,8 +22,10 @@ public nonisolated enum MotionTunables {
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
         // plans/cmux-next/split-spring-animation/DESIGN.md: slightly under-damped (0.95) for a short
         // tail, overshoot under 0.1 pt on 700 pt. 0.28 ended visibly at 287 ms (half its travel at
-        // 73 ms); 0.23 ends at 235 ms, under the ceiling, half its travel at 60 ms (Leo 2026-10-20).
-        .split: (SpringParameters(response: 0.23, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
+        // 73 ms); 0.23 ended at 235 ms (Leo 2026-10-20). 0.11 ends at 113 ms, 8% of its travel in the
+        // first 120 Hz frame and 80% at 50 ms (Leo 2026-11-08: "our animations should be so fast";
+        // the instant-splits target is a transition done in 120 ms).
+        .split: (SpringParameters(response: 0.11, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
         // Ends visibly at 235 ms, between standard and the ceiling on purpose: it carries the
@@ -66,14 +68,6 @@ public nonisolated enum MotionTunables {
         help: "Bounce of tab, row, pane and divider springs when Animations Bounce is Subtle (0 is critically damped).",
         default: 0.15, range: 0...0.5, step: 0.01, unit: .multiplier, code: "MotionTunables.subtleBounce")
 
-    /// How far ahead a released divider's velocity is projected to find a
-    /// snap (halves, thirds) it is flung onto; it then springs there from
-    /// that velocity.
-    public static let dividerReleaseProjection = Tunable<Double>.number(
-        "motion.divider.releaseProjection", .springs, "Divider fling projection",
-        help: "Seconds of release velocity a divider looks ahead for a snap point.",
-        default: 0.05, range: 0...0.3, step: 0.01, unit: .seconds, code: "MotionTunables.dividerReleaseProjection")
-
     // MARK: Fades and loops
 
     /// Every timed fade is a `MotionScale` step (or 0, instant), so nothing reads slow (Leo
@@ -109,7 +103,7 @@ public nonisolated enum MotionTunables {
     })
 
     package static let loopDefaults: [MotionLoop: (TimeInterval, String)] = [
-        .spinner: (0.9, "One turn of the busy spinner."),
+        .spinner: (MotionScale.spinnerPeriod, "One turn of every spinner (schemas/motion-scale/motion-scale.json `spinner`)."),
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
         .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
         .sweep: (1.3, "One pass of an unmeasured progress bar's segment (the update card while checking)."),
@@ -205,7 +199,7 @@ public nonisolated enum MotionTunables {
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, dividerReleaseProjection.descriptor]
+        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,

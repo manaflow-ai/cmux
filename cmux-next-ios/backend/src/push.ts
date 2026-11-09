@@ -25,9 +25,98 @@ export const apnsTopics = (env: Env): ReadonlySet<string> =>
       .filter(Boolean)
   )
 
+export interface CloudAttentionPush {
+  readonly recipient: string
+  readonly kind: "question" | "permission" | "done"
+  readonly event_id: string
+  readonly team_id: string
+  readonly machine_id: string
+  readonly session_id: string
+  readonly deep_link: string
+}
+
+export interface CloudAttentionSendResult {
+  readonly token: string
+  readonly outcome: ApnsOutcome | "retry_later"
+  readonly status: number
+  readonly reason?: string
+  /** APNs' opaque receipt id; safe to return to the caller, unlike the device token. */
+  readonly apns_id?: string
+}
+
+const CLOUD_ATTENTION_KINDS = ["question", "permission", "done"] as const
+
+/** A stable, full-width APNs collapse id; truncating event ids could merge unrelated events. */
+export const cloudAttentionCollapseId = async (event: CloudAttentionPush): Promise<string> => {
+  const input = JSON.stringify({ event_id: event.event_id, team_id: event.team_id, machine_id: event.machine_id, session_id: event.session_id, kind: event.kind })
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input))
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+/** Sends a Cloud attention banner to the owner's registered phones. Text stays out of APNs. */
+export const sendCloudAttention = async (
+  config: ApnsConfig,
+  targets: ReadonlyArray<PushRegistration>,
+  event: CloudAttentionPush,
+  now: number,
+  fetcher: typeof fetch = fetch,
+): Promise<ReadonlyArray<CloudAttentionSendResult>> => {
+  if (!CLOUD_ATTENTION_KINDS.includes(event.kind)) throw new Error("invalid Cloud attention kind")
+  const token = await providerToken(config, now)
+  const collapseId = await cloudAttentionCollapseId(event)
+  const title = event.kind === "question" ? "Cloud chat has a question" : event.kind === "permission" ? "Cloud chat needs permission" : "Cloud chat finished"
+  const body = JSON.stringify({
+    aps: { alert: { title }, sound: "default", category: `CLOUD_${event.kind.toUpperCase()}` },
+    cmux: {
+      cloud: {
+        kind: event.kind,
+        event_id: event.event_id,
+        team_id: event.team_id,
+        machine_id: event.machine_id,
+        session_id: event.session_id,
+        deep_link: event.deep_link,
+      },
+    },
+  })
+  return Promise.all(targets.map(async (target) => {
+    const host = target.environment === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com"
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      const request = new Request(`https://${host}/3/device/${target.token}`, {
+        method: "POST",
+        headers: {
+          authorization: `bearer ${token}`,
+          "apns-topic": target.topic,
+          "apns-push-type": "alert",
+          "apns-priority": "10",
+          "apns-expiration": String(Math.floor((now + 24 * 3600_000) / 1000)),
+          "apns-collapse-id": collapseId,
+          "content-type": "application/json",
+        },
+        body,
+      })
+      try {
+        const response = await fetcher(request, { signal: controller.signal })
+        const reason = response.status === 200 ? undefined : ((await response.json().catch(() => ({}))) as { reason?: string }).reason
+        if (response.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) forgetProviderToken()
+        const apnsId = response.headers.get("apns-id") ?? undefined
+        return { token: target.token, outcome: classifyApns(response.status, reason), status: response.status, ...(reason ? { reason } : {}), ...(apnsId ? { apns_id: apnsId } : {}) }
+      } finally {
+        clearTimeout(timeout)
+      }
+    } catch (error) {
+      return { token: target.token, outcome: "retry_later" as const, status: 0, reason: error instanceof DOMException && error.name === "AbortError" ? "timeout" : "network" }
+    }
+  }))
+}
+
 /** Apple wants one provider token reused for 20 to 60 minutes: one per isolate, renewed after 50 or when refused. */
 let cached: { id: string; token: string; at: number } | undefined
 const configId = (c: ApnsConfig) => `${c.teamId}:${c.keyId}:${c.keyP8.length}:${c.keyP8.slice(-16)}`
+export const forgetProviderToken = () => {
+  cached = undefined
+}
 
 export const providerToken = async (config: ApnsConfig, now: number): Promise<string> => {
   if (cached && cached.id === configId(config) && now - cached.at < 50 * 60_000) return cached.token
@@ -298,7 +387,8 @@ const alert = (e: NotifyEvent, previews: boolean) => {
       case "question":
         return [`${agent} asks`, e.questions?.[0]?.question || e.title || ""]
       case "permission":
-        return [`${agent} needs permission`, e.title || e.body || ""]
+        // As the Mac's approval prompt for a streaming device (the phone's ApprovalBanner): the Mac in the title.
+        return [`${agent} wants to act on ${e.macName}`, e.title || e.body || ""]
       case "completed":
         return [`${agent} finished`, last || e.body || ""]
       case "failed":
@@ -310,6 +400,7 @@ const alert = (e: NotifyEvent, previews: boolean) => {
         return [where ? `Terminal · ${where}` : "Terminal", [e.title, e.body].filter(Boolean).join(": ")]
     }
   })()
+  if (e.kind === "permission") return where ? { title, subtitle: where, body } : { title, body }
   return { title, subtitle: where ? `${where} · ${e.macName}` : e.macName, body }
 }
 
@@ -509,6 +600,38 @@ export const classifyApns = (status: number, reason: string | undefined): ApnsOu
   return "failed"
 }
 
+export interface ApnsSendResult {
+  readonly token: string
+  readonly environment: PushRegistration["environment"]
+  readonly outcome: ApnsOutcome
+  readonly status: number
+  readonly reason?: string
+}
+
+/** One failed send as `notify` answers it: never the token, the topic or an error's text. */
+export interface NotifyFailure {
+  readonly environment: PushRegistration["environment"]
+  readonly status: number
+  readonly reason: string
+}
+
+/** APNs' `reason` is one word from Apple's fixed list (BadEnvironmentKeyInToken, TopicDisallowed, ...). */
+const APNS_REASON = /^[A-Za-z]{1,64}$/
+
+/**
+ * The failed sends for the `notify` answer, so the Mac can tell why APNs refused (a key not enabled for the
+ * sandbox, a topic the key may not push to): APNs' reason word, `unknown` for any other body, `network` when
+ * no answer came.
+ */
+export const notifyFailures = (results: ReadonlyArray<ApnsSendResult>): Array<NotifyFailure> =>
+  results
+    .filter((r) => r.outcome === "failed")
+    .map((r) => ({
+      environment: r.environment,
+      status: r.status,
+      reason: r.status === 0 ? "network" : typeof r.reason === "string" && APNS_REASON.test(r.reason) ? r.reason : "unknown"
+    }))
+
 /** Sends one event to every target; never throws. */
 export const sendApns = async (
   config: ApnsConfig,
@@ -516,18 +639,20 @@ export const sendApns = async (
   e: NotifyEvent,
   now: number,
   fetcher: typeof fetch = fetch
-): Promise<Array<{ token: string; outcome: ApnsOutcome; status: number; reason?: string }>> => {
+): Promise<Array<ApnsSendResult>> => {
   if (targets.length === 0) return []
   const token = await providerToken(config, now)
   return Promise.all(
     targets.map(async (t) => {
       try {
         const res = await fetcher(apnsRequest(t, e, token, now))
-        const reason = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: string }).reason
+        const body = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: unknown } | null)?.reason
+        // A malformed body (`{"reason": true}`, `null`) has no reason.
+        const reason = typeof body === "string" ? body : undefined
         if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) cached = undefined
-        return { token: t.token, outcome: classifyApns(res.status, reason), status: res.status, ...(reason ? { reason } : {}) }
+        return { token: t.token, environment: t.environment, outcome: classifyApns(res.status, reason), status: res.status, ...(reason ? { reason } : {}) }
       } catch (err) {
-        return { token: t.token, outcome: "failed" as const, status: 0, reason: String(err).slice(0, 120) }
+        return { token: t.token, environment: t.environment, outcome: "failed" as const, status: 0, reason: String(err).slice(0, 120) }
       }
     })
   )

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import Foundation
 
 public final class WorkspacePaletteProvider: PaletteProvider {
     public let id = "workspaces"
@@ -22,9 +23,32 @@ public final class WorkspacePaletteProvider: PaletteProvider {
     public var immediateItems: [PaletteItem]? { makeItems() }
     public func items() async -> [PaletteItem] { makeItems() }
 
+    /// Higher in the sidebar ranks higher among equal matches.
+    var sidebarPrior = PaletteSidebarPrior()
+    /// Recently used ranks higher among equal and near matches; the current workspace gets no lift.
+    var recencyPrior = PaletteRecencyPrior()
+    /// The time recency is measured at (tests fix it).
+    var now: () -> Date = { Date() }
+
+    /// The workspaces in sidebar order (top first), then those the sidebar does not draw in the
+    /// source's order: the empty Cmd-P lists them as the sidebar does.
     func makeItems() -> [PaletteItem] {
         let source = source
-        return source.workspaces.map { workspace in
+        let prior = sidebarPrior
+        // One read: the app's source builds every row on each read.
+        let workspaces = source.workspaces
+        let recency = recencyPrior.biases(workspaces.compactMap { workspace in
+            workspace.isSelected ? nil : workspace.lastUsed.map { (id: workspace.id, lastUsed: $0) }
+        }, now: now())
+        let ordered = workspaces.enumerated().sorted { left, right in
+            switch (left.element.sidebarRank, right.element.sidebarRank) {
+            case let (lhs?, rhs?) where lhs != rhs: lhs < rhs
+            case (.some, nil): true
+            case (nil, .some): false
+            default: left.offset < right.offset
+            }
+        }.map(\.element)
+        return ordered.map { workspace in
             let id = workspace.id
             // The subagent id, the machine, the parent group, then the folder: rows of the same name tell apart.
             let parents = [workspace.agentID, workspace.machineName, workspace.groupName, workspace.directory.map(abbreviatePath)]
@@ -33,11 +57,14 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                 id: "workspace:\(id)",
                 title: workspace.title,
                 subtitle: parents.isEmpty ? nil : parents.joined(separator: " · "),
-                accessory: workspace.isSelected ? PaletteStrings.current
-                    : (workspace.unreadCount > 0 ? PaletteStrings.unreadCount(workspace.unreadCount) : nil),
+                // Every row says its kind in words, not by its icon alone (Leo 2026-11-03: "i also dont know
+                // what the symbols even mean"); Current or the unread count follows it.
+                accessory: PaletteStrings.kindWithState(PaletteStrings.kindWorkspace, state: workspace.isSelected ? PaletteStrings.current
+                    : (workspace.unreadCount > 0 ? PaletteStrings.unreadCount(workspace.unreadCount) : nil)),
                 symbol: "rectangle.stack",
                 section: Self.section,
-                keywords: [PaletteStrings.workspaceKeyword] + [workspace.groupName, workspace.machineName].compactMap { $0 },
+                keywords: [PaletteStrings.workspaceKeyword] + [workspace.groupName, workspace.machineName].compactMap { $0 }
+                    + workspace.keywords,
                 primary: PaletteCommand(id: "select", title: PaletteStrings.switchToWorkspace, symbol: "return", effect: .perform {
                     source.selectWorkspace(id: id)
                 }),
@@ -59,7 +86,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                     }),
                 ],
                 frecencyKey: "workspace:\(id)",
-                rankBias: workspace.isSelected ? -5 : 0
+                rankBias: (workspace.isSelected ? -5 : 0) + prior.bias(rank: workspace.sidebarRank) + (recency[id] ?? 0)
             )
             if let agentID = workspace.agentID, !agentID.isEmpty { item.handles = [agentID] }
             item.actionRefs = [PaletteActionRef("goToWorkspace", arguments: ["workspace": .target(ActionTargetRef(kind: .workspace, id: id))],

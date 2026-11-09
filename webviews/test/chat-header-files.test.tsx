@@ -34,7 +34,8 @@ afterAll(() => {
 
 test("Files is off until added from the right-click menu, then runs and lights like a split", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
   // Every quick action but Files shown, and nothing open yet (other files in this run share the page's

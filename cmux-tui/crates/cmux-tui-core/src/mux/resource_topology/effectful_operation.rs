@@ -24,7 +24,7 @@ impl Mux {
             );
         }
         let _creation_handoff = is_resource_close_operation(operation)
-            .then(|| self.resource_creation_handoff.lock().unwrap());
+            .then(|| self.resource_creation_handoff.write().unwrap());
         let _creation_fence = is_resource_close_operation(operation)
             .then(|| self.resource_creation_execution.lock().unwrap());
         let operation_name = operation_name(operation);
@@ -61,9 +61,17 @@ impl Mux {
                 }
                 ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
             },
-            ResourceEffectPreparation::Indeterminate => Err(anyhow::Error::new(
-                resource_effect_indeterminate(&mutation.id, &operation_name),
-            )),
+            ResourceEffectPreparation::Indeterminate => {
+                self.report_resource_effect_indeterminate(
+                    &mutation.id,
+                    &operation_name,
+                    crate::resource_api::EARLIER_ATTEMPT_CAUSE,
+                );
+                Err(anyhow::Error::new(resource_effect_indeterminate(
+                    &mutation.id,
+                    &operation_name,
+                )))
+            }
             ResourceEffectPreparation::Execute { .. } => {
                 let intent = self.mark_resource_effect_executing(
                     &mutation.id,
@@ -89,24 +97,12 @@ impl Mux {
                                         json!({"idempotency_key":mutation.id}),
                                     )
                                 });
-                            if self
-                                .commit_resource_effect(
-                                    &mutation.id,
-                                    &operation_name,
-                                    fingerprint,
-                                    &ResourceEffectOutcome::Failure(error.clone()),
-                                    None,
-                                )
-                                .is_ok()
-                            {
-                                return Err(anyhow::Error::new(error));
-                            } else {
-                                let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                                return Err(anyhow::Error::new(resource_effect_indeterminate(
-                                    &mutation.id,
-                                    &operation_name,
-                                )));
-                            }
+                            return Err(self.commit_topology_failure_or_indeterminate(
+                                &mutation.id,
+                                &operation_name,
+                                fingerprint,
+                                error,
+                            ));
                         }
                     };
                     drop(_creation_fence);
@@ -128,24 +124,12 @@ impl Mux {
                         let error = crate::state::home_store::resource_error(&error)
                             .or_else(|| error.downcast_ref::<ResourceError>().cloned())
                             .expect("checked");
-                        let outcome = ResourceEffectOutcome::Failure(error.clone());
-                        if self
-                            .commit_resource_effect(
-                                &mutation.id,
-                                &operation_name,
-                                fingerprint,
-                                &outcome,
-                                None,
-                            )
-                            .is_ok()
-                        {
-                            return Err(anyhow::Error::new(error));
-                        }
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                        return Err(self.commit_topology_failure_or_indeterminate(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            fingerprint,
+                            error,
+                        ));
                     }
                     Err(error)
                         if operation == ResourceOperation::ScreenLayoutUndo
@@ -160,23 +144,12 @@ impl Mux {
                                 format!("{error:#}"),
                                 json!({"idempotency_key":mutation.id}),
                             );
-                            if self
-                                .commit_resource_effect(
-                                    &mutation.id,
-                                    &operation_name,
-                                    fingerprint,
-                                    &ResourceEffectOutcome::Failure(error.clone()),
-                                    None,
-                                )
-                                .is_ok()
-                            {
-                                return Err(anyhow::Error::new(error));
-                            }
-                            let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                            return Err(anyhow::Error::new(resource_effect_indeterminate(
+                            return Err(self.commit_topology_failure_or_indeterminate(
                                 &mutation.id,
                                 &operation_name,
-                            )));
+                                fingerprint,
+                                error,
+                            ));
                         };
                         let actual = match self
                             .workspace_registry
@@ -185,41 +158,28 @@ impl Mux {
                             .resource_topology_snapshot()
                         {
                             Ok(snapshot) => snapshot.revision,
-                            Err(_) => {
-                                let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                                return Err(anyhow::Error::new(resource_effect_indeterminate(
+                            Err(error) => {
+                                return Err(self.indeterminate_topology_effect(
                                     &mutation.id,
                                     &operation_name,
-                                )));
+                                    &format!("the topology revision could not be read: {error:#}"),
+                                ));
                             }
                         };
                         let error = ResourceError::revision_conflict(expected, actual);
-                        if self
-                            .commit_resource_effect(
-                                &mutation.id,
-                                &operation_name,
-                                fingerprint,
-                                &ResourceEffectOutcome::Failure(error.clone()),
-                                None,
-                            )
-                            .is_ok()
-                        {
-                            return Err(anyhow::Error::new(error));
-                        }
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                        return Err(self.commit_topology_failure_or_indeterminate(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            fingerprint,
+                            error,
+                        ));
                     }
-                    Err(_error) => {
-                        #[cfg(test)]
-                        eprintln!("resource topology effect execution failed: {_error:#}");
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                    Err(error) => {
+                        return Err(self.indeterminate_topology_effect(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            &format!("the effect failed: {error:#}"),
+                        ));
                     }
                 };
                 match self.commit_full_resource_effect_projection(
@@ -229,17 +189,55 @@ impl Mux {
                     result,
                 ) {
                     Ok(commit) => Ok(commit),
-                    Err(_error) => {
-                        #[cfg(test)]
-                        eprintln!("resource topology effect projection commit failed: {_error:#}");
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        Err(anyhow::Error::new(resource_effect_indeterminate(
-                            &mutation.id,
-                            &operation_name,
-                        )))
-                    }
+                    Err(error) => Err(self.indeterminate_topology_effect(
+                        &mutation.id,
+                        &operation_name,
+                        &format!("the outcome commit failed: {error:#}"),
+                    )),
                 }
             }
         }
+    }
+
+    /// Commits `error` as the effect's failed outcome. When that commit
+    /// fails, the effect is indeterminate, and the daemon log gets both the
+    /// failure and the commit error.
+    fn commit_topology_failure_or_indeterminate(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        error: ResourceError,
+    ) -> anyhow::Error {
+        match self.commit_resource_effect(
+            idempotency_key,
+            operation,
+            fingerprint,
+            &ResourceEffectOutcome::Failure(error.clone()),
+            None,
+        ) {
+            Ok(_) => anyhow::Error::new(error),
+            Err(commit_error) => self.indeterminate_topology_effect(
+                idempotency_key,
+                operation,
+                &format!(
+                    "the effect failed ({}: {}) and its failure outcome commit failed: {commit_error:#}",
+                    error.code, error.message
+                ),
+            ),
+        }
+    }
+
+    /// Marks a topology effect indeterminate and logs `cause`, so the daemon
+    /// log says why the response is `mutation.indeterminate`.
+    fn indeterminate_topology_effect(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        cause: &str,
+    ) -> anyhow::Error {
+        self.report_resource_effect_indeterminate(idempotency_key, operation, cause);
+        let _ = self.mark_resource_effect_indeterminate(idempotency_key);
+        anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation))
     }
 }

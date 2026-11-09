@@ -5,6 +5,9 @@ import AppKit
 final class SidebarListDrag {
     let payload: DragPayload
     let grabbedKey: SidebarRowKey
+    /// The workspace of the group's one row this group drag was lifted from (`SidebarLayout+SoleMember`): in the
+    /// sidebar the row moves its group, out of it (a pane, another window) it is that workspace, as its member row was.
+    var standingWorkspace: WorkspaceID?
     /// Keys hidden while dragging (the lifted rows).
     let hiddenKeys: Set<SidebarRowKey>
     var grabOffsetY: CGFloat
@@ -14,7 +17,7 @@ final class SidebarListDrag {
     let gapHeight: CGFloat
     let lift: DragLiftView
     /// A workspace card's head row height (`head`, its first lifted row):
-    /// the card carries the tab rows below it, but drops resolve against the
+    /// the card may carry more rows below it, but drops resolve against the
     /// head alone, as for a one-row card, so its centre can still reach a
     /// row's onto band (cx-ikxz).
     var headHeight: CGFloat?
@@ -30,6 +33,12 @@ final class SidebarListDrag {
     /// The top section the rows would join (drop-to-pin), while the
     /// pointer is over the band above the list; the list keeps its order.
     var pinTarget: SidebarRegionDrop?
+    /// The empty sections whose drop zone the drag can open, made at the lift, and the one it opened (a document
+    /// section id; `SidebarDocStore.pinnedSection` for Pinned, on the document or not) (`SidebarEmptyZones`).
+    var zones: [SidebarEmptyZones.Zone] = []
+    var openZone: String?
+    /// The drag empties the list's Pinned: its header and zone stay for the whole drag, so it can go back there.
+    var keepsPinned = false
     var target: DropTarget? {
         didSet { if case let .position(position)? = target { lastPosition = position } }
     }
@@ -74,8 +83,11 @@ final class SidebarListDrag {
     var restFrame: CGRect = .zero
     /// The card is shaped as its list row; else as a block slot, and it follows the pointer on both axes.
     var restShaped = true
-    /// One card drags only: a group or a workspace with tab rows keeps its block shape.
+    /// One card drags only: a group keeps its block shape.
     var morphs = false
+    /// The drag's base layout and drop rules, made once per row set and look (`SidebarListView.dragBase`), not per move;
+    /// a workspace drag's look is spliced from it (`look`).
+    var base: (key: SidebarDragBaseKey, layout: SidebarLayout, rules: DropResolver.DragRules?, look: SidebarDragLook?)?
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?
@@ -88,6 +100,8 @@ final class SidebarListDrag {
     var landsOnModel = false
     /// The landing's completion, kept for a retarget (only the last landing call's completion runs).
     var landingThen: (@MainActor () -> Void)?
+    /// Where the landing card was when its flight began (or a retarget's began), so its whole path counts as under it.
+    var flightStart: NSRect?
     init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, head: CGFloat? = nil,
          target: DropTarget?) {
         self.payload = payload
@@ -104,12 +118,10 @@ final class SidebarListDrag {
     /// The drop for the card at `card` (list coordinates, as drawn over
     /// `displayed`), or nil to keep the last target; records the probe.
     /// Spec 1780d02: the card's centre decides over a loose row, the leading
-    /// edge elsewhere (DropResolver.resolveDrag).
-    func resolve(card: CGRect, displayed: SidebarLayout, base: SidebarLayout, sections: [SidebarSection],
-                 ungroupedFirst: Bool) -> DropTarget?? {
+    /// edge elsewhere (DropResolver.DragRules).
+    func resolve(card: CGRect, displayed: SidebarLayout, base: SidebarLayout, rules: DropResolver.DragRules?) -> DropTarget?? {
         let leading = movingUp ? card.minY : card.maxY
-        guard let resolved = DropResolver.resolveDrag(centreY: card.midY, leadingY: leading, gapY: displayed.gapY, gapHeight: displayed.gapShift,
-                                                      payload: payload, base: base, sections: sections, ungroupedFirst: ungroupedFirst) else {
+        guard let resolved = rules?.resolve(centreY: card.midY, leadingY: leading, gapY: displayed.gapY, gapHeight: displayed.gapShift) else {
             noteProbe(nil, card: card, displayed: displayed, base: base)
             return nil
         }

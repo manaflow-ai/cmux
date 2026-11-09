@@ -33,6 +33,12 @@ final class OutboundTab {
     /// PaneController's extensions), as `NewTabSuccession` keeps its opens.
     private static var open: [ObjectIdentifier: [OutboundTab]] = [:]
 
+    /// A prior open is docking this pane's chat. Its outgoing provisional tab must not make
+    /// another simultaneous open lose that placement. A chat already gone is no longer pending.
+    static func dockingChat(in pane: PaneController) -> String? {
+        open[ObjectIdentifier(pane)]?.filter { $0.pane === pane }.compactMap(\.holding).first { id in pane.pane.tabs.contains { $0.id == id } }
+    }
+
     private weak var pane: PaneController?
     private let key: ObjectIdentifier
     /// The pane's tabs when the open began.
@@ -107,7 +113,7 @@ final class OutboundTab {
     /// The tab `pane` shows or waits to select: never the open's (made unselected).
     private func shownByPane(_ tab: TabModel) -> Bool {
         guard let pane else { return false }
-        return tab.surface == pane.pendingSelectSurface || tab.id == pane.pendingSelectTab || tab.id == pane.stripModel.selectedID?.rawValue
+        return tab.surface == pane.pendingSelect.surface || tab.id == pane.pendingSelect.tab || tab.id == pane.stripModel.selectedID?.rawValue
     }
 
     /// Keeps the open's stand-ins listed now (provisional, new and not the pane's) out until they go.
@@ -136,7 +142,7 @@ final class OutboundTab {
     /// Same, by tab id: an agent tab's stand-in, then the store's tab that replaces it.
     func made(key: String) {
         names.insert(key)
-        if let real = pane?.services.agentTabs.aliases[key] { names.insert(real) }
+        if let pane { names.insert(pane.services.agentTabs.resolve(key, machine: pane.daemon.machineID)) }
         didName()
     }
 

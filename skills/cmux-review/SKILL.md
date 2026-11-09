@@ -19,11 +19,14 @@ suppress style, nits and speculative improvements unless requested.
 3. If fixes were non-trivial, obtain a fresh subagent review of the repair delta.
 4. Merge when the review subagent passes the change and it causes no red of its own
    (base reds, flakes and pending checks don't hold it). Into `main`, merge with
-   `gh-merge-green`; into `feat-cmux-next`, add `ready-to-land`. Report findings with
-   evidence, verification performed and coverage gaps.
+   `gh-merge-green`; into `feat-cmux-next`, merge it yourself with a squash pinned to
+   the reviewed head (`gh pr merge N --squash --match-head-commit <full head sha>`).
+   Report findings with evidence, verification performed and coverage gaps.
 
-Use subagents in the current runtime, not a second model or external review
-service as a gate. Keep review read-only until an authorized repair.
+A small change (a removal, a copy, CSS or token tweak, a fix confined to one
+component) needs only a subagent review in the current runtime. A behavior change
+into `feat-cmux-next` that is not small is reviewed by a different model or a
+person. Keep review read-only until an authorized repair.
 Do not commit review receipts, scratch reproductions or generated logs.
 
 ## Dogfood and merge
@@ -42,7 +45,13 @@ fixes, do not revert.
 Post the verdict as a PR comment whose first line is the receipt, and put nothing
 before it: `Review (<reviewer>): SHIP at <full 40-character head sha>` (or `BLOCK`,
 `FIX`). Findings go below that line. A SHIP counts only for the exact head it
-names. A receipt that carries an older head's SHIP to a new head across a base
+names. Every agent posts as the PR author's GitHub account, so a receipt from that
+account must name the reviewer agent and the agent that started it:
+`Review (<reviewer agent id>, started by <agent id>): SHIP at <sha>`. The PR body
+names its author agent on one line, `Author-agent: <agent id>`. Such a SHIP does not
+count when either id is the author agent or the PR body has no `Author-agent:` line;
+a BLOCK always counts (`scripts/ci/risk_tier.py`). So the author agent never
+starts its own reviewer: the lead (or another agent) starts it. A receipt that carries an older head's SHIP to a new head across a base
 merge is not a review. Mark it in the reviewer label:
 `Review (<reviewer>; carried): SHIP at <new head sha>`. next-autoland and
 `scripts/ci/review_receipt.py` (on main) treat a first line as carried when the label says carried, or

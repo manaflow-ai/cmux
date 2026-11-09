@@ -36,7 +36,14 @@ public final class ChatOpenTrace {
     public enum Mark: Int, CaseIterable, Sendable {
         case action, paneMade, holdBegin, chromiumStart, cefWindowCreate, cefWindowCreated, browserCreated,
              setupDone, navigationStart, committed, firstContentfulPaint, pagePainted, panePainted,
-             loadingLeave, loadingLeft, holdEnd
+             loadingLeave, loadingLeft, holdEnd,
+             // Whether the open's tab took the prewarmed page (`AgentTabStore.view(for:)`,
+             // AgentPaneSpareReadiness): adopted it; found none parked; found one not ready (still
+             // connecting, Low Power Mode, thermal); or the page refused (a person touched it).
+             spareAdopted, spareEmpty, spareUnready, spareRefused,
+             // A fork (Fork Conversation): the forking chat's page asked the host to open the fork
+             // (`chat.openTab`, after acpmux answered the fork).
+             forkOpenAsked
 
         /// The mark's name in `debug.chat_open_trace` results.
         public var name: String {
@@ -57,6 +64,11 @@ public final class ChatOpenTrace {
             case .loadingLeave: "loading_leave"
             case .loadingLeft: "loading_left"
             case .holdEnd: "hold_end"
+            case .spareAdopted: "spare_adopted"
+            case .spareEmpty: "spare_empty"
+            case .spareUnready: "spare_unready"
+            case .spareRefused: "spare_refused"
+            case .forkOpenAsked: "fork_open_asked"
             }
         }
     }
@@ -80,6 +92,15 @@ public final class ChatOpenTrace {
 
         /// Nothing of the chat and nothing kept: what reads as a black or empty pane.
         public var isEmpty: Bool { self == .cover || self == .pageEmpty }
+
+        /// A shown page's surface: content once its paint probe reported the first frame
+        /// (`probed`), or once the page's own after-render report revealed it (`pageReported`)
+        /// and Blink reported a contentful paint (`contentfulPaint`). A chat's copy drawn before
+        /// its bundle (webviews chatSnapshot/) is on screen then, while the probe's report can
+        /// reach a busy main thread at launch half a second later.
+        public static func shownPage(probed: Bool, pageReported: Bool, contentfulPaint: Bool) -> Surface {
+            probed || (pageReported && contentfulPaint) ? .page : .pageEmpty
+        }
     }
 
     /// One trace.
@@ -96,6 +117,8 @@ public final class ChatOpenTrace {
         /// Each change of the bound pane's surface: uptime, surface.
         var frames: [(TimeInterval, Surface)] = []
         public internal(set) var frameCount = 0
+        /// Free text a step of the open left (why the prewarmed spare was not adopted, say).
+        public internal(set) var note: String?
         /// When sampling stopped (finish or ``frameCap``): an empty run still on screen then ends here.
         var endedAt: TimeInterval?
 
@@ -137,6 +160,10 @@ public final class ChatOpenTrace {
     /// The traced chat's page: the first agent page that marks after arming. Page marks of any
     /// other page are not this open's.
     private var page: ObjectIdentifier?
+    /// The marks a page left (``mark(_:page:)``, ``mark(_:chromiumPane:)``): a page that marked before
+    /// the open's pane bound may not be the pane's (a spare warming during the open, #36060), and the
+    /// pane's bind drops them with that page.
+    private var pageMarks: Set<Mark> = []
     /// The Chromium pane key of the traced chat's page (`ChromiumPageHost`), for the marks of the
     /// Chromium window and its first contentful paint.
     public var chromiumPane: String?
@@ -159,6 +186,7 @@ public final class ChatOpenTrace {
         surface = nil
         engine = nil
         page = nil
+        pageMarks = []
         view = nil
         chromiumPane = nil
         makingTracedPage = false
@@ -173,12 +201,24 @@ public final class ChatOpenTrace {
         if mark == .loadingLeft || mark == .holdEnd { resumeIfShown() }
     }
 
+    /// Records `text` as the running trace's note, the first one only.
+    public func note(_ text: String) {
+        guard isArmed, current?.note == nil else { return }
+        current?.note = text
+    }
+
     /// Records `mark` of `page` (an agent page): the first one to mark binds the trace.
     public func mark(_ mark: Mark, page: AnyObject) {
         guard isArmed else { return }
         let id = ObjectIdentifier(page)
         if self.page == nil { self.page = id }
-        if self.page == id { self.mark(mark) }
+        if self.page == id { markFromPage(mark) }
+    }
+
+    private func markFromPage(_ mark: Mark) {
+        guard !has(mark) else { return }
+        self.mark(mark)
+        if has(mark) { pageMarks.insert(mark) }
     }
 
     /// Records `mark` of `view`: the agent pane, a view in it (its loading cover, while still in
@@ -208,21 +248,27 @@ public final class ChatOpenTrace {
     /// Records `mark` of the Chromium pane `pane`, when it is the traced chat's.
     public func mark(_ mark: Mark, chromiumPane pane: String?) {
         guard isArmed, let pane, pane == chromiumPane else { return }
-        self.mark(mark)
+        markFromPage(mark)
     }
 
     /// Whether the running trace recorded `mark`.
     public func has(_ mark: Mark) -> Bool { current?.marks[mark.rawValue] != nil }
 
-    /// The pane of the traced page (the first pane made after arming, without a page) binds the trace: `surface` is sampled every frame of
-    /// `view`'s display and `engine` read at the end. Later panes are not this open's.
+    /// The first pane made after arming binds the trace, and its page becomes the traced page (over a page
+    /// that marked before it): `surface` is sampled every frame of `view`'s display and `engine` read at the
+    /// end. Later panes are not this open's.
     @discardableResult
     public func bind(view: NSView, page: AnyObject?, surface: @escaping () -> Surface, engine: @escaping () -> String) -> Bool {
         guard isArmed, self.surface == nil else { return false }
-        if let page {
-            let id = ObjectIdentifier(page)
-            if self.page == nil { self.page = id }
-            guard self.page == id else { return false }
+        // The first pane made after arming is the open's, and its page with it: a page that marked
+        // before it is another (a spare warming during the open under load, #36060), so its marks go.
+        if let page, self.page != ObjectIdentifier(page) {
+            if self.page != nil {
+                for mark in pageMarks { current?.marks[mark.rawValue] = nil }
+                pageMarks = []
+                chromiumPane = nil
+            }
+            self.page = ObjectIdentifier(page)
         }
         self.surface = surface
         self.engine = engine

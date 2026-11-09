@@ -13,6 +13,7 @@ pub(super) fn connect_and_attach(
     record_session: String,
     params: Value,
     read_only: bool,
+    cloud_mobile: bool,
     author: Option<Value>,
     writer: MessageWriter,
 ) {
@@ -80,7 +81,15 @@ pub(super) fn connect_and_attach(
     if let Some(author) = &author {
         watch.set_path(&["_meta", "acpmux", "author"], author.clone());
     }
-    let watched = link.call("_acpmux/watch", watch, CALL_TIMEOUT);
+    let watched = link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT);
+    // A list read whole from bad pages would follow only some of the session's descendants,
+    // and lose the changes of the rest; the client attaches again instead.
+    if let Err(LinkError::BadList(_)) = &watched {
+        release(sessions);
+        link.close();
+        refuse(&writer, id, Refusal::BadList);
+        return;
+    }
     let page = if author.is_some() { without_drafts(page) } else { page };
     let attachment = Arc::new(Attachment {
         author,
@@ -89,6 +98,7 @@ pub(super) fn connect_and_attach(
         session: resolved,
         record_session,
         read_only: AtomicBool::new(read_only),
+        cloud_mobile,
         mux: Arc::downgrade(&mux),
         link: link.clone(),
         writer: writer.clone(),
@@ -328,7 +338,8 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
                 attachment.end(None);
             }
         }
-        "_acpmux/prompt_accepted" if same_session => {
+        // A prompt this attachment sent: to its chat, or to a side chat it opened and follows.
+        "_acpmux/prompt_accepted" if same_session || attachment.follows_session(&params) => {
             let prompt = params.get("promptId").and_then(Value::as_str).unwrap_or_default();
             let slot = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt);
             if let Some(slot) = slot {

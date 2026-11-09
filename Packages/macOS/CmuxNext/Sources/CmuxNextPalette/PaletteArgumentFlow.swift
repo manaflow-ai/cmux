@@ -18,6 +18,8 @@ struct PaletteArgumentFlow {
     /// An argument a handler asks for although the schema makes it optional (a menu Rename with
     /// no name, ``ActionRegistry/ask(_:_:_:)``): it is collected like a required one.
     var ask: ActionArgumentAsk?
+    /// Makes a target from the typed name when the target list has none matching it.
+    var creators: [ActionTargetKind: PaletteTargetCreator] = [:]
 
     func effect(collected: ActionInvocation) -> PaletteEffect {
         let registry = registry
@@ -32,6 +34,8 @@ struct PaletteArgumentFlow {
             collected.target = target
         }
         switch argument.kind {
+        case .string where argument.suggestions?.allowsMultiple == true:
+            return .push(multipleChoicePage(for: argument, chosen: [], collected: collected))
         case .string where argument.suggestions != nil:
             return .push(withPreview(suggestionPage(for: argument, collected: collected), argument, collected))
         case .string, .int:
@@ -73,6 +77,7 @@ struct PaletteArgumentFlow {
                     return await loaded.providers.first?.items() ?? []
                 }]
             }
+            page.noMatchItems = creationRows(for: argument, kind: kind, collected: collected)
             return .push(page)
         }
     }
@@ -126,7 +131,7 @@ struct PaletteArgumentFlow {
         return nil
     }
 
-    private func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
+    func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
         guard let value = argument.parse(text) else { return nil }
         var next = collected
         next.arguments[argument.name] = value
@@ -222,10 +227,20 @@ struct PaletteArgumentFlow {
         item.id.hasPrefix("option:") ? String(item.id.dropFirst("option:".count)) : nil
     }
 
+    /// An action title without the trailing ellipsis that marks it as asking for more ("New Group
+    /// Chat…" is "New Group Chat"): "…" or "...", and the space some locales put before it ("Neuer
+    /// Gruppenchat …").
+    static func baseTitle(_ title: String) -> String {
+        var text = Substring(title)
+        if text.hasSuffix("…") { text = text.dropLast() } else if text.hasSuffix("...") { text = text.dropLast(3) }
+        while let last = text.last, last.isWhitespace { text = text.dropLast() }
+        return text.isEmpty ? title : String(text)
+    }
+
     /// "Set Tab Group Color: Color" reads badly; use the action title for
     /// single-argument actions and "Title › Argument" otherwise.
     static func stepTitle(_ descriptor: ActionDescriptor, _ argument: ActionArgument) -> String {
-        let base = descriptor.title.hasSuffix("…") ? String(descriptor.title.dropLast()) : descriptor.title
+        let base = baseTitle(descriptor.title)
         let required = descriptor.arguments.filter(\.isRequired)
         return required.count <= 1 ? base : "\(base) › \(argument.title)"
     }

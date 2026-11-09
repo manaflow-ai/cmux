@@ -9,8 +9,8 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Leo 2026-10-22: "OH YEAH LAWRENCE WANTED DEFAULT NEW WORKSPACE AT THE TOP". With no setting
-/// (`workspaces.newPlacement` falls back to `top`), Cmd-N from a loose workspace and New Workspace in Section
+/// Leo 2026-10-22: "OH YEAH LAWRENCE WANTED DEFAULT NEW WORKSPACE AT THE TOP". Under `top` (the default
+/// until 2026-11-06, still a choice), Cmd-N from a loose workspace and New Workspace in Section
 /// draw the new row first in every frame the list applies (never elsewhere, then moved). The in-group slot is
 /// pinned by `NewWorkspaceInGroupTests`: in this harness a group made through the state store is never listed
 /// in the window's sidebar (#22926), so a frame test cannot set one up.
@@ -28,9 +28,21 @@ struct CmdNTopInGroupFramesTests {
         }
     }
 
-    @Test func cmdNFromALooseWorkspaceDrawsTheNewRowOnlyFirstUnderTheDefault() async throws {
+    /// `workspaces.newPlacement` `top` for the app and its daemon (`RapidWorkspaceCreateTests.launch`'s config file).
+    static func placeAtTop(_ launched: RapidWorkspaceCreateTests.Launched) async throws {
+        let url = launched.root.appendingPathComponent("cmux.json")
+        try Data(#"{"workspaces":{"newPlacement":"top"}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        launched.services.settings = settings
+        try #require(launched.services.settings?.snapshot.newWorkspacePlacement == .top)
+    }
+
+    @Test func cmdNFromALooseWorkspaceDrawsTheNewRowOnlyFirstUnderTop() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
+        try await Self.placeAtTop(launched)
         let window = try #require(services.windows.active?.state.id)
         let controller = try #require(services.windows.controller(for: window))
         let state = controller.state
@@ -74,9 +86,10 @@ struct CmdNTopInGroupFramesTests {
 
     /// New Workspace in Section on the workspace list, with a loose workspace current: under the default the new row is first
     /// in every frame (it went to the bottom whatever `workspaces.newPlacement` said).
-    @Test func newWorkspaceInSectionDrawsTheNewRowOnlyFirstUnderTheDefault() async throws {
+    @Test func newWorkspaceInSectionDrawsTheNewRowOnlyFirstUnderTop() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
+        try await Self.placeAtTop(launched)
         let window = try #require(services.windows.active?.state.id)
         let controller = try #require(services.windows.controller(for: window))
         let state = controller.state

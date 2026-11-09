@@ -12,6 +12,7 @@ import dataclasses
 import fcntl
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import re
@@ -102,6 +103,9 @@ CASES = {
                      "@objc func clicked() {\n    guard let item = browser.clickedItemIfValid else { return }\n}\n"),
     "undo-text-write": ("func build() {\n    textView.allowsUndo = true\n}\n",
                         "func build() {\n    textView.allowsUndo = true // undo-safe: TextBoxTextView.replaceText\n}\n"),
+    "raw-observation": ("@MainActor func watch(_ store: Store) {\n    withObservationTracking { _ = store.tabs } onChange: { print(1) }\n}\n",
+                        "@MainActor func watch(_ store: Store) -> Task<Void, Never> {\n"
+                        "    Task { for await _ in ObservationStream({ ObservationTrigger(store.tab.title) }) { print(1) } }\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -179,6 +183,14 @@ class Fixture(unittest.TestCase):
 
 
 class RuleTests(Fixture):
+    def test_raw_observation_is_allowed_in_the_tracked_wrappers_only(self):
+        wrapper = "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/SingleArmedTracking.swift"
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(wrapper, CASES["raw-observation"][0])
+        self.commit("a wrapper's own tracking")
+        refusals, _ = self.check()
+        self.assertNotIn("raw-observation", [r.id for r, _ in refusals])
+
     def test_each_rule_refuses_what_a_push_adds_and_passes_the_right_pattern(self):
         for rule, (bad, good) in CASES.items():
             with self.subTest(rule=rule):
@@ -875,6 +887,25 @@ class AppSizeTests(Fixture):
         for needle in needles:
             self.assertIn(needle, text)
         return found
+
+    def test_a_dated_reviewed_exception_turns_a_new_app_file_into_a_warning(self):
+        path = f"{APP}/Cloud/CloudNew.swift"
+        self.write(path, swift_body(40, "cloudNew"))
+        self.commit("a new App file")
+        self.assertRefused("new App file")
+        entry = {"date": "2026-10-31", "rule": "app-size", "path": path, "why": "moves to Rust", "author": "lane-a",
+                 "owner": "the Rust move", "receipt": "Review (codex): SHIP at " + "a" * 40, "expiry": "2999-12-31"}
+        self.write(guardrails.EXCEPTIONS, json.dumps({"exceptions": [entry]}))
+        self.commit("its exception")
+        self.assertEqual(self.hits(), [])
+        self.assertTrue(any("excepted by" in text for _, text in self.check()[1]))
+        # A self-reviewed, an expired or another file's entry allows nothing.
+        for broken in ({"receipt": "Review (lane-a): SHIP at " + "a" * 40}, {"expiry": "2026-10-30"},
+                       {"path": f"{APP}/Cloud/Other.swift"}, {"rule": "god-file"}, {"date": "2026-02-31"},
+                       {"expiry": "2999-00-00"}):
+            self.write(guardrails.EXCEPTIONS, json.dumps({"exceptions": [{**entry, **broken}]}))
+            self.commit("a broken exception")
+            self.assertRefused("new App file")
 
     def growth(self, *args):
         """The push's app-size growth warnings (`path:line: text`): never refusals for now."""
@@ -2282,6 +2313,31 @@ class GateWrapperTests(Fixture):
         self.assertIn("feat-b", stderr.getvalue(), "the warning names the range it could not judge")
 
 
+class RatchetWaitTests(unittest.TestCase):
+    """guardrails.Ratchet.finish(): a slow arch ratchet still judges the push.
+
+    On 2026-10-31 the push of 7c99189e2ce (app_lines +2, TIP RED 1014) passes the hook's gate on a busy CPU: the
+    ratchet needs about 18 s warm, finish() waited 20 s, printed "ran past 20s; not applied" and let the push
+    through. The gate's own watchdog (prepush-gate.py, CMUX_NEXT_GATE_LIMIT_SECONDS) already refuses a hung push,
+    so the wait needs no limit of its own that passes the push."""
+
+    def test_a_ratchet_slower_than_any_wait_limit_still_refuses(self):
+        with tempfile.TemporaryDirectory(prefix="cmux-ratchet-wait-") as folder:
+            Path(folder, guardrails.ARCH_RATCHET).write_text(
+                "import time\n"
+                "def run_push(repo, ranges, out=None):\n"
+                "    time.sleep(1.0)\n"
+                "    out.append('arch-ratchet: [app_lines] CmuxNextApp Swift lines: +2')\n"
+                "    return True\n")
+            # Any wait limit shorter than the ratchet's run: the old 20 s on a loaded Mac, 0.2 s here.
+            with mock.patch.object(guardrails.Ratchet, "WAIT_LIMIT", 0.2, create=True):
+                ratchet = guardrails.Ratchet(Path(folder), [], scripts_dir=Path(folder))
+                text, refused = ratchet.finish()
+        self.assertTrue(refused, text)
+        self.assertIn("[app_lines]", text)
+        self.assertNotIn("not applied", text)
+
+
 class HookTests(Fixture):
     """The installed pre-push hook runs the guardrails; CI (GITHUB_ACTIONS, --commits) never does."""
 
@@ -2292,8 +2348,9 @@ class HookTests(Fixture):
         checks = [p for p in tracked if "/" not in p[len("scripts/cmux-next/"):]
                   or p.startswith(("scripts/cmux-next/lint/", "scripts/cmux-next/arch_rules/"))]
         for relative in ("scripts/git-hooks", "scripts/install-git-hooks.sh", "scripts/web_lint_prepush.py",
-                         "scripts/ci/base_merge_warning.py", "scripts/web-lint.sh", "scripts/merge-xcstrings.py",
-                         "scripts/merge-pbxproj.py", "scripts/merge-baseline.py", "scripts/merge-daemon-capabilities.py",
+                         "scripts/ci/base_merge_warning.py", "scripts/ci/github_release_download.py", "scripts/web-lint.sh",
+                         "scripts/merge-xcstrings.py",
+                         "scripts/merge-pbxproj.py", "scripts/merge-baseline.py", "scripts/merge-daemon-capabilities.py", "scripts/merge-insertions.py",
                          "scripts/ci/merge_main_resolver.py", "scripts/ci/validate_test_execution_registry.py",
                          "scripts/ci/test_execution_registry.py", "scripts/ci/workload_entrypoints.py",
                          "scripts/normalize-pbxproj.py", *checks):

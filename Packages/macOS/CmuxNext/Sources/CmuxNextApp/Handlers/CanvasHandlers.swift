@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextLayout
+import CmuxNextWindowRules
 
 /// Canvas layout actions (plans/cmux-next/canvas-layout.md): a screen shown as
 /// free-placed panes on a zoomable, pannable plane. Each action resolves the
@@ -12,6 +13,7 @@ enum CanvasHandlers {
             guard let (content, pane) = target(invocation, ctx) else { return }
             toggle(content, pane: pane, ctx)
         })
+        ActionTargetTitles.setPaletteState("toggleCanvasLayout", in: registry) { ctx.services.windows.active?.focusedPane.map { $0.workspace?.layoutModel.canvasScreenID(containing: $0.layoutPaneID) != nil } ?? false }
         registry.bind("canvasZoomIn", invoke: { zoom($0, by: CanvasCamera.zoomStep, ctx) })
         registry.bind("canvasZoomOut", invoke: { zoom($0, by: 1 / CanvasCamera.zoomStep, ctx) })
         registry.bind("canvasZoomReset", invoke: { invocation in
@@ -26,11 +28,10 @@ enum CanvasHandlers {
             guard let (content, pane) = canvasTarget(invocation, ctx) else { return }
             content.layoutModel.revealCanvasPane(pane)
         })
-        let arrangements: [(ActionID, CanvasArrangement)] = [
-            ("canvasTidy", .tidy), ("canvasAlignLeft", .alignLeft), ("canvasAlignRight", .alignRight), ("canvasAlignTop", .alignTop),
-            ("canvasAlignBottom", .alignBottom), ("canvasEqualizeWidths", .equalizeWidths), ("canvasEqualizeHeights", .equalizeHeights),
-            ("canvasDistributeHorizontally", .distributeHorizontally), ("canvasDistributeVertically", .distributeVertically),
-        ]
+        // The arrangement actions and what each runs are Rust's table (cmux-window-rules `chat::column_actions`).
+        let arrangements = (WindowRules().columnActions()?.canvas ?? []).compactMap { entry in
+            CanvasArrangement(rawValue: entry.arrangement).map { (ActionID(rawValue: entry.id), $0) }
+        }
         for (id, arrangement) in arrangements {
             registry.bind(id, invoke: { invocation in
                 guard let (content, pane) = canvasTarget(invocation, ctx) else { return }

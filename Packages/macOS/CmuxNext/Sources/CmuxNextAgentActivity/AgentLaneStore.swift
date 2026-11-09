@@ -25,8 +25,62 @@ public final class AgentLaneStore {
         }
         set {
             withMutation(keyPath: \.lanes) { storage = newValue }
+            waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
+            working = Set(newValue.compactMap { $0.value.state == .working ? $0.key : nil })
+            unread = Set(newValue.compactMap { $0.value.unread ? $0.key : nil })
             syncCells()
+            syncChiefParticipants()
+            syncNames()
         }
+    }
+
+    /// The sessions whose lane waits for the person (`.input`: a permission prompt or a question),
+    /// kept with every write, so a reader that wants only those (Go to Next Agent Needing Input,
+    /// the menu bar's count) reads a few lanes instead of ranking every one. Not observed: read
+    /// it when it is used.
+    @ObservationIgnored public private(set) var waiting: Set<String> = []
+    /// The sessions whose lane runs a turn (`.working`), kept as ``waiting`` is: the menu bar's
+    /// Running list reads these few lanes, never every one.
+    @ObservationIgnored public private(set) var working: Set<String> = []
+    /// The sessions whose lane has a result nobody has seen (`unread`), kept as ``waiting`` is: the
+    /// menu bar's Unread list. The person's read marks (`AgentPriorityMarks`) still apply on top.
+    @ObservationIgnored public private(set) var unread: Set<String> = []
+
+    /// Writes one session's lane (nil: it ended), as ``lanes``' setter does for that session, but
+    /// in place and keeping ``waiting``, ``working`` and ``unread`` by that session alone: the
+    /// watch's per-session changes, many a second while an agent works, never copy or rescan the
+    /// map or the other sessions' cells.
+    public func set(_ session: String, _ lane: AgentActivityLane?) {
+        let ownedBefore = Self.chiefOwnership(storage[session])
+        let nameBefore = storage[session]?.name
+        withMutation(keyPath: \.lanes) { storage[session] = lane }
+        if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
+        if lane?.state == .working { working.insert(session) } else { working.remove(session) }
+        if lane?.unread == true { unread.insert(session) } else { unread.remove(session) }
+        // Only this session's cell can change: the others' lanes are as they were.
+        syncCell(session)
+        // Rescan only when this session's Chief tags change, not on every step of its output.
+        if Self.chiefOwnership(lane) != ownedBefore { syncChiefParticipants() }
+        // Only a session that came, went or was renamed changes the names: a step of its output does not.
+        if lane?.name != nameBefore { syncNames() }
+    }
+
+    private func syncNames() {
+        let current = Set(storage.values.map(\.name))
+        if names != current { names = current }
+    }
+
+    /// A lane's Chief ownership pair (its `mux.children` key and participant), on this Mac only.
+    private static func chiefOwnership(_ lane: AgentActivityLane?) -> [String]? {
+        guard let lane, lane.peer == nil, let key = lane.chiefChildren, let chief = lane.chiefParticipant else { return nil }
+        return [key, chief]
+    }
+
+    private func syncChiefParticipants() {
+        let identities = Dictionary(storage.values.compactMap { lane -> (String, String)? in
+            Self.chiefOwnership(lane).map { ($0[0], $0[1]) }
+        }, uniquingKeysWith: { first, _ in first })
+        if chiefParticipants != identities { chiefParticipants = identities }
     }
     @ObservationIgnored private var storage: [String: AgentActivityLane] = [:]
     /// One observable cell per session a reader asked for (``lane(_:)``, ``links(_:)``).
@@ -35,7 +89,25 @@ public final class AgentLaneStore {
     /// about its sessions such as the Priority view's Archive.
     @ObservationIgnored public var socketPath: String?
     /// The watch is up and has delivered its page: `lanes` is every session, not a gap.
-    public var live = false
+    public var live = false {
+        didSet {
+            // Going down, keep the sessions it showed (before `lanes` is emptied), for the gap; a page ends the gap.
+            if oldValue, !live { beforeGap = Set(storage.keys) } else if live, beforeGap != nil { beforeGap = nil }
+        }
+    }
+
+    /// The sessions the watch listed when it last went down, nil while it is live or before its first page. Through a
+    /// watch gap the sidebar keeps these sessions' rows and leaves the ones it had hidden (gone sessions) hidden
+    /// (`keepsWorkspace`; Leo 2026-11-05: "randomly there's these workspaces that appear and disappear").
+    public private(set) var beforeGap: Set<String>?
+
+    /// Changes only when ownership changes; ordinary lane output does not remap every row.
+    public private(set) var chiefParticipants: [String: String] = [:]
+
+    /// The names of the sessions that have a lane (acpmux's session names, such as the Chief's
+    /// `optchat-sub-<home>-a<n>` subagents). Changes only when a session comes, goes or is renamed, so a
+    /// reader that needs which sessions exist (Home's queued agents that start) is not told of every step.
+    public private(set) var names: Set<String> = []
 
     public init() {}
 
@@ -52,6 +124,10 @@ public final class AgentLaneStore {
     /// state, observing only that: a new step of the session does not notify the reader.
     public func links(_ session: String) -> AgentLaneLinks? { cell(session).links }
 
+    /// The chat key for `session`, observing only the chat binding. A turn-state update leaves
+    /// this value alone, so chat-history projections do not re-scan every tab while an agent works.
+    public func chat(_ session: String) -> String? { cell(session).chat }
+
     private func cell(_ session: String) -> AgentLaneCell {
         if let cell = cells[session] { return cell }
         let cell = AgentLaneCell(storage[session])
@@ -66,9 +142,19 @@ public final class AgentLaneStore {
         var ended: [String] = []
         for (session, cell) in cells {
             let lane = storage[session]
+            let wasLive = cell.hasLiveSession
             cell.update(lane)
-            if lane == nil { ended.append(session) }
+            if wasLive, lane == nil { ended.append(session) }
         }
         for session in ended { cells[session] = nil }
+    }
+
+    /// ``syncCells()`` for one session, when only its lane changed.
+    private func syncCell(_ session: String) {
+        guard let cell = cells[session] else { return }
+        let lane = storage[session]
+        let wasLive = cell.hasLiveSession
+        cell.update(lane)
+        if wasLive, lane == nil { cells[session] = nil }
     }
 }

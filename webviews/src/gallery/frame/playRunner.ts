@@ -19,12 +19,15 @@ import {
   type StepReport,
 } from "../play";
 import { createMotionController } from "../motionEvidence";
+import { isExpansionShift, startBoxTracker } from "../shift";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
-  kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up" | "type" | "press";
+  kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up" | "type" | "press" | "resize";
   x?: number;
   y?: number;
+  /** `resize`: the viewport's new width in CSS px. */
+  width?: number;
   text?: string;
 };
 type InputDriver = (action: GalleryInputAction) => Promise<void>;
@@ -36,6 +39,8 @@ declare global {
   interface Window {
     cmuxGalleryInput?: InputDriver;
     cmuxGalleryStep?: StepStill;
+    /** Opt-in receipt evidence, captured before the measurement's observers and clock start. */
+    cmuxGalleryBeforeStep?: (step: { step: string }) => Promise<void>;
     cmuxGalleryPlayReport?: PlayReport;
   }
 }
@@ -104,6 +109,16 @@ const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(r
 
 let actionSequence = 0;
 
+/** What the play clicked itself (a plain `element.click()` on a toggle, not `ctx.click`) since the
+ *  last step started: those folds play inside the next measured step, often a `waitFor` with no
+ *  target of its own, so they are its targets as well, and the rows they push down are theirs (the
+ *  rules of shift.ts). A step that starts takes them, and what is clicked while it runs joins it. */
+let clicked: Element[] = [];
+const noteClick = (event: Event) => {
+  const element = event.composedPath()[0];
+  if (element instanceof Element) clicked.push(element);
+};
+
 /** Two frames, then every running animation and transition finished: the step has settled. */
 async function settle(): Promise<void> {
   await nextFrame();
@@ -116,30 +131,46 @@ async function settle(): Promise<void> {
   ]);
 }
 
-function synthetic(element: Element, kind: string): void {
+/** Whether the shell's pointer is pressed: a person's moves between down and up hold the button. */
+let pointerHeld = false;
+
+export function syntheticPointer(element: Element, kind: string): void {
   const { x, y } = (() => {
     const rect = element.getBoundingClientRect();
     return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
   })();
-  const init = {
+  const init = (buttons: number) => ({
     bubbles: true,
     cancelable: true,
     composed: true,
     clientX: x,
     clientY: y,
+    // Screen coordinates too: drags that follow the pointer across views read screen deltas.
+    screenX: x + window.screenX,
+    screenY: y + window.screenY,
     button: kind === "contextmenu" ? 2 : 0,
-    buttons: kind === "contextmenu" ? 2 : 0,
+    buttons,
     pointerId: 1,
     pointerType: "mouse",
     isPrimary: true,
-  };
-  const fire = (type: string) =>
-    element.dispatchEvent(type.startsWith("pointer") ? new PointerEvent(type, init) : new MouseEvent(type, init));
+  });
+  const fire = (type: string, buttons = kind === "contextmenu" ? 2 : pointerHeld ? 1 : 0) =>
+    element.dispatchEvent(
+      type.startsWith("pointer") ? new PointerEvent(type, init(buttons)) : new MouseEvent(type, init(buttons)),
+    );
   if (kind === "hover")
-    ["pointerover", "pointerenter", "mouseover", "mouseenter", "pointermove", "mousemove"].forEach(fire);
-  if (kind === "down" || kind === "click") ["pointerdown", "mousedown"].forEach(fire);
-  if (kind === "move") ["pointermove", "mousemove"].forEach(fire);
-  if (kind === "up" || kind === "click") ["pointerup", "mouseup"].forEach(fire);
+    ["pointerover", "pointerenter", "mouseover", "mouseenter", "pointermove", "mousemove"].forEach((type) =>
+      fire(type),
+    );
+  if (kind === "down" || kind === "click") {
+    pointerHeld = true;
+    ["pointerdown", "mousedown"].forEach((type) => fire(type));
+  }
+  if (kind === "move") ["pointermove", "mousemove"].forEach((type) => fire(type));
+  if (kind === "up" || kind === "click") {
+    pointerHeld = false;
+    ["pointerup", "mouseup"].forEach((type) => fire(type));
+  }
   if (kind === "click") fire("click");
   if (kind === "contextmenu") fire("contextmenu");
 }
@@ -351,8 +382,21 @@ async function measured(
   checks: PlayChecks,
   run: () => Promise<void>,
 ): Promise<StepReport> {
+  if (window.top?.cmuxGalleryBeforeStep) await window.top.cmuxGalleryBeforeStep({ step });
   const resolve = () => anchors.map(({ label, target }) => ({ label, element: resolveTarget(document, target) }));
   const before = resolve().map(({ label, element }) => ({ label, element, rect: rectOf(element) }));
+  const targets = targeted ? [targeted, ...clicked] : clicked;
+  clicked = targets;
+  // A scroll moves every row on purpose; its box shift is not measured.
+  const boxes =
+    action === "scroll"
+      ? undefined
+      : startBoxTracker(document, {
+          target: targets,
+          extra: () => resolve().flatMap(({ element }) => (element ? [element] : [])),
+          firstMoveFree: action === "resize",
+          restedAtStart: true,
+        });
   const shifts: Shift[] = [];
   const longFrames: number[] = [];
   const loafSupported = PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame") ?? false;
@@ -374,6 +418,9 @@ async function measured(
         // ignore it only when every reported source moved by less than half a CSS pixel. Real
         // shifts (including the composer's one-slot Send change) retain their normal CLS value.
         if (isSubpixelLayoutShift(sources)) continue;
+        // What the step opened pushing the rows under it is the step's transition, not a shift
+        // (shift.ts `isExpansionShift`, the rules the box shift below keeps too).
+        if (isExpansionShift(sources, targets)) continue;
         shifts.push({
           value: entry.value,
           sources: sources.map((source) => {
@@ -417,12 +464,14 @@ async function measured(
   await run();
   await settle();
   performance.mark(endMark);
+  clicked = [];
   const timing = performance.measure(mark, startMark, endMark);
   const settleMs = Math.round(timing.duration * 10) / 10;
   performance.clearMarks(startMark);
   performance.clearMarks(endMark);
   performance.clearMeasures(mark);
   rafRunning = false;
+  const boxShift = boxes?.stop();
   for (const observer of observers) {
     observer.takeRecords();
     observer.disconnect();
@@ -449,9 +498,10 @@ async function measured(
     anchorMoves,
     layoutShift,
     shifts,
+    ...(boxShift ? { boxShift: boxShift.score, boxMoves: boxShift.moves } : {}),
     longFrames,
     frameSource: loafSupported ? ("long-animation-frame" as const) : ("raf" as const),
-    popupProblems: judgePopups(measurePopups(), { width: innerWidth, height: innerHeight }),
+    popupProblems: judgePopups(measurePopups(), { width: window.innerWidth, height: window.innerHeight }),
   };
   return { ...result, ...judgeStep(result, checks) };
 }
@@ -460,6 +510,10 @@ export async function runPlay(
   play: Play,
   options: { anchors?: PlayTarget[]; checks?: PlayChecks },
 ): Promise<PlayReport> {
+  // A play starts with the pointer up, whatever the last one left.
+  pointerHeld = false;
+  clicked = [];
+  document.addEventListener("click", noteClick, true);
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
@@ -483,7 +537,7 @@ export async function runPlay(
     if (window.top?.cmuxGalleryInput) element.scrollIntoView({ block: "nearest", inline: "nearest" });
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
-      else synthetic(element, kind);
+      else syntheticPointer(element, kind);
     }).then(record);
   };
   const gesture = async (
@@ -492,7 +546,7 @@ export async function runPlay(
     target: Element | null,
     run: () => void | Promise<void>,
   ): Promise<void> => {
-    steps.push(
+    await record(
       await measured(name, action, target, anchors, checks, async () => {
         await run();
       }),
@@ -556,41 +610,64 @@ export async function runPlay(
       move: (target) => input("move", target),
       up: (target) => input("up", target),
     },
-    waitFor: (condition, { capMs = 5000 } = {}) =>
-      new Promise<void>((resolve, reject) => {
-        let frame = 0;
-        const stop = () => {
-          observer.disconnect();
-          cancelAnimationFrame(frame);
-          clearTimeout(cap);
-        };
-        const check = () => {
-          let held: unknown;
-          try {
-            held = condition();
-          } catch {
-            held = false;
-          }
-          if (!held) return false;
-          stop();
-          resolve();
-          return true;
-        };
-        // A condition can turn true with no DOM mutation (a posted message, focus, layout), so it is
-        // checked every frame too; the observer answers a DOM change right after it, in a microtask.
-        const poll = () => {
-          if (!check()) frame = requestAnimationFrame(poll);
-        };
-        const observer = new MutationObserver(() => void check());
-        // The cap fails a wait that never comes true; it is not how the wait resolves.
-        const cap = window.setTimeout(() => {
-          stop();
-          reject(new Error(`play: waitFor did not hold within ${capMs} ms`));
-        }, capMs);
-        observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
-        poll();
-      }),
+    resize: async (width) => {
+      await gesture(`resize to ${width}px`, "resize", null, async () => {
+        if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind: "resize", width });
+        else document.documentElement.style.width = `${width}px`;
+        window.dispatchEvent(new Event("resize"));
+      });
+    },
+    waitFor: async (condition, options) => {
+      // Measured for shift: what loads while the play waits (older history, a reply) must not move
+      // the rows already on screen. A wait that holds at once is no step.
+      let held = false;
+      try {
+        held = !!condition();
+      } catch {
+        held = false;
+      }
+      if (held) return;
+      const describe = String(condition).replace(/\s+/g, " ").slice(0, 60);
+      await gesture(`wait ${describe}`, "wait", null, () => waitUntil(condition, options));
+    },
   };
+  const waitUntil = (
+    condition: () => boolean | Element | null | undefined,
+    { capMs = 5000 }: { capMs?: number } = {},
+  ): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      let frame = 0;
+      const stop = () => {
+        observer.disconnect();
+        cancelAnimationFrame(frame);
+        clearTimeout(cap);
+      };
+      const check = () => {
+        let held: unknown;
+        try {
+          held = condition();
+        } catch {
+          held = false;
+        }
+        if (!held) return false;
+        stop();
+        resolve();
+        return true;
+      };
+      // A condition can turn true with no DOM mutation (a posted message, focus, layout), so it is
+      // checked every frame too; the observer answers a DOM change right after it, in a microtask.
+      const poll = () => {
+        if (!check()) frame = requestAnimationFrame(poll);
+      };
+      const observer = new MutationObserver(() => void check());
+      // The cap fails a wait that never comes true; it is not how the wait resolves.
+      const cap = window.setTimeout(() => {
+        stop();
+        reject(new Error(`play: waitFor did not hold within ${capMs} ms`));
+      }, capMs);
+      observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+      poll();
+    });
   try {
     await play(ctx);
     const evidence = motion.stop();
@@ -602,5 +679,8 @@ export async function runPlay(
       motion: motion.stop(),
       error: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    document.removeEventListener("click", noteClick, true);
+    clicked = [];
   }
 }

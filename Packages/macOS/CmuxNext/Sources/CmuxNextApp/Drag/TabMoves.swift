@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import enum CmuxNextLayout.DockEdge
@@ -26,8 +27,8 @@ enum TabMoves {
         guard !refusesIncognitoCrossing(tab, to: pane, services: services),
               !ChatDockRules.refusesMove(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, target = pane.handle
-        let current = pane.tabs.firstIndex { $0.surface == surface }
-        let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
+        let (final, current) = daemon.store.daemonMoveIndex(index, moving: surface, in: pane) // the daemon still lists closing tabs
+        let wire = TabMoveIndex.wireIndex(finalIndex: final, currentIndex: current)
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         services.registry.track(Task {
             let ok = await daemon.intend("move-tab", .moveTab(surface: surface, toPane: target, index: index),
@@ -134,8 +135,7 @@ enum TabMoves {
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
-        let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
-        let width = spawn.width
+        let width = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
         services.registry.track(Task {
             // The daemon's reason reaches the caller (a CLI run's reply, the sweep's row), not only the log.
             let failure = await daemon.failure("move-tab-to-column") { connection in
@@ -147,7 +147,6 @@ enum TabMoves {
                     _ = try await adopt(surface, into: created, connection: connection)
                 }
             }
-            if failure == nil { spawn.commit() }
             completion(failure == nil)
             return failure
         })
@@ -183,21 +182,14 @@ enum TabMoves {
         // default"); a resize is the column's own width and stays. A right dock takes the width a
         // new column next to the anchor would take.
         let half = edge == .left && width == nil ? Self.leftDockWidth : nil
-        let spawn = edge.isBand || width != nil || half != nil ? nil
+        let beside = edge.isBand || width != nil || half != nil ? nil
             : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
-        let width = width ?? half ?? spawn?.width ?? 0.3
+        let width = width ?? half ?? beside ?? 0.3
+        // A lone chat's dock shows in the input's turn (`tab-column-client-pane-v1`, ``DockColumnCommand``).
+        let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin, transaction: transaction)
+        let send = DockColumnCommand(move, respawn: respawn).start(on: daemon)
         services.registry.track(Task {
-            let ok = await daemon.request("move-tab-to-column") { connection -> Void in
-                if let respawn {
-                    let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin,
-                                                      transaction: transaction)
-                    try await MoveTabToColumnRespawnRequest(move, respawn: respawn).send(on: connection)
-                } else {
-                    _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, dock: pin,
-                                                             transaction: transaction)
-                }
-            } != nil
-            if ok { spawn?.commit() }
+            let ok = await send()
             completion(ok)
             return ok ? nil : "move-tab-to-column failed (see the app log)"
         })
@@ -241,7 +233,7 @@ enum TabMoves {
     static func newWorkspaceName(for tab: TabModel, services: AppServices) -> String? {
         // An agent chat's name is its chat's title, which only the turn store knows.
         let tabName = WorkspaceAutoNameWiring(services: services).reader.newWorkspaceName(tab)
-        guard let sourceID = services.workspaceID(ofTab: tab.id), let source = services.workspace(id: sourceID),
+        guard let sourceID = services.workspaceID(ofTab: tab), let source = services.workspace(id: sourceID),
               source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return tabName }
         // The source workspace's own daemon, as WorkspaceAutoNameWiring reads it (none: legacy defaults apply).
         let daemon = services.machines.daemon(forWorkspace: sourceID)
@@ -255,6 +247,12 @@ enum TabMoves {
     /// incognito page's title stays in memory (R102): the daemon stores the
     /// workspace name and keeps it in closed history.
     static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
+        nameInput(tab, services: services, incognito: nil)
+    }
+
+    /// `nameInput` with the tab's incognito answer when the caller knows it (a sidebar row's workspace), so a browser
+    /// tab skips the lookup that reads every tab list (TYPING UNDER LOAD F6); nil looks it up. The one browser rule.
+    static func nameInput(_ tab: TabModel, services: AppServices, incognito: Bool?) -> NewWorkspaceName.Tab {
         // A conversation, page or app tab's record is titled `about:blank`, a placeholder (a New
         // Tab page dragged to the sidebar named its workspace "about:blank"): only a name the tab
         // shows of its own names the workspace.
@@ -268,7 +266,7 @@ enum TabMoves {
         // A conversation or a kind this app does not know: its title still names it.
         case .conversation, .other: .terminal
         }
-        let offTheRecord = tab.kind == .browser && services.cache.browserTabs.isIncognitoTab(tab.id) == true
+        let offTheRecord = tab.kind == .browser && (incognito ?? (services.cache.browserTabs.isIncognitoTab(tab.id) == true))
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
         return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.titleText, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)
@@ -297,10 +295,29 @@ enum TabMoves {
         for surface in tabs.map(\.surface) { _ = await daemon.request("move-tab-to-workspace") { connection -> Void in _ = try await connection.moveTab(surface, toWorkspace: handle) } }
     }
 
+    /// `WorkspaceModel.id` of the workspace that holds `pane` (Move Pane to Dock); nil with no pane.
+    static func paneWorkspace(_ pane: PaneModel?, services: AppServices) -> String? {
+        pane.flatMap { services.daemon(for: $0).store.workspace(containing: $0.handle)?.id }
+    }
+
+    /// Move Pane to Dock: every tab of `pane`, in order, into workspace `id`; false when either is gone.
+    static func pane(_ pane: PaneModel?, toWorkspace id: String, services: AppServices) -> Bool {
+        guard let tabs = pane?.tabs, !tabs.isEmpty, let target = services.workspace(id: id) else { return false }
+        for tab in tabs { toWorkspace(tab, workspace: target, services: services) }
+        return true
+    }
+
+    /// Move Pane to Dock with no dock: every tab of `pane`, in order, into a new workspace; its id, nil on failure.
+    static func paneToNewWorkspace(_ pane: PaneModel?, services: AppServices) async -> String? {
+        guard let tabs = pane?.tabs, let first = tabs.first, let key = await toNewWorkspace(first, services: services) else { return nil }
+        await join(tabs.dropFirst(), workspace: key, services: services)
+        return key.rawValue
+    }
+
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
-        if services.windows.crossesIncognito(from: services.workspaceID(ofTab: tab.id), to: workspace.id) {
+        if services.windows.crossesIncognito(from: services.workspaceID(ofTab: tab), to: workspace.id) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return completion(false)
         }

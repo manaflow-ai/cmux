@@ -5,7 +5,7 @@
 // spacing and quiet row as a started chat, and the folder and computer are the location strip's chips
 // (ComposerContext.tsx) a few px over the card, as the New Tab draws them. The card keeps its own
 // four corners and whole rim. A chat in the workspace's private folder says so in the folder chip's
-// menu, whose Choose folder… is the host's workspace folder sheet; no sentence stands over the card.
+// menu, whose Add folder… is the host's workspace folder sheet; no sentence stands over the card.
 // `started` and `started-codex` are chats after their first send, to set beside; the `alt-*`
 // variants are the strip's Debug styles (agentPane.debug.topStripStyle) over the same component.
 // test/new-chat-composer.test.ts measures it.
@@ -98,13 +98,13 @@ export default agentPaneEntry({
       ),
     },
     "folder-menu": {
-      note: "Play: open the folder chip: the private-folder note and Choose folder… are in its menu.",
+      note: "Play: open the folder chip: the private-folder note and Add folder… are in its menu.",
       ready: PRIVATE,
       snapshot: fresh(),
       play: openFolderMenu,
     },
     "choose-folder": {
-      note: "Play: the folder chip's Choose folder… opens the host's workspace folder sheet, as the old sentence's link did.",
+      note: "Play: the folder chip's Add folder… opens the host's workspace folder sheet, as the old sentence's link did.",
       ready: PRIVATE,
       snapshot: fresh(),
       native: { "workspace.chooseFolder": { cwd: CWD } },
@@ -131,14 +131,17 @@ export default agentPaneEntry({
         const data = new view.DataTransfer();
         data.setData(
           "text/plain",
-          Array.from({ length: 40 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`).join(
+          Array.from({ length: 600 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`).join(
             "\n",
           ),
         );
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: data });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => doc.querySelector(".acpmux-attachment-pasted"));
+        // Inline (the default) puts the chip at the caret; the strip view puts it over the text.
+        await ctx.waitFor(() =>
+          doc.querySelector(".acpmux-md-inline-chip[data-kind='file'], .acpmux-attachment-pasted"),
+        );
         await ctx.press("Enter");
         await ctx.waitFor(() => LOG(ctx).some(({ method }) => method === "acpmux session/prompt"), { capMs: 10_000 });
       },

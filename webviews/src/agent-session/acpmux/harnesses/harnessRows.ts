@@ -1,7 +1,7 @@
 // The Harnesses page's rows (cx-uj5g8): every harness the model catalog names and every one acpmux
 // found on this Mac, each with its state here. The installed ones first, then the rest, each in
 // the catalog's order: a sign-in check that answers later changes a row's state, never its place.
-import type { HarnessHealth } from "../HarnessHealthNotice";
+import { type HarnessHealth, needsLogin } from "../harnessHealthNoticeModel";
 import type { AcpmuxSnapshot } from "../model";
 import type { PickerCatalog } from "../modelCatalogData";
 
@@ -21,6 +21,7 @@ export const INSTALL_COMMANDS: Readonly<Record<string, string>> = {
   // No tty here: never ask to start Codex or to remove another install.
   codex: npmOrNative("@openai/codex", "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh"),
   opencode: npmOrNative("opencode-ai", "curl -fsSL https://opencode.ai/install | bash"),
+  gemini: npmOrNative("@google/gemini-cli", "brew install gemini-cli"),
 };
 
 export type HarnessRow = {
@@ -61,11 +62,15 @@ export function harnessRows(
         ? checking
           ? "checking"
           : "notInstalled"
-        : checked?.auth === "signedOut" && login
-          ? "signIn"
-          : entry.unavailable
-            ? "unavailable"
-            : "ready";
+        : !checked
+          ? "checking"
+          : needsLogin(checked.auth)
+            ? "signIn"
+            : // Ready only on evidence of a sign-in: an answer without one (no `auth`, unknown, or a
+              // state this page does not know) is not ready, and the row offers its fix instead.
+              checked.auth !== "signedIn" || entry.unavailable
+              ? "unavailable"
+              : "ready";
       return {
         harness,
         name: entry.name,
@@ -77,8 +82,9 @@ export function harnessRows(
         ...(INSTALL_COMMANDS[harness] ? { install: INSTALL_COMMANDS[harness] } : {}),
       };
     });
-  return [
-    ...rows.filter((row) => row.status !== "notInstalled" && row.status !== "checking"),
-    ...rows.filter((row) => row.status === "notInstalled" || row.status === "checking"),
-  ];
+  // Group by installation, not asynchronously resolved health, so a check never moves a row.
+  const installed = new Set(
+    catalog.harnesses.filter((entry) => entry.installed).map((entry) => entry.acpmuxHarness ?? entry.id),
+  );
+  return [...rows.filter((row) => installed.has(row.harness)), ...rows.filter((row) => !installed.has(row.harness))];
 }

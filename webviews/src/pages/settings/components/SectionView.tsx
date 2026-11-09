@@ -9,7 +9,7 @@ import { AgentIntegrations } from "./AgentIntegrations";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
 import { CHIEFS_ROWS, ChiefsCard } from "./ChiefsCard";
-import { ComputerUseCard } from "./ComputerUseCard";
+import { COMPUTER_USE_ROWS, ComputerUseCard } from "./ComputerUseCard";
 import { DevicesCard } from "./DevicesCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
@@ -20,30 +20,44 @@ import { MobileCard } from "./MobileCard";
 import { NoticesCard } from "./NoticesCard";
 import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
-import { DENSITY_ROWS } from "../density";
+import { DENSITY_CARD_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
+import { PersonalizationCard } from "./PersonalizationCard";
 import { PlaceholderSection } from "./PlaceholderSection";
+import { AppUpdateCard } from "./AppUpdateCard";
 import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
 import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
+import { SharedLinksCard } from "./SharedLinksCard";
+import { TailnetCard } from "./TailnetCard";
 import { SectionActions } from "./SectionActions";
-import { ACCENT_KEY, APP_THEME_KEY, HIGHLIGHT_COLOR_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
+import {
+  ACCENT_KEY,
+  APP_THEME_KEY,
+  HIGHLIGHT_COLOR_KEY,
+  ROTATE_FAVORITES_KEY,
+  THEME_EDITS_KEY,
+  THEME_FILE_KEY,
+  THEME_KEY,
+  ThemeStudio,
+} from "./ThemeStudio";
+import { FAVORITE_THEMES_KEY } from "./ThemePicker";
 
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
 
 /** Each card; `focus` is the route's focused key (a card may open a panel it names), `workspace`
- * the workspace the page was opened for. */
-const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | null) => ReactNode> = {
+ * the workspace the page was opened for, `reveal` whether the route opens the page on this card. */
+const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | null, reveal: boolean) => ReactNode> = {
   themeStudio: (focus) => <ThemeStudio focus={focus} />,
   terminalInfo: () => <TerminalInfo />,
   ghosttyDiagnostics: () => <GhosttyDiagnostics />,
-  computerUse: () => <ComputerUseCard />,
+  computerUse: (focus) => <ComputerUseCard focus={focus} />,
   harnesses: () => <HarnessesCard />,
   spaces: () => <SpacesSection />,
   browserProfiles: () => <BrowserProfiles />,
-  machines: () => <MachinesSection title={machinesTitle()} />,
+  machines: (_focus, _workspace, reveal) => <MachinesSection title={machinesTitle()} reveal={reveal} />,
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
@@ -54,15 +68,19 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   mobile: () => <MobileCard />,
   devices: () => <DevicesCard />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
-  density: () => <DensityCard />,
+  density: (focus) => <DensityCard focus={focus} />,
   importSuggestions: () => <ImportSuggestionsCard />,
-  channels: () => <ChannelsCard />,
+  channels: (focus) => <ChannelsCard focus={focus} />,
+  appUpdate: () => <AppUpdateCard />,
   webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
+  sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
+  tailnet: () => <TailnetCard />,
   contextMenus: (focus) => <ContextMenusCard focus={focus} />,
+  personalization: (focus, workspace) => <PersonalizationCard focus={focus} workspace={workspace} />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
@@ -70,40 +88,50 @@ export function SectionView({
   section,
   focus,
   workspace = null,
+  reveal = null,
 }: {
   section: string;
   focus: string | null;
   workspace?: string | null;
+  /** The card the route opens the page on (`#/settings/machines`), else null. */
+  reveal?: CategoryCard | null;
 }) {
   const category = categoryById(section);
-  // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent and
-  // appearance.highlightColor itself; the schema's group for them would draw each a second time (a
-  // second "App Theme" card).
+  // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
+  // appearance.highlightColor, appearance.rotateFavoriteThemes and appearance.themeFile itself; the
+  // schema's group for them would draw each a second time (a second "App Theme" card).
   const studio = category.lead.includes("themeStudio");
-  const drawn = new Set(studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY] : []);
+  const drawn = new Set(
+    studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY, THEME_FILE_KEY] : [],
+  );
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
   // The Chief Pet card draws home.chiefPetEnabled and home.chiefPetMascot.
   const pet = category.lead.includes("chiefPet");
   // The Chiefs card draws its Engine row (home.chiefEngine).
   const chiefsCard = [...category.lead, ...category.trail].includes("chiefs");
-  // The density card draws appearance.density and the custom density keys.
+  // The density card draws appearance.density, the custom density keys and Text Size.
   const densityCard = [...category.lead, ...category.trail].includes("density");
+  // The Computer Use card draws computerUse.enabled, .driver and .livePreview beside its setup.
+  const computerUseCard = [...category.lead, ...category.trail].includes("computerUse");
   // The Machines card draws appearance.machineColors: a color well on each machine's row.
   const machinesCard = [...category.lead, ...category.trail].includes("machines");
-  // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own.
+  // appearance.themeEdits is the pickers' "(custom)" themes and appearance.favoriteThemes their
+  // stars, never rows of their own.
   const groups = category.groups
     .map((group) => ({
       ...group,
       rows: group.rows.filter(
         (row) =>
           row.key !== THEME_EDITS_KEY &&
+          row.key !== FAVORITE_THEMES_KEY &&
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
           !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
           !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
-          !(densityCard && DENSITY_ROWS.has(row.key)),
+          !(computerUseCard && COMPUTER_USE_ROWS.has(row.key)) &&
+          !(densityCard && DENSITY_CARD_ROWS.has(row.key)),
       ),
     }))
     .filter((group) => group.rows.length > 0);
@@ -111,11 +139,11 @@ export function SectionView({
     <div className="section" data-section={category.id}>
       <h1 className="section-title">{text(category.title)}</h1>
       {category.lead.map((card) => (
-        <CardSlot key={card} card={card} focus={focus} workspace={workspace} />
+        <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}
-      {groups.length > 0 && <GroupList groups={groups} focus={focus} />}
+      {groups.length > 0 && <GroupList groups={groups} focus={focus} pageTitle={text(category.title)} />}
       {category.trail.map((card) => (
-        <CardSlot key={card} card={card} focus={focus} workspace={workspace} />
+        <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}
       {category.actions.map((id) => (
         <SectionActions key={id} section={id} />
@@ -125,6 +153,16 @@ export function SectionView({
   );
 }
 
-function CardSlot({ card, focus, workspace }: { card: CategoryCard; focus: string | null; workspace: string | null }) {
-  return CARDS[card](focus, workspace);
+function CardSlot({
+  card,
+  focus,
+  workspace,
+  reveal,
+}: {
+  card: CategoryCard;
+  focus: string | null;
+  workspace: string | null;
+  reveal: boolean;
+}) {
+  return CARDS[card](focus, workspace, reveal);
 }

@@ -72,6 +72,9 @@ public final class ActionRegistry {
     public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
     /// Whether a whole right-click menu ends with Customize Menu… (cmux.json `contextMenus.showCustomizeItem`).
     public var showsCustomizeMenuItem = true
+    /// Called when a bound toggle's `paletteState` changes after its run returned (a cmux.json write that
+    /// lands later): the open palette reads its rows again. The palette installs it.
+    @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?
     /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
     @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
 
@@ -110,7 +113,7 @@ public final class ActionRegistry {
     /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.
-    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?) -> Void)?
+    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?, _ machineID: String?) -> Void)?
     /// Live previews by action (`ActionRegistry+Preview`) and the one on screen.
     @ObservationIgnored var previews: [ActionID: ActionPreview] = [:]
     @ObservationIgnored var activePreview: ActivePreview?
@@ -130,6 +133,12 @@ public final class ActionRegistry {
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 
+    /// Ways past an unavailable reason that a person's own gesture may take (``ActionRecovery``),
+    /// asked in order with the action and its current reason; the first non-nil answer wins.
+    @ObservationIgnored public var unavailableRecoveries: [@MainActor (_ action: ActionID, _ reason: String) -> ActionRecovery?] = []
+    /// Writes a Copy row's text (the App's `AppActionContext.copy`): to the general pasteboard; a test,
+    /// whose host may reach no pasteboard, records it instead.
+    @ObservationIgnored public var copyText: @MainActor (String) -> Void = { NSPasteboard.general.clearContents(); NSPasteboard.general.setString($0, forType: .string) }
     /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
     @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
     /// Sees the remote half of an ``ActionEffect`` fail after its local change was rolled back, with
@@ -150,6 +159,8 @@ public final class ActionRegistry {
     /// Each sees every handler run just before it runs, with the run's effective origin (a run
     /// nested in a CLI run is the CLI's): the sidebar animates only changes its user asked for.
     @ObservationIgnored public var willRunObservers: [@MainActor (ActionID, ActionOrigin) -> Void] = []
+    /// What the App's top pages mean for runs (``install(_:)``); nil: no top pages.
+    @ObservationIgnored public internal(set) var topPageRules: ActionTopPageRules?
     /// Sees every handler run after it ran (the tips card's local usage flags).
     @ObservationIgnored public var runObserver: (@MainActor (ActionID, ActionInvocation) -> Void)?
     /// The key window's claim on a run (``KeyWindowRoute``), asked first by `perform` and menu validation.
@@ -167,7 +178,29 @@ public final class ActionRegistry {
     @ObservationIgnored var capturedResults: [ActionResultWork]?
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
-    @ObservationIgnored var shortcutIndex: ShortcutIndex?
+    @ObservationIgnored var shortcutIndex: ShortcutIndex? {
+        didSet { if shortcutIndex == nil { askToWarmBindingTable() } }
+    }
+    /// Builds a stale key-binding table before a key needs it (TYPING UNDER LOAD F3: the first key after a
+    /// change paid for `makeTable()`, 27.6 ms on the main thread). The App gives it a budgeted background batch
+    /// on its main-thread scheduler, which yields to a person's input; nil (tests, tools): the first key builds
+    /// the table, as before.
+    @ObservationIgnored public var warmBindingTable: (@MainActor (@escaping @MainActor () -> Void) -> Void)? {
+        // A new hook drops the old one's queued work: ask again through the new one.
+        didSet { bindingTableWarmQueued = false; if shortcutIndex?.bindingTable == nil { askToWarmBindingTable() } }
+    }
+    /// A warm is queued and has not run yet: further changes need no second one.
+    @ObservationIgnored private var bindingTableWarmQueued = false
+
+    private func askToWarmBindingTable() {
+        guard let warm = warmBindingTable, !bindingTableWarmQueued else { return }
+        bindingTableWarmQueued = true
+        warm { [weak self] in
+            guard let self else { return }
+            self.bindingTableWarmQueued = false
+            _ = RegistryKeyBindings(self).table
+        }
+    }
 
     /// An empty registry with no catalog whose runs are not timed.
     public convenience init() {

@@ -4,8 +4,8 @@
 // no effort chip of its own) and the permission chip in the bar, and the folder chip on the location
 // strip, in a chat's composer, a new chat's and the New Tab page's.
 //
-// - The pointing hand over every chip, as over every clickable thing (desktop.css; Leo 2026-10-21:
-//   "LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE").
+// - The arrow over every chip, as over every clickable thing (desktop.css; 463e538e: "change all
+//   pointers back to cursor-default").
 // - A press shows its tone the moment the button goes down: the hover's ease does not delay it,
 //   and the chip does not move: its layout box stays put, and it draws no shrink or dim (Leo
 //   2026-10-19: no mousedown and mouseup click feedback).
@@ -165,7 +165,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       for (const stage of STAGES) {
         const where = `${engine}: ${stage.entry} ${stage.variant} at ${width} px`;
 
-        test(`${where}: the pointing hand over every chip`, async () => {
+        test(`${where}: the arrow over every chip`, async () => {
           const page = await open(engine, stage, width);
           const cursors = await page.evaluate(
             (selectors) =>
@@ -175,7 +175,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             stage.chips.map(chip),
           );
           await page.close();
-          expect(cursors).toEqual(Object.fromEntries(stage.chips.map((name) => [chip(name), "pointer"])));
+          expect(cursors).toEqual(Object.fromEntries(stage.chips.map((name) => [chip(name), "default"])));
         });
 
         test(`${where}: a press shows its tone at once, and the chip does not move`, async () => {
@@ -287,8 +287,19 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
         for (const name of stage.chips) {
           const page = await open(engine, stage, 760);
           await clickChip(page, name);
-          const rows = await page.evaluate(() =>
-            [...document.querySelectorAll('[role^="menuitem"], [role="option"]')].map((row) => {
+          const selector =
+            '[role^="menuitem"], [role="option"], .acpmux-cols-tune [role="radio"], .acpmux-cols-tune [role="switch"]';
+          const rows = page.locator(selector);
+          expect(await rows.count()).toBeGreaterThan(0);
+          // Keep the menu open while probing real pointer targets at every row edge.
+          await page.evaluate(() =>
+            document.addEventListener("click", (event) => event.stopImmediatePropagation(), true),
+          );
+          for (const target of await rows.all()) {
+            // The columns scroll independently; bring each row into its own viewport before
+            // probing its edges, including legacy models below the initial visible rows.
+            if (await target.evaluate((row) => !!row.closest(".acpmux-cols"))) await target.scrollIntoViewIfNeeded();
+            const row = await target.evaluate((row) => {
               const box = row.getBoundingClientRect();
               return {
                 text: row.textContent?.trim().slice(0, 24) ?? "",
@@ -297,23 +308,34 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
                 w: box.width,
                 h: box.height,
               };
-            }),
-          );
-          for (const row of rows) {
+            });
             const probes = [
               [row.x + 1, row.y + row.h / 2],
               [row.x + row.w - 1, row.y + row.h / 2],
               [row.x + row.w / 2, row.y + 1],
               [row.x + row.w / 2, row.y + row.h - 1],
             ];
-            const hits = await page.evaluate(
-              (points) =>
-                points.map(
-                  ([x, y]) => !!document.elementFromPoint(x, y)?.closest('[role^="menuitem"], [role="option"]'),
-                ),
-              probes,
-            );
-            if (hits.includes(false)) misses.push(`${name} "${row.text}": ${hits.join(",")}`);
+            const hits: boolean[] = [];
+            const targets: (string | null)[] = [];
+            for (const [x, y] of probes) {
+              await target.evaluate((row) => {
+                row.removeAttribute("data-press-hit");
+                row.removeAttribute("data-press-target");
+                document.addEventListener(
+                  "pointerdown",
+                  (event) => {
+                    row.setAttribute("data-press-hit", String(row.contains(event.target as Node)));
+                    row.setAttribute("data-press-target", (event.target as Element).outerHTML.slice(0, 200));
+                  },
+                  { capture: true, once: true },
+                );
+              });
+              await page.mouse.click(x!, y!);
+              hits.push((await target.getAttribute("data-press-hit")) === "true");
+              targets.push(await target.getAttribute("data-press-target"));
+            }
+            if (hits.includes(false))
+              misses.push(`${name} "${row.text}": ${hits.join(",")} ${JSON.stringify({ row, targets })}`);
           }
           await page.close();
         }

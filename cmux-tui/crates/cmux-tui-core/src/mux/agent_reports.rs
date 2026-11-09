@@ -458,7 +458,8 @@ impl Mux {
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
-        let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
+        let entries =
+            self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).roster.entries.clone();
         let agent_session_ids = self
             .agent_records
             .lock()
@@ -523,5 +524,15 @@ impl Mux {
             })
             .filter(|record| state.is_none_or(|state| record.state == state))
             .collect()
+    }
+
+    /// The status the person sees for a listed agent: `done` while a
+    /// finished turn's unread marker is still on its terminal
+    /// ([`crate::AgentStatus`]). A read: it never clears the marker. `None`
+    /// for an ended session.
+    pub fn agent_status(&self, record: &AgentRecord) -> Option<crate::AgentStatus> {
+        let unseen =
+            self.terminal_notification(&record.terminal_id).is_some_and(|marker| marker.unread);
+        crate::AgentStatus::from_state(record.state, unseen)
     }
 }

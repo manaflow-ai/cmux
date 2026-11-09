@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 public import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
@@ -19,6 +20,14 @@ public import MessagesLabHome
 /// `HomeStoreBinding` (refusals, unanswered ops, attachment fetches, Cancel
 /// Upload), so no host can leave those unwired.
 public final class HomeNativeTranscriptView: NSView {
+    public var isPersonApprovalEvent: (NSEvent) -> Bool {
+        get { transcript.isPersonApprovalEvent }
+        set { transcript.isPersonApprovalEvent = newValue }
+    }
+    public var approvals: (any HomeApprovalDeciding)? {
+        get { transcript.approvals }
+        set { transcript.approvals = newValue }
+    }
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
     var starterSent = false
@@ -52,6 +61,8 @@ public final class HomeNativeTranscriptView: NSView {
     private(set) var stopped = false
     /// The composer rect toasts last moved clear of (posted on change).
     private var lastToastAvoidance = NSRect.zero
+    /// Where the window's toasts rest (window coordinates), nil when none shows (+ToastRoom.swift).
+    var toastsRect: NSRect?
     /// False while the owner is unreachable (H17: offline Send is off; the
     /// text stays a draft). The wiring sets it from `HomeStore.connection`.
     public var isSendEnabled = true {
@@ -66,6 +77,16 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
+    /// Start now on a queued agent's pill card: the host asks this chat's Chief to start it past the cap; true
+    /// when it did. Nil: no Start now, on the card or in the pill's menu.
+    public var onStartAgent: ((String) async -> Bool)?
+    /// The pill's menu row Start now for queued agent `peer`: the host's registry builds it from the
+    /// `home.startQueuedAgent` action, so the menu runs the palette's and the CLI's path. Nil: no row.
+    public var startAgentMenuItem: ((String) -> NSMenuItem?)?
+    /// The card a click on a pill with no workspace showed (``openAgent(_:at:)``).
+    var agentCard: HomeAgentPillCard?
+    /// The last Start now request of its card, while it runs and after.
+    var pendingAgentStart: Task<Void, Never>?
     /// Forward… on a bubble: the host routes its text to another chat (nil: no Forward…).
     public var onForward: ((String) -> Void)? {
         get { transcript.onForward }
@@ -93,8 +114,26 @@ public final class HomeNativeTranscriptView: NSView {
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
     }
+    /// The stop button's Continue action after an accepted Chief stop.
+    public var onContinue: () -> Void = {} {
+        didSet { transcript.onContinue = { [weak self] in self?.onContinue() } }
+    }
+    /// True while the stopped Chief can be continued from the stop button.
+    public var continueAvailable: Bool {
+        get { transcript.continueAvailable }
+        set { transcript.continueAvailable = newValue }
+    }
+    /// A committed person message in a Chief conversation asks its Chief to
+    /// answer again. The host supplies the daemon's `chief.retry` bridge.
+    public var onChiefRetry: ((MessageID) -> Void)? {
+        get { transcript.onChiefRetry }
+        set { transcript.onChiefRetry = newValue }
+    }
     /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
+    /// Whether the chat leaves its background clear (the floating Chief's see-through styles): the theme's
+    /// background goes to no alpha, so the window behind shows between the bubbles.
+    public var clearsBackground = false { didSet { if clearsBackground != oldValue { applyTheme() } } }
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
     /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followBubbleStyle`).
     public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
@@ -134,6 +173,8 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
+    /// The section pinned under the header (HomeNativeTranscriptView+PinnedSection.swift) and its measured height.
+    var pinned: (view: NSView, height: CGFloat?)?
     /// The window's key and occlusion observers; each token removes itself when released (on any thread).
     private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
@@ -148,15 +189,16 @@ public final class HomeNativeTranscriptView: NSView {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
-        // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
-        MessagesLabHomeView.richTables = HomeTunables.richTables.value
         conversationID = conversation
+        // One binding per shown conversation; it opens the conversation on
+        // the store now and `stop()` closes exactly that open, once. Before the
+        // transcript: the open brings back a kept transcript, so the transcript's
+        // first pass installs it at the newest message, as it does a chat another
+        // view holds open (https://github.com/manaflow-ai/cmux/issues/26397).
+        binding = HomeStoreBinding(store: store, conversation: conversation)
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
-        // One binding per shown conversation; it opens the conversation on
-        // the store now and `stop()` closes exactly that open, once.
-        binding = HomeStoreBinding(store: store, conversation: conversation)
         attachmentPreparer = store
         super.init(frame: .zero)
         wantsLayer = true
@@ -186,6 +228,11 @@ public final class HomeNativeTranscriptView: NSView {
             self?.onHideSwitchKeys()
         }
         firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
+        transcript.onAgentPill = { [weak self] peer, pill in
+            guard let self else { return }
+            self.openAgent(peer, at: self.convert(pill, from: nil))
+        }
+        transcript.agentPillMenu = { [weak self] peer in self?.agentPillMenuItems(peer) ?? [] }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         // A long draft grows the field with no size change: refit the panel and the notice above it.
@@ -193,7 +240,6 @@ public final class HomeNativeTranscriptView: NSView {
         followTextSize()
         followZoom()
         followBubbleStyle()
-        followHeroTunable()
         followChiefPet()
         followPresence()
         applyTheme()
@@ -224,6 +270,7 @@ public final class HomeNativeTranscriptView: NSView {
         stopped = true
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
+        closeAgentCard()
         voice.close()
         transcript.stop()
         binding.stop()
@@ -256,6 +303,12 @@ public final class HomeNativeTranscriptView: NSView {
     public var onNamePill: () -> Void {
         get { transcript.onNamePill }
         set { transcript.onNamePill = newValue }
+    }
+
+    /// A small control right after the header's name pill (the Chief's location chip); nil: none.
+    public var headerPillAccessory: NSView? {
+        get { transcript.headerPillAccessory }
+        set { transcript.headerPillAccessory = newValue }
     }
 
     /// The header's name pill, which the Chief's settings popover opens under.
@@ -304,6 +357,19 @@ public final class HomeNativeTranscriptView: NSView {
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
+
+    /// The home (`$MUX_HOME`) of the Chief that answers here, when its host runs on this Mac: `/` in the
+    /// message box then lists its skills, the person's Claude Code skills and their plugins' skills (the
+    /// folders its host reads, slash_skills.rs). Nil: no `/` menu.
+    public var slashSkillsHome: URL? {
+        didSet {
+            guard slashSkillsHome != oldValue else { return }
+            let configured = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"] ?? ""
+            let claude = configured.isEmpty
+                ? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude") : URL(fileURLWithPath: configured)
+            transcript.slashSkillCatalog = slashSkillsHome.map { SlashSkillCatalog(chiefHome: $0, claudeHome: claude) }
+        }
+    }
 
     /// The host's opt-in system spell checking preference for the native composer.
     public var composerSpellCheckingEnabled: Bool {
@@ -364,22 +430,29 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether ``paste(_:)`` has text, files or pictures for the message box.
     public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
 
-    /// The live interface scale applies to the native first-run chrome, times the Chief chat's zoom
+    /// The Chief chat's size at Agent Chat Zoom 100%: MessagesLab's native text, bubble and field metrics.
+    /// The zoom steps from here, and Cmd-0 comes back to it.
+    static let defaultChatScale: CGFloat = 1
+
+    /// The Chief chat's scale: its default size times Agent Chat Zoom.
+    private static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }
+
+    /// The live interface scale applies to the native first-run chrome, times the Chief chat's scale
     /// (`followZoom`), so the empty chat's panel grows with the header and field around it. The
     /// MessagesLab transcript owns its own text and field metrics.
     private func followTextSize() {
         withObservationTracking {
-            applyTextScale(Typography.userScale * DesignSettings.shared.agentPaneZoom)
+            applyTextScale(Typography.userScale * Self.chatScale)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followTextSize() }
         }
     }
 
     /// Agent Chat Zoom (`agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home, `home.zoomIn`): the Chief chat
-    /// is drawn at it, live, as an agent chat is.
+    /// is drawn at it over its default size (`defaultChatScale`), live, as an agent chat is.
     private func followZoom() {
         withObservationTracking {
-            transcript.zoom = DesignSettings.shared.agentPaneZoom
+            transcript.zoom = Self.chatScale
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followZoom() }
         }
@@ -408,6 +481,11 @@ public final class HomeNativeTranscriptView: NSView {
 
     func applyTextScale(_ scale: CGFloat) {
         firstRun.applyScale(scale)
+        // The notice above the field sits outside the magnified transcript: its caption follows the chat's scale.
+        let caption = Typography.caption
+        let font = NSFont(descriptor: caption.fontDescriptor, size: caption.pointSize * Self.chatScale) ?? caption
+        noticeLabel.font = font
+        noticeButton.font = font
         needsLayout = true
     }
 
@@ -427,20 +505,23 @@ public final class HomeNativeTranscriptView: NSView {
         // Every pass: the field can grow (a multi-line draft) without a size
         // change (`onFieldTopChange` asks for this pass), and the first-run
         // panel fits what it shows above it, under the header.
-        let top = transcript.headerHeight
+        layoutPinnedSection()
+        let top = transcript.headerHeight + pinnedSectionClearance
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
+        followToasts()
     }
 
     /// Above the field, inset like it; MessagesLab's field keeps its geometry.
     func layoutNotice() {
         guard notice != nil else { return }
-        let width = max(0, bounds.width - 32)
+        let inset = 16 * Self.chatScale
+        let width = max(0, bounds.width - 2 * inset)
         noticeLabel.preferredMaxLayoutWidth = width
         let height = ceil(noticeLabel.intrinsicContentSize.height)
         let action: CGFloat = noticeAction == nil ? 0 : ceil(noticeButton.intrinsicContentSize.height)
-        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - action - 8, width: width, height: height)
+        noticeLabel.frame = CGRect(x: inset, y: transcript.fieldTop - height - action - inset / 2, width: width, height: height)
         if noticeAction != nil {
             let w = min(width, ceil(noticeButton.intrinsicContentSize.width))
             noticeButton.frame = CGRect(x: (bounds.width - w) / 2, y: noticeLabel.frame.maxY, width: w, height: action)
@@ -498,6 +579,8 @@ public final class HomeNativeTranscriptView: NSView {
             if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
         }
         guard let window else { return }
+        // The toasts may have come or gone while the tab was out of the window.
+        CmuxToastAvoidance.reservingViewMoved(self, to: window)
         if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
         observers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification].map { name in
@@ -517,7 +600,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
         let accent = accentOverride, style = bubbleStyle, chosen = bubbleColors
-        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        var active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        if clearsBackground { active.background.alpha = 0 }
         // A chosen sent colour replaces MessagesLab's measured blue (and its white text).
         let measured = chosen.sent == nil && chosen.sentText == nil
             && performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }

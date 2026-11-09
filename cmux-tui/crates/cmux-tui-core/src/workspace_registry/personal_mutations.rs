@@ -7,6 +7,7 @@ use std::collections::HashSet;
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::personal_store::{
     DEFAULT_PROFILE_ID, PersonalGroup, PersonalProfile, PersonalSession, PersonalSnapshot,
@@ -386,8 +387,9 @@ impl WorkspaceRegistry {
         Ok(changed)
     }
 
-    /// Record or refresh a session in the registry. A new session is
-    /// followed by `default` and by `follow_with` when given.
+    /// Record a session in the registry. Repeating its effective content
+    /// is a read: no timestamp, revision, journal entry or WAL write. A new
+    /// session is followed by `default` and by `follow_with` when given.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn put_session_in(
         tx: &Transaction<'_>,
@@ -404,14 +406,29 @@ impl WorkspaceRegistry {
                 validate_name(label, value)?;
             }
         }
-        let transport = validate_personal_json("transport", transport, true)?;
-        let capabilities = capabilities.map(validate_session_capabilities).transpose()?;
+        let transport_json = validate_personal_json("transport", transport, true)?;
+        let capabilities_json = capabilities.map(validate_session_capabilities).transpose()?;
         if let Some(room) = follow_with {
             validate_profile_id(room)?;
         }
-        let created = read_session(tx, session)?.is_none();
+        let existing = read_session(tx, session)?;
+        let created = existing.is_none();
+        let capabilities_changed = capabilities.is_some_and(|value| {
+            existing.as_ref().is_none_or(|record| record.capabilities.as_ref() != Some(value))
+        });
         if let Some(room) = follow_with {
             anyhow::ensure!(read_profile(tx, room)?.is_some(), "unknown room {room}");
+        }
+        if let Some(record) = existing {
+            // Absent optional fields preserve their stored values. Compare
+            // parsed JSON, so object key order cannot cause a write either.
+            if machine_name.is_none_or(|name| record.machine_name.as_deref() == Some(name))
+                && session_name.is_none_or(|name| record.session_name.as_deref() == Some(name))
+                && record.transport == *transport
+                && capabilities.is_none_or(|value| record.capabilities.as_ref() == Some(value))
+            {
+                return Ok((record, false));
+            }
         }
         let now = i64::try_from(unix_epoch_ms()?)?;
         tx.execute(
@@ -423,7 +440,7 @@ impl WorkspaceRegistry {
                transport_json = excluded.transport_json,
                last_seen_ms = excluded.last_seen_ms,
                capabilities_json = COALESCE(excluded.capabilities_json, sessions.capabilities_json)",
-            params![session, machine_name, session_name, transport, now, capabilities],
+            params![session, machine_name, session_name, transport_json, now, capabilities_json],
         )?;
         if created {
             for room in [Some(DEFAULT_PROFILE_ID), follow_with].into_iter().flatten() {
@@ -439,9 +456,38 @@ impl WorkspaceRegistry {
             tx,
             "personal.session.put",
             vec![subject("session", session)],
-            &json!({"session": record, "created": created}),
+            &Self::session_put_fact(&record, created, capabilities_changed),
         )?;
         Ok((record, created))
+    }
+
+    /// The `personal.session.put` fact. The `sessions` row holds the
+    /// capability list; the fact names it by hash. The list is about 6 KB
+    /// (280 tokens on 2026-11-09), and a session whose transport or name
+    /// flapped put it into the journal about 12 times a second: 96% of the
+    /// rows and 36 GB of one registry in a week.
+    fn session_put_fact(
+        record: &PersonalSession,
+        created: bool,
+        capabilities_changed: bool,
+    ) -> Value {
+        let Some(capabilities) = &record.capabilities else {
+            return json!({
+                "session": record,
+                "created": created,
+                "capabilities_changed": capabilities_changed,
+            });
+        };
+        let digest = Sha256::digest(capabilities.to_string().as_bytes());
+        let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let session = PersonalSession { capabilities: None, ..record.clone() };
+        json!({
+            "session": session,
+            "created": created,
+            "capabilities_changed": capabilities_changed,
+            "capabilities_count": capabilities.as_array().map_or(0, Vec::len),
+            "capabilities_sha256": digest,
+        })
     }
 
     /// Forget a session: its row, follows, and personal workspace and

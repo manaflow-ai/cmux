@@ -1,5 +1,5 @@
 public import CoreGraphics
-import AppKit
+public import AppKit
 public import Foundation
 public import CmuxNextDesignTokens
 
@@ -21,7 +21,7 @@ nonisolated extension ChromeTunables {
         default: true, code: "ChromeTunables.mainPaneCurved")
     public static let mainPaneCornerRadius = Tunable<CGFloat>.number(
         "chrome.mainPane.cornerRadius", .sidebar, "Main pane corner radius",
-        help: "Corner radius of the curved main pane. Unset: the window's corner radius less the gutter (square in fullscreen without a gutter, else 8).", default: 8, range: 0...24, step: 0.5, unit: .points,
+        help: "Corner radius of the curved main pane. Unset: concentric with the window (its corner radius less the gutter), or layout.paneCornerRadius when set, at most the window's.", default: 10, range: 0...24, step: 0.5, unit: .points,
         code: "ChromeTunables.mainPaneCornerRadius")
     public static let mainPaneGutter = Tunable<CGFloat>.number(
         "chrome.mainPane.gutter", .sidebar, "Main pane gutter",
@@ -74,23 +74,52 @@ extension Metrics {
     /// panes float (each pane rounds its own card).
     public static var mainPaneCornerRadius: CGFloat {
         guard mainPaneCurved, !floatingPanes || ChromeTunables.mainPaneCornerRadius.override != nil else { return 0 }
-        return scale(ChromeTunables.mainPaneCornerRadius.value)
+        return ChromeTunables.mainPaneCornerRadius.override.map(scale) ?? cornerRadius
     }
-    /// Corner radius of the main pane in a window whose own corners have
-    /// `windowCornerRadius`: concentric with them (the window radius less
-    /// the gutter). Without a gutter the pane's corners at the window's are
-    /// the window's own, so the two are one outline; a square window
-    /// (fullscreen) gets a square pane, rounding only at real edges. Under a
+    /// Corner radius of the main pane in a window whose own corners have `windowCornerRadius`
+    /// (``windowConcentricCornerRadius(windowCornerRadius:edgeInset:setting:)``): concentric with
+    /// the window across the gutter by default, the radius `layout.paneCornerRadius` sets when it
+    /// is set. Lawrence 2026-11-07: "we are not concentric with macos window ... make it all
+    /// concentric with macos windows by default (but still configurable)"; the 8 pt default card
+    /// 6 pt inside the 16 pt window left a gap that widened toward the corner.
+    /// Without a gutter the pane's corners sit just inside the window's
+    /// lit rim (``windowEdgeInset(_:in:)``), concentric with it; under a
     /// standard titlebar strip the pane's top corners sit below it, against
-    /// the window's straight side, so the pane is square too (the window
-    /// still rounds its own corners). A Debug
-    /// Settings override wins; with a gutter in fullscreen it is
-    /// `mainPaneCornerRadius`.
+    /// the window's straight side, so the pane is square there (the window
+    /// still rounds its own corners). A Debug Settings override wins.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
         let gutter = mainPaneGutter
-        if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : windowCornerRadius }
-        return windowCornerRadius > 0 ? max(0, windowCornerRadius - gutter) : mainPaneCornerRadius
+        if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : max(0, windowCornerRadius - PaneTabRowRim.height) }
+        return windowConcentricCornerRadius(windowCornerRadius: windowCornerRadius, edgeInset: max(gutter, PaneTabRowRim.height),
+                                            setting: DesignSettings.shared.paneChrome.cornerRadius.map(scale))
+    }
+
+    /// The radius of a card `edgeInset` points inside a window whose corners have
+    /// `windowCornerRadius`, equal on every side it meets: the window's radius less the inset, so the
+    /// two curves share a center (``ConcentricCorners``). A square window (fullscreen, borderless,
+    /// radius 0) keeps the titled window's radius (``standardWindowCornerRadius``), so a fullscreen
+    /// toggle reshapes nothing. A `setting` (`layout.paneCornerRadius`) wins, at most the window's
+    /// own radius.
+    ///
+    /// ```swift
+    /// Metrics.windowConcentricCornerRadius(windowCornerRadius: 16, edgeInset: 6, setting: nil) // 10
+    /// Metrics.windowConcentricCornerRadius(windowCornerRadius: 16, edgeInset: 6, setting: 20)  // 16
+    /// ```
+    public static func windowConcentricCornerRadius(windowCornerRadius: CGFloat, edgeInset: CGFloat, setting: CGFloat?) -> CGFloat {
+        if let setting { return windowCornerRadius > 0 ? min(max(0, setting), windowCornerRadius) : max(0, setting) }
+        let window = windowCornerRadius > 0 ? windowCornerRadius : standardWindowCornerRadius
+        return ConcentricCorners(outer: window, padding: 0).nested(in: window, inset: edgeInset)
+    }
+    /// How far the main pane stays inside a window edge it meets: `inset`, and at least the window's
+    /// lit rim (``PaneTabRowRim/height``, the edge highlight the window's glass draws just inside its
+    /// frame) in a titled window that is not fullscreen, so the rim runs unbroken over the main pane
+    /// as it does over the sidebar. Leo 2026-11-07, on a pane that met the window's edge: "the window
+    /// at the edges, it just doesn't show through ... this doesn't look cohesive". A fullscreen or
+    /// borderless window has no rim.
+    public static func windowEdgeInset(_ inset: CGFloat, in window: NSWindow?) -> CGFloat {
+        guard let window, window.styleMask.contains(.titled), !window.styleMask.contains(.fullScreen) else { return inset }
+        return max(inset, PaneTabRowRim.height)
     }
     /// Black's alpha over the chrome around the main pane: the shade of the
     /// separate look only under `appearance.sidebarSurface` separate (the

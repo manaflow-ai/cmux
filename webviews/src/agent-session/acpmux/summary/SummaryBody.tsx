@@ -1,15 +1,18 @@
-import React, { type ReactNode } from "react";
+import React, { useMemo, type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
-import { changedByTools } from "../changes/turnCheckpoint";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { TurnFile } from "../diff";
-import { type BackgroundCommand, backgroundCommands } from "../inspector/processes";
+import { cronWords } from "../session-info/cronWords";
+import { sourceLabels } from "../session-info/sourcesSectionModel";
+import { type BackgroundCommand, backgroundCommands } from "../session-info/processes";
+import { TASK_ICONS } from "../session-info/taskIcons";
 import { projectPathAllowed, type SessionSummary } from "./sessionSummary";
 import { SourcesAddMenu, type ChatToolsControl } from "./SourcesAddMenu";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
+import { summaryOutputLookup } from "./summaryOutputLookup";
 import { SummaryTasks } from "./SummaryTasks";
 import { WorkflowSummaries, WorkflowSummaryRow, type WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
@@ -52,6 +55,7 @@ export function SummaryBody({
   subagents,
   commands,
   onStopCommand,
+  onOpenTasksInPane,
   workflow,
   workflowActions,
   workflows,
@@ -72,11 +76,13 @@ export function SummaryBody({
   tools?: ChatToolsControl;
   /// The Subagents section, when the card draws it (SubagentStatusList.tsx).
   subagents?: ReactNode;
-  /// The chat's background commands, the registry's merged in (inspector/processes.ts); without them,
+  /// The chat's background commands, the registry's merged in (session-info/processes.ts); without them,
   /// the transcript's.
   commands?: readonly BackgroundCommand[];
   /// Stop for a running command the registry lists.
   onStopCommand?: (processId: string) => Promise<unknown>;
+  /// Opens Session Info's complete Background tasks section beside the chat.
+  onOpenTasksInPane?: () => void;
   /// Labs-only workflow data; absent until acpmux sends the typed workflow event.
   workflow?: WorkflowSummary;
   workflowActions?: WorkflowActions;
@@ -85,6 +91,9 @@ export function SummaryBody({
   workflowCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
+  // A failed call scheduled nothing.
+  const scheduled = summary.scheduled.filter((wakeup) => !wakeup.failed);
   // With tools to offer, Sources' + is a menu (Attach files or folders, Use tools), and Sources
   // draws with no sources so the menu has a place.
   const toolsMenu = tools && tools.rows.length > 0 ? tools : undefined;
@@ -93,19 +102,15 @@ export function SummaryBody({
   // A file the last turn changed opens that turn's diff, also when an earlier turn's edit tool made
   // it an output: its last change is the one to show.
   const lastTurn = changes?.files ?? [];
-  const named = new Set(summary.outputs.map((output) => output.path));
-  // The output a last-turn file is: the one with its path, else (a checkpoint file, under the repository
-  // root) the shortest output path ending in its path, so `index.ts` in one folder never takes another
-  // folder's `index.ts`, nor a root `package.json` a package's.
-  const outputOf = (file: (typeof lastTurn)[number]) =>
-    named.has(file.path)
-      ? file.path
-      : summary.outputs
-          .filter((output) => changedByTools(file, [output]))
-          .reduce<string | undefined>(
-            (best, output) => (!best || output.path.length < best.length ? output.path : best),
-            undefined,
-          );
+  // The index follows the outputs' own revision, even when a live turn updates
+  // unrelated rows or a checkpoint arrives while the Summary is open.
+  const outputOf = useMemo(() => summaryOutputLookup(summary.outputs), [summary.outputs]);
+  // Each source's row name as Session Info's Sources gives it: a pasted image with no name of its
+  // own (WebKit's "image.png") is "Screenshot 1", "Screenshot 2", ... in chat order.
+  const sourceName = useMemo(() => {
+    const names = sourceLabels(t, summary.sources);
+    return new Map(summary.sources.map((source, index) => [source, names[index]!]));
+  }, [t, summary.sources]);
   const turnOf = new Map<string, (typeof lastTurn)[number]>();
   const checkpointOnly: (typeof lastTurn)[number][] = [];
   for (const file of lastTurn) {
@@ -137,10 +142,10 @@ export function SummaryBody({
     summary.subagents.length === 0 &&
     summary.sources.length === 0 &&
     summary.pullRequests.length === 0 &&
-    summary.scheduled.length === 0;
+    scheduled.length === 0;
   return (
     <>
-      <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} />
+      <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} onOpenInPane={onOpenTasksInPane} />
       <WorkflowSummaryRow workflow={workflow} actions={workflowActions} />
       <WorkflowSummaries
         key={workflows?.[0]?.sessionId}
@@ -213,7 +218,7 @@ export function SummaryBody({
           )
         }
         row={(source) => (
-          <li key={source.url ?? source.label}>
+          <li key={source.image?.id ?? source.url ?? source.label}>
             {source.url ? (
               <a className="acpmux-summary-row acpmux-summary-link" href={source.url} onClick={onFollow}>
                 <Icon name="link.web" size={ROW_ICON} row />
@@ -221,8 +226,8 @@ export function SummaryBody({
               </a>
             ) : (
               <span className="acpmux-summary-row">
-                <Icon name="search.files" size={ROW_ICON} row />
-                <span className="acpmux-summary-text">{source.label}</span>
+                <Icon name={source.image ? "site.permission.images" : "search.files"} size={ROW_ICON} row />
+                <span className="acpmux-summary-text">{sourceName.get(source) || t("image.viewer")}</span>
               </span>
             )}
           </li>
@@ -271,12 +276,12 @@ export function SummaryBody({
       />
       <SummarySection
         title={t("summary.scheduled")}
-        items={summary.scheduled}
+        items={scheduled}
         row={(wakeup) => (
           <li key={wakeup.id} className="acpmux-summary-row">
-            <Icon name="task.status.started" size={ROW_ICON} row />
+            <Icon name={TASK_ICONS[wakeup.kind].web} size={ROW_ICON} row />
             <span className="acpmux-summary-text">{wakeup.text}</span>
-            {wakeup.cron && <span className="acpmux-summary-meta">{wakeup.cron}</span>}
+            {wakeup.cron && <span className="acpmux-summary-meta">{cronWords(wakeup.cron, t, language)}</span>}
           </li>
         )}
       />

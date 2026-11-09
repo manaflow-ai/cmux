@@ -2,11 +2,11 @@
 // The subagent tray moves with the transcript (Leo 2026-10-26: "Like why is this not animating and,
 // like, following along with the exact same things as everything else?"; subagents/trayMotion.tsx):
 // - it eases in only when it appears in a chat that showed without it;
-// - it leaves on a kept copy, in place over the stack, only while its own chat still shows, and the
-//   copy goes on its animationend (or its fallback timer), or at once when a card comes back;
+// - it leaves on a kept copy, in the card's place in the stack, only while its own chat still shows,
+//   and the copy goes on its animationend (or its fallback timer), or at once when a card comes back;
 // - its words tick: the old words stay in the cell until their exit ends, then go;
 // - with no motion (no Web Animations, Reduce Motion) every change applies at once.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=host><div id=root></div></div>", {
@@ -79,24 +79,26 @@ const frames = async () => {
 };
 const cancelled = (node: Element) => node.dispatchEvent(new dom.window.Event("animationcancel", { bubbles: true }));
 Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 300 });
-// A ghost's exit is an 80 ms animation; nothing else animates in this document.
+// A ghost's exit is the house settle, a 265 ms animation; nothing else animates in this document.
 const computed = dom.window.getComputedStyle.bind(dom.window);
 dom.window.getComputedStyle = ((node: Element) =>
   node.classList.contains("acpmux-running-tray--ghost")
-    ? ({ animationName: "acpmux-tray-leave", animationDuration: "0.08s" } as CSSStyleDeclaration)
+    ? ({ animationName: "acpmux-tray-leave", animationDuration: "0.265s" } as CSSStyleDeclaration)
     : computed(node)) as typeof dom.window.getComputedStyle;
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
-const { Tick, TRAY_ENTER_ATTR, TRAY_GHOST } = await import("../src/agent-session/acpmux/subagents/trayMotion");
+const { Tick } = await import("../src/agent-session/acpmux/subagents/trayMotion");
+const { TRAY_ENTER_ATTR, TRAY_GHOST } = await import("../src/agent-session/acpmux/subagents/trayMotionModel");
+const { rememberTrayOpen, resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 type TrayItem = import("../src/agent-session/acpmux/subagents/runningTray").TrayItem;
 setPaneLanguage("en");
 
 /// Turns Web Animations on (the tray checks `animate` before it moves anything) or off.
 const motion = (on: boolean) => {
-  if (on) proto.animate = () => ({});
+  if (on) proto.animate = () => ({ cancel() {} });
   else delete proto.animate;
 };
 
@@ -114,6 +116,29 @@ const ended = (node: Element) => {
     node.dispatchEvent(new dom.window.Event(name, { bubbles: true }));
 };
 
+/// The bottom stack the tray sits in, as in App.tsx: an element that stays while the tray comes and
+/// goes, with the composer after it. The copy stays in this stack where the card was; a tray drawn
+/// straight into the React root would put its copy in the root's own container, which React empties
+/// when it next draws into it.
+const stack = (tray: ReturnType<typeof createElement> | null) =>
+  createElement(
+    "div",
+    { className: "acpmux-bottom-stack" },
+    tray,
+    createElement("div", { className: "acpmux-composer-stub" }),
+  );
+/// The copy's place: in the stack, in flow, right before the composer, at the card's laid-out height.
+const expectInPlace = (ghost: HTMLElement, height: string) => {
+  const parent = ghost.parentElement!;
+  expect(parent.classList.contains("acpmux-bottom-stack")).toBe(true);
+  expect(ghost.nextElementSibling!.classList.contains("acpmux-composer-stub")).toBe(true);
+  expect(ghost.style.position).toBe("");
+  expect(ghost.style.bottom).toBe("");
+  expect(ghost.style.left).toBe("");
+  expect(ghost.style.width).toBe("");
+  expect(ghost.style.height).toBe(height);
+};
+
 function mount() {
   const element = dom.window.document.getElementById("root")!;
   const root = createRoot(element);
@@ -128,9 +153,11 @@ describe("subagent tray motion", () => {
     const draw = (items: TrayItem[], enters: boolean) =>
       act(async () =>
         root.render(
-          items.length
-            ? createElement(SubagentTray, { items, working: true, waiting: NONE, onOpen: () => {}, shown, enters })
-            : null,
+          stack(
+            items.length
+              ? createElement(SubagentTray, { items, working: true, waiting: NONE, onOpen: () => {}, shown, enters })
+              : null,
+          ),
         ),
       );
     await draw([item("Reviewer")], true);
@@ -142,14 +169,16 @@ describe("subagent tray motion", () => {
     // A change of placement keeps the card: no copy.
     await act(async () =>
       root.render(
-        createElement(SubagentTray, {
-          items: [item("Reviewer")],
-          working: true,
-          waiting: NONE,
-          onOpen: () => {},
-          shown,
-          placement: "after-latest-message",
-        }),
+        stack(
+          createElement(SubagentTray, {
+            items: [item("Reviewer")],
+            working: true,
+            waiting: NONE,
+            onOpen: () => {},
+            shown,
+            placement: "after-latest-message",
+          }),
+        ),
       ),
     );
     expect(host.querySelector(`.${TRAY_GHOST}`)).toBeNull();
@@ -162,8 +191,8 @@ describe("subagent tray motion", () => {
     expect(host.querySelectorAll(".acpmux-running-tray:not([aria-hidden])").length).toBe(0);
     expect(ghost.getAttribute("aria-hidden")).toBe("true");
     expect(ghost.hasAttribute("inert")).toBe(true);
-    expect(ghost.style.position).toBe("absolute");
-    expect(ghost.style.bottom).toBe("80px");
+    // In flow where the card was, at its laid-out height (60px here), before the composer.
+    expectInPlace(ghost, "60px");
     // A card that comes back drops the copy at once.
     await draw([item("Writer")], false);
     expect(host.querySelector(`.${TRAY_GHOST}`)).toBeNull();
@@ -181,10 +210,12 @@ describe("subagent tray motion", () => {
     const { root } = mount();
     await act(async () =>
       root.render(
-        createElement(SubagentTray, { items: [item("A")], working: true, waiting: NONE, onOpen: () => {}, shown }),
+        stack(
+          createElement(SubagentTray, { items: [item("A")], working: true, waiting: NONE, onOpen: () => {}, shown }),
+        ),
       ),
     );
-    await act(async () => root.render(null));
+    await act(async () => root.render(stack(null)));
     const ghost = host.querySelector<HTMLElement>(`.${TRAY_GHOST}`)!;
     ended(ghost);
     expect(host.querySelector(`.${TRAY_GHOST}`)).toBeNull();
@@ -215,6 +246,91 @@ describe("subagent tray motion", () => {
     await act(async () => root.unmount());
   });
 
+  test("steady counts: only the numbers that changed roll, the words stay; new words still tick", async () => {
+    // Leo, 2026-10-31: "I hate how this keeps jolting every time there's a new subagent or command";
+    // 2026-11-07, on a new command or subagent joining the hat: "I think it could look really pretty".
+    motion(true);
+    const { element, root } = mount();
+    const tick = (text: string) => createElement(Tick, { text, steadyCounts: true });
+    await act(async () => root.render(tick("Running in background · 9 subagents · 13 commands")));
+    await act(async () => root.render(tick("Running in background · 10 subagents · 14 commands")));
+    // The words never leave: no whole-text exit or entrance, only the two numbers roll.
+    expect(element.querySelector(".acpmux-tick__out, .acpmux-tick__in")).toBeNull();
+    const rolls = [...element.querySelectorAll(".acpmux-tick__roll")];
+    expect(rolls.map((roll) => roll.querySelector(".acpmux-tick__roll-out")!.textContent)).toEqual(["9", "13"]);
+    expect(rolls.map((roll) => roll.querySelector(".acpmux-tick__roll-in")!.textContent)).toEqual(["10", "14"]);
+    expect(rolls.every((roll) => roll.querySelector(".acpmux-tick__roll-out")!.getAttribute("aria-hidden"))).toBe(true);
+    await act(async () => ended(element.querySelector(".acpmux-tick__roll-in")!));
+    expect(element.querySelector(".acpmux-tick__roll")).toBeNull();
+    expect(element.textContent).toBe("Running in background · 10 subagents · 14 commands");
+    // With no motion a count swaps at once.
+    motion(false);
+    await act(async () => root.render(tick("Running in background · 11 subagents · 14 commands")));
+    expect(element.querySelector(".acpmux-tick__roll")).toBeNull();
+    expect(element.textContent).toBe("Running in background · 11 subagents · 14 commands");
+    motion(true);
+    await act(async () => root.render(tick("11 subagents running · 14 commands")));
+    expect(element.querySelector(".acpmux-tick__out")!.textContent).toBe(
+      "Running in background · 11 subagents · 14 commands",
+    );
+    await act(async () => root.unmount());
+    motion(false);
+  });
+
+  test("slide: the old words slide out as the new slide in, and the cell's width eases between them", async () => {
+    // Leo, 2026-11-07, on the hat's line handing over from thinking to a tool call: "That animation, I
+    // like that".
+    motion(true);
+    const widths: Keyframe[][] = [];
+    const animate = proto.animate;
+    proto.animate = function (keyframes: Keyframe[]) {
+      widths.push(keyframes);
+      return { cancel() {} };
+    };
+    const { element, root } = mount();
+    await act(async () => root.render(createElement(Tick, { text: "Thinking", slide: true })));
+    const cell = element.querySelector<HTMLElement>(".acpmux-tick")!;
+    expect(cell.hasAttribute("data-slide")).toBe(true);
+    await act(async () => root.render(createElement(Tick, { text: "Bash", slide: true })));
+    expect(element.querySelector(".acpmux-tick__out")!.textContent).toBe("Thinking");
+    expect(element.querySelector(".acpmux-tick__in")!.textContent).toBe("Bash");
+    // One width animation on the cell, from the old words' drawn width.
+    expect(widths.length).toBe(1);
+    expect(widths[0]![0]).toEqual({ width: `${cardBox.width}px` });
+    proto.animate = animate;
+    // With no motion the words swap at once and nothing animates.
+    motion(false);
+    await act(async () => root.render(createElement(Tick, { text: "Read", slide: true })));
+    expect(element.querySelector(".acpmux-tick__out")).toBeNull();
+    expect(element.textContent).toBe("Read");
+    await act(async () => root.unmount());
+  });
+
+  test("a count rolling mid-slide keeps the sliding words: the slide plays on, never starting over", async () => {
+    // Review of #37671 (F1): a subagent joining while the header's words slide must not remount them.
+    motion(true);
+    const animate = proto.animate;
+    proto.animate = () => ({ cancel() {} });
+    const { element, root } = mount();
+    const tick = (text: string) => createElement(Tick, { text, steadyCounts: true, slide: true });
+    await act(async () => root.render(tick("Thinking · 3 waits")));
+    await act(async () => root.render(tick("Bash · 3 waits")));
+    const out = element.querySelector<HTMLElement>(".acpmux-tick__out")!;
+    const rising = element.querySelector<HTMLElement>(".acpmux-tick__in")!;
+    await act(async () => root.render(tick("Bash · 4 waits")));
+    expect(element.querySelector(".acpmux-tick__out")).toBe(out);
+    expect(element.querySelector(".acpmux-tick__in")).toBe(rising);
+    expect(rising.querySelector(".acpmux-tick__roll-in")!.textContent).toBe("4");
+    // The slide still settles on its own ends.
+    await act(async () => ended(out));
+    expect(element.querySelector(".acpmux-tick__out")).toBeNull();
+    await act(async () => ended(rising));
+    expect(element.querySelector(".acpmux-tick__in")).toBeNull();
+    proto.animate = animate;
+    await act(async () => root.unmount());
+    motion(false);
+  });
+
   test("with no motion the tray neither marks an entrance nor leaves a copy", async () => {
     motion(false);
     const shown = { current: "chat-a" as string | undefined };
@@ -239,6 +355,13 @@ describe("subagent tray motion", () => {
 });
 
 describe("subagent tray motion edges", () => {
+  // These edges are about the card's entrance and its copy, with its list open: the person opened
+  // this chat's tray before (a headed tray starts folded, cmux#28875).
+  beforeEach(() => {
+    resetTrayOpenMemory();
+    rememberTrayOpen("chat-a", true);
+  });
+  afterEach(() => resetTrayOpenMemory());
   const draw = (
     root: ReturnType<typeof createRoot>,
     shown: { current: string | undefined },
@@ -247,9 +370,19 @@ describe("subagent tray motion edges", () => {
   ) =>
     act(async () =>
       root.render(
-        items.length
-          ? createElement(SubagentTray, { items, working: true, waiting: NONE, onOpen: () => {}, shown, enters })
-          : null,
+        stack(
+          items.length
+            ? createElement(SubagentTray, {
+                items,
+                working: true,
+                waiting: NONE,
+                onOpen: () => {},
+                shown,
+                enters,
+                chat: "chat-a",
+              })
+            : null,
+        ),
       ),
     );
   const card = () => host.querySelector<HTMLElement>(`.acpmux-running-tray:not(.${TRAY_GHOST})`);
@@ -299,7 +432,7 @@ describe("subagent tray motion edges", () => {
     for (const ghost of host.querySelectorAll(`.${TRAY_GHOST}`)) ended(ghost);
   });
 
-  test("a resize mid-entrance keeps one entrance; a resize mid-exit keeps the copy where it left", async () => {
+  test("a resize mid-entrance keeps one entrance; a resize mid-exit keeps the copy's height", async () => {
     motion(true);
     const shown = { current: "chat-a" as string | undefined };
     const { root } = mount();
@@ -311,10 +444,11 @@ describe("subagent tray motion edges", () => {
     expect(first.hasAttribute(TRAY_ENTER_ATTR)).toBe(true);
     await draw(root, shown, [], false);
     const ghost = host.querySelector<HTMLElement>(`.${TRAY_GHOST}`)!;
-    expect(ghost.style.height).toBe("88px");
+    // It starts at the card's laid-out height when it left (88px), in flow where the card was, and
+    // a later resize does not change it: the stylesheet folds it from there.
+    expectInPlace(ghost, "88px");
     cardBox = { ...cardBox, top: 160, height: 60 };
-    expect(ghost.style.height).toBe("88px");
-    expect(ghost.style.bottom).toBe("80px");
+    expectInPlace(ghost, "88px");
     ended(ghost);
     expect(ghosts()).toBe(0);
     await act(async () => root.unmount());

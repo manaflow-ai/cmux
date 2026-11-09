@@ -14,15 +14,18 @@ extension TabContentCache {
                         size: CellSize?) -> TerminalEntry? {
         let key = tab.id
         guard let generation = daemon.store.generation else { return nil }
-        let validity = "remote#\(daemon.machineID)#\(ref.terminalID.rawValue)#\(resource.rawValue)#\(generation.rawValue)"
+        let identity = daemon.remoteTerminalIdentity(ref, resource: resource), validity = "\(identity)#\(generation.rawValue)"
         if let entry = terminals[key], entry.validity == validity { return entry }
+        let carried = terminals[key]?.session.carriedFrame(for: identity) // the same terminal's frame until the new view draws
         discardTerminal(key)
         let target = DaemonTerminalIO.Target(
             attachment: .unplaced(terminalResourceID: resource, generation: generation),
             initialSize: size ?? CellSize(cols: 80, rows: 24))
         let render = ledger.isRendering(key)
-        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
+        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, uploadsPasteboardFiles: daemon.machineID != "local",
+                                  policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true)
+        session.showsTerminal(identity, carrying: carried)
         // Its link state is the terminal's session's; it has no tab there.
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: TerminalAttachment.unresolvedSurface)

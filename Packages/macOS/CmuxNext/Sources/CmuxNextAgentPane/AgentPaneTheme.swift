@@ -17,7 +17,7 @@ enum AgentPaneTheme {
     /// after a drag ends.
     static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policyIgnoringLiveResize,
                        surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
-        AgentPaneTunables.followCodexToolRuns()
+        AgentPaneTunables.followTurnActionsPlacement()
         let page = pageColor(tokens, surface: surface)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
@@ -38,19 +38,11 @@ enum AgentPaneTheme {
             "borders": Borders.current.mode.rawValue,
             // Transcript response focus outlines follow the same optional focus-ring setting.
             "focusRingEnabled": DesignSettings.shared.focusRing.enabled,
-            // Debug Settings agent.chatWidth; AppServices.observeBorders pushes it again on a change.
-            "chatWidth": AgentPaneTunables.chatWidth.value.rawValue,
-            // Debug Settings agentPane.debug.codexToolRuns, pushed again on a change as chatWidth is.
-            "codexToolRuns": AgentPaneTunables.codexToolRuns.value,
-            // Debug Settings agentPane.debug.liveLineBelow, pushed again on a change as codexToolRuns is.
-            "liveLineBelow": AgentPaneTunables.liveLineBelow.value,
             // Debug Settings agentPane.debug.turnActionsPlacement, pushed with the theme so open
             // transcript footers follow the setting without reloading the page.
             "turnActionsPlacement": AgentPaneTunables.turnActionsPlacement.value.rawValue,
             // Debug Settings agentPane.debug.subagentTray (AgentPaneTunables+SubagentTray.swift).
             "subagentTray": AgentPaneTunables.subagentTray.value,
-            // Debug Settings agentPane.debug.scrollerFade (AgentPaneTunables+ScrollerFade.swift).
-            "scrollerFade": AgentPaneTunables.scrollerFade.value,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),
@@ -128,10 +120,23 @@ enum AgentPaneTheme {
     /// pane backs it with the window's own background, as it backs a terminal (cx-tcju).
     @MainActor static func webTheme(_ tokens: ThemeTokens, surface: SurfaceKind,
                                     backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
+        WebTheme(tokens, surface: surface, backgrounds: pageBackgrounds(tokens, surface: surface, backgrounds: backgrounds))
+    }
+
+    /// What the page of `surface` paints under its content, as ``webTheme(_:surface:backgrounds:)``
+    /// gives it (`--cmux-surface-background`), in the active scope. Opaque only when the page hides
+    /// everything under it, so a picture of it needs no alpha (`PageImageBackground`).
+    @MainActor static func pageBackground(_ tokens: ThemeTokens, surface: SurfaceKind,
+                                          backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> ThemeRGB {
+        WebTheme.pageBackground(tokens, surface: surface, backgrounds: pageBackgrounds(tokens, surface: surface, backgrounds: backgrounds))
+    }
+
+    /// `backgrounds` as the page of `surface` gets them: the New Tab page is clear unless it has its own.
+    private static func pageBackgrounds(_ tokens: ThemeTokens, surface: SurfaceKind, backgrounds: SurfaceBackgrounds) -> SurfaceBackgrounds {
         var backgrounds = backgrounds
         if surface == .newTabPage, backgrounds[.newTabPage] == nil {
             backgrounds.overrides[.newTabPage] = SurfaceBackground(color: tokens.surfaceBackground.withAlpha(0))
         }
-        return WebTheme(tokens, surface: surface, backgrounds: backgrounds)
+        return backgrounds
     }
 }

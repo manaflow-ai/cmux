@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxNextWakeupsTestSupport
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// hover thing"; again: "pinned rows needs hover cards too"): resting on a pinned workspace row showed no card,
 /// while a workspace row in the list shows the workspace hover card. A pinned row opens the same card, from the
 /// list's one card controller: the same delay, the same contents, beside the pinned row.
-@MainActor @Suite(.serialized) struct PinnedRowHoverCardTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PinnedRowHoverCardTests {
     private static let pinnedID = WorkspaceID("ws-pinned")
     private static let listedID = WorkspaceID("ws-listed")
     private static let item = LayoutItem(id: LayoutItemID("itm_pin_card"), ref: .workspace("local:ws-pinned"))
@@ -37,6 +38,8 @@ import Testing
 
         func tearDown() {
             coordinator.dismiss(.action)
+            // Dismiss only orders the card panel out; close it so the suite's leak check never finds it.
+            coordinator.cardWindow?.closeAfterTest()
             window.contentView = nil
             window.close()
         }
@@ -94,21 +97,31 @@ import Testing
         let body = try #require(harness.list.hoverCard.hoverCardBody(for: shown.id)?.view as? WorkspaceHoverCardView)
         let expected = WorkspaceHoverCardView()
         expected.configure(.make(Self.pinned, machine: nil, now: Date()))
+        body.detailsToggle.performClick(nil)
+        expected.detailsToggle.performClick(nil)
         #expect(body.lines.first == expected.lines.first, "\(body.lines)")
         #expect(body.lines.contains { $0.contains("Durable runner for the cloud Chief") }, "\(body.lines)")
     }
 
-    /// The same delay as a list row: no card before `sidebar.hoverCards.delay`.
+    /// Returns once the pending card's delay timer and its settle timer both sleep on the clock: an
+    /// advance before the settle timer registers would move its deadline (review F3 of #38872).
+    private static func bothTimersAsleep(_ clock: ManualClock) async throws {
+        try await clock.waitForSleeper()
+        for _ in 0..<10_000 where clock.sleeperCount < 2 { await Task.yield() }
+        try #require(clock.sleeperCount >= 2, "the settle timer never slept (\(clock.sleeperCount) sleepers)")
+    }
+
+    /// The same wait as a list row: no card until the pointer stops (`HoverCardTiming.settleQuiet`).
     @Test func aPinnedRowWaitsARowsDelay() async throws {
         let clock = ManualClock()
         let harness = Self.sidebar(clock: clock)
         defer { harness.tearDown() }
         harness.list.updateHover(try harness.pinnedRowMiddle())
-        try await clock.waitForSleeper()
-        clock.advance(by: DesignSettings.shared.hoverCardDelay - .milliseconds(20))
+        try await Self.bothTimersAsleep(clock)
+        clock.advance(by: HoverCardTiming.settleQuiet - .milliseconds(10))
         for _ in 0..<20 { await Task.yield() }
         #expect(harness.coordinator.machine.shownTarget == nil, "a sweep over a pinned row opened a card early")
-        clock.advance(by: .milliseconds(70))
+        clock.advance(by: .milliseconds(20))
         try await Self.settle { harness.coordinator.machine.shownTarget != nil }
         #expect(harness.coordinator.machine.shownTarget?.id == WorkspaceHoverCardController.targetID(Self.pinnedID))
     }

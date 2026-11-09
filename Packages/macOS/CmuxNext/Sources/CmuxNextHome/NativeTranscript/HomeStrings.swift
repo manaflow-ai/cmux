@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextHomeModel
 import Foundation
 
 /// Every user-facing string of the Home module (Localizable.xcstrings). The
@@ -23,12 +24,6 @@ enum HomeStrings {
     static func attachFolder(_ name: String) -> String {
         String(format: String(localized: "home.composer.attach.folder",
                               defaultValue: "“%@” is a folder. Attach the files in it, or a ZIP of the folder.", bundle: .module), name)
-    }
-    static func attachTooLarge(_ name: String) -> String {
-        String(format: String(localized: "home.composer.attach.tooLarge", defaultValue: "“%@” is larger than 100 MB.", bundle: .module), name)
-    }
-    static func attachTooLargeAny() -> String {
-        String(localized: "home.composer.attach.tooLargeAny", defaultValue: "A file is larger than 100 MB.", bundle: .module)
     }
     static func attachEmpty(_ name: String) -> String {
         String(format: String(localized: "home.composer.attach.empty", defaultValue: "“%@” is empty.", bundle: .module), name)
@@ -94,7 +89,6 @@ enum HomeStrings {
         switch refusal {
         case .typeRefused(_, let file): attachUnsupported(name ?? file)
         case .folder(let file): attachFolder(name ?? file)
-        case .tooLarge: name.map(attachTooLarge) ?? attachTooLargeAny()
         case .empty(let file): attachEmpty(name ?? file)
         case .invalidName(let file): attachInvalidName(name ?? file)
         case .locationNotRemoved(let file): attachLocationNotRemoved(name ?? file)
@@ -154,21 +148,6 @@ enum HomeStrings {
     /// The card's button that hides it for good.
     static var switchKeysHide: String {
         String(localized: "home.firstRun.switchKeys.hide", defaultValue: "Hide", bundle: .module)
-    }
-    static var switchKeysTabs: String {
-        String(localized: "home.firstRun.switchKeys.tabs", defaultValue: "Tab 1–9 (like VS Code)", bundle: .module)
-    }
-    static var switchKeysWorkspaces: String {
-        String(localized: "home.firstRun.switchKeys.workspaces", defaultValue: "Workspace 1–9", bundle: .module)
-    }
-    static var switchKeysNextTab: String {
-        String(localized: "home.firstRun.switchKeys.nextTab", defaultValue: "Previous / next tab", bundle: .module)
-    }
-    static var switchKeysNextWorkspace: String {
-        String(localized: "home.firstRun.switchKeys.nextWorkspace", defaultValue: "Previous / next workspace", bundle: .module)
-    }
-    static var switchKeysFocus: String {
-        String(localized: "home.firstRun.switchKeys.focus", defaultValue: "Focus back / forward", bundle: .module)
     }
     /// The one-line note when Mission Control's Switch to Desktop takes the tab keys.
     static var switchKeysDesktopConflict: String {

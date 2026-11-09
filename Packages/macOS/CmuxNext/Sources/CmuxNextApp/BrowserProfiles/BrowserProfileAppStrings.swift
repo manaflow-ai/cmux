@@ -15,6 +15,10 @@ nonisolated enum BrowserProfileAppStrings {
                             "Its cookies, logins, history, extensions and site permissions are deleted. Its open tabs reopen in “%@”."), fallback)
     }
     static var delete: String { text("browserProfiles.delete", "Delete") }
+    /// The palette row that makes a profile from the typed name.
+    static func createNamed(_ name: String) -> String {
+        String(format: text("browserProfiles.createNamed", "Create Browser Profile “%@”"), name)
+    }
     static func movedNotice(to target: String, from source: String) -> String {
         String(format: text("browserProfiles.movedNotice", "Opened in “%1$@”. Cookies, logins and page state stayed in “%2$@”."), target, source)
     }
@@ -42,6 +46,7 @@ nonisolated enum BrowserProfileAppStrings {
         case .defaultProfile: defaultCannotBeDeleted
         case .invalidName: invalidName
         case .invalidID: noProfile("")
+        case .pendingCleanup: "Browser profile data is still being deleted; retry after cleanup completes"
         case .invalidColor: RefusalStrings.colorMustBeOneOf("grey, blue, red, yellow, green, pink, purple, cyan, orange")
         case .invalidIcon: invalidIcon
         }

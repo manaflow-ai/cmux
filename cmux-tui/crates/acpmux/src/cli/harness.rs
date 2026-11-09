@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use crate::byo_endpoint;
-use crate::cli::command::{HarnessCmd, SecretCmd};
+use crate::cli::command::{CodexRuntimeCmd, HarnessCmd, SecretCmd};
 use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
@@ -70,6 +70,36 @@ pub fn example(name: &str) -> Option<&'static str> {
 
 pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
     match cmd {
+        HarnessCmd::Install { id } => {
+            let installed = crate::harness_install::install(&id, |step, state, detail| {
+                if json_out {
+                    println!("{}", json!({"step": step, "state": state, "detail": detail}));
+                } else {
+                    println!("{step}: {state} {detail}");
+                }
+            })
+            .await?;
+            // A running daemon finds the new CLI without a restart, as after `codex-runtime install`.
+            let value = with_daemon_reloaded(installed, reload_daemon().await);
+            println!(
+                "{}",
+                if json_out { value.to_string() } else { serde_json::to_string_pretty(&value)? }
+            );
+            Ok(())
+        }
+        HarnessCmd::CodexRuntime { action } => {
+            let value = match action {
+                // A running daemon read its harness profiles before the runtime existed: it
+                // reads them again, so the managed Codex is offered without a restart.
+                CodexRuntimeCmd::Install => {
+                    let installed = crate::managed_codex::install().await?;
+                    with_daemon_reloaded(installed, reload_daemon().await)
+                }
+                CodexRuntimeCmd::Status => crate::managed_codex::status(),
+            };
+            println!("{}", serde_json::to_string_pretty(&value)?);
+            Ok(())
+        }
         HarnessCmd::List { folder: None } => list(json_out),
         HarnessCmd::List { folder: Some(dir) } => super::harness_folder::list(&dir, json_out),
         HarnessCmd::Enable { id, folder, yes } => {
@@ -414,6 +444,14 @@ async fn icon_cmd(id: &str, value: Option<String>, clear: bool, json_out: bool) 
     Ok(())
 }
 
+/// An install's result with whether a running daemon reloaded after it.
+fn with_daemon_reloaded(mut installed: serde_json::Value, reloaded: bool) -> serde_json::Value {
+    if let Some(fields) = installed.as_object_mut() {
+        fields.insert("daemonReloaded".to_owned(), json!(reloaded));
+    }
+    installed
+}
+
 /// Ask a running daemon to reload its catalog; false when none runs.
 pub(crate) async fn reload_daemon() -> bool {
     match crate::daemon::connect(false).await {
@@ -635,7 +673,7 @@ args = []                 # for example ["acp"]; "${{model}}" becomes the chosen
 # [defaults]
 # model = "model-id"
 # effort = "medium"
-# policy = "ask"          # ask, approve-reads, approve-edits, approve-all, deny-all
+# policy = "ask"          # ask, approve-reads, approve-edits, approve-all, deny-all, review
 
 # [models]
 # list = [{{ id = "model-id", name = "Model Name", short_name = "Short" }}]
@@ -1163,7 +1201,7 @@ async fn handshake(
                 StepStatus::Fail,
                 &e,
                 Some(if protocol_mismatch && codex {
-                    "this command is a Codex app-server, not the acpmux bridge; verify readiness with `acpmux daemon harnesses`, then start a real session with `acpmux new --host HOST -m codex -d`".into()
+                    "this command is a Codex app-server, not the acpmux bridge; verify readiness with `acpmux daemon harnesses`, then start a real session with `acpmux new --machine MACHINE -m codex -d`".into()
                 } else if protocol_mismatch {
                     format!("the configured command did not speak ACP session/new; check its ACP mode, then run `acpmux harness doctor {harness_id}` again")
                 } else if auth {
@@ -1177,7 +1215,7 @@ async fn handshake(
                 step.reason = Some("harness_protocol_mismatch");
                 let mut data = json!({"try": "acpmux daemon harnesses"});
                 if codex {
-                    data.set("next", json!("acpmux new --host HOST -m codex -d"));
+                    data.set("next", json!("acpmux new --machine MACHINE -m codex -d"));
                 }
                 step.data = Some(data);
             }

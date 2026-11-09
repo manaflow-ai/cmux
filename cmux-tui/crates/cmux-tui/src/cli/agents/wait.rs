@@ -145,7 +145,7 @@ pub(super) fn parse(args: &[&str]) -> Result<WaitRequest, UsageError> {
     // The daemon's terminal.wait compiles it with the same crate and limits;
     // a pattern it would refuse never starts a wait.
     if regex && let Some(pattern) = &text {
-        regex::Regex::new(pattern)
+        cmux_tui_core::wait_pattern::compile(pattern)
             .map_err(|error| usage(format!("--text is not a valid regular expression: {error}")))?;
     }
     let timeout = match timeout {
@@ -286,6 +286,7 @@ fn wait_text<B: Backend>(
         stream: false,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     };
     let result = match backend.resource(session, plan, &[]) {
         Ok(result) => result,
@@ -351,7 +352,14 @@ fn idle<B: Backend>(
         return Err(AgentFailure::Owner(failure.clone()));
     }
     let tabs = app.as_ref().map(|app| app_tabs(&app["topology"])).unwrap_or_default();
-    match activity(target, daemon.as_ref().ok(), &tabs) {
+    // acpmux owns a chat's turn even while the GUI has its tab. A visible
+    // conversation tab may omit agent_state until the app's next refresh;
+    // treating that missing UI field as idle would finish the wait early.
+    let current = match chat_wait_target(target, &tabs) {
+        Some(chat) => chat_activity(backend, session, &chat, target, first)?,
+        None => activity(target, daemon.as_ref().ok(), &tabs),
+    };
+    match current {
         Activity::Working => Ok(None),
         Activity::Stopped(found) => Ok(Some(found)),
         Activity::Missing if first => Err(not_found(target)),
@@ -365,6 +373,106 @@ enum Activity {
     Missing,
     Working,
     Stopped(Value),
+}
+
+/// A chat UUID is independent of a terminal/tab id. We only make the extra
+/// acpmux read for UUIDs, so an unknown terminal selector never starts a
+/// daemon lookup and a tab prefix cannot be confused with a chat.
+fn is_chat_session_id(target: &str) -> bool {
+    let target = target.strip_prefix("acp:").unwrap_or(target);
+    uuid::Uuid::parse_str(target).is_ok()
+}
+
+/// A direct chat session or a visible conversation tab that belongs to one.
+/// In either case, acpmux is the source of its turn's activity. Preserve the
+/// requested tab id for the receipt but use the session id to read its state.
+fn chat_wait_target(target: &str, tabs: &[&Value]) -> Option<String> {
+    if is_chat_session_id(target) {
+        return Some(target.strip_prefix("acp:").unwrap_or(target).to_owned());
+    }
+    tabs.iter()
+        .find(|tab| tab.get("id").and_then(Value::as_str) == Some(target))
+        .and_then(|tab| tab.get("agent_session").and_then(Value::as_str))
+        .filter(|session| is_chat_session_id(session))
+        .map(|session| session.strip_prefix("acp:").unwrap_or(session).to_owned())
+}
+
+/// Acpmux, rather than app topology, owns the turn and queue of a tabless
+/// chat. The same scoped chat-state route used by agents_chat_state enforces
+/// the workspace and session boundary before any activity is disclosed.
+fn chat_activity<B: Backend>(
+    backend: &B,
+    session: Option<&str>,
+    chat_session: &str,
+    target: &str,
+    first: bool,
+) -> Result<Activity, AgentFailure> {
+    let command = super::chat::ChatCommand::State { target: chat_session.to_owned() };
+    let info = match backend.chat_in_session(session, &command, None, "agents") {
+        Ok(info) => info,
+        Err(failure)
+            if failure.error.get("code").and_then(Value::as_str) == Some("selector.not_found") =>
+        {
+            return Ok(Activity::Missing);
+        }
+        Err(failure)
+            if failure.error.get("code").and_then(Value::as_str) == Some("chat.out_of_scope")
+                || first =>
+        {
+            return Err(AgentFailure::Owner(failure));
+        }
+        // A transient read failure during an existing wait cannot prove the
+        // chat closed. Keep waiting for the next event or scheduled check.
+        Err(_) => return Ok(Activity::Working),
+    };
+    let state = info.get("result").unwrap_or(&info);
+    let chat = state.get("chat").and_then(Value::as_str).ok_or_else(|| {
+        AgentFailure::Owner(CallFailure {
+            kind: FailureKind::NotRun,
+            error: json!({
+                "code": "chat.invalid_state",
+                "message": "acpmux returned no chat identity for its activity",
+                "details": {},
+                "retryable": true,
+            }),
+            idempotency_key: None,
+        })
+    })?;
+    let pending = state.get("pending_permissions").is_some_and(has_pending);
+    let status = state.get("status").and_then(Value::as_str).unwrap_or_default();
+    let reason = if pending || matches!(status, "waiting" | "waiting-for-input") {
+        Some("blocked")
+    } else if state.get("running").and_then(Value::as_bool) == Some(true)
+        || state.get("queued").is_some_and(has_pending)
+        || matches!(status, "running" | "starting" | "pending")
+    {
+        None
+    } else {
+        match status {
+            "closed" => Some("closed"),
+            "failed" => Some("failed"),
+            "disconnected" => Some("disconnected"),
+            "ready" | "idle" | "done" => Some("idle"),
+            // An unfamiliar state is still active until its owner says it is done.
+            _ => None,
+        }
+    };
+    Ok(match reason {
+        None => Activity::Working,
+        Some(state) => Activity::Stopped(json!({
+            "target": target, "chat": chat, "state": state,
+        })),
+    })
+}
+
+fn has_pending(value: &Value) -> bool {
+    match value {
+        Value::Bool(pending) => *pending,
+        Value::Number(count) => count.as_u64().is_some_and(|count| count > 0),
+        Value::Array(items) => !items.is_empty(),
+        Value::Object(items) => !items.is_empty(),
+        _ => false,
+    }
 }
 
 /// Whether `target`'s agent works: a daemon agent record, a program

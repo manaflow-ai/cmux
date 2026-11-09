@@ -4,9 +4,11 @@ import { sampleNotes } from "./mockProvider";
 import { realNightlies } from "./realNightlyFixtures";
 import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
 import realChanges from "./fixtures/real-pr-changes.json";
+import nightlyNext50 from "./fixtures/nightly-next-50.json";
 import type { ReleaseNotes } from "./types";
 import { clipNotes, clipRoute } from "./clipFixtures";
-import { journalNotes } from "./whatsNewFixtures";
+import { compareNotes } from "./compareFixtures";
+import { dayOfNightlies, denseDay, journalNotes, longAreaDay } from "./whatsNewFixtures";
 
 /** Where build `index` of the 18 starts in realChanges: each takes (index % 5) + 1, none shared. */
 const start = (index: number) => Array.from({ length: index }, (_, i) => (i % 5) + 1).reduce((a, b) => a + b, 0);
@@ -30,9 +32,6 @@ const manyNotes = Array.from({ length: 18 }, (_, index) => ({
   changes: realChanges.slice(start(index), start(index) + (index % 5) + 1).map((c) => `${c.title} (#${c.pr})`),
 }));
 
-/** A real published reel (scripts/cmux-next/media/reel.py), so the gallery shows the card as it plays. */
-const nightlyReel = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/3969193688601/reel.mp4";
-
 export default changelogPageEntry({
   id: "pages.changelog",
   title: "Changelog",
@@ -43,11 +42,14 @@ export default changelogPageEntry({
     "page:cmux.changelog",
     "pages/changelog/ChangelogPage.tsx",
     "pages/changelog/JournalPage.tsx",
+    "pages/changelog/SheetPage.tsx",
     "pages/changelog/RailPage.tsx",
     "pages/changelog/DigestPage.tsx",
     "pages/changelog/ReleaseParts.tsx",
     "pages/changelog/SpanNews.tsx",
     "pages/changelog/clipFixtures.ts",
+    "pages/changelog/MediaCompare.tsx",
+    "pages/changelog/compareFixtures.ts",
   ],
   variants: {
     "nightly-3913596493801": {
@@ -69,8 +71,143 @@ export default changelogPageEntry({
       note: "Opened from the Help menu (no update span): one section per day.",
       notes: realNightlies,
     },
+    sheet: {
+      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations), layout A Inline: the pane up to 920px, then 84% of it up to 1560px, each day's changes under their app area (glyph, name, count), one line each: the title and what its description adds, wrapped, never cut with an ellipsis.",
+      notes: journalNotes,
+    },
+    "sheet-stack": {
+      note: "Sheet layout B Stack (sheet=stack): the same width, the muted line one step smaller and tight under its title.",
+      notes: journalNotes,
+      route: "#/?sheet=stack",
+    },
+    "sheet-grid": {
+      note: "Sheet layout C Grid (sheet=grid): stacked rows in two columns once each column can be 360px wide.",
+      notes: journalNotes,
+      route: "#/?sheet=grid",
+    },
+    "sheet-day-of-nightlies": {
+      note: "A day of nightlies whose digests all name their entries summary-0, summary-1, …: each change once (Leo 2026-11-01 saw rows twice).",
+      notes: dayOfNightlies,
+    },
+    "sheet-dense-grouped": {
+      note: "The day Leo called zero information density (2026-11-02), as the sheet shows it now: changes under their app area with its glyph and count, one clean line each; no codes, filler, repeated lines or infrastructure. Light and dark from the gallery's appearance.",
+      notes: denseDay,
+    },
+    "sheet-long-area": {
+      note: "A day with twelve Sidebar changes: the area shows its first six and Show more (6); the other areas stay open.",
+      notes: longAreaDay,
+    },
+    "sheet-versions": {
+      note: 'Leo 2026-11-05 ("with a click to a past nightly"): a day\'s Versions open (the second day: the first holds only the installed build), each build with its commit, its changes since the build before, and Install; Installed on the running one. Real nightly-next index.',
+      checks: {
+        layoutShiftMax: {
+          value: 0.3,
+          reason:
+            "Versions is a disclosure: opening it adds the day's build rows, and the areas below move down with it.",
+        },
+      },
+      notes: nightlyNext50 as unknown as ReleaseNotes[],
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cls-day + .cls-day .cls-versions-toggle" });
+        await ctx.waitFor(() => document.querySelector(".cls-builds"));
+      },
+    },
+    "sheet-versions-confirm": {
+      note: "Install asks once: Restart into it, then the app downloads that build, checks its signature and team, and restarts with every session.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.3,
+          reason:
+            "Versions is a disclosure: opening it adds the day's build rows, and the areas below move down with it.",
+        },
+      },
+      notes: nightlyNext50 as unknown as ReleaseNotes[],
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cls-day + .cls-day .cls-versions-toggle" });
+        await ctx.waitFor(() => document.querySelector(".cls-build-action button"));
+        await ctx.click({ selector: ".cls-build-action button" });
+        await ctx.waitFor(() => document.querySelector('.cls-build-action button:not([data-variant="ghost"])'));
+      },
+    },
+    "compare-slider": {
+      note: 'Leo 2026-10-20 ("before/afters for our techincal stuff is p important... we want things to be PRETTY!!!!"), variant A, the default: a highlight\'s before/after pair under its sheet row, one 7:4 box with the before left of a split the person drags (or moves with the arrow keys). Here the split is moved to 30%. A lone picture stays off the sheet.',
+      notes: compareNotes,
+      play: async (ctx) => {
+        await ctx.focus({ selector: ".cl-compare-range" });
+        for (let i = 0; i < 20; i++) await ctx.press("ArrowLeft");
+      },
+    },
+    "compare-side": {
+      note: "Before/after variant B (compare=side): the two pictures side by side in the same box, each under its label.",
+      notes: compareNotes,
+      route: "#/?compare=side",
+    },
+    "compare-toggle": {
+      note: "Before/after variant C (compare=toggle): one picture with a Before / After switch; the before fades in over the after (motion gate). Here Before is on.",
+      notes: compareNotes,
+      route: "#/?compare=toggle",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cl-compare-switch button" });
+      },
+    },
+    "compare-lightbox": {
+      note: "The pair enlarged (the corner Enlarge button): the after sets the box, shown whole, with the same dragged split.",
+      notes: compareNotes,
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cl-compare-enlarge" });
+        await ctx.waitFor(() => document.querySelector(".cl-lightbox .cl-compare"));
+      },
+    },
+    "compare-lightbox-side": {
+      note: "Variant B enlarged: side by side, each half shown whole.",
+      notes: compareNotes,
+      route: "#/?compare=side",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cl-compare-enlarge" });
+        await ctx.waitFor(() => document.querySelector(".cl-lightbox .cl-compare"));
+      },
+    },
+    "compare-lightbox-toggle": {
+      note: "Variant C enlarged: the switch under the whole picture.",
+      notes: compareNotes,
+      route: "#/?compare=toggle",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cl-compare-enlarge" });
+        await ctx.waitFor(() => document.querySelector(".cl-lightbox .cl-compare"));
+      },
+    },
+    "compare-ledger": {
+      note: "The same pair in the Ledger (design=ledger), where every change shows its picture: the pair as its row's picture.",
+      notes: compareNotes,
+      route: "#/?design=ledger",
+    },
+    "sheet-prs-hover": {
+      note: "Leo 2026-11-07 (\"this could maybe still be better with linking to prs\"), variant A, the default: a public pull request's title links it and its #N shows at the row's end on hover (here the first linked row is hovered); a private change has no link. The wide column at full screen, descriptions whole.",
+      notes: realNightlies,
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".cls-row-link" });
+      },
+    },
+    "sheet-prs-end": {
+      note: "PR links variant B (prs=end): every linked row shows its #N, muted and small, at its end.",
+      notes: realNightlies,
+      route: "#/?prs=end",
+    },
+    "sheet-prs-row": {
+      note: "PR links variant C (prs=row): the whole row is the link, with the page's hover fill (here hovered) and its #N; text stays the row's colours until hover.",
+      notes: realNightlies,
+      route: "#/?prs=row",
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".cls-row-link" });
+      },
+    },
+    "sheet-real-nightlies": {
+      note: "The sheet over real nightly-next notes: curated changes with their summary's first sentence, a day with no curated note lists its readable changes with their area.",
+      notes: realNightlies,
+    },
     ledger: {
-      note: "Ledger (default, u5099): conductor.build/changelog's layout. Each day's newest version as a small mono tag and its date sticky in the left margin; New / Improved / Fixed as headings over bullet lists.",
+      route: "#/?design=ledger",
+      note: "Ledger (default u5099 to 2026-10-31): conductor.build/changelog's layout. Each day's newest version as a small mono tag and its date sticky in the left margin; New / Improved / Fixed as headings over bullet lists.",
       notes: journalNotes,
     },
     "ledger-wide": {
@@ -91,32 +228,27 @@ export default changelogPageEntry({
     "clips-alternate": {
       note: "What's New after an update, each change with its clip (Leo 2026-10-24: \"it's like you're not even showing anything properly off\"). Alternate: the clip beside its words, sides taking turns. Clips recorded on the fleet by whats-new-clips.py, at their own size.",
       notes: clipNotes,
-      route: `#/?news=alternate&${clipRoute}`,
+      route: `#/?design=ledger&news=alternate&${clipRoute}`,
     },
     "clips-stack": {
       note: "The same update, Stack: one change after another, the clip on top and its caption under it.",
       notes: clipNotes,
-      route: `#/?news=stack&${clipRoute}`,
+      route: `#/?design=ledger&news=stack&${clipRoute}`,
     },
     "clips-grid": {
       note: "The same update, Grid (default): two-up glass cards, the clip on top.",
       notes: clipNotes,
-      route: `#/?${clipRoute}`,
+      route: `#/?design=ledger&${clipRoute}`,
     },
     "clips-lead": {
       note: "The same update in the lead row the clips replaced (before): up to three changes side by side, each clip boxed to 16:10 and cut.",
       notes: clipNotes,
-      route: `#/?news=lead&${clipRoute}`,
+      route: `#/?design=ledger&news=lead&${clipRoute}`,
     },
     "ledger-update-span": {
       note: "Ledger opened by See What's New after an update from 1.0.0-nightly.410 to 413: Since your last update first, then the days with their margin tags.",
       notes: journalNotes,
-      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
-    },
-    "ledger-update-reel": {
-      note: "The same update with a nightly reel: one video card (its first frame, a play button, its length and title) that plays in place. The reel is nightly 3969193's, as published.",
-      notes: journalNotes.map((n, i) => (i === 0 ? { ...n, reel: nightlyReel } : n)),
-      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+      route: "#/?design=ledger&from=1.0.0-nightly.410&to=1.0.0-nightly.413",
     },
     journal: {
       note: "Design A (Debug Settings whatsNew.design = journal): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",

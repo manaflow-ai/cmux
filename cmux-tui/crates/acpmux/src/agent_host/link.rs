@@ -18,10 +18,22 @@ pub struct HostLauncher {
 }
 
 impl HostLauncher {
-    /// This process's own binary, with the prefix it starts its daemon with.
+    /// This process's own binary, with the prefix it starts its daemon with
+    /// (`exe` without Linux's ` (deleted)`: [`SelfCommand::current`]).
+    ///
+    /// [`SelfCommand::current`]: crate::self_command::SelfCommand::current
     pub fn current() -> Result<Self> {
         let this = crate::self_command::SelfCommand::current()?;
         Ok(Self { exe: this.exe, prefix: this.prefix })
+    }
+
+    /// The program [`spawn`] execs; `exe` stays the host's argv0. For this
+    /// process's own binary on Linux, the open inode
+    /// ([`crate::self_command::program`]): once an update replaced the file,
+    /// every new chat failed with "start PATH (deleted): No such file or
+    /// directory" (the app's `agent_session.refused`).
+    fn program(&self) -> PathBuf {
+        crate::self_command::program(&self.exe)
     }
 }
 
@@ -32,13 +44,15 @@ impl HostLauncher {
 /// host's exit closes before it answers; or when the caller drops it, which
 /// ends the host (it is still this process's child). A busy Mac makes a host
 /// slow, never wrong, so time alone never ends it; a caller with a deadline
-/// of its own (`agent_start`, the pool's `START_BUDGET`) drops the start.
+/// of its own (for example a user-facing agent-start hazard) may drop the
+/// start; pooled starts themselves wait on liveness and report progress.
 #[cfg(unix)]
 pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
     crate::launch_policy::refuse_if_disabled()?;
-    let mut cmd = tokio::process::Command::new(&launcher.exe);
-    cmd.args(&launcher.prefix)
+    let mut cmd = tokio::process::Command::new(launcher.program());
+    cmd.arg0(&launcher.exe)
+        .args(&launcher.prefix)
         .arg(HOST_ARG)
         // The host itself is inspectable by its same-uid harness child on
         // some platforms. It needs only OS identity/locale; the complete
@@ -56,8 +70,17 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
         cmd.env(super::host::HELLO_STALL_DIR_ENV, dir);
     }
     #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os(super::host::HELLO_EXIT_DIR_ENV) {
+        cmd.env(super::host::HELLO_EXIT_DIR_ENV, dir);
+    }
+    #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
         cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
+    }
+    // Debug builds only: the test process whose end ends the host (`daemon/owner_exit.rs`).
+    #[cfg(debug_assertions)]
+    if let Some(pid) = std::env::var_os(crate::daemon::owner_exit::TEST_OWNER_PID_ENV) {
+        cmd.env(crate::daemon::owner_exit::TEST_OWNER_PID_ENV, pid);
     }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
@@ -387,11 +410,75 @@ pub struct Link {
 /// Connect as owner and resume after `resume_after` (the last entry already
 /// in this session's log).
 pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
-    // A wedged host must not hold up the daemon: the handshake is bounded.
-    const HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
-    tokio::time::timeout(HELLO_BUDGET, connect_inner(record, resume_after))
-        .await
-        .map_err(|_| anyhow!("agent host did not answer hello within {HELLO_BUDGET:?}"))?
+    match hello_budget() {
+        // Ordinary ownership and reattachment stay live for as long as the host's socket is
+        // open. A busy host is slower, never a failed wake; a closed socket still makes the
+        // handshake fail promptly through `connect_inner`.
+        None => connect_inner(record, resume_after).await,
+        // Adoption is deliberately scoped by the caller: daemon startup must not wait forever
+        // for one already-running host while the rest of the fleet is adopted. Its retry pass
+        // uses `ADOPT_HELLO_BUDGET`, a hazard bound for that startup fan-out rather than a wake
+        // deadline.
+        Some(budget) => {
+            // No time at all: missed before any byte is sent. A zero `tokio::time::timeout` is not
+            // a sure miss (its timer fires on the next millisecond tick, after a fast local hello).
+            if budget.is_zero() {
+                return Err(anyhow::Error::new(HelloUnanswered(budget)));
+            }
+            tokio::time::timeout(budget, connect_inner(record, resume_after))
+                .await
+                .map_err(|_| anyhow::Error::new(HelloUnanswered(budget)))?
+        }
+    }
+}
+
+/// The bound of a hello to a host that runs and was adopted before. Adoption at daemon startup is
+/// a fan-out operation, so it gets a hazard bound and a retry; a normal wake or reattachment does
+/// not use a wall-clock hello deadline. On a loaded Mac (load 118 on 15 cores, 85 hosts adopted at
+/// once, 2026-10-31) a live host answered later than 5 s; ending it then, or leaving it unowned
+/// with its whole agent and MCP servers, is worse than waiting.
+// timeout: adoption fan-out must yield to its retry pass; normal wake/reattach uses socket liveness.
+pub const ADOPT_HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The bound of each hello in the daemon start's first adoption pass (`adopt_agent_hosts`). That
+/// pass holds the start, and every new session waits for the start: a host that accepts the
+/// connection and never answers (a wedged event loop) held both forever. A host that misses it is
+/// retried with [`ADOPT_HELLO_BUDGET`] after the start, off its path.
+// timeout: the start must not wait on one host; the missed host is retried, not ended.
+pub const START_HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+tokio::task_local! {
+    static HELLO_BUDGET_SCOPE: Option<std::time::Duration>;
+}
+
+/// Runs `work` with every [`connect`] in it bounded by `budget`.
+pub async fn with_hello_budget<F: std::future::Future>(
+    budget: std::time::Duration,
+    work: F,
+) -> F::Output {
+    HELLO_BUDGET_SCOPE.scope(Some(budget), work).await
+}
+
+fn hello_budget() -> Option<std::time::Duration> {
+    HELLO_BUDGET_SCOPE.try_with(|b| *b).unwrap_or(None)
+}
+
+/// A host that did not answer `Hello` within the connect's budget: it may be wedged, or only
+/// slow on a loaded machine.
+#[derive(Debug, Clone, Copy)]
+pub struct HelloUnanswered(pub std::time::Duration);
+
+impl std::fmt::Display for HelloUnanswered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "agent host did not answer hello within {:?}", self.0)
+    }
+}
+
+impl std::error::Error for HelloUnanswered {}
+
+/// Whether `error` is (or wraps) a [`HelloUnanswered`].
+pub fn missed_hello(error: &anyhow::Error) -> bool {
+    error.chain().any(|c| c.downcast_ref::<HelloUnanswered>().is_some())
 }
 
 /// [`connect`], speaking at most protocol `max`, as a daemon of an older build does. For tests.
@@ -402,6 +489,16 @@ pub async fn connect_with_max(record: HostRecord, resume_after: u64, max: u16) -
 
 #[cfg(unix)]
 async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect> {
+    // Debug builds only: `ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX` makes this daemon speak at most that
+    // protocol, so a host it finds can refuse it (`0`: every host does), as a host of a build it
+    // cannot speak to does. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(max) = std::env::var("ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+    {
+        return connect_inner_max(record, resume_after, max).await;
+    }
     connect_inner_max(record, resume_after, PROTOCOL_MAX).await
 }
 
@@ -422,7 +519,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             min: PROTOCOL_MIN,
             max,
             token: record.owner_token.clone(),
-            controller_build: crate::hub::BUILD.to_owned(),
+            controller_build: crate::hub::build().to_owned(),
         },
     )
     .await?;
@@ -698,5 +795,29 @@ impl Link {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[cfg(test)]
+mod launcher_tests {
+    use super::HostLauncher;
+    use std::path::PathBuf;
+
+    /// A daemon whose binary an update replaced still starts agent hosts: on
+    /// Linux its own binary is exec'd from the open inode, never `PATH
+    /// (deleted)`, and argv0 stays the path (a copy named `acpmux` runs as
+    /// acpmux by it). Another binary is exec'd as given.
+    #[test]
+    fn the_host_starts_from_the_open_inode_on_linux() {
+        let launcher = HostLauncher::current().expect("launcher");
+        let exe = std::env::current_exe().expect("current exe");
+        assert_eq!(launcher.exe, exe);
+        if cfg!(target_os = "linux") {
+            assert_eq!(launcher.program(), PathBuf::from("/proc/self/exe"));
+        } else {
+            assert_eq!(launcher.program(), exe);
+        }
+        let other = HostLauncher { exe: PathBuf::from("/opt/cmux/bin/acpmux"), prefix: Vec::new() };
+        assert_eq!(other.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
     }
 }

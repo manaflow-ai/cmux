@@ -27,6 +27,7 @@ struct AgentPaneCloudCredentialTransferTests {
         let decoded = Self.request(params)
         let request = try #require(AgentPaneCloudCredentialTransferRequest(params: params))
         #expect(decoded == .cloudCredentialTransfer(request))
+        #expect(request.automatic == false)
         #expect(AgentPageOps.methods[AgentPaneCloudCredentialTransferRequest.method] == AgentPaneCloudCredentialTransferRequest.method)
         #expect(String(describing: decoded) == "cloudCredentialTransfer")
         for refused: [String: Any] in [
@@ -35,6 +36,10 @@ struct AgentPaneCloudCredentialTransferTests {
             ["provider": "claude", "machineID": "vm/123", "sessionId": "session-1", "retryPromptId": "retry-1"],
             ["provider": "claude", "machineID": "vm-123", "sessionId": "-option", "retryPromptId": "retry-1"],
         ] { #expect(Self.request(refused) == .unsupported(AgentPaneCloudCredentialTransferRequest.method)) }
+        let automatic = params.merging(["automatic": true]) { _, new in new }
+        let automaticRequest = try #require(AgentPaneCloudCredentialTransferRequest(params: automatic))
+        #expect(automaticRequest.automatic)
+        #expect(AgentPaneCloudCredentialTransferRequest(params: params.merging(["automatic": "yes"]) { _, new in new }) == nil)
     }
 
     @Test func aCloudChatNeedsAClickAndSuccessfulAppTransfer() async throws {

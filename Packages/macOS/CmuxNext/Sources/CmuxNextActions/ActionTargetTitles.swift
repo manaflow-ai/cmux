@@ -32,6 +32,16 @@ public enum ActionTargetTitles {
         registry.register(action)
     }
 
+    /// Sets whether a bound on/off setting is on (Focus Ring, Pane Borders, Match Terminal Background):
+    /// a run flips it between its two values, so its palette row flips in place, as a Settings row does.
+    /// A preset or choice (Density: Compact) uses ``setPaletteState(_:in:_:)`` and closes the palette.
+    public static func setPaletteSettingState(_ id: ActionID, in registry: ActionRegistry, _ state: @escaping @MainActor () -> Bool) {
+        guard var action = registry.action(for: id) else { return }
+        action.paletteState = state
+        action.paletteStateIsSetting = true
+        registry.register(action)
+    }
+
     /// Sets why a bound action's palette row is disabled for the focused object (its run would
     /// refuse with that reason). `reason` must not refuse (no HUD while the palette builds its rows).
     public static func setPaletteReason(_ id: ActionID, in registry: ActionRegistry, _ reason: @escaping @MainActor () -> String?) {
@@ -61,9 +71,21 @@ public enum ActionTargetTitles {
         let action = registry.action(for: id)
         if let title = action?.targetTitle?(invocation) { item.title = title }
         if let on = action?.targetState?(invocation) { item.state = on ? .on : .off }
-        if let reason = ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
+        // A row a person can run past its reason (Sign In, then the action) says what the click does.
+        if let reason = registry.personRecovery(for: id, invocation)?.note
+            ?? ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
             if #available(macOS 14.4, *) { item.subtitle = reason }
             item.toolTip = reason
+            hideShortcut(of: item)
         }
+    }
+
+    /// Clears a row's drawn shortcut. AppKit lays a menu item's subtitle under the shortcut column, so a
+    /// row that says why it is disabled (or what its click does first) draws its reason through the
+    /// shortcut (⌥⌘T over "Pinned tabs stay open."). Such a row shows the reason and no shortcut; the
+    /// key still runs the action from the main menu, and the same row shows its shortcut when it has no reason.
+    static func hideShortcut(of item: NSMenuItem) {
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
     }
 }

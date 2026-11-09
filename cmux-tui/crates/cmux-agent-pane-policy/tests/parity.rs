@@ -88,34 +88,13 @@ fn frames() {
     cases("frames.json").as_array().unwrap().iter().for_each(check_frame);
 }
 
-fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
-    use cmux_agent_pane_policy::check::SettingAsk;
-    let setting = facts.setting.as_ref().map(|s| {
-        let asked = match &s.asked {
-            SettingAsk::Mode(v) => serde_json::json!({"mode": v}),
-            SettingAsk::Option { id, value } => serde_json::json!({"option": {"id": id, "value": value}}),
-        };
-        serde_json::json!({"session_id": s.session_id, "config_id": s.config_id, "value": s.value, "asked": asked})
-    });
-    let pick =
-        facts.pick.as_ref().map(|p| serde_json::json!({"method": p.method, "params": p.params}));
-    serde_json::json!({
-        "is_first": facts.is_first, "method": facts.method, "page_id": facts.page_id,
-        "ticket": facts.ticket, "other_meta": facts.other_meta, "pick": pick,
-        "session_id": facts.session_id, "needs_gesture": facts.needs_gesture,
-        "needs_path_check": facts.needs_path_check, "setting": setting,
-        "attach_session": facts.attach_session, "foreign_source": facts.foreign_source,
-        "handoff_id": facts.handoff_id, "harness_enable": facts.harness_enable, "free": facts.free(),
-    })
-}
-
 /// The full check in Swift's order (tests/cases/check.json). Only this crate
 /// runs the file: no Swift test reads it, so `AgentPaneTransport.checkOne` has
 /// its own Swift tests (for example `AgentPaneForkRelayTests`).
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 55, "check.json: the full order's 55 cases");
+    assert_eq!(all.as_array().unwrap().len(), 70, "check.json: the full order's 70 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -166,6 +145,7 @@ fn full_check_order() {
         }
         let state = FrameState {
             is_first: s["first"].as_bool().unwrap(),
+            remote_wire: s.get("remote_wire").and_then(Value::as_bool).unwrap_or(false),
             local_app_token: s["token"].as_str(),
             mode_fields: modes.as_ref(),
             scope: &scope,
@@ -187,7 +167,7 @@ fn full_check_order() {
             }
             (Checked::Frame { frame, facts }, None) => {
                 assert_eq!(&Value::Object(frame.clone()), &expect["frame"], "{} frame", name(c));
-                assert_eq!(facts_json(facts), expect["facts"], "{} facts", name(c));
+                assert_eq!(facts.to_json(), expect["facts"], "{} facts", name(c));
             }
             _ => panic!("{}: got {got:?}, expected {expect}", name(c)),
         }
@@ -209,6 +189,7 @@ fn debug_output_is_redacted() {
         is_first: true,
         local_app_token: Some(&token),
         mode_fields: None,
+        remote_wire: false,
         scope: &scope,
         options: &options,
     };
@@ -272,7 +253,8 @@ fn gestures() {
 /// AGENT-TRUST-GATE (tests/cases/trust_gate.json, its description cites the
 /// sources): the pane is LocalApp-origin through the host's token only, the
 /// page writes neither the token nor a forward mark, Trust needs a gesture
-/// and Don't trust does not, and the gate's refusals pass unfiltered.
+/// and local Don't trust does not; every peer write needs a gesture, and
+/// the gate's refusals pass unfiltered.
 #[test]
 fn trust_gate() {
     let all = cases("trust_gate.json");
@@ -282,6 +264,26 @@ fn trust_gate() {
     for m in group(&all, "unfiltered") {
         let m = m.as_str().unwrap();
         assert!(!policy().reply_shapes.contains_key(m), "{m}: its reply would lose data.reason");
+    }
+}
+
+#[test]
+fn trust_peer_selector_requires_a_nonempty_string() {
+    for method in ["acp.trust.get", "acp.trust.set"] {
+        for peer in [
+            Value::Null,
+            serde_json::json!(""),
+            serde_json::json!(42),
+            serde_json::json!(true),
+            serde_json::json!({"name": "dev-box"}),
+            serde_json::json!(["dev-box"]),
+        ] {
+            let frame = serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": method,
+                "params": {"cwd": "/x", "peer": peer}
+            });
+            assert!(breaks_params_rule(&object(&frame), None), "{method} must refuse peer {peer}");
+        }
     }
 }
 
@@ -484,11 +486,9 @@ fn the_built_in_policy_parses() {
     let v: Value = serde_json::from_str(&text).unwrap();
     let p = policy();
     assert!(!p.requests.is_empty() && p.maximum_frame_bytes > 0, "policy() fell back to deny-all");
-    assert_eq!(
-        p.reply_shapes.len(),
-        v["reply_shapes"].as_object().unwrap().len(),
-        "every reply shape parsed"
-    );
+    // Whether each shape parsed is every_reply_shape_parses's question (a
+    // shape that does not parse is kept as an empty filter).
+    assert_eq!(p.reply_shapes.len(), v["reply_shapes"].as_object().unwrap().len());
     assert_eq!(p.requests.len(), v["requests"].as_array().unwrap().len());
 }
 
@@ -532,5 +532,43 @@ fn question_permissions() {
         ("never", false),
     ] {
         assert_eq!(options.question_keys(id).is_some(), question, "{id}");
+    }
+}
+
+/// The keys a question's `answers` may use (tests/cases/question_keys.json):
+/// the normalized question's item ids and prompts, else Claude Code's own
+/// AskUserQuestion's `toolCall.rawInput.questions[].question`
+/// (AgentPaneUserGestures.swift `questionKeys`, #28129); None for a request
+/// that is no question.
+#[test]
+fn question_answer_keys() {
+    for c in cases("question_keys.json").as_array().unwrap() {
+        let options = PermissionOptions::new();
+        let pending = serde_json::json!({"method": "_acpmux/permission_pending",
+            "params": {"permissionId": "p", "request": c["request"]}});
+        options.observe(pending.as_object().unwrap(), None);
+        let want: Option<BTreeSet<String>> = c["keys"]
+            .as_array()
+            .map(|a| a.iter().map(|k| k.as_str().unwrap().to_owned()).collect());
+        assert_eq!(options.question_keys("p"), want, "{}", name(c));
+    }
+}
+
+/// A prompt block's upload reference (tests/cases/prompt_uploads.json, the
+/// Swift `AgentPanePromptUploadMetaTests` cases): a top-level `image` or
+/// `resource_link` block keeps exactly `_meta.acpmux.upload {uploadId,
+/// fileName}` when it is a valid reference with no bytes; every other block
+/// `_meta`, at every depth, goes (AcpmuxPaneMethods+Uploads.swift
+/// `promptUploadMeta`, #25979).
+#[test]
+fn prompt_upload_references() {
+    let all = cases("prompt_uploads.json");
+    for c in all.as_array().unwrap() {
+        assert_eq!(
+            stripping_prompt_meta(&object(&c["frame"])).map(Value::Object),
+            c["prompt_stripped"].as_object().cloned().map(Value::Object),
+            "{}",
+            name(c)
+        );
     }
 }

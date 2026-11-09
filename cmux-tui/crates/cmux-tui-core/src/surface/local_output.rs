@@ -113,7 +113,8 @@ impl LocalOutput {
             }
             terminal_notifications = pty.observe_terminal_output(output);
             finished_commands = pty.observe_shell_marks(&mut term, || {
-                mux.upgrade().is_some_and(|mux| mux.terminal_command_history_enabled())
+                mux.upgrade()
+                    .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())
             });
             let cursor_changed =
                 term.cursor_activity().expect("valid local terminals expose cursor activity")
@@ -217,6 +218,24 @@ impl LocalOutput {
         result
     }
 
+    /// Queue the event-bus `scroll-changed` of a viewport move a resize made
+    /// under this parser, for the reader to publish after the output events
+    /// already queued, and wake the reader. The resize sent it to render taps.
+    #[cfg(unix)]
+    pub(super) fn queue_scroll_changed(&mut self, generation: u64, position: (u64, bool)) {
+        self.pending.push(ParsedOutput {
+            generation,
+            title_update: None,
+            scroll_changed: Some(position),
+            terminal_notifications: Vec::new(),
+            finished_commands: Vec::new(),
+        });
+        if let Some(wake) = self.wake.as_mut() {
+            // Nonblocking: an already queued wake also guarantees publication.
+            let _ = wake.write(&[1]);
+        }
+    }
+
     pub(super) fn take_pending(&mut self) -> Vec<ParsedOutput> {
         std::mem::take(&mut self.pending)
     }
@@ -239,7 +258,7 @@ impl LocalOutput {
 }
 
 impl OutputPublisher {
-    pub(super) fn publish(&self, surface: &Surface, events: Vec<ParsedOutput>) {
+    pub(super) fn publish(&self, surface: &Arc<Surface>, events: Vec<ParsedOutput>) {
         let Some(pty) = surface.as_pty() else { return };
         let mux = &pty.mux;
         for ParsedOutput {
@@ -250,10 +269,15 @@ impl OutputPublisher {
             finished_commands,
         } in events
         {
-            surface.publish_pending_directory();
-            surface.publish_pending_progress();
+            // Durable publications commit on the mux's terminal publisher: the
+            // next output must not wait for the registry (#35413).
+            surface.queue_pending_publications();
             pty.stream_progress.notify();
-            pty.request_frame(generation);
+            // Published by the frame producer, once per frame (FrameRequests).
+            if let Some((offset, at_bottom)) = scroll_changed {
+                pty.frame_requests.defer_scroll(offset, at_bottom);
+            }
+            pty.request_frame_from_reader(generation);
             // Mux events take `Mux::state`; publish them only after
             // the terminal lock is released (see PtyTerminalRuntime).
             self.pending_bells.publish(mux, surface.id);
@@ -262,15 +286,10 @@ impl OutputPublisher {
             {
                 mux.emit_terminal_title(surface.id, title.into());
             }
-            if let Some((offset, at_bottom)) = scroll_changed
-                && let Some(mux) = mux.upgrade()
-            {
-                mux.emit_terminal_scroll(surface.id, offset, at_bottom);
-            }
             if !terminal_notifications.is_empty()
                 && let Some(mux) = mux.upgrade()
             {
-                mux.post_terminal_notifications(surface.id, terminal_notifications);
+                mux.queue_terminal_notifications(surface.id, terminal_notifications);
             }
             if !finished_commands.is_empty()
                 && let Some(mux) = mux.upgrade()

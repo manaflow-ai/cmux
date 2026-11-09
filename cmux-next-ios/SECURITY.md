@@ -3,8 +3,8 @@
 This is the analysis that the repository's "Remote CLI relay" rule asks for
 (`skills/cmux-socket-policy/references/remote-relay-authorization.md`). It
 covers every path by which a phone reaches this Mac through `cmux-mobile-host`. Each
-path goes through one link service: `daemon`, `chief`, `acpmux`, `file`,
-`upload`, or `echo`, and, when the app supervises hostd, only after the
+path goes through one link service: `daemon`, `chief`, `acpmux`, `cloud-directory`,
+`cloud-acpmux`, `file`, `upload`, or `echo`, and, when the app supervises hostd, only after the
 `auth` pairing service (below) accepted the phone.
 Any other service is refused with `unknown_service`.
 
@@ -102,6 +102,75 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
 - **Unowned objects.** The phone sees only the owner's acpmux sessions.
 - **Local state.** Transcripts belong to the owner.
 
+## `cloud-directory` and `cloud-acpmux`: authenticated Cloud chat
+
+`cloud-directory` asks the signed-in Mac app for a fresh snapshot of its
+authenticated owner CloudLinkSession objects. It returns only machine id, team
+id and display name. Socket paths, ownership markers and link tickets never
+reach the phone. Duplicate machine/team entries are omitted so a stale or
+conflicting link cannot be selected.
+
+`cloud-acpmux` accepts a machine id and team id from that directory and asks
+the app for another fresh snapshot. Hostd requires exactly one matching owner
+link and an absolute socket path supplied by the app. It performs the normal
+native client handshake on that machine's existing daemon carrier (the Cloud
+app server has already dialed it). Rust hostd maps the supported ACP calls to
+`list-workspaces` and typed `agent-session-attach/events/prompt/cancel/detach`
+commands. Surface ids come only from the daemon's stored agent tabs, never
+from phone arguments. Prompt ids are preserved, and pages/live records are
+forwarded without synthesizing transcript entries or sequence numbers. Native
+request ids are distinct from phone ids, with a bounded pending map and expiry;
+stream routing is indexed by surface rather than scanning the session list.
+
+Hostd first requires `identify` to advertise `cloud-mobile-chat-v1`; accepting
+`set-client-info` alone does not establish that an older VM enforces this policy.
+Before every prompt, including on an attached chat, the adapter reads a fresh
+session summary and refuses missing or unknown modes, non-asking modes, and an
+acpmux enforcement policy other than `ask`. Its preflight accepts Claude
+`default`/`plan` and Codex `ask` only. History remains readable in other modes.
+
+This preflight is not atomic VM authorization. The VM enforces the
+authenticated owner, actual harness profile and asking-mode floor itself, and
+its daemon advertises `cloud-mobile-chat-v1` only because it does
+(hq#8003):
+
+- The carrier reaches the VM daemon as a `mux-control` stream. The session
+  host writes the verified carrier grant's role (`vmk`) on it before any of
+  the phone's bytes (`carrier-role`), and the daemon binds it once. A
+  teammate's or role-less stream can't start a chat on the caller's `owner`
+  word.
+- A connection that declared `cloud-mobile-chat-v1` may send only the
+  adapter's commands (`phone_carrier.rs`): `identify`, `set-client-info`,
+  `list-workspaces`, `create-workspace`, an agent `new-conversation-tab` of
+  the machine's own store, `close-surface` of an agent tab no chat is bound
+  to, and `agent-session-{of,start,attach,events,prompt,cancel,detach,context}`.
+  It may not send command-bearing params. The declaration lasts for the
+  connection's life.
+- Its start needs an acpmux that reports the Cloud mobile floor. It must be a
+  family the floor has a mode for, and the new session must end up in a mode
+  acpmux's floor accepts for the profile it actually runs. Otherwise the
+  session is ended.
+- Every one of its prompts is stamped `via: cloud-mobile`. acpmux holds it to
+  that floor at dispatch, through the queue and for the active turn.
+ The adapter cannot establish a Codex bridge profile from its
+mode name, or prevent a concurrent mode change by itself. No Mac approval
+signature or Full-access setting is transplanted to the VM. Approval answers, mode changes, file operations and other native
+commands are unsupported on this service.
+
+Starting a chat (`session/new`) uses the rules a phone's Mac chat start already has
+(the `acpmux` lane's `session/new` under acpmux's remote guard), narrowed further.
+The phone names nothing but the request: hostd creates the tab in the machine's
+own store (`registry:` host, from the machine's `list-workspaces`) and starts
+Claude only, with no folder, model, MCP server, mode or policy from the phone.
+The machine's daemon starts every remote chat with policy `ask` and makes the
+chat's own folder. `vm_kind: "owner"` is sent because hostd opened this channel
+only on the app's single owner link for the machine. A Claude chat starts in
+its asking `default` mode, so the prompt preflight above still applies. A start
+the machine refuses closes the empty tab. Hostd never opens a phone-supplied
+path, accepts an arbitrary service, or treats the carrier as a local-owner
+connection. Sign-out stops the supervised hostd and its channels; each new
+channel needs a fresh app snapshot.
+
 ## `file`: read-only previews
 
 - **Path checks.** Only absolute paths inside `CMUX_MOBILE_FILE_ROOTS` or one of the
@@ -180,7 +249,7 @@ the owner's other agent conversations in Home.
 | `conversation-list`, `-snapshot`, `-history`, `-thread`, `-search` | Read the owner's own agent conversations (narrowed). |
 | `conversation-op`: `message.send` (`client_msg_id, parts, reply_to, thread_root`), `message.edit`, `message.retract`, `reaction.add/remove`, `read_cursor.set` | What the Mac's Home does in a conversation. |
 | `conversation-op`: `title.set` | Rename, as the Mac's Chief settings. |
-| `conversation-op`: `question.answer` with `approval` | Answer Chief's questions. Supervised, it counts only with the phone's Face ID signature over this Mac, conversation, question and answer (one use, at most 300 s; `chief_answers.rs`); hostd strips `approval`, and the owner stamps the respondent. An unsigned or forged answer is refused `forbidden`. |
+| `conversation-op`: `question.answer` with `approval` | Answer Chief's questions. Supervised, it counts only with the phone's approval-key signature over this Mac, conversation, question and answer (one use, at most 300 s; `chief_answers.rs`); hostd strips `approval`, and the owner stamps the respondent. An unsigned or forged answer is refused `forbidden`. |
 | `conversation-typing` (`conversation, on`) | Typing as the owner. |
 | `conversation-attachment-upload` (`begin` names an in-scope conversation; `chunk`, `commit`, `cancel` name the upload this connection began) and `-read` | Photos and files, under the owner's own limits (type allow list, 100 MB, hash checks). |
 | `cmux.protocol/2` `chief.engine.get`, `chief.engine.set` (`harness, model, effort, speed, compactor_speed`, strings), `chief.stop` (`name`) with `machine`/`session` only `current`, and no `origin` | The Mac Chief settings' model, harness and effort pickers and Stop (`ChiefControlClient`). |
@@ -683,7 +752,7 @@ same set of folders as `file`'s tab-folder rule (`feat-cnx-ios-fileroots`).
 
 | Rule 2 question | Answer |
 | --- | --- |
-| Executes commands or opens content on local objects? | The phone could already prompt agents in known projects. This lets it start one in a folder where the person already has a tab open. The agent still runs under the Web rules: asking policy only, no MCP servers from the phone, an asking mode, each tool approval answered by the person (on the Mac, or with the phone's Face ID signature). |
+| Executes commands or opens content on local objects? | The phone could already prompt agents in known projects. This lets it start one in a folder where the person already has a tab open. The agent still runs under the Web rules: asking policy only, no MCP servers from the phone, an asking mode, each tool approval answered by the person (on the Mac, or with the phone's approval-key signature). |
 | Mutates or destroys objects the session does not own? | No new methods. Only the folder a session may start in widens, to folders the person has open in their own daemon. |
 | Reads local state the remote should not see? | An agent in that folder reads what its approved tools read there, as today in known projects. Folders with no open tab, `/` and `~` (and above) stay refused, and so does a folder that is only reachable through a symlink. The folder list itself never reaches the phone. |
 | Whose objects? | The Mac owner's own daemon session (the app's), set only by a connection that proved the app's person key; neither an agent, a page nor the phone can set it (`person_required`). |
@@ -848,6 +917,39 @@ Round 3 review notes (accepted, said here):
 - Live (round 3, rig `cmux-mobile-p3-153f3482`): every group action read back from the Mac's
   `list-personal` (`verify/parity-mac.md`, `groups`).
 
+## `acpmux`: allowing a peer's prompt from the phone (cmux#37301)
+
+A chat this Mac opened on one of its acpmux peers (`--host`) asks for approval on
+the peer, and the peer checks the person, not this Mac. The Mac app's own key was
+already enrolled there (`acpmux host enroll`, the peer's `mac-approvers.json`);
+now the phones this Mac pairs are enrolled with it, so a paired phone can give the
+same one-time Allow.
+
+The trust rule:
+
+- **Who enrolls a phone.** Only `host enroll` or `machine doctor --fix` run on this
+  Mac, over the person's own ssh, as for the Mac's key. No RPC adds a key on the
+  peer. It enrolls exactly the phones this Mac's app pairs (their public approval
+  keys, from `_acpmux/approvers_set`), each under
+  `phone:<12 hex of SHA-256 of this Mac's device id>:<phone id>`, and removes ids
+  under that prefix that this Mac no longer pairs; another Mac's phones are left alone.
+- **What a phone signs there.** The enrolled Mac's message
+  (`acpmux-mac-approver-decision-v1`): the peer's daemon run, the phone's id there,
+  the session, the permission, the tool call, the option, the nonce, the expiry
+  (at most 300 s) and the answers digest. The phone signs it only after the person
+  unlocks the approval key, as for its own Mac's prompts. The phone refuses to sign anything but a one-time
+  allow for a peer, before asking for the key.
+- **What it counts for.** A one-time allow of a tool's ask, a question or the
+  folder-trust card, once (the peer's spent nonces): never a lasting allow, a plan
+  or a mode switch. An id under `phone:` never signs a policy raise on a peer,
+  since a phone raises none on its own Mac.
+- **Removal.** Unpairing a phone here takes it off a peer at the next `host enroll`
+  or `machine doctor --fix` (doctor warns until then); `host approvals rm ID` on
+  the peer removes it at once, and `host approvals unenroll PEER` takes this Mac's phones with it. Unenroll first reads the peer's list. If it can't (or it can't tell this Mac's phones from another Mac's), it changes nothing and says so.
+- **Unowned objects and local state.** The peer counts the signature only for its
+  own pending prompt; the phone reads nothing new, and the Mac forwards the answer
+  unchanged.
+
 ## `acpmux`: messages larger than one link frame
 
 The link splits a write above 256 KiB into several data frames. hostd now
@@ -929,7 +1031,7 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   mode is not `default`, `plan` or `ask` (`acpmux_policy.rs`), answering the
   phone with a JSON-RPC error. So a phone keeps every agent it drives in a mode
   that asks; each tool approval reaches the person and an Allow needs the phone's
-  Face ID signature. Tests: acpmux `a_remote_device_starts_the_codex_bridge_in_its_asking_mode`,
+  approval-key signature (no Face ID since 2026-11-04). Tests: acpmux `a_remote_device_starts_the_codex_bridge_in_its_asking_mode`,
   hostd `acpmux_policy::tests`.
 - **Rule 2.** No new method. It narrows what a phone could already send, and the
   start mode moves from one that does not ask to one that asks.
@@ -1116,7 +1218,7 @@ link request.
   Implemented on `feat-cnx-ios-parity` at the person's request for full Mac
   parity; confirm or revert in `verify/13742-recommendation.md`.
 
-- Phone pairing and Face ID signed approvals (`verify/phone-approvals.md`),
+- Phone pairing and signed approvals, no Face ID since 2026-11-04 (`verify/phone-approvals.md`),
   a trust-policy change recommended on issue #13742.
 - Notification replies without the live link and terminal input from a
   notification (`verify/notifications-trust.md`), recommended on #13742; held

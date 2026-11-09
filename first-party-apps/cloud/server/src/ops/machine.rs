@@ -4,15 +4,34 @@
 //! backend op of the same name.
 
 use crate::api::args;
-use crate::api::models::{ConnectInfo, Machine, MachinePage, Revision};
+use crate::api::models::{Machine, Revision, decode_connect_info};
 use crate::api::{CloudError, ControlPlane, Ctx, codes, decode_answer};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-/// A mutation answer `{machine}`.
+/// A mutation answer `{machine}`; a create at the plan's cap may also name
+/// the person's idle machine the backend paused to make room (`made_room`).
 #[derive(Deserialize)]
 struct MachineAnswer {
     machine: Machine,
+    #[serde(default)]
+    made_room: Option<MadeRoom>,
+}
+
+/// `made_room`: the machine paused so the create fits the cap.
+#[derive(Deserialize)]
+struct MadeRoom {
+    machine: Machine,
+}
+
+/// `cloud.machine.list`: one page (`CloudMachineListResult`, with each
+/// record's extra fields kept).
+#[derive(Deserialize)]
+struct MachinePage {
+    machines: Vec<Machine>,
+    next_cursor: Option<String>,
+    /// The team's registry revision when the page was read.
+    revision: Revision,
 }
 
 pub(super) fn run<C: ControlPlane>(
@@ -38,12 +57,25 @@ pub(super) fn run<C: ControlPlane>(
             Ok(json!(machine))
         }
         "cloud.machine.create" => {
-            let map = args::object(raw, &["name", "size", "image", "from_snapshot"])?;
+            // Optional create features are validated by the selected backend's
+            // capabilities. Preserve them across this relay, including on a
+            // backend that will return an explicit unsupported-option error.
+            const FIELDS: &[&str] = &[
+                "name",
+                "size",
+                "image",
+                "from_snapshot",
+                "size_name",
+                "idle_seconds",
+                "bootstrap",
+                "machine_config_base64",
+            ];
+            let map = args::object(raw, FIELDS)?;
             args::name(map, "name")?;
             args::size(map, "size")?;
             args::opt_id(map, "image")?;
             args::opt_id(map, "from_snapshot")?;
-            machine_mutation(ctx, name, trimmed(map, &["name", "size", "image", "from_snapshot"]))
+            machine_mutation(ctx, name, trimmed(map, FIELDS))
         }
         "cloud.machine.rename" => {
             let map = args::object(raw, &["machine", "name"])?;
@@ -104,8 +136,7 @@ pub(super) fn run<C: ControlPlane>(
                     "cloud.machine.connect_info answered a credential; a read never carries one",
                 ));
             }
-            let info: ConnectInfo = decode_answer(name, answer.value)?;
-            Ok(json!(info))
+            Ok(json!(decode_connect_info(name, answer.value)?))
         }
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }
@@ -147,7 +178,8 @@ pub(super) fn trimmed(map: &Map<String, Value>, fields: &[&str]) -> Value {
 
 /// A mutation that answers `{machine}`: the record goes into the
 /// projection (unless the projection already holds a newer one) and the
-/// op answers `{machine}`.
+/// op answers `{machine}`, plus `made_room` when the backend paused one
+/// of the person's idle machines to make room for a create.
 pub(super) fn machine_mutation<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
     op: &str,
@@ -155,7 +187,9 @@ pub(super) fn machine_mutation<C: ControlPlane>(
 ) -> Result<Value, CloudError> {
     let answer: MachineAnswer = decode_answer(op, ctx.wire(op, params)?.value)?;
     ctx.projection.upsert(answer.machine.clone());
-    Ok(json!({ "machine": answer.machine }))
+    let Some(room) = answer.made_room else { return Ok(json!({ "machine": answer.machine })) };
+    ctx.projection.upsert(room.machine.clone());
+    Ok(json!({ "machine": answer.machine, "made_room": { "machine": room.machine } }))
 }
 
 /// One `cloud.machine.list` page.
@@ -169,7 +203,7 @@ fn list<C: ControlPlane>(ctx: &mut Ctx<'_, C>, raw: &Value) -> Result<Value, Clo
         cursor,
         page.machines.clone(),
         page.next_cursor.as_deref(),
-        page.revision.clone(),
+        Some(page.revision),
     );
     Ok(json!({
         "machines": page.machines,

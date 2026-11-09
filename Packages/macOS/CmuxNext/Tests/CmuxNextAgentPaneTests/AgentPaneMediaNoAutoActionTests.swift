@@ -180,8 +180,36 @@ struct AgentPaneMediaNoAutoActionTests {
         // The page learns the sites from the policy.
         let inspect = await Self.ask(pane, "link.inspect", ["paths": [String](), "urls": [String]()])
         let policy = (inspect["value"] as? [String: Any])?["policy"] as? [String: Any]
-        #expect(policy?["clickFreeImageHosts"] as? [String] == ["raw.githubusercontent.com"])
+        #expect(policy?["clickFreeImageHosts"] as? [String] == [
+            "avatars.githubusercontent.com", "cmux.com", "lh3.googleusercontent.com", "raw.githubusercontent.com",
+        ])
         #expect(pane.effects.seen.isEmpty, "\(pane.effects.seen)")
+    }
+
+    @Test func aSignedInGuestsAccountPictureLoadsWithNoClickHeldToTheListAndSpendsNoGesture() async throws {
+        let pane = try Self.pane()
+        // The pictures a cmux account's sign-in gives (`fromAvatar`), as Faces asks for them (`auto`).
+        let pictures = [
+            "https://avatars.githubusercontent.com/u/1?v=4", "https://lh3.googleusercontent.com/a/ACg8ocK=s96-c",
+            "https://cmux.com/icon.png",
+        ]
+        pane.model.transport.gestures.record(click: true)
+        for picture in pictures {
+            let reply = await Self.ask(pane, "image.load", ["src": picture, "auto": true])
+            #expect(Self.src(reply)?.hasPrefix("data:image/png;base64,") == true, "\(picture): \(reply)")
+        }
+        #expect(pane.images.all == pictures.map { URL(string: $0)! })
+        #expect(pane.images.hosts == pictures.map { _ in AgentPaneSafeFetch.clickFreeImageHosts })
+        #expect(pane.model.transport.gestures.consume(), "an account picture spent the pending click")
+        // Lookalikes and other Google or cmux hosts still wait for a click.
+        for source in [
+            "https://lh4.googleusercontent.com/a.png", "https://www.cmux.com/icon.png", "https://cmux.com.evil.example/a.png",
+            "https://evil.example/avatars.githubusercontent.com/a.png", "https://CMUX.com/icon.png",
+        ] {
+            let auto = await Self.ask(pane, "image.load", ["src": source, "auto": true])
+            #expect(Self.errorCode(auto) != nil, "\(source): \(auto)")
+        }
+        #expect(pane.images.all.count == pictures.count)
     }
 
     @Test func anImageFromAnotherSiteALookalikeOrAnOddSpellingStillWaitsForAClick() async throws {
@@ -306,6 +334,47 @@ struct AgentPaneMediaNoAutoActionTests {
         }
         #expect(pane.images.all.isEmpty && pane.media.all.isEmpty)
         #expect(pane.effects.seen.isEmpty, "\(pane.effects.seen)")
+    }
+
+    // MARK: Outside images preview under `outsideRoots = open`
+
+    /// Leo, 2026-10-31: "I SHOULDN'T EVEN HAVE TO CLICK THE OPEN BUTTON IT SHOULD JUST PREVIEW".
+    /// An image outside the chat's folders loads with no click where its chip would open without
+    /// asking (`open`, the default); under `confirm` or `text` it stays refused. A path outside the
+    /// folders that is not there is `missing` under `open` (no dead Open), still `outside` otherwise.
+    @Test func anOutsideImagePreviewsUnderOpenOnlyAndAMissingOneIsMissing() async throws {
+        // Home is an image root: keep it away from the temporary folder, wherever TMPDIR is.
+        let makePane = { (outsideRoots: AgentPaneReplySetting.OutsideRoots) throws -> Pane in
+            let made = try Self.pane(setting: AgentPaneReplySetting(outsideRoots: outsideRoots, remoteImages: .click))
+            made.model.replyLinks.home = "/nonexistent-home-\(UUID().uuidString)"
+            return made
+        }
+        let open = try makePane(.open)
+        // `/tmp` is an image root: a TMPDIR under it puts nothing outside the image roots.
+        let temporary = open.project.resolvingSymlinksInPath().path
+        guard !temporary.hasPrefix("/private/tmp/"), !temporary.hasPrefix("/tmp/") else { return }
+        let outsideFolder = open.project.deletingLastPathComponent().appendingPathComponent("elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideFolder, withIntermediateDirectories: true)
+        let shot = outsideFolder.appendingPathComponent("shot.png"), gone = outsideFolder.appendingPathComponent("gone-320.png")
+        try Self.png.write(to: shot)
+
+        let places = { (pane: Pane) async -> [String: String] in
+            let reply = await Self.ask(pane, "link.inspect", ["paths": [shot.path, gone.path], "urls": [String]()])
+            let paths = ((reply["value"] as? [String: Any])?["paths"] as? [String: Any]) ?? [:]
+            return paths.compactMapValues { ($0 as? [String: Any])?["place"] as? String }
+        }
+        #expect(await places(open) == [shot.path: "outside", gone.path: "missing"])
+        let loaded = await Self.ask(open, "image.load", ["src": shot.path])
+        #expect(Self.src(loaded)?.hasPrefix("data:image/png;base64,") == true, "\(loaded)")
+        #expect(Self.errorCode(await Self.ask(open, "image.load", ["src": gone.path])) == AgentPaneReplyError.pathInvalid.rawValue)
+
+        for outsideRoots in [AgentPaneReplySetting.OutsideRoots.confirm, .text] {
+            let pane = try makePane(outsideRoots)
+            #expect(await places(pane) == [shot.path: "outside", gone.path: "outside"], "\(outsideRoots)")
+            let refused = await Self.ask(pane, "image.load", ["src": shot.path])
+            #expect(Self.errorCode(refused) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(outsideRoots)")
+        }
+        #expect(open.effects.seen.isEmpty, "\(open.effects.seen)")
     }
 
     // MARK: R7: no action from media

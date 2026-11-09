@@ -155,10 +155,8 @@ extension GhosttyRuntime {
             keys.append(.init(rank: rank, line: line, diagnostic: GhosttyConfigDiagnostic(kind: .key, name: key, file: path, line: line,
                                                                                          support: support)))
         }
-        let invalid = (0..<ghostty_config_diagnostics_count(config)).compactMap { index in
-            ghostty_config_get_diagnostic(config, index).message.map {
-                GhosttyConfigDiagnostic(kind: .invalid, name: String(cString: $0))
-            }
+        let invalid = (0..<ghostty_config_diagnostics_count(config)).map { index in
+            GhosttyConfigDiagnostic(kind: .invalid, name: String(cString: ghostty_config_get_diagnostic(config, index).message))
         }
         return GhosttyConfigDiagnosticsSnapshot(files: files, keys: keys, invalid: invalid,
                                                 colorOverrides: colorOverrides(of: config, order: order))

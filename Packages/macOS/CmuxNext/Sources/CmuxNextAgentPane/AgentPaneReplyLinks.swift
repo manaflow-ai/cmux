@@ -32,6 +32,9 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// The context menu's Copy Image: replaces the general pasteboard's contents with the item
     /// (``AgentPaneImageCopies/pasteboardItem(_:data:)``); tests record it instead.
     public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
+    /// The composer's Copy and Cut (`composer.copy`): replaces the general pasteboard's contents
+    /// with the items, in order; tests record them instead.
+    public var copyItems: @MainActor ([NSPasteboardItem]) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
     /// Save Image As…: asks where to save the file under the name (the system save panel).
     public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
     /// A path menu's Save As…: the save panel, whose answer copies `file` only while `allowed()`
@@ -71,7 +74,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// however often it is hovered (``AgentReplyPullRequests``).
     public var pullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
     /// The same answer from the cache alone, never starting a read (`pr.inspect` with `cached`):
-    /// the Inspector's Changes asks it for many links, whose reads its batched registration starts.
+    /// Session Info's Changes asks it for many links, whose reads its batched registration starts.
     public var cachedPullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
     /// The pull requests a reply links, so the host has them before a card opens.
     public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
@@ -121,8 +124,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
             guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
-             .quickLookImage, .dragImage, .dragFile, .previewPath:
+        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoTranscript, .videoFrames, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
+             .quickLookImage, .dragImage, .dragFile, .previewPath, .copyComposer:
             return AgentPaneModel.replyFailure(.openFailed)
         }
     }
@@ -170,6 +173,7 @@ extension AgentPaneModel {
             // place (it stays a chip, never plain text), except a remote chat's raster image,
             // which `image.load` reads on that machine (``AgentPaneReplyLinks/remoteImageLoader``).
             let resolver = chatIsElsewhere ? nil : replyPaths()
+            let setting = replyLinks.settings()
             var places: [String: Any] = [:]
             for path in paths {
                 let image = AgentPaneReplyPaths.isImagePath(path)
@@ -178,7 +182,14 @@ extension AgentPaneModel {
                 } else {
                     remoteChat && image ? AgentPaneReplyPaths.Resolved(place: .root, path: path, isFolder: false) : nil
                 }
-                guard let resolved else { continue }
+                guard var resolved else { continue }
+                // Under `outsideRoots = open` an outside chip opens (and its text previews) without
+                // asking, so whether it exists is no secret: a path that is not there is `missing`,
+                // plain text with no dead Open, never a locked chip that does nothing.
+                if resolver != nil, resolved.place == .outside, setting.outsideRoots == .open,
+                   AcpmuxPathPolicy.canonical(resolved.path) == nil {
+                    resolved.place = .missing
+                }
                 places[path] = ["place": resolved.place.rawValue, "folder": resolved.isFolder]
             }
             let parsed = urls.compactMap { text in AgentPaneReplyRequest.webURL(text).map { (text, $0) } }
@@ -191,10 +202,9 @@ extension AgentPaneModel {
                 if let title = site.title, !title.isEmpty { entry["title"] = String(title.prefix(300)) }
                 if !entry.isEmpty { sites[text] = entry }
             }
-            // The reply's pull request links are read now, in the background, so a card has them
-            // before the pointer arrives and no hover ever waits on GitHub.
-            replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.pullRequestURL))
-            let setting = replyLinks.settings()
+            // The reply's pull request and issue links are read now, in the background, so a card
+            // has them before the pointer arrives and no hover ever waits on GitHub.
+            replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.githubItemURL))
             return AgentPaneReply.success([
                 "paths": places, "sites": sites,
                 "policy": [
@@ -210,11 +220,28 @@ extension AgentPaneModel {
             return await loadReplyMedia(src)
         case .videoInfo(let src):
             return await videoInfo(src)
+        case .videoTranscript(let src):
+            return await videoTranscript(src)
+        case .videoFrames(let src, let times):
+            return await videoFrames(src, times: times)
         case .quickLookVideo(let src):
             return await quickLookVideo(src)
+        case .openIn(let url, AgentPaneSignInPage.chatMachineBrowser):
+            // Claude's automatic page of a Cloud chat, in a tab whose localhost is the chat's machine,
+            // on the Sign in click that started its login (or its own click). Only that page; a host
+            // that cannot open such a tab refuses before any gesture is spent.
+            guard AgentPaneSignInPage.callbackPort(url) != nil, let open = onOpenSignInOnMachine?(url) else {
+                return Self.replyFailure(.openFailed)
+            }
+            guard transport.takeSignInPage(url) || transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
+            return open() ? AgentPaneReply.success() : Self.replyFailure(.openFailed)
         case .listBrowsers, .inspectPullRequest, .openIn:
-            return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
-        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
+            // A Cloud chat's sign-in page opens on the Sign in click that started its login.
+            let signInPage: URL? = if case .openIn(let url, "cmux") = request { url } else { nil }
+            return replyLinks.respond(toCard: request, consumeGesture: {
+                signInPage.map(transport.takeSignInPage) == true || transport.gestures.consume()
+            }, openInCmux: onOpenPreview)
+        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile, .copyComposer:
             return await AgentPaneImageCopies.respond(to: request, in: self)
         case .previewPath(let path): return await previewReplyPath(path)
         }
@@ -224,8 +251,8 @@ extension AgentPaneModel {
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
     func openReplyPath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
         // A chat on another machine never opens this Mac's files (cx-k21v), whatever
-        // `agentPane.links.outsideRoots` says: its paths are all outside the (empty) roots here.
-        guard !chatIsElsewhere else { return .failure(.pathOutsideRoots) }
+        // `agentPane.links.outsideRoots` says: its path opens on that machine, or not at all.
+        guard !chatIsElsewhere else { return await openMachinePath(text) }
         let paths = replyPaths()
         let resolved = AgentPaneReplyPaths.isImagePath(text) ? paths.resolveImage(text) : paths.resolve(text)
         guard let resolved else { return .failure(.pathInvalid) }
@@ -245,6 +272,35 @@ extension AgentPaneModel {
         }
         guard transport.gestures.consume() else { return .failure(.gestureRequired) }
         return await openResolved(resolved.path)
+    }
+
+    /// A Cloud chat's path chip (Leo, 2026-11-08: everything a local chat does): the file on the
+    /// chat's machine, in cmux's file pages, which read it through that machine's daemon. A relative
+    /// path starts from the chat's folder there; the deny list applies by spelling, and the host
+    /// refuses a path that reaches through a symlink there. Nothing on this Mac is looked up or
+    /// opened (cx-k21v): only the machine's path goes to ``onOpenMachineFile``.
+    private func openMachinePath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
+        // Only a chat the handshake marked remote has a machine to open on; a remote wire alone,
+        // before that, opens nothing anywhere.
+        guard remoteChat, let open = onOpenMachineFile else { return .failure(.pathOutsideRoots) }
+        let cwd = sessionId.flatMap(transport.sessions.folder(of:)) ?? handshakeCwd
+        guard let path = AgentPaneReplyPaths.machinePath(text, cwd: cwd) else { return .failure(.pathInvalid) }
+        guard !AgentPaneReplyPaths.isDeniedOnMachine(path) else { return .failure(.pathDenied) }
+        // Outside the chat's folder there, `agentPane.links.outsideRoots` decides, as it does for a
+        // local chat: plain text opens nothing, Ask shows the same sheet first.
+        let folder = cwd.flatMap { AgentPaneReplyPaths.machinePath(".", cwd: $0) }
+        let inside = folder.map { $0 == "/" || path == $0 || path.hasPrefix($0 + "/") } ?? false
+        switch inside ? .open : replyLinks.settings().outsideRoots {
+        case .text: return .failure(.pathOutsideRoots)
+        case .open:
+            guard transport.gestures.consume() else { return .failure(.gestureRequired) }
+        case .confirm:
+            guard transport.gestures.consume() else { return .failure(.gestureRequired) }
+            guard await confirmOutside(path) else { return .failure(.notConfirmed) }
+            // The chat may have changed while the sheet was up.
+            guard remoteChat, onOpenMachineFile != nil else { return .failure(.pathOutsideRoots) }
+        }
+        return await open(path) ? .success(()) : .failure(.openFailed)
     }
 
     /// Opens `path` after every check: a folder in Finder, a file in the pane's file pages.
@@ -313,7 +369,17 @@ extension AgentPaneModel {
         // pane's own roots, as before #24619 narrowed this to raster types.
         let resolved = AgentPaneReplyPaths.isImagePath(src) ? paths.resolveImage(src) : paths.resolve(src)
         guard let resolved else { return Self.replyFailure(.pathInvalid) }
+        // Outside the folders, an image previews where its chip would open without asking
+        // (`outsideRoots = open`, the default): the preview needs no click (Leo, 2026-10-31).
+        let outsideShows = resolved.place == .outside && replyLinks.settings().outsideRoots == .open
         switch resolved.place {
+        case .outside where outsideShows:
+            guard let canonical = AcpmuxPathPolicy.canonical(resolved.path), !paths.isDenied(canonical) else {
+                return Self.replyFailure(.pathInvalid)
+            }
+            let image = await replyLinks.readLocalImage(canonical)
+            guard !chatIsElsewhere else { return Self.replyFailure(.pathOutsideRoots) }
+            return Self.replyImage(image)
         case .root:
             // The read runs off the main actor, right after the check above; a chat that turned
             // remote while it ran gets none of its bytes (cx-k21v).

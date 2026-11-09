@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -96,7 +97,7 @@ public struct ShimmerModifier: ViewModifier {
                 }
                 .mask(content)
                 .onAppear {
-                    withAnimation(.linear(duration: theme.motion.shimmerPeriod).repeatForever(autoreverses: false)) {
+                    withAnimation(.linear(duration: theme.motion.shimmerPeriod).repeatForever(autoreverses: false).unlessReduceMotion) {
                         phase = 1.0
                     }
                 }
@@ -156,7 +157,7 @@ public struct SkeletonList: View {
         .task {
             guard delay > .zero else { return }
             try? await Task.sleep(for: delay)
-            withAnimation(theme.motion.snap.animation) { isVisible = true }
+            withAnimation(theme.motion.snap.animation.unlessReduceMotion) { isVisible = true }
         }
         .accessibilityElement()
         .accessibilityLabel(Text("Loading"))
@@ -261,7 +262,7 @@ public struct ConnectionBanner: View {
     public var body: some View {
         HStack(spacing: 8) {
             if state.showsSpinner {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
             } else if let symbol = state.symbol {
                 Image(systemName: symbol)
             }
@@ -327,7 +328,7 @@ extension View {
 }
 
 /// The connection banner's slot: dismissible like every toast (`cmuxMobileDismissibleToast`); a
-/// dismissed state stays hidden until the state changes.
+/// dismissed state stays hidden until the state changes (to no banner, or to another one).
 private struct BannerHost: View {
     let state: ConnectionBannerState?
     let retry: (() -> Void)?
@@ -339,7 +340,7 @@ private struct BannerHost: View {
                 ConnectionBanner(state, retry: retry)
                     .cmuxMobileDismissibleToast(entry: .top, announcement: state.text,
                                                tapDismisses: !(state.offersRetry && retry != nil)) {
-                        withAnimation(theme.motion.snappy.animation) { dismissed = state }
+                        withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { dismissed = state }
                     }
                     .padding(.top, 8)
                     .padding(.bottom, 8)
@@ -347,7 +348,16 @@ private struct BannerHost: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .animation(theme.motion.snappy.animation, value: state)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: state)
+        .onChange(of: state) { _, new in dismissed = BannerDismissal.remembered(dismissed, after: new) }
+    }
+}
+
+/// What a dismissed connection banner remembers: only the state it hid. Any other state, no banner
+/// included, ends the dismissal, so the next episode of the same state shows again.
+enum BannerDismissal {
+    static func remembered(_ dismissed: ConnectionBannerState?, after state: ConnectionBannerState?) -> ConnectionBannerState? {
+        state == dismissed ? dismissed : nil
     }
 }
 
@@ -386,7 +396,7 @@ private struct ToastHost: View {
                 }
             }
         }
-        .animation(theme.motion.snappy.animation, value: toast)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: toast)
     }
 }
 
@@ -413,7 +423,7 @@ public struct StatusDot: View {
         Circle()
             .fill(color)
             .frame(width: size, height: size)
-            .animation(theme.motion.snap.animation, value: state)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: state)
     }
 
     private var color: CmuxMobileColorToken {

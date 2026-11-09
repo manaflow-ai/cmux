@@ -4,21 +4,14 @@ import Foundation
 import os
 
 /// The local acpmux daemon at quit (plans/cmux-next/quit-persistence.md
-/// 4.1, 4.3): one census when the quit dialog opens (1 s, never polled),
-/// and Quit Everything's end of every agent except the Home Chief's.
+/// 4.3): an End quit's end of every agent except the Home Chief's.
 @MainActor
 enum QuitAgents {
     /// The acpmux this app starts (its build's home), or nil when the app runs
     /// a mock agent host or has no acpmux binary. A DEV build with
     /// `CMUX_NEXT_ACPMUX_ATTACH` gets that home's daemon instead, attached (never its own).
     static func environment(_ services: AppServices) -> AcpmuxEnvironment? {
-        let variables = ProcessInfo.processInfo.environment
-        if services.environment.showcase || variables["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" { return nil }
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let build = services.environment.build
-        let own = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: variables)
-        guard let home = AcpmuxEnvironment.attachHome(build: build, environment: variables) else { return own }
-        return own?.attached(to: home)
+        AcpmuxEnvironment.app(build: services.environment.build, mock: services.environment.showcase)
     }
 
     /// Whether `environment` is attached to the daemon of `home`.
@@ -28,16 +21,7 @@ enum QuitAgents {
         return canonical(environment.home) == canonical(home)
     }
 
-    /// Nil when acpmux did not answer in time (unknown, not zero). An attached
-    /// daemon's agents are another app's: this quit neither counts nor ends them.
-    static func facts(_ environment: AcpmuxEnvironment?) async -> QuitAgentFacts? {
-        if environment?.isAttached == true { return .zero }
-        guard let census = await AcpmuxQuit.census(environment, deadline: QuitFactsReader.deadline) else { return nil }
-        return QuitAgentFacts(live: census.live, inTurn: census.inTurn, inTurnNames: census.inTurnNames,
-                              chiefInTurn: census.chiefInTurn)
-    }
-
-    /// The quit dialog's view of one end: only proof is success (an ended
+    /// The quit's view of one end: only proof is success (an ended
     /// daemon, or no daemon and no agent host left). A shutdown in progress
     /// or agents still running is the error state ("agents may still be
     /// running") with Retry and Quit Anyway; the app never claims that

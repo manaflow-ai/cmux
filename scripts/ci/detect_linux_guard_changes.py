@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 from workflow_guard_groups import (
     GROUPS, GUARD_WORKFLOW, PATH_OWNERS, ROUTING_POLICY_PATHS,
@@ -133,10 +134,52 @@ def classify_test_groups(paths: list[str], *, event: str, macos: str) -> tuple[s
 # --- feat-cmux-next ------------------------------------------------------------------
 #
 # ci.yml routes these groups only for pull requests into main. cmux-next-guards.yml's guard group
-# job runs ci-guards.yml's `ci` group on every feat-cmux-next pull request and push, and
-# release-notary runs in its own job; classify_feat picks the other groups (and the lockfile and
-# source-lint jobs) from the same ownership as ci.yml: groups_for_path and classify's routes.
-FEAT_ALWAYS = ("ci", "release-notary")
+# job runs ci-guards.yml's `ci` group on every feat-cmux-next pull request and push; classify_feat
+# picks the other groups (and the lockfile and source-lint jobs) from the same ownership as ci.yml:
+# groups_for_path and classify's routes. A push runs every routed group, release-notary included.
+FEAT_ALWAYS = ("ci",)
+# release-notary (nightly, notarization, signing, Sparkle feed and release-notes publication tests) ran on every
+# pull request: about 200,000 runner-minutes in 14 days, and none of its 18 PR failures in that window was the
+# change's own (cmuxterm-hq plans/ci/baggage-2026-11-05.md). A pull request now runs it when it changes what the
+# group reads: a path the group's steps run or PATH_OWNERS gives it, an unknown path outside FEAT_PRODUCT_AREAS
+# (top-level entitlements, Resources/, Config/, the Xcode project: every routed group), or one of these.
+RELEASE_NOTARY_INPUTS = (
+    # Workflow text and registries its tests pin: nightly.yml's jobs, warm-sources.json, the step-coverage map,
+    # runners.json, every workflow's runs-on.
+    ".github/",
+    # The nightly steps, signing, notary and publication scripts, and the CI tooling its tests import.
+    "scripts/ci/",
+    # The license-compliance, universal-settings and notices tests read the ghostty and ghostty-next submodules.
+    "ghostty",
+    # The What's New highlights validator (scripts/whats-new/test_digest.py) reads the repository's highlights;
+    # the nightly-next identity test reads retired-feed-announcements.json.
+    "release-notes/",
+    # The live feed check reads the update ring, the feed resolver and the generated update settings; the
+    # nightly-next identity test reads the release push listener (the Sparkle appcast client lives beside it).
+    "Packages/macOS/CmuxUpdater/",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
+    # The notices pair test runs the nightly's notices precondition on a clone of these at HEAD.
+    "cmux-tui/dist/",
+    "cmux-tui/build-support/notices/",
+    "cmux-tui/rust-toolchain.toml",
+    # The nightly version test reads [workspace.package] version, the one cmux-next version nightly.yml stamps.
+    "cmux-tui/Cargo.toml",
+    # The Chief cache and web-bundle order tests require the committed inspector page.
+    "Native/OptChat/optchat-chief/inspector/index.html",
+    # Inputs other groups own that release-notary tests also read.
+    "scripts/cmux-next/media/path_map.py",
+    "skills/cmux-cloud-vm/references/commands.md",
+    "tests/test_ci_owned_spm_scratch.py",
+    "tests/test_ci_self_hosted_guard.sh",
+    "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py",
+    "tests/test_nightly_dedicated_mini.py",
+)
+
+
+def release_notary_input(path: str) -> bool:
+    """Whether a feat-cmux-next pull request that changes path runs the release-notary group."""
+    return path.startswith(RELEASE_NOTARY_INPUTS) or path.endswith(".entitlements")
 # Guards main's iOS release path only (ios-testflight.yml, ios-appstore-upload.yml and the
 # ios/scripts upload tooling): those workflows upload only from refs/heads/main, and
 # feat-cmux-next never ships from them. tests/pr-lane-exemptions.json holds the reasons.
@@ -168,6 +211,8 @@ def classify_feat(paths: list[str]) -> tuple[str, ...]:
     for path in paths:
         if not path or path.startswith("/") or ".." in path.split("/"):
             return FEAT_ROUTED
+        if release_notary_input(path):
+            selected.add("release-notary")
         if plain_documentation(path):
             continue
         owners = groups_for_path(path)
@@ -182,7 +227,31 @@ def classify_feat(paths: list[str]) -> tuple[str, ...]:
     return tuple(name for name in FEAT_ROUTED if name in selected)
 
 
+# What the workflow guard profile reads: the workflows and the rest of .github/ (runners.json, warm-sources.json),
+# the guard tests, and scripts/ci. A push to feat-cmux-next judged only against the previous tip stays green while a
+# red persists, so the guard profile sat red on 18 steps of the branch, unseen, until #31366. A push that touches
+# these paths is judged on its own instead (guards_new_reds.py --tip): every red step at the tip fails the job. A
+# push that touches none keeps the comparison with the previous tip, which still names the push that turned a step red.
+FEAT_PUSH_TIP_INPUTS = (".github/", "tests/", "scripts/ci/")
+
+
+def feat_push_judges_tip(paths: list[str]) -> bool:
+    """Whether a feat-cmux-next push with these changed paths is judged at its tip (no base comparison).
+
+    No diff (a new branch, an unreadable previous tip) is judged at its tip too.
+    """
+    paths = [path for path in paths if path]
+    return not paths or any(path.startswith(FEAT_PUSH_TIP_INPUTS) for path in paths)
+
+
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--feat-push-tip":
+        try:
+            paths = Path(sys.argv[2]).read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            paths = []
+        print("true" if feat_push_judges_tip([path.strip() for path in paths]) else "false")
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event-name", required=True)
     parser.add_argument("--macos", required=True)

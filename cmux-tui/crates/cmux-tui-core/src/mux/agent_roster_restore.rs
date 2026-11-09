@@ -72,7 +72,27 @@ pub(super) fn restore_agent_roster(
     }
     let started_at = host.cursor;
     let mut skipped = Vec::new();
+    let head = registry.session_journal_head()?;
     loop {
+        if host.cursor >= head {
+            break;
+        }
+        // The roster folds only agent kinds ([`AgentRoster::folds_kind`]);
+        // the rest can be nearly the whole tail (terminal output, session
+        // churn: 12M rows on a 59 GB registry): the indexed read visits only
+        // the agent records. A read error, or
+        // one that makes no progress, falls back to the salvaging read below,
+        // which skips the range that does not decode.
+        if let Ok((records, reached)) =
+            registry.session_journal_kinds_after(host.cursor, head, AgentRoster::folds_kind, 512)
+            && reached > host.cursor
+        {
+            for record in &records {
+                host.roster.apply(&RosterEvent::from_record(record));
+            }
+            host.cursor = reached;
+            continue;
+        }
         match registry.session_journal_after_salvaging(host.cursor, 512)? {
             SalvagedJournalPage::Page(page) => {
                 if page.records.is_empty() {

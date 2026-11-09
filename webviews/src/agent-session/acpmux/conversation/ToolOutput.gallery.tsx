@@ -2,7 +2,9 @@
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 
-type Props = { output: string; kind?: string; title?: string };
+/// `mcp`: the same result as an opened MCP call's response (McpCallRows.tsx), which reads in the
+/// same body as every other tool output.
+type Props = { output: string; kind?: string; title?: string; mcp?: boolean };
 const summary = [
   "## Network map: summary",
   "",
@@ -28,16 +30,42 @@ const expand: Play = async (ctx) => {
   await open(ctx);
   await ctx.click({ selector: ".cv-output-more" });
 };
+/// Opens the call with its output's long lines folded back under their start. Output opens aligned
+/// (blockWrap.ts), so a state about a wrapped line turns Wrap lines on itself instead of leaning on
+/// the default: the one long line wraps past the viewport and still offers its Show all 1 line.
+const openWrapped: Play = async (ctx) => {
+  await open(ctx);
+  const body = () => ctx.document.querySelector(".cv-tool-output");
+  if (body()?.getAttribute("data-wrap") !== "true")
+    await ctx.click({ selector: '.cv-tool-output__actions button[aria-label="Wrap lines"]' });
+  await ctx.waitFor(() => body()?.getAttribute("data-wrap") === "true");
+};
 
 export default componentEntry<Props>({
   id: "agent-pane.tool-output-full-read",
   title: "Tool output, full result",
   area: "Agent pane",
   pane: true,
-  covers: ["agent-session/acpmux/conversation/ToolRow.tsx#ToolRow"],
+  covers: [
+    "agent-session/acpmux/conversation/ToolRow.tsx#ToolRow",
+    "agent-session/acpmux/conversation/McpCallRows.tsx#McpCallDetails",
+  ],
   load: async () => {
-    const { ToolRow } = await import("./ToolRow");
-    return function GalleryToolOutput({ output, kind = "other", title = "Tool result" }: Props) {
+    const [{ ToolRow }, { McpCallDetails }] = await Promise.all([import("./ToolRow"), import("./McpCallRows")]);
+    return function GalleryToolOutput({ output, kind = "other", title = "Tool result", mcp }: Props) {
+      if (mcp)
+        return (
+          <div style={{ padding: 16 }}>
+            <McpCallDetails
+              id="gallery-mcp-output"
+              call={{ server: "docs", tool: "web_read", args: { url: "https://example.test/network-map" } }}
+              raw="mcp__docs__web_read"
+              output={JSON.stringify({ content: [{ type: "text", text: output }] })}
+              strip={false}
+              reveal={0}
+            />
+          </div>
+        );
       return (
         <div style={{ padding: 16 }}>
           <ToolRow
@@ -66,6 +94,10 @@ export default componentEntry<Props>({
       },
       note: "The same complete result as monospace source.",
     },
+    "mcp-markdown": {
+      props: { ...props, mcp: true },
+      note: "An opened MCP call whose response is Markdown: the same rendered, scrollable body with Show all and Raw.",
+    },
     json: {
       props: { output: JSON.stringify({ ok: true, nodes: ["reader", "viewer"], count: 2 }), kind: "fetch" },
       play: open,
@@ -76,8 +108,8 @@ export default componentEntry<Props>({
     },
     "wrapped-line": {
       props: { output: "Long result: ".repeat(180) },
-      play: open,
-      note: "One source line wraps beyond the viewport; it still offers Show all 1 line.",
+      play: openWrapped,
+      note: "One source line, Wrap lines on, wraps beyond the viewport; it still offers Show all 1 line.",
     },
   },
 });

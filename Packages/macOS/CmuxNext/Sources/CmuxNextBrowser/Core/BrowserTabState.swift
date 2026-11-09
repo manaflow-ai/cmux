@@ -12,6 +12,14 @@ public nonisolated enum BrowserLoadPhase: Hashable, Sendable {
     case finished
     /// The last navigation failed.
     case failed(BrowserLoadError)
+
+    /// The load ended: finished, stopped after it committed, or failed.
+    public var hasEnded: Bool {
+        switch self {
+        case .finished, .failed: true
+        case .idle, .provisional, .committed: false
+        }
+    }
 }
 
 /// Transport security of the committed page, as shown by the address bar
@@ -124,5 +132,17 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     public var loadError: BrowserLoadError? {
         if case .failed(let error) = phase { return error }
         return nil
+    }
+}
+
+extension BrowserTabState {
+    /// What a picture of the page shows, as navigation and load events tell it: its URL, title and whether its
+    /// load finished. Scrolling or typing in the page does not move it (a cached thumbnail stays current).
+    public var pictureVersion: Int {
+        var hasher = Hasher()
+        hasher.combine(url)
+        hasher.combine(title)
+        hasher.combine(phase == .finished)
+        return hasher.finalize()
     }
 }

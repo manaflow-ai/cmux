@@ -530,19 +530,16 @@ def _nested(depth: int) -> str:
     return group
 
 
-PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|" + _nested(5) + r")*vars\.MACOS_RUNNER_PR[^()]*)\)")
-
-
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
     return (f"(github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
     return (f"(github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15")
 
 
 def gui_lane(key: str) -> str:
@@ -553,7 +550,7 @@ def gui_lane(key: str) -> str:
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
     return (f"(github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15")
 
 
 def warm_lane(index: str = "") -> str:
@@ -750,6 +747,7 @@ class OwnedPools(unittest.TestCase):
     REPO_RUNNERS = "/repos/manaflow-ai/cmux/actions/runners?per_page=100&page=1"
     GROUPS = "/orgs/manaflow-ai/actions/runner-groups?per_page=100&visible_to_repository=cmux"
     GROUP_RUNNERS = "/orgs/manaflow-ai/actions/runner-groups/23/runners?per_page=100&page=1"
+    FLEET_GROUP_RUNNERS = "/orgs/manaflow-ai/actions/runner-groups/24/runners?per_page=100&page=1"
 
     def test_runners_lists_the_org_glaeda_minis_group_beside_the_repository(self):
         # glaeda#1222 moved the minis to org runners in glaeda-minis, which the
@@ -767,6 +765,52 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(sorted(runner["id"] for runner in runners), [1, 10, 11, 12])
         self.assertEqual(pool.live_owned_free(runners, (MINI,)), {MINI: 2})
         self.assertEqual(calls, [self.REPO_RUNNERS, self.GROUPS, self.GROUP_RUNNERS])
+
+    def test_runners_lists_the_approved_gcp_linux_group(self):
+        # The canonical Linux fleet label is hosted in its own approved org
+        # group, so the live admission picker can prove that it is registered
+        # and idle instead of trusting a repository variable or stale snapshot.
+        fleet = [{"id": 40, "status": "online", "busy": False, "os": "Linux",
+                  "labels": [{"name": "cmux-fleet-linux-x64"}]}]
+        client, calls = self.fake_api({
+            self.REPO_RUNNERS: {"runners": []},
+            self.GROUPS: {"runner_groups": [{"id": 23, "name": pool.RUNNER_GROUP},
+                                             {"id": 24, "name": "cmux-fleet-linux"}]},
+            self.GROUP_RUNNERS: {"runners": []},
+            self.FLEET_GROUP_RUNNERS: {"runners": fleet},
+        })
+        runners = client.runners()
+        self.assertEqual([runner["id"] for runner in runners], [40])
+        self.assertEqual(calls, [self.REPO_RUNNERS, self.GROUPS,
+                                 self.GROUP_RUNNERS, self.FLEET_GROUP_RUNNERS])
+        self.assertEqual(pool.live_owned_free(runners, ("cmux-fleet-linux-x64",)),
+                         {"cmux-fleet-linux-x64": 1})
+
+    def test_org_only_census_keeps_repository_visibility_and_approved_groups(self):
+        mini = {"id": 10, "status": "online", "busy": False, "labels": [{"name": MINI}]}
+        client, calls = self.fake_api({
+            self.GROUPS: {"runner_groups": [{"id": 23, "name": pool.RUNNER_GROUP},
+                                            {"id": 24, "name": "unapproved-group"}]},
+            self.GROUP_RUNNERS: {"runners": [mini]},
+        })
+        self.assertEqual(client.runners(include_repository=False), [mini])
+        self.assertEqual(calls, [self.GROUPS, self.GROUP_RUNNERS])
+
+    def test_org_only_census_still_requires_the_owned_group(self):
+        client, _ = self.fake_api({self.GROUPS: {"runner_groups": []}})
+        with self.assertRaisesRegex(RuntimeError, "no runner group glaeda-minis"):
+            client.runners(include_repository=False)
+
+    def test_runners_fails_closed_when_approved_gcp_group_is_unreadable(self):
+        client, _ = self.fake_api({
+            self.REPO_RUNNERS: {"runners": []},
+            self.GROUPS: {"runner_groups": [{"id": 23, "name": pool.RUNNER_GROUP},
+                                             {"id": 24, "name": "cmux-fleet-linux"}]},
+            self.GROUP_RUNNERS: {"runners": []},
+            self.FLEET_GROUP_RUNNERS: 403,
+        })
+        with self.assertRaisesRegex(RuntimeError, "approved org runner group unreadable.*Self-hosted runners: read"):
+            client.runners()
 
     def test_runners_pages_through_a_full_group(self):
         page = [{"id": n, "status": "online", "busy": False, "labels": [{"name": MINI}]} for n in range(100)]
@@ -2462,8 +2506,13 @@ class Wiring(unittest.TestCase):
         self.assertEqual(changes["outputs"]["macos_pr_retry_runner"], "${{ steps.macos-pool.outputs.retry_runner }}")
 
     def lanes(self, name):
+        # The fork-safety branch may be wrapped around the route and its
+        # fallback at different nesting depths. Inspect route-bearing fields
+        # directly instead of depending on that branch's position.
         text = (WORKFLOWS / name).read_text()
-        return [match.group("lane") for match in PR_ROUTE.finditer(text)]
+        return [line.strip() for line in text.splitlines()
+                if ("runs-on:" in line or "CMUX_PRODUCT_RUNNER:" in line)
+                and "vars.MACOS_RUNNER_PR" in line]
 
     def test_every_pr_route_in_the_run_reads_the_choice(self):
         expected = {
@@ -2475,7 +2524,14 @@ class Wiring(unittest.TestCase):
         for name, lane in expected.items():
             lanes = self.lanes(name)
             self.assertTrue(lanes, name)
-            self.assertEqual(set(lanes), lane if isinstance(lane, set) else {lane}, name)
+            if name == "ci-macos.yml":
+                self.assertEqual(len(lanes), 2, name)
+                self.assertTrue(all("inputs.pr_runner" in route for route in lanes), name)
+                self.assertTrue(all("fromJSON(vars.RUNNER_POOLS).macos_15" in route for route in lanes), name)
+            else:
+                self.assertEqual(len(lanes), 1, name)
+                self.assertIn("inputs.pr_runner", lanes[0], name)
+                self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_15", lanes[0], name)
 
     def test_a_rerun_of_failed_jobs_leaves_the_owned_pool_only_past_attempt_two(self):
         cli = self.workflow("ci-macos.yml")["jobs"]["cli-product-tests"]
@@ -2639,7 +2695,9 @@ class Wiring(unittest.TestCase):
         self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", job["env"]["CMUX_CI_XCODE_APP"])
         self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
         self.assertEqual(job["runs-on"].count("swift-package"), 1)
-        self.assertEqual(job["runs-on"].count("blacksmith-6vcpu-macos-15"), 2)
+        # The fork pull request keeps the label (a fork's run has no variables); every other run reads the pool.
+        self.assertEqual(job["runs-on"].count("'blacksmith-6vcpu-macos-15'"), 1)
+        self.assertEqual(job["runs-on"].count("fromJSON(vars.RUNNER_POOLS).macos_15"), 1)
         # The Xcode follows the same condition: the lane pin on the owned
         # label, the macOS 15 pin everywhere else.
         self.assertIn("inputs.owned_head_repos", job["env"]["CMUX_CI_XCODE_APP"])
@@ -3136,6 +3194,12 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual((route.label, route.persistent, calls), (SMALL, False, 0))
         self.assertEqual(ios_pool.sim_jobs("screenshots", ""), 1)
 
+    def test_the_kit_lane_uses_one_owned_mac_and_one_simulator(self):
+        route, calls = ios_route(sim_fleet(), lane="kit")
+        self.assertTrue(route.persistent)
+        self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+        self.assertEqual(calls, 1)
+
     def test_a_queue_error_or_no_snapshot_keeps_the_default(self):
         def broken():
             raise RuntimeError("GET /actions/artifacts failed (500)")
@@ -3149,7 +3213,7 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": 1, "status": "in_progress"}, {"id": 2, "status": "completed"},
                                          {"id": 9, "status": "queued"}],
-                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}]}[workflow]
+                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}], "cmux-next-ios-kit.yml": []}[workflow]
         # Untitled runs are charged in full: two in flight, two simulators each.
         self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 4)
 
@@ -3292,6 +3356,39 @@ class IOSRouting(unittest.TestCase):
         hosted = dict(waiting, labels=["blacksmith-6vcpu-macos-26"])
         self.assertEqual(ios_pool.hold(capture, [picker, hosted], MINI, placed, NOW), ios_pool.Hold())
 
+    def test_a_kit_run_needs_one_machine_and_one_simulator(self):
+        kit = {"id": 1, "display_title": "cmux-next-ios kit tests",
+               "path": ".github/workflows/cmux-next-ios-kit.yml",
+               "created_at": pool.iso(NOW - dt.timedelta(minutes=10))}
+        self.assertEqual((ios_pool.charged_jobs(kit), ios_pool.charged_sim_jobs(kit)), (1, 1))
+        self.assertEqual(ios_pool.charged_sim_jobs(kit, ios_pool.Placements(frozenset()), NOW), 0)
+
+    def test_kit_workflow_wiring_and_simulator_hold(self):
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-ios-kit.yml").read_text())
+        picker = workflow["jobs"]["runner"]
+        self.assertEqual(picker.get("name", "runner"), ios_pool.PICKER_JOB)
+        steps = picker["steps"]
+        pick = next(step for step in steps if step.get("id") == "pool")
+        self.assertEqual(pick["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
+        for mint_id in ("route-token", "route-token-repo"):
+            mint = next(step for step in steps if step.get("id") == mint_id)
+            self.assertEqual(mint["with"]["permission-actions"], "read")
+            self.assertTrue(all(value == "read" for key, value in mint["with"].items()
+                                if key.startswith("permission-")))
+        self.assertIn("--queue-rounds 0", pick["run"])
+        uploads = [step for step in steps if "upload-artifact@" in step.get("uses", "")]
+        self.assertEqual(len(uploads), 3)
+        for upload in uploads:
+            self.assertEqual(upload["uses"], "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+        kit = {"id": 1, "path": ".github/workflows/cmux-next-ios-kit.yml", "run_attempt": 1}
+        job = {"name": workflow["jobs"]["kit-tests"]["name"], "labels": [MINI, IOS_SIM],
+               "status": "in_progress", "runner_name": "mini-a-glaeda"}
+        self.assertEqual(ios_pool.hold(kit, [job], MINI, None, NOW),
+                         ios_pool.Hold(0, 0, frozenset({"mini-a"})))
+        job["status"] = "completed"
+        job["conclusion"] = "success"
+        self.assertEqual(ios_pool.hold(kit, [job], MINI, None, NOW), ios_pool.Hold())
+
     def test_live_placements_reads_markers_again_after_a_picker_finishes(self):
         title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
         runs = [{"id": n, "run_attempt": 1, "display_title": title,
@@ -3407,7 +3504,7 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": n, "status": "in_progress", "run_attempt": 1,
                                           "display_title": title, "created_at": old} for n in (1, 2, 3)],
-                        "ios-screenshots.yml": []}[workflow]
+                        "ios-screenshots.yml": [], "cmux-next-ios-kit.yml": []}[workflow]
         since = "2026-09-24T10:00:00Z"
         self.assertEqual(ios_pool.ios_runs_since(Client(), since, exclude_run_id=None), 6)
         placed = ios_pool.Placements(frozenset({2}))
@@ -3534,6 +3631,93 @@ class IOSRouting(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             ios_pool.live_free([runner("mini-e", 0, IOS_SIM)], MINI, [], now=NOW, capacity=3)
 
+    def test_kit_queue_reads_use_routing_token_before_exhausted_job_token(self):
+        idle = [{"name": "mini-a-glaeda", "status": "online", "busy": False,
+                 "labels": [{"name": MINI}, {"name": IOS_SIM}]}]
+        for route_fails, job_fails in ((False, True), (True, False), (True, True)):
+            calls = []
+
+            class Client:
+                def __init__(self, token, repo):
+                    self.token = token
+
+                def runners(self):
+                    self_outer.assertEqual(self.token, "route")
+                    return idle
+
+                def read(self):
+                    calls.append(self.token)
+                    if (route_fails if self.token == "route" else job_fails):
+                        raise urllib.error.HTTPError("https://api.github.com", 403, "Forbidden", {}, None)
+
+                def runs_since(self, workflow, since, **filters):
+                    self.read()
+                    return []
+
+                def get(self, path):
+                    self.read()
+                    return {"artifacts": []}
+
+                def snapshot(self, *, now):
+                    self.read()
+                    return None
+
+            self_outer = self
+            out, err = io.StringIO(), io.StringIO()
+            args = ["--lane", "kit", "--owned", "1", "--ios-owned", "1", "--owned-slots",
+                    json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE, "--order", MINI]
+            with self.subTest(route_fails=route_fails, job_fails=job_fails), \
+                    unittest.mock.patch.object(pool, "GitHub", Client), \
+                    unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", err):
+                self.assertEqual(ios_pool.main(args, env={"GH_TOKEN": "job", "ROUTE_TOKEN": "route",
+                                                         "GH_REPO": "manaflow-ai/cmux"}), 0)
+                outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+                self.assertEqual(outputs["persistent"], str(not (route_fails and job_fails)).lower(), err.getvalue())
+                self.assertEqual(calls[0], "route")
+                if not route_fails:
+                    self.assertNotIn("job", calls)
+                else:
+                    self.assertIn("job", calls)
+                if route_fails and job_fails:
+                    self.assertEqual(calls.count("route"), 2)  # live queue, then snapshot
+                    self.assertEqual(calls.count("job"), 2)
+
+    def test_kit_uses_routing_token_for_snapshot_when_live_runners_are_unreadable(self):
+        calls = []
+
+        class Client:
+            def __init__(self, token, repo):
+                self.token = token
+
+            def runners(self):
+                raise RuntimeError("runner listing unavailable")
+
+            def snapshot(self, *, now):
+                calls.append(self.token)
+                return {**sim_fleet(), "generated_at": pool.iso(now)}
+
+            def pull_request_runs_since(self, since, *, exclude_run_id):
+                calls.append(self.token)
+                return 0
+
+            def runs_since(self, workflow, since, **filters):
+                calls.append(self.token)
+                return []
+
+            def get(self, path):
+                calls.append(self.token)
+                return {"artifacts": []}
+
+        args = ["--lane", "kit", "--owned", "1", "--ios-owned", "1", "--owned-slots",
+                json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE, "--order", MINI]
+        out = io.StringIO()
+        with unittest.mock.patch.object(pool, "GitHub", Client), \
+                unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(ios_pool.main(args, env={"ROUTE_TOKEN": "route", "GH_REPO": "manaflow-ai/cmux"}), 0)
+        self.assertIn("persistent=true", out.getvalue())
+        self.assertTrue(calls)
+        self.assertEqual(set(calls), {"route"})
+
     def test_main_reads_runners_with_the_route_token_and_falls_back_on_error(self):
         idle = [{"name": f"mini-{n}-glaeda", "status": "online", "busy": False,
                  "labels": [{"name": MINI}, {"name": IOS_SIM}]} for n in range(2)]
@@ -3642,7 +3826,7 @@ class E2EQueueRounds(unittest.TestCase):
 class IrohReleaseGateWiring(unittest.TestCase):
     """iroh-release-gate.yml offers its Tailscale job to the owned Macs."""
 
-    BLACKSMITH = "(vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15')"
+    BLACKSMITH = "(vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15)"
 
     def setUp(self):
         self.jobs = yaml.safe_load((WORKFLOWS / "iroh-release-gate.yml").read_text())["jobs"]
@@ -3774,7 +3958,7 @@ class IOSWiring(unittest.TestCase):
                 self.assertNotIn(routed, text, f"{name} must not route to an owned Mac")
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
         self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                              "'blacksmith-6vcpu-macos-26' }}")
+                                              "fromJSON(vars.RUNNER_POOLS).macos_26 }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):
         # A reused runner keeps $HOME: every job that writes a secret file there
@@ -3953,6 +4137,366 @@ class LiveIdleRunners(unittest.TestCase):
             routed = client.pull_request_routes_since("x", exclude_run_id=None, now=NOW)
         self.assertEqual((routed.unknown, routed.live_unknown), (2, 1))
         self.assertEqual(pool.Routed(owned={MINI: 7, LIGHT: 0}).runs(), {MINI: 1})
+
+
+class SharedRunnerStateTests(unittest.TestCase):
+    def document(self):
+        return {"schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+                "generated_at": "2026-11-02T05:00:00Z", "repository_runners": [],
+                "runner_groups": {pool.RUNNER_GROUP: [{"id": 101, "name": "synthetic-dedicated",
+                    "os": "macOS", "status": "online", "busy": False, "labels": [{"name": MINI}]}]},
+                "scale_sets": {"blacksmith-12vcpu-macos-26": 3, "blacksmith-6vcpu-macos-26": 4}}
+
+    @staticmethod
+    def encode(doc):
+        import base64
+        import gzip
+        return base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
+
+    def queue_document(self, now, *, created=None, generated=None, branch="main", expired=False,
+                       snapshot=None):
+        doc = self.document()
+        doc["generated_at"] = pool.iso(now)
+        created = created or now - dt.timedelta(seconds=1)
+        generated = generated or now
+        doc["queue_snapshot"] = {
+            "artifact": {
+                "id": 7,
+                "name": pool.ARTIFACT_NAME,
+                "expired": expired,
+                "created_at": pool.iso(created),
+                "workflow_run": {"id": 8, "head_branch": branch,
+                                  "repository_id": 1, "head_repository_id": 1},
+            },
+            "snapshot": snapshot or {"generated_at": pool.iso(generated), "pools": {}},
+        }
+        return doc
+
+    def test_fresh_embedded_queue_snapshot_avoids_both_artifact_reads(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(now)
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", side_effect=AssertionError("artifact list")), \
+                unittest.mock.patch.object(client, "download", side_effect=AssertionError("artifact zip")):
+            snapshot = client.snapshot(now=now)
+        self.assertEqual(snapshot["generated_at"], document["queue_snapshot"]["snapshot"]["generated_at"])
+
+    def test_expired_runner_capacity_does_not_discard_valid_queue_evidence(self):
+        observed = NOW - dt.timedelta(minutes=10)
+        document = self.queue_document(observed, created=observed, generated=observed)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(document)}), \
+                unittest.mock.patch.object(client, "get", side_effect=AssertionError("artifact list")), \
+                unittest.mock.patch.object(client, "download", side_effect=AssertionError("artifact zip")):
+            self.assertIsNone(pool.runner_state("manaflow-ai/cmux", now=NOW))
+            snapshot = client.snapshot(now=NOW)
+        self.assertEqual(snapshot, document["queue_snapshot"]["snapshot"])
+        self.assertEqual(snapshot["generated_at"], pool.iso(observed))
+
+    def test_queue_and_roster_expiry_are_checked_independently(self):
+        for roster_age, queue_age, accepted in (
+                (301, 301, True), (45 * 60, 45 * 60, True),
+                (10 * 60, 45 * 60 + 1, False), (60, 45 * 60 + 1, False),
+                (45 * 60 + 1, 60, False)):
+            with self.subTest(roster_age=roster_age, queue_age=queue_age):
+                queued = NOW - dt.timedelta(seconds=queue_age)
+                document = self.queue_document(NOW - dt.timedelta(seconds=roster_age),
+                                               created=queued, generated=queued)
+                client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+                with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(document)}), \
+                        unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get, \
+                        unittest.mock.patch.object(client, "download", side_effect=AssertionError("artifact zip")):
+                    snapshot = client.snapshot(now=NOW)
+                    self.assertEqual(pool.runner_state("manaflow-ai/cmux", now=NOW) is not None,
+                                     roster_age <= pool.RUNNER_STATE_MAX_AGE_SECONDS)
+                self.assertEqual(snapshot is not None, accepted)
+                self.assertEqual(get.call_count, 0 if accepted else 1)
+
+    def test_expired_roster_keeps_queue_trust_checks(self):
+        observed = NOW - dt.timedelta(minutes=10)
+        for change in ("fork", "wrong branch", "expired", "naive time", "unapproved group"):
+            with self.subTest(change=change):
+                document = self.queue_document(observed, created=observed, generated=observed)
+                artifact = document["queue_snapshot"]["artifact"]
+                if change == "fork":
+                    artifact["workflow_run"]["head_repository_id"] = 2
+                elif change == "wrong branch":
+                    artifact["workflow_run"]["head_branch"] = "feature"
+                elif change == "expired":
+                    artifact["expired"] = True
+                elif change == "naive time":
+                    artifact["created_at"] = observed.strftime("%Y-%m-%dT%H:%M:%S")
+                else:
+                    document["runner_groups"]["unapproved"] = []
+                client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+                with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(document)}), \
+                        unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+                    self.assertIsNone(client.snapshot(now=NOW))
+                get.assert_called_once()
+
+    def test_embedded_queue_snapshot_rejects_stale_artifact_without_redating(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(now, created=now - dt.timedelta(minutes=pool.MAX_SNAPSHOT_MINUTES + 1))
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+            self.assertIsNone(client.snapshot(now=now))
+        get.assert_called_once()
+
+    def test_embedded_queue_snapshot_rejects_old_source_snapshot_even_with_fresh_artifact(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(
+            now, generated=now - dt.timedelta(minutes=pool.MAX_SNAPSHOT_MINUTES + 1),
+        )
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+            self.assertIsNone(client.snapshot(now=now))
+        get.assert_called_once()
+
+    def test_naive_embedded_artifact_time_uses_existing_fallback(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(now)
+        document["queue_snapshot"]["artifact"]["created_at"] = now.strftime("%Y-%m-%dT%H:%M:%S")
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+            self.assertIsNone(client.snapshot(now=now))
+        get.assert_called_once()
+
+    def test_naive_embedded_payload_time_uses_existing_fallback(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(now)
+        document["queue_snapshot"]["snapshot"]["generated_at"] = now.strftime("%Y-%m-%dT%H:%M:%S")
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+            self.assertIsNone(client.snapshot(now=now))
+        get.assert_called_once()
+
+    def test_malformed_embedded_queue_snapshot_uses_existing_artifact_path(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(now)
+        document["queue_snapshot"]["artifact"]["workflow_run"].pop("head_repository_id")
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+            self.assertIsNone(client.snapshot(now=now))
+        get.assert_called_once()
+
+    def test_malformed_optional_queue_snapshot_does_not_hide_runner_roster(self):
+        doc = self.document()
+        doc["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        doc["queue_snapshot"] = {"artifact": "not metadata", "snapshot": {}}
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
+            rows = pool.GitHub("synthetic-token", "manaflow-ai/cmux").runners()
+        self.assertEqual([row["name"] for row in rows], ["synthetic-dedicated"])
+
+    def test_embedded_queue_snapshot_rechecks_branch_fork_expiry_and_clock_skew(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        variants = {
+            "wrong branch": {"branch": "feature"},
+            "fork": {"snapshot": {"generated_at": pool.iso(now), "pools": {}},
+                     "head_repository_id": 2},
+            "expired": {"expired": True},
+            "future artifact": {"created": now + dt.timedelta(seconds=6)},
+            "future snapshot": {"generated": now + dt.timedelta(seconds=6)},
+            "redated snapshot": {"created": now - dt.timedelta(seconds=1),
+                                  "generated": now + dt.timedelta(seconds=6)},
+        }
+        for name, changes in variants.items():
+            with self.subTest(name=name):
+                document = self.queue_document(now, **{key: value for key, value in changes.items()
+                                                        if key in {"created", "generated", "branch", "expired", "snapshot"}})
+                if "head_repository_id" in changes:
+                    document["queue_snapshot"]["artifact"]["workflow_run"]["head_repository_id"] = changes["head_repository_id"]
+                self.assertIsNone(pool.document_queue_snapshot(document, now=now, branch="main"))
+
+    def test_accepted_document_returns_registered_runners_without_a_live_read(self):
+        doc = self.document()
+        doc["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
+            rows = pool.GitHub("synthetic-token", "manaflow-ai/cmux").runners()
+        self.assertEqual([row["name"] for row in rows], ["synthetic-dedicated"])
+        self.assertEqual(pool.live_owned_free(rows, (MINI,)), {MINI: 1})
+
+    def test_document_age_scope_schema_and_runner_types_are_validated(self):
+        clock = dt.datetime(2026, 11, 2, 5, 1, tzinfo=dt.timezone.utc)
+        doc = self.document()
+        self.assertIsNotNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(doc), now=clock))
+        for key, value in (("repository", "untrusted/repo"), ("complete", False),
+                           ("schema", "other/v1"), ("generated_at", "2026-11-02T04:54:59Z"),
+                           ("generated_at", "2026-11-02T05:01:06Z"),
+                           ("generated_at", "2026-11-02T05:00:00")):
+            with self.subTest(key=key, value=value):
+                bad = {**doc, key: value}
+                self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(bad), now=clock))
+        for update in ({"busy": "false"}, {"status": "unknown"}, {"labels": [MINI]}, {"id": True},
+                       {"os": None}, {"os": ""}, {"os": 123}):
+            with self.subTest(update=update):
+                bad = self.document()
+                bad["runner_groups"][pool.RUNNER_GROUP][0].update(update)
+                self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(bad), now=clock))
+        self.assertIsNone(pool.runner_state("untrusted/repo", raw=self.encode(doc), now=clock))
+
+    def test_document_missing_os_falls_back_to_api_instead_of_hiding_linux_capacity(self):
+        doc = self.document()
+        doc["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        doc["runner_groups"][pool.RUNNER_GROUP][0].pop("os")
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "_runner_pages", return_value=[]) as live, \
+                unittest.mock.patch.object(pool.GitHub, "get_api", return_value={"runner_groups": [
+                    {"name": pool.RUNNER_GROUP, "id": 23}]}):
+            self.assertIsNone(pool.runner_state("manaflow-ai/cmux"))
+            self.assertEqual(pool.GitHub("synthetic-token", "manaflow-ai/cmux").runners(), [])
+        self.assertEqual(live.call_count, 2)
+
+    def test_small_clock_skew_is_allowed_without_extending_stale_expiry(self):
+        clock = dt.datetime(2026, 11, 2, 5, 1, tzinfo=dt.timezone.utc)
+        for age, accepted in ((-5, True), (-6, False), (300, True), (301, False)):
+            doc = self.document()
+            doc["generated_at"] = (clock - dt.timedelta(seconds=age)).isoformat()
+            with self.subTest(age=age):
+                self.assertEqual(pool.runner_state("manaflow-ai/cmux", raw=self.encode(doc), now=clock)
+                                 is not None, accepted)
+
+    def linux_document(self):
+        doc = self.document()
+        doc["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        doc["runner_groups"][pool.RUNNER_GROUP] = []
+        doc["runner_groups"]["cmux-fleet-linux"] = [{"id": 102, "name": "synthetic-linux",
+            "os": "Linux", "status": "online", "busy": False,
+            "labels": [{"name": "cmux-fleet-linux-x64"}]}]
+        return doc
+
+    def test_fast_checks_picker_selects_linux_from_document_without_live_read(self):
+        import fast_checks_runner as picker
+        doc = self.linux_document()
+        env = {"ROUTE_TOKEN": "synthetic-token", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
+            rows = picker.read_live(env)
+            self.assertIsNotNone(rows)
+            self.assertEqual(picker.idle_runner(rows), picker.FLEET)
+
+    def test_portable_live_capacity_accepts_linux_from_document(self):
+        import portable_job_placement as picker
+        doc = self.linux_document()
+        env = {"JOBS": "control", "FLEET_LINUX": "cmux-fleet-linux-x64", "REQUIRE_LIVE_CAPACITY": "1"}
+        clock = dt.datetime.now(dt.timezone.utc)
+        snapshot = {"generated_at": clock.isoformat(), "pools": {}}
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
+            rows = pool.GitHub("synthetic-token", "manaflow-ai/cmux").runners()
+            self.assertEqual(picker.decide(env, rows, snapshot, clock).linux_jobs, ("control",))
+
+    def test_document_groups_cannot_expand_the_existing_trusted_groups(self):
+        clock = dt.datetime(2026, 11, 2, 5, 1, tzinfo=dt.timezone.utc)
+        doc = self.document()
+        doc["runner_groups"]["unapproved"] = []
+        self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(doc), now=clock))
+        doc = self.document()
+        doc["repository_runners"] = doc["runner_groups"][pool.RUNNER_GROUP]
+        self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(doc), now=clock))
+
+    def test_malformed_compressed_oversized_and_truncated_documents_fail_closed(self):
+        for raw in ("", "invalid-base64", "eA==", self.encode({}), "A" * (48 * 1024 + 1),
+                    self.encode({"padding": "x" * (pool.RUNNER_STATE_MAX_BYTES + 1)})):
+            with self.subTest(length=len(raw)):
+                self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=raw))
+        encoded = self.encode(self.document())
+        self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=encoded[:-8]))
+
+    def test_unavailable_document_retains_the_exact_existing_api_fallback(self):
+        paths = []
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        def get(path):
+            paths.append(path)
+            return {"runner_groups": [{"name": pool.RUNNER_GROUP, "id": 23}]} if "visible_to_repository" in path else {"runners": []}
+        with unittest.mock.patch.object(pool, "runner_state", return_value=None), \
+                unittest.mock.patch.object(client, "get_api", side_effect=get):
+            self.assertEqual(client.runners(), [])
+        self.assertEqual(len(paths), 3)
+        self.assertTrue(paths[0].startswith("/repos/manaflow-ai/cmux/actions/runners?"))
+
+    def test_all_requested_picker_workflows_receive_repository_context(self):
+        expected = {
+            "cmux-next.yml": ("side_lane_placement.py", "portable_job_placement.py", "dev_landing_place.py"),
+            "ci-macos.yml": ("admission_placement.py", "late_placement.py"),
+            "ios-internal-nightly.yml": ("ios_internal_runner.py",),
+            "cmux-next-guards.yml": ("portable_job_placement.py",),
+            "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
+            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py"),
+        }
+
+        def mappings(value):
+            if isinstance(value, dict):
+                yield value
+                for child in value.values():
+                    yield from mappings(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from mappings(child)
+
+        for name, scripts in expected.items():
+            with self.subTest(workflow=name):
+                doc = yaml.safe_load((WORKFLOWS / name).read_text())
+                # The variable is deliberately step scoped: workflow-wide
+                # inheritance would expose repository context to unrelated
+                # build and test steps.
+                self.assertNotIn("CI_RUNNER_STATE", doc.get("env", {}))
+                seen = set()
+                for step in mappings(doc):
+                    run = step.get("run")
+                    if not isinstance(run, str):
+                        continue
+                    # The compile report's `gap` subcommand only reads git;
+                    # the default invocation is the runner picker.
+                    hits = [script for script in scripts if f"scripts/ci/{script}" in run and not (
+                        script == "dev_landing_place.py"
+                        and re.search(r"dev_landing_place\.py\s+gap\b", run))]
+                    if hits:
+                        self.assertEqual(step.get("env", {}).get("CI_RUNNER_STATE"),
+                                         "${{ vars.CI_RUNNER_STATE }}", (name, hits))
+                        seen.update(hits)
+                    elif "CI_RUNNER_STATE" in step.get("env", {}) and not any(
+                            f"scripts/ci/{script}" in with_moved_step_scripts(run) for script in scripts):
+                        self.fail(f"runner state leaked to non-picker step in {name}: {run[:80]}")
+                self.assertEqual(seen, set(scripts))
+
+        # Audit every workflow touched by this feature so a future picker edit
+        # cannot accidentally restore workflow-wide repository context or leak
+        # it onto an unrelated appcast/build/test step.
+        picker_scripts = {
+            "simple_pool_picker.py", "portable_job_placement.py", "side_lane_placement.py",
+            "e2e_runner_pool.py", "ios_runner_pool.py", "owned_pool_rescue.py",
+            "signing_runner.py", "nightly_build_runner.py", "nightly_sign_runner.py",
+            "cmux_next_media_runner.py", "admission_placement.py", "late_placement.py",
+            "dev_landing_place.py", "ios_internal_runner.py",
+        }
+        for workflow in WORKFLOWS.glob("*.yml"):
+            doc = yaml.safe_load(workflow.read_text())
+            for step in mappings(doc):
+                if "CI_RUNNER_STATE" not in (step.get("env") or {}):
+                    continue
+                run = with_moved_step_scripts(step.get("run") or "")
+                self.assertTrue(any(f"scripts/ci/{script}" in run for script in picker_scripts),
+                                f"runner state leaked to non-picker step in {workflow.name}: {run[:100]}")
+
+def with_moved_step_scripts(run: str) -> str:
+    """A step's run text with the scripts/ci/nightly-steps/ scripts it calls appended.
+
+    nightly.yml moves long run blocks into those scripts to stay under its size cap
+    (tests/test_workflow_file_size.py); a step that runs the picker through one still
+    counts as a picker step, and one whose script runs no picker still fails."""
+    for path in re.findall(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh", run):
+        script = ROOT / path
+        if script.is_file():
+            run += "\n" + script.read_text()
+    return run
 
 
 if __name__ == "__main__":

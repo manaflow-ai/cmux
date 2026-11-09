@@ -13,14 +13,16 @@ public import CmuxNextDesignTokens
 /// frame (`MotionTrace.measure`). `bounce` with `value` ("none", "subtle") and `kind` with
 /// `name` ("paneAnimations", "newTab", "newWorkspace") and `value` true or false set
 /// `ui.animations.bounce`, `ui.paneAnimations` and `ui.animations.*` in memory the same way.
-/// The report lists the display links alive (`display_links`: 0 once every spring rests, so
+/// The report lists the display links running (`display_links`: 0 once every spring rests, so
 /// the window idles). Spans carry `at_ms` (from `start`); `samples` lists per-frame values
 /// (`clock.dt_ms`, and `tabs.travel`, `layout.travel`, `sidebar.open`: the points an
 /// animator has left to move); `notes` lists what an animator decided. `trajectory` (answered
 /// by the app's wiring) returns the port's motion parity corpus (`MotionParityCorpus`), the
 /// document cmux-motion's `motion_trajectories` example prints; scripts/cmux-next/motion-parity.py
 /// compares the two. `trace_start`, `trace_read` and `trace_stop` sample
-/// animated geometry on every display frame instead (DEBUG builds, ``MotionFrameTrace``).
+/// animated geometry on every display frame instead (DEBUG and bench builds, ``MotionFrameTrace``); `record_start`,
+/// `record_read` and `record_stop` record the window as the window server composites it, every frame, as a movie
+/// (``MotionScreenRecord``).
 /// Takes and returns `JSONSerialization` object graphs.
 public struct MotionDebug {
     public init() {}
@@ -32,9 +34,12 @@ public struct MotionDebug {
     public static func handle(_ params: [String: Any], windows: [NSWindow], samplers: [@MainActor (NSView) -> [String: [Any]]?] = [],
                               commitProbe: MotionCommitProbe? = nil) -> [String: Any] {
         let action = params["action"] as? String ?? "read"
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if action.hasPrefix("trace_") {
             return MotionFrameTrace.shared.handle(String(action.dropFirst("trace_".count)), params, windows: windows, samplers: samplers + registeredSamplers)
+        }
+        if action.hasPrefix("record_") {
+            return MotionFrameTrace.shared.recorder.handle(String(action.dropFirst("record_".count)), params, windows: windows)
         }
         #endif
         switch action {
@@ -81,7 +86,7 @@ public struct MotionDebug {
             "animations_enabled": policy.animationsEnabled,
             "disabled_categories": policy.disabledCategories.map(\.rawValue).sorted(),
             "pane_animations": DesignSettings.shared.paneAnimations,
-            "display_links": FrameScheduler.all.filter(\.hasLink).count,
+            "display_links": FrameScheduler.all.filter(\.isRunning).count,
             "active_clients": FrameScheduler.all.flatMap(\.activeClients),
             "spans": MotionTrace.spans.map { span -> [String: Any] in
                 ["name": span.name, "ms": (span.milliseconds * 10).rounded() / 10,

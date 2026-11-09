@@ -7,13 +7,14 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
   low     docs, copy, generated files, tests, tooling. Merges on green; post-merge checks catch the rest.
   normal  everything else, which is most cmux NEXT UI and logic: agent review and the relevant
           checks, then auto-merge. Nothing here waits for a person.
-  high    auth and credentials, socket and relay access policy, stored-data migrations, release,
-          signing, notarization and the updater, the risk gate itself, code that adds a delete
-          of user data, and a workflow that adds a pull_request_target or workflow_run trigger. Read for
+  high    auth and credentials, socket and relay access policy (with peer and code-signature
+          trust), stored-data migrations, release, signing, notarization and the updater, the
+          pre-push hook's trust boundary, the risk gate itself, code that adds a delete of user data, and a workflow that adds a
+          pull_request_target or workflow_run trigger. Read for
           a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
-          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head holds it; no verdict
-          yet is a warning, not a hold.
+          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
+          is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
 
 Size is not a rule: in the audit, the changes that broke things were as often small as large.
 Separately from the tier, a pull request that takes back what another pull request merged in the
@@ -31,11 +32,13 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -48,12 +51,101 @@ HUMAN_OK_LABEL = "risk:human-ok"
 # The earlier name for the same maintainer sign-off; still honored.
 WAIVED_LABEL = "risk:waived"
 # An independent review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness
-# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. A self-review doesn't
-# count, and the newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP. The same line
-# also counts anywhere in the description (outside <!-- comments -->), where it ranks below every comment.
+# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. This is the one copy of the
+# grammar and of when a receipt counts; defaults_guard.py imports it from here. It stays in this file because
+# risk-tier.yml runs from main and checks out only scripts/ci/risk_tier.py from the base (#36941 split it into a
+# module and every `risk evidence` run failed on the import). A self-review doesn't count. Every agent posts as the
+# pull request author's account, so a SHIP from that account counts only as
+#     Review (<reviewer agent id>, started by <agent id>): SHIP at <full head sha>
+# with an `Author-agent: <agent id>` line in the description and neither id that author agent (cmux-ad m25 item 7;
+# on #36311 the author agent's own subagent posted `Review (claude-review-subagent): SHIP at ...` from the author's
+# account). A receipt from another account keeps the older rule. A BLOCK always counts: an unverified receipt can
+# make a gate red, never green. The newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP.
+# The same line also counts anywhere in the description (outside <!-- comments -->), where it ranks below every
+# comment.
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
                      re.I)
+# "<reviewer agent id>, started by <agent id>": the last comma-separated part of the label names the starter.
+STARTED_BY = re.compile(r"^(?P<reviewer>.*\S)\s*,\s*started\s+by\s+(?P<starter>\S.*?)\s*$", re.I)
+# "Author-agent: <agent id>" on a line of its own, optionally as a list item, quote or bold label.
+AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s*`]+)", re.I | re.M)
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+
+@dataclass(frozen=True)
+class Receipt:
+    verdict: str  # "ship" or "block" (BLOCK, FIX, NOT SHIP and HOLD all hold the head)
+    label: str  # the text inside the parentheses
+    reviewer: str | None  # the reviewer agent id, when the label says who started it
+    starter: str | None  # the agent that started the reviewer
+
+    @property
+    def who(self) -> str:
+        return f"review ({self.label})"
+
+
+def parse(line: str, head: str) -> Receipt | None:
+    """The receipt on `line` when it names the full `head` sha and its label does not say self, else None."""
+    match = RECEIPT.match(line or "")
+    if not head or not match or head not in line or "self" in match.group(1).lower():
+        return None
+    label = match.group(1).strip()
+    started = STARTED_BY.match(label)
+    return Receipt("ship" if match.group(2).lower() == "ship" else "block", label,
+                   started.group("reviewer").strip() if started else None,
+                   started.group("starter").strip() if started else None)
+
+
+def norm(agent: str | None) -> str:
+    return (agent or "").strip().strip("`*_").strip().lower()
+
+
+def author_agents(body: str | None) -> set[str]:
+    """Every `Author-agent: <id>` the description names outside <!-- comments -->, normalized."""
+    return {norm(m.group("id")) for m in AUTHOR_AGENT.finditer(HTML_COMMENT.sub("", body or ""))} - {""}
+
+
+def same_account(login: str | None, author: str | None) -> bool:
+    """Whether the receipt's account is the pull request author's. An unknown author or login is treated as
+    the same account: the stricter rule applies when nobody can tell."""
+    return not author or not login or login.strip().lower() == author.strip().lower()
+
+
+def refusal(receipt: Receipt, same: bool, agents: set[str]) -> str | None:
+    """Why `receipt` does not count, or None when it does. Only a SHIP from the author's own account is refused."""
+    if receipt.verdict != "ship" or not same:
+        return None
+    if not agents:
+        return "a SHIP from the author's account, and the description has no `Author-agent: <agent id>` line"
+    if not receipt.reviewer or not receipt.starter:
+        return "a SHIP from the author's account must say `Review (<reviewer agent id>, started by <agent id>)`"
+    if norm(receipt.reviewer) in agents:
+        return f"the reviewer {receipt.reviewer} is the pull request's author agent"
+    if norm(receipt.starter) in agents:
+        return f"the reviewer was started by {receipt.starter}, the pull request's author agent"
+    return None
+
+
+def counted(line: str, head: str, *, login: str | None, author: str | None, body: str | None) -> Receipt | None:
+    """The receipt on `line` if it counts for `head`: parse(), then refusal() for the author's own account.
+    `login` posted it, `author` opened the pull request and `body` is its description."""
+    receipt = parse(line, head)
+    if receipt is None or refusal(receipt, same_account(login, author), author_agents(body)):
+        return None
+    return receipt
+
+
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# The cmux-bot App, which posts next-review's receipts (the review service any lane can ask for: `router-review
+# OWNER/REPO N --request`). A receipt line it posts counts as one from another account: no lane holds the App's key,
+# so a lane can neither write its verdict nor forge one. Its login alone never counts, only with this immutable node
+# id, and its APPROVED reviews never do (they mirror another account's receipt). defaults_guard.py reads the same.
+CMUX_BOT_LOGINS = frozenset(("cmux-bot", "cmux-bot[bot]"))
+CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
+# A login whose author_association is not TRUSTED still counts with one of these roles on the repository.
+# The workflow's GITHUB_TOKEN and App token cannot see a private organization membership, so they read a
+# private member's association as CONTRIBUTOR (PR #38436, 2026-11-08: a valid SHIP read as no verdict).
+WRITE_ROLES = ("admin", "maintain", "write")
 NEXT = "Packages/macOS/CmuxNext/Sources/"
 
 # Ordered: the first matching rule wins, so the high paths sit above the broad low ones.
@@ -103,6 +195,38 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "services/iroh-relay-minter/*", "web/services/relay/*", "daemon/remote/cmd/cmuxd-remote/*peer*",
         r"re:(?i)relay[-_]?(command[-_]?)?polic", r"re:(?i)(socket|control)[-_]?(access|auth)",
     )),
+    # Who answers or connects on a local socket or XPC service, and which code may run, decided by
+    # the peer's uid, executable or code signature: the Chief's acpmux peer check and its
+    # kernel-signature rule for a moved acpmux (code_signature.rs), the app's acpmux server peer
+    # check, cmux-link's caller and containing-app checks, the Computer Use helper's admission rule,
+    # state and control pipe (where the app's admission values arrive), host check and the two
+    # socket servers that call them, the app's check of the helper on that socket, the requirement
+    # or cdhash, the acpmux daemon and executable and the per-launch secret the app gives the helper
+    # for acpmux bridges, which acpmux executable the app runs and trusts (its team-signature
+    # refusal, and the DEBUG override), the requirement of the helper the app or acpmux may
+    # launch (Swift, Rust and shell copies) and the check of its staged copy, the root server
+    # helper's XPC requirements (its clients', and the app's of it), and the signature checks of a
+    # downloaded browser runtime. A wrong time or anchor here lets another process take the socket
+    # (#29072 changed which time a signing chain is valid at and graded normal).
+    ("high", "peer identity or code-signature trust", (
+        "Native/OptChat/optchat-chief/src/acpmux_peer.rs", NEXT + "CmuxNextAgentPane/AcpmuxServerPeer.swift",
+        "cmux-tui/crates/cmux-link/src/caller.rs", "cmux-tui/crates/cmux-link/src/caller_macos.rs",
+        "cmux-tui/crates/cmux-link/src/app_caller.rs", "*/CmuxCuaHelperCore/HostVerifier.swift",
+        NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift", "*/CmuxCuaHelperCore/Admission.swift",
+        "*/CmuxCuaHelperCore/AdmissionState.swift", "*/CmuxCuaHelperCore/HelperController.swift",
+        "*/CmuxCuaHelperCore/HelperSocketServer.swift", "*/CmuxCuaHelperCore/HostConsentServer.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift", NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+        NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
+        NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
+        "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
+        NEXT + "CmuxNextServerHelper/ServerHelperListener.swift", NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
+        NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
+        # A file named for a code-signature check: code_signature.rs, *CodeSignatureChecker.swift.
+        r"re:(?i)(^|/)[^/]*(code[-_]?signature|signature[-_]?check)[^/]*\.(rs|swift|go)$",
+    )),
     # What an agent pane's web page may make the host do or read: the page ops (AgentPageOps), the
     # _acpmux methods and params it may relay, the frame check, the gesture rule (the tickets, which
     # methods a click's ticket redeems, and the decision that spends one), the app actions a page may
@@ -146,6 +270,18 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*", "Packages/macOS/CmuxUpdater/*",
         "scripts/ci/lib/*",
     )),
+    # The pre-push hook's trust boundary (docs/contributor-verification.md): what decides which check code the hook
+    # runs on a push (web_lint_prepush.py; prepush-gate.py, which picks the reviewed copy or the pushed code for each
+    # of its checks; push_range.py, which commits a push owns, and so which changes to check code the hook sees),
+    # the hook itself, and how its reviewed copy is installed and refreshed (install-git-hooks.sh,
+    # refresh_checks.py, and post-merge, which decides when the checkout reinstalls it). A normal change could make the
+    # hook run code a push controls; #34124 finds and closes several such routes. The lint rules it runs
+    # (scripts/cmux-next/check-*.py, guardrails.py, the package check scripts, run-check-pieces.py) stay normal.
+    ("high", "the pre-push hook's trust boundary", (
+        "scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/cmux-next/push_range.py",
+        "scripts/git-hooks/pre-push",
+        "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py", "scripts/install-git-hooks.sh",
+    )),
     # The gate grades every other pull request, so a change to it gets a person.
     ("high", "the risk gate itself", (
         ".github/CODEOWNERS", ".github/workflows/risk-tier.yml", ".github/workflows/risk-tier-tests.yml",
@@ -163,7 +299,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     )),
     ("low", "CI and tooling", (
         ".claude/*", ".codex/*", ".agents/*", "tools/*", "biome.json", ".coderabbit.yaml", ".greptile/*",
-        "dogfood/*", "Prototypes/*", "KeyboardPinningLab/*", "samples/*", "examples/*",
+        "dogfood/*", "Prototypes/*", "samples/*", "examples/*",
     )),
 )
 
@@ -532,17 +668,21 @@ def classify(files: list[str], patches: dict[str, str] | None = None, sources: d
 
 
 SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an independent review, in the "
-                f"description or leading a comment, an approving review from someone other than the author, or "
+                f"description or leading a comment (from the author's own account it must be `Review (<reviewer "
+                f"agent id>, started by <agent id>)`, neither of them the description's `Author-agent: <agent id>`; "
+                f"an author lane gets one with `router-review OWNER/REPO N --request`, which cmux-bot posts), "
+                f"an approving review from someone other than the author, or "
                 f"`{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
 
 
 def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
                      taken_back: list[int] | None = None, blocked: bool = False,
                      unread: bool = False) -> list[str]:
-    """What still holds the merge. Empty means nothing does. A high pull request is held only by a
-    BLOCK (or FIX, or a change request) that is the newest verdict on its head; with no verdict yet
-    it gets a warning (pending_review), not a hold. A takeback holds any tier until the description
-    owns it."""
+    """What the summary lists as held. Empty means nothing is. A high pull request is listed only for a
+    BLOCK (or FIX, or a change request) that is the newest verdict on its head, which risk-tier.yml
+    only warns on (the lander refuses it); with no verdict yet it gets a warning (pending_review). A
+    takeback is listed for any tier until the description owns it, and only that turns the check red
+    (unowned_takebacks)."""
     missing = []
     if tier == "high" and unread and not human_ok:
         missing.append("the review verdicts on the head commit could not be read (a GitHub API error), so a "
@@ -550,13 +690,17 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
     elif tier == "high" and blocked and not human_ok:
         missing.append(f"the newest review verdict on the head commit is a BLOCK, FIX or change request. "
                        f"Address it and push; a review of the new head clears it: {SIGN_OFF_HOW}")
-    acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
-    for number in sorted(set(taken_back or [])):
-        if number not in acknowledged:
-            missing.append(
-                f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
-                f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
+    for number in unowned_takebacks(body, taken_back):
+        missing.append(
+            f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
+            f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
     return missing
+
+
+def unowned_takebacks(body: str = "", taken_back: list[int] | None = None) -> list[int]:
+    """The pull requests this one takes back without a `Takes back #N: <why>` line owning it."""
+    acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
+    return [number for number in sorted(set(taken_back or [])) if number not in acknowledged]
 
 
 def pending_review(tier: str, human_ok: bool = False, blocked: bool = False) -> str:
@@ -648,14 +792,56 @@ def diff_lines(patch: str) -> tuple[list[str], list[str]]:
     return [l for l in removed if l], [l for l in added if l]
 
 
+def change_blocks(patch: str) -> list[tuple[list[str], list[str]]]:
+    """(removed, added) non-blank stripped lines of each run of -/+ lines in a patch: one edit each."""
+    blocks: list[tuple[list[str], list[str]]] = []
+    current: tuple[list[str], list[str]] | None = None
+    for line in patch.splitlines():
+        if line.startswith(("---", "+++")) or not line.startswith(("-", "+")):
+            current = None
+            continue
+        if current is None:
+            current = ([], [])
+            blocks.append(current)
+        text = line[1:].strip()
+        if text:
+            current[0 if line.startswith("-") else 1].append(text)
+    return blocks
+
+
+WORD = re.compile(r"\w+")
+
+
+def in_order(needle: list[str], haystack: list[str]) -> bool:
+    """Whether every word of `needle` appears in `haystack` in the same order (other words may sit between)."""
+    words = iter(haystack)
+    return all(any(word == other for other in words) for word in needle)
+
+
+def reflowed(pr_patch: str, keep_out: set[str]) -> set[str]:
+    """The removed lines whose words all come back, in order, in the same edit's added lines: a list or
+    a call rewrapped (rustfmt after one more item, PR #38436), not a line taken out. Added lines in
+    `keep_out` (lines the commit replaced, now restored) do not count, so `foo(a)` turned back into
+    `foo(a, b)` is still a revert of the change that shortened it."""
+    kept = set()
+    for removed, added in change_blocks(pr_patch):
+        stream = [word for line in added if line not in keep_out for word in WORD.findall(line)]
+        for line in removed:
+            words = WORD.findall(line)
+            if words and in_order(words, stream):
+                kept.add(line)
+    return kept
+
+
 def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = frozenset()) -> bool:
     """Whether a pull request's change to a file takes back a commit's change to it: it deletes
     most of what the commit added, and, when the commit replaced lines, puts most of them back."""
     pr_removed, pr_added = map(set, diff_lines(pr_patch))
-    # A line the pull request removes and adds back, here or in another file, moved; it wasn't
-    # taken back.
-    gone, back = pr_removed - pr_added - added_elsewhere, pr_added - pr_removed
     commit_removed, commit_added = map(set, diff_lines(commit_patch))
+    # A line the pull request removes and adds back, here or in another file, moved; a line whose words
+    # come back in order in the same edit was rewrapped. Neither was taken back.
+    gone = pr_removed - pr_added - added_elsewhere - reflowed(pr_patch, commit_removed)
+    back = pr_added - pr_removed
     if not commit_added:
         return False
     if len(commit_added & gone) / len(commit_added) < 0.8:
@@ -754,13 +940,44 @@ def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
     return sources
 
 
-def merge_base_of(repo: str, pr: dict) -> str:
-    """The commit the pull request's patches are relative to; the base tip if it can't be read."""
+def merge_base_of(repo: str, pr: dict, repo_dir: str | None = None) -> str:
+    """The commit the pull request's patches are relative to; the base tip if it can't be read.
+    From git when `repo_dir` has both ends (risk-tier.yml fetches the head there), else `compare`."""
+    if repo_dir:
+        try:
+            sha = subprocess.run(["git", "-C", repo_dir, "merge-base", pr["base"]["sha"], pr["head"]["sha"]],
+                                 check=True, capture_output=True, text=True, timeout=30).stdout.strip()
+            if re.fullmatch(r"[0-9a-f]{40}", sha):
+                return sha
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            pass
     try:
         return gh_json("api", f"repos/{repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
                        "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
         return pr["base"]["sha"]
+
+
+def event_pull_request(path: str | None, number: str, attempt: str | None = None) -> dict | None:
+    """The pull request as the triggering event delivered it ($GITHUB_EVENT_PATH), or None when there
+    is no such file or it is about another pull request. It is the same object `GET pulls/N` returns
+    (body, labels, user, author_association, head and base), as of the event, and saves that REST
+    call on every first attempt. A later event runs this again, and its run cancels this one.
+    A re-run (GITHUB_RUN_ATTEMPT above 1) gets the original event's payload, frozen at that event,
+    so it reads the pull request live instead: re-running an old run must grade today's head,
+    description and labels, as it always did."""
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1") if attempt is None else attempt
+    if not path or attempt.strip() not in ("", "1"):
+        return None
+    try:
+        pull = json.loads(Path(path).read_text()).get("pull_request")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(pull, dict) or str(pull.get("number")) != str(number):
+        return None
+    if not ((pull.get("head") or {}).get("sha") and (pull.get("base") or {}).get("sha")):
+        return None
+    return pull
 
 
 def pr_mode(args: argparse.Namespace) -> int:
@@ -770,7 +987,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     patches = {f["filename"]: f.get("patch") or "" for f in entries}
     # A rename moves the old path too: grade both ends.
     files += [f["previous_filename"] for f in entries if f.get("previous_filename")]
-    pr = gh_json("api", base)
+    pr = event_pull_request(getattr(args, "event", None), args.number) or gh_json("api", base)
     # Rust product files that add or remove a delete: read on that side, they place each line in or
     # out of a test module.
     rust = {e["filename"]: e for e in entries if e["filename"].endswith(".rs") and in_delete_scope(e["filename"])}
@@ -778,7 +995,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     removes = {path: e.get("previous_filename") or path for path, e in rust.items()
                if e.get("status") != "added" and delete_lines(patches[path], "-")}
     # The patches' line numbers are relative to the merge base, not the base branch's tip.
-    merge_base = merge_base_of(args.repo, pr) if removes or args.repo_dir else pr["base"]["sha"]
+    merge_base = merge_base_of(args.repo, pr, args.repo_dir) if removes or args.repo_dir else pr["base"]["sha"]
     grade = classify(files, patches, rust_sources(args.repo, pr["head"]["sha"], adds),
                      rust_sources(args.repo, merge_base, removes))
     undone: dict[int, list[str]] = {}
@@ -803,7 +1020,7 @@ def pr_mode(args: argparse.Namespace) -> int:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
         except (subprocess.CalledProcessError, ValueError, TypeError):
             # An unreadable comment, review or label read (or one past the page cap) could hide a
-            # BLOCK: hold, never warn.
+            # BLOCK: list it as held (risk-tier.yml then warns; the lander reads the verdict itself).
             signed, blocked, unread = None, False, True
     missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone), blocked,
                                unread)
@@ -818,6 +1035,10 @@ def pr_mode(args: argparse.Namespace) -> int:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
+            # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
+            # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
+            takes_back = bool(unowned_takebacks(pr.get("body") or "", list(undone)))
+            out.write(f"takes_back={'true' if takes_back else 'false'}\n")
     return 0
 
 
@@ -835,33 +1056,52 @@ def last_labeler(events: list[dict], name: str) -> str | None:
 
 
 def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
-                  author: str, pr: dict | None = None) -> list[tuple[str, str, str]]:
+                  author: str, pr: dict | None = None,
+                  permission: Callable[[str], str | None] | None = None) -> list[tuple[str, str, str]]:
     """(at, "ship" or "block", who) for every trusted verdict on the head, one timeline as
     next_autoland reads it: an approval (not the author's) or change request of the head commit, a
     receipt line naming the full head sha that leads a comment or a review body, and such a line
     anywhere in the description. The description has no time of its own, so its lines rank below
     every comment and review (at ""): a later BLOCK comment still beats a SHIP line in it. Its author
-    must be trusted the same way a commenter must."""
+    must be trusted the same way a commenter must: a TRUSTED author_association, or, through
+    `permission` (login -> repository role), a WRITE_ROLES role when the token reads it as less.
+    The cmux-bot App's receipt lines count too (next-review's, CMUX_BOT_NODE_ID), never its approvals."""
     found = []
+    body = (pr or {}).get("body")
 
-    def verdict(text: str, at: str, where: str = "") -> None:
-        line = RECEIPT.match(text)
-        if line and "self" not in line.group(1).lower() and head_sha in text:
-            found.append((at, "ship" if line.group(2).lower() == "ship" else "block",
-                          f"review ({line.group(1).strip()}){where}"))
+    def verdict(text: str, at: str, login: str, where: str = "") -> None:
+        got = counted(text, head_sha, login=login, author=author, body=body)
+        if got:
+            found.append((at, got.verdict, f"{got.who}{where}"))
 
     def receipt(item: dict, at: str) -> None:
-        verdict(next((line for line in (item.get("body") or "").splitlines() if line.strip()), ""), at)
+        verdict(next((line for line in (item.get("body") or "").splitlines() if line.strip()), ""), at,
+                (item.get("user") or {}).get("login") or "")
 
     def trusted(item: dict) -> bool:
         user = item.get("user") or {}
-        return user.get("type") == "User" and item.get("author_association") in TRUSTED
+        if user.get("type") != "User":
+            return False
+        if item.get("author_association") in TRUSTED:
+            return True
+        return permission is not None and bool(user.get("login")) and permission(user["login"]) in WRITE_ROLES
+
+    def service(item: dict) -> bool:
+        user = item.get("user") or {}
+        return (user.get("type") == "Bot" and user.get("login") in CMUX_BOT_LOGINS
+                and user.get("node_id") == CMUX_BOT_NODE_ID)
 
     if pr and trusted(pr):
         for text in strip_comments(pr.get("body") or "").splitlines():
-            verdict(text, "", " in the description")
+            verdict(text, "", (pr.get("user") or {}).get("login") or "", " in the description")
 
     for review in reviews:
+        if service(review):
+            # Its receipt line only, and only in a plain review: an APPROVED (or dismissed) one mirrors another
+            # account's receipt, maybe a self-started one, so its body never counts either.
+            if review.get("state") == "COMMENTED":
+                receipt(review, review.get("submitted_at") or "")
+            continue
         if not trusted(review):
             continue
         at, login = review.get("submitted_at") or "", (review.get("user") or {}).get("login") or ""
@@ -872,20 +1112,32 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
                 found.append((at, "block", f"@{login}"))
         receipt(review, at)
     for comment in comments:
-        if trusted(comment):
+        if trusted(comment) or service(comment):
             receipt(comment, comment.get("created_at") or "")
     return found
 
 
 def signed_off(comments: list[dict], reviews: list[dict], head_sha: str, author: str = "",
-               pr: dict | None = None) -> str | None:
+               pr: dict | None = None, permission: Callable[[str], str | None] | None = None) -> str | None:
     """Who passed the head, or None: the newest verdict on it must be a SHIP, so a later BLOCK or
     change request beats an earlier SHIP or approval, and a BLOCK wins a tie."""
-    found = head_verdicts(comments, reviews, head_sha, author, pr)
+    found = head_verdicts(comments, reviews, head_sha, author, pr, permission)
     if not found:
         return None
     _, verdict, who = max(found, key=lambda f: (f[0], f[1] == "block"))
     return who if verdict == "ship" else None
+
+
+def role_reader(repo: str) -> Callable[[str], str | None]:
+    """login -> its role on `repo` (role_name), one read per login. A failed read raises, so
+    human_ok_by's caller lists the verdict as unread rather than drop a BLOCK it could not trust."""
+    roles: dict[str, str | None] = {}
+
+    def role(login: str) -> str | None:
+        if login not in roles:
+            roles[login] = (gh_json("api", f"repos/{repo}/collaborators/{login}/permission") or {}).get("role_name")
+        return roles[login]
+    return role
 
 
 def human_ok_by(repo: str, number: str, pr: dict) -> tuple[str | None, bool]:
@@ -898,8 +1150,9 @@ def human_ok_by(repo: str, number: str, pr: dict) -> tuple[str | None, bool]:
     comments = gh_items(f"repos/{repo}/issues/{number}/comments?per_page=100")
     reviews = gh_items(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
     author = (pr.get("user") or {}).get("login") or ""
-    if head_verdicts(comments, reviews, head_sha, author, pr):
-        who = signed_off(comments, reviews, head_sha, author, pr)
+    permission = role_reader(repo)
+    if head_verdicts(comments, reviews, head_sha, author, pr, permission):
+        who = signed_off(comments, reviews, head_sha, author, pr, permission)
         return (f"{who} shipped {head_sha[:12]}", False) if who else (None, True)
     labels = {label["name"] for label in pr.get("labels", [])}
     for name in (HUMAN_OK_LABEL, WAIVED_LABEL):
@@ -907,7 +1160,7 @@ def human_ok_by(repo: str, number: str, pr: dict) -> tuple[str | None, bool]:
             continue
         actor = last_labeler(gh_items(f"repos/{repo}/issues/{number}/events?per_page=100"), name)
         if actor:
-            role = (gh_json("api", f"repos/{repo}/collaborators/{actor}/permission") or {}).get("role_name")
+            role = permission(actor)
             if role in ("admin", "maintain"):
                 return f"`{name}` is set by @{actor}", False
     return None, False
@@ -985,6 +1238,8 @@ def main(argv: list[str] | None = None) -> int:
                    "for the takeback check (skipped without it)")
     p.add_argument("--github-output")
     p.add_argument("--summary")
+    p.add_argument("--event", help="the event payload ($GITHUB_EVENT_PATH); its pull_request saves the "
+                   "GET pulls/N call")
     args = parser.parse_args(argv)
 
     if args.mode == "classify":

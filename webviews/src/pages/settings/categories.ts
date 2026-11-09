@@ -1,7 +1,7 @@
 // The page's navigation (SETTINGS-PAGE-FIRST-PRINCIPLES P2, P4): categories by user task, not by
 // scope or by the schema's sections. The layout (categories, group cards, their order and titles) is
-// defined once in Swift (`SettingsPageLayout`) and exported as the schema's `page`; this page and the
-// GPUI client render it from there (layer-ownership.md L5). Routes still accept the schema's section
+// defined once in schemas/settings/source/page-layout.json and exported as the schema's `page`; this
+// page and the GPUI client render it from there (layer-ownership.md L5). Routes still accept the schema's section
 // ids (`app settings <section>`, `#/settings/rooms`): each category lists them as `aliases`.
 import { rowsByKey, schema, type LocalizedText, type SchemaRow } from "./schema";
 
@@ -28,12 +28,16 @@ export const CATEGORY_CARDS = [
   "density",
   "importSuggestions",
   "channels",
+  "appUpdate",
   "webUpdates",
   "voiceInput",
   "notices",
   "server",
   "cloudEnvironments",
   "contextMenus",
+  "personalization",
+  "sharedLinks",
+  "tailnet",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
@@ -125,6 +129,20 @@ export function isCategory(id: string | undefined): id is string {
 export function categoryOf(id: string | undefined): string {
   if (isCategory(id)) return id;
   return (id && aliases.get(id)) || defaultCategory;
+}
+
+/** The card a route names inside `category`: a path that is one of its cards and not the category
+ * itself (`#/settings/machines` is Accounts' Machines card), or `?focus=card.<card>` (the host's
+ * card deep link). The page opens on that card, not the category's top. Null otherwise. */
+export function routeCard(
+  section: string | undefined,
+  focus: string | null | undefined,
+  category: string,
+): CategoryCard | null {
+  const named = focus?.startsWith("card.") ? focus.slice("card.".length) : section;
+  if (!named || named === category || !isCard(named)) return null;
+  const { lead, trail } = categoryById(category);
+  return lead.includes(named) || trail.includes(named) ? named : null;
 }
 
 export function categoryById(id: string): Category {

@@ -11,8 +11,11 @@ import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
 import { conversationHash, hashConversation, setHash } from "./panes";
 import { LiveBook } from "./live";
+import { readPresentation } from "./presentation";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
+import { fixtureRank, type PaletteRankReply, type PaletteRankRequest } from "./paletteRank";
+import { ChiefWorkStore } from "./ChiefWorkStore";
 import {
   HomeOps,
   type HomeAttachment,
@@ -165,6 +168,8 @@ export class HomeChannelsStore {
   readonly attachments: AttachmentService | undefined;
   /** The page's sheets (new message, new Chief, invite, archive) and the Chief records. */
   readonly sheets: HomeSheets;
+  /** The selected Chief's on-demand background work, separate from conversation turn runs. */
+  readonly chiefWork: ChiefWorkStore;
 
   /** `host`: the page's host, when there is one (the app): it relays the person's click for a
    * Chief's grant and delete. */
@@ -174,6 +179,7 @@ export class HomeChannelsStore {
     /** The page's host bridge (the app), or null in a browser: the page serves it hostSelection.ts. */
     readonly host: PageClient | null = null,
   ) {
+    this.chiefWork = new ChiefWorkStore(client);
     this.attachments = client ? new AttachmentService(client) : undefined;
     this.avatars = client ? new AvatarService(client) : undefined;
     this.sheets = new HomeSheets(client, host, {
@@ -394,12 +400,19 @@ export class HomeChannelsStore {
 
   private stop(): void {
     this.life++;
+    this.chiefWork.select(undefined);
     this.running = false;
     this.syncViewing();
     for (const stop of this.stops) stop();
     this.stops = [];
     this.starting = undefined;
   }
+
+  /** Ranks the Cmd-K palette's rows (`cmux.home.paletteRank`); offline, the fixture ranker. */
+  readonly rankPalette = (request: PaletteRankRequest): Promise<PaletteRankReply> =>
+    this.client
+      ? this.client.call<PaletteRankReply>(HomeOps.paletteRank, request)
+      : Promise.resolve(fixtureRank(request));
 
   async reloadInbox(): Promise<void> {
     if (!this.client) return;
@@ -806,6 +819,48 @@ export class HomeChannelsStore {
     }
   }
 
+  /** Puts my pinned grid in `order` (a drag in the Messages list moved a tile, or dropped a row in):
+   * every tile gets a position on the owners' scale (now plus its index), pinned, so this order holds
+   * across both owners. Optimistic: the grid shows the order at once; a refusal puts that row back.
+   * Resolves true when every owner took it. */
+  async arrangePinned(order: readonly string[]): Promise<boolean> {
+    const client = this.client;
+    if (!client) return false;
+    const base = Math.max(
+      Date.now(),
+      ...[...this.snapshot.conversations.values()].map((c) => (c.pinPosition ?? 0) + 1),
+    );
+    const moves = order.flatMap((id, index) => {
+      const before = this.snapshot.conversations.get(id);
+      const position = base + index;
+      return before ? [{ id, before, position }] : [];
+    });
+    if (moves.length === 0) return false;
+    const conversations = new Map(this.snapshot.conversations);
+    for (const { id, before, position } of moves)
+      conversations.set(id, { ...before, pinned: true, pinPosition: position });
+    this.set({ conversations });
+    const results = await Promise.all(
+      moves.map(async ({ id, before, position }) => {
+        try {
+          await client.call(HomeOps.pin, {
+            conversation: id,
+            pinned: true,
+            position,
+            idempotencyKey: this.key("pin"),
+          } satisfies HomePinRequest);
+          return true;
+        } catch (error) {
+          if (this.snapshot.conversations.get(id)?.pinPosition === position)
+            this.patchConversation(id, { pinned: before.pinned, pinPosition: before.pinPosition });
+          this.set({ error: describe(error) });
+          return false;
+        }
+      }),
+    );
+    return results.every(Boolean);
+  }
+
   /** Flags a conversation unread (the read cursor stays) or clears the flag. Optimistic, as a pin. */
   async setMarkedUnread(id: string, unread: boolean): Promise<boolean> {
     const before = this.snapshot.conversations.get(id);
@@ -985,7 +1040,11 @@ export class HomeChannelsStore {
     if (activity) patch.activity = activity;
     // The open thread's view takes its root and replies from events too (a reply, an edit).
     const view = this.snapshot.threadView;
-    const threadIncoming = view ? incoming.filter((m) => m.id === view.root || threadOf(m) === view.root) : [];
+    // The merged copies: a reply without a root has its thread's root there (model `withThreadRoots`).
+    const merged = new Map((patch.messages ?? []).map((m) => [m.id, m]));
+    const threadIncoming = view
+      ? incoming.map((m) => merged.get(m.id) ?? m).filter((m) => m.id === view.root || threadOf(m) === view.root)
+      : [];
     if (view && threadIncoming.length > 0) {
       // Only what follows the loaded pages: a reply between pages comes with the next page.
       const tail = view.hasMore
@@ -1173,7 +1232,7 @@ export class HomeChannelsStore {
           // Cloud has no increasing revision to unlock a failed read. Each fresh lookup is a
           // retry boundary; mounted cards alone must not retry failures in a loop.
           if (run.rev === 0) this.failedRuns.delete(`${run.conversation}\0${run.author}\0${run.id}`);
-          await this.loadRunSteps(run);
+          if (readPresentation(conversation) !== "transcript") await this.loadRunSteps(run);
         }
       }
     };

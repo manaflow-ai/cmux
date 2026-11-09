@@ -4,7 +4,8 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
 import { Composer } from "./Composer";
-import { HarnessHealthNotice, type HarnessHealth, type UpdateOffer } from "./HarnessHealthNotice";
+import { HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth, type UpdateOffer } from "./harnessHealthNoticeModel";
 import { NoticeSlot } from "./NoticeSlot";
 
 /// The started Codex chat the notice sits in.
@@ -35,7 +36,13 @@ function GalleryHarnessHealthNotice({ health, updater = "ok", midTurn = false }:
       return Promise.resolve(midTurn ? { restarted: 0, after_turn: 1 } : { restarted: 1, after_turn: 0 });
     if (updater === "pending") return new Promise<never>(() => undefined);
     return Promise.resolve(
-      updater === "fails" ? { ok: false, error: "npm exited with status 1" } : { ok: true, version: health.latest },
+      updater === "fails"
+        ? {
+            ok: false,
+            error:
+              "npm error code EACCES\nnpm error syscall rename\nnpm error path /usr/local/lib/node_modules/@openai/codex\nnpm error errno -13",
+          }
+        : { ok: true, version: health.latest },
     );
   };
   return (
@@ -125,6 +132,8 @@ const dismiss: Play = async (ctx) => {
 };
 
 const signedOut: HarnessHealth = { id: "codex", auth: "signedOut", login: "codex login" };
+/// acpmux found the sign-in expired (#26658): the same Log In line as signed out.
+const expired: HarnessHealth = { id: "codex", auth: "expired", login: "codex login" };
 const outdated: HarnessHealth = {
   id: "codex",
   auth: "signedIn",
@@ -171,6 +180,10 @@ export default componentEntry<Props>({
       props: { health: signedOut },
       play: runLogin,
     },
+    "sign-in-expired": {
+      note: "An expired Codex sign-in says so inline and offers Log In, as signed out does.",
+      props: { health: expired },
+    },
     outdated: {
       note: "An outdated Codex CLI draws no line here; the model chip offers Update and Skip This Version (stand-in below).",
       props: { health: outdated },
@@ -191,7 +204,7 @@ export default componentEntry<Props>({
       play: runRestartAfterTurn,
     },
     "update-failed": {
-      note: "A failed update shows the updater's error inline with Try Again and Not Now.",
+      note: "A failed update says so in one plain line, with Update in Terminal and Try Again; npm's own words wait under Details with Copy error.",
       props: { health: outdated, updater: "fails" },
       play: runFailed,
     },

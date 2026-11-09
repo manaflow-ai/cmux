@@ -149,8 +149,10 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
+  // With Reduce Motion: the field's height lands in the frame its draft changes (composer/fieldGrowth.ts),
+  // so each read is of the layout at rest; test/composer-smooth-grow.test.ts checks the growth motion.
   const stageURL = (entry: string, variant: string, width: number) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width, theme: "Catppuccin Mocha" })}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width, theme: "Catppuccin Mocha", reducedMotion: "true" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -183,7 +185,7 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
       surface: { name: "the composer with prompts queued", entry: "agent-pane.composer", variant: "queued" },
       widths: [300],
     },
-    // Codex's look: the actions in a row under the prompt.
+    // Codex's look: Claude's grid, the actions beside the prompt.
     { surface: { name: "Codex's composer", entry: "agent-pane.composer-look", variant: "codex-chat" }, widths: [300] },
   ];
 
@@ -300,7 +302,7 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
     test(`${engine}: a long multi-line paste stops at the cap and scrolls inside, its end in view`, async () => {
       const page = await open(engine, IDLE, 300);
       const start = await read(page);
-      // Under the chip's 20 lines and 2,000 characters (pastedText.ts): it goes in as text.
+      // Under the chip's 3,500 words and 20,000 characters (pastedText.ts): it goes in as text.
       const lines = Array.from({ length: 18 }, (_, index) => `line ${index + 1} ${"x".repeat(60)}`);
       await paste(page, lines.join("\n"));
       await page.waitForFunction(
@@ -426,14 +428,8 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
           }
         }
       };
-      // After the frame paints: a message posted from the frame's callback runs once it is drawn.
-      const after = new MessageChannel();
-      after.port1.onmessage = check;
-      const frame = () => {
-        after.port2.postMessage(0);
-        requestAnimationFrame(frame);
-      };
-      requestAnimationFrame(frame);
+      // After every painted frame (`open` installed the painted-frame reader).
+      window.cmuxAfterPaint(check);
     }, FIELD);
   const underButton = (page: Page) =>
     page.evaluate(() => (window as unknown as { underButton: { px: number; note: string } }).underButton);

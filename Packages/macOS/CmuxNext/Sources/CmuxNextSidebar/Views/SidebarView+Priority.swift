@@ -34,6 +34,13 @@ extension SidebarViewComponents {
     }
 
     func buildPriority() {
+        list.onPointerKeyDown = { [weak self] event in
+            self?.priorityPanelView.keyEventSeen(event)
+        }
+        list.onPointerEvent = { [weak self] event in
+            self?.priorityPanelView.pointerEventSeen(event.type, in: event.window)
+        }
+        list.onPointerFocusLost = { [weak self] in self?.priorityPanelView.pointerFocusLost() }
         priorityButton.isHidden = true
         priorityButton.setAccessibilityIdentifier("cmux.sidebar.priority")
         priorityButton.onPress = { [weak self] in self?.priorityPanelView.onAction?(.toggleShown) }
@@ -52,10 +59,13 @@ extension SidebarViewComponents {
     /// 2026-10-28: "Also, the update button, don't put at the top. Put on the bottom. The bottom has
     /// room. The bottom of the sidebar area." `label` is its tooltip and VoiceOver label, nil hides
     /// it. A press sends ``SidebarIntent/downloadUpdate`` (download only; the update card asks before
-    /// relaunching).
+    /// relaunching; with `updates.oneClickInstall` the press also installs and restarts). A button that
+    /// just showed ignores pointer presses for a moment, so a click on its way to what was there does
+    /// not start the update (Leo 2026-11-04, on a Restart card that took a clicked button's place).
     public func showUpdateAvailable(_ label: String?) {
         if let label { updateAvailableButton.label = label }
         guard updateAvailableButton.isHidden != (label == nil) else { return }
+        if label != nil { updateAvailableButton.ignorePointer() }
         updateAvailableButton.isHidden = label == nil
         needsLayout = true
     }

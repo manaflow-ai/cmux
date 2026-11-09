@@ -4,6 +4,7 @@ import CmuxNextChiefMemory
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWindowRules
 import SwiftUI
 
 extension InternalPageID {
@@ -14,12 +15,10 @@ extension InternalPageID {
 /// Which Chief a Memory Inspector tab shows, kept as the tab's route so a
 /// relaunched tab shows the same Chief: `local` (this Mac's default Chief),
 /// `local:<chief id>` (another Chief this Mac runs) or `server:<machine id>`
-/// (the Chief on a paired server).
+/// (the Chief on a paired server). The route's format is cmux-window-rules
+/// `chat::agent::memory_route` and `parse_memory_route`.
 nonisolated struct ChiefMemoryRoute: Hashable, Sendable {
-    enum Place: Hashable, Sendable {
-        case local(chief: String?)
-        case server(machineID: String)
-    }
+    typealias Place = WindowRules.ChiefPlace
 
     var place: Place
 
@@ -29,30 +28,18 @@ nonisolated struct ChiefMemoryRoute: Hashable, Sendable {
         self.place = place
     }
 
+    /// The route a tab persisted; nil for one this build cannot read.
     init?(_ text: String) {
-        if text == "local" {
-            place = .local(chief: nil)
-        } else if let chief = text.removingPrefix("local:"), !chief.isEmpty {
-            place = .local(chief: chief)
-        } else if let machine = text.removingPrefix("server:"), !machine.isEmpty {
-            place = .server(machineID: machine)
-        } else {
-            return nil
-        }
+        guard let place = WindowRules().memoryPlace(text) else { return nil }
+        self.place = place
     }
 
-    var description: String {
+    /// The route the tab persists; nil when the FFI does not answer (the tab then keeps no route).
+    var persisted: String? {
         switch place {
-        case .local(nil): "local"
-        case .local(let chief?): "local:\(chief)"
-        case .server(let machine): "server:\(machine)"
+        case .local(let chief): WindowRules().memoryRoute(server: nil, chief: chief)
+        case .server(let machine): WindowRules().memoryRoute(server: machine, chief: nil)
         }
-    }
-}
-
-private nonisolated extension String {
-    func removingPrefix(_ prefix: String) -> String? {
-        hasPrefix(prefix) ? String(dropFirst(prefix.count)) : nil
     }
 }
 
@@ -166,7 +153,7 @@ final class ChiefMemoryPageService: InternalPageProvider {
         routes[key] = nil
     }
 
-    func route(for key: String) -> String? { routes[key]?.description }
+    func route(for key: String) -> String? { routes[key]?.persisted }
 
     func restore(_ route: String, for key: String) {
         if let route = ChiefMemoryRoute(route) { routes[key] = route }

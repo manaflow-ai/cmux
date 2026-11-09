@@ -56,7 +56,7 @@ fn pi_durable_gets_every_tool_its_host_can_do_with_a_replay_flag() {
         assert!(n.contains(&want.to_owned()), "{want} missing: {n:?}");
     }
     // Host-only: the Mac's app, moving a Mac home and a command off the turn.
-    for host_only in ["version", "move", "watch"] {
+    for host_only in ["version", "move", "watch", "mcp"] {
         assert!(!n.contains(&host_only.to_owned()), "{host_only}: {n:?}");
     }
     for t in s.as_array().unwrap() {
@@ -160,4 +160,23 @@ fn a_mac_engine_gets_watch_and_never_replays_it() {
             assert!(props.get(key).is_some(), "{engine}: {key}");
         }
     }
+}
+
+#[test]
+fn acpmux_sessions_have_one_send_tool_and_tell_names_no_session_route() {
+    // The Chief messages an acpmux session with acpmux_send (#30082), not a
+    // second route through tell(session:NAME) or control sessions.
+    use chief_kernel::prompt::{CONTROL_DESCRIPTION, TELL_DESCRIPTION};
+    use chief_kernel::tools::CONTROL_ACTIONS;
+    assert!(
+        !CONTROL_ACTIONS.contains(&"sessions"),
+        "{CONTROL_ACTIONS:?}"
+    );
+    for text in [TELL_DESCRIPTION, CONTROL_DESCRIPTION] {
+        assert!(!text.contains("session:<name>"), "{text}");
+    }
+    assert!(
+        TELL_DESCRIPTION.contains("acpmux_send"),
+        "{TELL_DESCRIPTION}"
+    );
 }

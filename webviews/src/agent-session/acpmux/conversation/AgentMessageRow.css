@@ -1,5 +1,5 @@
 /* A message between agents (AgentMessageRow.tsx): one line drawn as a tool row is, in its font,
-   26px height and icon column, at the transcript's left in either direction; the other agent's
+   line height and icon column, at the transcript's left in either direction; the other agent's
    name as a glass chip, the message's first line muted after it. Opened, the message sits under
    the line in a compact glass card at the row's text indent. Never an opaque or bordered box. */
 .cv-agentmsg {
@@ -8,17 +8,46 @@
   flex: 1;
   min-width: 0;
   margin: 0;
+  gap: var(--grid-gap-inner);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
 .cv-agentmsg__line {
-  /* The message line has extra inline words, a sender chip and actions; keep its bespoke
-     sentence layout while the shared tool rows use fixed grid columns. */
-  display: flex;
+  /* The shared tool rows' grid (conversation.css `.cv-tool`): icon, sentence, trailing status,
+     chevron. The sentence's words, chip and preview flow inside column 2. */
   white-space: nowrap;
   user-select: none;
+}
+/* The sentence column, shared by every message row (this one, SentMessageLine.tsx): the verb,
+   the recipient chip, the muted first line cut with one ellipsis at the column's end, on the
+   row's own gap. */
+.cv-agentmsg__sentence {
+  grid-column: 2;
+  /* Where a host lays the line out as flex instead (Home's run ledger, ledger.css
+     `.lg-run-messages`), the sentence still takes the row's free width so the trailing column and
+     chevron stay at the row's end. */
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  gap: inherit;
+  min-width: 0;
+  overflow: hidden;
+  /* One line on every message row, the sent line (SentMessageLine.tsx, no .cv-agentmsg__line)
+     included: a multiword recipient never wraps inside its chip. */
+  white-space: nowrap;
+}
+.cv-agentmsg__sentence > :not(.cv-agentmsg__toggle, .cv-agentmsg__preview) {
+  flex: none;
+}
+/* A delivery word the call gives in lower case ("queued") reads as the status column's word does
+   ("Queued"). */
+.cv-row-status {
+  display: inline-block;
+}
+.cv-row-status::first-letter {
+  text-transform: uppercase;
 }
 .cv-agentmsg.is-failed .cv-agentmsg__icon {
   color: var(--agent-status-failure);
@@ -27,11 +56,13 @@
   flex: none;
   cursor: default;
 }
+/* The recipient: one look on every message row (design/chat-transcript.md "One row grammar"),
+   the chip. The gallery compares a link and plain text (`data-recipient-style`). */
 .cv-agentmsg__name {
   all: unset;
-  flex: none;
+  flex: 0 1 auto;
   box-sizing: border-box;
-  max-width: 40%;
+  min-width: 0;
   height: 20px;
   padding: 0 7px;
   overflow: hidden;
@@ -45,37 +76,81 @@
   cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
+/* Opened, the line names its other chat whole: the panel under it never names it. */
+.cv-agentmsg[data-open] .cv-agentmsg__name {
+  flex: 0 1 auto;
+  max-width: 100%;
+  height: auto;
+  min-height: 20px;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
 button.cv-agentmsg__name:hover,
 button.cv-agentmsg__name:focus-visible {
   background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent) 55%, transparent);
 }
-/* The preview and its chevron: the rest of the line, cut with an ellipsis. */
+:root:is([data-recipient-style="link"], [data-recipient-style="plain"]) .cv-recipient {
+  padding: 0;
+  font-size: inherit;
+  letter-spacing: inherit;
+  background: none;
+  box-shadow: none;
+}
+:root[data-recipient-style="link"] .cv-recipient {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+:root[data-recipient-style="plain"] .cv-recipient {
+  font-weight: 500;
+}
+/* The preview: the rest of the sentence, cut with an ellipsis. */
 .cv-agentmsg__toggle {
   all: unset;
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 4px;
+  gap: var(--grid-gap);
   min-width: 0;
-  height: 26px;
+  /* The tool rows' line, so a message row is as tall as the rows around it (Leo, 2026-11-01:
+     "doesn't make sense for these to be spaced differently"). */
+  height: var(--cv-tool-row-height);
   cursor: default;
   border-radius: 4px;
 }
 .cv-agentmsg__preview {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--cv-text-dim);
 }
-.cv-agentmsg__toggle > .cv-tool__chevron {
-  margin-left: 0;
+.cv-agentmsg__chevron {
+  cursor: default;
 }
-.cv-agentmsg__toggle:hover > .cv-tool__chevron,
-.cv-agentmsg__toggle:focus-visible > .cv-tool__chevron,
-.cv-agentmsg__words:hover ~ .cv-agentmsg__toggle > .cv-tool__chevron {
+.cv-agentmsg__line:has(:is(.cv-agentmsg__toggle:hover, .cv-agentmsg__toggle:focus-visible, .cv-agentmsg__words:hover, .cv-agentmsg__chevron:hover))
+  > .cv-agentmsg__chevron {
   color: var(--cv-text);
+}
+/* Shut and stacked, or opened (the first line is in the card then), the toggle holds no words: it
+   takes back the line's gap before it, so the chevron sits right after the sender's or recipient's
+   chip, as after any row's words (transcript-chevron-after-label). */
+.acpmux-row .cv-agentmsg:not([data-open]) .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
+  margin-inline-start: calc(-1 * var(--grid-gap) - 0.5 * var(--ds-space-1));
+}
+/* Opened, the sender's chip ends the words: its own end padding stands in for the rest of the gap. */
+.acpmux-row .cv-agentmsg.cv-received[data-open] .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
+  margin-inline-start: calc(-1 * var(--grid-gap) - 1.5 * var(--ds-space-1));
+}
+/* Stacked or opened, the toggle holds no words and has no box of its own: the line, which the
+   pointer already toggles, shows its focus. */
+.cv-agentmsg__line:has(.cv-agentmsg__toggle:focus-visible > .cv-agentmsg__preview:empty) {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+  border-radius: 6px;
 }
 .cv-agentmsg__toggle:focus-visible {
   /* Inset: the transcript row clips paint (`contain: paint`). */
@@ -83,24 +158,21 @@ button.cv-agentmsg__name:focus-visible {
   outline-offset: -1.5px;
 }
 /* A finished send's check at the line's end shows on hover, as a tool row's does. */
-.cv-agentmsg__line > .cv-command__meta {
-  margin-left: 4px;
-}
 .cv-agentmsg__line:is(:hover, :focus-within) .cv-command__ok {
   opacity: 1;
 }
 /* It fades as a tool row's does (conversation.css, #23769); from the keyboard it comes in at once. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-agentmsg__line:focus-within .cv-command__ok {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 /* The opened message: a compact glass card at the row's text indent (the icon's 16px, less its
    -1.5px margin, plus the 8px gap). */
 .cv-agentmsg__card {
   box-sizing: border-box;
-  margin: 2px 0 4px 22.5px;
-  padding: 7px 11px;
+  margin: 0;
+  padding: 0 0 0 var(--grid-transcript-text-gap);
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -129,8 +201,9 @@ button.cv-agentmsg__name:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
-  margin: 0 0 6px 22.5px;
+  gap: var(--grid-gap);
+  margin: 0;
+  padding-inline-start: var(--grid-transcript-text-gap);
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
   line-height: 18px;
@@ -140,5 +213,309 @@ button.cv-agentmsg__name:focus-visible {
   color: var(--agent-status-failure);
 }
 .cv-agentmsg__output.cv-tool-output {
-  margin: 0 0 6px 22.5px;
+  margin: 0;
+  padding-inline-start: var(--grid-transcript-text-gap);
+}
+
+/* Opened, the line names its other chat whole: the panel under it never names it (Leo,
+   ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT
+   WAS SAID TO SEE"). */
+.cv-agentmsg[data-open] .cv-agentmsg__name {
+  flex: 0 1 auto;
+  max-width: 100%;
+  height: auto;
+  min-height: 20px;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+/* A stacked message row's first line (messageLineLook.ts, the default): on its own line under the
+   row's verb, recipient and count, at the text column, dim, cut there with one ellipsis (Leo said
+   yes, 2026-11-02, to splitting "Sent to <chip> · and 5 more commands <preview>" so the chip and
+   count read on the first line and the preview below). The row's one tone, never lit on hover.
+   model.ts adds its --cv-message-preview-line (MESSAGE_PREVIEW_LINE_PT) under the 22px row. */
+.cv-msgline__preview {
+  box-sizing: border-box;
+  height: var(--cv-message-preview-line);
+  min-width: 0;
+  padding-inline-start: var(--cv-tool-text-inset);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: var(--cv-message-preview-line);
+  letter-spacing: var(--text-detail--letter-spacing);
+  cursor: default;
+  user-select: none;
+}
+/* In a column that spaces its parts by the tool group's inner gap (`.cv-agentmsg`, `.cv-disclosure`),
+   the first line still sits right under its row, as a send's does: the row and its first line are
+   one entry (model.ts `messagePreviewLine`, 18px under the row). */
+.cv-agentmsg > .cv-msgline__preview,
+.cv-disclosure > .cv-msgline__preview {
+  margin-top: calc(-1 * var(--grid-gap-inner));
+}
+
+/* One line, inline, at the transcript's text tone (messageLineLook.ts `single`, the default). Leo,
+   2026-11-03, on the stacked rows: "i don't think these subtitles are as good as just doing it
+   directly in the same line. likewise, idk why everything is grey other than the recieving message
+   bubble. and idk why names are ellipses'd so early plus the weird chevron spacing thing".
+   - The other agent's name takes its whole width: no percentage cap (#27312's 40%, AgentTag.css's
+     40%, a received sender's 45%). The preview gives way first. Flex shrink is weighted by width, so
+     a shrink of 1 against the preview's 1000 still shaved a pixel off the name and drew its
+     ellipsis: the name's shrink is a ten-thousandth, under a layout unit of any real overflow while
+     the preview has room, and all of it once the preview is gone. So a name is cut only when the
+     verb, the name, the count and the chevron don't fit, and the chevron and status always show.
+   - The verb, the name and the count read in the transcript's text tone, as a received message's
+     text does; the preview is the one muted span, a step down, never the dim activity grey (#27074).
+   - The chevron comes right after the words (conversation.css "chevron right after its words"): the
+     sentence and its preview take their words' width, never the line's free width.
+   design/chat-transcript.md "Message rows: one line". */
+.cv-agentmsg__sentence > .cv-agentmsg__name {
+  flex: 0 0.0001 auto;
+  max-width: 100%;
+}
+/* A received line's toggle holds the first line and the chevron: it gives way first (the sender's
+   0.0001 against its 1000, as a send's name against its preview), down to the chevron's own room and
+   never under it, so a long sender cuts its name and keeps the chevron in view. */
+.acpmux-row .cv-received .cv-disclosure__toggle {
+  flex-shrink: 1000;
+  min-width: calc(var(--cv-chevron-glyph) + var(--cv-chevron-gap));
+}
+/* A send whose words came from a file names it after the line: it is cut as the preview is. */
+.cv-agentmsg__sentence > .cv-sent__file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-row .cv-agentmsg__line .cv-agentmsg__sentence > .cv-agentmsg__toggle,
+.acpmux-row .cv-agentmsg__line .cv-agentmsg__toggle > .cv-agentmsg__preview,
+.acpmux-row .cv-sent .cv-agentmsg__sentence > :is(.cv-agentmsg__preview, .cv-sent__file),
+.cv-agentmsg__sentence > :is(.cv-agentmsg__toggle, .cv-agentmsg__preview, .cv-sent__file),
+.cv-message-group__head .cv-message-group__senders,
+.cv-received .cv-disclosure__label {
+  flex-shrink: 1000;
+}
+/* At rest a message line (sent, received, a group's or a run's head) reads in the activity tone the
+   other finished tool rows rest at; it lights to the text tone only under the pointer or keyboard
+   focus (Leo, 2026-11-03, on "Received 6 messages" / "Sent 2 messages" after #34464 drew them in the
+   text tone at rest: "these are now too lit up by default? they should only be this bright when u
+   hover over it"). A session chip that has the pointer or focus lights alone (AgentTag.css). The
+   opened message's own card keeps the text tone. */
+.acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]),
+.acpmux-row .cv-received > .cv-disclosure__line {
+  color: var(--cv-activity-text);
+}
+.acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]):is(:hover, :focus-visible, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
+.acpmux-row .cv-received > .cv-disclosure__line:is(:hover, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
+.acpmux-row .cv-tool.cv-message-group__head:is([aria-expanded="true"], :has([data-popup-open])),
+.acpmux-row .cv-agentmsg__card {
+  color: var(--cv-text);
+}
+/* Every opened kind (a send, a subagent's report) reads as an opened received message does: the
+   transcript's text tone and size, never the muted detail size (SubsessionCallCard.css keeps it for
+   a sub-session's own body, subagents.css for the report's preview arm), and the whole message,
+   never a tool output's 240px cap (Leo, 2026-11-07: "They should look basically the same"). */
+.acpmux-row .cv-agentmsg__card :is(.cv-subsession__markdown, .cv-subagent-done__markdown) > .cv-md {
+  --cv-font-size: inherit;
+  --cv-line-height: inherit;
+  color: var(--cv-text);
+}
+.acpmux-row .cv-agentmsg__card :is(.cv-subagent-done__report, .cv-subsession__under) {
+  padding-inline-start: 0;
+}
+.acpmux-row .cv-agentmsg__card .cv-subagent-done__markdown {
+  max-height: none;
+  overflow: visible;
+}
+.acpmux-row :is(.cv-agentmsg__preview, .cv-message-group__senders, .cv-msgline__preview, .cv-sent__more) {
+  color: var(--cv-text-muted);
+}
+/* A group of sent messages (SentMessageLine.tsx `SentMessageGroup`): its head is a message group's
+   (MessageGroupHead.css), the group its narrow-pane container; opened, its messages sit on the
+   head's icon and text columns, flush, as an opened "Received N messages" row's do. */
+.cv-sent-group {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+/* The opened message and what its caller adds under it, one column on the rows' inner gap. */
+.cv-agentmsg__open {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
+  min-width: 0;
+}
+/* The one body every message row opens to (messageRowLook.ts `card`, the default): the rounded
+   glass card a received message always had (DisclosureRow.css `.cv-disclosure__panel`), at the
+   icon column's end, the whole message in it as Markdown, never cut to a scroll box (Leo,
+   2026-11-07: "why can't I see the full excerpt of its message?"). A send keeps its Raw toggle under it. */
+.cv-agentmsg[data-look="card"] .cv-agentmsg__card,
+.cv-agentmsg[data-look="corner"] .cv-agentmsg__card {
+  margin-inline-start: var(--grid-icon-box);
+  padding: var(--grid-cards-padding);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cv-text) 5%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 12%, transparent);
+  white-space: normal;
+  max-height: none;
+  overflow: visible;
+}
+.cv-agentmsg__card > .cv-md > :first-child,
+.cv-agentmsg__card .cv-received__text > .cv-md > :first-child {
+  margin-top: 0;
+}
+.cv-agentmsg__card > .cv-md > :last-child,
+.cv-agentmsg__card .cv-received__text > .cv-md > :last-child {
+  margin-bottom: 0;
+}
+.cv-agentmsg[data-look="card"] .cv-agentmsg__card .cv-received__text,
+.cv-agentmsg[data-look="corner"] .cv-agentmsg__card .cv-received__text {
+  margin-top: 0;
+}
+/* What a caller adds under the card (Raw, Details, a reply) sits on the card's left edge. */
+.cv-agentmsg:is([data-look="card"], [data-look="corner"]) .cv-agentmsg__open > :not(.cv-agentmsg__card) {
+  margin-inline-start: var(--grid-icon-box);
+}
+/* A sender acpmux could not verify (UnverifiedMark.tsx): a status-sized mark in the muted tone right
+   after the name, never words in it. */
+.cv-unverified {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--cv-text-muted);
+}
+/* The `corner` look: a dot of the mark on the icon's bottom-left corner, clear of the family mark's
+   own corner badge (bottom-right, senderIconLook.ts). */
+.cv-agentmsg__icon {
+  position: relative;
+}
+.cv-unverified.is-corner {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  transform: translate(-25%, 25%) scale(0.75);
+  border-radius: 50%;
+  background: var(--cv-bg, transparent);
+}
+.cv-agentmsg__time {
+  margin-inline-start: var(--grid-gap);
+}
+/* A received message in the one row (IncomingMessageCard.tsx): its sender part is the name chip and
+   the machine after it, the mark is in the row's icon column. It fills that column, its glyph
+   centred, so its box is the tool rows' icon box whatever size the sender icon draws at
+   (SenderIcon.tsx sizes itself 12px; transcript-meta-columns-browser.test.ts). */
+.cv-agentmsg.cv-received .cv-agentmsg__icon > .cv-received__mark {
+  width: 100%;
+  margin: 0;
+}
+.cv-agentmsg__sentence > .cv-received__sender {
+  flex: 0 0.0001 auto;
+  min-width: 0;
+}
+/* In the transcript the sentence's parts join the line (conversation.css `display: contents`), and
+   once the first line has given way (shrink 1000, down to nothing) the sender is the one part left
+   to shrink: at 0.0001 it takes only that share of what is left (CSS Flexbox 9.7), and a long name
+   ran past a 320px line, cut bare there with its ellipsis and the chevron out of view (cmux#37653
+   review). At 1 it takes the rest once the first line is gone: its chip cuts the name behind an
+   ellipsis, as a sent row's does. But Flexbox weighs shrink by basis, so against the first line's 1000
+   a name still took its share of every overflow from the first pixel, and an ordinary row cut it
+   while the preview had room to give (cmux#38642 review). Here the first line shrinks at a million:
+   the name's share while it has room (its basis over the preview's basis times a million, of at most
+   the preview's own width) is under the 1/64px layout unit, so the name stays whole until the first
+   line is gone. agent-message-row-css-browser.test.ts, at a 640px and a 320px line. */
+.acpmux-row .cv-agentmsg.cv-received > .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-received__sender {
+  flex-shrink: 1;
+}
+.acpmux-row .cv-agentmsg.cv-received > .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-agentmsg__toggle {
+  flex-shrink: 1000000;
+}
+/* The sender's chip is its span's only child here (the mark is in the icon column), pulled back
+   over the icon gap by its own margin (conversation.css `.cv-received__sender > .cv-agent-tag.is-open`):
+   its cap counts that pull, or the span's 100% cuts the name by it while the first line still has
+   room (cmux#37653 review). */
+.cv-agentmsg__sentence > .cv-received__sender > .cv-agent-tag.is-open {
+  max-width: calc(100% + var(--ds-space-1));
+}
+/* A received line is the tool rows' fixed 22px line (conversation.css `.cv-received >
+   .cv-agentmsg__line`), opened or not: its sender's chip stays on that line, whole while it fits,
+   as the received line always drew it, so the chevron follows the name (transcript-chevron-after-label). */
+.cv-agentmsg.cv-received[data-open] :is(.cv-agent-tag__label, .cv-agentmsg__name) {
+  white-space: nowrap;
+}
+.cv-agentmsg.cv-received[data-open] button.cv-agent-tag.is-open {
+  height: var(--cv-tool-row-height);
+}
+/* A sent message (SentMessageLine.tsx) draws as a received one (ask-64e107ccf0; Leo, 2026-11-07:
+   "it's just not good, compared to the normal ones"): the received row above (`.cv-received` on the
+   one message row), the envelope in the icon column, then "Sent to" before the recipient's chip and
+   its machine in the sender span. The chip follows those words at the sender span's gap, so it keeps
+   no pull into the icon gap that a first-word sender takes, and its cap is the span's own width. */
+.cv-sent-msg .cv-received__sender > .cv-agent-tag,
+.cv-sent-msg .cv-received__sender > .cv-agent-tag.is-open {
+  margin-inline-start: 0;
+}
+.cv-sent-msg .cv-agentmsg__sentence > .cv-received__sender > .cv-agent-tag.is-open {
+  max-width: 100%;
+}
+.cv-sent__words {
+  flex: none;
+  white-space: nowrap;
+}
+/* The line never runs past its pane (cmux#37879 review: "Read at its next step" for a long
+   recipient drew past the transcript at a narrow pane). Its status keeps its room (the trailing
+   column, `.cv-tool__trail`), and so does the chevron (`.cv-tool__chevron`, flex: none; in the
+   transcript the sentence's parts join the line, conversation.css); the first line gives way
+   first (the toggle, shrink 1000), then the recipient's machine and name behind their ellipses
+   (`.cv-received__host`, `.cv-received__from`), as a received line's sender does. The received
+   sender's shrink of 0.0001 lets its name keep its room beside a first line, but a factor sum under
+   1 also absorbs only that share of what is left once the first line is gone (CSS Flexbox 9.7);
+   here the sender shrinks at 1, the same order with the whole overflow taken. */
+.cv-sent-msg > .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-received__sender {
+  flex-shrink: 1;
+}
+.cv-sent-msg > .cv-agentmsg__line > .cv-tool__trail {
+  flex: none;
+}
+.cv-sent-msg .cv-agentmsg__icon > .cv-received__mark.cv-tool__failed {
+  color: var(--agent-status-failure);
+}
+/* Raw's call: the plain command row at the card's text column, no inset of its own. */
+.cv-sent__raw-body > .cv-tools,
+.cv-sent__call > .cv-tools {
+  margin: 0;
+}
+/* Gallery arms (sentMessageLook.experiment.ts). Plain: the words under the line with no card. */
+.cv-sent-msg.look-plain .cv-agentmsg__card {
+  background: none;
+  box-shadow: none;
+  padding-block: 0;
+}
+/* Raw on hover: the link shows while the pointer or focus is in the opened message (its card and
+   Raw under it), or while Raw is open. It follows the pointer's dwell as a message's hover row does
+   (conversation.css --cv-actions-*): in for as long as the pointer stays, out a little faster;
+   keyboard focus shows it at once. */
+.cv-sent-msg.look-hover .cv-sent__raw > .cv-received__more[aria-expanded="false"] {
+  opacity: 0;
+}
+.cv-sent-msg.look-hover .cv-agentmsg__open:hover .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-agentmsg__open:has([data-popup-open]) .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-sent-msg.look-hover .cv-sent__raw > .cv-received__more {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+  }
+  .cv-sent-msg.look-hover .cv-agentmsg__open:hover .cv-sent__raw > .cv-received__more,
+  .cv-sent-msg.look-hover .cv-agentmsg__open:has([data-popup-open]) .cv-sent__raw > .cv-received__more {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+  .cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {
+    transition: none;
+  }
 }

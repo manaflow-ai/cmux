@@ -69,9 +69,17 @@ async fn run(
     for k in crate::config::inherited_caller_scoped_keys() {
         cmd.env_remove(k);
     }
+    // The app the daemon follows is not the harness's (`daemon/owner_exit.rs`).
+    cmd.env_remove(crate::daemon::owner_exit::OWNER_APP_PID_ENV);
     let env: &BTreeMap<String, String> = &profile.env;
+    // As `agent.rs` spawns: never on stale or revoked delivered secrets.
+    if !crate::login_env::machine_env_fresh_before_spawn().await {
+        return Err(RpcError::internal("machine environment changed; login env refresh failed"));
+    }
     crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
     crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
+    // Never another harness's login (`agent/foreign_login.rs`); the profile's env still wins.
+    crate::agent::foreign_login::scrub(&mut cmd, harness, profile);
     cmd.args(rest)
         .envs(env)
         .current_dir(cwd)
@@ -79,6 +87,8 @@ async fn run(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
+    // As `agent.rs` spawns: never the daemon's OOM protection (`oom_rank.rs`).
+    crate::oom_rank::agent_at_exec(&mut cmd);
     let mut child =
         cmd.spawn().map_err(|e| RpcError::internal(format!("cannot start {harness}: {e}")))?;
     let mut stdin =

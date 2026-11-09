@@ -18,7 +18,7 @@ const CONTEXT: &str = "<cmux-workspace-context>CTX-MARK</cmux-workspace-context>
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex", "env": {"FAKE_ECHO_GUIDANCE": "1"}}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all"
     }))
@@ -116,6 +116,7 @@ async fn the_agent_gets_the_context_and_the_transcript_shows_only_the_persons_te
         .await;
     assert!(echoed.contains("what runs in my terminal?"), "{echoed}");
     assert!(echoed.contains("CTX-MARK"), "the agent did not get the context: {echoed}");
+    assert!(echoed.contains(acpmux::agent_tools::CONCURRENT_WORK_RULE), "{echoed}");
 
     // A block the client marks as context itself is the person's text like any other.
     let (_, echoed) = client
@@ -126,6 +127,7 @@ async fn the_agent_gets_the_context_and_the_transcript_shows_only_the_persons_te
         )
         .await;
     assert!(echoed.contains("second"), "{echoed}");
+    assert!(!echoed.contains(acpmux::agent_tools::CONCURRENT_WORK_RULE), "{echoed}");
 
     assert_eq!(client.user_messages(&session).await, ["what runs in my terminal?", "second"]);
     let (info, _) = client.call("_acpmux/info", json!({"sessionId": session})).await;

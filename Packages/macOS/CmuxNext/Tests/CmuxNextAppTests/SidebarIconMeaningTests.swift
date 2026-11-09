@@ -7,10 +7,10 @@ import Testing
 /// The sidebar's icon-only marks say what they mean (affordance audit 2026-10-21): a machine
 /// header's bare status dot names its state in the tooltip, the bell-slash on a muted workspace
 /// says notifications are muted, the Priority bell names what its dot counts and keeps its
-/// shortcut out of the label, and a tab row's unread dot is in the row's label.
+/// shortcut out of the label.
 @MainActor @Suite(.serialized) struct SidebarIconMeaningTests {
-    private static func row(_ key: SidebarRowKey, section: SectionID, workspace: WorkspaceID? = nil) -> SidebarRow {
-        SidebarRow(key: key, y: 0, height: 28, section: section, workspace: workspace, siblingIndex: 0,
+    private static func row(_ key: SidebarRowKey, section: SectionID) -> SidebarRow {
+        SidebarRow(key: key, y: 0, height: 28, section: section, siblingIndex: 0,
                    isLastInGroup: true, isCollapsed: false, childCount: 1)
     }
 
@@ -145,19 +145,5 @@ import Testing
         }
         sidebar.showUpdateAvailable(nil)
         #expect(update.isHidden)
-    }
-
-    // MARK: Tab row unread dot
-
-    @Test func anUnreadTabRowSaysUnread() {
-        let workspace = WorkspaceID("ws-tabs")
-        let section = SectionID.machine(.local)
-        for unread in [true, false] {
-            let tab = SidebarTab(id: TabID("tab-zsh"), title: "zsh", isUnread: unread)
-            let key = SidebarRowKey.tab(workspace, tab.id)
-            let view = SidebarTabRowView(key: key)
-            view.configure(tab, row: Self.row(key, section: section, workspace: workspace))
-            #expect(view.accessibilityLabel() == (unread ? "zsh, \(Strings.unreadDot)" : "zsh"))
-        }
     }
 }

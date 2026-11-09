@@ -212,9 +212,31 @@ pub fn move_call(home: &Path, args: &Value) -> Result<String, String> {
                 .map_err(|_| "no move has run from this home".to_owned());
         }
         "reach" => argv.push("reach".into()),
+        // A copy into a new Cloud Chief; this home keeps answering (migrate_fork.rs).
+        "fork" => {
+            let to = args["to"].as_str().unwrap_or("cloud");
+            argv.extend(["--fork".into(), "--to".into(), to.into()]);
+            if args["dry_run"] == true {
+                argv.push("--dry-run".into());
+            }
+            if let Some(name) = args["name"].as_str() {
+                argv.extend(["--name".into(), name.into()]);
+            }
+        }
+        "fork_status" => {
+            return std::fs::read_to_string(home.join(crate::migrate_fork::FORK_FILE))
+                .map_err(|_| "this home has no fork".to_owned());
+        }
         "rollback" => argv.push("rollback".into()),
         "move" => {
             let to = args["to"].as_str().ok_or("move needs `to`")?;
+            // A Chief that moved in from another machine asks that machine to move it:
+            // it holds the frozen copy, the keys and the app's sign-in (migrate_return.rs).
+            if args["dry_run"] != true
+                && let Some(origin) = crate::migrate_return::origin(home)
+            {
+                return crate::migrate_return::ask_origin(home, &origin, to);
+            }
             argv.extend(["--to".into(), to.into()]);
             argv.push(
                 if args["dry_run"] == true {
@@ -224,6 +246,10 @@ pub fn move_call(home: &Path, args: &Value) -> Result<String, String> {
                 }
                 .into(),
             );
+            if args["dry_run"] != true {
+                // This Mac keeps the frozen copy and carries out the moved Chief's next teleport.
+                argv.push("--watch".into());
+            }
             if args["without_transcripts"] == true {
                 argv.push("--without-transcripts".into());
             }

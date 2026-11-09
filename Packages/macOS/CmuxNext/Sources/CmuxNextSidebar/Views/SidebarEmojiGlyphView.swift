@@ -13,6 +13,9 @@ final class SidebarEmojiGlyphView: NSView {
     /// The share of the box the ink may fill, so it never touches the edge
     /// (less on a color chip, so the chip shows around it).
     var fill: CGFloat = 0.86 { didSet { if fill != oldValue { needsDisplay = true } } }
+    /// Start the ink at the box's leading edge by the icon column's rule (`SidebarStyle.iconColumnGlyphX`, a workspace
+    /// row's icon, Lawrence msg 19643) instead of centering it; it still centers vertically.
+    var leadsWithInk = false { didSet { if leadsWithInk != oldValue { needsDisplay = true } } }
 
     private struct Key: Hashable { let text: String; let size: CGFloat; let pixelScale: CGFloat }
     /// Ink rect of an emoji at a point size and pixel scale, relative to its baseline origin.
@@ -25,7 +28,8 @@ final class SidebarEmojiGlyphView: NSView {
         guard target > 0, let (size, ink) = Self.fit(text, target: target, pixelScale: pixelScale) else { return }
         context.saveGState()
         context.textMatrix = .identity
-        context.textPosition = CGPoint(x: bounds.midX - ink.midX, y: bounds.midY - ink.midY)
+        let x = leadsWithInk ? SidebarStyle.iconColumnGlyphX(leading: bounds.minX, ink: ink) : bounds.midX - ink.midX
+        context.textPosition = CGPoint(x: x, y: bounds.midY - ink.midY)
         CTLineDraw(Self.line(text, size: size), context)
         context.restoreGState()
     }

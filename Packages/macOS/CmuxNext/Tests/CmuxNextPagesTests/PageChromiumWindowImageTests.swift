@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// the window server leaves out what Chromium's GPU process draws, so on a capture slot an agent
 /// or Settings page came out blank.
 @MainActor
+@Suite(.closesItsWindows)
 struct PageChromiumWindowImageTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.window-image", resource: "window-image", namespaces: [])
@@ -92,6 +94,40 @@ struct PageChromiumWindowImageTests {
         #expect(view.chromiumWindowHoles == [CGRect(x: 100, y: 214, width: 200, height: 36), CGRect(x: 367, y: 214, width: 33, height: 36)])
         view.nativeRects = []
         #expect(view.chromiumWindowHoles.isEmpty)
+        view.close()
+        window.close()
+    }
+
+    /// Inspect Element docks DevTools below a chat (fleet capture, 2026-11-08): Chromium's image of
+    /// the page is only the page's own area above them, and a window image that painted it over the
+    /// whole view stretched it over the DevTools area, which then showed blank. The page's area in
+    /// the window is its own part, not the view's.
+    @Test func aPageWithDockedDevToolsListsOnlyItsOwnArea() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let (view, page) = try await chromiumView()
+        view.frame = NSRect(x: 100, y: 50, width: 300, height: 200)
+        window.contentView?.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        page.dockedDevTools = (page: CGRect(x: 0, y: 0, width: 300, height: 120), devTools: CGRect(x: 0, y: 124, width: 300, height: 76))
+        let listed = try #require(PageRegistry.shownChromiumPages(in: window).first)
+        #expect(listed.rect == page.contentView.convert(CGRect(x: 0, y: 0, width: 300, height: 120), to: nil))
+        #expect(listed.rect != NSRect(x: 100, y: 50, width: 300, height: 200), "the page's image would stretch over its DevTools")
+        #expect(view.chromiumDevToolsArea == page.contentView.convert(CGRect(x: 0, y: 124, width: 300, height: 76), to: nil))
+        let area = page.contentView.convert(CGRect(x: 0, y: 124, width: 300, height: 76), to: nil)
+        let blank = try #require(await view.chromiumDevTools())
+        #expect(blank.area == area && blank.image == nil)
+        let provider = try #require(CGDataProvider(data: Data([0, 0, 0, 255]) as CFData))
+        let picture = try #require(CGImage(width: 1, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4,
+                                           space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                                           provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        page.devToolsPicture = picture
+        #expect(await view.chromiumDevTools()?.image === picture)
+        page.dockedDevTools = nil
+        #expect(view.chromiumDevToolsArea == nil)
+        #expect(await view.chromiumDevTools() == nil)
+        #expect(PageRegistry.shownChromiumPages(in: window).first?.rect == NSRect(x: 100, y: 50, width: 300, height: 200))
         view.close()
         window.close()
     }

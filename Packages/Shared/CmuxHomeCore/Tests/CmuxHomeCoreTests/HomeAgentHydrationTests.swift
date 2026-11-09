@@ -4,6 +4,63 @@ import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
 @MainActor struct HomeAgentHydrationTests {
+    @Test func aThreeHundredReportHistoryPageInvalidatesOnceAndRetainsEveryResult() async throws {
+        let source = DeferredAgentSnapshotSource()
+        let store = HomeStore(source: source)
+        store.start()
+        defer { store.stop() }
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        let conversation = ConversationID("conv_aziz")
+        await store.open(conversation)
+        await waitUntil { store.agentMessageReads[conversation] == nil }
+        let question = try #require(store.transcript(for: conversation).first?.messageID)
+        let questionKey = try #require(store.transcript(for: conversation).first?.key)
+        let chief = ParticipantID("agent_mux")
+        let reports: [HomeAgentRun] = (0..<300).map { index in
+            .init(conversation: conversation, id: "reports:\(index)", author: chief, turn: nil,
+                  answers: [question], revision: 1, messages: [
+                    .init(id: "report:a\(index):1", sequence: 1, revision: 1,
+                          peer: "a\(index)", outgoing: false, text: "Result \(index)",
+                          date: Date(timeIntervalSince1970: 100))
+                  ])
+        }
+        await source.prepare(reports, deferred: false)
+        let baseline = store.transcriptVersion[conversation, default: 0]
+        store.requestAgentMessages(conversation)
+        let read = try #require(store.agentMessageReads[conversation])
+        await read.value
+
+        #expect(store.transcriptVersion[conversation, default: 0] == baseline + 1)
+        // Current Home folds all 300 reports behind the assignment's one disclosure.
+        let collapsed = store.transcript(for: conversation).filter(\.isReadOnly)
+        #expect(collapsed.count == 1)
+        // The fold keeps all identities even when its visible name preview is capped.
+        if case let .fold(count, peers, expanded)? = collapsed.first?.agentMessage?.kind {
+            #expect(count == 300)
+            #expect(Set(peers).count == 300)
+            #expect(!expanded)
+        } else {
+            #expect(false, "Expected the 300-report fold")
+        }
+        let group = HomeAgentMessageRow.groupID(author: chief, anchor: questionKey)
+        store.toggleAgentMessages(group, in: conversation)
+        #expect(store.isAgentMessagesExpanded(group, in: conversation))
+        #expect(store.transcriptVersion[conversation, default: 0] == baseline + 2)
+        let expanded = store.transcript(for: conversation).filter(\.isReadOnly)
+        #expect(expanded.count == 301) // one disclosure + all 300 reports
+        let results = expanded.filter { $0.plainText.contains("Result ") }
+        #expect(results.count == 300)
+        #expect(Set(results.map(\.plainText)).count == 300)
+        #expect(results.contains { $0.plainText.contains("Result 299") })
+
+        // Replaying the same snapshot must leave the visible transcript unchanged.
+        await source.prepare(reports, deferred: false)
+        store.requestAgentMessages(conversation)
+        let replay = try #require(store.agentMessageReads[conversation])
+        await replay.value
+        #expect(store.transcriptVersion[conversation, default: 0] == baseline + 2)
+    }
+
     @Test func deferredCloudSnapshotPreservesLiveRefusalAndFillsMissingSteps() async throws {
         let source = DeferredAgentSnapshotSource()
         let store = HomeStore(source: source)
@@ -14,6 +71,7 @@ import CmuxHomeCoreTestSupport
         await store.open(conversation)
         await waitUntil { store.agentMessageReads[conversation] == nil }
         let question = try #require(store.transcript(for: conversation).first?.messageID)
+        let questionKey = try #require(store.transcript(for: conversation).first?.key)
         let chief = ParticipantID("agent_mux")
         func run(_ text: String, missingStep: Bool = false) -> HomeAgentRun {
             var messages: [HomeAgentRun.Message] = [
@@ -41,8 +99,13 @@ import CmuxHomeCoreTestSupport
         await source.release()
         await hydration.value
 
+        // The tell and the report fold into one row; open it to read both (a click on that row).
+        let group = HomeAgentMessageRow.groupID(author: chief, anchor: questionKey)
+        #expect(store.transcript(for: conversation).filter(\.isReadOnly).count == 1)
+        store.toggleAgentMessages(group, in: conversation)
+        #expect(store.isAgentMessagesExpanded(group, in: conversation))
         let hydrated = store.transcript(for: conversation).filter(\.isReadOnly)
-        #expect(hydrated.count == 2)
+        #expect(hydrated.count == 3)
         #expect(hydrated.contains { $0.plainText.hasSuffix("Tell refused: agent cancelled") })
         #expect(hydrated.contains { $0.plainText.hasSuffix("Earlier report") })
         #expect(!hydrated.contains { $0.plainText.hasSuffix("Pending tell") })
@@ -54,6 +117,49 @@ import CmuxHomeCoreTestSupport
         let refresh = try #require(store.agentMessageReads[conversation])
         await refresh.value
         #expect(store.transcript(for: conversation).contains { $0.plainText.hasSuffix("Updated receipt after reconnect") })
+    }
+
+    /// An agent the spawn answer queued behind the cap starts later with no word in the chat (a1019's open
+    /// item, 2026-11-06): once the Chief's acpmux lists its session, its pill and its chat say Working at once,
+    /// with no tell, report or session read. Its session ending later leaves it started.
+    @Test func aQueuedAgentThatStartsSilentlySaysWorkingOnceItsSessionShows() async throws {
+        let source = DeferredAgentSnapshotSource()
+        let store = HomeStore(source: source)
+        store.start()
+        defer { store.stop() }
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        let conversation = ConversationID("conv_aziz")
+        await store.open(conversation)
+        await waitUntil { store.agentMessageReads[conversation] == nil }
+        let question = try #require(store.transcript(for: conversation).first?.messageID)
+        let chief = ParticipantID("agent_mux")
+        let spawn = HomeAgentRun(conversation: conversation, id: "spawn", author: chief, turn: nil, answers: [question],
+                                 revision: 1, messages: [
+                                     .init(id: "spawn:a1017:1", sequence: 1, revision: 1, peer: "a1017", outgoing: true,
+                                           text: "Chief teleport indicator", date: Date(timeIntervalSince1970: 100), queued: true)
+                                 ])
+        await source.prepare([spawn], deferred: false)
+        store.requestAgentMessages(conversation)
+        let read = try #require(store.agentMessageReads[conversation])
+        await read.value
+        func pillStates() -> [HomeAgentMessageRow.PeerState] {
+            store.transcript(for: conversation).compactMap(\.agentMessage).flatMap(\.peerStates)
+        }
+        #expect(store.agentThread("a1017", in: conversation)?.state == .queued)
+        #expect(pillStates() == [.queued])
+
+        let before = store.transcriptVersion[conversation, default: 0]
+        #expect(store.agentsStarted(["a1017", "a3"]) == true)
+        #expect(store.transcriptVersion[conversation, default: 0] > before)
+        #expect(store.agentThread("a1017", in: conversation)?.state == .told)
+        #expect(pillStates() == [.told])
+
+        // Its session ends (the list no longer names it): it stays started, and nothing redraws.
+        let after = store.transcriptVersion[conversation, default: 0]
+        #expect(store.agentsStarted([]) == false)
+        #expect(store.agentsStarted(["a3"]) == false)
+        #expect(store.transcriptVersion[conversation, default: 0] == after)
+        #expect(pillStates() == [.told])
     }
 }
 

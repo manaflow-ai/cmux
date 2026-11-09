@@ -35,16 +35,23 @@
 //! `ease_out_quad`) that restart from the value on screen on a new target,
 //! with the strip geometry in `TabStripGeometry` (design-tokens.json
 //! `motion.tweens`, `motion.tabStrip`).
+//!
+//! Hover timing and rules live in [`hover`]: the hover card state machine,
+//! tooltip hover intent, the safe triangle and the row card's placement.
+//! [`terminal_selection`] is the terminal's other pointer rule: Option-drag
+//! selects text while a program has the mouse, with a first-use hint.
 
 mod clock;
 mod color;
 mod fade;
+pub mod hover;
 mod marquee;
 mod policy;
 #[cfg(feature = "settings")]
 mod settings;
 mod spring;
 mod tab_strip;
+pub mod terminal_selection;
 mod tokens;
 mod tween;
 // The Reduce Motion reading off macOS (macOS asks NSWorkspace in settings.rs).

@@ -43,6 +43,8 @@ extension AgentPaneView {
     /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
     /// composer, so the next words go to the fork.
     public func focusComposer() { showWithKeyboard("focusComposer") }
+    /// A click on a chat's notification: a waiting permission card takes the keyboard, so one key answers it.
+    public func focusAsk() { showWithKeyboard("permissionFocus") }
     private func showWithKeyboard(_ command: String) {
         focusChat()
         send(command)
@@ -60,7 +62,7 @@ extension AgentPaneView {
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
         // The person's shortcut is the gesture its answer uses; a posted key or script grants nothing.
-        AgentPanePersonInput.record(model.transport.gestures, if: byPerson, answer: true)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources, if: byPerson, answer: true)
         send(command)
     }
 }

@@ -60,7 +60,7 @@ async fn production_spawn(tag: &str, vm_host: bool) {
         json!({
             "harnesses": {"fakeclaude": {
                 "argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
-                "env": {"ANTHROPIC_AUTH_TOKEN": "synthetic-profile-token"}
+                "env": {"ANTHROPIC_AUTH_TOKEN": "synthetic-profile-token", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1"}
             }},
             "defaultHarness": "fakeclaude", "permissionPolicy": "ask",
             "webRoots": [d.join("work")], "vmHost": vm_host,
@@ -112,7 +112,13 @@ async fn production_spawn(tag: &str, vm_host: bool) {
     .unwrap()
     .unwrap();
     let ready: Value = serde_json::from_str(&ready).unwrap();
-    let url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
+    // The listener takes its token only from a header, never the URL (`server/ws_auth.rs`).
+    let (base, token) = ready["webUrl"].as_str().unwrap().split_once("#token=").unwrap();
+    let mut url = tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(
+        base.replace("http://", "ws://"),
+    )
+    .unwrap();
+    url.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
     let (mut ws, _) =
         tokio::time::timeout(Duration::from_secs(45), tokio_tungstenite::connect_async(url))
             .await
@@ -179,7 +185,7 @@ async fn production_spawn(tag: &str, vm_host: bool) {
     assert!(sandbox.iter().any(|m| m["canary"] == "passed"), "no canary: {sandbox:?}");
     assert!(sandbox.iter().all(|m| m.get("vmHost").is_none()), "{sandbox:?}");
 
-    let names = "ANTHROPIC_AUTH_TOKEN,CMUX_REMOTE_TEST_SECRET,UNRELATED_TOKEN,HOME,PATH";
+    let names = "ANTHROPIC_AUTH_TOKEN,CMUX_REMOTE_TEST_SECRET,UNRELATED_TOKEN,HOME,PATH,CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
     let prompt = json!({
         "sessionId": session, "prompt": [{"type": "text", "text": format!("envs: {names}")}]
     });
@@ -199,6 +205,9 @@ async fn production_spawn(tag: &str, vm_host: bool) {
         .find(|v| v.get("UNRELATED_TOKEN").is_some())
         .expect("agent answered envs");
     assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "synthetic-profile-token", "{env}");
+    // Claude Code's scrub starts its own bwrap for every Bash call, which cannot start inside
+    // this sandbox: on, every Bash call is refused (`hub/remote_sandbox.rs` module doc).
+    assert_eq!(env["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"], "0", "{env}");
     for dropped in ["CMUX_REMOTE_TEST_SECRET", "UNRELATED_TOKEN"] {
         assert_eq!(env[dropped], "", "remote child inherited {dropped}: {env}");
     }

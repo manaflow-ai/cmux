@@ -5,9 +5,12 @@
 // composer's button row offers Show. The page sets the value at once and asks the host to write it
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
 // `agentPane.attachmentView` rides the same event as `attachmentView`: how pictures and files show
-// in every composer and in sent messages, "inline" (in the text where each was added, the default)
-// or "strip" (in a row). It is only a look: a draft's text, its attachment marks and their order
-// are the same in both, so switching never changes what is sent. Anything else reads as "inline".
+// in every composer and in sent messages, "inline" (in the text where each was added, the default),
+// "strip" (in a row) or "both" (in the text and in the row, so every attachment shows in one place
+// with its remove; Leo 2026-10-24: "ALSO show the top displayed attachments alongside the inline
+// attachments ... so you can see it all and close aka delete"). Sent messages draw "both" as
+// "inline". It is only a look: a draft's text, its attachment marks and their order are the same
+// in every view, so switching never changes what is sent. Anything else reads as "inline".
 // `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest
 // behavior. When off, an up-scrolled reader stays anchored while new rows arrive below; a reader at
 // the bottom continues following streaming output.
@@ -22,18 +25,41 @@
 // `harnessSwitch` is Debug Settings' "Allow switching harness in a started chat" (Swift
 // AgentPaneTunables.harnessSwitchInStartedChat, off by default; no cmux.json key): off, a chat with
 // a message keeps its harness and its model menu lists that harness's models alone (ComposerPickers).
-// `escapeDoublePress` is Debug Settings' "Esc stops a turn on a double press" (Swift
-// AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
-// composer stops a running turn only on the second press inside the window (escapeStop.ts).
 // `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
+// `composerRing` is `agentPane.composerRing` ("context" by default): what the ring at the end of the
+// quiet row shows, the chat's context window or the account's plan usage limits (5-hour, weekly;
+// PlanUsageCard.tsx), picked from the ring's right-click (Leo 2026-11-04: "i guess we can turn that
+// into a 5h/weekly usage type thing instead as well for some people"). The page sets it at once and
+// asks the host to write it (`pane.setComposerRing {ring}`). Anything else reads as "context".
+// `dictationSource` is `agentPane.dictationSource` ("cmux" by default): what the mic dictates with,
+// cmux's own dictation or the dictation app the person already uses, whose shortcut the host sends
+// (dictationSources.ts, design/composer-dictation.md). The mic's right-click picks it
+// (`pane.setDictationSource {source}`). `dictationShortcut` (`agentPane.dictationShortcut`) is only
+// read: the chord the host sends, empty for the app's own. Anything else reads as "cmux".
+// `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
+// new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
+// `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
+// AgentPaneTunables.cloudEnvironmentsEnabled, read from the bundle's LSEnvironment or the launch
+// environment as CMUX_NEXT_CLOUD_NATIVE_LINK is; no cmux.json key): on, picking Cloud in a new
+// chat's strip adds the Environment chip (CloudEnvironmentChip.tsx). Off unless the host says true.
 import { useSyncExternalStore } from "react";
 
-export type HarnessPlacement = "left" | "top" | "compact";
+// `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
+// 2026-10-30: "honestly we had a pretty good thing going with teh symbols of the harneses at the
+// top :("). The others stay as choices.
+export type { HarnessPlacement } from "../../ui/harnessPlacement";
+import type { HarnessPlacement } from "../../ui/harnessPlacement";
 export type ReasoningSliderStyle = "accent" | "minimal";
-export type AttachmentView = "inline" | "strip";
+export type AttachmentView = "inline" | "strip" | "both";
+export type NewChatPlace = "local" | "cloud";
+export type ComposerRing = "context" | "planUsage";
+export const DICTATION_SOURCES = ["cmux", "macos", "chatgpt", "claude", "gemini", "wisprFlow", "superwhisper"] as const;
+export type DictationSource = (typeof DICTATION_SOURCES)[number];
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
+  dictationSource: DictationSource;
+  dictationShortcut: string;
   spellChecking: boolean;
   attachmentView: AttachmentView;
   scrollToBottomOnSend: boolean;
@@ -42,23 +68,29 @@ export type ComposerSettings = {
   plainFooter: boolean;
   harnessPlacement: HarnessPlacement;
   harnessSwitch: boolean;
-  escapeDoublePress: boolean;
   showMachineLoadWarnings: boolean;
+  newChatsIn: NewChatPlace;
+  composerRing: ComposerRing;
+  cloudEnvironments: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
   showContextUsage: true,
   showDictation: true,
+  dictationSource: "cmux",
+  dictationShortcut: "",
   spellChecking: false,
   attachmentView: "inline",
   scrollToBottomOnSend: true,
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
-  harnessPlacement: "left",
+  harnessPlacement: "symbols",
   harnessSwitch: false,
-  escapeDoublePress: true,
   showMachineLoadWarnings: true,
+  newChatsIn: "local",
+  composerRing: "context",
+  cloudEnvironments: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -69,18 +101,23 @@ type ComposerFlag =
   | "plainFooter"
   | "harnessSwitch"
   | "scrollToBottomOnSend"
-  | "escapeDoublePress"
-  | "showMachineLoadWarnings";
+  | "showMachineLoadWarnings"
+  | "cloudEnvironments";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   const flag = (key: ComposerFlag) => (typeof raw[key] === "boolean" ? raw[key] : DEFAULT_COMPOSER[key]);
   const reasoningSliderStyle: ReasoningSliderStyle = raw.reasoningSliderStyle === "minimal" ? "minimal" : "accent";
-  const attachmentView: AttachmentView = raw.attachmentView === "strip" ? "strip" : "inline";
+  const attachmentView: AttachmentView =
+    raw.attachmentView === "strip" || raw.attachmentView === "both" ? raw.attachmentView : "inline";
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
+    dictationSource: DICTATION_SOURCES.includes(raw.dictationSource as DictationSource)
+      ? (raw.dictationSource as DictationSource)
+      : "cmux",
+    dictationShortcut: typeof raw.dictationShortcut === "string" ? raw.dictationShortcut : "",
     spellChecking: flag("spellChecking"),
     attachmentView,
     scrollToBottomOnSend: flag("scrollToBottomOnSend"),
@@ -88,10 +125,14 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
     harnessPlacement:
-      raw.harnessPlacement === "top" || raw.harnessPlacement === "compact" ? raw.harnessPlacement : "left",
+      raw.harnessPlacement === "left" || raw.harnessPlacement === "top" || raw.harnessPlacement === "compact"
+        ? raw.harnessPlacement
+        : "symbols",
     harnessSwitch: flag("harnessSwitch"),
-    escapeDoublePress: flag("escapeDoublePress"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
+    newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
+    composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
+    cloudEnvironments: flag("cloudEnvironments"),
   };
 }
 
@@ -232,4 +273,43 @@ export function setScrollToBottomOnSend(show: boolean) {
       if (write === scrollWrite) publishComposerSettings({ scrollToBottomOnSend: confirmedScrollToBottomOnSend });
     },
   );
+}
+
+/// The host's write of `agentPane.composerRing` (`pane.setComposerRing {ring}`).
+let composerRingHost: ((ring: ComposerRing) => unknown) | undefined;
+
+/// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
+export function registerComposerRingHost(write: ((ring: ComposerRing) => unknown) | undefined) {
+  composerRingHost = write;
+}
+
+/// Shows the context window or the plan usage limits in every composer's ring, and asks the host
+/// to persist it. The page changes at once and keeps the choice even when the write fails (an older
+/// host without the setting): it is only a look, and the host's next value is authoritative.
+export function setComposerRing(ring: ComposerRing) {
+  setComposerSettings({ composerRing: ring });
+  try {
+    void Promise.resolve(composerRingHost?.(ring)).catch(() => undefined);
+  } catch {
+    // The page keeps its choice (above).
+  }
+}
+
+/// The host's write of `agentPane.dictationSource` (`pane.setDictationSource {source}`).
+let dictationSourceHost: ((source: DictationSource) => unknown) | undefined;
+
+/// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
+export function registerDictationSourceHost(write: ((source: DictationSource) => unknown) | undefined) {
+  dictationSourceHost = write;
+}
+
+/// Picks what every composer's mic dictates with, and asks the host to persist it. The page changes
+/// at once, as the ring's pick does; the host's next value is authoritative.
+export function setDictationSource(source: DictationSource) {
+  setComposerSettings({ dictationSource: source });
+  try {
+    void Promise.resolve(dictationSourceHost?.(source)).catch(() => undefined);
+  } catch {
+    // The page keeps its choice (above).
+  }
 }

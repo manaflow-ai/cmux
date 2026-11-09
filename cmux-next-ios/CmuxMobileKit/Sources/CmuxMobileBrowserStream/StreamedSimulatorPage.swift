@@ -13,7 +13,7 @@ public struct StreamedSimulatorPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
 
-    public static let unavailableText = String(localized: "Simulators aren't available from this Mac yet.")
+    public static let unavailableText = String(localized: "Simulators aren't available from this Mac.")
 
     public init(model: StreamedBrowserModel, insets: EdgeInsets) {
         self.model = model
@@ -50,6 +50,8 @@ public struct StreamedSimulatorPage: View {
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
         .background(Color.black)
+        // The simulator page is black in both appearances: its status and Retry draw dark.
+        .environment(\.colorScheme, .dark)
         .onAppear {
             model.setVisible(true)
             model.reconnect()

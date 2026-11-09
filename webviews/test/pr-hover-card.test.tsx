@@ -70,11 +70,6 @@ const answer = {
   },
 };
 
-const tool = (id: string, command: string, output = "") => ({
-  id,
-  tool: { id, kind: "execute", title: command, status: "completed", exitCode: 0, command, output },
-});
-
 async function rig() {
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
   const { resetPullRequestStore } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
@@ -100,7 +95,9 @@ function expectFullCard(card: HTMLElement | null) {
   expect(card!.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
     "7 of 9 checks passed, 2 failing",
   );
-  expect(card!.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("✗ 2");
+  // In words, as CI checks (Leo 2026-11-07: "The check mark, the X mark, whatever. What does that mean?").
+  expect(card!.querySelector(".acpmux-pr-card__checksName")?.textContent).toBe("Checks");
+  expect(card!.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("2 failed");
 }
 
 /** The card's text as it shows: no svg titles and no screen-reader-only words. */
@@ -109,40 +106,6 @@ function shownText(element: Element): string {
   for (const hidden of copy.querySelectorAll("title, .acpmux-pr-card__sr")) hidden.remove();
   return copy.textContent ?? "";
 }
-
-test("a pull request bar opens the pull request card", async () => {
-  const { act } = await import("react");
-  const { createRoot } = await import("react-dom/client");
-  const { UiProvider } = await import("../src/ui/UiProvider");
-  const { PullRequestDock, RowPullRequests } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
-  const { transcriptPullRequests } = await import("../src/agent-session/acpmux/summary/transcriptPullRequests");
-  const host = await rig();
-  const element = dom.window.document.getElementById("root")!;
-  const root = createRoot(element);
-  const rows = [
-    { kind: "activity", id: "a1", version: 1, items: [tool("t1", `gh pr create --title "${TITLE}"`, URL)] },
-  ];
-  await act(async () =>
-    root.render(
-      <UiProvider container={element}>
-        <RowPullRequests.Provider value={transcriptPullRequests(rows as never)}>
-          <PullRequestDock />
-        </RowPullRequests.Provider>
-      </UiProvider>,
-    ),
-  );
-  const bar = element.querySelector<HTMLElement>(".acpmux-pr-dock__bar")!;
-  await act(async () => bar.focus());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expectFullCard(element.querySelector<HTMLElement>(".acpmux-pr-card"));
-  expect(host.calls.filter((call) => call.method === "pr.inspect")).toEqual([
-    { method: "pr.inspect", params: { url: URL } },
-  ]);
-  // The bar itself carries no tooltip: the card is the hover.
-  expect(bar.hasAttribute("title")).toBe(false);
-  await act(async () => root.unmount());
-  host.done();
-});
 
 test("a pull request chip in a reply opens the same card", async () => {
   const { act } = await import("react");
@@ -206,9 +169,11 @@ test("an inline link opens the same card: favicon, page title, host, the address
   expect(card.querySelector(".cv-link-preview__target")?.textContent).toBe(
     "https://docs.example.test/guide?page=2&token=•••",
   );
-  expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual(
-    expect.arrayContaining([expect.stringContaining("Open"), expect.stringContaining("Open in")]),
-  );
+  // One split button: Open, and its chevron named Open in (Leo 2026-11-07: "why don't we just combine both").
+  expect(card.querySelectorAll(".cv-link-preview__split")).toHaveLength(1);
+  expect(card.querySelector(".cv-link-preview__split .cv-link-preview__open")?.textContent).toContain("Open");
+  expect(card.querySelector(".cv-link-preview__split .acpmux-open-in")?.getAttribute("aria-label")).toBe("Open in");
+  expect(card.querySelector(".cv-link-preview__split .acpmux-open-in")?.textContent).toBe("");
   // No pull request, no gh read.
   expect(host.calls.some((call) => call.method === "pr.inspect")).toBe(false);
   await act(async () => root.unmount());
@@ -231,12 +196,10 @@ test("the card's chrome is quiet: borderless buttons, no divider, no underline, 
   expect(rule(".cv-link-preview__head")).not.toContain("border");
   expect(rule(".acpmux-pr-card__lines")).toContain("display:inline-flex");
   // Glass: the shared liquid glass (.ui-glass) paints the card, so the card itself sets no fill;
-  // plain glass and Reduce Transparency get the tooltip's tint and blur through the glass tokens.
+  // its level is the popover glass every hover card wears (glass.css GLASS LEVELS), never its own.
   const card = rule(".cv-link-preview");
   expect(card).not.toContain("background");
   expect(card).not.toContain("box-shadow");
   expect(rule(".cv-link-preview.ui-card")).toContain("--glass-elevation:");
-  const fallback = rule(':root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass');
-  expect(fallback).toContain("--glass-tint:var(--tooltip-tint");
-  expect(fallback).toContain("--glass-backdrop:var(--tooltip-blur");
+  expect(styles).not.toMatch(/\.cv-link-preview[^{}]*\{[^}]*--glass-(tint|backdrop):/);
 });

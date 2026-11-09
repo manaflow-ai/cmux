@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 public import Foundation
 
 /// What `cmux-tui acp --json daemon status` says about a machine's agent daemon (acpmux), read
@@ -24,6 +25,19 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
         personInstance = object["personInstance"] as? String
     }
 
+    /// The status of a Cloud machine's daemon, through the authenticated Cloud machine route (`api`'s exec), for older
+    /// cmux-tui builds that do not serve `agent-session-start-keyed-reason-v1`. Nil when it could not be read.
+    public static func read(cloudMachine machine: String, api: CloudAPIClient) async -> RemoteAgentDaemonStatus? {
+        let command = [
+            "set -eu",
+            #"b="$HOME/.cmux/bin/cmux-tui""#,
+            #"[ -x "$b" ] || exit 82"#,
+            #""$b" acp --json daemon status </dev/null""#,
+        ].joined(separator: "; ")
+        guard let result = try? await api.exec(machine, command: command, timeoutMs: 10_000), result.exitCode == 0 else { return nil }
+        return RemoteAgentDaemonStatus(json: result.stdout)
+    }
+
     public static func read(_ host: SSHHost, environment: [String: String]) async -> RemoteAgentDaemonStatus? {
         guard let status = try? await SSHProcessRunner.run(
             SSHCommandLine().command(host, "\(host.remoteBinary) acp --json daemon status </dev/null"),
@@ -38,6 +52,16 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
         !running || (ready && agentHosts && liveAgents == 0 && remoteSessions == 0)
     }
 
+    /// The POSIX script (for `SSHCommandLine.script`) that stops the machine's agent daemon for a handoff, as an update restart
+    /// (`--restart`): hosted agents keep running for the new run, and a chat waiting on a provider
+    /// retry resumes there (a plain shutdown records `auto_resume_stopped`). An older CLI that does
+    /// not know `--restart` gets `--keep-agents` alone, the way acpmux's own host update falls back
+    /// (`SHUTDOWN_KEEPING_AGENTS` in acpmux `cli/hosts.rs`); any other failure is not retried.
+    public static func shutdownKeepingAgents(binary: String) -> String {
+        "out=$(\(binary) acp daemon shutdown --keep-agents --restart </dev/null 2>&1) || case \"$out\" in "
+            + "*\"unexpected argument '--restart'\"*) \(binary) acp daemon shutdown --keep-agents </dev/null ;; esac"
+    }
+
     /// cx-brq9m: why the handoff after an install leaves this daemon as it is; nil when the keyed
     /// restart may hand it over to the new binary (it keeps agent hosts: every hosted agent is
     /// adopted). A session proxied from a peer acpmux would end with this run, so it stays.
@@ -47,13 +71,16 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
         return nil
     }
 
-    /// cx-3r9mt: whether an automatic update may run: none runs, or it runs no live agent and no
-    /// peer session and holds no other client's person key (none, or `ownInstance`). (Move to the
-    /// remote cmux-tui with the other agent-daemon checks, cx-3r9mt move-to-Rust item.)
-    public func idleForUpdate(ownInstance: String?) -> Bool {
+    /// cx-3r9mt: whether an automatic update may run: none runs, or it holds no other client's
+    /// person key (none, or `ownInstance`). Live agents and peer sessions do not hold it back (Leo,
+    /// 2026-10-21: the daemon update never waits for idle): the install hands terminals to the new
+    /// daemon, and the agent daemon's handoff after it (``handoffBlocker``) adopts every hosted agent
+    /// and leaves a run with peer sessions as it is. A busy machine that waited for idle kept an
+    /// older cmux-tui, and its fixes, until someone clicked Update. (Move to the remote cmux-tui
+    /// with the other agent-daemon checks, cx-3r9mt move-to-Rust item.)
+    public func mayUpdateAutomatically(ownInstance: String?) -> Bool {
         guard running else { return true }
-        let otherKey = personKey && personInstance != ownInstance
-        return liveAgents == 0 && remoteSessions == 0 && !otherKey
+        return !(personKey && personInstance != ownInstance)
     }
 }
 
@@ -86,12 +113,19 @@ extension SSHHost {
     /// --build-facts`; an older cmux-tui ignores the flag and answers its plain probe, which the
     /// rule counts as older) go to the app's bundled `cmux-tui remote update-need`.
     public func updateCheck(binary: URL, environment: [String: String]) async -> (probe: RemoteProbe, need: RemoteUpdateNeed)? {
+        await updateCheck(remoteBinary: remoteBinary, binary: binary, environment: environment)
+    }
+
+    /// ``updateCheck(binary:environment:)`` for another cmux-tui on the machine (the person's own
+    /// `SSHHost.staticInstallBinary`). A file that is not cmux-tui (classic cmux's relay CLI at the
+    /// same path) gives nil: it is never touched.
+    public func updateCheck(remoteBinary: String, binary: URL, environment: [String: String]) async -> (probe: RemoteProbe, need: RemoteUpdateNeed)? {
         guard let facts = try? await SSHProcessRunner.run(
             SSHCommandLine().command(self, "\(remoteBinary) remote-probe --json --build-facts </dev/null"),
             environment: environment, deadline: .seconds(20), label: "remote-probe \(destination)"),
             facts.status == 0,
             let line = facts.stdout.split(separator: "\n").last(where: { $0.hasPrefix("{") }),
-            let probe = try? RemoteProbe.decode(String(line)),
+            let probe = try? RemoteProbe.decode(String(line)), probe.app == "cmux-tui",
             let need = await probe.updateNeed(asking: binary) else { return nil }
         return (probe, need)
     }
@@ -115,6 +149,35 @@ public actor RemoteApprovalPreparations {
         running[machine] = nil
         if keepBusy || bound { busyUntil[machine] = bound ? nil : ContinuousClock.now.advanced(by: .seconds(60)) }
         return bound
+    }
+
+    /// A new chat's keyed restart. `daemonSaidSafe` (the daemon answered that it may restart): at once. Else (an older
+    /// daemon, or a start turning approvals on ahead of its chat): done when a run already holds the key (`held`), and
+    /// only an `idle` daemon restarts, a busy answer kept for a minute. False: the chat starts unkeyed, and its Allow
+    /// shows the normal restart notice.
+    public func prepare(machine: String, daemonSaidSafe: Bool, held: Bool, idle: @escaping @Sendable () async -> Bool,
+                        restart: @escaping @Sendable () async -> Bool) async -> Bool {
+        if daemonSaidSafe { return await run(machine: machine, keepBusy: false, restart) }
+        if held { return true }
+        return await run(machine: machine, keepBusy: true) {
+            guard await idle() else { return false }
+            return await restart()
+        }
+    }
+
+    /// Runs `body` while `prep` (a start's keyed-restart prep) runs beside it. The prep belongs to the caller: it is awaited
+    /// before this returns, and cancelled first on an error exit, so no restart outlives the start that asked (#39069's review).
+    @MainActor public static func owned<T>(_ prep: @escaping @MainActor @Sendable () async -> Bool, _ body: @MainActor () async throws -> T) async throws -> T {
+        let task = Task { await prep() } // task-owner: awaited on every exit below
+        do {
+            let value = try await body()
+            _ = await task.value
+            return value
+        } catch {
+            task.cancel()
+            _ = await task.value
+            throw error
+        }
     }
 }
 
