@@ -9,7 +9,7 @@
 # full-gate lane (ci-status, Release compile, swift test). It also checks conflict markers and freezes. The full suites run after
 # the merge; the culprit bot and the base sheriff revert or fix forward.
 # Into feat-cmux-next, --wait also bounds the check-path gate's reruns of the fast gates
-# (scripts/ci/merge_check_paths.py): they get what the fast gate left of it.
+# (scripts/ci/merge_check_paths.py): they get what the fast gate and the merged-tree checks left of it.
 # --full keeps the wait for every check (main, classic), as does every base other than
 # feat-cmux-next. Every feat-cmux-next merge, on either gate, also needs an independent review's SHIP
 # receipt for the exact head (scripts/ci/review_receipt.py), which nothing waives.
@@ -82,7 +82,7 @@ case "${1:-}" in
       '       gh-merge-green --revert OWNER/REPO#PR' \
       'Merges only when the PR head'"'"'s required-in-practice checks are green.' \
       'Into feat-cmux-next it waits only for the fast gate (scripts/ci/merge_fast_gate.py); --full waits for every check.' \
-      '--wait SECONDS (default 2400) bounds the fast gate'"'"'s wait and, into feat-cmux-next, the check-path gate'"'"'s reruns of the fast gates after it (the first dispatched run always gets its own 1200s).' \
+      '--wait SECONDS (default 2400) bounds the fast gate'"'"'s wait and, into feat-cmux-next, the check-path gate'"'"'s reruns of the fast gates after it; the merged-tree checks'"'"' time counts against it too (the first dispatched run always gets its own 1200s).' \
       '--dry-run runs every gate, then posts and merges nothing.' \
       '--sha SHA (or --match-head-commit SHA) refuses unless SHA is the current head.' \
       'gh pr merge flags passed on: --squash --merge --rebase --delete-branch --subject --body --body-file --author-email --auto --disable-auto --admin' \
@@ -1453,6 +1453,14 @@ for name in open(sys.argv[2]).read().split():
 # on a cold install), except for a PR touching a protected gate path (leoli-f6,
 # 2026-10-19): that one gets every merged-tree check back.
 merged_tree_gate() {
+  # Their time (bun install and vp check: minutes) counts against --wait like the gates' waits, so the
+  # final check-path reruns stop at the --wait limit.
+  local started
+  started=$(date +%s)
+  merged_tree_checks
+  waited_seconds=$(( waited_seconds + $(date +%s) - started ))
+}
+merged_tree_checks() {
   if [ "$base" = feat-cmux-next ] && [ "$fast" -eq 0 ]; then
     merged_head_checks
   elif [ "$fast" -eq 1 ]; then

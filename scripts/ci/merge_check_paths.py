@@ -11,8 +11,10 @@ scripts/ci/check-paths.txt (fnmatch patterns, one list shared with next-autoland
 baselines, the fast gates and the workflows that run them.
 
 The pull request's CI base is the `base <sha>` its `cmux-next/fast-gates` status names (the merge's first parent).
-The gate passes when that base is the tip, or an ancestor of it whose newer commits change no check path. Otherwise
-(the status names no base, or its base is not an ancestor, too far behind, or a check path changed since) it
+The gate passes when that status is a success and its base is the tip, or an ancestor of it whose newer commits
+change no check path. Otherwise (no status, a status that is not a success, such as a red or a stopped run's
+"no verdict", a status that names no base, or a base that is not an ancestor, too far behind, or older than a check
+path change) it
 dispatches cmux-next-fast-gates.yml for the pull request, which merges the head into the current tip and runs the
 cheap gates and the webviews checks there, and waits for that run's status: a success whose base is fresh again
 passes; a red, or a run that never reports within --timeout, refuses. When the base changed a check path again
@@ -162,9 +164,12 @@ def hits(files, pats: list[str]) -> list[str]:
 
 
 def stale(api: Api, status: dict | None, tip: str, pats: list[str]) -> str:
-    """Why a fast-gates status is stale for TIP as far as check paths go ("" when it is not)."""
+    """Why a fast-gates status does not prove TIP ("" when it does): it must be a success at a fresh base."""
     if not status:
         return f"{CONTEXT} has not run on this head"
+    # A red, an error or a stopped run's pending "no verdict" proves nothing at any base: a new run decides.
+    if status.get("state") != "success":
+        return f"{CONTEXT} is {status.get('state') or 'unknown'} ({(status.get('description') or '')[:160]})"
     found = STATUS_BASE.search(status.get("description") or "")
     if not found:
         return f"{CONTEXT} names no base"
@@ -249,6 +254,7 @@ def gate(api: Api, number: str, sha: str, branch: str, timeout: float, interval:
             what = (status or {}).get("description") or "the run ended and posted no status"
             why = f"dispatched run {runs} stopped with no verdict ({what})"
             before = status or before
+            tip = api.tip(branch)
             continue
         if status.get("state") != "success":
             raise Refused(f"{CONTEXT} is {status.get('state')} on the pull request merged with the current tip "
