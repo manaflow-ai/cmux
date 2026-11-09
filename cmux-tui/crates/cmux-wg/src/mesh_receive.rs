@@ -44,27 +44,41 @@ impl MeshDriver {
     /// An initiation without this side's MAC is dropped; past the handshake
     /// rate the initiator must prove its address with a cookie first
     /// (WireGuard's under-load rule), which reveals nothing it did not
-    /// already know and keeps no state.
+    /// already know and keeps no state. An initiation to this side's retired
+    /// key (`WgMesh::start_retiring`) passes its own gate and is taken only
+    /// from a peer whose session runs on that key.
     fn initiator(&mut self, datagram: &[u8], source: Option<PeerRoute>) -> Option<PeerKey> {
-        self.gate.reset_count();
+        let from = source.map(|route| route.address().ip());
         let mut cookie = [0u8; COOKIE_REPLY_BYTES];
-        let verified = self.gate.verify_packet(
-            source.map(|route| route.address().ip()),
-            datagram,
-            &mut cookie,
-        );
-        let initiation = match verified {
-            Ok(Packet::HandshakeInit(initiation)) => initiation,
+        self.gate.reset_count();
+        let (initiation, retired) = match self.gate.verify_packet(from, datagram, &mut cookie) {
+            Ok(Packet::HandshakeInit(initiation)) => (initiation, false),
             Err(TunnResult::WriteToNetwork(reply)) => {
                 self.out.send(source, reply);
                 return None;
             }
-            _ => return None,
+            Ok(_) => return None,
+            Err(_) => {
+                let gate = self.retired_gate.as_ref()?;
+                gate.reset_count();
+                match gate.verify_packet(from, datagram, &mut cookie) {
+                    Ok(Packet::HandshakeInit(initiation)) => (initiation, true),
+                    Err(TunnResult::WriteToNetwork(reply)) => {
+                        self.out.send(source, reply);
+                        return None;
+                    }
+                    _ => return None,
+                }
+            }
         };
-        let half =
-            parse_handshake_anon(self.table.private(), self.table.public(), &initiation).ok()?;
+        let (private, public) = if retired {
+            self.table.retired()?
+        } else {
+            (self.table.private(), self.table.public())
+        };
+        let half = parse_handshake_anon(private, public, &initiation).ok()?;
         let key = half.peer_static_public;
-        self.table.contains(&key).then_some(key)
+        self.table.admits(&key, retired).then_some(key)
     }
 
     /// Hand `datagram` to `key`'s session and act on the result.

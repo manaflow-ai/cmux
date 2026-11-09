@@ -46,6 +46,8 @@ pub(crate) struct Peer {
     pub(crate) waiting: Option<Instant>,
     /// When this side last sent the peer a handshake initiation.
     pub(crate) initiated: Option<Instant>,
+    /// The session runs on this side's retired key (`WgMesh::add_peer_on_retired_key`).
+    pub(crate) on_retired: bool,
 }
 
 impl Peer {
@@ -79,15 +81,22 @@ impl Peer {
 pub(crate) struct PeerTable {
     private: StaticSecret,
     public: PublicKey,
+    /// The key this side had before, still answered for the peers on it.
+    retired: Option<(StaticSecret, PublicKey)>,
     peers: HashMap<PeerKey, Peer>,
     by_index: HashMap<u32, PeerKey>,
     next_index: u32,
 }
 
 impl PeerTable {
-    pub(crate) fn new(private: &[u8; 32]) -> Self {
+    pub(crate) fn new(private: &[u8; 32], retired: Option<&[u8; 32]>) -> Self {
         let private = StaticSecret::from(*private);
         let public = PublicKey::from(&private);
+        let retired = retired.map(|retired| {
+            let retired = StaticSecret::from(*retired);
+            let public = PublicKey::from(&retired);
+            (retired, public)
+        });
         let mut seed = [0u8; 4];
         // A failure only makes the first index predictable; indexes are
         // not secrets, they only have to be unique.
@@ -95,6 +104,7 @@ impl PeerTable {
         Self {
             private,
             public,
+            retired,
             peers: HashMap::new(),
             by_index: HashMap::new(),
             next_index: u32::from_le_bytes(seed) & INDEX_MASK,
@@ -109,8 +119,15 @@ impl PeerTable {
         &self.public
     }
 
-    pub(crate) fn contains(&self, key: &PeerKey) -> bool {
-        self.peers.contains_key(key)
+    /// This side's retired key, when it has one.
+    pub(crate) fn retired(&self) -> Option<(&StaticSecret, &PublicKey)> {
+        self.retired.as_ref().map(|(private, public)| (private, public))
+    }
+
+    /// Whether `key` is a peer whose session runs on this side's retired key
+    /// (`retired`) or on its current one.
+    pub(crate) fn admits(&self, key: &PeerKey, retired: bool) -> bool {
+        self.peers.get(key).is_some_and(|peer| peer.on_retired == retired)
     }
 
     pub(crate) fn get_mut(&mut self, key: &PeerKey) -> Option<&mut Peer> {
@@ -141,12 +158,18 @@ impl PeerTable {
         best.map(|(_, key)| key)
     }
 
-    /// Refuse a peer that is this side's own key, or whose networks overlap
+    /// Refuse a peer that is this side's own key (current or retired), one
+    /// on a retired key this side does not have, or whose networks overlap
     /// each other or another peer's (a replaced peer's own networks do not
     /// count).
-    pub(crate) fn check(&self, peer: &WgPeer) -> Result<(), WgError> {
-        if peer.public_key == self.public.to_bytes() {
+    pub(crate) fn check(&self, peer: &WgPeer, retired: bool) -> Result<(), WgError> {
+        if peer.public_key == self.public.to_bytes()
+            || self.retired.as_ref().is_some_and(|(_, public)| peer.public_key == public.to_bytes())
+        {
             return Err(WgError::InvalidPeer("a mesh cannot peer with its own key"));
+        }
+        if retired && self.retired.is_none() {
+            return Err(WgError::InvalidPeer("this mesh has no retired key"));
         }
         for (position, network) in peer.allowed_ips.iter().enumerate() {
             if peer.allowed_ips.iter().take(position).any(|earlier| overlaps(earlier, network)) {
@@ -166,11 +189,15 @@ impl PeerTable {
     /// Add `peer` with a new session, replacing one with the same key. A
     /// replaced peer keeps the route it was last seen on unless `peer`
     /// names one. Call [`PeerTable::check`] first.
-    pub(crate) fn insert(&mut self, peer: WgPeer, now: Instant) -> &mut Peer {
+    pub(crate) fn insert(&mut self, peer: WgPeer, now: Instant, retired: bool) -> &mut Peer {
         let previous = self.remove(&peer.public_key);
         let index = self.allocate_index();
+        let own = match &self.retired {
+            Some((private, _)) if retired => private.clone(),
+            _ => self.private.clone(),
+        };
         let tunn = Tunn::new(
-            self.private.clone(),
+            own,
             PublicKey::from(peer.public_key),
             peer.preshared_key.as_deref().copied(),
             peer.persistent_keepalive,
@@ -186,6 +213,7 @@ impl PeerTable {
             schedule: TimerSchedule::new(now, keepalive),
             waiting: None,
             initiated: None,
+            on_retired: retired && self.retired.is_some(),
         };
         self.by_index.insert(index, peer.public_key);
         self.peers.entry(peer.public_key).or_insert(entry)

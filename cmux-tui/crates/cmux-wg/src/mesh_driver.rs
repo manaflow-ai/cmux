@@ -18,6 +18,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
+use zeroize::Zeroizing;
 
 use crate::config::InterfaceAddress;
 use crate::error::WgError;
@@ -43,10 +44,11 @@ pub(crate) const HANDSHAKES_PER_SECOND: u64 = 100;
 
 pub(crate) fn spawn(
     config: WgMeshConfig,
+    retired: Option<Zeroizing<[u8; 32]>>,
     socket: UdpSocket,
     commands: mpsc::Receiver<MeshCommand>,
 ) -> Result<JoinHandle<()>, WgError> {
-    let driver = MeshDriver::new(config, socket, commands)?;
+    let driver = MeshDriver::new(config, retired.as_deref(), socket, commands)?;
     Ok(tokio::spawn(driver.run()))
 }
 
@@ -59,6 +61,9 @@ pub(crate) struct MeshDriver {
     /// Checks the MAC of every handshake initiation before the
     /// Diffie-Hellman that identifies its key, and rate-limits them.
     pub(crate) gate: RateLimiter,
+    /// The same check for initiations to this side's retired key, when it
+    /// has one (`WgMesh::start_retiring`).
+    pub(crate) retired_gate: Option<RateLimiter>,
     /// Per-connection pacing of the stack's output (shared with
     /// [`crate::WgNet`]): smoltcp releases a whole window at once, and a
     /// burst into a socket buffer loses segments.
@@ -83,20 +88,24 @@ enum Event {
 impl MeshDriver {
     pub(crate) fn new(
         config: WgMeshConfig,
+        retired: Option<&[u8; 32]>,
         socket: UdpSocket,
         commands: mpsc::Receiver<MeshCommand>,
     ) -> Result<Self, WgError> {
         let local = socket.local_addr()?;
         let wake = Arc::new(Notify::new());
         let stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), true)?;
-        let table = PeerTable::new(&config.private_key);
+        let table = PeerTable::new(&config.private_key, retired);
         let gate = RateLimiter::new(table.public(), HANDSHAKES_PER_SECOND);
+        let retired_gate =
+            table.retired().map(|(_, public)| RateLimiter::new(public, HANDSHAKES_PER_SECOND));
         Ok(Self {
             table,
             stack,
             out: Outbound::new(SocketPath::new(socket, None), local),
             addresses: config.addresses,
             gate,
+            retired_gate,
             pacer: Pacer::default(),
             pace_deadline: None,
             closing: None,
@@ -276,8 +285,8 @@ impl MeshDriver {
 
     fn handle_command(&mut self, command: MeshCommand) {
         match command {
-            MeshCommand::AddPeer { peer, reply } => {
-                let _ = reply.send(self.add_peer(peer));
+            MeshCommand::AddPeer { peer, retired, reply } => {
+                let _ = reply.send(self.add_peer(peer, retired));
             }
             MeshCommand::RemovePeer { public_key, reply } => {
                 let removed = self.table.remove(&public_key).is_some();
@@ -294,11 +303,11 @@ impl MeshDriver {
         }
     }
 
-    fn add_peer(&mut self, peer: WgPeer) -> Result<(), WgError> {
-        self.table.check(&peer)?;
+    fn add_peer(&mut self, peer: WgPeer, retired: bool) -> Result<(), WgError> {
+        self.table.check(&peer, retired)?;
         let key = peer.public_key;
         let now = Instant::now();
-        let entry = self.table.insert(peer, now);
+        let entry = self.table.insert(peer, now, retired);
         // A replaced peer's connections stay only where it still routes.
         let allowed = entry.allowed_ips.clone();
         // Start the session now when the peer's address is known, so a peer

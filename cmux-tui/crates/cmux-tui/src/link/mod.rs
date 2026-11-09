@@ -302,6 +302,7 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
     {
         bail!("server_link.identity_mismatch");
     }
+    let adopted = key_adoption::adopted(state)?;
     Ok(json!({
         "install": config.install,
         "public_key": STANDARD.encode(public_key),
@@ -311,8 +312,9 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
         "socket": live.map(|registration| registration.socket),
         "peers_file": state.peers_path(),
         "identity_source": if config.server_identity.is_some() { "server_pairing" } else { "local" },
-        // The link key the node key replaced, for re-pairing a peer that missed it.
-        "retired_public_key": key_adoption::adopted(state)?.and_then(|adopted| adopted.retired_public_key),
+        // The link key the node key replaced, and the paired peers not told yet.
+        "retired_public_key": adopted.as_ref().and_then(|adopted| adopted.retired_public_key.clone()),
+        "retiring_for": adopted.map(|adopted| adopted.pending).unwrap_or_default(),
     }))
 }
 
@@ -495,22 +497,28 @@ async fn serve(
     let config = state.config().context("run `cmux link init --install ID` first")?;
     let pairings = Pairings::load(&state.peers_path())?;
     // One key per machine: the node key, adopted under the held lock (`key_adoption.rs`).
-    let private_key = key_adoption::serve_key(&state, key, &pairings).await?;
-    let public_key = state::public_key(&private_key);
+    let served_key = key_adoption::serve_key(&state, key, &pairings).await?;
+    let public_key = state::public_key(&served_key.key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
             .await
             .with_context(|| format!("bind UDP port {}", config.port))?;
     let own = overlay_address(&config.install);
-    let mesh = WgMesh::start(
-        WgMeshConfig {
-            private_key,
-            addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
-            mtu: LINK_MTU,
-        },
-        socket,
-    )?;
+    let mesh_config = WgMeshConfig {
+        private_key: served_key.key,
+        addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
+        mtu: LINK_MTU,
+    };
+    // Peers not told the adopted key yet still reach the retired one, on this same socket.
+    let (mesh, retiring) = match served_key.retiring {
+        Some(retiring) => {
+            (WgMesh::start_retiring(mesh_config, retiring.key, socket)?, retiring.pending)
+        }
+        None => (WgMesh::start(mesh_config, socket)?, Default::default()),
+    };
+    let still_retiring = !retiring.is_empty();
     let overlay = Arc::new(MeshOverlay::new(mesh));
+    overlay.set_retiring(retiring);
     let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
@@ -541,12 +549,28 @@ async fn serve(
         served = serve_local(local, overlay.clone(), peers.clone(), status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
         () = reload_on_rekey(&peers, &overlay) => Ok(()),
+        () = finish_then_wait(still_retiring, &state, &overlay, &peers, &public_key) => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
     result
+}
+
+/// The end of an adoption's retirement (`key_adoption::finish_retiring`), then nothing.
+async fn finish_then_wait(
+    retiring: bool,
+    state: &LinkState,
+    overlay: &MeshOverlay,
+    peers: &Peers,
+    node_public: &[u8; 32],
+) {
+    if retiring {
+        key_adoption::finish_retiring(state, overlay, peers, node_public, key_adoption::RETRY)
+            .await;
+    }
+    std::future::pending::<()>().await;
 }
 
 /// A paired peer's link named its new key (`inbound.rs`): the pairing file
