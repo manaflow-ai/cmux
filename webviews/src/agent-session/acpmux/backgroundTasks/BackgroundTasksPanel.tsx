@@ -665,6 +665,7 @@ function TaskRow({
   onStop?(target: StopTarget): Promise<unknown>;
   onOpenCommand?(task: BackgroundTask): void;
 }) {
+  const t = useT();
   const agentId = task.agentId;
   const pane = useContext(Workflows) ? task.workflow?.pane : undefined;
   const readsOutput = useContext(ReadsOutput);
