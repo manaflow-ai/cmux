@@ -2073,7 +2073,7 @@ pub use profiles::{
 pub mod chief_builtins;
 mod preset_args;
 pub use preset_args::{
-    Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,
+    Preset, SYSTEM_PROMPT_FILE, UnattendedApproval, check_preset_args, check_preset_dir_name, checked_system_prompt,
     parse_preset_args, remove_preset_dir, write_system_prompt,
 };
 

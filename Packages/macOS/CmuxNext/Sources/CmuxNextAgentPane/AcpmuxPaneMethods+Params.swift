@@ -171,6 +171,8 @@ nonisolated extension AcpmuxPaneMethods {
         "acp.trust.set": (["cwd", "level", "sessionId", "peer"], []),
         // Never `sha256`: only the relay adds it, after the native sheet's Enable.
         "_acpmux/harness_enable": (["folder", "id"], []),
+        "_acpmux/preset_approvals": ([], []),
+        "_acpmux/preset_approve": (["name", "approve", "digest"], []),
         // They meet the gesture rule and the sheet; their mode field is their purpose.
         "session/set_mode": (["sessionId", "modeId", "_meta"], []),
         "session/set_config_option": (["sessionId", "configId", "value", "_meta"], []),

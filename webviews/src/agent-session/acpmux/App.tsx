@@ -196,6 +196,8 @@ import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
 import { answerFromHome } from "./homeInboxModel";
 import { HomeLists } from "./HomeLists";
+import { PresetApprovals } from "./PresetApprovals";
+import type { PresetApprovalsClient } from "./presetApprovalsModel";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
@@ -3326,6 +3328,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => ({
       listProcesses: (sessionId) => directClient.current?.listProcesses(sessionId) ?? Promise.reject(new Error()),
       watchProcesses: (listener) => directClient.current?.watchProcesses(listener) ?? (() => undefined),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
+    [clientEpoch],
+  );
+  // The home's Unattended runs card reads and approves presets on the pane's connection; a new
+  // client is a new source, so the card reads again. Approve goes straight from its click.
+  const presetSource = useMemo<PresetApprovalsClient>(
+    () => ({
+      presetApprovals: () => directClient.current?.presetApprovals() ?? Promise.reject(new Error()),
+      presetApprove: (name, approve, digest) =>
+        directClient.current?.presetApprove(name, approve, digest) ?? Promise.reject(new Error()),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
     [clientEpoch],
@@ -12107,6 +12120,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
                       shortcuts={!hasBottomAsk}
                     />
+                    {clientEpoch > 0 && <PresetApprovals client={presetSource} />}
                   </div>
                 )}
                 {hostLine}

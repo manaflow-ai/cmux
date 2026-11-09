@@ -372,7 +372,10 @@ scratch folder. `--mode` is refused, and the session starts in the harness's
 asking mode. `--policy approve-all` passes only when that machine serves this one
 as a peer (`servedAs` in `acpmux --json machine ls`); otherwise start it on that
 machine itself, `ssh HOST 'acpmux new … --policy approve-all -d'`, and drive it
-from here as `MACHINE/NAME`. Every such refusal ends with the command that works
+from here as `MACHINE/NAME`. On a fleet agent machine, `-p PRESET` with a preset the
+person approved for unattended runs in the cmux app starts at that preset's policy
+with no prompt (`acpmux --json preset NAME` shows `unattendedApproved`); one that is not
+approved says so in the start's warning. Every such refusal ends with the command that works
 (`--json`: `error.data.try`, with `error.data.reason`): run that, do not guess.
 
 `machine setup HOST` installs a daemon over ssh; `machine update --all` pushes the

@@ -73,6 +73,9 @@ nonisolated enum AcpmuxPaneMethods {
         // Enable a folder harness (direct.ts harnessEnable): the relay asks the user on its own
         // native sheet and adds the confirmed sha256 itself (``AgentPaneHarnessEnablePrompt``).
         "_acpmux/harness_enable",
+        // The Unattended runs card (PresetApprovals.tsx): read the presets, approve one for
+        // unattended runs on fleet agent machines, or revoke it (acpmux hub/unattended.rs).
+        "_acpmux/preset_approvals", "_acpmux/preset_approve",
         // The private secret card's answer to an agent's request_secret (SecretCard.tsx, cx-ncc.42):
         // the value goes to acpmux, which keeps it in memory and gives the agent a one-use ref. The
         // transport never logs a frame, so the value stays out of the host's logs.
@@ -402,6 +405,8 @@ nonisolated enum AcpmuxPaneMethods {
         "acp.trust.set": .whenTrusting,
         // The page's click opens the native sheet; the sheet's Enable is the second gesture.
         "_acpmux/harness_enable": .always,
+        // The card's confirm (or Revoke) is a click.
+        "_acpmux/preset_approve": .always,
         "_acpmux/permission_respond": .whenOptionAllows,
         "_acpmux/permission_group_respond": .whenDecisionAllows,
         // The card's Provide hands over a secret (its Decline is a click too).

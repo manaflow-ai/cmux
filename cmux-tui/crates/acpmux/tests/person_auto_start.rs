@@ -884,3 +884,92 @@ async fn auto_start_a_profile_or_preset_env_never_sets_the_caller_token() {
         assert_eq!(token.len(), 64, "{meta}: {token:?}");
     }
 }
+
+/// The approval-for-unattended-runs row of `name` in `_acpmux/preset_approvals`.
+async fn approval_row(c: &mut Rpc, name: &str) -> Value {
+    let all = c.ok("_acpmux/preset_approvals", json!({})).await;
+    all["presets"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["name"] == name).cloned())
+        .unwrap_or_else(|| panic!("no row {name}: {all}"))
+}
+
+/// A preset approved for unattended runs (`hub/unattended.rs`): only the person approves it, for
+/// the exact contents the card showed; any edit clears it; anyone may revoke it.
+#[tokio::test]
+async fn unattended_only_the_person_approves_a_preset_for_the_contents_it_saw() {
+    let d = Daemon::start("unattended");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let mut cli = Rpc::plain(&d.socket).await;
+    app.ok(
+        "_acpmux/presets",
+        json!({"name": "agent-lane", "set": {"harness": "fake", "policy": "approve-all"}}),
+    )
+    .await;
+    let row = approval_row(&mut cli, "agent-lane").await;
+    assert_eq!(row["approval"], Value::Null, "{row}");
+    assert_eq!(row["blocked"], Value::Null, "{row}");
+    let digest = row["digest"].as_str().unwrap().to_owned();
+    assert!(!digest.is_empty(), "{row}");
+    // An agent (the CLI) cannot approve it.
+    let approve = json!({"name": "agent-lane", "approve": true, "digest": digest});
+    let r = cli.call("_acpmux/preset_approve", approve.clone()).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    // The person approves only what they saw.
+    let r = app
+        .call("_acpmux/preset_approve", json!({"name": "agent-lane", "approve": true, "digest": "00"}))
+        .await;
+    assert_eq!(reason(&r), "preset_approval.changed", "{r}");
+    assert_eq!(r["error"]["data"]["digest"], digest.as_str(), "{r}");
+    let row = app.ok("_acpmux/preset_approve", approve.clone()).await;
+    assert_eq!(row["approval"]["digest"], digest.as_str(), "{row}");
+    let view = cli.ok("_acpmux/presets", json!({"name": "agent-lane"})).await;
+    assert_eq!(view["unattendedApproved"], true, "{view}");
+    // The approval and the log are in the daemon's home.
+    let log = std::fs::read_to_string(d.dir.join("unattended-presets.jsonl")).unwrap();
+    assert!(log.lines().any(|l| l.contains("\"approved\"") && l.contains("agent-lane")), "{log}");
+    // A description is not contents; a model is.
+    cli.ok("_acpmux/presets", json!({"name": "agent-lane", "set": {"description": "lanes"}})).await;
+    assert_ne!(approval_row(&mut cli, "agent-lane").await["approval"], Value::Null);
+    cli.ok("_acpmux/presets", json!({"name": "agent-lane", "set": {"model": "m2"}})).await;
+    let row = approval_row(&mut cli, "agent-lane").await;
+    assert_eq!(row["approval"], Value::Null, "an edit clears it: {row}");
+    let view = cli.ok("_acpmux/presets", json!({"name": "agent-lane"})).await;
+    assert_eq!(view["unattendedApproved"], false, "{view}");
+    let log = std::fs::read_to_string(d.dir.join("unattended-presets.jsonl")).unwrap();
+    assert!(log.lines().any(|l| l.contains("\"cleared\"")), "{log}");
+    // Approved again, then revoked by anyone (the CLI).
+    let digest = row["digest"].as_str().unwrap().to_owned();
+    app.ok("_acpmux/preset_approve", json!({"name": "agent-lane", "approve": true, "digest": digest}))
+        .await;
+    let row = cli.ok("_acpmux/preset_approve", json!({"name": "agent-lane", "approve": false})).await;
+    assert_eq!(row["approval"], Value::Null, "{row}");
+    let log = std::fs::read_to_string(d.dir.join("unattended-presets.jsonl")).unwrap();
+    assert!(log.lines().any(|l| l.contains("\"revoked\"")), "{log}");
+}
+
+#[tokio::test]
+async fn unattended_a_preset_that_asks_or_carries_more_than_a_harness_cannot_be_approved() {
+    let d = Daemon::start("unattended-blocked");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    app.ok("_acpmux/presets", json!({"name": "asks", "set": {"harness": "fake"}})).await;
+    app.ok(
+        "_acpmux/presets",
+        json!({"name": "env", "set": {"harness": "fake", "policy": "approve-all", "env": {"A": "b"}}}),
+    )
+    .await;
+    for (name, why) in [("asks", "preset.policy_asks"), ("env", "preset.env")] {
+        let row = approval_row(&mut app, name).await;
+        assert_eq!(row["blocked"], why, "{row}");
+        let digest = row["digest"].as_str().unwrap_or_default().to_owned();
+        let r = app
+            .call("_acpmux/preset_approve", json!({"name": name, "approve": true, "digest": digest}))
+            .await;
+        assert_eq!(reason(&r), "preset_approval.blocked", "{r}");
+        assert_eq!(r["error"]["data"]["blocked"], why, "{r}");
+    }
+    let r = app
+        .call("_acpmux/preset_approve", json!({"name": "nope", "approve": true, "digest": "00"}))
+        .await;
+    assert_eq!(reason(&r), "preset_approval.no_preset", "{r}");
+}

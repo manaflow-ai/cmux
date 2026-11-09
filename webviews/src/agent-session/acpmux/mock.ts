@@ -45,6 +45,9 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMethod?: string;
   /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
   cmuxAcpmuxMockSlowMs?: number;
+  /** The `_acpmux/preset_approvals` reply (mockFixture.ts `mockPresetApprovals`); absent answers
+   *  method not found, as an acpmux without preset approvals does. */
+  cmuxAcpmuxMockPresetApprovals?: { presets: Record<string, unknown>[]; machines: string[] };
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -575,6 +578,28 @@ export class MockAcpmuxSocket {
         this.enabledProfiles.add(profile.id);
         return { enabled: { id: profile.id, folder: MOCK_PROFILE_FOLDER } };
       }
+      // The home's Unattended runs card: served from the `cmuxAcpmuxMockPresetApprovals` fixture
+      // (dev `?mock&presets`, mockFixture.ts `mockPresetApprovals`); without one the mock is an
+      // acpmux that predates the method, as most fixtures should see.
+      case "_acpmux/preset_approvals":
+        return this.presetList();
+      case "_acpmux/preset_approve": {
+        const list = this.presetList();
+        const index = list.presets.findIndex((entry) => entry.name === params.name);
+        const refuse = (reason: string) => Object.assign(new Error(reason), { data: { reason } });
+        if (index < 0) throw refuse("preset_approval.no_preset");
+        const row = list.presets[index]!;
+        if (params.approve === true) {
+          if (row.blocked) throw refuse("preset_approval.blocked");
+          if (params.digest !== row.digest) throw refuse("preset_approval.changed");
+        }
+        const next = {
+          ...row,
+          approval: params.approve === true ? { by: "you", host: "this-mac", at: Date.now() } : null,
+        };
+        list.presets[index] = next;
+        return next;
+      }
       case "_acpmux/attach": {
         this.attached = target;
         const page = this.page(target, params, true);
@@ -979,6 +1004,16 @@ export class MockAcpmuxSocket {
       default:
         return {};
     }
+  }
+
+  private presets?: { presets: Record<string, unknown>[]; machines: string[] };
+  private presetList(): { presets: Record<string, unknown>[]; machines: string[] } {
+    if (!this.presets) {
+      const fixture = (globalThis as MockAuthGlobals).cmuxAcpmuxMockPresetApprovals;
+      if (!fixture) throw Object.assign(new Error("Method not found"), { code: -32601 });
+      this.presets = structuredClone(fixture);
+    }
+    return this.presets;
   }
 
   /// Whether `cwd` is the seeded project's folder or inside it (its profiles apply there).

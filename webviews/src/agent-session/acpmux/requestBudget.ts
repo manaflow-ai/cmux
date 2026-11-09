@@ -84,6 +84,7 @@ const READS = new Set([
   "_acpmux/registry",
   "_acpmux/defaults",
   "_acpmux/presets",
+  "_acpmux/preset_approvals",
   "_acpmux/models",
   "_acpmux/directories",
   "_acpmux/route/list",

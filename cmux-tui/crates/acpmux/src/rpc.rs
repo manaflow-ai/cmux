@@ -360,6 +360,11 @@ pub mod method {
     /// when the daemon closes the socket, so stream consumers notice.
     pub const MUX_DISCONNECTED: &str = "_acpmux/disconnected";
     pub const MUX_PRESETS: &str = "_acpmux/presets";
+    /// The presets the person may approve for unattended runs on fleet agent machines, with
+    /// their approvals, runs and unapproved tries (`hub/unattended.rs`).
+    pub const MUX_PRESET_APPROVALS: &str = "_acpmux/preset_approvals";
+    /// Approve a preset for unattended runs (the person's own) or revoke it (anyone's).
+    pub const MUX_PRESET_APPROVE: &str = "_acpmux/preset_approve";
     /// Read or update the effective prompt context for a session.
     pub const MUX_CONTEXT: &str = "_acpmux/context";
     /// Persist a cmux-added context override for the user or current project.

@@ -176,6 +176,8 @@ keyed! {
     ArchiveParams: ["sessionId", "archived"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
+    /// `_acpmux/preset_approve`.
+    PresetApproveParams: ["name", "approve", "digest"];
     /// `_acpmux/bookmark_get`.
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.

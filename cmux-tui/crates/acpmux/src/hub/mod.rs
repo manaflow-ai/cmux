@@ -285,6 +285,7 @@ mod remote_floor;
 pub(crate) mod remote_sandbox;
 pub(crate) mod review_queue;
 mod touched;
+pub mod unattended;
 pub mod vm_boundary;
 pub use vm_boundary::vm_boundary_peer_approves;
 mod start_gate;

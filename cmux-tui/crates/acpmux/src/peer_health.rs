@@ -51,6 +51,11 @@ impl Peer {
     }
 
     /// The last reading and when it was taken (ms), for `summary`.
+    /// The OS the peer's last host health named (`macos`, `linux`), None before one came.
+    pub fn reported_os(&self) -> Option<String> {
+        self.health.lock_or_recover().as_ref()?.1.get("os")?.as_str().map(str::to_owned)
+    }
+
     pub(super) fn health_summary(&self) -> (Value, Value) {
         match self.health.lock_or_recover().as_ref() {
             Some((at, v)) => (v.clone(), json!(at)),

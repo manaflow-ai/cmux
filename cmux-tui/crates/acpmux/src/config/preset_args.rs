@@ -69,14 +69,35 @@ pub struct Preset {
     /// [`Preset::approval_digest`] of the contents the person approved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_approval: Option<String>,
+    /// The person's approval of this preset for unattended runs on fleet agent machines
+    /// (`hub/unattended.rs`): who approved which contents, when. It counts only while the
+    /// preset still hashes to `digest`, and any write that changes the contents clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unattended: Option<UnattendedApproval>,
+}
+
+/// [`Preset::unattended`]: the contents the person approved for unattended runs, and who and
+/// when (`hub/unattended.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UnattendedApproval {
+    /// The [`Preset::approval_digest`] of the contents approved.
+    pub digest: String,
+    /// The person's user name on the Mac whose cmux app approved it.
+    pub by: String,
+    /// That Mac (`hub::host_label`).
+    pub host: String,
+    /// When, in ms since the epoch.
+    pub at: u64,
 }
 
 impl Preset {
     /// The sha256 (lowercase hex) of everything this preset starts a
-    /// session with: every field but `description` and `mode_approval`.
-    /// None only if it cannot be serialized (then nothing is approved).
+    /// session with: every field but `description` and the approvals (`mode_approval`,
+    /// `unattended`). None only if it cannot be serialized (then nothing is approved).
     pub fn approval_digest(&self) -> Option<String> {
-        let bound = Self { description: None, mode_approval: None, ..self.clone() };
+        let bound =
+            Self { description: None, mode_approval: None, unattended: None, ..self.clone() };
         // A struct of strings, lists and a BTreeMap: its JSON is stable.
         serde_json::to_vec(&bound).ok().map(|bytes| crate::sha256::sha256_hex(&bytes))
     }
@@ -106,6 +127,36 @@ impl Preset {
         match (&self.mode, &self.mode_approval, self.approval_digest()) {
             (Some(_), Some(approved), Some(now)) => cmux_local_auth::tokens_match(approved, &now),
             _ => false,
+        }
+    }
+
+    /// Whether the person approved this preset for unattended runs, for its current contents.
+    pub fn unattended_approved(&self) -> bool {
+        match (&self.unattended, self.approval_digest()) {
+            (Some(a), Some(now)) => {
+                self.unattended_blocker().is_none() && cmux_local_auth::tokens_match(&a.digest, &now)
+            }
+            _ => false,
+        }
+    }
+
+    /// Why this preset cannot be approved for unattended runs, as a reason code; None when it
+    /// can. Only a policy wider than ask is approved, and only contents another machine starts
+    /// exactly as approved: harness, model, effort and policy. A spawn env, args, a system
+    /// prompt and a mode are this machine's own and do not reach a peer (`hub/unattended.rs`).
+    pub fn unattended_blocker(&self) -> Option<&'static str> {
+        if self.policy.is_none_or(crate::hub::person::asks) {
+            Some("preset.policy_asks")
+        } else if !self.env.is_empty() {
+            Some("preset.env")
+        } else if !self.args.is_empty() {
+            Some("preset.args")
+        } else if self.system_prompt_sha256.is_some() {
+            Some("preset.system_prompt")
+        } else if self.mode.is_some() {
+            Some("preset.mode")
+        } else {
+            None
         }
     }
 

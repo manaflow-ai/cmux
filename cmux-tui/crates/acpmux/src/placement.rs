@@ -410,6 +410,24 @@ fn machine_names(name: &str, m: &Value) -> Vec<String> {
     names
 }
 
+/// Whether the registry lists `name` (by name or alias) as a fleet agent machine: `agent_vm:
+/// true` with the `session-host` role, not retired. A person's own machine (an `attended` one)
+/// never is (`hub/unattended.rs`).
+pub fn agent_vm(registry: Option<&Value>, name: &str) -> bool {
+    let short = canonical(name);
+    let Some(machines) = registry.and_then(|r| r.get("machines")).and_then(Value::as_object)
+    else {
+        return false;
+    };
+    machines.iter().any(|(key, m)| {
+        machine_names(key, m).contains(&short)
+            && m.get("agent_vm").and_then(Value::as_bool) == Some(true)
+            && has_role(m, "session-host")
+            && !has_role(m, "attended")
+            && m.get("retired").and_then(Value::as_bool) != Some(true)
+    })
+}
+
 /// A host name as the registry lists it: lowercase, without `.local`.
 pub fn canonical(name: &str) -> String {
     let name = name.to_ascii_lowercase();
