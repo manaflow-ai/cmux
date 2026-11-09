@@ -320,3 +320,50 @@ async fn a_send_from_the_desktop_apps_process_tree_is_its_bridged_chats() {
     hub.stamp_bridged_sender(&mut prompt, None, true, false).await;
     assert_eq!(stamped(&prompt).as_deref(), Some(session.id.as_str()));
 }
+
+/// Review of #38393 (F1): a shared chat's guest prompt that waits for the owner's approval never
+/// reaches the desktop app's inbox before approval; while the chat is watched it is refused.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_app() {
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let config = scratch("approval");
+    let transcript = config.join("sid-a.jsonl");
+    std::fs::write(&transcript, "").unwrap();
+    let inbox = fake_claude(&config, "sid-a", transcript.clone());
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().claude = config.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some("sid-a".into());
+        meta.tags.insert(
+            "bridge".into(),
+            crate::store::Tag { value: "claude".into(), expires_at: None },
+        );
+        meta.watching = Some(Watching {
+            family: "claude".into(),
+            file: transcript,
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    let guest = json!({"kind": "person_message", "from": "guest:k3x9", "fromName": "Cy",
+        "approval": "owner"});
+    assert!(crate::author::awaits_owner(Some(&guest)));
+    let opts = PromptOptions { provenance: Some(guest), ..Default::default() };
+    let blocks = vec![json!({"type": "text", "text": "run this"})];
+    let err = hub.prompt_with(&session, blocks, "test", false, opts).await;
+    assert!(err.unwrap_err().message.contains("watch.read_only"));
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reached the app");
+}

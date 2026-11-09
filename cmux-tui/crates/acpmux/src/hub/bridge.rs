@@ -152,6 +152,12 @@ impl Hub {
         if session.meta().tags.get("bridge").is_none_or(|t| t.value != "claude") {
             return None;
         }
+        // A prompt that waits for the owner's approval (a shared chat's guest, `author.rs`) is
+        // never delivered: the app would run it before anyone approved it. It goes the usual way,
+        // which refuses it while the chat is watched, until the bridge holds prompts for approval.
+        if crate::author::awaits_owner(opts.provenance.as_ref()) {
+            return None;
+        }
         // A resend of a prompt id that went answers with its turn, whether or not the app still runs.
         if let Some(id) = opts.prompt_id.clone() {
             let kept = deliveries().of_prompt(&session.id, &id).map(|(_, p)| p.turn.subscribe());
