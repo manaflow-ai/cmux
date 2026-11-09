@@ -43,6 +43,12 @@ impl MeshOverlay {
         self.retiring.set(installs);
     }
 
+    /// Test only: whether the mesh holds a peer with `key` now.
+    #[cfg(test)]
+    pub(super) fn holds(&self, key: &[u8; 32]) -> bool {
+        locked(&self.peers).contains_key(key)
+    }
+
     /// Who stays on the retired key, shared with the inbound rekeys.
     pub(super) fn retiring(&self) -> Arc<RetiringPeers> {
         self.retiring.clone()

@@ -269,6 +269,7 @@ async fn socket() -> tokio::net::UdpSocket {
 struct Running {
     overlay: Arc<MeshOverlay>,
     public: [u8; 32],
+    peers: Arc<Peers>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
     _holder: KeyHolder,
 }
@@ -336,7 +337,15 @@ async fn run_dropping(
             finish_retiring(&state, &overlay, &peers, &public, FAST).await;
         }));
     }
-    Running { overlay, public, tasks, _holder: holder }
+    Running { overlay, public, peers, tasks, _holder: holder }
+}
+
+/// Whether `running`'s mesh holds `key` (its reload after a rekey is done)
+/// and its file records it for `install`.
+fn holds(running: &Running, machine: &Machine, install: &str, key: [u8; 32]) -> bool {
+    key_of(machine, install) == Some(key)
+        && running.peers.snapshot().by_install(install).and_then(|record| record.key()) == Some(key)
+        && running.overlay.holds(&key)
 }
 
 /// `from` reaches `to`'s link port over the keys they hold now.
@@ -378,7 +387,7 @@ async fn a_peer_offline_during_the_adoption_takes_the_new_key_when_it_is_back() 
 
     // B comes back, still knowing A by its old key.
     let running_b = run(&b, false, b_socket).await;
-    until("B takes A's node key", || key_of(&b, "inst_a") == Some(running_a.public)).await;
+    until("B takes A's node key", || holds(&running_b, &b, "inst_a", running_a.public)).await;
     until("A retires its old key", || retired(&a)).await;
     reaches(&running_b, "inst_a").await;
     reaches(&running_a, "inst_b").await;
@@ -398,8 +407,8 @@ async fn two_links_that_adopt_at_once_converge_on_both_node_keys() {
 
     let (running_a, running_b) = tokio::join!(run(&a, true, a_socket), run(&b, true, b_socket));
     until("both hold the other's node key", || {
-        key_of(&a, "inst_b") == Some(running_b.public)
-            && key_of(&b, "inst_a") == Some(running_a.public)
+        holds(&running_a, &a, "inst_b", running_b.public)
+            && holds(&running_b, &b, "inst_a", running_a.public)
     })
     .await;
     until("both retire their old keys", || retired(&a) && retired(&b)).await;
@@ -428,8 +437,8 @@ async fn a_forged_new_key_is_refused() {
         ],
     );
     let running_a = run(&a, true, a_socket).await;
-    let _running_b = run(&b, false, b_socket).await;
-    until("B takes A's node key", || key_of(&b, "inst_a") == Some(running_a.public)).await;
+    let running_b = run(&b, false, b_socket).await;
+    until("B takes A's node key", || holds(&running_b, &b, "inst_a", running_a.public)).await;
 
     // C, paired with B, claims A's node key as its own.
     let c = in_mesh("inst_c", c_private, c_socket);
@@ -497,7 +506,7 @@ async fn a_lost_rekey_answer_is_asked_again_and_converges() {
     pair(&b, &[paired_at("inst_a", a_old, a_socket.local_addr().unwrap())]);
     let running_b = run_dropping(&b, false, b_socket, 1).await;
     let running_a = run(&a, true, a_socket).await;
-    until("B takes A's node key", || key_of(&b, "inst_a") == Some(running_a.public)).await;
+    until("B takes A's node key", || holds(&running_b, &b, "inst_a", running_a.public)).await;
     until("A retires its old key", || retired(&a)).await;
     reaches(&running_a, "inst_b").await;
     reaches(&running_b, "inst_a").await;
@@ -517,8 +526,8 @@ async fn a_lost_answer_in_a_same_time_adoption_still_converges() {
     let (running_a, running_b) =
         tokio::join!(run_dropping(&a, true, a_socket, 1), run_dropping(&b, true, b_socket, 1));
     until("both hold the other's node key", || {
-        key_of(&a, "inst_b") == Some(running_b.public)
-            && key_of(&b, "inst_a") == Some(running_a.public)
+        holds(&running_a, &a, "inst_b", running_b.public)
+            && holds(&running_b, &b, "inst_a", running_a.public)
     })
     .await;
     until("both retire their old keys", || retired(&a) && retired(&b)).await;

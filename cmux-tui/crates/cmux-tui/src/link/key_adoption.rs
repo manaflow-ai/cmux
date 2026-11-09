@@ -478,6 +478,8 @@ pub(super) async fn tell_all<O: super::dial::Overlay>(
                 stream.write_all(hello.as_bytes()).await?;
                 stream.write_all(request.as_bytes()).await?;
                 let answer = read_line(&mut stream, cmux_link::dial::MAX_LINE_BYTES).await?;
+                // Close at once: the receiver reloads (and drops this session) once it sees it.
+                let _ = stream.shutdown().await;
                 let reply: RekeyReply = serde_json::from_str(answer.trim())
                     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
                 io::Result::Ok(reply)
