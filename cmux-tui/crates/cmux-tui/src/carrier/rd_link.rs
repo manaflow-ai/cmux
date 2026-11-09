@@ -57,18 +57,14 @@ impl Frames {
     }
 
     fn next(&mut self) -> io::Result<Option<(u8, Vec<u8>)>> {
-        if self.buf.len() < 5 {
-            return Ok(None);
-        }
-        let len = u32::from_le_bytes([self.buf[1], self.buf[2], self.buf[3], self.buf[4]]) as usize;
+        let Some((&ty, rest)) = self.buf.split_first() else { return Ok(None) };
+        let Some((len, body)) = rest.split_first_chunk::<4>() else { return Ok(None) };
+        let len = u32::from_le_bytes(*len) as usize;
         if len > MAX_FRAME {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "rd frame too large"));
         }
-        if self.buf.len() < 5 + len {
-            return Ok(None);
-        }
-        let ty = self.buf[0];
-        let payload = self.buf[5..5 + len].to_vec();
+        let Some(payload) = body.get(..len) else { return Ok(None) };
+        let payload = payload.to_vec();
         self.buf.drain(..5 + len);
         Ok(Some((ty, payload)))
     }
@@ -153,8 +149,8 @@ impl Splice {
             && let Ok(mut hello) = serde_json::from_slice::<Value>(&payload)
             && hello.get("t").and_then(Value::as_str) == Some("hello")
         {
-            if hello.get("caps").is_none() {
-                hello["caps"] = json!([]);
+            if let Some(fields) = hello.as_object_mut() {
+                fields.entry("caps").or_insert_with(|| json!([]));
             }
             if let Some(caps) = caps_of(&mut hello)
                 && !caps.iter().any(|c| c == LINK_CAP)
@@ -424,7 +420,7 @@ where
                         viewer_open = false;
                         let _ = host_tx.send(ToHost::Close);
                     } else {
-                        from_viewer.push(&buffer[..size]);
+                        from_viewer.push(buffer.get(..size).unwrap_or_default());
                         while let Some((ty, payload)) = from_viewer.next()? {
                             splice.on_viewer(ty, payload, &mut out);
                         }
