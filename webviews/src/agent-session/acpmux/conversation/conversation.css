@@ -2642,7 +2642,7 @@ pre.cv-math-source {
     user-select: none;
     -webkit-user-select: none;
     color: var(--cv-text-dim);
-    animation: cv-roll-out var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::before {
     content: attr(data-lead);
@@ -2651,10 +2651,10 @@ pre.cv-math-source {
     content: attr(data-text);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="odd"] {
-    animation: cv-roll-in-odd var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="even"] {
-    animation: cv-roll-in-even var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
 }
 @keyframes cv-roll-out {
@@ -5460,10 +5460,10 @@ a.cv-sha:focus-visible {
      visible transcript when a subagent or command arrives; the row's measured box is already in
      the layout, so only its ink fades in. Message rows keep their dedicated presentation motion. */
   .acpmux-row.acpmux-row--enter:not(.acpmux-user):not(.acpmux-assistant) {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-enter-fade var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
   }
   .acpmux-row__message-presentation {
-    animation: cv-message-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-message-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
   }
 }
 @media (prefers-reduced-motion: reduce) {
