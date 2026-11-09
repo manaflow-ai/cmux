@@ -691,10 +691,10 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* A selection that travels settles on the one spring, run over --cmux-motion-large. */
   --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1.006 58%, 1.004 72%, 1);
   /* A sent prompt's one motion: its room, its bubble and the thread's rise. */
-  --cmux-motion-send: 265ms;
+  --cmux-motion-send: 180ms;
   --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
   /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */
-  --cmux-motion-settle: 265ms;
+  --cmux-motion-settle: 180ms;
   --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
   /* One turn of every spinner (`cmux-spin`); not a transition. */
   --cmux-spinner-period: 2000ms;

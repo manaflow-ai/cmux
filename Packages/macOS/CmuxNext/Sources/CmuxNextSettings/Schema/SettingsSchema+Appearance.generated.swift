@@ -127,7 +127,7 @@ extension AppearanceTuningSetting {
 extension DensitySetting {
     /// `appearance.density`.
     public nonisolated static let configPath = ["appearance", "density"]
-    public nonisolated static let fallback: DensityPreset = .compact
+    public nonisolated static let fallback: DensityPreset = .cozy
 }
 
 extension CustomDensitySelectionSetting {

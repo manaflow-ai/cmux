@@ -158,6 +158,8 @@ fn always_identified() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
     #[cfg(unix)]
+    capabilities.push(crate::apps::PROVIDER_CHANGED_CAPABILITY);
+    #[cfg(unix)]
     capabilities.push(client_registry::machine_catalog::CAPABILITY);
     #[cfg(unix)]
     capabilities.push(cloud_api::CAPABILITY);
@@ -214,6 +216,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
+            && *capability != crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
@@ -298,6 +301,7 @@ pub(super) fn advertised_capabilities(
         DAEMON_SHUTDOWN_RESTART_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
         TERMINAL_LAST_COMMAND_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
@@ -502,5 +506,6 @@ mod tests {
         }
         assert!(listed.windows(2).all(|pair| pair[0] < pair[1]), "sorted and unique: {listed:?}");
         assert!(!listed.contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY), "runtime-only");
+        assert!(listed.contains(&TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY), "static");
     }
 }

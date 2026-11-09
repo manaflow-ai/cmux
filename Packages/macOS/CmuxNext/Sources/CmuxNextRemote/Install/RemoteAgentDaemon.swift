@@ -164,6 +164,21 @@ public actor RemoteApprovalPreparations {
             return await restart()
         }
     }
+
+    /// Runs `body` while `prep` (a start's keyed-restart prep) runs beside it. The prep belongs to the caller: it is awaited
+    /// before this returns, and cancelled first on an error exit, so no restart outlives the start that asked (#39069's review).
+    @MainActor public static func owned<T>(_ prep: @escaping @MainActor @Sendable () async -> Bool, _ body: @MainActor () async throws -> T) async throws -> T {
+        let task = Task { await prep() } // task-owner: awaited on every exit below
+        do {
+            let value = try await body()
+            _ = await task.value
+            return value
+        } catch {
+            task.cancel()
+            _ = await task.value
+            throw error
+        }
+    }
 }
 
 /// `machine|bundled commit` pairs whose automatic update ran in this app run (cx-3r9mt): done for

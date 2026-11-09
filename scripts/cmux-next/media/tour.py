@@ -704,7 +704,7 @@ class App:
         if not self.bundle_tag:
             return None
         home = Path(os.path.expanduser(f"~{self.session.user}"))
-        return home / "Library/Application Support/cmux/tags" / self.bundle_tag / "tui"
+        return home / "Library/Application Support/cmux-next/tags" / self.bundle_tag / "tui"
 
     def stop_daemon(self) -> None:
         """End the tagged build's daemon and its terminals through its own socket.
@@ -720,7 +720,9 @@ class App:
         """Start from no workspaces, not the ones an earlier tour on this tag left."""
         directory = self.state_directory()
         if self.fresh_state and directory:
-            self.session.run(["rm", "-rf", str(directory)])
+            # And an older build's in classic's cmux/tags, which a new build adopts at launch.
+            old = directory.parents[3] / "cmux/tags" / directory.parent.name / "tui"
+            self.session.run(["rm", "-rf", str(directory), str(old)])
             print(f"fresh state: cleared {directory}", flush=True)
 
     def write_shell_home(self) -> Path:

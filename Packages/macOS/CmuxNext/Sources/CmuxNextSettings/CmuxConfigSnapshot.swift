@@ -14,9 +14,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var customDensities: [DensityTokens] = []
     /// `appearance.customDensity` when it names one of `customDensities`: it wins over `density`.
     public var customDensity: String?
-    /// The density the file selects: the custom one, else the built-in, else Compact.
+    /// The density the file selects: the custom one, else the built-in, else Default (`cozy`).
     public var selectedDensity: DensityTokens {
-        DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: []) ?? .compact
+        DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: [])
+            ?? DensityPreset.cozy.tokens
     }
     /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
     public var uiScale: Double = UIScaleSetting.fallback
