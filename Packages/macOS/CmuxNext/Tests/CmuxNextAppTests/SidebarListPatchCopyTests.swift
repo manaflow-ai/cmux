@@ -99,7 +99,14 @@ import Testing
         let small = try Self.copiedPerPatch(250)
         let large = try Self.copiedPerPatch(3000)
         print("sidebar-list-patch-copies elements/patch N=250 \(small.perPatch) N=3000 \(large.perPatch) by N=250 \(small.by) N=3000 \(large.by)")
-        #expect(small.perPatch == 0, "at 250 workspaces a patch copied \(small.perPatch) elements: \(small.by)")
-        #expect(large.perPatch == 0, "at 3,000 workspaces a patch copied \(large.perPatch) elements: \(large.by)")
+        // No node list is copied, in the model or the list's caches.
+        for name in ["model nodes", "list nodes"] {
+            #expect(small.by[name] == nil, "at 250 workspaces a patch copied the \(name): \(small.by)")
+            #expect(large.by[name] == nil, "at 3,000 workspaces a patch copied the \(name): \(large.by)")
+        }
+        // The list's group cache may copy its own 25 members once a member patch, since the header it configures keeps
+        // the group it drew (and rolls up those members anyway): the group's size, never the session's.
+        #expect(large.perPatch == small.perPatch, "a patch copied \(small.perPatch) elements at 250, \(large.perPatch) at 3,000")
+        #expect(large.perPatch <= 25, "a patch copied more than one group's members: \(large.by)")
     }
 }
