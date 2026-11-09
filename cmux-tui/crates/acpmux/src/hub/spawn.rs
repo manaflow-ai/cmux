@@ -327,6 +327,16 @@ impl Hub {
             p.argv.push("--system-prompt-file".into());
             p.argv.push(file.to_string_lossy().into_owned());
         }
+        // cmux's rules as the chat captured them, on the harness's own system-level channel
+        // (Claude's appended system prompt, Codex's developer instructions), at every spawn: the
+        // prefix every chat shares, never a hidden addition after the person's first prompt.
+        // A remote-origin chat captures none.
+        if !meta.remote_origin {
+            p.argv.extend(crate::context_inventory::launch_args(
+                meta.cmux_context.as_deref(),
+                profile,
+            ));
+        }
         // Claude Code defers MCP tools behind its tool search, which it turns
         // off by itself behind a router; the cmux server lists every tool
         // for it (agent_tools::lists_all_tools). A profile's own value wins.

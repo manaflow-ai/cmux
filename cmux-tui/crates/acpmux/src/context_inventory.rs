@@ -342,21 +342,101 @@ pub fn record_preset_source(meta: &mut SessionMeta, part: Option<ContextPart>) {
     }
 }
 
-/// Append the captured default or override on the first written turn. All guidance
-/// uses this one user-context channel, including sessions with no cmux MCP server.
-/// Preset text is emitted separately by the harness's system-prompt argument.
+/// The first message of a chat, as hidden blocks beside the person's words: the channel of
+/// a harness with no system-level one, of folder instructions, and of a chat made before
+/// cmux's rules moved into the system prompt (its snapshot still names this channel).
+pub const USER_CONTEXT: &str = "user-context";
+/// Claude Code's `--append-system-prompt`, given at every spawn: part of the system prompt,
+/// so of the prefix every chat shares and the prompt cache reuses, and never in the transcript.
+pub const APPEND_SYSTEM_PROMPT: &str = "append-system-prompt";
+/// Codex's `developer_instructions` (`codex app-server -c developer_instructions=...`): the
+/// developer message Codex puts ahead of the first user message of each thread it starts.
+pub const DEVELOPER_INSTRUCTIONS: &str = "developer-instructions";
+
+/// The channel cmux's rules (the default rule or its override, and the chat guidance) take
+/// for a new chat of profile `harness`: the harness's own system-level instructions when it
+/// has one acpmux can set, else the first message. A profile that passes Claude's
+/// `--append-system-prompt` itself, or a Codex whose config or profile sets
+/// `developer_instructions`, keeps the first message: cmux's value would replace theirs.
+pub fn rules_channel(cfg: &Config, cwd: &Path, harness: &str) -> &'static str {
+    let Some(profile) = cfg.harnesses.get(harness) else { return USER_CONTEXT };
+    if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+        let own = profile.argv.iter().any(|a| a.starts_with("--append-system-prompt"));
+        return if own { USER_CONTEXT } else { APPEND_SYSTEM_PROMPT };
+    }
+    let codex_home = || profile.env.get("CODEX_HOME").map(std::path::PathBuf::from);
+    if crate::codex_app_server::is_profile_launch(&profile.argv)
+        && !crate::harness_limits::codex_sets(
+            &profile.argv,
+            cwd,
+            codex_home(),
+            "developer_instructions",
+        )
+    {
+        return DEVELOPER_INSTRUCTIONS;
+    }
+    USER_CONTEXT
+}
+
+/// Whether `part` is one of cmux's rules: the default rule or the person's override of it,
+/// or the chat guidance.
+fn is_rule(part: &ContextPart) -> bool {
+    matches!(part.source.as_str(), "cmux-default" | "cmux-user" | "cmux-project" | GUIDANCE_SOURCE)
+}
+
+/// The words a spawn of `profile` adds for the captured rules on a system-level channel
+/// (`APPEND_SYSTEM_PROMPT`, `DEVELOPER_INSTRUCTIONS`), at every spawn: a resumed chat's
+/// harness takes them as its system prompt again, never as a second copy in the transcript.
+/// None for a profile that is not the kind the channel names (a profile edited since the
+/// chat was made).
+pub fn launch_args(
+    parts: Option<&[ContextPart]>,
+    profile: &crate::config::HarnessProfile,
+) -> Vec<String> {
+    let text = |channel: &str| {
+        let texts: Vec<&str> = parts
+            .into_iter()
+            .flatten()
+            .filter(|p| p.included && is_rule(p) && p.channel.as_deref() == Some(channel))
+            .filter_map(|p| p.text.as_deref())
+            .filter(|t| !t.trim().is_empty())
+            .collect();
+        (!texts.is_empty()).then(|| texts.join("\n\n"))
+    };
+    if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+        // The profile's own appended prompt, added since the chat was made, stays: Claude
+        // takes the last one given.
+        if profile.argv.iter().any(|a| a.starts_with("--append-system-prompt")) {
+            return Vec::new();
+        }
+        if let Some(text) = text(APPEND_SYSTEM_PROMPT) {
+            return vec!["--append-system-prompt".into(), text];
+        }
+    } else if crate::codex_app_server::is_profile_launch(&profile.argv)
+        && let Some(text) = text(DEVELOPER_INSTRUCTIONS)
+    {
+        // A TOML string, so Codex reads the text as given (`-c` parses its value as TOML).
+        return vec!["-c".into(), format!("developer_instructions={}", toml::Value::String(text))];
+    }
+    Vec::new()
+}
+
+/// [`append_snapshot`] put ahead of the person's words, so the context frames the prompt
+/// instead of trailing it. The turn path delivers the snapshot with this.
+pub fn prepend_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
+    let mut head = Vec::new();
+    append_snapshot(parts, &mut head);
+    blocks.splice(0..0, head);
+}
+
+/// The captured parts on the first-message channel ([`USER_CONTEXT`]), as hidden blocks.
+/// Preset text and the rules on a system-level channel are given by the harness's launch
+/// arguments instead (`--system-prompt-file`, [`launch_args`]).
 pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
     for part in parts.into_iter().flatten().filter(|p| {
         p.included
-            && matches!(
-                p.source.as_str(),
-                "cmux-default"
-                    | "cmux-user"
-                    | "cmux-project"
-                    | GUIDANCE_SOURCE
-                    | crate::folder_instructions::SOURCE
-            )
-            && p.channel.as_deref().is_none_or(|channel| channel == "user-context")
+            && (is_rule(p) || p.source == crate::folder_instructions::SOURCE)
+            && p.channel.as_deref().is_none_or(|channel| channel == USER_CONTEXT)
     }) {
         if let Some(text) = part.text.as_deref() {
             let scope = part.source.strip_prefix("cmux-").unwrap_or("user");
@@ -379,29 +459,45 @@ pub const GUIDANCE_SOURCE: &str = "cmux-guidance";
 /// [`snapshot`] plus the chat guidance for a session of profile `harness`. The guidance is
 /// its own part, so a person's guidance override (which replaces the default rule) keeps it;
 /// the `agents.guidance.*` settings turn it off.
+/// Both take the channel [`rules_channel`] picks for the harness.
 pub fn snapshot_for(
     cfg: &Config,
     cwd: &Path,
     harness: &str,
     remote_origin: bool,
 ) -> Vec<ContextPart> {
-    let mut parts = snapshot(cfg, cwd);
+    let channel = rules_channel(cfg, cwd, harness);
+    let mut parts = snapshot_on(cfg, cwd, channel);
     let guidance = crate::agent_guidance::for_session(cfg, harness, remote_origin);
-    parts.extend(guidance.map(guidance_part));
+    parts.extend(guidance.map(|t| guidance_part_on(t, channel)));
     parts
 }
 
+/// The guidance part on the first-message channel.
 pub fn guidance_part(text: String) -> ContextPart {
+    guidance_part_on(text, USER_CONTEXT)
+}
+
+/// Where the Context viewer says a part goes.
+fn channel_label(channel: &str) -> &'static str {
+    match channel {
+        APPEND_SYSTEM_PROMPT => "system prompt",
+        DEVELOPER_INSTRUCTIONS => "developer instructions",
+        _ => "first-turn context",
+    }
+}
+
+pub fn guidance_part_on(text: String, channel: &str) -> ContextPart {
     ContextPart {
         id: "cmux-guidance".into(),
         source: GUIDANCE_SOURCE.into(),
-        label: "cmux chat guidance and your skills (first-turn context)".into(),
+        label: format!("cmux chat guidance and your skills ({})", channel_label(channel)),
         tokens: estimated_tokens(&text),
         included: true,
         editable: false,
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
-        channel: Some("user-context".into()),
+        channel: Some(channel.into()),
         text: Some(text),
     }
 }
@@ -416,26 +512,31 @@ pub fn family_for_folder(cfg: &Config, harness: &str) -> String {
 }
 
 /// Capture settings once when the session is created. Project text replaces user text.
+/// On the first-message channel; [`snapshot_for`] picks the harness's own.
 pub fn snapshot(cfg: &Config, cwd: &Path) -> Vec<ContextPart> {
+    snapshot_on(cfg, cwd, USER_CONTEXT)
+}
+
+fn snapshot_on(cfg: &Config, cwd: &Path, channel: &str) -> Vec<ContextPart> {
     let (scope, text) = cfg
         .context_overrides
         .for_project(cwd)
         .unwrap_or(("default", crate::agent_tools::CONCURRENT_WORK_RULE));
+    let whose = match scope {
+        "project" => "Project guidance",
+        "user" => "User guidance",
+        _ => "cmux guidance",
+    };
     vec![ContextPart {
         id: format!("cmux-{scope}-override"),
         source: format!("cmux-{scope}"),
-        label: match scope {
-            "project" => "Project guidance (first-turn context)",
-            "user" => "User guidance (first-turn context)",
-            _ => "cmux guidance (first-turn context)",
-        }
-        .into(),
+        label: format!("{whose} ({})", channel_label(channel)),
         tokens: estimated_tokens(text),
         included: !text.is_empty(),
         editable: true,
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
-        channel: Some("user-context".into()),
+        channel: Some(channel.into()),
         text: Some(text.to_owned()),
     }]
 }
@@ -640,5 +741,99 @@ mod tests {
         record_preset_source(&mut meta, preset_source(&["claude".into()]));
         assert!(meta.cmux_context.as_ref().unwrap().is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn profile(json: Value) -> crate::config::HarnessProfile {
+        serde_json::from_value(json).unwrap()
+    }
+
+    fn rules_on(channel: &str) -> Vec<ContextPart> {
+        let mut parts = snapshot_on(&Config::default(), Path::new("/repo"), channel);
+        parts.push(guidance_part_on(crate::agent_guidance::CLAUDE_GUIDANCE.into(), channel));
+        parts
+    }
+
+    #[test]
+    fn claude_gets_the_rules_in_its_system_prompt_and_none_after_the_prompt() {
+        let claude = profile(json!({"kind":"claude-stdio","argv":["claude"]}));
+        let mut cfg = Config::default();
+        cfg.harnesses.insert("claude".into(), claude.clone());
+        assert_eq!(rules_channel(&cfg, Path::new("/repo"), "claude"), APPEND_SYSTEM_PROMPT);
+        let parts = rules_on(APPEND_SYSTEM_PROMPT);
+        assert!(parts.iter().all(|p| p.label.ends_with("(system prompt)")), "{parts:?}");
+        let mut blocks = vec![json!({"type":"text","text":"my words"})];
+        prepend_snapshot(Some(&parts), &mut blocks);
+        assert_eq!(blocks, vec![json!({"type":"text","text":"my words"})]);
+        let want = format!(
+            "{}\n\n{}",
+            crate::agent_tools::CONCURRENT_WORK_RULE,
+            crate::agent_guidance::CLAUDE_GUIDANCE
+        );
+        assert_eq!(
+            launch_args(Some(&parts), &claude),
+            vec!["--append-system-prompt".to_owned(), want]
+        );
+        // Not a Claude Code command line (the profile changed since): nothing it cannot read.
+        let other = profile(json!({"argv":["python3","agent.py"]}));
+        assert!(launch_args(Some(&parts), &other).is_empty());
+        // The person's own appended prompt stays theirs, and the rules stay in the first message.
+        let own = profile(
+            json!({"kind":"claude-stdio","argv":["claude","--append-system-prompt","mine"]}),
+        );
+        cfg.harnesses.insert("claude".into(), own.clone());
+        assert_eq!(rules_channel(&cfg, Path::new("/repo"), "claude"), USER_CONTEXT);
+        assert!(launch_args(Some(&parts), &own).is_empty());
+    }
+
+    #[test]
+    fn codex_gets_the_rules_as_developer_instructions_unless_it_has_its_own() {
+        let home = tempfile::tempdir().unwrap();
+        let codex = profile(json!({"argv":["codex","app-server"],
+            "env":{"CODEX_HOME": home.path().to_string_lossy()}}));
+        let mut cfg = Config::default();
+        cfg.harnesses.insert("codex".into(), codex.clone());
+        assert_eq!(rules_channel(&cfg, home.path(), "codex"), DEVELOPER_INSTRUCTIONS);
+        let parts = rules_on(DEVELOPER_INSTRUCTIONS);
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&parts), &mut blocks);
+        assert!(blocks.is_empty(), "{blocks:?}");
+        let args = launch_args(Some(&parts), &codex);
+        assert_eq!(args[0], "-c");
+        // Codex parses the value as TOML: it reads back as the rules, quotes and newlines intact.
+        let table: toml::Table = args[1].parse().unwrap();
+        let text = table["developer_instructions"].as_str().unwrap();
+        assert!(text.starts_with(crate::agent_tools::CONCURRENT_WORK_RULE), "{text}");
+        assert!(text.ends_with(crate::agent_guidance::CLAUDE_GUIDANCE), "{text}");
+        let mut argv = codex.argv.clone();
+        argv.extend(args);
+        assert!(crate::codex_app_server::is_profile_launch(&argv), "{argv:?}");
+        // The person's own developer instructions are never replaced.
+        std::fs::write(home.path().join("config.toml"), "developer_instructions = \"mine\"\n")
+            .unwrap();
+        assert_eq!(rules_channel(&cfg, home.path(), "codex"), USER_CONTEXT);
+        // Any other ACP agent: the first message, ahead of the person's words.
+        cfg.harnesses.insert("fake".into(), profile(json!({"argv":["python3","agent.py"]})));
+        assert_eq!(rules_channel(&cfg, Path::new("/repo"), "fake"), USER_CONTEXT);
+        let parts = rules_on(USER_CONTEXT);
+        assert!(parts.iter().all(|p| p.label.ends_with("(first-turn context)")), "{parts:?}");
+        let mut blocks = vec![json!({"type":"text","text":"my words"})];
+        prepend_snapshot(Some(&parts), &mut blocks);
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[2]["text"], "my words");
+        assert!(blocks[0]["text"].as_str().unwrap().starts_with("<cmux-default-context>"));
+        assert!(launch_args(Some(&parts), &codex).is_empty());
+    }
+
+    #[test]
+    fn a_switched_off_rule_reaches_no_channel() {
+        let claude = profile(json!({"kind":"claude-stdio","argv":["claude"]}));
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some(String::new());
+        let parts = snapshot_on(&cfg, Path::new("/repo"), APPEND_SYSTEM_PROMPT);
+        assert!(!parts[0].included);
+        assert!(launch_args(Some(&parts), &claude).is_empty());
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&parts), &mut blocks);
+        assert!(blocks.is_empty());
     }
 }

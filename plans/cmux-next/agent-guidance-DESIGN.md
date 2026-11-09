@@ -49,9 +49,31 @@ Each harness gets it through its own mechanism, not one custom format:
   the channel Codex itself uses for `AGENTS.md` (a user-role instructions block), so it is the
   native mechanism; acpmux does not write into the person's `CODEX_HOME` or their repo's AGENTS.md.
 
-The guidance is its own context part (`cmux-guidance`, sent as `<cmux-guidance-context>`), so a
-person's override of the default rule keeps it, and the Context viewer lists it with its tokens.
-It is captured when the chat is created, like the rest of the first-turn context.
+The guidance is its own context part (`cmux-guidance`), so a person's override of the default
+rule keeps it, and the Context viewer lists it with its tokens and channel. It is captured when
+the chat is created, like the rest of the first-turn context.
+
+### Where the rules go (2026-11-09)
+
+The default rule (or the person's override of it) and the guidance go on the harness's own
+system-level channel when it has one acpmux can set, given at every spawn
+(`context_inventory::launch_args`), so they are part of the prefix every chat shares and frame the
+person's prompt instead of trailing it:
+
+- **Claude Code**: `--append-system-prompt` (channel `append-system-prompt`), as Claude Desktop
+  puts its rules in the system prompt. A profile that passes its own `--append-system-prompt`
+  keeps it, and the rules stay in the first message.
+- **Codex** (`codex app-server`): `-c developer_instructions=...` (channel
+  `developer-instructions`), the developer message Codex puts ahead of a thread's first user
+  message. A Codex whose config (`config.toml`, its profile, the project's) or profile command line
+  sets `developer_instructions` keeps it, and the rules stay in the first message.
+- **Every other harness**, folder instructions, and a chat made before this: the first message
+  (`user-context`, `<cmux-…-context>` blocks), now ahead of the person's words. `cmuxContextDelivered`
+  still marks it sent once; the system-level channels are not in the transcript, so a resumed chat
+  takes them again as its system prompt, never as a second copy.
+
+The pool's draft captures the same parts, so a pooled agent's command line, and so its key,
+matches the chat that takes it.
 
 ## The person's layer
 
