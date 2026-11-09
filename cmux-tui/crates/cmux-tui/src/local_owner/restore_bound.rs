@@ -56,6 +56,22 @@ impl Work {
     }
 }
 
+/// `mach_timebase_info_data_t` (`<mach/mach_time.h>`). Declared here because
+/// libc deprecates its copy in favour of the `mach2` crate, which no crate of
+/// this workspace depends on directly.
+#[cfg(target_vendor = "apple")]
+#[repr(C)]
+struct Timebase {
+    numer: u32,
+    denom: u32,
+}
+
+#[cfg(target_vendor = "apple")]
+unsafe extern "C" {
+    /// `mach_timebase_info(3)`: the ratio of Mach absolute time units to nanoseconds.
+    fn mach_timebase_info(info: *mut Timebase) -> libc::c_int;
+}
+
 /// The work of process `pid` so far, or `None` when it cannot be read.
 #[cfg(target_vendor = "apple")]
 pub(crate) fn process_work(pid: u32) -> Option<Work> {
@@ -75,9 +91,9 @@ pub(crate) fn process_work(pid: u32) -> Option<Work> {
     }
     // The times are in Mach absolute time units (not nanoseconds on Apple
     // silicon).
-    let mut timebase = libc::mach_timebase_info { numer: 0, denom: 0 };
-    // SAFETY: the out-pointer is valid.
-    if unsafe { libc::mach_timebase_info(&raw mut timebase) } != 0 || timebase.denom == 0 {
+    let mut timebase = Timebase { numer: 0, denom: 0 };
+    // SAFETY: the out-pointer is a valid `mach_timebase_info_data_t`.
+    if unsafe { mach_timebase_info(&raw mut timebase) } != 0 || timebase.denom == 0 {
         return None;
     }
     let ticks = u128::from(info.ri_user_time) + u128::from(info.ri_system_time);
