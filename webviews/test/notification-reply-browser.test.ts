@@ -43,11 +43,11 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
     await vite?.close();
   });
 
-  const open = async (variant: string): Promise<Page> => {
-    const page = await browser.newPage({ viewport: { width: 1000, height: 900 }, deviceScaleFactor: 2 });
+  const open = async (variant: string, width = 900): Promise<Page> => {
+    const page = await browser.newPage({ viewport: { width: width + 100, height: 900 }, deviceScaleFactor: 2 });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 900, theme: "Catppuccin Mocha", reducedMotion: "true" })}`,
+      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width, theme: "Catppuccin Mocha", reducedMotion: "true" })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -124,21 +124,28 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
     expect(result.time.text, why).toMatch(/^\d+m \d+s$/);
   };
 
-  test("an opened Subagent finished row keeps its mark, name, new dot, time and chevron on its line", async () => {
-    const page = await open("collapsed");
-    const shut = await fields(page);
-    expectFields("shut", shut);
-    expect(shut.open).toBe(false);
-    await page.locator(`.acpmux-row[data-row-id="subagentDone:${AGENT}"] .cv-agentmsg__toggle`).click();
-    await page.waitForSelector(".cv-subagent-done__report");
-    await settled(page);
-    const opened = await fields(page);
-    expect(opened.open).toBe(true);
-    expectFields("opened", opened);
-    // The same time, open or shut.
-    expect(opened.time.text).toBe(shut.time.text);
-    await page.close();
-  });
+  // A wide pane, a chat column and a narrow one: the opened line's name may wrap, never push its
+  // time or dot out. Pointed at, too: the hover row never takes their place.
+  for (const width of [900, 560, 380])
+    test(`an opened Subagent finished row keeps its mark, name, new dot, time and chevron on its line at ${width}px`, async () => {
+      const page = await open("collapsed", width);
+      const shut = await fields(page);
+      expectFields("shut", shut);
+      expect(shut.open).toBe(false);
+      const line = page.locator(`.acpmux-row[data-row-id="subagentDone:${AGENT}"] .cv-agentmsg__toggle`);
+      await line.click();
+      await page.waitForSelector(".cv-subagent-done__report");
+      await settled(page);
+      const opened = await fields(page);
+      expect(opened.open).toBe(true);
+      expectFields(`opened at ${width}`, opened);
+      // The same time, open or shut.
+      expect(opened.time.text).toBe(shut.time.text);
+      await page.locator(`.acpmux-row[data-row-id="subagentDone:${AGENT}"] .cv-agentmsg__words`).first().hover();
+      await settled(page);
+      expectFields(`opened and pointed at, at ${width}`, await fields(page));
+      await page.close();
+    });
 
   test("the agent's reply after a subagent's end is its own message, open or shut", async () => {
     const page = await open("collapsed");
