@@ -4837,7 +4837,9 @@ mod unix {
                 // through smart subscription. Publish Exit under that same
                 // lock so an attach either joins before Exit or observes dead.
                 {
-                    let _term = self.term.lock().unwrap();
+                    // A parser that panicked while it held the lock poisoned
+                    // it; the exit must still be published (host_parser.rs).
+                    let _term = self.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     self.dead.store(true, Ordering::Release);
                     self.accept_waker.wake();
                     let payload = encode_terminal_exit(&exit);
@@ -5650,7 +5652,10 @@ mod unix {
         };
         let guarded_host = shared.clone();
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
-            run_guarded_host_parser(&guarded_host, parse, || {});
+            run_guarded_host_parser(&guarded_host, parse, || {
+                // crash-allow: the exit is published (or its bound passed); end the host.
+                std::process::exit(host_parser::PARSER_FAILURE_EXIT_CODE)
+            });
         })?;
 
         let reader_host = shared.clone();
