@@ -325,7 +325,7 @@ async fn attempt(
     step.set(Step::Relay);
     let session = random_session()?;
     let provider = Arc::new(relay_provider(&answer, tickets, plan.deadline)?);
-    let ssh = ssh_route(&plan.ssh, &answer, &plan.machine, plan.source.clone());
+    let ssh = ssh_route(&plan.ssh, &answer, &plan.machine, plan.source.clone(), plan.deadline);
     step.mark(|marks| marks.ssh = Some(ssh.as_ref().map_or_else(|absent| absent.code(), |_| "on")));
     let set = carrier_routes(&answer, provider, ssh.ok());
     let mut route = RouteAttempt {

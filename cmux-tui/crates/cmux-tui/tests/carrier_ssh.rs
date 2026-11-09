@@ -98,9 +98,9 @@ fn assert_ssh_ran_pinned_through_the_hub(world: &SshWorld) {
     assert!(asked.iter().all(|a| a["purpose"] == "carrier"), "{asked:?}");
 }
 
-/// The connect log once it holds `want`, waiting up to 40 s for it.
+/// The connect log once it holds `want`, waiting up to 10 s for it.
 fn log_with(world: &SshWorld, want: &str) -> String {
-    let deadline = std::time::Instant::now() + Duration::from_secs(40);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let log = world.connect_log();
         if log.contains(want) {

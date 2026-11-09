@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -8,8 +9,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use cmux_remote::provider::{RelayClientConfig, RelayProvider};
+use cmux_remote::connection::ConnectionError;
+use cmux_remote::provider::{ConnectRequest, LinkRequest, RelayClientConfig, RelayProvider};
+use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
 use serde_json::{Value, json};
+use tokio::time::Instant;
 
 use super::super::answer::{
     CarrierAnswer, CarrierSource, SourceError, SshEndpoint, parse_answer, read_ssh_endpoint,
@@ -175,6 +179,25 @@ fn endpoints(host: &str, expires_at: u64) -> Arc<Endpoints> {
     })
 }
 
+/// A dial deadline well ahead.
+fn far() -> Instant {
+    Instant::now() + Duration::from_secs(60)
+}
+
+/// A source whose ssh-endpoint never answers.
+struct Silent;
+
+#[async_trait]
+impl CarrierSource for Silent {
+    async fn fetch(&self, _: &str, _: Option<&[u8; 32]>) -> Result<CarrierAnswer, SourceError> {
+        Err(SourceError::fatal("not here"))
+    }
+
+    async fn ssh_endpoint(&self, _: &str, _: &str) -> Result<SshEndpoint, SourceError> {
+        std::future::pending().await
+    }
+}
+
 /// A setup whose hub listens (when `listening`) in `dir`.
 fn setup(dir: &Path, listening: bool) -> (SshSetup, Option<std::os::unix::net::UnixListener>) {
     let hub = dir.join("hub.sock");
@@ -195,7 +218,7 @@ fn the_ssh_group_comes_after_the_relay_only_when_every_piece_is_there() {
     let (full, _hub) = setup(dir.path(), true);
     let with_ssh = answer(Some(candidate()));
 
-    let route = ssh_route(&full, &with_ssh, MACHINE, source.clone()).unwrap();
+    let route = ssh_route(&full, &with_ssh, MACHINE, source.clone(), far()).unwrap();
     let set = carrier_routes(&with_ssh, relay(), Some(route));
     let urls: Vec<_> = set.routes.iter().map(|r| r.endpoint.to_string()).collect();
     assert_eq!(urls, ["relay+do://relay.example", "ssh://cmux@10.20.0.7:22"]);
@@ -208,7 +231,7 @@ fn the_ssh_group_comes_after_the_relay_only_when_every_piece_is_there() {
     assert_eq!(alone.dialers[0].name(), "relay:0");
 
     let absent = |setup: &SshSetup, answer: &CarrierAnswer| {
-        ssh_route(setup, answer, MACHINE, source.clone()).map(|_| ()).unwrap_err()
+        ssh_route(setup, answer, MACHINE, source.clone(), far()).map(|_| ()).unwrap_err()
     };
     assert_eq!(absent(&full, &answer(None)), Absent::Candidate);
     let quiet = tempfile::tempdir().unwrap();
@@ -228,7 +251,8 @@ async fn a_link_authorizes_the_carrier_key_once_and_pins_the_endpoint_s_host_key
     let dir = tempfile::tempdir().unwrap();
     let (full, _hub) = setup(dir.path(), true);
     let source = endpoints("10.20.0.7", super::now_unix() + 900);
-    let route = ssh_route(&full, &answer(Some(candidate())), MACHINE, source.clone()).unwrap();
+    let route =
+        ssh_route(&full, &answer(Some(candidate())), MACHINE, source.clone(), far()).unwrap();
     route.authorize().await.unwrap();
     route.authorize().await.unwrap();
     assert_eq!(source.calls.load(Ordering::SeqCst), 1, "held until near its expiry");
@@ -240,7 +264,7 @@ async fn a_link_authorizes_the_carrier_key_once_and_pins_the_endpoint_s_host_key
 
     // A key about to expire is authorized again.
     let soon = endpoints("10.20.0.7", super::now_unix() + 30);
-    let route = ssh_route(&full, &answer(Some(candidate())), MACHINE, soon.clone()).unwrap();
+    let route = ssh_route(&full, &answer(Some(candidate())), MACHINE, soon.clone(), far()).unwrap();
     route.authorize().await.unwrap();
     route.authorize().await.unwrap();
     assert_eq!(soon.calls.load(Ordering::SeqCst), 2);
@@ -249,7 +273,7 @@ async fn a_link_authorizes_the_carrier_key_once_and_pins_the_endpoint_s_host_key
     let other = tempfile::tempdir().unwrap();
     let (full, _hub) = setup(other.path(), true);
     let moved = endpoints("10.20.0.8", super::now_unix() + 900);
-    let route = ssh_route(&full, &answer(Some(candidate())), MACHINE, moved).unwrap();
+    let route = ssh_route(&full, &answer(Some(candidate())), MACHINE, moved, far()).unwrap();
     assert!(route.authorize().await.is_err());
     assert!(!other.path().join("state").join(MACHINE).join("known_hosts").exists());
 }
@@ -394,4 +418,49 @@ fn the_routes_line_is_its_own_marker_beside_the_pinned_lines() {
         assert!(!line.contains("cloud.connect") && !line.contains("carrier.phases"), "{line}");
         assert!(!line.contains("phase=connect outcome="), "{line}");
     }
+}
+
+/// An ssh-endpoint that never answers holds no link open: an open behind a
+/// pre-warm that waits on it, and the pre-warm too, end by the dial's
+/// deadline with a failure the reconnect loop retries.
+#[tokio::test]
+async fn an_open_whose_key_is_never_authorized_fails_retryable_by_the_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let (full, _hub) = setup(dir.path(), true);
+    let deadline = Instant::now() + Duration::from_millis(300);
+    let route =
+        ssh_route(&full, &answer(Some(candidate())), MACHINE, Arc::new(Silent), deadline).unwrap();
+    // The pre-warm holds the one authorization turn while it waits.
+    route.prewarm();
+    tokio::task::yield_now().await;
+    let request = ConnectRequest {
+        endpoint: route.candidate().endpoint,
+        session: SessionId([7; 16]),
+        lane_policy: LanePolicy::Auto,
+        routing: BTreeMap::new(),
+    };
+    let group = route.group(request).await.unwrap();
+    let started = std::time::Instant::now();
+    let opened = tokio::time::timeout(
+        Duration::from_secs(5),
+        group.open(LinkRequest { lane: Lane::Interactive, generation: 0 }),
+    )
+    .await
+    .expect("the open ends by its deadline");
+    let Err(error) = opened else { panic!("no link without an authorized key") };
+    assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+    assert!(error.to_string().contains("carrier ssh key: no authorization within"), "{error}");
+    assert!(ConnectionError::Provider(error).is_retryable_carrier_failure());
+    assert!(!dir.path().join("state").join(MACHINE).join("known_hosts").exists());
+
+    // After the dial, a resume's authorization gets its own window.
+    let now = Instant::now();
+    assert_eq!(route.authorize_by(now), now + super::AUTHORIZE_TIMEOUT);
+    let ahead =
+        ssh_route(&full, &answer(Some(candidate())), MACHINE, Arc::new(Silent), far()).unwrap();
+    assert_eq!(ahead.authorize_by(now), now + super::AUTHORIZE_TIMEOUT, "capped");
+    let close = now + Duration::from_secs(3);
+    let soon =
+        ssh_route(&full, &answer(Some(candidate())), MACHINE, Arc::new(Silent), close).unwrap();
+    assert_eq!(soon.authorize_by(now), close, "the dial's own deadline");
 }

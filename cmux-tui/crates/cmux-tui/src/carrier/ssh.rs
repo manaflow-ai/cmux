@@ -33,25 +33,32 @@ use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use cmux_remote::link::FrameLink;
+use cmux_remote::link::{FrameLink, LinkError};
 use cmux_remote::provider::{
     ConnectRequest, LinkGroup, LinkRequest, ProviderError, SshProvider, SshProviderConfig,
     TransportProvider,
 };
+use tokio::time::Instant;
 use url::Url;
 use zeroize::Zeroizing;
 
 use super::answer::{CarrierAnswer, CarrierSource, SshCandidate, now_unix};
+use super::client::RESUME_DEADLINE;
 use crate::remote_runtime::ResolvedRouteCandidate;
 
 /// The ssh client a carrier runs: `ssh` on `PATH`, or this variable's value.
 pub(super) const SSH_BINARY_ENV: &str = "CMUX_CARRIER_SSH_BINARY";
 /// An authorization is renewed this long before the key's expiry.
 const KEY_MARGIN_SECS: u64 = 60;
+/// The longest one authorization (its turn, the platform's answer and the
+/// pin) may take once the dial that built the route is over: a resume's
+/// whole window.
+const AUTHORIZE_TIMEOUT: Duration = RESUME_DEADLINE;
 /// The remote command the provider names. sshd runs the key's forced
 /// command instead (cmux-platform `SSH_CARRIER_COMMAND`, the same words), so
 /// these only say what runs there.
@@ -129,12 +136,14 @@ fn hub_up(socket: &Path) -> bool {
 }
 
 /// The ssh route of `answer`, or why there is none. Nothing here asks the
-/// network: the key is authorized when a link opens.
+/// network: the key is authorized when a link opens, by the dial's
+/// `deadline` while it runs (see [`SshRoute::authorize`]).
 pub(super) fn ssh_route(
     setup: &SshSetup,
     answer: &CarrierAnswer,
     machine: &str,
     source: Arc<dyn CarrierSource>,
+    deadline: Instant,
 ) -> Result<Arc<SshRoute>, Absent> {
     let candidate = answer.ssh.clone().ok_or(Absent::Candidate)?;
     let hub = setup.hub.as_deref().filter(|hub| hub_up(hub)).ok_or(Absent::Tunnel)?;
@@ -161,6 +170,7 @@ pub(super) fn ssh_route(
         pin,
         source,
         provider,
+        dial_deadline: deadline,
         authorized_until: AtomicU64::new(0),
         authorizing: tokio::sync::Mutex::new(()),
     }))
@@ -430,6 +440,8 @@ pub(super) struct SshRoute {
     pin: PathBuf,
     source: Arc<dyn CarrierSource>,
     provider: SshProvider,
+    /// The deadline of the dial that built the route.
+    dial_deadline: Instant,
     /// Unix seconds; 0 before the first authorization.
     authorized_until: AtomicU64,
     /// One authorization at a time.
@@ -452,13 +464,37 @@ impl SshRoute {
         now.saturating_add(KEY_MARGIN_SECS) < self.authorized_until.load(Ordering::Acquire)
     }
 
+    /// When an authorization starting now must be over: the dial's own
+    /// deadline while the dial runs, never more than [`AUTHORIZE_TIMEOUT`].
+    fn authorize_by(&self, now: Instant) -> Instant {
+        let cap = now.checked_add(AUTHORIZE_TIMEOUT).unwrap_or(now);
+        if self.dial_deadline > now { self.dial_deadline.min(cap) } else { cap }
+    }
+
     /// Authorizes the carrier key unless an earlier authorization still
     /// holds, and writes the pin from the answer's host key. The answer must
-    /// name the candidate's own host, port and user.
+    /// name the candidate's own host, port and user. Waiting for another
+    /// authorization's turn and the platform's answer both end by
+    /// [`Self::authorize_by`]; every failure is a retryable link error, so
+    /// the runner tries again (a dial) or redials (a resume).
     pub(super) async fn authorize(&self) -> Result<(), ProviderError> {
         if self.authorized_at(now_unix()) {
             return Ok(());
         }
+        let started = Instant::now();
+        let by = self.authorize_by(started);
+        match tokio::time::timeout_at(by, self.authorize_now()).await {
+            Ok(result) => result.map_err(|detail| {
+                ProviderError::Link(LinkError::Transport(format!("carrier ssh key: {detail}")))
+            }),
+            Err(_) => Err(ProviderError::Link(LinkError::Transport(format!(
+                "carrier ssh key: no authorization within {} ms",
+                by.saturating_duration_since(started).as_millis()
+            )))),
+        }
+    }
+
+    async fn authorize_now(&self) -> Result<(), String> {
         let _one = self.authorizing.lock().await;
         if self.authorized_at(now_unix()) {
             return Ok(());
@@ -467,28 +503,22 @@ impl SshRoute {
             .source
             .ssh_endpoint(&self.machine, &self.public_key)
             .await
-            .map_err(|e| ProviderError::Transport(format!("carrier ssh key: {}", e.detail)))?;
+            .map_err(|e| e.detail)?;
         let candidate = &self.candidate;
         if endpoint.host != candidate.host
             || endpoint.port != candidate.port
             || endpoint.user != candidate.user
         {
-            return Err(ProviderError::Transport(
-                "carrier ssh key: the endpoint names another host than the answer".into(),
-            ));
+            return Err("the endpoint names another host than the answer".into());
         }
-        write_pin(&self.pin, endpoint.host, endpoint.port, &endpoint.host_key).map_err(|e| {
-            ProviderError::Transport(format!(
-                "carrier ssh pin could not be written ({:?})",
-                e.kind()
-            ))
-        })?;
+        write_pin(&self.pin, endpoint.host, endpoint.port, &endpoint.host_key)
+            .map_err(|e| format!("the pin could not be written ({:?})", e.kind()))?;
         self.authorized_until.store(endpoint.expires_at, Ordering::Release);
         Ok(())
     }
 
     /// One authorization ahead of any failover, in the background: a single
-    /// try, bounded by the platform fetch's own timeout, that ends with it.
+    /// try, bounded as every authorization is.
     pub(super) fn prewarm(self: &Arc<Self>) {
         let route = self.clone();
         tokio::spawn(async move {
