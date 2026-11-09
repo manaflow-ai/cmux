@@ -1,5 +1,15 @@
 # Lane: daemon-protocol
 
+## 2026-11-08 chat time breakdown (time-flame, #38677)
+
+Optional `timeBreakdown` on selected chat detail and initialized full summaries
+reports lifetime category wall time and measured whole-turn tokens. Census rows
+omit it. Detail seeds the journal reducer once; ordered appends maintain it and
+retain 512 recent spans. Session Info pages 24 spans and reuses transcript history
+loading for user-initiated turn navigation. Existing info/attach APIs expose the
+same data to agents; there is no new mutating operation or automation focus effect.
+See `design/session-info-time-breakdown.md` for measurement limits and UI states.
+
 ## 2026-10-27 computer use v2 target guard (uncommitted)
 
 The Swift helper checks all explicit app targets before invoking Cua Driver. The acpmux bridge

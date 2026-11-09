@@ -46,9 +46,9 @@ function countsWithTheirWords(row: string, counts: ReadonlyMap<string, string>):
 }
 
 /// The reply time's token rows (TurnRows.tsx TurnFooter), one count per row: "Output 5.1K", "Input
-/// across calls 14.2K uncached · 930.9K cached", "Context at end 139.9K", "Model calls 7". The input
-/// row's two counts are its calls' added up and its label says so; the context is what the chat held
-/// after the last call, so it is never that sum. A turn an older acpmux recorded has no context and
+/// 14.2K uncached · 930.9K cached", "Context at end 139.9K", "Model calls 7". The input row's two
+/// counts are its calls' added up (Leo, 2026-11-09: "we can prob just have the last line be Input");
+/// the context is what the chat held after the last call, so it is never that sum. A turn an older acpmux recorded has no context and
 /// no call count, and draws neither row (gallery `agent-pane.reply-time-tokens`).
 export const tokenRows = (t: Translate, language: PaneLanguage, split: TurnTokenSplit): string[] => [
   t("turn.tokens.outputRow", { tokens: compactTokens(language, split.output) }),

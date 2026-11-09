@@ -14,6 +14,7 @@ import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp, proofSegment } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { upstreamName } from "./naming.ts";
+import { attachedOnlyTo } from "./tunnel-attachment.ts";
 import { makeDurableMeshCreate } from "./live-mesh-create.ts";
 import { type CreatedNetwork, type CreatedRule, type CreatedTunnel, type TunnelInfo, UpstreamMesh, type UpstreamMeshService } from "./mesh.ts";
 
@@ -191,11 +192,10 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
         if (Option.isNone(raw)) return Option.none<CreatedTunnel>();
         const body = yield* decodeAs(TunnelBody, "findDeviceTunnel")(raw.value);
         const id = tunnelIdOf(body);
-        // Only this device's create could have made a tunnel with this slug and name, on this mesh's network; anything
-        // else at the slug is never touched.
-        const vpcs = (body.attachments ?? []).map((attachment) => attachment.vpcId ?? null).filter((vpc) => vpc !== null);
+        // Only this device's create could have made a tunnel with this slug and name, attached to exactly this mesh's
+        // network (src/upstream/tunnel-attachment.ts): anything else fails closed, and the caller deletes nothing.
         if (id === null || body.slug !== slug || body.displayName !== upstreamName(config.environment, options.tenantId, device.value)
-          || vpcs.some((vpc) => vpc !== upstreamIdOf(owns))) {
+          || !attachedOnlyTo(body.attachments, upstreamIdOf(owns))) {
           return yield* Effect.fail(new UpstreamError({ operation: "findDeviceTunnel", status: null }));
         }
         const created: CreatedTunnel = Object.freeze({ upstreamId: UpstreamId.make(id), info: infoOf(body) });

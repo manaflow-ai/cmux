@@ -43,6 +43,7 @@ import "./sessionInfo.css";
 import "./WorkflowTasks.css";
 import "../summary/workflowDots.css";
 import { WindowedRows } from "./WindowedRows";
+import { Clock } from "../../../ui/Typography";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -415,7 +416,7 @@ function CommandList({
           >
             <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
             <span className="acpmux-session-info-task__command">{label}</span>
-            {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
+            {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
             {!running && <span className="acpmux-session-info-task__state">{t(COMMAND_STATE[command.state])}</span>}
             {running && command.processId && onStop && (
               <StopButton id={command.processId} name={command.command} stop={onStop} solid />

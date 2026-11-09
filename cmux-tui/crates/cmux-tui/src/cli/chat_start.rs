@@ -65,8 +65,9 @@ pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
     ours && matches!(flag, "--wait" | "--no-wait")
 }
 
-/// The `chat` verbs other modules own (chief/chat_scope.rs and the app's `chat …` actions).
-const OTHER_VERBS: &[&str] = &["send", "read", "wait", "list", "create", "replies", "colors"];
+/// The `chat` verbs other modules own (chief/chat_scope.rs, chat_cd.rs and the app's `chat …` actions).
+pub(super) const OTHER_VERBS: &[&str] =
+    &["send", "cd", "read", "wait", "list", "create", "replies", "colors"];
 
 /// The environment variable that names the target when `--on` is absent.
 pub(super) const TARGET_ENV: &str = "CMUX_ON";
@@ -76,9 +77,11 @@ pub(super) const TARGET_ENV: &str = "CMUX_ON";
 pub(super) const TARGET_SETTING: &str = "chat.on";
 
 /// How long the `chat.on` read may take: an app that does not answer by then is no setting.
+// timeout: an app that does not answer counts as no setting; the chat still starts.
 const SETTING_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// How long the catalog read may take.
+// timeout: a daemon that never answers the catalog read fails the start with an error.
 const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What a refusal says to run next.
@@ -122,6 +125,8 @@ EXAMPLES
   cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 Messages to a chat: cmux chat send|read|wait|list (`cmux chat send --help`).
+Another folder or repository for a Cloud chat: cmux chat cd SESSION DIR|--repo REPO
+(`cmux chat cd --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
 ambiguous_device, unknown_vm, which_vm, vm_starting, not_permitted, unavailable,
 signed_out, no_route).

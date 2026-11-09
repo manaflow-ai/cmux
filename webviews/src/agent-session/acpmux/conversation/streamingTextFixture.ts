@@ -105,9 +105,11 @@ export const REPLY = [
 ].join("\n");
 
 /// The chat's history: enough turns to fill the view, so it opens at its latest line.
-export function history(): AcpmuxRow[] {
+/// A chat's history: `turns` finished turns of three rows each (7 by default; the row-arrival check
+/// plays over 50 and 500 rows to hold the work per arrival constant as the chat grows).
+export function history(turns = 7): AcpmuxRow[] {
   const rows: AcpmuxRow[] = [];
-  for (let turn = 0; turn < 7; turn += 1) {
+  for (let turn = 0; turn < turns; turn += 1) {
     rows.push({ id: `h${turn}-user`, version: 1, at: turn * 10_000, kind: "user", text: `Question ${turn}?` });
     rows.push({
       id: `h${turn}-answer`,

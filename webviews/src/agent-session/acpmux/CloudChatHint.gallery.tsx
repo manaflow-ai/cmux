@@ -37,7 +37,7 @@ export default componentEntry<Props>({
       props: { look: "chip", onUse, onClose },
     },
     "line-closing": {
-      note: "The X: the row folds to zero height with a fade on the house settle (cubic-bezier(0.16, 1, 0.3, 1), 265 ms), and the composer moves up with it in the same transition.",
+      note: "The X: the row folds to zero height with a fade on the house settle (cubic-bezier(0.16, 1, 0.3, 1), 180 ms), and the composer moves up with it in the same transition.",
       props: { look: "line", onUse, onClose },
       play: close,
     },
