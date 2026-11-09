@@ -141,7 +141,14 @@ export default agentPaneEntry({
         "git.worktree.setup": {
           root: WORKTREE,
           recipe: { setup: "bun install", run: null, teardown: null, include: [], repository: {}, files: [] },
-          run: { state: "running", output: "bun install v1.3\n", output_start: "0", output_end: "17", setup: "bun install", port: 40_010 },
+          run: {
+            state: "running",
+            output: "bun install v1.3\n",
+            output_start: "0",
+            output_end: "17",
+            setup: "bun install",
+            port: 40_010,
+          },
         },
         "workspace.useFolder": { status: "ok", cwd: WORKTREE },
       },
