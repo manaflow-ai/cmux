@@ -224,3 +224,32 @@ fn a_move_into_place_never_replaces_what_is_there() {
     super::rename_no_replace(&dir_from, &dir_to).unwrap();
     assert!(dir_to.is_dir() && !dir_from.exists());
 }
+
+#[test]
+fn a_failed_move_after_the_claim_moved_aside_removes_only_its_own_folder() {
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
+    let source = root.path().join("source");
+    std::fs::create_dir_all(source.join(super::CLAIM)).unwrap();
+    std::fs::write(source.join(super::CLAIM).join("tracked"), "repo").unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-qm", "two"]);
+    let dir = root.path().join("dir");
+    std::fs::create_dir_all(dir.join(super::CLAIM)).unwrap();
+    // Another process's `.cmux-clone`, made in the claim's place once the claim moved aside:
+    // simulated by running the staging step on a claim of another name.
+    let staging = dir.join("mine");
+    std::fs::create_dir(&staging).unwrap();
+    std::fs::write(dir.join(super::CLAIM).join("theirs"), "keep").unwrap();
+    let result = super::clone_into(&url, None, &dir, &staging);
+    assert!(result.is_err());
+    // Theirs stays; this start's own staging is gone, wherever it moved.
+    assert_eq!(std::fs::read_to_string(dir.join(super::CLAIM).join("theirs")).unwrap(), "keep");
+    let left: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with(".cmux-clone-") || name == "mine")
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+}

@@ -85,11 +85,10 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
         let _ = std::fs::remove_dir(&claim);
         return reuse(url, dir);
     }
-    // A clone that made it lets its claim go itself (`clone_into`); one that did not is taken away
-    // with its claim.
+    // `clone_into` takes away its own staging folder, wherever it is by then, on every path out;
+    // nothing here deletes by the claim's fixed name.
     let result = clone_into(url, reference, dir, &claim);
     if result.is_err() {
-        let _ = std::fs::remove_dir_all(&claim);
         if made {
             // Only when nothing else is in it: `remove_dir` leaves a folder that is not empty.
             let _ = std::fs::remove_dir(dir);
@@ -136,7 +135,22 @@ fn make_dir(dir: &Path) -> Result<bool, Value> {
 
 /// The clone made inside `claim` and moved up into `dir`, `.git` last.
 fn clone_into(url: &str, reference: Option<&str>, dir: &Path, claim: &Path) -> Result<(), Value> {
-    let work = claim.join("checkout");
+    // The folder this start owns: the claim, or the claim once moved aside under a name of this
+    // start's own. Only it is ever removed, on success and failure alike.
+    let mut staging = claim.to_path_buf();
+    let result = stage_and_publish(url, reference, dir, &mut staging);
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
+/// [`clone_into`]'s work; `staging` follows the folder this start owns as it moves.
+fn stage_and_publish(
+    url: &str,
+    reference: Option<&str>,
+    dir: &Path,
+    staging: &mut PathBuf,
+) -> Result<(), Value> {
+    let work = staging.join("checkout");
     // Blobless: the whole history's commits and trees now, each file's contents when read, so a
     // big repository starts as fast as a small one.
     let clone = ["clone", "--quiet", "--filter=blob:none", "--", url].map(OsStr::new);
@@ -167,30 +181,29 @@ fn clone_into(url: &str, reference: Option<&str>, dir: &Path, claim: &Path) -> R
             }
         })
     };
-    let (last, first): (Vec<_>, Vec<_>) =
-        names.iter().partition(|name| *name == ".git" || *name == CLAIM);
-    for name in first {
+    let tracks_claim = names.iter().any(|name| name == CLAIM);
+    for name in names.iter().filter(|name| *name != ".git" && *name != CLAIM) {
         publish(name, &work)?;
     }
-    // A `.cmux-clone` the repository tracks takes the claim's place: the claim moves aside first
-    // (a start reading the folder meanwhile sees files and no `.git`, and is refused, never let
-    // in). `.git` last: no start sees a clone before the rest of it is in place.
-    let mut from = work.clone();
-    if last.iter().any(|name| *name == CLAIM) {
-        let aside = dir.join(format!("{CLAIM}-{}", std::process::id()));
-        std::fs::rename(claim, &aside)
+    // A `.cmux-clone` the repository tracks takes the claim's place: the claim moves aside, under
+    // a name no other start uses and never over anything, and `staging` follows it. A start
+    // reading the folder meanwhile sees files and no `.git`, and is refused, never let in.
+    if tracks_claim {
+        let aside = dir.join(format!("{CLAIM}-{}-{}", std::process::id(), unique()));
+        rename_no_replace(staging, &aside)
             .map_err(|err| failed(dir, format!("could not move the claim aside: {err}")))?;
-        from = aside.join("checkout");
-        let result = publish(OsStr::new(CLAIM), &from);
-        if result.is_err() {
-            let _ = std::fs::rename(&aside, claim);
-        }
-        result?;
+        *staging = aside;
+        publish(OsStr::new(CLAIM), &staging.join("checkout"))?;
     }
-    publish(OsStr::new(".git"), &from)?;
-    // The claim (or the claim moved aside) holds only the emptied checkout now.
-    let _ = std::fs::remove_dir_all(from.parent().unwrap_or(&from));
-    Ok(())
+    // `.git` last: no start sees a clone before the rest of it is in place.
+    publish(OsStr::new(".git"), &staging.join("checkout"))
+}
+
+/// A number no other start in this process or another picks at the same moment.
+fn unique() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos())
 }
 
 /// `from` moved to `to` in one call that fails `AlreadyExists` when anything is at `to`, never
