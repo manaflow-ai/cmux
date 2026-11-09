@@ -156,6 +156,79 @@ async fn a_rekey_sends_the_new_key_before_it_replaces_the_key_file() {
     assert!(!KeyFile::NodePending.path_in(dir.path()).exists(), "no pending key is left");
 }
 
+/// Peers reach this machine by its current node key and cannot learn a rotated one yet: a
+/// rotation is refused before anything is written or sent, and names them.
+#[tokio::test]
+async fn a_rotation_that_would_strand_peers_is_refused_and_names_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = public_of(dir.path());
+    let platform = platform(dir.path().into(), None, takes_the_key).await;
+    let rekeys = tokio::sync::Mutex::new(());
+    let stranded = vec!["lab-1 (WireGuard)".to_owned(), "hub peer AAAA".to_owned()];
+    let refused = rotate(
+        &rekeys,
+        &machine(&platform.origin),
+        dir.path(),
+        None,
+        TOKEN,
+        &stranded,
+        |_| panic!("nothing is recorded"),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(reason(&refused), "machine.rotate_strands_peers", "{refused:?}");
+    assert!(refused.message.contains("lab-1 (WireGuard)"), "{}", refused.message);
+    assert!(refused.message.contains("hub peer AAAA"), "{}", refused.message);
+    assert_eq!(refused.data.as_ref().unwrap()["peers"], json!(stranded));
+    assert!(platform.seen.lock().unwrap().is_empty(), "a refused rotation reached the platform");
+    assert_eq!(public_of(dir.path()), old, "the key file is unchanged");
+    assert!(!KeyFile::NodePending.path_in(dir.path()).exists(), "no candidate was written");
+}
+
+/// No peer reaches this machine by its key: the rotation goes on as before.
+#[tokio::test]
+async fn a_rotation_with_no_peers_goes_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = public_of(dir.path());
+    let platform = platform(dir.path().into(), None, takes_the_key).await;
+    let rekeys = tokio::sync::Mutex::new(());
+    let answer =
+        rotate(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, &[], |_| Ok(()))
+            .await
+            .unwrap();
+    assert_eq!(platform.seen.lock().unwrap().len(), 1);
+    assert_ne!(answer["wgPublicKey"].as_str().unwrap(), old);
+    assert_eq!(public_of(dir.path()), answer["wgPublicKey"].as_str().unwrap());
+}
+
+/// A rekey an earlier one left pending is finished even with peers: the platform may already
+/// hold its key, so leaving it would split the two.
+#[tokio::test]
+async fn a_pending_rekey_is_finished_even_with_peers() {
+    let dir = tempfile::tempdir().unwrap();
+    let _ = public_of(dir.path());
+    let lock = KeyHolder::acquire(dir.path()).unwrap();
+    crate::cli::mesh_node_key::write_pending_held(dir.path(), &lock, &[9u8; 32]).unwrap();
+    drop(lock);
+    let candidate = pending_public(dir.path()).unwrap();
+    let platform = platform(dir.path().into(), None, takes_the_key).await;
+    let rekeys = tokio::sync::Mutex::new(());
+    let stranded = vec!["lab-1 (WireGuard)".to_owned()];
+    let answer = rotate(
+        &rekeys,
+        &machine(&platform.origin),
+        dir.path(),
+        None,
+        TOKEN,
+        &stranded,
+        |_| Ok(()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer["wgPublicKey"], candidate.as_str());
+    assert_eq!(public_of(dir.path()), candidate);
+}
+
 #[tokio::test]
 async fn a_refused_rekey_leaves_the_key_file_as_it_was() {
     for (status, code) in

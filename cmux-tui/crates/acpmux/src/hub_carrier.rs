@@ -161,6 +161,9 @@ pub struct HubCarrier {
     generation: AtomicU64,
     rekeyed: tokio::sync::Notify,
     routes: Mutex<HashMap<String, String>>,
+    /// The keys the last Register ticket let in (`peers`): the machines that reach this one
+    /// under its current key.
+    allowed: Arc<RwLock<HashSet<[u8; 32]>>>,
     timings: Timings,
     stats: Arc<Stats>,
     key_check: Option<KeyCheck>,
@@ -184,6 +187,7 @@ impl HubCarrier {
             generation: AtomicU64::new(0),
             rekeyed: tokio::sync::Notify::new(),
             routes: Mutex::new(HashMap::new()),
+            allowed: Arc::default(),
             timings,
             stats: Arc::default(),
             key_check: None,
@@ -205,6 +209,7 @@ impl HubCarrier {
             generation: AtomicU64::new(0),
             rekeyed: tokio::sync::Notify::new(),
             routes: Mutex::new(HashMap::new()),
+            allowed: Arc::default(),
             timings,
             stats: Arc::default(),
             key_check: Some(check),
@@ -240,6 +245,16 @@ impl HubCarrier {
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.rekeyed.notify_one();
         Ok(())
+    }
+
+    /// The keys of the machines the platform's last Register ticket let reach this one
+    /// (standard base64, sorted). Empty before the first registration.
+    pub fn registered_peers(&self) -> Vec<String> {
+        let allowed = self.allowed.read().unwrap_or_else(|e| e.into_inner());
+        let mut keys: Vec<String> =
+            allowed.iter().map(|k| base64::engine::general_purpose::STANDARD.encode(k)).collect();
+        keys.sort();
+        keys
     }
 
     /// This machine's key as the hub knows it (`daemonId`): standard base64.
@@ -371,7 +386,8 @@ impl HubCarrier {
     }
 
     async fn serve_once(self: Arc<Self>, websocket: SocketAddr, generation: u64) {
-        let allowed = Arc::new(RwLock::new(HashSet::new()));
+        let allowed = self.allowed.clone();
+        allowed.write().unwrap_or_else(|e| e.into_inner()).clear();
         let mut wait = Duration::from_secs(1);
         // The first answer names the relay and the slot; each later authentication asks again,
         // which also refreshes the keys let in (a revoked machine is out by the next one).

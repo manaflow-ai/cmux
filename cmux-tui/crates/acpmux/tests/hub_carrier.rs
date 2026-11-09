@@ -534,9 +534,11 @@ async fn hub_carrier_a_replaced_node_key_stops_the_carrier() {
     assert!(refused.contains("replaced"), "{refused}");
 }
 
-/// A rekey (`machine_tunnel.rs`) rotates the node key under a serving carrier: the carrier
-/// takes the new key with the key file in one step ([`HubCarrier::rekey`]), keeps serving and
-/// registers its slot again, and a peer that pins the new key reaches it over the relay.
+/// The carrier's own half of a rotation: it takes the new key with the key file in one step
+/// ([`HubCarrier::rekey`]), keeps serving and registers its slot again under that key. A peer
+/// is handed the new key here; peers learning a rotated key by themselves needs the platform
+/// to resolve a machine by id, so `machine_tunnel.rs` refuses a rotation while this carrier's
+/// registration lets any machine in (`machine.rotate_strands_peers`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_a_rotated_node_key_keeps_the_slot_under_the_new_key() {
     let _ = HERMETIC;
@@ -605,6 +607,8 @@ async fn hub_carrier_a_rotated_node_key_keeps_the_slot_under_the_new_key() {
         Err(last)
     }
     reach(&carrier_a, &public(&old)).await.expect("A reaches B under its first key");
+    // What a rekey reads to refuse stranding A: the machines B's registration lets in.
+    assert_eq!(carrier_b.registered_peers(), vec![public(&key_a)]);
     let registered = tickets_b.asked.load(Ordering::SeqCst);
 
     // The rekey: the file and the carrier take the new key together.

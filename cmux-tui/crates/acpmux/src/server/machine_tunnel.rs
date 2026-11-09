@@ -64,15 +64,36 @@ async fn run(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError>
             machine_tunnel::attach(&machine, params, &token, true).await
         }
         _ => {
-            machine_tunnel::rekey_once(
+            machine_tunnel::rotate(
                 &machine_tunnel::REKEYS,
                 &machine,
                 &home,
                 hub.wireguard.as_ref(),
                 &token,
+                &stranded_peers(hub).await,
                 record,
             )
             .await
         }
     }
+}
+
+/// The peers a rotation of this machine's node key would cut off: each configured WireGuard
+/// peer (it dials the key in its config), and each machine the running hub carrier's
+/// registration lets in (it pins the key the platform named).
+async fn stranded_peers(hub: &Arc<Hub>) -> Vec<String> {
+    let config = hub.config.read().await;
+    #[allow(unused_mut)]
+    let mut peers: Vec<String> = config
+        .peers
+        .iter()
+        .filter(|(_, peer)| peer.wireguard.is_some())
+        .map(|(name, _)| format!("{name} (WireGuard)"))
+        .collect();
+    drop(config);
+    #[cfg(feature = "hub-carrier")]
+    if let Some(carrier) = hub.hub_carrier.get() {
+        peers.extend(carrier.registered_peers().into_iter().map(|key| format!("hub peer {key}")));
+    }
+    peers
 }

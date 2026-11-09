@@ -12,7 +12,10 @@
 //!   leaves the key here as it was; one whose answer was lost keeps its candidate in the pending
 //!   key file and is refused `indeterminate`, and the next rekey or attach sends that candidate
 //!   again (never the old key). A second rekey while one runs is refused `busy`; a key lock
-//!   another process holds (the cmux link) is refused `key_held` with its pid.
+//!   another process holds (the cmux link) is refused `key_held` with its pid. A new rotation
+//!   while a configured WireGuard peer or the hub carrier's registration reaches this machine
+//!   by its current key is refused `machine.rotate_strands_peers`, naming them: peers have no
+//!   way yet to learn a rotated key from the platform.
 //!
 //! The person's cmux access token comes in the app's call (`server/machine_tunnel.rs`: the unix
 //! socket with the person proof only). It is the bearer of that one request, never stored,
@@ -192,6 +195,21 @@ pub(crate) async fn rekey_once(
     rekey(machine, state_dir, holder, token, record).await
 }
 
+/// `_acpmux/machine.tunnel.rekey`: [`refuse_stranding`] with the peers that reach this machine
+/// by its current key, then [`rekey_once`].
+pub(crate) async fn rotate(
+    rekeys: &tokio::sync::Mutex<()>,
+    machine: &Machine,
+    state_dir: &Path,
+    transport: Option<&Arc<Transport>>,
+    token: &str,
+    stranded: &[String],
+    record: impl FnOnce(&str) -> anyhow::Result<()>,
+) -> Result<Value, RpcError> {
+    refuse_stranding(state_dir, stranded)?;
+    rekey_once(rekeys, machine, state_dir, transport, token, record).await
+}
+
 /// A new WireGuard key, in this order: a candidate in the pending key file (the one an earlier
 /// rekey left, else a new one made now), its public half to the platform, then the pending file
 /// renamed over the key file (`record` then notes the public half in the join record) and the
@@ -297,6 +315,27 @@ pub(crate) async fn rekey(
         Holder::Lock(_) => false,
     };
     Ok(json!({"machineId": machine.id, "wgPublicKey": public, "restarted": restarted}))
+}
+
+/// A new rotation is refused `machine.rotate_strands_peers` while `stranded` names any peer
+/// that reaches this machine by its current node key (a configured WireGuard peer, a machine
+/// the hub carrier's registration lets in): those peers keep that key and the platform has no
+/// way yet for them to learn the new one, so they would lose this machine. A rekey an earlier
+/// one left pending is still finished: the platform may already hold its key.
+fn refuse_stranding(state_dir: &Path, stranded: &[String]) -> Result<(), RpcError> {
+    let pending = std::fs::symlink_metadata(KeyFile::NodePending.path_in(state_dir)).is_ok();
+    if stranded.is_empty() || pending {
+        return Ok(());
+    }
+    let message = format!(
+        "rotating this Mac's WireGuard key would cut off {}: they reach it by its current key and cannot learn a new one yet",
+        stranded.join(", ")
+    );
+    Err(RpcError::new(-32000, message).with_data(json!({
+        "reason": "machine.rotate_strands_peers",
+        "code": "machine.rotate_strands_peers",
+        "peers": stranded,
+    })))
 }
 
 /// Whether a refused platform call may still have happened there: no answer at all, or a 500,
