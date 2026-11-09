@@ -1820,6 +1820,15 @@ class StrandedCancel(unittest.TestCase):
             self.assertEqual(self.follow(api, clock), f"stopped: the run was cancelled by @{CMUX_BOT}; left cancelled")
             self.assertEqual(mutations(api), [], rescue_log)
 
+    def test_a_publish_run_the_supersede_job_cancelled_stays_cancelled(self):
+        # cmux-next-dev-daily.yml's supersede job cancels an older DEV publish run with GITHUB_TOKEN
+        # (scripts/ci/cmux_next_dev_publish_supersede.py) and logs no rescue mark: no watch re-runs it.
+        clock = Clock()
+        api = CancelledAPI(clock, cancelled=True, note=f"The run was canceled by @{ACTIONS_BOT}.")
+        clock.sleep(60)
+        self.assertEqual(self.follow(api, clock), f"stopped: the run was cancelled by @{ACTIONS_BOT}; left cancelled")
+        self.assertEqual(mutations(api), [])
+
     def test_someone_elses_cancel_is_final_even_beside_a_refusal(self):
         refused = {**refused_job("Verify signed cmux NEXT DEV (shard 2)", labels=(LIGHT,)), "id": 99}
         for note, said in (("The run was canceled by @leo.", "stopped: the run was cancelled by @leo; left cancelled"),
