@@ -2,6 +2,7 @@ import CmuxHomeCore
 import CmuxHomeRender
 import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 @testable import MessagesLabHome
 
@@ -11,9 +12,19 @@ final class FakeWidgets: HomeWidgetHosting {
     var snapshots: [String: HomeWidgetSnapshot] = [:]
     var taps: [(String, String)] = []
     var kept: [ObjectIdentifier: Set<String>] = [:]
+    /// Each tap as it arrives (the provider forwards taps to the host on the main actor).
+    let tapped: AsyncStream<(String, String)>
+    private let tappedSink: AsyncStream<(String, String)>.Continuation
+
+    init() {
+        (tapped, tappedSink) = AsyncStream.makeStream()
+    }
 
     func snapshot(for key: String, widget: ChatWidget) -> HomeWidgetSnapshot? { snapshots[key] }
-    func tap(key: String, node: String) { taps.append((key, node)) }
+    func tap(key: String, node: String) {
+        taps.append((key, node))
+        tappedSink.yield((key, node))
+    }
     func keep(_ keys: Set<String>, owner: ObjectIdentifier) { kept[owner] = keys }
     func changes() -> AsyncStream<String> { AsyncStream { _ in } }
 }
@@ -71,7 +82,7 @@ final class FakeWidgets: HomeWidgetHosting {
         #expect(longerSize.height == cardSize.height + HomeWidgetLayout.rowHeight + HomeWidgetLayout.spacing)
     }
 
-    @Test func aClickOnARowOrAnEnabledButtonGoesToItsNode() throws {
+    @Test func aClickOnARowOrAnEnabledButtonGoesToItsNode() async throws {
         let host = FakeWidgets()
         let provider = HomeWidgetRowProvider(host: host)
         let part = try #require(customPart(Self.card))
@@ -83,8 +94,13 @@ final class FakeWidgets: HomeWidgetHosting {
         #expect(provider.tapped(part, ref: ref, at: CGPoint(x: buttons[1].frame.midX, y: buttons[1].frame.midY), width: 400))
         // Previous is disabled; the badge takes no click.
         #expect(!provider.tapped(part, ref: ref, at: CGPoint(x: buttons[0].frame.midX, y: buttons[0].frame.midY), width: 400))
-        #expect(host.taps.map(\.1) == ["pr", "next"])
-        #expect(host.taps.allSatisfy { $0.0 == "msg_1#0" })
+        var taps: [(String, String)] = []
+        for await tap in host.tapped {
+            taps.append(tap)
+            if taps.count == 2 { break }
+        }
+        #expect(taps.map(\.1) == ["pr", "next"])
+        #expect(taps.allSatisfy { $0.0 == "msg_1#0" })
     }
 
     @Test(arguments: [true, false]) func aCardDrawsInLightAndDark(light: Bool) throws {
