@@ -22,7 +22,14 @@ import Foundation
 /// SIGKILL to that exact pid. `LaunchRecovery` then relaunches as for any
 /// crash (the run marker is still there). A normal quit closes the pipe with
 /// no byte, and the watcher exits at once; it never polls and wakes only for
-/// a byte or the end.
+/// a byte, the end, or a deadline.
+///
+/// `sample` has no time limit of its own: on a loaded host it did not return
+/// for minutes (run 42568653071), even after its target ended. So the watcher
+/// runs it as a coprocess and waits for its EOF at most ``sampleSeconds``; a
+/// `sample` still running then gets SIGKILL, and the app gets its SIGKILL at
+/// most ``seconds`` + ``sampleSeconds`` after the first byte, with or without
+/// a sample file.
 ///
 /// The script needs only the system's zsh (`zsh/system`'s `sysread`, whose
 /// statuses tell a timeout (4) from EOF (5); `/bin/sh` is bash 3.2 in POSIX
@@ -38,13 +45,20 @@ struct CrashWatcher: Sendable {
     /// acts first.
     static let defaultSeconds = 15
 
+    /// How long the watcher waits for `sample` (a 2 s sample, then its write) before it ends
+    /// `sample` and the app: ``defaultSeconds`` plus this stays under the crash gate's 20 s.
+    static let sampleSeconds = 4
+
     /// The system's `sample`, the tool the watcher runs on a stuck app.
     static let defaultSampleTool = "/usr/bin/sample"
 
-    /// The watcher, as `zsh -f -c script cmux-crash-watcher <pid> <sample file> <seconds> <sample tool>`.
+    /// The watcher, as
+    /// `zsh -f -c script cmux-crash-watcher <pid> <sample file> <seconds> <sample tool> <sample seconds>`.
     static let script = #"""
     zmodload zsh/system || exit 0
-    pid=$1 out=$2 seconds=$3 sampler=$4
+    # Fractional SECONDS: each deadline below is a full bound, not one cut short by up to 1 s.
+    typeset -F SECONDS
+    pid=$1 out=$2 seconds=$3 sampler=$4 sampling=$5
     # fd 3: the read end of the app's pipe. A byte: a crash path began. EOF: the app ended.
     sysread -i 3 -s 1 byte || exit 0
     deadline=$(( SECONDS + seconds ))
@@ -58,25 +72,38 @@ struct CrashWatcher: Sendable {
     done
     # Still open: the app still runs. Never end a process a debugger traces (ps STAT X).
     [[ "$(/bin/ps -o stat= -p "$pid" 2>/dev/null)" == *X* ]] && exit 0
-    "$sampler" "$pid" 2 -mayDie -file "$out" >/dev/null 2>&1
-    # The app may have ended during the sample: then its pid is not ours to signal.
-    sysread -i 3 -s 64 -t 0 more
-    (( $? == 5 )) && exit 0
+    # sample has no time limit: run it as a coprocess, whose output pipe reaches EOF when it ends.
+    coproc "$sampler" "$pid" 2 -mayDie -file "$out" 2>&1
+    sampler_pid=$!
+    exec {sampled}<&p
+    # A bounded wait is the intended deadline: sample's EOF (5) or $sampling seconds, never longer.
+    stop=$(( SECONDS + sampling )) got=4
+    while (( SECONDS < stop )); do
+      sysread -i $sampled -s 4096 -t $(( stop - SECONDS )) chunk
+      got=$?
+      (( got == 0 )) || break
+    done
+    (( got == 5 )) || /bin/kill -KILL "$sampler_pid" 2>/dev/null
+    # The app may have ended during the sample: then its pid is not ours to signal. Read past
+    # any later arm bytes first, so that EOF behind them is seen.
+    until sysread -i 3 -s 64 -t 0 more; (( (last = $?) )); do :; done
+    (( last == 5 )) && exit 0
     /bin/kill -KILL "$pid"
     """#
 
     /// Where the watcher writes its `sample` of the stuck app.
     let sampleFile: String
-    /// Seconds from the first byte to the SIGKILL.
+    /// Seconds from the first byte to the sample; the SIGKILL follows at most ``sampleSeconds`` later.
     let seconds: Int
     /// The `sample` executable the watcher runs (``defaultSampleTool``; a test passes a stand-in).
     let sampleTool: String
 
     /// - Parameters:
     ///   - sampleFile: Where the watcher writes its `sample` of the stuck app.
-    ///   - seconds: Seconds from the first byte to the SIGKILL (``defaultSeconds``).
+    ///   - seconds: Seconds from the first byte to the sample (``defaultSeconds``); the SIGKILL
+    ///     follows at most ``sampleSeconds`` later.
     ///   - sampleTool: The `sample` executable (``defaultSampleTool``); a test passes a stand-in
-    ///     to check the watcher with a `sample` that misbehaves.
+    ///     that never returns to check that the SIGKILL does not wait on it.
     init(sampleFile: String, seconds: Int = CrashWatcher.defaultSeconds,
          sampleTool: String = CrashWatcher.defaultSampleTool) {
         self.sampleFile = sampleFile
@@ -139,7 +166,7 @@ struct CrashWatcher: Sendable {
                                                      | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETPGROUP))
 
         let arguments = ["/bin/zsh", "-f", "-c", Self.script, "cmux-crash-watcher", String(pid), sampleFile, String(seconds),
-                         sampleTool]
+                         sampleTool, String(Self.sampleSeconds)]
         let environment = ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"]
         var child: pid_t = 0
         let status = withCStrings(arguments) { argv in
