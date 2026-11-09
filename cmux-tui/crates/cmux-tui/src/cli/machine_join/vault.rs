@@ -133,15 +133,10 @@ pub(super) fn parse(rest: &[String]) -> Result<super::Command, UsageError> {
     Ok(super::Command { verb: super::Verb::Vault(verb), auth })
 }
 
-/// API keys the vault exists to carry, which Cloud secrets keep for the model plane: a joined
-/// Mac of the person's own has no model plane to collide with.
-const PROVIDER_KEYS: [&str; 5] = [
-    "OPENAI_API_KEY",
-    "OPENAI_BASE_URL",
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_BASE_URL",
-    "ANTHROPIC_AUTH_TOKEN",
-];
+/// Claude's and Codex's API keys, which Cloud secrets keep for the model plane and the vault
+/// takes as placeholders only (the platform's `VAULT_MODEL_KEYS`: `--env` is refused). The base
+/// URLs are not keys: they stay reserved, so no vault entry can reroute agents.
+const PROVIDER_KEYS: [&str; 3] = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
 /// Whether `name` is a vault var name: [`PROVIDER_KEYS`], else the Cloud secrets' rules
 /// (`[A-Za-z_][A-Za-z0-9_]*`, at most 128, not one the machine's shell or cmux owns).
@@ -172,6 +167,10 @@ fn vault_failure(error: &CallError, what: &str) -> Failure {
         CallError::Status { code: "vault.invalid_hosts", .. } => Failure::new(
             "machine_vault.invalid_hosts",
             "the platform refused the hosts: give DNS names like api.github.com or *.example.com",
+        ),
+        CallError::Status { code: "vault.model_key_proxy_only", .. } => Failure::new(
+            "machine_vault.proxy_only",
+            "a Claude or Codex API key goes to machines only as a placeholder for its hosts, never with --env",
         ),
         error => error.failure(what),
     }
@@ -234,6 +233,21 @@ pub(super) fn consent_text(names: &[String]) -> String {
     }
 }
 
+/// The platform's `warning` on a saved entry (a proxy entry with no host, whose placeholder is
+/// never replaced), as one printable line.
+fn warning_of(answer: &Value) -> Option<String> {
+    answer.get("warning").and_then(Value::as_str).map(clean).filter(|w| !w.is_empty())
+}
+
+/// `human` and `value` with the platform's warning, when it sent one.
+fn with_warning(human: String, mut value: Value, warning: Option<String>) -> (String, Value) {
+    let Some(warning) = warning else { return (human, value) };
+    if let Some(fields) = value.as_object_mut() {
+        fields.insert("warning".into(), warning.clone().into());
+    }
+    (format!("{human}\nWarning: {warning}"), value)
+}
+
 /// sha256 hex of the value's bytes.
 fn fingerprint(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
@@ -282,7 +296,7 @@ pub(super) fn run(
                     fields.insert("allowedHosts".into(), json!(policy.allowed_hosts));
                 }
             }
-            (human, value)
+            with_warning(human, value, warning_of(&answer))
         }
         VaultVerb::Policy { name, policy } => {
             let answer = platform
@@ -304,7 +318,7 @@ pub(super) fn run(
                 policy.clone()
             };
             let revision = answer.get("revision").and_then(Value::as_u64);
-            (
+            with_warning(
                 format!("{name}: {}", stored.label()),
                 json!({
                     "name": name,
@@ -312,6 +326,7 @@ pub(super) fn run(
                     "delivery": stored.delivery.wire(),
                     "allowedHosts": stored.allowed_hosts,
                 }),
+                warning_of(&answer),
             )
         }
         VaultVerb::Ls => {
