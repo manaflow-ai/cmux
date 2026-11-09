@@ -30,10 +30,13 @@ import {
   INLINE_RE,
 } from "./markdownModel";
 import { proseText } from "./proseText";
+import type { ClaimCheck } from "../model";
 
 /* ---------------- Inline ---------------- */
 
 export type InlineOptions = {
+  /** A finished reply's checked claims: each phrase draws inside its mark (ClaimMark.tsx). */
+  claims?: readonly ClaimCheck[];
   /** Icon drawn before a link's text; default `linkIcon` below. */
   linkIcon?: (href: string) => ReactNode | null;
   /** The reply's footnotes: each id's number and the element id of its note. */

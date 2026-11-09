@@ -446,6 +446,7 @@ export function Markdown({
   trailing,
   skills,
   commonmark = false,
+  claims,
 }: MarkdownProps) {
   // A selection copied out of a message keeps its formatting (selectionCopy.ts); once per page.
   installSelectionCopy();
@@ -498,8 +499,9 @@ export function Markdown({
       ...(thumbnails === false ? { thumbnails } : {}),
       ...(skills?.size ? { skills } : {}),
       ...(commonmark ? { commonmark } : {}),
+      ...(claims?.length ? { claims } : {}),
     };
-  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails, skills, commonmark]);
+  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails, skills, commonmark, claims]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   // A later token must not invalidate every completed code block's memoized props.

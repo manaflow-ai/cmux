@@ -1,0 +1,56 @@
+/* A checked claim's phrase in a reply (ClaimMark.tsx, design/claim-checks.md). The shipped look only
+   colors the phrase's underline: no width or height changes, so a turn's checks arriving moves no line. */
+.cv-claim {
+  --cv-claim-color: var(--ds-color-danger);
+  all: unset;
+  display: inline;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+  text-decoration-line: underline;
+  text-decoration-style: solid;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--cv-claim-color) 70%, transparent);
+  border-radius: 2px;
+}
+.cv-claim--backed {
+  --cv-claim-color: var(--ds-color-success);
+}
+.cv-claim--none {
+  text-decoration-style: dashed;
+}
+button.cv-claim {
+  cursor: pointer;
+}
+button.cv-claim:hover {
+  text-decoration-color: var(--cv-claim-color);
+  background: color-mix(in srgb, var(--cv-claim-color) 10%, transparent);
+}
+button.cv-claim:focus-visible {
+  outline: 2px solid var(--cv-claim-color);
+  outline-offset: 1px;
+}
+
+/* Gallery alternatives (ClaimLookContext). */
+.cv-claim--glyph,
+.cv-claim--chip {
+  text-decoration-line: none;
+}
+.cv-claim__glyph {
+  margin-inline-start: 2px;
+  color: var(--cv-claim-color);
+  font-size: 0.8em;
+  font-weight: 700;
+  vertical-align: 0.15em;
+}
+.cv-claim__chip {
+  margin-inline-start: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--cv-claim-color);
+  background: color-mix(in srgb, var(--cv-claim-color) 12%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8em;
+  white-space: nowrap;
+}
