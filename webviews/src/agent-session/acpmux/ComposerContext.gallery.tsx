@@ -392,6 +392,27 @@ const stripMachines = {
   cloudSignedIn: true,
   runMode: { mode: "persistent" as const, onMode: () => undefined },
 };
+// Leo, 2026-11-09, of the machine chip's list ending in four retired lanes, each "Reconnecting": "Those
+// are being retired; drop retired and unreachable machines from the list, or group them at the bottom."
+// The person's machines, a pool that is busy, and four lanes acpmux has not reached for an hour.
+const UNAVAILABLE_FOR = 60 * 60_000;
+const retiredLanes = ["lane-1", "lane-2", "lane-3", "lane-4"];
+const unavailableMachines = (() => {
+  const live = ["studio-mini", "gpu-box", "swarm-03", "swarm-07", "swarm-11"];
+  const all = [...live, ...retiredLanes];
+  const by = <T,>(value: (name: string) => T) => Object.fromEntries(all.map((name) => [name, value(name)]));
+  return {
+    ...stripMachines,
+    sessions: [],
+    peers: all,
+    peerKinds: by(() => "ssh" as const),
+    peerConnected: by((name) => live.includes(name)),
+    peerStates: by((name) => (live.includes(name) ? "connected" : "reconnecting")),
+    peerLinks: Object.fromEntries(
+      retiredLanes.map((name) => [name, { link: "reconnecting" as const, since: Date.now() - UNAVAILABLE_FOR }]),
+    ),
+  };
+})();
 const onMachine = (peer: string) => ({
   summary: { sessionId: "", harness: "claude", host: peer, peer },
 });
@@ -1029,6 +1050,36 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     ...stripVariants("where-machine"),
+    "machines-unavailable-collapsed": {
+      height: 380,
+      note: 'Ships (Leo, 2026-11-09: "drop retired and unreachable machines from the list, or group them at the bottom"). Remote picked: the machines acpmux has not reached for 5 minutes or more wait under one muted "Unavailable (4)" row after the reachable ones, above Add Machine…; it opens them in place, greyed, with their state. A just-dropped machine keeps its row; a search finds any machine by name.',
+      props: unavailableMachines,
+      play: pickAnother,
+    },
+    "machines-unavailable-open": {
+      height: 480,
+      note: "The same list with Unavailable (4) opened: the four lanes greyed with Reconnecting, still above Add Machine…, and no pick.",
+      props: { ...unavailableMachines, unavailableExpanded: true },
+      play: pickAnother,
+    },
+    "machines-unavailable-after-add": {
+      height: 380,
+      note: "Variant: the Unavailable row below Add Machine…, the list's very end. Add Machine… then sits between what you can pick and what you cannot, and a long open group pushes nothing but itself.",
+      props: { ...unavailableMachines, unavailableGroup: "after-add" as const },
+      play: pickAnother,
+    },
+    "machines-unavailable-hidden": {
+      height: 380,
+      note: "Variant: unreachable machines dropped from the list (a search still finds them). The shortest list, but a machine that went away is gone with no trace of why.",
+      props: { ...unavailableMachines, unavailableGroup: "hidden" as const },
+      play: pickAnother,
+    },
+    "machines-unavailable-inline": {
+      height: 480,
+      note: "Before: every machine in place, the unreachable ones greyed at the end of their group saying Reconnecting, above Add Machine… (Leo's recording).",
+      props: { ...unavailableMachines, unavailableGroup: "inline" as const },
+      play: pickAnother,
+    },
     ...stripVariants("where-machine-always"),
     ...stripVariants("cloud-toggle"),
     ...stripVariants("combined"),
@@ -1147,7 +1198,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
         await openMachineList(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
+        // The four machines acpmux cannot reach wait under Unavailable (4), closed.
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 17);
       },
     },
     "computer-menu-fleet": {

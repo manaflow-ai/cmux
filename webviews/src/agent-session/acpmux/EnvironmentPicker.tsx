@@ -14,6 +14,7 @@ import {
   environmentForDigit,
   environmentReady,
   environmentSections,
+  environmentUnavailable,
   numberedEnvironments,
   orderEnvironments,
   savedEnvironmentIsFolder,
@@ -28,6 +29,8 @@ import {
   SECTION_LABELS,
   environmentStateLabel,
   ENVIRONMENT_SEARCH_MIN,
+  groupUnavailableRows,
+  type UnavailableGroup,
   useMachineRefresh,
 } from "./environmentPickerModel";
 
@@ -111,6 +114,8 @@ export function EnvironmentPicker({
   openRequest,
   ownOnly = false,
   runDetails,
+  unavailableGroup = "collapsed",
+  unavailableExpanded = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -160,6 +165,10 @@ export function EnvironmentPicker({
   ownOnly?: boolean;
   /// `run`: a second line under This Mac and Cloud (gallery only).
   runDetails?: RunRowDetails;
+  /// How a machine list shows the machines acpmux cannot reach (`collapsed` ships; gallery seam).
+  unavailableGroup?: UnavailableGroup;
+  /// Gallery seam: the Unavailable group starts open.
+  unavailableExpanded?: boolean;
 }) {
   // A picked saved environment is the current row: every machine row is then a change. One that is
   // only a folder on this computer leaves This Mac the current row.
@@ -172,6 +181,11 @@ export function EnvironmentPicker({
       ? SAVED + saved.current
       : current;
   const [query, setQuery] = useState("");
+  // Whether the machine list's Unavailable group is open; it closes with the list.
+  const [showUnavailable, setShowUnavailable] = useState(unavailableExpanded);
+  // When the list last opened: which machines are unavailable is read then, so no row moves into or
+  // out of the group while the list stays open.
+  const [openedAt, setOpenedAt] = useState(() => Date.now());
   // Which list is open: This Mac and Cloud, or every machine (Machines… on the right-click menu).
   const [list, setList] = useState<"main" | "machines">("main");
   const trigger = useRef<HTMLButtonElement>(null);
@@ -189,6 +203,7 @@ export function EnvironmentPicker({
     setQuery("");
     setList("main");
     setHighlightAuto(true);
+    setShowUnavailable(unavailableExpanded);
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -404,12 +419,34 @@ export function EnvironmentPicker({
     ...(move ? [move.value] : []),
     ...(cloudRow ? [cloudRow] : []),
   ];
+  // The machines acpmux cannot reach for long, behind the lists' Unavailable row (Leo, 2026-11-09:
+  // "drop retired and unreachable machines from the list, or group them at the bottom").
+  const unavailableRow = (value: string) => {
+    const environment = positions.get(value)?.environment;
+    return (
+      environment !== undefined && !isCloudMachineRow(environment) && environmentUnavailable(environment, openedAt)
+    );
+  };
+  const grouped = (rows: readonly string[], tail: readonly string[]) =>
+    groupUnavailableRows({
+      rows,
+      actions: tail,
+      unavailable: unavailableRow,
+      ...(checkedRow !== undefined ? { kept: checkedRow } : {}),
+      searching: words.length > 0,
+      group: unavailableGroup,
+      toggle: UNAVAILABLE,
+      expanded: showUnavailable,
+    });
   // Machines…: every machine, This Mac first, and New Tab's saved environments, as the search keeps them.
-  const machines = [
-    ...shown.filter(isLocal).map((environment) => environment.id),
-    ...savedShown.map((environment) => SAVED + environment.id),
-    ...shown.filter((environment) => !isLocal(environment)).map((environment) => environment.id),
-  ];
+  const machinesGrouped = grouped(
+    [
+      ...shown.filter(isLocal).map((environment) => environment.id),
+      ...savedShown.map((environment) => SAVED + environment.id),
+      ...shown.filter((environment) => !isLocal(environment)).map((environment) => environment.id),
+    ],
+    [],
+  );
   // Where: This Mac, Cloud, Remote (checked while the pick is any other machine or a saved
   // environment). The cloud toggle: This Mac and Cloud.
   // A Cloud machine picked is Cloud's; any other machine (or a saved environment) is Remote's.
@@ -432,13 +469,18 @@ export function EnvironmentPicker({
     ...items.filter(environmentReady),
     ...items.filter((environment) => !environmentReady(environment)),
   ];
-  const machineChoices = [
-    ...(includeLocal ? shown.filter(isLocal).map((environment) => environment.id) : []),
-    ...readyFirst(
-      shown.filter((environment) => !isLocal(environment) && !(ownOnly && environment.kind === "cloud")),
-    ).map((environment) => environment.id),
-    ...(addMachine && words.length === 0 ? [addMachine.value] : []),
-  ];
+  const choicesGrouped = grouped(
+    [
+      ...(includeLocal ? shown.filter(isLocal).map((environment) => environment.id) : []),
+      ...readyFirst(
+        shown.filter((environment) => !isLocal(environment) && !(ownOnly && environment.kind === "cloud")),
+      ).map((environment) => environment.id),
+    ],
+    addMachine && words.length === 0 ? [addMachine.value] : [],
+  );
+  const machineChoices = choicesGrouped.rows;
+  const machines = machinesGrouped.rows;
+  const unavailableCount = listRows === "machines" && list === "main" ? choicesGrouped.count : machinesGrouped.count;
   const suggestions =
     listRows === "machines" && list === "main"
       ? machineChoices
@@ -466,6 +508,9 @@ export function EnvironmentPicker({
   const latest = useRef({ ordered, current: checkedRow, onPick, persistent });
   latest.current = { ordered, current: checkedRow, onPick, persistent };
   useMachineRefresh(open, onOpen);
+  useEffect(() => {
+    if (open) setOpenedAt(Date.now());
+  }, [open]);
   const close = () => {
     setOpen(false);
     reset();
@@ -514,6 +559,11 @@ export function EnvironmentPicker({
     // A row on its way out (rowPresence.ts) keeps its place in the list but is no pick. It is not
     // a disabled suggestion: Combobox moves those to the end, so the row would jump while it goes.
     if (presence.motion(value) === "leave") return;
+    // The Unavailable row opens or closes its group in place; the list stays open.
+    if (value === UNAVAILABLE) {
+      setShowUnavailable((shown) => !shown);
+      return;
+    }
     const action = actions.find((candidate) => candidate.value === value);
     // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
     // stays open.
@@ -585,6 +635,22 @@ export function EnvironmentPicker({
           <span className="acpmux-location-check" aria-hidden="true">
             {checked && <CheckIcon />}
           </span>
+        </span>
+      );
+    }
+    if (value === UNAVAILABLE) {
+      return (
+        <span
+          className="acpmux-location-row acpmux-env-row acpmux-env-new acpmux-env-unavailable"
+          data-action="unavailable"
+          data-expanded={showUnavailable ? "" : undefined}
+          aria-expanded={showUnavailable}
+        >
+          <UnavailableChevron />
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{t("composer.envUnavailableGroup", { n: unavailableCount })}</span>
+          </span>
+          <span className="acpmux-location-check" aria-hidden="true" />
         </span>
       );
     }
@@ -777,6 +843,28 @@ export function EnvironmentPicker({
 const ACTION = "\u0000action:";
 /// Where's Remote row.
 const ANOTHER = ACTION + "another";
+/// A machine list's Unavailable row, which opens the machines acpmux cannot reach.
+const UNAVAILABLE = ACTION + "unavailable";
+
+/// The Unavailable row's mark: a chevron that turns down while its group is open (CSS).
+function UnavailableChevron() {
+  return (
+    <svg
+      className="acpmux-icon acpmux-location-icon acpmux-env-icon acpmux-env-unavailable-chevron ui-ghost-icon"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 4l4 4-4 4" />
+    </svg>
+  );
+}
 /// A saved environment's row value: its id after this, never a machine's id.
 const SAVED = "\u0000saved:";
 
