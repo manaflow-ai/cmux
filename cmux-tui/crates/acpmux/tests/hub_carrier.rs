@@ -566,7 +566,6 @@ async fn hub_carrier_a_rotated_node_key_keeps_the_slot_under_the_new_key() {
         control: Duration::from_secs(5),
         handshake: Duration::from_secs(5),
         key_check: Duration::from_millis(50),
-        ..Timings::default()
     };
     // The machine's node key file, as B's key check reads it.
     let file = Arc::new(std::sync::Mutex::new(public(&old)));
