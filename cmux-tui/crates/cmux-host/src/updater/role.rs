@@ -1112,21 +1112,64 @@ fn carrier_sessions_within(limit: Duration) -> Result<Vec<String>, Unread> {
     if home != Path::new(crate::daemon_spec::ROOT_HOME) {
         cmd.args(["runuser", "-u", WORK_USER, "--"]);
     }
-    let output = cmd
-        .arg("env")
+    cmd.arg("env")
         .arg(format!("HOME={}", home.display()))
         .arg(super::CURRENT_CMUX_TUI)
         .args(["remote", "enroll", "connections", "--session", crate::daemon_spec::SESSION])
-        .arg("--json")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|e| Unread::Failed(format!("cmux-tui: {e}")))?;
-    if !output.status.success() {
-        return Err(Unread::of(output.status, limit));
-    }
-    super::carrier::attached_sessions_in(&String::from_utf8_lossy(&output.stdout))
+        .arg("--json");
+    let stdout = output_within(cmd, limit)?;
+    super::carrier::attached_sessions_in(&String::from_utf8_lossy(&stdout))
         .ok_or_else(|| Unread::Failed("its connection list is unreadable".to_owned()))
+}
+
+/// How long past its `timeout` bound a read may run before [`output_within`]
+/// kills its process group: `timeout` only sends SIGTERM and waits, so a
+/// child that ignores it (or a grandchild under `runuser` that keeps stdout
+/// open) would hold the caller, and the gate's flock with it, past the bound
+/// (review F1 on #39366 at 6ac5a558).
+pub(super) const READ_KILL_AFTER: Duration = Duration::from_secs(1);
+
+/// The stdout of `cmd` (a `timeout LIMIT ...` command line) once it exits 0,
+/// read under a hard deadline of `limit` + [`READ_KILL_AFTER`]: past it, the
+/// whole process group the command leads is killed and the read is
+/// [`Unread::TimedOut`], whatever the children do with SIGTERM or the pipe.
+pub(super) fn output_within(mut cmd: Command, limit: Duration) -> Result<Vec<u8>, Unread> {
+    use std::os::unix::process::CommandExt as _;
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map_err(|e| Unread::Failed(format!("cmux-tui: {e}")))?;
+    let pid = child.id();
+    let mut out = child.stdout.take();
+    let (tx, rx) = mpsc::channel();
+    // Detached: a reader a killed group's escapee keeps blocked holds nothing but its pipe.
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(out) = out.as_mut() {
+            let _ = out.read_to_end(&mut bytes);
+        }
+        let _ = tx.send(bytes);
+    });
+    let bytes = match rx.recv_timeout(limit.saturating_add(READ_KILL_AFTER)) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            let _ = Command::new("kill")
+                .args(["-KILL", "--", &format!("-{pid}")])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            let _ = child.wait();
+            return Err(Unread::TimedOut(limit));
+        }
+    };
+    let status = child.wait().map_err(|e| Unread::Failed(format!("cmux-tui: {e}")))?;
+    if !status.success() {
+        return Err(Unread::of(status, limit));
+    }
+    Ok(bytes)
 }
 
 /// The acpmux sessions that run a turn or wait on a permission, by name
