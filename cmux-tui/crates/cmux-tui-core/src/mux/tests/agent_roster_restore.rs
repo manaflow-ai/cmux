@@ -61,6 +61,9 @@ fn seal_journal(mux: &Mux, key: &str) -> Vec<String> {
 
 /// Overwrite the content of every segment of one seal with bytes that are
 /// not gzip, and drop the roster snapshot so the reopen replays from zero.
+/// The segments' kept reducer records go too, as for a segment an older
+/// build sealed: a replay reads those instead of the content, and would
+/// never meet the damage.
 /// With `inflate_end`, the seal's last segment also claims to end at the
 /// first active row, past every later segment.
 fn corrupt_seal_and_drop_roster_snapshot(
@@ -77,6 +80,12 @@ fn corrupt_seal_and_drop_roster_snapshot(
     let connection = rusqlite::Connection::open(&database).unwrap();
     connection.execute_batch("DROP TRIGGER IF EXISTS journal_segments_reject_update;").unwrap();
     for segment_id in &store.seals[seal] {
+        connection
+            .execute(
+                "DELETE FROM journal_segment_reducer_records WHERE segment_id = ?1",
+                rusqlite::params![segment_id],
+            )
+            .unwrap();
         let changed = connection
             .execute(
                 "UPDATE journal_segments SET content = x'00112233' WHERE segment_id = ?1",
