@@ -215,7 +215,9 @@ public final class ScreenSharingService {
     /// Refetches everything (pull to refresh).
     public func refresh() async {
         guard let hub else { return start() }
-        if case .failed = status { await hub.start() } else { await hub.refreshAll() }
+        // A failed list (the hub, the list read, or a socket replaced or signed out) starts over;
+        // otherwise everything is read again.
+        if case .failed = discovery { await hub.start() } else { await hub.refreshAll() }
     }
 
     private func attach(_ hub: DeviceHub) {

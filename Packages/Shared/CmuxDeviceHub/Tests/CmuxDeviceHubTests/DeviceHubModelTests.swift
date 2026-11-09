@@ -215,6 +215,27 @@ import Testing
         }
     }
 
+    /// CMUX-13: starting reads the device list over HTTP, so the list is answered even when
+    /// the socket never connects (no Macs spinner forever).
+    @Test func startListsTheDevicesWithoutTheSocket() async {
+        let me = self.me, phone = self.phone
+        let stub = StubHub { request in
+            switch (request.method, request.url.path) {
+            case (_, "/v1/auth/stack"): return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#)
+            case ("POST", "/v1/devices"): return (200, #"{"device":{"id":"\#(me.id)","name":"Studio"}}"#)
+            case ("GET", "/v1/devices"): return (200, devicesJSON([(me, "Studio"), (phone, "Phone")]))
+            default: return (200, "{}")
+            }
+        }
+        let hub = DeviceHub(client: makeClient(stub, identity: me), socket: DeviceHubSocket(connector: FakeConnector([])),
+                            secrets: MemoryRelaySecretStore(), deviceName: "Studio", now: fixedNow)
+        await hub.start()
+        #expect(hub.status == .ready)
+        #expect(hub.devicesListed && hub.devicesListError == nil)
+        #expect(hub.otherDevices.map(\.id) == [phone.id])
+        hub.stop()
+    }
+
     /// CMUX-13: `devices` empty before the first read is not "no devices". The list says it was
     /// read only after a read succeeds, records why a read failed, and forgets both on sign-out.
     @Test func theDeviceListSaysWhetherItWasRead() async {

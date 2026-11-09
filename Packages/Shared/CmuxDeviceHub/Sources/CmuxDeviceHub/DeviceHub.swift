@@ -114,6 +114,7 @@ public final class DeviceHub {
         generation += 1
         let run = generation
         status = .starting
+        devicesListError = nil
         do {
             do {
                 _ = try await client.registerDevice(name: deviceName, platform: platform)
@@ -140,6 +141,9 @@ public final class DeviceHub {
                 await hub.hub?.handle(event)
             }
         }
+        // The list over HTTP now, not only once the socket connects: a socket that never
+        // connects would leave "is the list empty?" unanswered (CMUX-13).
+        await refreshDevices()
     }
 
     /// Signed out: closes the socket and forgets the account and every record.
