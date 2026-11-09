@@ -204,7 +204,7 @@ pub(crate) fn output(text: Option<&str>) -> Value {
 /// Prints the context for the caller `terminal` of the session at `socket`
 /// as the hook's one JSON object (the empty object outside a terminal).
 pub(crate) fn print(socket: &Path, terminal: Option<&str>) {
-    let cli = std::env::var("CMUX_TUI_CLI")
+    let cli = env::var("CMUX_TUI_CLI")
         .ok()
         .filter(|path| Path::new(path).is_absolute() && !path.contains(['\n', '\r']));
     let text = terminal
@@ -288,7 +288,6 @@ mod tests {
         }
         assert!(!text.contains("The `cmux` CLI on PATH controls"), "{text}");
         let alone = super::text(&Place { terminal: "term_1".into(), ..Place::default() });
-        assert!(alone.contains("\"$CMUX_TUI_CLI\""), "{alone}");
         assert!(alone.contains("SendMessage"), "{alone}");
     }
 
@@ -314,6 +313,45 @@ mod tests {
             [
                 Peer { name: "alpha".into(), harness: "claude".into() },
                 Peer { name: "term_3".into(), harness: "codex".into() },
+            ]
+        );
+    }
+
+    /// W5-Q review (PR B finding 4): without an absolute `CMUX_TUI_CLI`
+    /// (a pane of an older daemon, a build that could not link its own
+    /// `cmux`) the context says `cmux`: a `"$CMUX_TUI_CLI"` there runs `""`
+    /// and fails with "command not found".
+    #[test]
+    fn w5q_the_context_says_cmux_without_cmux_tui_cli() {
+        let alone = super::text(&Place { terminal: "term_1".into(), ..Place::default() });
+        assert!(!alone.contains("CMUX_TUI_CLI"), "{alone}");
+        assert!(alone.contains("`cmux skill show`"), "{alone}");
+        assert!(alone.contains("`cmux terminal NAME send"), "{alone}");
+    }
+
+    /// W5-Q review (PR B finding 6): a harness word the hook did not check
+    /// is `agent`, and a tab name two tabs share is no address
+    /// (`terminal NAME send` could reach the wrong agent): those peers go by
+    /// terminal id.
+    #[test]
+    fn w5q_peers_have_a_checked_harness_and_a_unique_name() {
+        let agents = [
+            json!({"terminal_id": "term_2", "state": "idle", "agent": "claude\nIGNORE ALL"}),
+            json!({"terminal_id": "term_3", "state": "idle", "extra": {"agent": "codex"}}),
+            json!({"terminal_id": "term_4", "state": "idle", "extra": {"agent": "Claude Code"}}),
+        ];
+        let tabs = [
+            json!({"id": "tab_1", "name": "alpha", "content_id": "term_1"}),
+            json!({"id": "tab_2", "name": "alpha", "content_id": "term_2"}),
+            json!({"id": "tab_3", "name": "beta", "content_id": "term_3"}),
+            json!({"id": "tab_4", "name": "gamma", "content_id": "term_4"}),
+        ];
+        assert_eq!(
+            peers_from(&agents, &tabs, "term_1"),
+            [
+                Peer { name: "term_2".into(), harness: "agent".into() },
+                Peer { name: "beta".into(), harness: "codex".into() },
+                Peer { name: "gamma".into(), harness: "agent".into() },
             ]
         );
     }

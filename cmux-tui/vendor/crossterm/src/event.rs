@@ -275,6 +275,39 @@ pub fn parse_event_from_bytes(
     }
 }
 
+/// Parses `bytes` as one read of terminal input with nothing after it, as
+/// the live event source does, and returns the events in order (cmux patch;
+/// for tests).
+#[doc(hidden)]
+#[cfg(unix)]
+pub fn parse_events_from_bytes(bytes: &[u8]) -> Vec<Event> {
+    let mut pending = Vec::new();
+    let mut events = std::collections::VecDeque::new();
+    sys::unix::parse::advance(&mut pending, bytes, false, &mut events);
+    events
+        .into_iter()
+        .filter_map(|event| match event {
+            InternalEvent::Event(event) => Some(event),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The event at the start of `bytes` and how many bytes it used; the bytes
+/// after it are input of their own (cmux patch). `input_available` is as
+/// for [`parse_event_from_bytes`].
+#[doc(hidden)]
+#[cfg(unix)]
+pub fn parse_event_len_from_bytes(
+    bytes: &[u8],
+    input_available: bool,
+) -> std::io::Result<Option<(Event, usize)>> {
+    match sys::unix::parse::parse_event_len(bytes, input_available)? {
+        Some((InternalEvent::Event(event), used)) => Ok(Some((event, used))),
+        Some(_) | None => Ok(None),
+    }
+}
+
 /// Polls to check if there are any `InternalEvent`s that can be read within the given duration.
 pub(crate) fn poll_internal<F>(timeout: Option<Duration>, filter: &F) -> std::io::Result<bool>
 where

@@ -270,8 +270,15 @@ fn location() -> Option<Value> {
     None
 }
 
-/// The guide, for the caller at `location` (`None`: outside a cmux terminal).
+/// The guide, for the caller at `location` (`None`: outside a cmux terminal),
+/// with this process's `CMUX_TUI_CLI`.
 pub(super) fn render(location: &Option<Value>) -> String {
+    let cli = std::env::var("CMUX_TUI_CLI").ok();
+    render_with(location, cli.as_deref())
+}
+
+/// [`render`] with `pane_cli`, the `CMUX_TUI_CLI` the pane sets.
+pub(super) fn render_with(location: &Option<Value>, pane_cli: Option<&str>) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# cmux: agent guide\n");
     let _ = writeln!(
@@ -280,7 +287,7 @@ pub(super) fn render(location: &Option<Value>) -> String {
          `cmux <scope> --help` prints every path and flag.\n",
         version()
     );
-    write_location(&mut out, location);
+    write_location(&mut out, location, pane_cli);
     out.push_str(RULES);
     out.push_str("\n## Recipes\n\nIDs in angle brackets come from an earlier command's JSON.\n");
     for recipe in RECIPES {
@@ -300,7 +307,7 @@ pub(super) fn render(location: &Option<Value>) -> String {
     out
 }
 
-fn write_location(out: &mut String, location: &Option<Value>) {
+fn write_location(out: &mut String, location: &Option<Value>, _pane_cli: Option<&str>) {
     out.push_str("## Where you are\n\n");
     let Some(identity) = location else {
         out.push_str(

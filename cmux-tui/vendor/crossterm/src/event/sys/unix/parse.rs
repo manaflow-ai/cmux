@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io;
 
 use crate::event::{
@@ -27,6 +28,49 @@ fn could_not_parse_event_error() -> io::Error {
 /// A 1-based terminal position as a 0-based one; 0 is malformed input.
 fn zero_based(position: u16) -> io::Result<u16> {
     position.checked_sub(1).ok_or_else(could_not_parse_event_error)
+}
+
+/// Parses `input`, read after the bytes held in `pending`, byte by byte as
+/// the event sources do, and pushes each event to `events`. `more` says
+/// whether more input is already waiting after `input`. Bytes of a sequence
+/// that has not ended stay in `pending` (cmux patch: one place for the
+/// tty and mio sources, and for tests through `parse_events_from_bytes`).
+pub(crate) fn advance(
+    pending: &mut Vec<u8>,
+    input: &[u8],
+    more: bool,
+    events: &mut VecDeque<InternalEvent>,
+) {
+    for (idx, byte) in input.iter().enumerate() {
+        let more = idx + 1 < input.len() || more;
+
+        pending.push(*byte);
+
+        match parse_event(pending, more) {
+            Ok(Some(ie)) => {
+                events.push_back(ie);
+                pending.clear();
+            }
+            Ok(None) => {
+                // Event can't be parsed, because we don't have enough bytes for
+                // the current sequence. Keep the buffer and process next bytes.
+            }
+            Err(_) => {
+                // Event can't be parsed (not enough parameters, parameter is not a number, ...).
+                // Clear the buffer and continue with another sequence.
+                pending.clear();
+            }
+        }
+    }
+}
+
+/// The event at the start of `buffer` and how many of its bytes it used
+/// (cmux patch).
+pub(crate) fn parse_event_len(
+    buffer: &[u8],
+    input_available: bool,
+) -> io::Result<Option<(InternalEvent, usize)>> {
+    Ok(parse_event(buffer, input_available)?.map(|event| (event, buffer.len())))
 }
 
 pub(crate) fn parse_event(

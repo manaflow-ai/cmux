@@ -184,6 +184,13 @@ impl Client {
         self.output.lock().unwrap().windows(needle.len()).any(|window| window == needle)
     }
 
+    /// The last bytes the client drew, for a failure message.
+    fn output_tail(&self) -> String {
+        let output = self.output.lock().unwrap();
+        let start = output.len().saturating_sub(2000);
+        String::from_utf8_lossy(output.get(start..).unwrap_or_default()).into_owned()
+    }
+
     fn stderr(&self) -> String {
         String::from_utf8_lossy(&fs::read(&self.stderr).unwrap_or_default()).into_owned()
     }
@@ -203,13 +210,27 @@ impl Drop for Client {
     }
 }
 
-fn wait_for(what: &str, client: &Client, mut ready: impl FnMut() -> bool) {
+fn wait_for(what: &str, client: &Client, ready: impl FnMut() -> bool) {
+    wait_showing(what, client, ready, String::new);
+}
+
+/// [`wait_for`] whose failure message also shows `shown()` (the pane's
+/// screen) and the end of what the client drew.
+fn wait_showing(
+    what: &str,
+    client: &Client,
+    mut ready: impl FnMut() -> bool,
+    shown: impl Fn() -> String,
+) {
     let deadline = Instant::now() + DEADLINE;
     while !ready() {
         assert!(
             Instant::now() < deadline,
-            "timed out waiting for {what}\nclient stderr:\n{}",
-            client.stderr()
+            "timed out waiting for {what}\npane screen:\n{}\nclient stderr:\n{}\nclient output \
+             (last 2000 bytes):\n{:?}",
+            shown(),
+            client.stderr(),
+            client.output_tail()
         );
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -236,7 +257,12 @@ fn w5q_tui_never_types_a_late_host_color_reply_into_a_pane() {
     // Typed input still reaches the shell: the arithmetic proves the line
     // ran, since the echoed command line has no `42`.
     client.host_writes(b"echo w5q-$((40+2))\r");
-    wait_for("the typed command to run", &client, || fixture.screen(surface).contains("w5q-42"));
+    wait_showing(
+        "the typed command to run",
+        &client,
+        || fixture.screen(surface).contains("w5q-42"),
+        || fixture.screen(surface),
+    );
     let screen = fixture.screen(surface);
     for leaked in ["rgb:", "fdfd", "2727", "10;", "11;"] {
         assert!(
@@ -246,18 +272,75 @@ fn w5q_tui_never_types_a_late_host_color_reply_into_a_pane() {
     }
 }
 
-/// A close-on-exec pty pair: the client gets the slave, the test the master.
+/// W5-Q review (PR B finding 3): keys typed right after Alt+], in the same
+/// read, reach the pane: `cat -v` in the pane shows each one. The client once
+/// waited for an OSC reply's end after `ESC ]` and then dropped the rest of
+/// the read (`a`, the Up key, a repeated Alt+], a typed `12`).
+#[test]
+fn w5q_tui_types_every_key_after_alt_right_bracket() {
+    let fixture = Fixture::new("alt-right-bracket");
+    fixture.server("ensure", &[]);
+    let mut client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+    let mut surface = None;
+    wait_for("the first pane", &client, || {
+        surface = fixture.first_surface();
+        surface.is_some()
+    });
+    let surface = surface.unwrap_or_default();
+    // No echo: a raw `ESC ]` echoed to the pane's screen would start an OSC
+    // there. `cat -v` prints each line it reads with `^[` for ESC.
+    // `cat-ready` shows only once `stty -echo` ran (the echoed line has `cat%s`).
+    client.host_writes(b"stty -echo; printf 'cat%s\\n' -ready; exec cat -v\r");
+    wait_showing(
+        "cat -v to run",
+        &client,
+        || fixture.screen(surface).contains("cat-ready"),
+        || fixture.screen(surface),
+    );
+    // Each case is one write, so the client reads it in one read.
+    let cases: [(&[u8], &str); 4] = [
+        (b"k1:\x1b]a\r", "k1:^[]a"),
+        (b"k2:\x1b]\x1b[A\r", "k2:^[]^[[A"),
+        (b"k3:\x1b]\x1b]\x1b]\r", "k3:^[]^[]^[]"),
+        (b"k4:\x1b]12x\r", "k4:^[]12x"),
+    ];
+    for (typed, _) in cases {
+        client.host_writes(typed);
+    }
+    client.host_writes(b"k5:end\r");
+    wait_showing(
+        "the typed lines to reach cat",
+        &client,
+        || fixture.screen(surface).contains("k5:end"),
+        || fixture.screen(surface),
+    );
+    let screen = fixture.screen(surface);
+    for (typed, shown) in cases {
+        assert!(
+            screen.lines().any(|line| line.trim_end() == shown),
+            "{typed:?} did not reach the pane as {shown:?}:\n{screen}"
+        );
+    }
+}
+
+/// A close-on-exec pty pair of 100x30 cells: the client gets the slave, the
+/// test the master. A pty opened without a size is 0x0, and the client then
+/// lays out no pane cells, so nothing typed shows on a pane's screen.
 fn open_pty() -> (File, OwnedFd) {
     let mut master: libc::c_int = -1;
     let mut slave: libc::c_int = -1;
-    // SAFETY: `openpty` writes two descriptors into the out params on success.
+    let mut size = libc::winsize { ws_row: 30, ws_col: 100, ws_xpixel: 0, ws_ypixel: 0 };
+    // SAFETY: `openpty` writes two descriptors into the out params on success
+    // and only reads `size`.
     let opened = unsafe {
         libc::openpty(
             &mut master,
             &mut slave,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-            std::ptr::null_mut(),
+            &mut size,
         )
     };
     assert_eq!(opened, 0, "openpty: {}", std::io::Error::last_os_error());

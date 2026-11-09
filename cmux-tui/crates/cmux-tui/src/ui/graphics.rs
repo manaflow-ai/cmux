@@ -1419,6 +1419,39 @@ mod tests {
         );
     }
 
+    /// W5-Q review (PR B finding 3): Alt+] typed while the client probes
+    /// the host is Alt+], and the keys after it in the same read stay. The
+    /// startup reader once took the key after `ESC ]` with it, and a lone
+    /// `ESC ]` became Esc and `]`.
+    #[cfg(unix)]
+    #[test]
+    fn w5q_startup_input_keeps_alt_right_bracket_and_the_keys_after_it() {
+        use crossterm::event::{Event, KeyCode, KeyModifiers};
+
+        let keys = |events: &[Event]| -> Vec<(KeyCode, KeyModifiers)> {
+            events
+                .iter()
+                .filter_map(|event| event.as_key_event().map(|key| (key.code, key.modifiers)))
+                .collect()
+        };
+        let alt = (KeyCode::Char(']'), KeyModifiers::ALT);
+        let input = split_pending_input(b"\x1b]a");
+        assert!(input.incomplete.is_empty(), "left over: {:?}", input.incomplete);
+        assert_eq!(keys(&input.events), [alt, (KeyCode::Char('a'), KeyModifiers::NONE)]);
+
+        let input = split_pending_input(b"\x1b]\x1b[A");
+        assert_eq!(keys(&input.events), [alt, (KeyCode::Up, KeyModifiers::NONE)]);
+
+        // Nothing came after a lone `ESC ]` before the startup wait ended.
+        assert_eq!(keys(&parse_incomplete_input_lossy(b"\x1b]")), [alt]);
+        assert_eq!(
+            keys(&parse_incomplete_input_lossy(b"\x1b]1")),
+            [alt, (KeyCode::Char('1'), KeyModifiers::NONE)]
+        );
+        // The start of a color reply whose end never came is still no input.
+        assert!(parse_incomplete_input_lossy(b"\x1b]11;rgb:27").is_empty());
+    }
+
     #[test]
     fn terminal_probe_preserves_fragmented_escape_input_without_dropping_bytes() {
         use crossterm::event::{Event, KeyCode};
