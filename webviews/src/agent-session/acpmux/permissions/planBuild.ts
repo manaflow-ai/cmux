@@ -1,6 +1,6 @@
 /// Where a plan approval's plan is built (`_acpmux/plan/build`): here (Approve plan), in a new
 /// worktree as a sub-session, or on two harnesses in two worktrees to compare.
-export type PlanBuildTarget = "here" | "worktree" | "compare";
+export type PlanBuildTarget = "here" | "worktree" | "compare" | "tripwires";
 
 /// A target the card's build menu offers beside Approve plan, which is `here`.
 export type PlanBuildElsewhere = Exclude<PlanBuildTarget, "here">;
@@ -61,7 +61,7 @@ export function compareHarnesses(harness: string | undefined): [string, string] 
 
 /// A host action's `target` as a build target; anything else is refused before it is sent.
 export function planBuildTarget(value: unknown): PlanBuildTarget {
-  if (value === "here" || value === "worktree" || value === "compare") return value;
+  if (value === "here" || value === "worktree" || value === "compare" || value === "tripwires") return value;
   // l10n-allow: refuses a malformed host action; never shown.
   throw new Error(`unknown plan build target ${String(value)}`);
 }

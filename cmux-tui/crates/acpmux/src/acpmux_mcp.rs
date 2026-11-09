@@ -83,6 +83,8 @@ mod pr;
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
 mod send_status;
+#[path = "acpmux_mcp_tripwires.rs"]
+mod tripwires;
 #[path = "acpmux_mcp_watch.rs"]
 mod watch;
 #[path = "acpmux_mcp_who_else.rs"]
@@ -100,6 +102,7 @@ fn tools() -> Value {
         list.push(wrap_up::tool());
         list.push(who_else::tool());
         list.extend(goal::tools());
+        list.push(tripwires::tool());
         list.extend(watch::tools());
         list.push(send_status::tool());
     }
@@ -349,6 +352,9 @@ pub async fn run() -> Result<()> {
                 }
                 if name == wrap_up::NAME {
                     return wrap_up::call(&args);
+                }
+                if name == tripwires::NAME {
+                    return tripwires::call(&daemon, &session, &args).await;
                 }
                 if name == send_status::NAME {
                     return send_status::call(&daemon, &session, &args).await;

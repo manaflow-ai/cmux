@@ -207,6 +207,17 @@ fn a_chain_with_a_hiding_step_backs_nothing() {
 }
 
 #[test]
+fn named_tripwire_matches_exact_path_and_reports_green_red_or_none() {
+    let green = turn(&[("g", "bun test tests/login.test.ts", 0)]);
+    assert_eq!(green.last_named_test("tests/login.test.ts").unwrap().ok, true);
+    assert!(green.last_named_test("tests/login.test").is_none());
+    let red = turn(&[("r", "bun test tests/login.test.ts", 1)]);
+    assert_eq!(red.last_named_test("tests/login.test.ts").unwrap().ok, false);
+    let none = turn(&[("x", "bun test tests/login.test.tsx", 0)]);
+    assert!(none.last_named_test("tests/login.test.ts").is_none());
+}
+
+#[test]
 fn a_failed_chain_does_not_say_which_step_failed() {
     let runs = turn(&[("c1", "cargo test && cargo build", 1)]);
     assert!(check("Tests pass and the build succeeds.", &runs).is_empty());

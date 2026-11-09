@@ -408,6 +408,8 @@ impl Hub {
             && !moved
             && session.read_meta(|m| crate::context_inventory::fork_keeps_rules(m, fork_seq));
         let mut meta = SessionMeta {
+            tripwires: None,
+            tripwire_enabled: false,
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,

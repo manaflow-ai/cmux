@@ -299,6 +299,8 @@ pub(super) struct Draft<'a> {
 pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
     let now = now_ms();
     SessionMeta {
+        tripwires: None,
+        tripwire_enabled: false,
         schema: META_SCHEMA.into(),
         id: d.id,
         name: String::new(),

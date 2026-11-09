@@ -171,6 +171,8 @@ impl Hub {
         session.stalled_recheck.store(0, Ordering::Relaxed);
         *session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()) =
             session.turn().map(|t| t.turn_id);
+        let turn_id = session.turn().map(|turn| turn.turn_id);
+        self.reset_tripwires(session, turn_id.as_deref());
         session.stalled_gen.fetch_add(1, Ordering::SeqCst);
         self.idle_wake.notify_one();
     }

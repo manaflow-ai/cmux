@@ -1,0 +1,90 @@
+.acpmux-tripwire-status {
+  --acpmux-tripwire-line: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --acpmux-tripwire-muted: color-mix(in srgb, var(--agent-text) 58%, transparent);
+  --acpmux-tripwire-green: var(--agent-status-success, #2f9b6b);
+  --acpmux-tripwire-red: var(--agent-status-failure, #be4f56);
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 6px);
+  width: 100%;
+  min-width: 0;
+  min-height: 26px;
+  max-height: 26px;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-tripwire-status--compact {
+  padding-inline: var(--ds-space-2, 6px);
+}
+.acpmux-tripwire {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 180px;
+  height: 22px;
+  color: var(--acpmux-tripwire-muted);
+  text-decoration: none;
+}
+.acpmux-tripwire-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+.acpmux-tripwire-name,
+.acpmux-tripwire-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-tripwire-path {
+  color: var(--acpmux-tripwire-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-caption);
+}
+.acpmux-tripwire--backed {
+  color: var(--acpmux-tripwire-green);
+}
+.acpmux-tripwire--failed {
+  color: var(--acpmux-tripwire-red);
+}
+.acpmux-tripwire--none {
+  color: var(--acpmux-tripwire-muted);
+}
+.acpmux-tripwire--none .acpmux-tripwire-dot {
+  border-style: dashed;
+}
+.acpmux-tripwire--underline .acpmux-tripwire-name {
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+.acpmux-tripwire--rows {
+  flex: 1 1 0;
+  max-width: none;
+  border-bottom: 1px solid var(--acpmux-tripwire-line);
+}
+.acpmux-tripwire-status:not(.acpmux-tripwire-status--compact) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  align-items: center;
+  min-height: 44px;
+  max-height: none;
+  height: auto;
+  padding: var(--ds-space-2, 6px);
+  overflow: hidden;
+}
+.acpmux-tripwire-status:not(.acpmux-tripwire-status--compact) .acpmux-tripwire {
+  width: 100%;
+}
+.acpmux-tripwire:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}

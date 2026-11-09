@@ -69,6 +69,13 @@ struct Run {
     ok: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct RunEvidence {
+    pub(super) tool_call_id: String,
+    pub(super) command: String,
+    pub(super) ok: bool,
+}
+
 /// A turn's finished command calls (`Session::claim_runs`).
 #[derive(Debug, Default)]
 pub(super) struct ClaimRuns {
@@ -152,6 +159,23 @@ impl ClaimRuns {
             _ if run.kinds & kind.bit() != 0 => Some((run, true)),
             _ if run.hidden & kind.bit() != 0 => Some((run, false)),
             _ => None,
+        })
+    }
+
+    /// The newest safe, single-step test run whose argv contains `path` as one exact token.
+    /// Keeping this matcher here makes tripwires reuse claim-checker's command safety rules.
+    pub(super) fn last_named_test(&self, path: &str) -> Option<RunEvidence> {
+        self.runs.iter().rev().find_map(|run| {
+            (run.kinds & ClaimKind::Tests.bit() != 0
+                && run.command.split_whitespace().any(|token| {
+                    let token = token.trim_matches(|c: char| matches!(c, '\'' | '"' | '`' | ','));
+                    token == path || token == format!("./{path}")
+                }))
+            .then(|| RunEvidence {
+                tool_call_id: run.id.clone(),
+                command: run.command.clone(),
+                ok: run.ok,
+            })
         })
     }
 }

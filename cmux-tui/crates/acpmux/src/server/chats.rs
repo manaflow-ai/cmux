@@ -154,6 +154,9 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::plan_build::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::tripwires::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     if let Some(reply) = heap(|| super::memory_inbox::dispatch(hub, conn, m, &params)).await {
         return reply;
     }

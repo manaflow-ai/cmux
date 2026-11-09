@@ -86,6 +86,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "goal_set",
             "goal_update",
             "goal_get",
+            "tripwire_declare",
             "watch_add",
             "watch_ls",
             "watch_rm",
