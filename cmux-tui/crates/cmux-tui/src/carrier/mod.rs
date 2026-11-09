@@ -565,7 +565,6 @@ pub(crate) fn run(args: &[String]) -> i32 {
         }
         let Ok(dialed) = dialed else { return code };
         // Later route lines (resumes) go out as they come.
-        tokio::spawn(async { let mut n = 0u32; loop { tokio::time::sleep(std::time::Duration::from_secs(1)).await; n += 1; eprintln!("G4TRACE tick {n}"); } });
         let writer = tokio::spawn(async move {
             while let Some(line) = queued.recv().await {
                 reply(&line);

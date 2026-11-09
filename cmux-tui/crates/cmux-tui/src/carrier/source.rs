@@ -175,7 +175,6 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for CarrierRoutes {
             .dialers
             .get(index)
             .ok_or_else(|| ProviderError::Configuration("the carrier has no such route".into()))?;
-        eprintln!("G4TRACE routes connect index={index} ssh={}", dialer.is_ssh());
         let group = match (dialer.is_ssh(), self.cached(index)) {
             (false, Some(group)) => group,
             _ => {
@@ -189,7 +188,6 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for CarrierRoutes {
                 group
             }
         };
-        eprintln!("G4TRACE routes connect done index={index}");
         self.current.set(dialer.name());
         Ok(group)
     }

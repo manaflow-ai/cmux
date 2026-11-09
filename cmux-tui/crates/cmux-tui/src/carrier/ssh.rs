@@ -459,9 +459,7 @@ impl SshRoute {
         if self.authorized_at(now_unix()) {
             return Ok(());
         }
-        eprintln!("G4TRACE authorize lock wait");
         let _one = self.authorizing.lock().await;
-        eprintln!("G4TRACE authorize lock held");
         if self.authorized_at(now_unix()) {
             return Ok(());
         }
@@ -470,7 +468,6 @@ impl SshRoute {
             .ssh_endpoint(&self.machine, &self.public_key)
             .await
             .map_err(|e| ProviderError::Transport(format!("carrier ssh key: {}", e.detail)))?;
-        eprintln!("G4TRACE authorize endpoint answered");
         let candidate = &self.candidate;
         if endpoint.host != candidate.host
             || endpoint.port != candidate.port
@@ -531,12 +528,8 @@ impl LinkGroup for SshGroup {
         self.inner.transport_snapshot().await
     }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
-        eprintln!("G4TRACE ssh open start");
         self.route.authorize().await?;
-        eprintln!("G4TRACE ssh open authorized");
-        let link = self.inner.open(request).await;
-        eprintln!("G4TRACE ssh open done ok={}", link.is_ok());
-        link
+        self.inner.open(request).await
     }
     async fn close(&self) -> Result<(), ProviderError> {
         self.inner.close().await
