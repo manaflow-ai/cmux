@@ -153,18 +153,22 @@ async fn an_unannounced_direct_address_still_wins_over_the_relay() {
         .unwrap();
     let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
     let (sender, mut receiver) = channel.split();
+    // The route rules take the arrival's address at once; the selector then
+    // holds the relay as soon as it answers a probe. Only a learned path lets
+    // the direct address win back, and stay, for the rest of the run.
     let started = Instant::now();
-    let mut direct = false;
-    while started.elapsed() < Duration::from_secs(8) {
+    let mut echoes = 0usize;
+    while started.elapsed() < Duration::from_secs(4) {
         sender.send(Bytes::from(vec![7u8; 200])).await.unwrap();
-        let _ = tokio::time::timeout(Duration::from_millis(500), receiver.recv()).await;
-        if *connected.path.borrow() == LinkPath::Direct {
-            direct = true;
-            break;
+        if let Ok(Some(ChannelEvent::Data(_))) =
+            tokio::time::timeout(Duration::from_millis(500), receiver.recv()).await
+        {
+            echoes += 1;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     let path = *connected.path.borrow();
     connected.link.close("done");
-    assert!(direct, "still {path:?} after {:?}", started.elapsed());
+    assert!(echoes > 0, "the stream flows");
+    assert_eq!(path, LinkPath::Direct, "ends direct, not on the relay");
 }
