@@ -857,13 +857,31 @@ impl HubChild for cmux_process::Child {
 /// signaled; the hub is reported ended as it is.
 fn kill_and_reap(child: &mut impl HubChild, why: &std::io::Error) -> String {
     if why.raw_os_error() == Some(libc::ECHILD) {
+        // `carrier tunnel` resets SIGCHLD at start (`reap_own_children`), so
+        // this should never happen.
+        eprintln!("carrier tunnel: hub reaped elsewhere (unexpected); not signaled");
         return format!("{:?} (reaped elsewhere)", why.kind());
     }
+    eprintln!("carrier tunnel: hub wait failed ({:?}); killing and reaping it", why.kind());
     let _ = child.kill();
     match child.wait() {
         Ok(status) => format!("{status} (after {:?})", why.kind()),
         Err(e) => format!("{:?} (after {:?})", e.kind(), why.kind()),
     }
+}
+
+/// Takes back the default `SIGCHLD` disposition for this process. A parent
+/// that ran us with `SIGCHLD = SIG_IGN` (inherited across exec) would make the
+/// kernel reap the hub the moment it exits, behind the owner thread's back;
+/// its pid could then be reused, and any pid-based signal (the stop's SIGTERM,
+/// the SIGKILL after a failed wait) could hit an unrelated process. With the
+/// default disposition an exited hub stays a zombie until its owner thread
+/// reaps it, so while that thread holds the `Child` its pid is the hub's and
+/// kill-then-wait is safe on every path. Call it before the first hub spawn.
+pub(crate) fn reap_own_children() -> bool {
+    // SAFETY: `signal` with `SIG_DFL` installs no handler code; it only
+    // changes this process's disposition, before any hub is spawned.
+    unsafe { libc::signal(libc::SIGCHLD, libc::SIG_DFL) != libc::SIG_ERR }
 }
 
 fn own_hub(
