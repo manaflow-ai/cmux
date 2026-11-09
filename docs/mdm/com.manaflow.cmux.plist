@@ -2932,9 +2932,9 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>compact</string>
+			<string>cozy</string>
 			<key>pfm_description</key>
-			<string>Row height, padding, corners, icons and text size together. Compact is the default.</string>
+			<string>Row height, padding, corners, icons and text size together.</string>
 			<key>pfm_name</key>
 			<string>appearance.density</string>
 			<key>pfm_range_list</key>
@@ -2971,6 +2971,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.</string>
 			<key>pfm_name</key>
 			<string>app.uiScale</string>
 			<key>pfm_range_max</key>
@@ -2978,7 +2980,7 @@
 			<key>pfm_range_min</key>
 			<real>0.84999999999999998</real>
 			<key>pfm_title</key>
-			<string>Interface Scale</string>
+			<string>App Zoom</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -3014,7 +3016,7 @@
 		</dict>
 		<dict>
 			<key>pfm_description</key>
-			<string>Text size of tabs, the sidebar and other controls. Terminal text has its own size.</string>
+			<string>Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size.</string>
 			<key>pfm_name</key>
 			<string>appearance.metrics.chromeFontSize</string>
 			<key>pfm_range_max</key>
@@ -3022,7 +3024,7 @@
 			<key>pfm_range_min</key>
 			<real>10</real>
 			<key>pfm_title</key>
-			<string>Interface Size</string>
+			<string>Text Size</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -5601,6 +5603,18 @@
 			<string>sidebar.controlsOnHover</string>
 			<key>pfm_title</key>
 			<string>Show Sidebar Controls Only on Hover</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it.</string>
+			<key>pfm_name</key>
+			<string>sidebar.floatOnHover</string>
+			<key>pfm_title</key>
+			<string>Float Hidden Sidebar on Hover</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
