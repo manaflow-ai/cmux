@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createCloudBroker, serveCloudRelay, OP_FIELDS, ACCEPTED, USER_ONLY, USER_ONLY_REFUSAL } from "./cloud-relay.mjs";
+import { createCloudBroker, serveCloudRelay, OP_FIELDS, ACCEPTED, USER_ONLY, USER_ONLY_REFUSAL, classicAnswer, CLASSIC_MACHINE_FIELDS, CLASSIC_SIZE_FIELDS, CLASSIC_LIMITS_FIELDS, CLASSIC_UNSOURCED } from "./cloud-relay.mjs";
 import { createConnection } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -267,7 +267,7 @@ test("every checked-in protocol vector of an aliased op: the relay sends the vec
     const body = response.body;
     if (response.http.status >= 200 && response.http.status < 300 && body?.ok !== false) {
       assert.ok(!outcome.error, `${vector.name}: ${outcome.error?.message}`);
-      assert.deepEqual(outcome.value, body.value ?? body, vector.name);
+      assert.deepEqual(outcome.value, classicAnswer(vector.op, body.value ?? body), vector.name);
     } else {
       refusals += 1;
       assert.ok(outcome.error, `${vector.name}: a refusal resolved as ${JSON.stringify(outcome.value)}`);
@@ -276,6 +276,89 @@ test("every checked-in protocol vector of an aliased op: the relay sends the vec
     }
   }
   assert.ok(refusals > 0, "the vectors include refusals");
+});
+
+// The answer each relay op gave before cmux-platform: classic /api/vm's machine record (the fields
+// cmux-cloud-machine record.rs `from_classic` read), `{vms, limits}` for a list, `{snapshots}` of
+// `{id or snapshotId, name}` (models.rs `snapshot`). The old answers of rename, start, resume and pause
+// went unread by every caller; the relay gives them the machine record.
+const OLD_ANSWER = {
+  "vm.list": "list", "vm.get": "machine", "vm.update": "machine", "vm.start": "machine", "vm.resume": "machine",
+  "vm.pause": "machine", "vm.snapshot.list": "snapshots",
+};
+function oldShapeProblems(kind, value, at) {
+  const problems = [];
+  const missing = (object, fields, where) => { for (const field of fields) if (!(object && typeof object === "object" && field in object)) problems.push(`${where}.${field}: missing`); };
+  const machine = (record, where) => {
+    missing(record, CLASSIC_MACHINE_FIELDS, where);
+    missing(record?.size, CLASSIC_SIZE_FIELDS, `${where}.size`);
+    for (const field of ["id", "status"]) if (typeof record?.[field] !== "string") problems.push(`${where}.${field}: not a string`);
+    if (record?.image !== null && typeof record?.image !== "string") problems.push(`${where}.image: not the classic image name`);
+  };
+  if (kind === "list") {
+    if (!Array.isArray(value?.vms)) problems.push(`${at}.vms: not a list`); else value.vms.forEach((record, i) => machine(record, `${at}.vms[${i}]`));
+    missing(value?.limits, CLASSIC_LIMITS_FIELDS, `${at}.limits`);
+  } else if (kind === "snapshots") {
+    if (!Array.isArray(value?.snapshots)) problems.push(`${at}.snapshots: not a list`);
+    else value.snapshots.forEach((snap, i) => { if (typeof (snap?.snapshotId ?? snap?.id) !== "string") problems.push(`${at}.snapshots[${i}]: no id`); missing(snap, ["name"], `${at}.snapshots[${i}]`); });
+  } else machine(value, at);
+  return problems;
+}
+/** Every platform field of `platform` that `value` dropped (classic's `image` is a name string, so the
+ * platform's image object rides as `image_ref`). */
+function droppedProblems(platform, value, at) {
+  if (!platform || typeof platform !== "object" || Array.isArray(platform)) return [];
+  const problems = [];
+  for (const [field, inner] of Object.entries(platform)) {
+    const kept = field === "image" && value && "image_ref" in value ? value.image_ref : value?.[field];
+    if (kept === undefined) problems.push(`${at}.${field}: dropped`);
+    else if (Array.isArray(inner)) inner.forEach((item, i) => problems.push(...droppedProblems(item, kept[i], `${at}.${field}[${i}]`)));
+    else if (field !== "image") problems.push(...droppedProblems(inner, kept, `${at}.${field}`));
+  }
+  return problems;
+}
+
+test("every relay op answers with every field its pre-platform answer had, and keeps the platform's own", async () => {
+  assert.deepEqual(Object.keys(OLD_ANSWER).sort(), Object.keys(ACCEPTED).sort(), "every served alias has an old answer shape");
+  let checked = 0;
+  for (const [operation, kind] of Object.entries(OLD_ANSWER)) {
+    const op = serverAliases[operation] ?? relayAlias(operation);
+    const cases = vectors.cases.filter((c) => c.op === op && c.responses?.[0]?.http?.status === 200 && c.responses[0].body?.ok !== false);
+    assert.ok(cases.length > 0, `${operation}: no success vector of ${op}`);
+    for (const vector of cases) {
+      const body = vector.responses[0].body;
+      const { broker } = recordingBroker(() => new Response(JSON.stringify(body), { status: 200 }));
+      const params = vector.params.machine ? { vm_id: vector.params.machine } : {};
+      if (operation === "vm.update") params.name = vector.params.name ?? "renamed";
+      const value = await broker.request(operation, params, vector.idempotency_key);
+      assert.deepEqual(oldShapeProblems(kind, value, `${operation}<${vector.name}>`), []);
+      const platform = body.value ?? body;
+      const flat = kind === "machine" && platform.machine ? platform.machine : platform;
+      assert.deepEqual(droppedProblems(flat, value, `${operation}<${vector.name}>`), []);
+      checked += 1;
+    }
+  }
+  assert.ok(checked >= Object.keys(OLD_ANSWER).length);
+});
+function relayAlias(operation) { return { "vm.list": "cloud.machine.list", "vm.get": "cloud.machine.get", "vm.update": "cloud.machine.rename", "vm.start": "cloud.machine.start", "vm.resume": "cloud.machine.start", "vm.pause": "cloud.machine.pause", "vm.snapshot.list": "cloud.snapshot.list" }[operation]; }
+
+test("the classic fields this Cloud has no source for are present as null, and named", async () => {
+  const machine = { id: "vm_x", team: "t", creator: "u", name: "box", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, status: "running", image: { id: "img", daemon_version: "1" }, created_at: 1, idle_policy: { idle_seconds: 1800 } };
+  const listed = classicAnswer("cloud.machine.list", { machines: [machine, { ...machine, id: "vm_y", status: "paused" }], next_cursor: null, revision: "4" });
+  const record = listed.vms[0];
+  for (const path of CLASSIC_UNSOURCED) {
+    const [head, tail] = path.split(".");
+    const holder = head === "limits" ? listed.limits : tail ? record[head] : record;
+    const field = head === "limits" || tail ? tail : head;
+    assert.ok(field in holder, `${path}: missing`);
+    assert.ok(holder[field] === null || (Array.isArray(holder[field]) && holder[field].length === 0) || (typeof holder[field] === "object" && Object.keys(holder[field]).length === 0), `${path}: invented ${JSON.stringify(holder[field])}`);
+  }
+  assert.deepEqual({ displayName: record.displayName, image: record.image, imageVersion: record.imageVersion, createdAt: record.createdAt, createdByUserId: record.createdByUserId, idlePauseMinutes: record.idlePauseMinutes },
+    { displayName: "box", image: "img", imageVersion: "1", createdAt: 1, createdByUserId: "u", idlePauseMinutes: 30 });
+  assert.deepEqual(record.size, { cpu: 2, memory_mb: 4096, disk_mb: 16384, name: null, memoryMb: 4096, storageMb: 16384 });
+  assert.equal(listed.limits.activeVmCount, 1);
+  assert.equal(listed.next_cursor, null);
+  assert.equal(listed.revision, "4");
 });
 
 test("a machine's exec and file ops send the bodies cmux-platform's guest routes take", async () => {

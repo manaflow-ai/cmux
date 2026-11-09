@@ -66,6 +66,51 @@ function expectedRevision(params) {
   return value === undefined || value === null ? undefined : String(value);
 }
 
+// The answers the relay gave before cmux-platform were classic /api/vm's: a machine record with camelCase
+// fields (cmux-cloud-machine record.rs `from_classic` reads them), `{vms, limits}` for a list and
+// `{snapshots}` for snapshots. Each aliased op's platform answer is turned back into that shape; the
+// platform's own fields stay beside the old ones. Classic fields this Cloud has no source for are null:
+// CLASSIC_UNSOURCED names them (cloud-relay.test.mjs checks every old field is present).
+export const CLASSIC_MACHINE_FIELDS = ["id", "provider", "status", "displayName", "slug", "kind", "image", "imageVersion", "createdAt", "createdByUserId", "address", "size", "capabilities", "pauseReason", "idlePauseMinutes", "idlePause", "updatedAt", "hourlyRateUsd", "runningSince", "sizePick", "error"];
+export const CLASSIC_SIZE_FIELDS = ["name", "cpu", "memoryMb", "storageMb"];
+export const CLASSIC_LIMITS_FIELDS = ["maxActiveVms", "activeVmCount", "planId", "memoryOptionsMb", "vcpusByMemoryMb", "lockedMemoryOptionsMb"];
+export const CLASSIC_UNSOURCED = ["slug", "kind", "address", "idlePause", "updatedAt", "hourlyRateUsd", "runningSince", "sizePick", "size.name", "limits.maxActiveVms", "limits.planId", "limits.memoryOptionsMb", "limits.vcpusByMemoryMb", "limits.lockedMemoryOptionsMb"];
+const ACTIVE = new Set(["provisioning", "starting", "running"]);
+const or = (value) => (value === undefined ? null : value);
+export function classicMachine(machine) {
+  if (!machine || typeof machine !== "object") return machine;
+  const size = machine.size && typeof machine.size === "object" ? machine.size : {};
+  const image = machine.image && typeof machine.image === "object" ? machine.image : {};
+  const idle = machine.idle_policy?.idle_seconds;
+  return {
+    ...machine,
+    provider: "cmux-next", displayName: or(machine.name), slug: null, kind: null,
+    image: or(image.id), imageVersion: or(image.daemon_version), image_ref: machine.image,
+    createdAt: or(machine.created_at), createdByUserId: or(machine.creator), address: null,
+    size: { ...size, name: null, cpu: or(size.cpu), memoryMb: or(size.memory_mb), storageMb: or(size.disk_mb) },
+    capabilities: or(machine.provider_operations), pauseReason: or(machine.pause_reason),
+    idlePauseMinutes: typeof idle === "number" ? Math.round(idle / 60) : null, idlePause: null, updatedAt: null,
+    hourlyRateUsd: null, runningSince: null, sizePick: null, error: or(machine.error),
+  };
+}
+export function classicSnapshot(snapshot) {
+  return snapshot && typeof snapshot === "object" ? { ...snapshot, snapshotId: snapshot.id, name: or(snapshot.name) } : snapshot;
+}
+/** An aliased op's platform answer in the shape the relay returned before cmux-platform. */
+export function classicAnswer(op, value) {
+  if (!value || typeof value !== "object") return value;
+  if (op === "cloud.machine.list") {
+    const machines = Array.isArray(value.machines) ? value.machines : [];
+    const vms = machines.map(classicMachine);
+    const activeVmCount = machines.filter((machine) => ACTIVE.has(machine?.status)).length;
+    return { ...value, vms, limits: { maxActiveVms: null, activeVmCount, planId: null, memoryOptionsMb: [], vcpusByMemoryMb: {}, lockedMemoryOptionsMb: null } };
+  }
+  if (op === "cloud.machine.get") return classicMachine(value);
+  if (op === "cloud.snapshot.list") return { ...value, snapshots: (Array.isArray(value.snapshots) ? value.snapshots : []).map(classicSnapshot) };
+  if (value.machine && typeof value.machine === "object") return { ...classicMachine(value.machine), machine: value.machine };
+  return value;
+}
+
 /**
  * Host-owned Cloud broker. The bearer is read only here and is never passed to
  * code mode or bwrap. Routes are a fixed operation map, never caller URLs.
@@ -78,7 +123,7 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
     if (!catalogOps.has(operation)) throw new Error(`Cloud operation is not in the catalog: ${operation}`);
     if (fixture && Object.hasOwn(fixture, operation)) return structuredClone(fixture[operation]);
     const requestIdempotencyKey = idempotencyKey;
-    let method = "POST", path, query = "", payload;
+    let method = "POST", path, query = "", payload, aliasOp;
     if (MACHINE_IO.has(operation)) {
       const base = `/v1/cloud/machines/${encodeURIComponent(vmId(params, operation))}`;
       if (operation === "vm.exec") { path = `${base}/exec`; payload = bodyWithout(params, "vm_id"); }
@@ -92,6 +137,7 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
       // A protocol op: its catalog class picks /v1/ops (a mutation, with a key and the script origin) or /v1/read.
       const aliased = Object.hasOwn(OP_ALIASES, operation);
       const op = aliased ? OP_ALIASES[operation] : operation;
+      if (aliased) aliasOp = op;
       const opParams = aliased ? aliasParams(operation, op, params) : params;
       const descriptor = catalog.operations?.[operation];
       const isMutation = descriptor ? descriptor.class === "mutation" : MUTATIONS.has(operation);
@@ -114,7 +160,8 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
       const error = value.error;
       throw new Error(typeof error?.message === "string" ? error.message : typeof error?.code === "string" ? error.code : typeof error === "string" ? error : "Cloud operation refused");
     }
-    return value?.value ?? value;
+    const answer = value?.value ?? value;
+    return aliasOp ? classicAnswer(aliasOp, answer) : answer;
   }
   return { request };
 }
