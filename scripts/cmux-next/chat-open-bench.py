@@ -916,20 +916,20 @@ def measure_case(run, case, sessions, index):
         record["opened_groups"] = groups
         return record
     if case == "subagent_column":
+        # Through `debug.agent_pane open_subagent`, the hook a tray line's `chat.subagentPane` calls: a click on the
+        # chat's lines found none after the first split (the narrower pane drew them again, 2026-11-09).
         settle_open(run, session)
-        groups = open_subagent_groups(run)
-        first = click_subagent(run)
-        chat, opened = first.get("pane"), {first.get("index")}
-        time.sleep(2)  # test script: the first subagent's split lands
-        # The chat's pane is narrower now and drew its transcript again: its groups may be folded once more.
-        groups += open_subagent_groups(run, pane=chat)
-        second = click_subagent(run, pane=chat, skip=opened)
-        opened.add(second.get("index"))
-        time.sleep(2)  # test script: the second one's split below it lands
-        groups += open_subagent_groups(run, pane=chat)
-        record = traced(run, lambda: click_subagent(run, pane=chat, skip=opened))
-        record["opened_groups"] = groups
-        record["before"] = [first.get("subagent"), second.get("subagent"), first.get("error"), second.get("error")]
+        chat = (run.rpc("debug.agent_pane", {"action": "chat_state"}) or {}).get("pane")
+        target = {"pane": chat} if chat else {}
+        before = []
+        for index in (1, 2):
+            before.append(run.rpc("debug.agent_pane", {"action": "open_subagent", "index": index, "focus": True, **target}) or {})
+            time.sleep(2)  # test script: its split (right, then below) lands
+        record = traced(run, lambda: run.rpc("debug.agent_pane", {"action": "open_subagent", "index": 3, "focus": True, **target}) or {})
+        record["before"] = before
+        marks = (record.get("trace") or {}).get("marks_ms") or record.get("marks_ms") or {}
+        # Its pane shows on the right at `pane_made`, and draws at `pane_painted` (the trace's marks, from the action).
+        record["pane_made_ms"], record["pane_painted_ms"] = marks.get("pane_made"), marks.get("pane_painted")
         return record
     raise ValueError(case)
 
