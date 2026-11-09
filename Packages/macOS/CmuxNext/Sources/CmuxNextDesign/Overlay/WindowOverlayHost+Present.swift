@@ -257,10 +257,17 @@ extension WindowOverlayHost {
     }
 
     /// Places `handle` in panel coordinates, which are the window's own.
+    /// The area window-layer overlays are laid out in: the overlay panel's container (the whole window frame, title
+    /// bar included), else the window's content view before the panel has a size. A page that fills the window
+    /// takes this size.
+    public var overlayBounds: NSRect {
+        panel.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : panel.overlayContainer.bounds
+    }
+
     func layout(_ handle: OverlayHandle) {
         cachedRegions = nil
         if isAppHost { return layoutAppPanel() }
-        let bounds = panel.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : panel.overlayContainer.bounds
+        let bounds = overlayBounds
         guard case .pane(let clip) = handle.options.effectiveLayer, let clipView = handle.clipView else {
             handle.content.setFrameOrigin(Self.origin(for: handle.content.frame.size, options: handle.options, in: bounds))
             return updateMouseRouting()

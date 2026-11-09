@@ -1,5 +1,5 @@
 public import AppKit
-public import CmuxNextDesign
+import CmuxNextDesign
 
 /// The plan picker's page (``CloudPlanPicker``), in AppKit: a title, the Monthly/Annual toggle, the Pro, Max and
 /// Team cards and the way out (Run on This Mac, Not Now). It fills the window and draws in the window's theme

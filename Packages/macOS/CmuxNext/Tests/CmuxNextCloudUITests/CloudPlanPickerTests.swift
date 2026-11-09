@@ -63,7 +63,7 @@ import Testing
         defer { window.close() }
         let answer = Task { await CloudPlanPickerPresenter().choose(CloudPlanPicker(interval: .year, offersRunHere: true), in: window) }
         let view = try #require(await shown(in: window))
-        #expect(view.frame == window.contentView?.bounds, "the picker fills the window, edge to edge")
+        #expect(view.frame == WindowOverlayHost.existingHost(for: window)?.overlayBounds, "the picker fills the window, edge to edge")
         #expect(view.accessibilityRole() == .group && view.isAccessibilityModal())
         view.choose(.plan(.max, .year))
         view.notNow()
