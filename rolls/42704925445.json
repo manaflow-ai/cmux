@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42704925445",
+  "recorded_at": "2026-11-09T22:01:53Z",
+  "reason": "cmux-tui def1d13a3a8e changes the image's cmux-tui (pinned dee3e635c475)",
+  "dry_run": false,
+  "cmux_tui": "def1d13a3a8eec1cb31b950a13347be24c3800ba",
+  "fixes": [
+    {
+      "sha": "def1d13a3a8eec1cb31b950a13347be24c3800ba",
+      "mergedAt": "2026-11-09T13:24:43-08:00",
+      "subject": "acpmux: a chat page with a record over 64 KiB opens through the hub (#39652)"
+    },
+    {
+      "sha": "507f918043ca7c09f2ac45e3c2a5cc329f5c8bbd",
+      "mergedAt": "2026-11-09T13:20:27-08:00",
+      "subject": "acpmux: a remote chat records its config entry's launch; the asksBeforeTools claim compares digests only (W5-L) (#39821)"
+    },
+    {
+      "sha": "794f562f56ee4e65a352ae37ae4fbc210fdc1a63",
+      "mergedAt": "2026-11-09T21:13:12Z",
+      "subject": "cmux-tui output cleanup: a v1 swap later marked not-needed by v2 is still the swapped registry (#39842)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T22:01:53Z",
+    "snapshot_id": "sh-2d7ae3bbc8da478f95c0ed2f2f870c8f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42704925445): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "de9a1681b7a841fb360070f1c3b7ef3e3a43c208",
+    "image": "cloud-native-auto-def1d13a-42704925445-1",
+    "revision": "ci-42704925445-1",
+    "at": "2026-11-09T22:01:53Z"
+  },
+  "rolled_back": false
+}
