@@ -40,8 +40,13 @@
 //!   none, so a parent's turn
 //!   on reports never reports upward and a report never answers a report. The hub alone sets a report's provenance
 //!   (`prompt_provenance.rs` takes only `agent_message` from a client), so no prompt passes for
-//!   one. A report never steers: it waits for the parent's turn to end, so it never becomes part
-//!   of a turn that reports.
+//!   one. A report steers into the parent's running turn, as any agent's message does
+//!   (`subsession_send.rs`): a busy coordinator reads it at its next tool step instead of after a
+//!   turn that may run for many minutes (Leo, 2026-10-29, of a lane's "your queue is drained"
+//!   left behind a 15-minute turn: "the drain guy came back but it's still not doing the right
+//!   thing"). A steered report is not counted as work the turn took in (`lane_steer_in`), so a
+//!   turn on reports only still reports nothing. A parent whose agent does not steer, or whose
+//!   turn is past its cap (`turn_cap.rs`), gets it when the turn ends, as before.
 //! - At most [`MAX_REPORTS`] reports a lane in [`WINDOW_MS`]: past it the newest is held and
 //!   goes when the window frees a place (or at a turn end under the cap), whatever the runaway
 //!   pair guard (`agent_pairs.rs`) decides.
@@ -65,8 +70,8 @@
 //!   steers into the parent: the lane's next report replaces it and says how many such turns it
 //!   folds in, a still-waiting turn never replaces a real report still queued, and the lane's own
 //!   row shows its last words meanwhile. One that nothing replaced in [`HELD_MAX_MS`] goes as it
-//!   is (a task that never ends, a dev server say). A report that is no longer still waiting
-//!   (the work ended, it failed, it asks) goes as before, at once.
+//!   is, never steered (a task that never ends, a dev server say). A report that is no longer
+//!   still waiting (the work ended, it failed, it asks) goes as before, at once.
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -253,6 +258,10 @@ pub(super) struct Report {
     /// unless a newer report replaces it.
     #[serde(default)]
     pub(super) interim: bool,
+    /// A still-waiting report that went as it is once held [`HELD_MAX_MS`]: still no news, so it
+    /// never steers.
+    #[serde(default)]
+    pub(super) released: bool,
     /// Still-waiting turns before this one whose reports it replaced.
     #[serde(default)]
     pub(super) quiet_turns: u32,
@@ -703,6 +712,7 @@ impl Hub {
                 l.held = None;
                 let r = l.ready.as_mut().filter(|r| r.prompt_id == held && r.interim)?;
                 r.interim = false;
+                r.released = true;
                 Some(())
             });
             if released.is_some() {
@@ -811,6 +821,7 @@ impl Hub {
             subagent_ended: false,
             interim,
             quiet_turns: 0,
+            released: false,
         }
     }
 
@@ -945,11 +956,13 @@ impl Hub {
             })),
             ..PromptOptions::default()
         };
-        // The answer comes when the parent's turn ends; the report is in once it is accepted.
+        // The report is in once it is accepted, steered or queued.
         let hub = self.clone();
-        // Never steered in: a report waits for the parent's turn to end (see above).
+        // Steered into a running turn (see above); a still-waiting report that went as it is
+        // after HELD_MAX_MS is no news, so it waits for the turn to end.
+        let steer = !report.interim && !report.released;
         let run =
-            tokio::spawn(async move { hub.prompt_with(&p, blocks, "acpmux", false, opts).await });
+            tokio::spawn(async move { hub.prompt_with(&p, blocks, "acpmux", steer, opts).await });
         if rx.await.is_ok() {
             return Ok(());
         }
@@ -1090,6 +1103,7 @@ mod tests {
             subagent_ended: false,
             interim: false,
             quiet_turns: 0,
+            released: false,
         }
     }
 
@@ -1448,6 +1462,7 @@ mod tests {
             subagent_ended: false,
             interim: false,
             quiet_turns: 0,
+            released: false,
         }
     }
 
@@ -1656,6 +1671,7 @@ mod tests {
             subagent_ended: false,
             interim: false,
             quiet_turns: 0,
+            released: false,
         };
         hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued));
         // The report is taken; the lane closes (its link retired) before it is handed over.
