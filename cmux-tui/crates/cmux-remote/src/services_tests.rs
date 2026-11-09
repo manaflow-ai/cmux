@@ -1321,6 +1321,10 @@ async fn mux_control_delivers_a_large_snapshot_before_the_output_after_it() {
         let mut events = Vec::new();
         while events.len() < 2 {
             let chunk = stream.receive().await.unwrap().expect("stream ended early");
+            // Empty frames carry flow control, not mux packets.
+            if chunk.payload.is_empty() {
+                continue;
+            }
             if let Some(line) = assembler.push_retaining(chunk.lane, chunk.payload, ()).unwrap() {
                 let value: serde_json::Value = serde_json::from_slice(line.payload()).unwrap();
                 events.push((value["event"].as_str().unwrap().to_owned(), line.lane()));
@@ -1328,7 +1332,7 @@ async fn mux_control_delivers_a_large_snapshot_before_the_output_after_it() {
         }
         events
     };
-    let events = crate::acpmux_bridge::tests::within(read).await;
+    let events = acpmux_bridge::tests::within(read).await;
     let expected = [("snapshot".to_owned(), Lane::Bulk), ("output".to_owned(), Lane::Bulk)];
     assert_eq!(events, expected);
     serve.abort();
