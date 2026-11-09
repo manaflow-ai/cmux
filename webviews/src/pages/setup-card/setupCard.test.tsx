@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -36,6 +36,41 @@ function host(state: SetupState) {
   };
   return { client, calls, push: (next: SetupState) => push?.(next) };
 }
+
+/** The page mounted in a DOM with no ResizeObserver (as a hidden web view, which gets no callbacks). */
+async function mounted(state: SetupState) {
+  const window = new Window();
+  Object.assign(globalThis, {
+    document: window.document,
+    window,
+    ResizeObserver: undefined,
+    HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Node: window.Node,
+    navigator: window.navigator,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  const { client, calls } = host(state);
+  const store = new SetupCardStore(client);
+  const root = window.document.createElement("div");
+  window.document.body.appendChild(root);
+  await act(async () => {
+    createRoot(root as unknown as HTMLElement).render(<SetupCardPage store={store} />);
+    await store.start();
+  });
+  const button = (label: string) => {
+    const found = [...root.querySelectorAll("button")].find((node) => node.textContent === label);
+    if (!found) throw new Error(`no ${label} button`);
+    return found as unknown as HTMLButtonElement;
+  };
+  return { root, calls, button };
+}
+
+const names = ["document", "window", "ResizeObserver", "HTMLElement", "Element", "Node", "navigator"] as const;
+const saved = Object.fromEntries(names.map((name) => [name, (globalThis as Record<string, unknown>)[name]]));
+afterEach(() => {
+  Object.assign(globalThis, saved);
+});
 
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
@@ -82,32 +117,24 @@ describe("the Set Up cmux page", () => {
   });
 
   test("reports its height once rendered, with no ResizeObserver callback (a hidden page gets none)", async () => {
-    const window = new Window();
-    const globals = globalThis as Record<string, unknown>;
-    const names = ["document", "window", "ResizeObserver", "HTMLElement", "Element", "Node", "navigator"] as const;
-    const saved = Object.fromEntries(names.map((name) => [name, globals[name]]));
-    Object.assign(globals, {
-      document: window.document,
-      window,
-      ResizeObserver: undefined,
-      HTMLElement: window.HTMLElement,
-      Element: window.Element,
-      Node: window.Node,
-      navigator: window.navigator,
-      IS_REACT_ACT_ENVIRONMENT: true,
+    const { calls } = await mounted(fresh);
+    expect(calls.some(([op]) => op === SETUP_OPS.size)).toBe(true);
+  });
+
+  test("Install Codex waits, greyed, while Claude Code installs, and runs once that ends", async () => {
+    const claude = (state: "installing" | "failed") => ({
+      ...fresh,
+      agents: [{ ...fresh.agents[0]!, state }, fresh.agents[1]!],
     });
-    try {
-      const { client, calls } = host(fresh);
-      const store = new SetupCardStore(client);
-      const root = window.document.createElement("div");
-      window.document.body.appendChild(root);
-      await act(async () => {
-        createRoot(root as unknown as HTMLElement).render(<SetupCardPage store={store} />);
-        await store.start();
-      });
-      expect(calls.some(([op]) => op === SETUP_OPS.size)).toBe(true);
-    } finally {
-      Object.assign(globals, saved);
-    }
+    const busy = await mounted(claude("installing"));
+    expect(busy.root.textContent).toContain("Codex installs after Claude Code");
+    await act(async () => busy.button("Install Codex").click());
+    expect(busy.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([]);
+
+    const failed = await mounted(claude("failed"));
+    await act(async () => failed.button("Install Codex").click());
+    expect(failed.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
+      [SETUP_OPS.run, { action: { kind: "installAgent", id: "codex" } }],
+    ]);
   });
 });

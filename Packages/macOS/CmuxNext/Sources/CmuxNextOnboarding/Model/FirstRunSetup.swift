@@ -18,11 +18,16 @@ public final class FirstRunSetup {
     public private(set) var historyDone: Bool
     @ObservationIgnored private let defaults: UserDefaults
 
-    public init(defaults: UserDefaults = .standard) {
+    /// `skipsOnboarding` (`--skip-onboarding`, `CMUX_NEXT_SKIP_ONBOARDING=1`): the card stays away for this launch
+    /// and starts on none, and a card still pending returns on the next launch that does not skip.
+    public init(defaults: UserDefaults = .standard, skipsOnboarding: Bool = false) {
         self.defaults = defaults
-        shows = defaults.string(forKey: Self.stateKey) == "pending"
+        self.skipsOnboarding = skipsOnboarding
+        shows = !skipsOnboarding && defaults.string(forKey: Self.stateKey) == "pending"
         historyDone = defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey)
     }
+
+    @ObservationIgnored private let skipsOnboarding: Bool
 
     /// The chat history row is answered: its page showed, or the person dismissed it.
     public func historyAnswered() {
@@ -37,7 +42,7 @@ public final class FirstRunSetup {
     /// Chromium page, not the card's WebKit one (manaflow-ai/cmux#37809).
     @discardableResult
     public func begin(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Bool {
-        guard isFirstRun, !screenReader, defaults.string(forKey: Self.stateKey) == nil,
+        guard isFirstRun, !screenReader, !skipsOnboarding, defaults.string(forKey: Self.stateKey) == nil,
               !defaults.bool(forKey: OnboardingWindowPresenter.agentsShownKey) else { return false }
         for key in [OnboardingWindowPresenter.agentsShownKey] + replacedKeys { defaults.set(true, forKey: key) }
         defaults.set("pending", forKey: Self.stateKey)
@@ -48,7 +53,7 @@ public final class FirstRunSetup {
     /// What a launch's first-run steps do: start the card now, leave them to a card that started on an earlier
     /// launch (pending or ended: the old windows never run after it, so Bring your history's flag stays the row's),
     /// or run the first-run windows (no card ever started).
-    public enum Route: Sendable { case startCard, cardOwns, windows }
+    public enum Route: Equatable, Sendable { case startCard, cardOwns, windows }
 
     /// The launch's first-run route; starts the card when ``begin(isFirstRun:replacedKeys:screenReader:)`` does.
     public func route(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Route {

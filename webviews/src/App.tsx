@@ -93,7 +93,7 @@ import {
   type DiffLineClick,
 } from "./diff-viewer/openFile";
 import { diffFingerprintReader, useDiffFreshness, usePrecomputedFingerprint } from "./diff-viewer/freshness";
-import { diffPageClient, type DiffPageConfig } from "./diff/page";
+import { diffPageClient, diffPageServes, type DiffPageConfig } from "./diff/page";
 import { reportFirstHunk } from "./diff-viewer/openTiming";
 import { GitToolbarButtons, GitWriteBar } from "./agent-session/acpmux/changes/GitActions";
 import { useGitWrite } from "./agent-session/acpmux/changes/useGitWrite";
@@ -113,7 +113,10 @@ import {
 } from "./diff-viewer/page-effects";
 import { useDiffComments } from "./diff-viewer/useDiffComments";
 import { InlinePreview, isPreviewAnnotation, previewItemFor, type PreviewCache } from "./diff-viewer/InlinePreview";
-import { useRevealPath } from "./diff-viewer/reveal";
+import { revealItemId, useRevealPath } from "./diff-viewer/reveal";
+import { DIFF_PAGE_BRIEF_OP, useReviewBrief } from "./diff-viewer/useReviewBrief";
+import { spotTarget, type BriefSpot } from "./review-brief/model";
+import { ReviewBriefStrip, type ReviewBriefLabels } from "./review-brief/ReviewBrief";
 import {
   registerDiffViewerThemes,
   useDeferredHydration,
@@ -710,6 +713,101 @@ export function App({ config, initialStatus }: ConfigProps) {
     state.items,
     revealFile,
   );
+  // The chat's review brief (review-brief/): its row is kept from the first frame while a chat
+  // owns the diff; an unsure spot opens its hunk.
+  const reviewBrief = useReviewBrief({
+    enabled: payload.reviewBrief === true && diffPageServes(config as DiffPageConfig, DIFF_PAGE_BRIEF_OP),
+    repoRoot: commentRepoRoot,
+    generation: state.renderGeneration,
+  });
+  const [briefOpen, setBriefOpen] = useState(false);
+  const briefLabels = useMemo<ReviewBriefLabels>(
+    () => ({
+      title: label("briefTitle"),
+      loading: label("briefLoading"),
+      failed: label("briefFailed"),
+      empty: label("briefEmpty"),
+      goal: label("briefGoal"),
+      plan: label("briefPlan"),
+      rejected: label("briefRejected"),
+      unsure: label("briefUnsure"),
+      show: label("briefShow"),
+      hide: label("briefHide"),
+      hedge: label("briefHedge"),
+      reverted: label("briefReverted"),
+      redone: label("briefRedone"),
+      reworked: label("briefReworked"),
+      notInDiff: label("briefNotInDiff"),
+    }),
+    [label],
+  );
+  // Which spots name a file of this diff: once per brief and file list, not on every render.
+  const briefSpotsInDiff = useMemo(
+    () =>
+      new Set(
+        reviewBrief?.kind === "ready"
+          ? reviewBrief.brief.unsure.filter((spot) => spotTarget(state.items, spot, revealItemId) != null)
+          : [],
+      ),
+    [reviewBrief, state.items],
+  );
+  const briefSpotInDiff = useCallback((spot: BriefSpot) => briefSpotsInDiff.has(spot), [briefSpotsInDiff]);
+  // A spot's file may be collapsed, with no rows (and no lines) to scroll to: it is expanded, and
+  // the spot is opened once the expanded item reaches the code view, as find does
+  // (find/useDiffFind.ts).
+  const pendingBriefSpot = useRef<BriefSpot | null>(null);
+  const scrollToBriefSpot = useCallback(
+    (spot: BriefSpot, items: readonly DiffItem[]) => {
+      const target = spotTarget(items, spot, revealItemId);
+      if (!target) return;
+      if (target.lineNumber != null) {
+        codeViewRef.current?.scrollTo({
+          type: "line",
+          id: target.itemId,
+          lineNumber: target.lineNumber,
+          side: target.side ?? "additions",
+          align: "center",
+          behavior: "smooth-auto",
+        });
+      } else {
+        scrollToItem(target.itemId);
+      }
+      dispatch({
+        type: "set-active-item",
+        itemId: target.itemId,
+        treePath: latestState.current.treeSource?.treePathByItemId.get(target.itemId),
+      });
+    },
+    [latestState, scrollToItem],
+  );
+  const openBriefSpot = useCallback(
+    (spot: BriefSpot) => {
+      const items = latestState.current.items;
+      const target = spotTarget(items, spot, revealItemId);
+      if (!target) return;
+      if (items.some((item) => item.id === target.itemId && item.collapsed)) {
+        pendingBriefSpot.current = spot;
+        revealItem(target.itemId);
+        return;
+      }
+      pendingBriefSpot.current = null;
+      scrollToBriefSpot(spot, items);
+    },
+    [latestState, revealItem, scrollToBriefSpot],
+  );
+  useLayoutEffect(() => {
+    const spot = pendingBriefSpot.current;
+    if (spot == null) return;
+    const target = spotTarget(state.items, spot, revealItemId);
+    if (!target) {
+      pendingBriefSpot.current = null;
+      return;
+    }
+    if (state.items.some((item) => item.id === target.itemId && !item.collapsed)) {
+      pendingBriefSpot.current = null;
+      scrollToBriefSpot(spot, state.items);
+    }
+  }, [state.items, scrollToBriefSpot]);
   const find = useDiffFind({
     items: visibleItems,
     open: state.findOpen,
@@ -948,6 +1046,16 @@ export function App({ config, initialStatus }: ConfigProps) {
           onCloseForm={() => setCommitOpen(false)}
           reloadKey={state.renderGeneration}
         />
+        {reviewBrief ? (
+          <ReviewBriefStrip
+            state={reviewBrief}
+            labels={briefLabels}
+            open={briefOpen}
+            onOpenChange={setBriefOpen}
+            onOpenSpot={openBriefSpot}
+            inDiff={briefSpotInDiff}
+          />
+        ) : null}
       </div>
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
         <FilesSidebarBackdrop label={label} onClose={() => closeFileSearch(dispatch)} open={state.fileSearchOpen} />
