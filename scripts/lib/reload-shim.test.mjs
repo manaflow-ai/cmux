@@ -586,7 +586,7 @@ test("reload shim runs a release app's CLI that the app pointer names", () => {
   }
 });
 
-test("reload shim reads NEXT's app pointer first, then classic's from an older build", () => {
+test("reload shim reads the app pointer written last, NEXT's or classic's from an older build", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-app-old-"));
   try {
     const shim = path.join(root, "cmux");
@@ -605,6 +605,13 @@ test("reload shim reads NEXT's app pointer first, then classic's from an older b
     result = runShim(shim, cleanEnvironment(root));
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout.trim(), "new");
+
+    // The older build opened after the newer one writes only classic's pointer: the one written last wins.
+    const later = new Date(Date.now() + 5000);
+    fs.utimesSync(writeAppPointer(root, oldCLI, 0o600, "cmux"), later, later);
+    result = runShim(shim, cleanEnvironment(root));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "old");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

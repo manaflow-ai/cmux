@@ -405,3 +405,47 @@ fn fnv1a32(bytes: &[u8]) -> u32 {
 pub fn chief_homes_root(user_home: &Path) -> PathBuf {
     user_home.join(".cmux/chief")
 }
+
+/// The name a NEXT state path is known by wherever its name is hashed into an
+/// identity (cmux Remote's Keychain scope, a terminal holder's socket, the
+/// daemon's runtime sockets): the path before CmuxNext `StateFolderMove`
+/// moved `Application Support/cmux/{tags,builds}/...` to
+/// `Application Support/cmux-next/{tags,builds}/...`. So the move keeps the
+/// build's Remote device, and a new daemon still finds the holders and sockets
+/// a daemon from before the move made. Every other path is its own name.
+pub fn path_identity(path: &Path) -> std::borrow::Cow<'_, Path> {
+    use std::path::Component;
+    let parts: Vec<Component<'_>> = path.components().collect();
+    let moved = parts.windows(3).position(|window| {
+        window[0].as_os_str() == "Application Support"
+            && window[1].as_os_str() == "cmux-next"
+            && (window[2].as_os_str() == "tags" || window[2].as_os_str() == "builds")
+    });
+    let Some(at) = moved else { return std::borrow::Cow::Borrowed(path) };
+    let mut before = PathBuf::new();
+    for (index, part) in parts.iter().enumerate() {
+        before.push(if index == at + 1 { std::ffi::OsStr::new("cmux") } else { part.as_os_str() });
+    }
+    std::borrow::Cow::Owned(before)
+}
+
+#[cfg(test)]
+mod path_identity_tests {
+    use super::path_identity;
+    use std::path::Path;
+
+    #[test]
+    fn a_moved_state_path_keeps_its_name_from_before_the_move() {
+        let support = Path::new("/Users/a/Library/Application Support");
+        let at = |folder: &str, rest: &str| support.join(folder).join(rest);
+        for rest in ["tags/nightly/tui/terminal-hosts-x", "builds/k1/tui"] {
+            assert_eq!(path_identity(&at("cmux-next", rest)), at("cmux", rest));
+        }
+        for own in [
+            Path::new("/Users/a/.local/state/cmux-tui").to_path_buf(),
+            at("cmux-next", "agent-home"),
+        ] {
+            assert_eq!(path_identity(&own), own);
+        }
+    }
+}
