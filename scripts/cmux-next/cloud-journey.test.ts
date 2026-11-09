@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -375,6 +376,13 @@ describe("guest carrier timeline", () => {
       "after create's answer (±100 ms; a claimed spare: bound 231500 ms before create answered): guest boot -760954248 ms; bound.json -231500 ms");
   });
 
+  test("a cold machine that binds while create's answer is on its way back is not a spare", () => {
+    // Create was sent at 997_000 and answered at 1_000_000; the guest bound at 999_000, between the two.
+    const out = ["guest_now 1000000000 60000", "wall bound.json 999999000"].join("\n");
+    expect(guestTimeline(out, 1_000_000_000, 999_999_900, 1_000_000_100, 999_997_000)).toBe(
+      "after create's answer (±100 ms): guest boot -60000 ms; bound.json -1000 ms");
+  });
+
   test("says so when the guest showed nothing", () => {
     expect(guestTimeline("", 10_000, 20_000, 20_100)).toBe("after create's answer (±50 ms): no guest clock read");
   });
@@ -415,5 +423,257 @@ describe("cloud journey: carrier ticket without a cmux binary", () => {
     expect(Buffer.from(noncanonical, "base64url").length).toBe(32);
     for (const daemon_key of [undefined, "k", `${key}=`, noncanonical, key.replace(/.$/, "+")])
       expect(carrierTicketProblem(200, answer({ daemon_key }), 1_000)).toContain("daemon_key");
+  });
+});
+
+describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
+  const now = Date.UTC(2026, 10, 9, 12, 0, 0);
+  const H = 3_600_000;
+  const id = (n: number) => `vm_${String(n).padStart(20, "0")}`;
+  const machine = (over: Record<string, unknown> = {}) => ({ id: id(1), name: "cloud journey jr-mw7vl1n7", status: "paused", created_at: now - 20 * H, last_active_at: now - 19 * H, ...over });
+
+  test("ids are strict vm_ID@JOB_ID entries, at most 5, checked before sign-in", () => {
+    expect(parseDeleteEntries(`${id(1)}@128746706182, ${id(2)}@7 ${id(1)}@128746706182`)).toEqual([{ id: id(1), job: "128746706182" }, { id: id(2), job: "7" }]);
+    expect(() => parseDeleteEntries("")).toThrow("no machine ids");
+    expect(() => parseDeleteEntries(" , ")).toThrow("no machine ids");
+    // A bare id has no proof: refused.
+    expect(() => parseDeleteEntries(id(1))).toThrow("@<GitHub Actions job id>");
+    expect(() => parseDeleteEntries("vm_4817ee90a93468c689d@1")).toThrow("@<GitHub Actions job id>");
+    expect(() => parseDeleteEntries(`${id(1)}@1,VM_4817EE90A93468C689D3@1`)).toThrow("@<GitHub Actions job id>");
+    expect(() => parseDeleteEntries(`${id(1)}@0`)).toThrow("@<GitHub Actions job id>");
+    expect(() => parseDeleteEntries(`${id(1)}@1;rm -rf /`)).toThrow("@<GitHub Actions job id>");
+    expect(() => parseDeleteEntries("$(id)@1")).toThrow("@<GitHub Actions job id>");
+    expect(() => parseDeleteEntries(`${id(1)}@1,${id(1)}@2`)).toThrow("given twice");
+    expect(parseDeleteEntries(Array.from({ length: 5 }, (_, i) => `${id(i)}@1`).join(",")).length).toBe(5);
+    expect(() => parseDeleteEntries(Array.from({ length: 6 }, (_, i) => `${id(i)}@1`).join(","))).toThrow("at most 5");
+  });
+
+  // cmux-vm run 42485334511, job 128746706182 (deploy-staging): the baseline journey made and deleted vm_962c...,
+  // the journey after the deploy made vm_4817... and its cleanup delete got mutation.indeterminate.
+  const JOB_LOG = [
+    "2026-11-08T13:34:46.6609695Z ##[group]Run bash scripts/cmux-next/cloud-journey-ci.sh",
+    "2026-11-08T13:34:47.5710994Z PASS health 886 ms :: commit 0.1.0",
+    "2026-11-08T13:34:48.0205834Z PASS sign in (agent test account) 449 ms :: Stack project 454ecd03",
+    "2026-11-08T13:34:53.5350164Z PASS create machine 4063 ms :: vm_962c8697bd526edb3c9f status provisioning",
+    "2026-11-08T13:35:47.3129035Z PASS delete 1916 ms :: vm_962c8697bd526edb3c9f gone",
+    "2026-11-08T13:35:47.3135023Z PASS staging: 25 passed, 0 failed, 3 skipped, 59.2 s",
+    "2026-11-08T13:35:58.9523346Z PASS health 852 ms :: commit 0.1.0",
+    "2026-11-08T13:35:59.3833812Z PASS sign in (agent test account) 431 ms :: Stack project 454ecd03",
+    "2026-11-08T13:36:05.1976698Z PASS create machine 4874 ms :: vm_4817ee90a93468c689d3 status provisioning",
+    "2026-11-08T13:36:08.5621120Z PASS listed 69 ms :: 6 machines",
+    '2026-11-08T13:36:15.1846422Z FAIL pass Claude login 5250 ms :: exec: HTTP 502 "vm_unavailable"',
+    '2026-11-08T13:36:21.9333032Z FAIL delete (cleanup) 6749 ms :: cloud.machine.delete: HTTP 200 {"code":"mutation.indeterminate","message":"the provider call was cut off; retry with the same key","retryable":true}',
+    "2026-11-08T13:36:21.9335161Z FAIL staging: 8 passed, 2 failed, 0 skipped, 23.8 s",
+  ].join("\r\n");
+
+  test("a job's log proves a leak only with its journey's create of that id and a failed cleanup delete after it", () => {
+    expect(leakProof(JOB_LOG, "vm_4817ee90a93468c689d3")).toBeNull();
+    // Made and deleted in the same job: no failed cleanup in its own journey.
+    expect(leakProof(JOB_LOG, "vm_962c8697bd526edb3c9f")).toContain("logged no failed cleanup delete");
+    expect(leakProof(JOB_LOG, id(1))).toContain("no journey that made");
+    // A failed cleanup of an earlier journey does not prove a later one's machine.
+    const lines = JOB_LOG.split("\r\n");
+    const swapped = [...lines.slice(6), ...lines.slice(0, 6)].join("\n");
+    expect(leakProof(swapped, "vm_962c8697bd526edb3c9f")).toContain("logged no failed cleanup delete");
+    // The cleanup line before the create, or a create outside a journey (no health step), proves nothing.
+    expect(leakProof([lines[6], lines[11], lines[8]].join("\n"), "vm_4817ee90a93468c689d3")).not.toBeNull();
+    expect(leakProof([lines[8], lines[11]].join("\n"), "vm_4817ee90a93468c689d3")).not.toBeNull();
+    // A create that failed, or an id only quoted in another line, proves nothing.
+    expect(leakProof([lines[6], lines[8].replace("PASS create", "FAIL create"), lines[11]].join("\n"), "vm_4817ee90a93468c689d3")).not.toBeNull();
+    expect(leakProof([lines[6], "PASS listed 1 ms :: vm_4817ee90a93468c689d3", lines[11]].join("\n"), "vm_4817ee90a93468c689d3")).not.toBeNull();
+  });
+
+  // The real job and run (fields the proof reads), as the API answered them.
+  const TRUSTED_JOB = { id: 128746706182, run_id: 42485334511, name: "deploy-staging", head_branch: "feat-cmux-next", workflow_name: "cmux VM" };
+  const TRUSTED_RUN = { id: 42485334511, path: ".github/workflows/cmux-vm.yml", event: "push", head_branch: "feat-cmux-next", repository: { full_name: "manaflow-ai/cmux" }, head_repository: { full_name: "manaflow-ai/cmux" } };
+  const gh = (over: { job?: any; run?: any; logStatus?: number; log?: string } = {}) => {
+    const calls: Array<{ url: string; auth: string }> = [];
+    const get = async (url: string, headers: Record<string, string>) => {
+      calls.push({ url, auth: headers.authorization ?? "" });
+      const ok = (body: unknown) => ({ status: 200, location: null, text: JSON.stringify(body) });
+      if (url.endsWith("/actions/jobs/128746706182")) return ok({ ...TRUSTED_JOB, ...over.job });
+      if (url.endsWith("/actions/runs/42485334511")) return ok({ ...TRUSTED_RUN, ...over.run });
+      if (url.endsWith("/actions/jobs/128746706182/logs")) return { status: over.logStatus ?? 302, location: "https://blob.example/job-logs.txt?sig=x", text: "" };
+      if (url.startsWith("https://blob.example/")) return { status: 200, location: null, text: over.log ?? JOB_LOG };
+      return { status: 404, location: null, text: "{}" };
+    };
+    return { calls, get };
+  };
+  const entry = { id: "vm_4817ee90a93468c689d3", job: "128746706182" };
+
+  test("the proof: a cmux-vm.yml job of this repo whose log shows the leak; the log link is read without the token", async () => {
+    const g = gh();
+    expect(await provenLeak(entry, "ghs_token", g.get)).toBeNull();
+    expect(g.calls.find((c) => c.url.startsWith("https://blob.example/"))!.auth).toBe("");
+    expect(g.calls.filter((c) => c.url.startsWith("https://api.github.com/repos/manaflow-ai/cmux/")).every((c) => c.auth === "Bearer ghs_token")).toBe(true);
+  });
+
+  test("a log a contributor's code could have written proves nothing, whatever it prints", async () => {
+    // A fork's pull request: the run belongs to this repo and its workflow path is allowed, but the code is the fork's.
+    const forkRun = { event: "pull_request", head_branch: "feat-cmux-next", head_repository: { full_name: "someone/cmux" } };
+    expect(await provenLeak(entry, "t", gh({ run: forkRun }).get)).toContain("ran code from \"someone/cmux\"");
+    expect(await provenLeak(entry, "t", gh({ run: { ...forkRun, path: ".github/workflows/backend.yml" } }).get)).not.toBeNull();
+    // A pull request on this repo's own branch, a merge queue, a workflow_run, a pull_request_target: never.
+    for (const event of ["pull_request", "pull_request_target", "merge_group", "workflow_run", "schedule", "", undefined]) {
+      expect(await provenLeak(entry, "t", gh({ run: { event } }).get)).toContain("runs code a contributor may have written");
+    }
+    // A push or a dispatch on another branch (a lane branch anyone can push to).
+    for (const head_branch of ["lane/x", "feat-cmux-vm-x", "main2"]) {
+      expect(await provenLeak(entry, "t", gh({ run: { event: "workflow_dispatch", head_branch }, job: { head_branch } }).get)).toContain("is not feat-cmux-next or main");
+    }
+    expect(await provenLeak(entry, "t", gh({ run: { event: "workflow_dispatch", head_branch: "main" }, job: { head_branch: "main" } }).get)).toBeNull();
+    // The run must be the job's own.
+    expect(await provenLeak(entry, "t", gh({ run: { id: 1 } }).get)).toContain("did not read back");
+  });
+
+  test("no proof, no delete: another workflow, another repo, an unknown job, an unreadable log, a log without the leak", async () => {
+    expect(await provenLeak(entry, "t", gh({ run: { path: ".github/workflows/manual-thing.yml" } }).get)).toContain("is not .github/workflows/cmux-vm.yml");
+    expect(await provenLeak(entry, "t", gh({ run: { repository: { full_name: "someone/cmux" } } }).get)).toContain("not in manaflow-ai/cmux");
+    expect(await provenLeak({ ...entry, job: "5" }, "t", gh().get)).toContain("HTTP 404");
+    expect(await provenLeak(entry, "t", gh({ job: { id: 1 } }).get)).toContain("not a job of");
+    expect(await provenLeak(entry, "t", gh({ job: { name: "journey-production" } }).get)).toContain("is not deploy-staging");
+    expect(await provenLeak(entry, "t", gh({ logStatus: 410 }).get)).toContain("HTTP 410");
+    expect(await provenLeak({ ...entry, id: "vm_962c8697bd526edb3c9f" }, "t", gh().get)).toContain("logged no failed cleanup delete");
+  });
+
+  test("the rule: only cloud journey jr-* machines, paused or failed, or old and idle", () => {
+    const ok = (m: Record<string, unknown>) => journeyMachineEligible(machine(m), now).eligible;
+    // A paused or failed jr- machine (and its gateway) goes.
+    expect(ok({})).toBe(true);
+    expect(ok({ status: "failed" })).toBe(true);
+    expect(ok({ name: "cloud journey jr-mw7vl1n7 gateway" })).toBe(true);
+    // An old, idle one goes, running or never active.
+    expect(ok({ status: "running", created_at: now - 30 * H, last_active_at: now - 2 * H })).toBe(true);
+    expect(ok({ status: "running", created_at: now - 30 * H, last_active_at: null })).toBe(true);
+    // Kept never, other names never, whatever their state.
+    expect(journeyMachineEligible(machine({ name: "cloud journey kept jr-mw7vl1n7" }), now)).toEqual({ eligible: false, reason: "a kept journey machine" });
+    for (const name of ["cloud journey auto jr-mw7vl1n7", "my dev box", "cloud journey jr-", "cloud journey jr-ABC", "x cloud journey jr-abc", "cloud journey jr-abc gateway2", null]) expect(ok({ name })).toBe(false);
+    // Running and recent never: made under 24 h ago, or active in the last 45 min.
+    expect(ok({ status: "running", created_at: now - 2 * H, last_active_at: null })).toBe(false);
+    expect(ok({ status: "running", created_at: now - 30 * H, last_active_at: now - 10 * 60_000 })).toBe(false);
+    // A paused machine made under an hour ago may be a journey between its pause and resume.
+    expect(ok({ status: "paused", created_at: now - 20 * 60_000 })).toBe(false);
+    // In doubt: no.
+    for (const status of ["starting", "pausing", "deleting", "deleted", undefined]) expect(ok({ status, created_at: now - 30 * H, last_active_at: null })).toBe(false);
+    expect(ok({ created_at: undefined })).toBe(false);
+    expect(ok({ created_at: now + H })).toBe(false);
+    expect(ok({ status: "running", created_at: now - 30 * H, last_active_at: "yesterday" })).toBe(false);
+    expect(ok({ id: "vm_x" })).toBe(false);
+  });
+
+  test("a list line carries what the list gives and the rule's answer", () => {
+    const line = machineLine(machine({ id: "vm_4817ee90a93468c689d3", error: { code: "e", message: "m", at: 1 } }), "personal", now);
+    expect(line).toEqual({ scope: "personal", id: "vm_4817ee90a93468c689d3", name: "cloud journey jr-mw7vl1n7", status: "paused", created: new Date(now - 20 * H).toISOString(), age_h: 20, last_active: new Date(now - 19 * H).toISOString(), pause_reason: null, error: "e", eligible: true, reason: "paused", find_job: expect.stringContaining("vm_4817ee90a93468c689d3@<job id>") });
+    expect(machineLine(machine({ name: "cloud journey kept jr-abc" }), "personal", now).find_job).toBeUndefined();
+  });
+
+  type Fake = { scope: MachineScope; deletes: string[]; keys: string[] };
+  const fake = (rows: any[], answers: Array<{ status: number; body: any }> = [{ status: 200, body: { ok: true, value: {} } }]): Fake => {
+    const live = new Map(rows.map((r) => [r.id, { ...r }]));
+    const deletes: string[] = [];
+    const keys: string[] = [];
+    return {
+      deletes,
+      keys,
+      scope: {
+        scope: "personal",
+        list: async () => [...live.values()],
+        get: async (m) => live.get(m) ?? null,
+        remove: async (m, key) => {
+          deletes.push(m);
+          keys.push(key);
+          const a = answers.length > 1 ? answers.shift()! : answers[0]!;
+          if (a.status === 200 && a.body?.ok) live.get(m)!.status = "deleting";
+          return a;
+        },
+      },
+    };
+  };
+  const deps = (log: string[]) => {
+    let t = now;
+    return { now: () => t, sleep: async (ms: number) => { t += ms; }, log: (l: string) => log.push(l), retryMs: 180_000, readBackMs: 60_000 };
+  };
+
+  test("delete refuses an id the live list lacks, or one the rule does not allow, and then deletes nothing", async () => {
+    const f = fake([machine(), machine({ id: id(2), name: "cloud journey kept jr-abc" }), machine({ id: id(3), status: "running", created_at: now - 2 * H })]);
+    const log: string[] = [];
+    for (const ids of [[id(1), id(9)], [id(1), id(2)], [id(3)]]) {
+      const r = await deleteJourneyMachines(ids, [f.scope], "t", deps(log));
+      expect(r.deleted).toEqual([]);
+      expect(r.failed.length).toBe(1);
+    }
+    expect(f.deletes).toEqual([]);
+    expect(log.some((l) => l.includes("not in the account's machine list"))).toBe(true);
+    expect(log.some((l) => l.includes("a kept journey machine"))).toBe(true);
+  });
+
+  test("each delete is logged before it is sent, then read back until deleting", async () => {
+    const f = fake([machine(), machine({ id: id(2), status: "failed" })]);
+    const log: string[] = [];
+    const sent: string[] = [];
+    const scope = { ...f.scope, remove: async (m: string, k: string) => { sent.push(`delete ${m} after ${log.length} lines`); return f.scope.remove(m, k); } };
+    const r = await deleteJourneyMachines([id(1), id(2)], [scope], "t", deps(log));
+    expect(r).toEqual({ deleted: [id(1), id(2)], failed: [] });
+    expect(JSON.parse(log[0]!)).toEqual({ before_delete: id(1), scope: "personal", name: "cloud journey jr-mw7vl1n7", status: "paused", created: new Date(now - 20 * H).toISOString(), last_active: new Date(now - 19 * H).toISOString() });
+    expect(sent[0]).toBe(`delete ${id(1)} after 1 lines`);
+    expect(JSON.parse(log[1]!)).toEqual({ deleted: id(1), read_back: "deleting" });
+    expect(JSON.parse(log[2]!).before_delete).toBe(id(2));
+  });
+
+  test("mutation.indeterminate is retried under the same key, bounded", async () => {
+    const indeterminate = { status: 409, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } };
+    const f = fake([machine()], [indeterminate, indeterminate, { status: 200, body: { ok: true, value: {} } }]);
+    const r = await deleteJourneyMachines([id(1)], [f.scope], "t", deps([]));
+    expect(r.deleted).toEqual([id(1)]);
+    expect(f.keys.length).toBe(3);
+    expect(new Set(f.keys).size).toBe(1);
+    // Indeterminate for good: it stops at the bound and fails.
+    const stuck = fake([machine()], [indeterminate]);
+    const s = await deleteJourneyMachines([id(1)], [stuck.scope], "t", deps([]));
+    expect(s.deleted).toEqual([]);
+    expect(s.failed[0]!.reason).toContain("mutation.indeterminate");
+    expect(stuck.deletes.length).toBeGreaterThan(3);
+    expect(stuck.deletes.length).toBeLessThan(20);
+    // A refusal is final: no retry, no read back.
+    const refusedOnce = fake([machine()], [{ status: 409, body: { ok: false, error: { code: "cloud.machine.busy", retryable: false } } }]);
+    const r2 = await deleteJourneyMachines([id(1)], [refusedOnce.scope], "t", deps([]));
+    expect(r2.failed[0]!.reason).toContain("cloud.machine.busy");
+    expect(refusedOnce.deletes.length).toBe(1);
+  });
+
+  test("a delete still cut off after its retries is read back, and counts as deleted when it reads deleting or gone", async () => {
+    const indeterminate = { status: 409, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } };
+    for (const after of ["deleting", "gone"] as const) {
+      const f = fake([machine()], [indeterminate]);
+      let removed = false;
+      const log: string[] = [];
+      // The provider did delete it; only the answers were cut off.
+      const scope = { ...f.scope, remove: async (m: string, k: string) => { removed = true; return f.scope.remove(m, k); }, get: async (m: string) => (removed ? (after === "gone" ? null : { ...machine(), status: "deleting" }) : f.scope.get(m)) };
+      const r = await deleteJourneyMachines([id(1)], [scope], "t", deps(log));
+      expect(r).toEqual({ deleted: [id(1)], failed: [] });
+      expect(JSON.parse(log[log.length - 1]!)).toEqual({ deleted: id(1), read_back: after, after: "mutation.indeterminate" });
+    }
+    // A transport error the whole time, and the machine is still there: failed, naming both.
+    const t = fake([machine()]);
+    const down = { ...t.scope, remove: async () => { throw new Error("socket hang up"); } };
+    const r = await deleteJourneyMachines([id(1)], [down], "t", deps([]));
+    expect(r.failed[0]!.reason).toMatch(/transport.*after the retries, but read back still not gone/);
+  });
+
+  test("a machine that changed since the list is checked again right before its delete", async () => {
+    const f = fake([machine()]);
+    let reads = 0;
+    const scope = { ...f.scope, get: async (m: string) => (++reads === 1 ? { ...machine(), status: "running", last_active_at: now } : f.scope.get(m)) };
+    const r = await deleteJourneyMachines([id(1)], [scope], "t", deps([]));
+    expect(r.deleted).toEqual([]);
+    expect(r.failed[0]!.reason).toContain("not eligible at delete time");
+    expect(f.deletes).toEqual([]);
+  });
+
+  test("a delete that never reads back gone fails", async () => {
+    const f = fake([machine()]);
+    const scope = { ...f.scope, get: async () => machine() };
+    const r = await deleteJourneyMachines([id(1)], [scope], "t", deps([]));
+    expect(r.failed[0]!.reason).toContain("read back");
   });
 });

@@ -42,13 +42,21 @@ const MAX_DEPTH: usize = 4;
 /// A skill's description in the first-turn index is cut to this many characters.
 const MAX_DESCRIPTION_CHARS: usize = 300;
 
-/// Claude Code's first-turn guidance: load the `cmux:cmux-chat` skill alongside the first reads.
-/// The skill's own description already says when it applies (Claude Code lists it), so this
-/// does not repeat that list; it only keeps the skill load from becoming a serial first step.
-/// Long work goes to the background so the person always gets an answer (Leo, 2026-11-06:
-/// "either there's some sort of prompt or a skill that tells you to do that, or we just do it
-/// for you"; acpmux also moves it, `hub/auto_background.rs`).
-pub const CLAUDE_GUIDANCE: &str = "cmux NEXT draws your TodoWrite list as a checklist, sub-sessions in a tray and session links as chips. When its description applies, load the cmux:cmux-chat skill once, in the same response as your first reads, not as a step before them. Run research, reviews, waits and subagents in the background and keep answering the person while they run. cmux defaults; the person's own instructions win.";
+/// Claude Code's first-turn guidance: the cmux-specific rules themselves, with the
+/// `cmux:cmux-chat` skill for the rest. It carries the rules instead of pointing at the skill
+/// because the pointer did not work: with a person's own skills, Claude Code's listing budget
+/// cut `cmux:cmux-chat` to its bare name (5 tokens, Claude Code's own context report), and in
+/// 16 NEXT chats that had the pointer, none loaded the skill and one kept a TodoWrite list
+/// (2026-11-09 audit, cmuxterm-hq docs/agent-context-audit.md). Long work goes to the
+/// background so the person always gets an answer (Leo, 2026-11-06: "either there's some sort
+/// of prompt or a skill that tells you to do that, or we just do it for you"; acpmux also
+/// moves it, `hub/auto_background.rs`).
+pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your work in the chat (cmux defaults; the person's own instructions win):
+- Plan: for a task with more than one step, keep a TodoWrite list. cmux draws it as a checklist. Write the whole list first, short items, one in progress; do not also write it as a numbered list.
+- Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
+- Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a chip. Never invent an id.
+- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision left, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
+- Sub-sessions, offered sessions and editing cmux itself: load the cmux:cmux-chat skill with your first reads.";
 
 /// Every other harness's first-turn guidance (Codex: `update_plan` is its plan tool).
 pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person's own instructions win). This chat runs in cmux NEXT, which draws your work in the chat:
@@ -385,10 +393,13 @@ mod tests {
     #[test]
     fn families_get_their_own_guidance() {
         let on = Switches::default();
-        // Claude Code: only when to read the skill (its own prompt covers TodoWrite).
+        // Claude Code: the rules a cut skill listing would hide, then the skill for the rest.
         let claude = first_turn_text(Family::Claude, &on, &[]).unwrap();
         assert!(claude.contains("cmux:cmux-chat") && claude.contains("first reads"), "{claude}");
-        assert!(claude.len() < 500, "the pointer stays short: {} bytes", claude.len());
+        for rule in ["TodoWrite", "background", "HOST/NAME", "recap", "acpmux_wrap_up"] {
+            assert!(claude.contains(rule), "{rule} missing: {claude}");
+        }
+        assert!(claude.len() < AGENT_GUIDANCE.len(), "stays under Codex's: {} bytes", claude.len());
         let codex = first_turn_text(Family::Codex, &on, &[]).unwrap();
         for tool in [
             "update_plan",

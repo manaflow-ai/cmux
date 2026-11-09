@@ -193,6 +193,7 @@ pub(crate) use turn_errors::is_limit_error;
 mod elevation;
 mod git_watch;
 mod github_owner;
+mod harness_sandbox;
 mod lane_report_reads;
 mod lane_report_subagents;
 mod lane_report_text;
@@ -319,6 +320,7 @@ pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
 mod goal_tools;
+pub mod plan_build;
 #[cfg(feature = "sim")]
 mod sim_startup;
 #[cfg(all(test, unix))]
@@ -605,6 +607,11 @@ pub struct Hub {
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
+    /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
+    #[cfg(feature = "hub-carrier")]
+    pub hub_carrier: crate::hub_carrier::HubCarrierSlot,
+    /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
+    pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
@@ -980,6 +987,17 @@ impl Hub {
         Self::build(config, store, mailbox, true, true, None)
     }
 
+    /// A hub whose configured peers may dial over `wireguard` first, as a daemon's do: for tests
+    /// that run two daemons in one process and cut that carrier (`tests/carrier_faults.rs`).
+    #[doc(hidden)]
+    pub fn new_with_wireguard(
+        config: Config,
+        store: Box<dyn Store>,
+        wireguard: Arc<crate::wireguard::Transport>,
+    ) -> Arc<Self> {
+        Self::build(config, store, Mailbox::memory(), false, false, Some(wireguard))
+    }
+
     pub(crate) fn new_loading_with_wireguard(
         config: Config,
         store: Box<dyn Store>,
@@ -1011,17 +1029,24 @@ impl Hub {
             caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        #[cfg(feature = "hub-carrier")]
+        let hub_carrier =
+            crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
             wireguard,
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier,
+            peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
@@ -1555,7 +1580,7 @@ impl Hub {
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
-            purged: AtomicBool::new(false),
+            purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
@@ -1592,6 +1617,7 @@ impl Hub {
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
             loop_detector: StdMutex::new(Default::default()),
+            harness_sandbox_failed: std::sync::OnceLock::new(),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
@@ -2230,6 +2256,7 @@ impl Hub {
                 | "unstuck"
                 | "loop_detected"
                 | "loop_cleared"
+                | harness_sandbox::RECORD_KIND
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
                 | "queued"

@@ -159,7 +159,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var mainPane: MainPaneSetting = .fallback
     /// `workspaces.newPlacement` (`WorkspaceListSettings`).
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementDefault
-    /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
+    /// `layout.closeFocus`; "mostRecent" when unset or invalid.
     public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
     /// `layout.defaultColumnWidth`; two thirds when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback

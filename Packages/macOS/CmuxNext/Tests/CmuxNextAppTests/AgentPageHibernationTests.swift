@@ -43,7 +43,7 @@ struct AgentPageHibernationTests {
             turns.watching = true
             let tree = DaemonStore()
             hibernation = AgentPageHibernation(tabs: { [tabs] in tabs })
-            tabs.lookup = { [unowned self] key in self.records[key].map { ($0, tree) } }
+            tabs.lookupScoped = { [unowned self] key in self.records[key.key].map { ($0, tree) } }
             hibernation.turnState = { [unowned self] key in self.records[key].flatMap(self.turns.state(for:)) }
             hibernation.turnsWatched = { [unowned self] in self.turns.watching }
             hibernation.followTurns(turns)
