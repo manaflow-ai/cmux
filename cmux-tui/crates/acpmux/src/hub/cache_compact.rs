@@ -10,19 +10,26 @@
 //! window. When it fires, the chat runs Claude Code's `/compact` as acpmux's own prompt
 //! ([`KIND`]), which reads the still-warm cache.
 //!
-//! It fires only when the chat is idle (no turn running or starting, nothing queued, no
-//! permission, question or continuation waiting), nobody is typing in it, its composer holds no
-//! draft and its last turn was not a Web or phone one (a local prompt would lift the remote
-//! floor that turn left, `remote_floor.rs`); it is sent `no_queue`, so a turn that starts at that
-//! moment refuses it rather than queueing it. It runs once per idle stretch: the compaction's own
-//! context is far under any threshold, so its usage arms no timer, and the next turn's usage arms
-//! one again.
+//! It fires only when the chat is idle as the idle reaper judges it (no turn running or
+//! starting, nothing queued, no permission, question, secret or continuation waiting, no
+//! background subagent, sub-session or harness background process at work: `idle.rs`), the
+//! context is still at least the threshold read at that moment, nobody is typing in it, no
+//! composer (the shared draft or any surface's own) holds unsent text and its last turn was not
+//! a Web or phone one (a local prompt would lift the remote floor that turn left,
+//! `remote_floor.rs`); it is sent
+//! `no_queue`, so a turn that starts at that moment refuses it rather than queueing it. It runs
+//! once per idle stretch: the compaction's own context is far under any threshold, so its usage
+//! arms no timer, and the next turn's usage arms one again.
 //!
 //! The timer: one task per session, in [`TIMERS`] under the session's id with a generation of its
 //! own. Stop condition: it fires once at its deadline and ends, removing its entry if the entry is
 //! still its own. Cleanup: every new live `usage_update` of the session aborts and replaces it
-//! (a turn's own updates, a new expiry, none for a compacted context); it holds only weak
-//! references, so a dropped session or hub ends it at its deadline without effect.
+//! (a turn's own updates, a new expiry, none for a compacted context), and so does a completed
+//! compaction (a person's `/compact` reports no usage after it, yet its cache is new); it holds
+//! only weak references, so a dropped session or hub ends it at its deadline without effect.
+//!
+//! A turn of [`KIND`] that fails is not continued by `auto_resume.rs` (`turns.rs`): the next
+//! turn's usage arms the timer again, and a continuation would be a model call nobody asked for.
 
 use super::*;
 
@@ -31,10 +38,10 @@ pub(crate) const KIND: &str = "cache_compact";
 /// How long before the cache's expiry the compaction runs: room for the request to reach the
 /// model while the cache is still warm.
 pub(crate) const LEAD_MS: u64 = 30_000;
-/// The armed timers: session id -> (generation, the task, when the cache lapses in unix ms).
+/// The armed timers: session id -> (generation, the task).
 static TIMERS: std::sync::LazyLock<StdMutex<TimerMap>> = std::sync::LazyLock::new(Default::default);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
-type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle, u64)>;
+type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle)>;
 pub const SETTING_ENABLED: &str = "agents.cacheCompact.enabled";
 pub const SETTING_MIN_CONTEXT: &str = "agents.cacheCompact.minContextPercent";
 const DEFAULT_MIN_CONTEXT: f64 = 50.0;
@@ -67,17 +74,38 @@ fn read_threshold() -> Option<f64> {
 /// timer (no expiry, under the threshold, or too close to the expiry to run in time).
 pub(crate) fn wait_ms(update: &Value, threshold: f64, now_ms: u64) -> Option<u64> {
     let expires = update.pointer("/_meta/acpmux/cacheExpiresAt").and_then(Value::as_u64)?;
-    let used = update.get("used").and_then(Value::as_u64)?;
-    let size = update.get("size").and_then(Value::as_u64).filter(|s| *s > 0)?;
-    if (used as f64) < threshold * size as f64 {
+    if !over(share(update)?, threshold) {
         return None;
     }
     let fire = expires.checked_sub(LEAD_MS)?;
     fire.checked_sub(now_ms).filter(|wait| *wait > 0)
 }
 
+/// The share (0-1) of its context window a `usage_update` reports used.
+fn share(update: &Value) -> Option<f64> {
+    let used = update.get("used").and_then(Value::as_u64)?;
+    let size = update.get("size").and_then(Value::as_u64).filter(|s| *s > 0)?;
+    Some(used as f64 / size as f64)
+}
+
+/// Whether a context at `share` of its window is compacted at `threshold`.
+pub(crate) fn over(share: f64, threshold: f64) -> bool {
+    share >= threshold
+}
+
+/// Whether a prompt's provenance is this timer's compaction.
+pub(crate) fn is_own(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(KIND)
+}
+
+fn completed_compaction(update: &Value) -> bool {
+    update.get("sessionUpdate").and_then(Value::as_str) == Some("compaction")
+        && update.get("state").and_then(Value::as_str) == Some("completed")
+}
+
 impl Hub {
-    /// `on_update` for an update the agent sent, then the timer for a live `usage_update`.
+    /// `on_update` for an update the agent sent, then the timer for a live `usage_update`, which
+    /// arms it, or a completed compaction, which ends it.
     pub(in crate::hub) fn on_update_cache(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -90,17 +118,28 @@ impl Hub {
             |u: &&Value| u.get("sessionUpdate").and_then(Value::as_str) == Some("usage_update");
         if let Some(update) = update.filter(|u| !replayed && usage(u)) {
             self.cache_compact_on_usage(session, update);
+        } else if update.is_some_and(|u| !replayed && completed_compaction(u)) {
+            Self::cache_compact_disarm(&session.id);
+        }
+    }
+
+    /// Ends `session`'s armed timer, if one is.
+    fn cache_compact_disarm(id: &str) {
+        let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, timer)) = timers.remove(id) {
+            timer.abort();
         }
     }
 
     /// A live (not replayed) `usage_update` of `session`: arms its timer again (module docs).
     fn cache_compact_on_usage(self: &Arc<Self>, session: &Arc<Session>, update: &Value) {
         let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((_, timer, _)) = timers.remove(&session.id) {
+        if let Some((_, timer)) = timers.remove(&session.id) {
             timer.abort();
         }
         let Some(threshold) = read_threshold() else { return };
         let Some(wait) = wait_ms(update, threshold, now_ms()) else { return };
+        let Some(used) = share(update) else { return };
         let expires = now_ms() + wait + LEAD_MS;
         let deadline = self.clock_now().saturating_add(wait.saturating_mul(1_000_000));
         let clock = self.clock.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -112,7 +151,7 @@ impl Hub {
             // insert); a dropped session or hub leaves nothing behind.
             let own = {
                 let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-                let own = timers.get(&id).is_some_and(|(g, _, _)| *g == generation);
+                let own = timers.get(&id).is_some_and(|(g, _)| *g == generation);
                 if own {
                     timers.remove(&id);
                 }
@@ -122,45 +161,44 @@ impl Hub {
                 return;
             }
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
-            hub.cache_compact_fire(&session, expires).await;
+            hub.cache_compact_fire(&session, expires, used).await;
         });
-        timers.insert(session.id.clone(), (generation, task.abort_handle(), expires));
+        timers.insert(session.id.clone(), (generation, task.abort_handle()));
     }
 
-    /// Whether `session` may be compacted now: idle, nobody typing, no draft, no Web turn last
-    /// (module docs).
+    /// Whether `session` may be compacted now: idle as the reaper judges it, nobody typing, no
+    /// draft, no Web turn last (module docs).
     fn cache_compact_ready(&self, session: &Session) -> bool {
-        let idle = !self.stopping.load(Ordering::SeqCst)
-            && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
-            && session.turn().is_none()
-            && !session.harness_turn.load(Ordering::SeqCst)
-            && session.asks_in_flight.load(Ordering::SeqCst) == 0
-            && session.queued() == 0
-            && session.pending_permissions().is_empty()
-            && session.agent_requests.load(Ordering::SeqCst) == 0
-            && !self.continuation_pending(session)
-            && session.turn_lock.try_lock().is_ok();
+        let idle = self.idle_eligible(session) && session.turn_lock.try_lock().is_ok();
         let remote = session.floor.last_turn_web.load(Ordering::SeqCst)
             || session.floor.cloud_mobile_turn.load(Ordering::SeqCst);
         let presence = self.presence.snapshot(&session.id);
         let typing = presence.get("participants").and_then(Value::as_array).is_some_and(|people| {
             people.iter().any(|p| p.get("typing").and_then(Value::as_bool) == Some(true))
         });
+        // The shared draft, and any surface's own unsent text (`_acpmux/composer_set`).
         let draft = session
-            .read_meta(|m| m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()));
+            .read_meta(|m| m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()))
+            || session.composers.lock().unwrap_or_else(|e| e.into_inner()).any_draft();
         idle && !remote && !typing && !draft
     }
 
-    async fn cache_compact_fire(self: &Arc<Self>, session: &Arc<Session>, expires_ms: u64) {
+    /// The timer's deadline: `/compact` for a chat at `used` of its window, if it still may be.
+    async fn cache_compact_fire(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        expires_ms: u64,
+        used: f64,
+    ) {
         // Sent only while the chat still ends on the turn it ends on now (`after_turn`, checked
         // with no await before the turn is taken and again after). Read before the checks below:
         // a Web or phone turn that ends after this read refuses it at admission, and one that
         // started before the checks shows in them, so it never lifts that turn's remote floor.
         let last = session.meta().last_turn.as_ref().and_then(|t| t.get("turnId").cloned());
         let Some(last) = last.and_then(|t| t.as_str().map(str::to_owned)) else { return };
-        // Read again: the setting may have been turned off since the timer was armed, and the
-        // cache must still be warm when the request goes.
-        if read_threshold().is_none()
+        // Read again: the setting may have been turned off or its threshold raised since the
+        // timer was armed, and the cache must still be warm when the request goes.
+        if read_threshold().is_none_or(|threshold| !over(used, threshold))
             || now_ms() >= expires_ms
             || !self.cache_compact_ready(session)
         {

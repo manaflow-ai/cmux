@@ -18,7 +18,6 @@ import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
-import { installUiFont } from "./uiFont";
 import { startGalleryLoad } from "./load";
 import { setLastingGrace } from "../../ui/lasting";
 import "./frame.css";
@@ -130,7 +129,6 @@ if (!appHosted) {
   document.head.append(bootstrap);
   bootstrap.remove();
 }
-installUiFont();
 if (!appHosted)
   (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
     webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),

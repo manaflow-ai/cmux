@@ -55,6 +55,7 @@
 //!   `resend`, so a retry never runs twice and no other prompt takes its id.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;
@@ -130,6 +131,9 @@ struct TurnKinds {
     /// The last turn started when another prompt was answered as gone in, by session: every
     /// turn up to it had one.
     carried: HashMap<String, u64>,
+    /// The parent's subagent that asked for each turn, by session and turn
+    /// (`lane_report_subagents.rs` `asking_subagent`): its report goes to that subagent.
+    subagents: HashMap<(String, u64), Value>,
 }
 
 impl TurnKinds {
@@ -161,6 +165,7 @@ impl TurnKinds {
 
     fn forget(&mut self, id: &str) {
         self.report_only.retain(|(s, _)| s != id);
+        self.subagents.retain(|(s, _), _| s != id);
         self.in_flight.remove(id);
         self.carried.remove(id);
     }
@@ -200,21 +205,30 @@ impl<F: Fn() -> u64> Drop for SteerCount<'_, F> {
     }
 }
 
-/// One report, before it is written out.
-#[derive(Debug, Clone, PartialEq)]
-struct Report {
+/// One report, before it is written out. Kept whole beside a subagent's notice until it takes
+/// it (`lane_report_subagents.rs`), so a report it never took still reaches the lead.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(super) struct Report {
     /// Its state and whole reply; with its pull requests, what makes two reports the same
     /// ([`Report::key`]).
     content: String,
     /// The same for every try of this report.
-    prompt_id: String,
-    name: String,
-    session: String,
-    turn: u64,
+    pub(super) prompt_id: String,
+    pub(super) name: String,
+    /// The lane's id.
+    pub(super) session: String,
+    pub(super) turn: u64,
     state: String,
     reply: String,
     prs: Vec<String>,
     shas: Vec<String>,
+    /// The Claude Code subagent of the parent that asked for this turn without waiting for its
+    /// reply (`{id, type}`, its prompt's `fromSubagent`): the report goes to it while it runs.
+    #[serde(default)]
+    pub(super) for_subagent: Option<Value>,
+    /// That subagent has ended: the report goes to the parent, saying whose it was.
+    #[serde(default)]
+    pub(super) subagent_ended: bool,
 }
 
 impl Report {
@@ -223,7 +237,7 @@ impl Report {
         format!("{}\n{}", self.content, self.prs.join(" "))
     }
 
-    fn text(&self) -> String {
+    pub(super) fn text(&self) -> String {
         let mut t = format!(
             "[{}] {} · turn {}, {}\n{}",
             self.name,
@@ -234,6 +248,14 @@ impl Report {
         );
         if !self.prs.is_empty() {
             t.push_str(&format!("\nPull requests: {}", self.prs.join(" ")));
+        }
+        if self.subagent_ended
+            && let Some(label) = super::lane_report_subagents::label(self.for_subagent.as_ref())
+        {
+            t.push_str(&format!(
+                "\nThis report is for your {label}, which asked for this turn and has ended, so \
+it comes to you."
+            ));
         }
         t
     }
@@ -416,6 +438,27 @@ impl Hub {
     /// (`digest.rs`).
     pub(super) fn lane_turn_started(&self, session: &Session, provenance: Option<&Value>) {
         self.lane_turn_on(session, reports_only(provenance));
+        self.lane_turn_asked(session, provenance);
+        let parent = self.lane_report_parent(&session.id);
+        let turn = session.meta().turn_count;
+        let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
+        if parent.is_some() && kind == Some(super::digest::DIGEST_KIND) {
+            self.lane_report_turn_joined(&session.id, turn);
+        }
+    }
+
+    /// `session`'s turn started (its turn count counts it) on the messages `provenance` names: a
+    /// subagent of the lane's parent that asked for it gets its report
+    /// (`lane_report_subagents.rs`). A carried turn's names the steers it carried
+    /// (`carried_turn.rs`).
+    pub(super) fn lane_turn_asked(&self, session: &Session, provenance: Option<&Value>) {
+        let parent = self.lane_report_parent(&session.id);
+        if let Some(sub) =
+            super::lane_report_subagents::asking_subagent(parent.as_deref(), provenance)
+        {
+            let turn = session.meta().turn_count;
+            self.lane_turns().subagents.insert((session.id.clone(), turn), sub);
+        }
     }
 
     /// `session`'s turn started (its turn count counts it); `reports`: on lane reports only (a
@@ -425,6 +468,12 @@ impl Hub {
             let turn = session.meta().turn_count;
             self.lane_turns().report_only.insert((session.id.clone(), turn));
         }
+    }
+
+    /// The subagent of the lane's parent that asked for turn `turn` of session `id`.
+    #[cfg(test)]
+    pub(super) fn lane_turn_subagent(&self, id: &str, turn: u64) -> Option<Value> {
+        self.lane_turns().subagents.get(&(id.to_owned(), turn)).cloned()
     }
 
     /// Whether turn `turn` of session `id` is counted as one on lane reports only.
@@ -455,9 +504,12 @@ impl Hub {
         started: bool,
         turn: u64,
     ) {
+        // Reports left for its subagents that none of them will take (`lane_report_subagents.rs`).
+        self.subagent_notices_sweep(session);
         // One that failed to start left the lane stuck, so it reports whatever it took in.
         let on_reports = self.lane_turns().end(&session.id, turn) && started;
         if !self.lane_links(|links| links.contains_key(&session.id)) {
+            self.lane_turns().subagents.remove(&(session.id.clone(), turn));
             return;
         }
         self.lane_report_ended(&session.id, turn);
@@ -469,6 +521,8 @@ impl Hub {
                     l.ready = Some(replace_ready(report, l.ready.take()));
                 }
             });
+        } else {
+            self.lane_turns().subagents.remove(&(session.id.clone(), turn));
         }
         self.lane_send(&session.id);
     }
@@ -577,6 +631,8 @@ impl Hub {
             reply: if reply.is_empty() { "(no reply)".into() } else { reply },
             prs,
             shas,
+            for_subagent: self.lane_turns().subagents.remove(&(session.id.clone(), turn)),
+            subagent_ended: false,
         }
     }
 
@@ -608,18 +664,20 @@ impl Hub {
         self.lane_links(|links| links.retain(|lane, l| lane != id && l.parent != id));
         self.lane_turns().forget(id);
         self.lane_report_forget(id);
+        // Reports left for its subagents (`lane_report_subagents.rs`): none of them runs now.
+        crate::subagent_notice::forget(&crate::config::home(), id);
     }
 
     /// Hands the report to the parent: accepted (queued, started, steered or held for the
-    /// person).
-    async fn lane_deliver(
+    /// person). A turn a subagent of the parent asked for without waiting goes to that subagent
+    /// while it runs (`lane_report_subagents.rs`), and to the parent, saying whose it was, once
+    /// it has ended.
+    pub(super) async fn lane_deliver(
         self: &Arc<Self>,
         parent: &str,
         lane: &str,
         report: &Report,
     ) -> Result<(), RpcError> {
-        let prompt_id = report.prompt_id.clone();
-        let blocks = vec![json!({"type": "text", "text": report.text()})];
         let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(parent).cloned();
         let Some(p) = local else {
             // The parent is gone: nobody to report to.
@@ -627,30 +685,6 @@ impl Hub {
                 links.remove(lane);
             });
             return Ok(());
-        };
-        let provenance = json!({
-            "kind": KIND, "from": lane, "fromName": report.name, "to": parent,
-            "turn": report.turn, "state": report.state,
-            "details": {"session": report.session, "commits": report.shas},
-        });
-        // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
-        let lane_session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned();
-        let sender = lane_session
-            .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
-        let provenance = crate::prompt_provenance::stamp_sender(provenance, sender.as_ref());
-        let (tx, rx) = oneshot::channel();
-        let opts = PromptOptions {
-            prompt_id: Some(prompt_id),
-            resend: true,
-            provenance: Some(provenance.clone()),
-            agent: Some(report.name.clone()),
-            // A lane's report says what its turn did (`prompt_class.rs`).
-            class: Some(crate::prompt_class::PromptClass::Result),
-            on_accepted: Some(Box::new(move |v| {
-                let _ = tx.send(v);
-            })),
-            ..PromptOptions::default()
         };
         // A lane that closed (or a parent that changed) since its report was taken has its link
         // retired, and sends nothing. A parent's close that begins after this is refused at its
@@ -661,6 +695,7 @@ impl Hub {
         }
         if self.lane_report_was_read(lane, report.turn) {
             if !super::queue::closing(&p) {
+                let provenance = self.lane_report_provenance(parent, lane, report);
                 self.lane_report_delivered_read(
                     &p,
                     lane,
@@ -671,6 +706,60 @@ impl Hub {
             }
             return Ok(());
         }
+        let ended;
+        let report = if report.for_subagent.is_some() && !report.subagent_ended {
+            if self.lane_report_to_subagent(&p, report) {
+                return Ok(());
+            }
+            ended = Report { subagent_ended: true, ..report.clone() };
+            &ended
+        } else {
+            report
+        };
+        self.lane_report_to_parent(p, lane, report).await
+    }
+
+    /// The report's provenance: `{kind: "lane_report", from, fromName, to, turn, state,
+    /// details}`, the lane bound as its sender, and `forSubagent` for a subagent's turn.
+    fn lane_report_provenance(&self, parent: &str, lane: &str, report: &Report) -> Value {
+        let mut provenance = json!({
+            "kind": KIND, "from": lane, "fromName": report.name, "to": parent,
+            "turn": report.turn, "state": report.state,
+            "details": {"session": report.session, "commits": report.shas},
+        });
+        if let Some(sub) = &report.for_subagent {
+            provenance.set(super::lane_report_subagents::FOR_SUBAGENT, sub.clone());
+        }
+        // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
+        let lane_session =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned();
+        let sender = lane_session
+            .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
+        crate::prompt_provenance::stamp_sender(provenance, sender.as_ref())
+    }
+
+    /// Puts the report in parent `p`'s chat as a hub-set prompt; done once it is accepted.
+    async fn lane_report_to_parent(
+        self: &Arc<Self>,
+        p: Arc<Session>,
+        lane: &str,
+        report: &Report,
+    ) -> Result<(), RpcError> {
+        let provenance = self.lane_report_provenance(&p.id, lane, report);
+        let blocks = vec![json!({"type": "text", "text": report.text()})];
+        let (tx, rx) = oneshot::channel();
+        let opts = PromptOptions {
+            prompt_id: Some(report.prompt_id.clone()),
+            resend: true,
+            provenance: Some(provenance),
+            agent: Some(report.name.clone()),
+            // A lane's report says what its turn did (`prompt_class.rs`).
+            class: Some(crate::prompt_class::PromptClass::Result),
+            on_accepted: Some(Box::new(move |v| {
+                let _ = tx.send(v);
+            })),
+            ..PromptOptions::default()
+        };
         // The answer comes when the parent's turn ends; the report is in once it is accepted.
         let hub = self.clone();
         // Never steered in: a report waits for the parent's turn to end (see above).
@@ -789,6 +878,8 @@ mod tests {
             reply: "r".into(),
             prs: prs.iter().map(|p| (*p).to_owned()).collect(),
             shas: vec![],
+            for_subagent: None,
+            subagent_ended: false,
         }
     }
 
@@ -1143,6 +1234,8 @@ mod tests {
             reply: "last words".into(),
             prs: vec![],
             shas: vec![],
+            for_subagent: None,
+            subagent_ended: false,
         }
     }
 
@@ -1347,6 +1440,8 @@ mod tests {
             reply: "last words".into(),
             prs: vec![],
             shas: vec![],
+            for_subagent: None,
+            subagent_ended: false,
         };
         hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued));
         // The report is taken; the lane closes (its link retired) before it is handed over.

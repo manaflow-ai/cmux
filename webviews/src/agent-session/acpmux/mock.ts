@@ -35,6 +35,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
   cmuxAcpmuxMockNative?: Record<string, unknown>;
   cmuxAcpmuxMockSessionAuth?: MockSessionAuth;
+  /** `_acpmux/memory_resolve` fails with this message, as acpmux does when it cannot write the file. */
+  cmuxAcpmuxMockMemoryError?: string;
   /** Capability ids `initialize` names (`_meta.acpmux.capabilities`); absent names none, as an older daemon. */
   cmuxAcpmuxMockCapabilities?: string[];
   /** Gallery only: `session/new` refuses with `trust.pending` until `acp.trust.set` trusts a folder. */
@@ -60,6 +62,42 @@ const harnesses = [
 /// The seeded project's own harness profiles (`<folder>/.cmux/harnesses/<id>.toml`), one in each
 /// state a folder profile can be in. Acme waits for the user's Enable.
 const MOCK_PROFILE_FOLDER = "~/code/cmux";
+/// The runs a mock plan build starts: a Claude one, and a Codex one beside it for a compare.
+function mockPlanBuilds(count: number) {
+  const runs = [
+    {
+      harness: "claude",
+      added: 142,
+      removed: 31,
+      files: [
+        { path: "src/sync/queue.ts", added: 96, removed: 18 },
+        { path: "src/sync/queue.test.ts", added: 46, removed: 13 },
+      ],
+    },
+    {
+      harness: "codex",
+      added: 88,
+      removed: 40,
+      files: [
+        { path: "src/sync/queue.ts", added: 61, removed: 33 },
+        { path: "src/sync/retry.ts", added: 27, removed: 7 },
+      ],
+    },
+  ];
+  return runs.slice(0, count).map((run, index) => ({
+    sessionId: `mock-plan-build-${index + 1}`,
+    name: `build-plan-${run.harness}`,
+    harness: run.harness,
+    status: "idle",
+    archived: false,
+    branch: `cmux/build-plan-${run.harness}`,
+    base: "main",
+    root: `~/.cmux/worktrees/cmux/build-plan-${run.harness}`,
+    added: run.added,
+    removed: run.removed,
+    files: run.files,
+  }));
+}
 const mockFolderProfiles = [
   { id: "acme", displayName: "Acme Agent", state: "needs-enable" },
   { id: "lint-bot", displayName: "Lint Bot", state: "needs-trust" },
@@ -476,7 +514,8 @@ export class MockAcpmuxSocket {
             acpmux: {
               origin: "local",
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
-              features: ["queueApproval", "queueGet"],
+              // The memory inbox (`memory_offer` records, `_acpmux/memory_resolve`).
+              features: ["queueApproval", "queueGet", "memory-inbox-v1"],
               handoff: { maxCapsuleBytes: 65536 },
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities
@@ -630,6 +669,32 @@ export class MockAcpmuxSocket {
         this.bookmarks.set(target, marks);
         return { sessionId: target, bookmarks: [...marks].sort((a, b) => a - b) };
       }
+      // The memory inbox's Accept and Dismiss (acpmux hub/memory.rs): writes nothing here, and logs
+      // the `memory_resolved` record the daemon would, with only the offer's facts still open.
+      case "_acpmux/memory_resolve": {
+        const failure = (globalThis as MockAuthGlobals).cmuxAcpmuxMockMemoryError;
+        if (failure) throw Object.assign(new Error(failure), { code: -32000 });
+        const offerId = String(params.offerId ?? "");
+        const offer = this.events.find(
+          (event) => event.sessionId === target && event.kind === "memory_offer" && event.msg?.offerId === offerId,
+        );
+        if (!offer) throw Object.assign(new Error(`no memory offer ${offerId}`), { code: -32001 });
+        const settled = new Set(
+          this.events
+            .filter((event) => event.kind === "memory_resolved" && event.msg?.offerId === offerId)
+            .flatMap((event) => [...(event.msg?.accepted ?? []), ...(event.msg?.dismissed ?? [])]),
+        );
+        const open = (value: unknown) =>
+          (Array.isArray(value) ? value.map(String) : []).filter(
+            (fact) => (offer.msg?.facts ?? []).includes(fact) && !settled.has(fact),
+          );
+        const accepted = open(params.accept);
+        const dismissed = open(params.dismiss).filter((fact) => !accepted.includes(fact));
+        const file = String(offer.msg?.file ?? params.file ?? "");
+        if (accepted.length || dismissed.length)
+          this.emit(target, { mux: "memory_resolved", msg: { offerId, file, accepted, dismissed } });
+        return { file, accepted, dismissed, wrote: accepted.length > 0 };
+      }
       case "_acpmux/events":
         return this.page(target, params);
       case "_acpmux/attachment": {
@@ -670,6 +735,61 @@ export class MockAcpmuxSocket {
       case "_acpmux/permission_respond":
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
         return {};
+      // A plan build (`_acpmux/plan/build`): here approves; a worktree or a compare answers the ask
+      // with a deny and records the runs it started on the chat, as acpmux does.
+      case "_acpmux/plan/build": {
+        const where = String(params.target ?? "");
+        if (where === "here") {
+          this.closeSeededTurn(target, "completed", true);
+          return { target: "here", buildId: null, builds: [] };
+        }
+        const buildId = `mock-build-${this.events.length}`;
+        const builds = mockPlanBuilds(where === "compare" ? 2 : 1);
+        this.closeSeededTurn(target, "completed", false);
+        this.emit(target, {
+          mux: "plan_build",
+          msg: {
+            event: "started",
+            buildId,
+            target: where,
+            permissionId: params.permissionId,
+            builds: builds.map(({ sessionId, name, harness, branch, root, base }) => ({
+              sessionId,
+              name,
+              harness,
+              branch,
+              root,
+              base,
+            })),
+          },
+        });
+        return {
+          target: where,
+          buildId,
+          builds: builds.map(({ sessionId, name, harness, branch, root, base }) => ({
+            sessionId,
+            name,
+            harness,
+            worktree: { root, branch, base },
+          })),
+        };
+      }
+      case "_acpmux/plan/compare":
+        return { buildId: params.buildId, target: "compare", keptSessionId: null, builds: mockPlanBuilds(2) };
+      case "_acpmux/plan/keep": {
+        const keep = String(params.keep ?? "");
+        const builds = mockPlanBuilds(2).map((build) => ({ ...build, archived: build.sessionId !== keep }));
+        this.emit(target, {
+          mux: "plan_build",
+          msg: {
+            event: "kept",
+            buildId: params.buildId,
+            keptSessionId: keep,
+            archived: builds.filter((build) => build.archived).map((build) => build.sessionId),
+          },
+        });
+        return { buildId: params.buildId, target: "compare", keptSessionId: keep, builds };
+      }
       case "session/new": {
         // A gallery state whose folder is not trusted yet: the start waits on the Trust question.
         if ((globalThis as MockAuthGlobals).cmuxAcpmuxMockTrustPending && !this.trustGranted)

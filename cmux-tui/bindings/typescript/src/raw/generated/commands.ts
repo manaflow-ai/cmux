@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c. */
+/* cmux-tui mux protocol 12, IR 2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8. */
 
 
 import type * as T from "./types.js";
@@ -1939,6 +1939,7 @@ export type ParkTabsResult = T.JsonValue;
 export interface PasteImageRequest extends CmuxRequestBase {
   cmd: "paste-image";
   "data"?: (string) | null;
+  "filename"?: (string) | null;
   "lease": string;
   "mime"?: (string) | null;
   "offset"?: (bigint) | null;
@@ -2612,6 +2613,7 @@ export interface ShutdownDaemonRequest extends CmuxRequestBase {
   "generation": string;
   "keep_layout"?: boolean;
   "pid": number;
+  "restart"?: (boolean) | null;
 }
 
 /** Protocol v6; authority: frontend. */
@@ -2634,6 +2636,7 @@ export interface SnapshotRequestRequest extends CmuxRequestBase {
 /** Protocol v5; authority: control. */
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
+  "before"?: boolean;
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
   "dir": T.SplitDirection;

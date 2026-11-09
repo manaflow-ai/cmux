@@ -145,7 +145,11 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
 
   /// Earlier turns, so the chat overflows and the send rises from the latest row; the agent then
   /// answers late, as a real one does: the thinking row is all that comes with the prompt.
+  /// The thread's rise follows the follow-motion experiment (#37614): its default arms chase each
+  /// move on a spring, and its eased arm is the glide this send clock drives (followGlide `sent`).
+  /// The rise's clock is read in that arm; the bubble and thinking row take the send clock in every arm.
   const openTurns = async (page: Page) => {
+    await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"follow-motion":"eased"}'));
     await openPane(page);
     for (const line of ["first question", "second question", "third question"]) {
       await send(page, line);

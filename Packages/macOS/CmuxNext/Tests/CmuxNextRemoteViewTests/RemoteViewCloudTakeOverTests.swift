@@ -63,6 +63,33 @@ import Testing
         #expect(asked == [.control, .view], "the mode already in force changes nothing")
     }
 
+    /// Over a live picture the toolbar fades out but stays in the view tree, so VoiceOver (and the
+    /// desktop probe's Accessibility read) still reach Take over; while faded it takes no clicks or
+    /// keyboard focus meant for the host, and the pointer entering the pane brings both back.
+    @Test func theFadedToolbarKeepsTakeOverReachable() throws {
+        let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .streaming))
+        let pane = RemoteDesktopPane(hostName: "vm", source: source, inputSink: nil, initialMode: .view, viaCloudTunnel: true,
+                                     modeControl: .takeOver)
+        pane.view.frame = CGRect(x: 0, y: 0, width: 800, height: 500)
+        pane.apply(.status(RemoteViewStatus(state: .streaming)))
+        pane.apply(.frameShown)
+        pane.view.layoutSubtreeIfNeeded()
+        let toolbar = pane.view.toolbar
+        let center = CGPoint(x: toolbar.frame.midX, y: toolbar.frame.midY)
+
+        #expect(!toolbar.isHidden, "a hidden view leaves the Accessibility tree")
+        #expect(toolbar.takeOverTitle == RemoteViewStrings.takeOver)
+        #expect(toolbar.hitTest(center) == nil, "a faded toolbar passes clicks to the host")
+        #expect(!toolbar.takeOverTakesFocus, "Tab or Space never reaches a control the person cannot see")
+
+        let entered = try #require(NSEvent.enterExitEvent(
+            with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            eventNumber: 0, trackingNumber: 0, userData: nil))
+        pane.view.mouseEntered(with: entered)
+        #expect(toolbar.hitTest(center) != nil, "the pointer over the pane makes the toolbar clickable at once")
+        #expect(toolbar.takeOverTakesFocus)
+    }
+
     @Test func theToggleStaysForOtherDesktops() {
         let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .streaming))
         let pane = RemoteDesktopPane(hostName: "mock", source: source, inputSink: nil)

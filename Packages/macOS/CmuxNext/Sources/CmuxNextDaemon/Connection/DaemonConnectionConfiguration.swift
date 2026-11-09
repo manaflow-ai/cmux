@@ -26,9 +26,19 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Extra events that may let a reconnect succeed (network, sign-in).
     /// The connection also watches its daemon socket through it.
     public var retryWake: RetryWake?
+    /// For a connection over a link that redials by itself (``RetryPolicy/bootstrap``): whether the
+    /// link's process exists. A failed attempt while it does not (the link probes, installs or spawns)
+    /// takes the bounded bootstrap retry; while it does, the link owns the redial. Nil: it exists.
+    public var linkRunning: (@Sendable () -> Bool)?
     /// Deadline for every control-plane request (architecture.md 5a).
     /// A miss throws `DaemonError.timedOut`; nil disables it (tests only).
     public var requestTimeout: Duration?
+    /// Deadline for the handshake's requests, when it is longer than `requestTimeout`: a Cloud carrier
+    /// connection's first `identify` waits out the carrier's dial of a cold machine (180 s). Nil uses
+    /// `requestTimeout`.
+    public var handshakeTimeout: Duration?
+    /// The handshake's deadline: `handshakeTimeout`, else `requestTimeout`.
+    var handshakeDeadline: Duration? { handshakeTimeout ?? requestTimeout }
     /// Deadline for `list-workspaces` snapshots, which can be large.
     public var snapshotTimeout: Duration?
     /// Deadline for commands that launch a terminal host

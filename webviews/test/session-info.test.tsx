@@ -974,7 +974,8 @@ test("Changes lists the pull requests the chat opened or touched, open ones firs
     ]),
   );
   // Usage and Connectors always show in the chat's own panel (None here), under the Show more line.
-  expect(sectionIds(container)).toEqual(["environment", "context", "changes", "usage", "connectors"]);
+  // The pull requests it opened and merged are also its Outputs (producedLinks.ts).
+  expect(sectionIds(container)).toEqual(["environment", "context", "outputs", "changes", "usage", "connectors"]);
   const changes = section(container, "changes")!;
   expect(meta(changes)).toBe("9");
   const listed = () => [...changes.querySelectorAll<HTMLElement>("li.acpmux-session-info-pr")];

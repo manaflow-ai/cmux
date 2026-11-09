@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1376,
-    "shortcuts": 189
+    "entries": 1380,
+    "shortcuts": 188
   },
   "sections": [
     {
@@ -26,6 +26,12 @@
           "title": "Agent Messages Playground",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.archiveChief",
+          "title": "Archive Chief",
+          "shortcut": null,
+          "command": "cmux home archive-chief"
         },
         {
           "id": "home.attachFiles",
@@ -130,6 +136,12 @@
           "command": null
         },
         {
+          "id": "home.deleteChief",
+          "title": "Delete Chief…",
+          "shortcut": null,
+          "command": "cmux home delete-chief"
+        },
+        {
           "id": "home.hideConversation",
           "title": "Delete Conversation from List",
           "shortcut": null,
@@ -162,13 +174,13 @@
         {
           "id": "focusHistoryBack",
           "title": "Go Back",
-          "shortcut": "⌃-",
+          "shortcut": "⌥⌘,",
           "command": null
         },
         {
           "id": "focusHistoryForward",
           "title": "Go Forward",
-          "shortcut": "⌃⇧-",
+          "shortcut": "⌥⌘.",
           "command": null
         },
         {
@@ -248,6 +260,12 @@
           "title": "Location History…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.setPrimaryChief",
+          "title": "Make Primary Chief",
+          "shortcut": null,
+          "command": "cmux home primary-chief"
         },
         {
           "id": "home.mcpConnectPlayground",
@@ -1338,7 +1356,7 @@
         {
           "id": "space.next",
           "title": "Next Space",
-          "shortcut": "⌃⌥⌘",
+          "shortcut": "⌃⌥⌘L",
           "command": "cmux space next"
         },
         {
@@ -1404,7 +1422,7 @@
         {
           "id": "space.previous",
           "title": "Previous Space",
-          "shortcut": "⌃⌥⌘",
+          "shortcut": "⌃⌥⌘H",
           "command": "cmux space previous"
         },
         {
@@ -6058,12 +6076,6 @@
           "command": "cmux notification preview-sound"
         },
         {
-          "id": "feed.show",
-          "title": "Show Feed",
-          "shortcut": "⇧⌘I",
-          "command": null
-        },
-        {
           "id": "showNotifications",
           "title": "Show Notifications",
           "shortcut": null,
@@ -6496,6 +6508,12 @@
           "command": null
         },
         {
+          "id": "palette.newCloudChat",
+          "title": "New Cloud Chat",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "tasks.new",
           "title": "New Task",
           "shortcut": null,
@@ -6688,6 +6706,12 @@
           "command": "cmux agent quick"
         },
         {
+          "id": "home.startQueuedAgent",
+          "title": "Start Queued Agent Now",
+          "shortcut": null,
+          "command": "cmux home start-agent"
+        },
+        {
           "id": "agentPane.stopTurn",
           "title": "Stop Agent Turn",
           "shortcut": null,
@@ -6844,12 +6868,6 @@
           "command": "cmux cloud bring-back"
         },
         {
-          "id": "cloudRelayChat",
-          "title": "Chat on Cloud Machine via the Relay…",
-          "shortcut": null,
-          "command": "cmux cloud relay-chat"
-        },
-        {
           "id": "cloudPortClose",
           "title": "Close Forwarded Machine Port…",
           "shortcut": null,
@@ -6950,12 +6968,6 @@
           "title": "Detach Cloud Tunnel Network",
           "shortcut": null,
           "command": "cmux cloud tunnel-detach"
-        },
-        {
-          "id": "cloudEnrollMachine",
-          "title": "Enroll Machine as Agent Host",
-          "shortcut": null,
-          "command": "cmux cloud enroll-machine"
         },
         {
           "id": "palette.cloud.fork",
@@ -7876,6 +7888,12 @@
           "command": "cmux settings toggle-pane-padding"
         },
         {
+          "id": "appearance.personalize",
+          "title": "Personalization…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentPane.display.railOnRight",
           "title": "Prompt Rail on Right Edge",
           "shortcut": null,
@@ -7886,6 +7904,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.reloadCustomViews",
+          "title": "Reload Custom Views",
+          "shortcut": null,
+          "command": "cmux apps reload"
         },
         {
           "id": "app.remove",

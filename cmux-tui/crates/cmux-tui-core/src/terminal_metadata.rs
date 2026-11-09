@@ -741,6 +741,26 @@ mod tests {
     }
 
     #[test]
+    fn read_run_osc_133_exit_code_is_the_last_commands_status_and_plain_output_has_none() {
+        let mut metadata = TerminalMetadata::default();
+        // A shell without integration: output, no marks, no status.
+        metadata.observe_output(b"$ sh -c 'exit 7'\r\n$ ");
+        assert_eq!(metadata.activity.last_command(), None);
+
+        // Ghostty's shell integration: C at Enter, D;<status> before the next A,
+        // split across output chunks.
+        metadata.observe_output(b"\x1b]133;A\x07$ \x1b]133;B\x07sh -c 'exit 7'\r\n\x1b]133;C\x07");
+        metadata.observe_output(b"\x1b]133;D");
+        metadata.observe_output(b";7;aid=12\x07\x1b]133;A\x07$ ");
+        let last = metadata.activity.last_command().expect("a finished command");
+        assert_eq!(last.exit_code, Some(7));
+        assert!(last.started_at_ms.is_some());
+
+        metadata.observe_output(b"\x1b]133;C\x07ok\r\n\x1b]133;D;0\x07\x1b]133;A\x07");
+        assert_eq!(metadata.activity.last_command().unwrap().exit_code, Some(0));
+    }
+
+    #[test]
     fn captures_bel_st_and_c1_osc_progress() {
         let mut metadata = TerminalMetadata::default();
         metadata.observe_output(b"\x1b]9;4;3;\x07");

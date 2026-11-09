@@ -11,6 +11,11 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     // The session daemon's lifecycle (`server` on the `cmux-tui` surface);
     // `cmux server` is the machine server, routed before this parser.
     "daemon",
+    // The whole session (`session current snapshot`, `stop`, the journal) and
+    // the clients attached to it: an agent in a cmux-tui pane reads its
+    // topology and cleans up with the `cmux` on its PATH, not only `cmux-tui`.
+    "session",
+    "client",
     "workspace",
     "screen",
     "pane",

@@ -45,6 +45,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
   const GAP = 8;
   /** Subpixel rounding. */
   const TOLERANCE = 0.5;
+  /** Codex's chat look: the prompt-to-row gap and the room under the row (composerLook.css). */
+  const CODEX_PROMPT_GAP = 16;
+  const CODEX_ROW_BOTTOM = 12;
   /** The least room under a one-line prompt's text, to the box's bottom (10 px block inset). */
   const MIN_ROOM = 12;
 
@@ -507,12 +510,13 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     const inset = plus.left - m.box.left;
     if (m.bar) {
       // ChatGPT's two-row spacing in Codex's look (Leo 2026-11-04): the prompt starts over the
-      // lower row, with one 24px gap before the controls. It never reserves +'s blank column.
+      // lower row, with one 16px gap before the controls (24px before Leo 2026-11-08: "we need to
+      // not have our thing be so tall"). It never reserves +'s blank column.
       if (m.text === null || Math.abs(m.text - m.box.left - 16) > TOLERANCE)
         out.push(
           `the full-width prompt starts ${m.text === null ? "nowhere" : f(m.text - m.box.left)} px into the box, not 16`,
         );
-      if (!m.line || plus.top - m.line.bottom < 24 - TOLERANCE)
+      if (!m.line || plus.top - m.line.bottom < CODEX_PROMPT_GAP - TOLERANCE)
         out.push("the lower controls crowd the prompt's first line");
     } else {
       if (m.text === null) return ["the text's start is not drawn"];
@@ -590,8 +594,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const dy = centerY(control.button) - target.y;
       if (Math.abs(dy) > TOLERANCE) out.push(`${name}'s center sits ${f(dy)} px off ${target.what}'s center`);
     }
-    // Equal insets. In Codex's look + stands as far off the box's left as off its row's bottom (the
-    // look's dots sit under it in the box), and the last control as far off its right. In Claude's,
+    // Equal insets. In Codex's look + and the last control stand the control inset off the box's
+    // sides, and the row CODEX_ROW_BOTTOM over its bottom (Leo 2026-11-08: "have more padding on the
+    // bottom"; it was the 8px side inset before). In Claude's,
     // + stands as far under the box's top as over its bottom (one line), and as far off its left as
     // the last control off its right.
     const floor = m.box.bottom;
@@ -605,8 +610,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const left = b.left - m.box.left;
       const bottom = floor - b.bottom;
       if (m.bar) {
-        if (Math.abs(left - bottom) > TOLERANCE)
-          out.push(`+ stands ${f(left)} px off the box's left, ${f(bottom)} off its bottom`);
+        if (Math.abs(bottom - CODEX_ROW_BOTTOM) > TOLERANCE)
+          out.push(`+ stands ${f(left)} px off the box's left, ${f(bottom)} off its bottom, not ${CODEX_ROW_BOTTOM}`);
       } else {
         const top = b.top - m.box.top;
         // Over the attachments' band or beside an inline attachment the prompt is taller than one
@@ -623,7 +628,11 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     if (last) {
       const right = m.box.right - last.button.right;
       const bottom = floor - last.button.bottom;
-      if (m.bar && Math.abs(right - bottom) > TOLERANCE)
+      if (
+        m.bar &&
+        (Math.abs(bottom - CODEX_ROW_BOTTOM) > TOLERANCE ||
+          (m.plus && Math.abs(right - (m.plus.button.left - m.box.left)) > TOLERANCE))
+      )
         out.push(`the last control stands ${f(right)} px off the box's right, ${f(bottom)} off its bottom`);
       if (!m.bar && m.plus && Math.abs(bottom - (floor - m.plus.button.bottom)) > TOLERANCE)
         out.push(`the last control stands ${f(bottom)} px over the box's bottom, + ${f(floor - m.plus.button.bottom)}`);

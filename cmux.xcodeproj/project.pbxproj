@@ -106,6 +106,7 @@
 			);
 			explicitFolders = (
 				"markdown-viewer",
+				"theme-files",
 			);
 			path = Resources;
 			sourceTree = "<group>";

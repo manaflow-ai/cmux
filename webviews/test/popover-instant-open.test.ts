@@ -222,6 +222,9 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/conversation/sendTuck.ts": {
     count: 2,
     what: "a prompt sent while scrolled up arcs over the composer and tucks behind it",
+  "src/agent-session/acpmux/conversation/turnEndFold.ts": {
+    count: 1,
+    what: "a turn's end folds its work in one motion: the rows that stay slide to their place, copies of the rows it took away fade where they were",
   },
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
@@ -239,6 +242,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/files-panel-motion.ts": { count: 2, what: "the files panel slides in from its edge" },
   "src/motion/SyncTitle.tsx": { count: 3, what: "a title's new text cross-fades" },
   "src/motion/useSyncListMotion.ts": { count: 3, what: "list rows arrive, move and leave" },
+  "src/pages/overlay/toasts/useToastMotion.ts": {
+    count: 4,
+    what: "a toast rises and fades in, slides to its new slot, and its copy fades out where it was",
+  },
   "src/ui/motion/SlidingIndicator.tsx": {
     count: 1,
     what: "a tab bar's or segmented control's highlight travels to the selected item",

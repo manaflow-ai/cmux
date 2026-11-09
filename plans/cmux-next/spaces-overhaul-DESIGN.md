@@ -72,6 +72,10 @@ macOS uses Ctrl-arrows and Ctrl-digits for Mission Control. The asked keys clash
 | Ctrl-Cmd-Left / Right: previous / next space | Ghostty's pane resize `resize_split` (reserved, schemas/keybindings/ghostty-reserved-keys.json; changing it needs Lawrence's OK) | **Ctrl-Opt-Cmd-Left / Right** |
 | Ctrl-Cmd-1…9: space N | Focus Pane by Number (`focusPaneByNumber`) | **Ctrl-Opt-Cmd-1…9** |
 
+Nov 7 follow-up (Lawrence: "do ctrl option cmd hl for navigating spaces"): **Ctrl-Opt-Cmd-H / L** are now the
+Previous / Next Space catalog keys; Ctrl-Opt-Cmd-Left / Right stay as aliases. No shipped cmux, Ghostty or
+macOS default holds that chord.
+
 The old space keys keep working: Opt-Cmd-[ / ] stay as aliases of previous / next, and Ctrl-Opt-1…9
 stays the digit scheme's space key (ShortcutDigitScheme, onboarding's Number Keys card). Each key
 follows its action: rebinding or unbinding the action in Settings or `cmux.json`

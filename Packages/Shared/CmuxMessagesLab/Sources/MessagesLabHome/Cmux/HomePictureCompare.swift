@@ -148,15 +148,10 @@ final class HomePictureCompare: NSView {
         if style == .slider { follow(convert(event.locationInWindow, from: nil)) }
     }
 
+    /// The arrow over the pictures, as over every clickable thing in the app; only the slider's
+    /// divider says it drags.
     override func resetCursorRects() {
-        switch style {
-        case .sideBySide:
-            let (a, b) = sideFrames
-            addCursorRect(a, cursor: .pointingHand)
-            addCursorRect(b, cursor: .pointingHand)
-        case .flip: addCursorRect(fitted(in: bounds), cursor: .pointingHand)
-        case .slider: addCursorRect(fitted(in: bounds), cursor: .resizeLeftRight)
-        }
+        if style == .slider { addCursorRect(fitted(in: bounds), cursor: .resizeLeftRight) }
     }
 
     private func follow(_ p: CGPoint) {
