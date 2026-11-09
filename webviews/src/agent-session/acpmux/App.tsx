@@ -5801,6 +5801,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Quote in Reply picks made while no composer is mounted (a Sandboxed receipt or a handoff review
   /// in its place): they go in after the draft, in order, when it mounts (composerRestore.ts).
   const heldQuotes = useRef<string[] | undefined>(undefined);
+  // The subagent pane's composer (SubagentComposer.tsx) while it shows: Quote in Reply goes there,
+  // never held for the chat's composer, which a subagent pane does not mount.
+  const subagentQuote = useRef<{ quoteReply(markdown: string): void } | null>(null);
+  const quoteReply = useCallback((markdown: string) => {
+    if (subagentQuote.current) subagentQuote.current.quoteReply(markdown);
+    else quoteIntoComposer(composerHandle, heldQuotes, markdown);
+  }, []);
   /// Prompts sent while a new chat starts, shown as queued rows until acpmux takes each, in order
   /// (startingSends.ts). One refused comes back to the composer with those behind it.
   const [startingRows, setStartingRows] = useState<readonly StartingSend[]>([]);
@@ -6113,7 +6120,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // The selection's Reply chip and a row's Reply quote through the same Quote in Reply as the
   // right-click menu (`chat.quoteReply`, conversation/SelectionReply.tsx).
-  useEffect(() => setQuoteReplySink((markdown) => quoteIntoComposer(composerHandle, heldQuotes, markdown)), []);
+  useEffect(() => setQuoteReplySink(quoteReply), [quoteReply]);
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
     prompt.current.focus();
@@ -8201,7 +8208,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // draft, which stays as typed, and the caret waits in an empty paragraph below it. With no
           // composer mounted (a Sandboxed receipt shows), it waits for the composer to come back.
           "chat.quoteReply": async ({ markdown }) => {
-            quoteIntoComposer(composerHandle, heldQuotes, String(markdown ?? ""));
+            quoteReply(String(markdown ?? ""));
           },
           // Selected transcript text can be attached as a context chip without changing the
           // draft text. The rail/menu owns only the gesture; the composer owns chip rendering.
@@ -8847,6 +8854,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandbox,
     cloudTypingPrewarm,
     notices,
+    quoteReply,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
@@ -10872,6 +10880,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       chat={chatName}
       draftKey={subagentDraftKey}
       onSend={sendToSubagent}
+      quoteRef={subagentQuote}
     />
   ) : (
     !reviewing && (
