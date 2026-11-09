@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42551085589",
+  "recorded_at": "2026-11-09T02:35:09Z",
+  "reason": "cmux-tui 3368f259fa02 changes the image's cmux-tui (pinned 11cd6d4f6084)",
+  "dry_run": false,
+  "cmux_tui": "3368f259fa02665238d465ef9ea6e2d9c1b1a4a0",
+  "fixes": [
+    {
+      "sha": "3368f259fa02665238d465ef9ea6e2d9c1b1a4a0",
+      "mergedAt": "2026-11-08T18:13:44-08:00",
+      "subject": "cmux-host: a resume signal is deduped only against the other detector (#39071)"
+    },
+    {
+      "sha": "1ea17b144ccb8b03c819690b41d2c069e3089f2c",
+      "mergedAt": "2026-11-08T18:09:04-08:00",
+      "subject": "cmux-tui-core: the phone start fake's catalog lists opencode, so its refusal is the floor's (#39083)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T02:35:09Z",
+    "snapshot_id": "sh-f0bacf2d731d41b5a360aeb1458821a5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42551085589): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1395f1d62c32465ea086d84026665fc92447d73b",
+    "image": "cloud-native-auto-3368f259-42551085589-1",
+    "revision": "ci-42551085589-1",
+    "at": "2026-11-09T02:35:09Z"
+  },
+  "rolled_back": false
+}
