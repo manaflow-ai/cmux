@@ -193,10 +193,11 @@ fn active_kinds_after(
 /// `None` when a segment in the range has no kind map (an older segment:
 /// the caller takes the validating legacy path). A segment whose kind map
 /// names no accepted kind is skipped without loading its content; one that
-/// does is decoded whole and consumed whole, so the next page never decodes
-/// it again. Up to [`segment_decode_workers`] such segments decode at once
-/// (`consume_batch`); the page ends after the batch that brings it to
-/// `limit`.
+/// does is read from its kept reducer records when they cover those kinds,
+/// and decoded whole otherwise. Either way it is consumed whole, so the next
+/// page never reads it again. Up to [`segment_decode_workers`] segments
+/// decode at once (`consume_batch`); the page ends after the batch that
+/// brings it to `limit`.
 fn archived_kinds_after(
     connection: &Connection,
     sequence: u64,
@@ -234,20 +235,48 @@ fn archived_kinds_after(
         connection.prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1")?;
     let mut page = Page { sequence, through, kinds, records: Vec::new(), reached: sequence };
     let workers = segment_decode_workers();
-    // Segments in order, each with its id when it holds an accepted kind.
-    let mut batch: Vec<(u64, Option<String>)> = Vec::new();
-    for (segment_id, _, end) in segments {
+    // Segments in order, each with how its accepted records are read.
+    let mut batch: Vec<(u64, PageSegment)> = Vec::new();
+    let (mut batch_decodes, mut batch_kept) = (0, 0);
+    for (segment_id, start, end) in segments {
         let mapped = segment_kinds
             .query_map([&segment_id], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
         if mapped.is_empty() {
             return Ok(None);
         }
-        let end = u64::try_from(end)?.min(through);
-        batch.push((end, mapped.iter().any(|kind| kinds(kind)).then_some(segment_id)));
-        if batch.iter().filter(|(_, decode)| decode.is_some()).count() < workers {
+        let (start, end) = (u64::try_from(start)?, u64::try_from(end)?);
+        let accepted =
+            mapped.iter().map(String::as_str).filter(|kind| kinds(kind)).collect::<Vec<_>>();
+        let segment = if accepted.is_empty() {
+            PageSegment::Skip
+        } else {
+            // The segment's records of these kinds as sealing kept them, or
+            // the segment itself when they were not kept (sealed by an older
+            // build, not yet backfilled).
+            match reducer_records::sealed_reducer_records(
+                connection,
+                &segment_id,
+                start,
+                end,
+                &accepted,
+                kinds,
+            )? {
+                Some(kept) => {
+                    batch_kept += kept.len();
+                    PageSegment::Kept(kept)
+                }
+                None => {
+                    batch_decodes += 1;
+                    PageSegment::Decode(segment_id)
+                }
+            }
+        };
+        batch.push((end.min(through), segment));
+        if batch_decodes < workers && page.records.len() + batch_kept < limit {
             continue;
         }
+        (batch_decodes, batch_kept) = (0, 0);
         if !page.consume_batch(connection, std::mem::take(&mut batch))?
             || page.records.len() >= limit
         {
@@ -256,6 +285,16 @@ fn archived_kinds_after(
     }
     page.consume_batch(connection, batch)?;
     Ok(Some((page.records, page.reached)))
+}
+
+/// One segment of a sealed page: how its accepted records are read.
+enum PageSegment {
+    /// It holds no accepted kind.
+    Skip,
+    /// Its accepted records, from the kept reducer records.
+    Kept(Vec<SessionJournalRecord>),
+    /// It is decoded whole: its id.
+    Decode(String),
 }
 
 /// A sealed page being read: its range, its kinds, what it holds so far.
@@ -278,28 +317,35 @@ impl Page {
     fn consume_batch(
         &mut self,
         connection: &Connection,
-        batch: Vec<(u64, Option<String>)>,
+        batch: Vec<(u64, PageSegment)>,
     ) -> anyhow::Result<bool> {
         let mut rows = Vec::new();
-        for segment_id in batch.iter().filter_map(|(_, segment_id)| segment_id.as_deref()) {
-            rows.push(load_journal_segment(connection, segment_id));
+        for (_, segment) in &batch {
+            if let PageSegment::Decode(segment_id) = segment {
+                rows.push(load_journal_segment(connection, segment_id));
+            }
         }
         let mut inflated = inflate_segments(rows, self.kinds).into_iter();
-        for (end, segment_id) in batch {
-            if segment_id.is_some() {
-                let decoded = inflated
-                    .next()
-                    .context("a segment batch lost a segment")?
-                    .and_then(|segment| check_segment_gaps(connection, segment));
-                match decoded {
-                    Ok(decoded) => {
-                        let (sequence, through) = (self.sequence, self.through);
-                        self.records.extend(decoded.records.into_iter().filter(|record| {
-                            record.sequence > sequence && record.sequence <= through
-                        }));
+        for (end, segment) in batch {
+            let (sequence, through, kinds) = (self.sequence, self.through, self.kinds);
+            let in_page = |record: &SessionJournalRecord| {
+                record.sequence > sequence && record.sequence <= through && kinds(&record.kind)
+            };
+            match segment {
+                PageSegment::Skip => {}
+                PageSegment::Kept(kept) => self.records.extend(kept.into_iter().filter(in_page)),
+                PageSegment::Decode(_) => {
+                    let decoded = inflated
+                        .next()
+                        .context("a segment batch lost a segment")?
+                        .and_then(|segment| check_segment_gaps(connection, segment));
+                    match decoded {
+                        Ok(decoded) => {
+                            self.records.extend(decoded.records.into_iter().filter(in_page));
+                        }
+                        Err(error) if self.reached == self.sequence => return Err(error),
+                        Err(_) => return Ok(false),
                     }
-                    Err(error) if self.reached == self.sequence => return Err(error),
-                    Err(_) => return Ok(false),
                 }
             }
             self.reached = self.reached.max(end);

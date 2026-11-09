@@ -88,6 +88,25 @@ impl Placeholder {
     fn of(created: &Created) -> Self {
         Self { tab: created.tab.clone(), terminal: Some(created.terminal.clone()) }
     }
+
+    /// The shell tab a split or `screen create` result names (`tab_id`,
+    /// `terminal_id`).
+    pub(in crate::cli) fn from_path(path: &Value) -> Self {
+        Self {
+            tab: path.get("tab_id").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            terminal: path.get("terminal_id").and_then(Value::as_str).map(str::to_owned),
+        }
+    }
+
+    /// The command that ends it: `terminal <t> close` ends the shell and its
+    /// tab. Without a terminal id it is `tab <t> close`, and the session's
+    /// reaper ends the shell after its grace.
+    pub(in crate::cli) fn end_command(&self) -> [&str; 3] {
+        match &self.terminal {
+            Some(terminal) => ["terminal", terminal.as_str(), "close"],
+            None => ["tab", self.tab.as_str(), "close"],
+        }
+    }
 }
 
 /// Ends the placeholder's shell and so its tab (`terminal <t> close`). A
@@ -97,11 +116,12 @@ impl Placeholder {
 /// closes and the session's reaper ends the shell. Any failure is ignored:
 /// the agent runs either way.
 pub(in crate::cli) fn end_placeholder<D: Daemon + ?Sized>(daemon: &D, placeholder: &Placeholder) {
-    let ended = placeholder.terminal.as_deref().is_some_and(|terminal| {
-        plan(&["terminal", terminal, "close"])
-            .is_ok_and(|close| daemon.request(None, close).is_ok())
-    });
-    if !ended && let Ok(close) = plan(&["tab", placeholder.tab.as_str(), "close"]) {
+    let ended =
+        plan(&placeholder.end_command()).is_ok_and(|close| daemon.request(None, close).is_ok());
+    if !ended
+        && placeholder.terminal.is_some()
+        && let Ok(close) = plan(&["tab", placeholder.tab.as_str(), "close"])
+    {
         let _ = daemon.request(None, close);
     }
 }

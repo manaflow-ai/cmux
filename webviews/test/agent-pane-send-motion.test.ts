@@ -4,7 +4,7 @@
 // user's prompt, like, fades in from the right and, like, grows to the left. And yeah, and then
 // there's the, like, space that accounts for with the thinking for whatever seconds and the push-up
 // and the prompt. Like, it's all just one unified motion." A prompt sent from the latest row: its
-// room is laid out at once, and on one clock (the send motion, 265 ms on its settling curve) the
+// room is laid out at once, and on one clock (the send motion, 180 ms on its settling curve) the
 // thread rises into it, the bubble opens leftward from its right edge with its text fading in behind
 // the edge, and the thinking row fades in. Every frame from the send is read in the agent pane's dev
 // entry, with the agent's answer held back as a real agent's is. Sent from the latest row, the
@@ -202,11 +202,11 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
       const [first, last] = [frames[0]!, frames.at(-1)!];
 
       // One clock: the thread's rise, the bubble's opening and the thinking row's fade all run the
-      // send motion (265 ms, its settling curve).
+      // send motion (180 ms, its settling curve).
       for (const target of ["thread", "bubble", "thinking"]) {
         const clock = clocks.find((entry) => entry.target === target);
         expect(clock, `${target}: no animation started with the send (${JSON.stringify(clocks)})`).toBeDefined();
-        expect(clock!.duration, `${target}'s duration`).toBe(265);
+        expect(clock!.duration, `${target}'s duration`).toBe(180);
         expect(clock!.easing.replace(/\s/g, ""), `${target}'s curve`).toBe("cubic-bezier(0.16,1,0.3,1)");
       }
 

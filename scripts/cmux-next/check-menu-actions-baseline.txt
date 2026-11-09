@@ -39,6 +39,8 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenButtons.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSelectionMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteHoverToolbar.swift
+# 2026-11-09 (base red): 171caf93657f's agent drive indicator menu (Go to and Stop per driving agent, one row builder) has no registered action for an agent-presence target yet.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/AgentDriveIndicatorView.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNoticeCardView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift
 # Page-declared tab-row menu rows return the selected id to the page, which owns the action (as WebContextMenu does).

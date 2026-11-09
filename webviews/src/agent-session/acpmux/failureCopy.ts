@@ -9,6 +9,8 @@ export type FailureKind =
   | "trust-untrusted"
   | "no-team-account"
   | "needs-credits"
+  | "no-credit"
+  | "cloud-auth-expired"
   | "rate-limited"
   | "unreachable"
   | "invalid-key"
@@ -47,6 +49,27 @@ const ADD_COMMAND = /\bcr add (?:codex|claude|opencode)\b/;
 /// signal; any other text that merely mentions cmux credits is not.
 const NEEDS_CREDITS =
   /AI models need cmux credits, your own API key, or a paid plan|Not enough cmux credits for this call|\binference\.plan_required\b|\bcredits\.insufficient\b/i;
+/// The account behind the chat's own API key has no credit left: Anthropic's "credit balance is too
+/// low", OpenAI's `insufficient_quota` ("You exceeded your current quota") and
+/// `billing_hard_limit_reached`, a gateway's "insufficient credits". Not a rate limit: waiting does not
+/// help, and OpenAI sends it as a 429, so it goes before RATE.
+const NO_CREDIT =
+  /credit balance (?:is )?too low|billing[ _-]hard[ _-]limit|exceeded your current quota|\binsufficient credits?\b|payment required/i;
+/// `insufficient_quota` alone is weaker: the cmux model router types its own rate limits with it (a
+/// 429 `free.rate`, "too many requests; wait a moment", backend inference/free.ts; a team's
+/// `inference.daily_limit`). It counts only without a router code or rate words beside it.
+const INSUFFICIENT_QUOTA = /insufficient[ _-]quota/i;
+const ROUTER_LIMIT = /\b(?:free|inference|usage)\.[a-z_]+\b|too many requests|rate.?limit|wait a moment/i;
+/// The cloud provider sign-in a Bedrock or Vertex chat uses has expired: the AWS SDK's `ExpiredToken`,
+/// `ExpiredTokenException`, `UnrecognizedClientException`, "The security token included in the request
+/// is expired", "Could not load credentials", an expired SSO session; Google's "Reauthentication is
+/// needed" (`invalid_rapt`), "Could not load the default credentials", or `invalid_grant` beside a
+/// Google word (alone, `invalid_grant` is the agent's own OAuth refresh: SUBSCRIPTION). Its way out is
+/// the provider's login command, not the agent's.
+const AWS_AUTH_EXPIRED =
+  /\bExpiredToken(?:Exception)?\b|\bUnrecognizedClientException\b|security token included in the request is (?:expired|invalid)|could not load credentials|\bSSO session\b.{0,60}\bexpired\b|token has expired and refresh failed/i;
+const GOOGLE_AUTH_EXPIRED = /reauthentication is needed|\binvalid_rapt\b|could not load the default credentials/i;
+const GOOGLE_WORDS = /google|gcloud|vertex|application[ _-]default|\bADC\b/i;
 /// The conversation outgrew the model's context window: Claude's "Prompt is too long", OpenAI's
 /// `context_length_exceeded` and "maximum context length", Codex's "exceeds the context window".
 /// Sending the same prompt into the same history fails the same way, so its way out is Compact
@@ -104,6 +127,7 @@ const SPAWN_FAILED =
 const TYPED: readonly [RegExp, FailureKind][] = [
   // The cmux model router's own codes, when they reach the turn typed.
   [/inference\.plan_required|credits\.insufficient/i, "needs-credits"],
+  [/insufficient[_.-]?quota|billing|credit/i, "no-credit"],
   [/context|too[_.-]?long/i, "context-full"],
   [/disk|no[_.-]?space|enospc/i, "disk-full"],
   [/tailscale|tailnet/i, "tailscale"],
@@ -172,6 +196,9 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (DISK_FULL.test(message)) return "disk-full";
   // Before capacity: a refused request's body can name the quota it was measured against.
   if (CONTEXT_FULL.test(message)) return "context-full";
+  // Before capacity: OpenAI's out-of-credit answer is a 429 that names a quota.
+  if (NO_CREDIT.test(message) || (INSUFFICIENT_QUOTA.test(message) && !ROUTER_LIMIT.test(message))) return "no-credit";
+  if (cloudSignInCommand(message)) return "cloud-auth-expired";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
   // Connection words count only outside addresses: a URL's path or query (`…/oauth/token`,
@@ -202,6 +229,17 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   return "other";
 }
 
+/// The command that refreshes the expired cloud provider sign-in `message` names, or undefined when it
+/// names none.
+function cloudSignInCommand(message: string): string | undefined {
+  if (GOOGLE_AUTH_EXPIRED.test(message) || (/\binvalid_grant\b/i.test(message) && GOOGLE_WORDS.test(message)))
+    // l10n-allow: a shell command the person runs, never translated.
+    return "gcloud auth application-default login";
+  // l10n-allow: a shell command the person runs, never translated.
+  if (AWS_AUTH_EXPIRED.test(message)) return "aws sso login";
+  return undefined;
+}
+
 /// The way out a failure's card offers first: send the prompt again, move to another model (with
 /// Retry after it), compact a chat that outgrew its context window, or sign the agent in again
 /// (each with Retry after it, for once that is done). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
@@ -213,7 +251,13 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
 /// no CodeRouter (Leo, 2026-10-31: "STOP USING CODEROUTER").
 export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean {
   if (route?.harness === "claude-cr" || route?.hostKind === "cloud") return false;
-  return kind === "invalid-key" || kind === "subscription-login" || kind === "auth" || kind === "rate-limited";
+  return (
+    kind === "invalid-key" ||
+    kind === "subscription-login" ||
+    kind === "auth" ||
+    kind === "rate-limited" ||
+    kind === "no-credit"
+  );
 }
 
 export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "compact" | "sign-in" | undefined {
@@ -225,8 +269,10 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
       return "sign-in";
     // Capacity passes: Continue (or Retry) leads, Switch model beside it (Lawrence 2026-10-29: "should
     // have a try again/continue type button here").
+    // Retry fails the same way until the account has credit: another model's route is the way on.
     case "invalid-key":
     case "proxy-auth":
+    case "no-credit":
       return "switch-model";
     case "trust-pending":
     case "trust-untrusted":
@@ -261,6 +307,13 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.noTeamAccount", { harness, command: (message && ADD_COMMAND.exec(message)?.[0]) ?? "" });
     case "needs-credits":
       return t("turn.failure.needsCredits", { harness });
+    case "no-credit":
+      return t("turn.failure.noCredit", { harness });
+    case "cloud-auth-expired":
+      return t("turn.failure.cloudSignInExpired", {
+        harness,
+        command: (message && cloudSignInCommand(message)) || "",
+      });
     case "rate-limited":
       return t("turn.failure.rateLimited", { harness });
     case "unreachable":
