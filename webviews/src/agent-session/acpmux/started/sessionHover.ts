@@ -16,6 +16,7 @@ import {
   projectLabel,
   sessionPlace,
 } from "../sessionList";
+import { replacedSince } from "../sessionIndex";
 import {
   MIN_TITLE_MENTION,
   type SessionMention,
@@ -113,18 +114,28 @@ export class SessionHoverStore {
   private agentSessions = new Map<string, string>();
   /// The machine each chat on another machine runs on, as the session list names it.
   private hosts = new Map<string, string>();
+  /// The entry each card was made from: the pane keeps an unchanged session's entry object
+  /// (direct.ts `sessionEntryList`), so an entry seen last time keeps its card and key unread, and
+  /// one session's change costs one card, not one per listed chat.
+  private from = new Map<string, AcpmuxSessionEntry>();
+  /// The list the last `set` was given: a list made from it in place (sessionIndex.ts `noteReplaced`)
+  /// is patched at the replaced entries only, with no lookup per listed chat.
+  private last: readonly AcpmuxSessionEntry[] | undefined;
   private readonly listeners = new Set<() => void>();
 
   /// Replaces the cards with `sessions`'; a card whose content did not change keeps its object.
   set(sessions: readonly AcpmuxSessionEntry[]): void {
+    const last = this.last;
+    this.last = sessions;
+    if (this.patch(sessions, replacedSince(last, sessions))) return;
     const infos = new Map<string, SessionHoverInfo>();
     const keys = new Map<string, string>();
     const agents = new Map<string, string>();
     const agentSessions = new Map<string, string>();
     const hosts = new Map<string, string>();
+    const from = new Map<string, AcpmuxSessionEntry>();
     let changed = false;
     for (const entry of sessions) {
-      const info = hoverInfo(entry);
       const agent = entry.harness && entry.agentSessionId ? agentLinkKey(entry.harness, entry.agentSessionId) : "";
       if (agent && !agents.has(agent)) agents.set(agent, entry.sessionId);
       if (entry.agentSessionId && !agentSessions.has(entry.agentSessionId))
@@ -132,6 +143,14 @@ export class SessionHoverStore {
       // This Mac's chats name no machine: only another machine's chat says where it runs.
       const host = cloudHost(entry);
       if (host) hosts.set(entry.sessionId, host);
+      from.set(entry.sessionId, entry);
+      const same = this.from.get(entry.sessionId) === entry && this.infos.has(entry.sessionId);
+      if (same) {
+        infos.set(entry.sessionId, this.infos.get(entry.sessionId)!);
+        keys.set(entry.sessionId, this.keys.get(entry.sessionId)!);
+        continue;
+      }
+      const info = hoverInfo(entry);
       const key = `${JSON.stringify(info)}\u0000${agent}\u0000${host ?? ""}`;
       const kept = this.keys.get(entry.sessionId) === key ? this.infos.get(entry.sessionId) : undefined;
       if (!kept) changed = true;
@@ -145,7 +164,46 @@ export class SessionHoverStore {
     this.agents = agents;
     this.agentSessions = agentSessions;
     this.hosts = hosts;
+    this.from = from;
     if (changed) for (const listener of this.listeners) listener();
+  }
+
+  /// The same sessions as last time, some of them changed: only the changed ones' cards are made
+  /// again, in place. False (nothing done) when a session came or went, a page lists one twice, or a
+  /// change moved what the link indexes read (its agent link, its machine): `set` rebuilds them.
+  private patch(sessions: readonly AcpmuxSessionEntry[], replaced?: readonly number[]): boolean {
+    if (sessions.length !== this.from.size) return false;
+    const changed: AcpmuxSessionEntry[] = [];
+    // A recorded in-place change keeps every id where it was, so only the replaced entries are read.
+    const seen = new Set<string>();
+    for (const entry of replaced ? replaced.map((at) => sessions[at]!) : sessions) {
+      const before = this.from.get(entry.sessionId);
+      // Equal length with every id known can still hide one listed twice in place of another.
+      if (!before || seen.has(entry.sessionId)) return false;
+      seen.add(entry.sessionId);
+      if (before === entry) continue;
+      if (
+        before.harness !== entry.harness ||
+        before.agentSessionId !== entry.agentSessionId ||
+        cloudHost(before) !== cloudHost(entry)
+      )
+        return false;
+      changed.push(entry);
+    }
+    let notify = false;
+    for (const entry of changed) {
+      const id = entry.sessionId;
+      this.from.set(id, entry);
+      const info = hoverInfo(entry);
+      const agent = entry.harness && entry.agentSessionId ? agentLinkKey(entry.harness, entry.agentSessionId) : "";
+      const key = `${JSON.stringify(info)}\u0000${agent}\u0000${cloudHost(entry) ?? ""}`;
+      if (this.keys.get(id) === key) continue;
+      this.infos.set(id, info);
+      this.keys.set(id, key);
+      notify = true;
+    }
+    if (notify) for (const listener of this.listeners) listener();
+    return true;
   }
 
   get(sessionId: string): SessionHoverInfo | undefined {

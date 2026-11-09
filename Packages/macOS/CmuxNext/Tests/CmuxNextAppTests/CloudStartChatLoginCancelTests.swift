@@ -35,10 +35,20 @@ struct CloudStartChatLoginCancelTests {
         throw CopyFailed() // leaving the scope cancels the login and waits for it
     }
 
+    /// A login step that never finishes by itself: it ends only when the start cancels it, and then throws
+    /// `CancellationError`. The stream never yields and its continuation stays alive, so only the task's
+    /// cancellation ends the wait.
+    private static func untilCancelled() async throws {
+        let (never, continuation) = AsyncStream<Never>.makeStream()
+        for await _ in never {}
+        withExtendedLifetime(continuation) {}
+        try Task.checkCancellation()
+    }
+
     @Test func aLoginCancelledBecauseTheCopyFailedIsRecordedAsCancelled() async {
         let box = Box()
         await #expect(throws: CopyFailed.self) {
-            try await Self.failTheCopy { box.outcome = await Self.record { try await Task.sleep(for: .seconds(600)) } }
+            try await Self.failTheCopy { box.outcome = await Self.record { try await Self.untilCancelled() } }
         }
         #expect(box.outcome == CloudHarnessLoginDecision.loginCancelled)
     }
@@ -50,7 +60,7 @@ struct CloudStartChatLoginCancelTests {
         await #expect(throws: CopyFailed.self) {
             try await Self.failTheCopy {
                 box.outcome = await Self.record(cached: {
-                    await CloudCredentialTransfer.cachedLogin { try await Task.sleep(for: .seconds(600)); return nil }
+                    await CloudCredentialTransfer.cachedLogin { try await Self.untilCancelled(); return nil }
                 }) { box.transfers += 1 }
             }
         }

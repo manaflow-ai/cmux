@@ -47,6 +47,7 @@ import type {
 import { QUEUED_MESSAGE, SINCE_DIVIDER, TURN_RETRY, type AcpmuxSince, type AcpmuxTurnRetry } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
+import { hostIsReconnecting } from "./hostRetry";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import {
@@ -76,6 +77,7 @@ import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
+import { noteReplaced } from "./sessionIndex";
 import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
@@ -2118,6 +2120,9 @@ export class AcpmuxDirectClient {
   /// not change (a streamed token, a row's change) hands the pane the same array, so what the pane
   /// derives from `snapshot.sessions` keeps its identity and no row redraws for it.
   private sessionEntriesOf?: { sessions: Session[]; entries: AcpmuxSessionEntry[] };
+  /// How `this.sessions` (`to`) was made from `from` by in-place changes (`sessionChanged`): the
+  /// positions replaced, each by a session of the same id. `sessionEntryList` patches only those.
+  private sessionsReplaced?: { from: Session[]; to: Session[]; at: number[] };
   /// The snapshot summary's `usageStats`, kept while acpmux's numbers are the same (sameUsageStats).
   private summaryUsage?: SessionUsageStats;
   private publishedSummaryOf?: {
@@ -2960,7 +2965,7 @@ export class AcpmuxDirectClient {
         acpmuxPerf.timed("client.receive", () => this.receive(String(message.data), this.socket !== socket));
     }).catch((error: unknown) => {
       this.releaseCopyAttach(mine);
-      this.dropTailDrawnWhileConnecting();
+      this.dropTailDrawnWhileConnecting(error);
       throw error;
     });
     // The pane keeps what it shows (the page's cached chat, or the chat before a reconnect) until
@@ -3269,7 +3274,7 @@ export class AcpmuxDirectClient {
               : String(error),
       });
       this.releaseCopyAttach(mine);
-      this.dropTailDrawnWhileConnecting();
+      this.dropTailDrawnWhileConnecting(error);
       this.socket?.close();
       throw error;
     } finally {
@@ -3865,8 +3870,13 @@ export class AcpmuxDirectClient {
 
   /// The open failed before its attach read the chat: rows drawn while it connected are not this
   /// page's reading of the chat, so they go, as after a failed attach (the host keeps its tail:
-  /// the chat itself was not refused).
-  private dropTailDrawnWhileConnecting(): void {
+  /// the chat itself was not refused). Not while acpmux is only coming back (hostRetry.ts
+  /// `hostIsReconnecting`: an update's handoff, a daemon starting or restarting): the rows stay,
+  /// and the page's next connect draws the same ones while it connects, so the pane never goes
+  /// blank between them (Leo, 2026-11-09, after a restart to update: "the chat loading kinda
+  /// flickered in and out"). Nothing of them is live until the attach lays its page over them.
+  private dropTailDrawnWhileConnecting(error: unknown): void {
+    if (hostIsReconnecting(error)) return;
     const early = this.earlyTail;
     if (!early || early.sessionId !== this.selectedSessionId) return;
     if (this.peerCopy?.sessionId === early.sessionId) return;
@@ -4642,6 +4652,9 @@ export class AcpmuxDirectClient {
   private since?: Omit<AcpmuxSince, "key"> & { sessionId: string };
   /// Each standalone recap row by the chat and the `since` its record named (`placeSince`).
   private readonly recapsBySince = new Map<string, string>();
+  /// An older page folded in (`foldOlder`): a reply it brought may span `since.seq`, so the drawn
+  /// divider is placed again even when its mark did not change.
+  private sinceStale = false;
   private placeSince(): void {
     // Its attach answered before the list said turns ended unseen (a cold open): acpmux keeps the
     // return on the chat while the person stays (`lastReturn`).
@@ -4662,8 +4675,14 @@ export class AcpmuxDirectClient {
       return this.placeSince();
     }
     const drawn = this.rows.get(SINCE_DIVIDER);
-    if (drawn?.since?.seq === since.seq && drawn.since.turns === since.turns && drawn.since.recap === since.recap)
+    if (
+      !this.sinceStale &&
+      drawn?.since?.seq === since.seq &&
+      drawn.since.turns === since.turns &&
+      drawn.since.recap === since.recap
+    )
       return;
+    this.sinceStale = false;
     this.rows.setAt(this.rows.placeAfter(since.seq), {
       id: SINCE_DIVIDER,
       version: (drawn?.version ?? 0) + 1,
@@ -5893,16 +5912,38 @@ export class AcpmuxDirectClient {
     // this page: no snapshot, no read-ahead. Each one drew the whole pane, so an idle pane rebuilt its
     // transcript and list many times a second (Leo, 2026-11-03: "im at 100% cpu rn"). The pane's own
     // chat, the chat it is waiting to reopen and the chats it started still take every change.
+    // One lookup: a change replaces its session in place, so the list keeps acpmux's order and every
+    // other session keeps its object, which the pane's per-session caches key on (`sessionEntryList`).
+    const at = this.sessions.findIndex((item) => item.sessionId === session.sessionId);
     if (
       session.sessionId !== this.selectedSessionId &&
       session.sessionId !== this.missingSession &&
-      this.sessions.some((item) => item.sessionId === session.sessionId && sameJson(item, session)) &&
+      at >= 0 &&
+      sameJson(this.sessions[at], session) &&
       !this.offerChildIds().includes(session.sessionId) &&
       !this.isStartedChild(session)
     )
       return;
-    const added = !this.sessions.some((item) => item.sessionId === session.sessionId);
-    this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
+    const added = at < 0;
+    // `asks.session` above has seen this change: when the list before it had been asked, the new list
+    // has too, and the next snapshot does not walk every listed chat's counts again (`emitNow`).
+    const asked = this.askedSessions === this.sessions;
+    const twice = !added && this.sessions.some((item, index) => index > at && item.sessionId === session.sessionId);
+    if (added) this.sessions = [...this.sessions, session];
+    else if (twice)
+      // A session listed twice (a peer's copy) becomes one row, the changed one, as a change always made it.
+      this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
+    else {
+      const from = this.sessions;
+      this.sessions = from.slice();
+      this.sessions[at] = session;
+      const replaced = this.sessionsReplaced;
+      if (replaced?.to === from) {
+        replaced.to = this.sessions;
+        replaced.at.push(at);
+      } else this.sessionsReplaced = { from, to: this.sessions, at: [at] };
+    }
+    if (asked) this.askedSessions = this.sessions;
     const watch = this.attachWatch?.sessionId === session.sessionId ? this.attachWatch : undefined;
     watch?.seen.set(`${String(session.createdAt)} ${String(session.peer)}`, {
       createdAt: session.createdAt,
@@ -8340,15 +8381,27 @@ export class AcpmuxDirectClient {
 
   /// The session list as the snapshot's entries, the same array while `this.sessions` is.
   private sessionEntryList(): AcpmuxSessionEntry[] {
-    if (this.sessionEntriesOf?.sessions === this.sessions) return this.sessionEntriesOf.entries;
-    const entries = this.sessions.map((session) => {
+    const kept = this.sessionEntriesOf;
+    if (kept?.sessions === this.sessions) return kept.entries;
+    const entryOf = (session: Session) => {
       let entry = this.sessionEntries.get(session);
       if (!entry) {
         entry = sessionEntry(session);
         this.sessionEntries.set(session, entry);
       }
       return entry;
-    });
+    };
+    const replaced = this.sessionsReplaced;
+    this.sessionsReplaced = undefined;
+    let entries: AcpmuxSessionEntry[];
+    if (kept && replaced?.from === kept.sessions && replaced.to === this.sessions) {
+      // Only sessions changed in place since the last list: their entries are replaced and every
+      // other entry stays where it was, so the copy costs no per-session lookup, and the list
+      // records the positions it replaced, which the pane's index reads (sessionIndex.ts).
+      entries = kept.entries.slice();
+      for (const at of replaced.at) entries[at] = entryOf(this.sessions[at]!);
+      noteReplaced(kept.entries, entries, replaced.at);
+    } else entries = this.sessions.map(entryOf);
     this.sessionEntriesOf = { sessions: this.sessions, entries };
     return entries;
   }
@@ -8397,6 +8450,13 @@ export class AcpmuxDirectClient {
           usage: this.usage,
           contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
           usageStats: (this.summaryUsage = sameUsageStats(summary.usageStats, this.summaryUsage)),
+          timeBreakdown:
+            summary.timeBreakdown &&
+            typeof summary.timeBreakdown === "object" &&
+            Array.isArray(summary.timeBreakdown.categories) &&
+            Array.isArray(summary.timeBreakdown.spans)
+              ? summary.timeBreakdown
+              : undefined,
           host: text(summary.host),
           machine: text(summary.machine),
           peer: text(summary.peer),
@@ -9018,8 +9078,11 @@ export class AcpmuxDirectClient {
       void primeSentImages(attachments);
     }
     // A prompt behind the shown chat's running turn waits in the queue: it shows there from the
-    // send on, never first as a transcript bubble that acpmux's `queued` record then moves.
-    const waits = !steer && shown === sessionId && this.turnOpen;
+    // send on, never first as a transcript bubble that acpmux's `queued` record then moves. Running
+    // is what the composer reads (`isWorking`): acpmux may list the turn before this page saw it
+    // open (one that began before the attach), and the composer said this prompt queues (Leo,
+    // 2026-11-05: "it "sends" at least the picture and then it shoots up into the queue").
+    const waits = !steer && shown === sessionId && this.workingNow();
     const generation = this.selectionGeneration;
     // The prompt's way to acpmux and the agent, drawn on its row (composer-delivery-DESIGN.md).
     const before = this.deliveries.get(promptId);
@@ -10715,6 +10778,14 @@ export class AcpmuxDirectClient {
       ...(Array.isArray(summary?.configOptions) ? { configOptions: summary.configOptions } : {}),
     };
   }
+  /// Whether `sessionId` is the chat on screen and attached, once a switch's hold has let it draw:
+  /// an action that reads the drawn chat (Stop, Fork) then reaches it and never the chat before.
+  async shownAndAttached(sessionId: string): Promise<boolean> {
+    while (this.snapshotHold && this.shownSessionId !== this.selectedSessionId) await this.snapshotHold.released;
+    return (
+      this.selectedSessionId === sessionId && this.actingSessionId === sessionId && this.attachedSession() === sessionId
+    );
+  }
   /// The selected chat's attach has supplied a matching summary for this selection generation.
   /// A stale or malformed attach can otherwise make `select()` resolve with only its requested id.
   attachedSession(): string | undefined {
@@ -11326,17 +11397,9 @@ export class AcpmuxDirectClient {
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (!this.forkCancelled && generation === this.selectionGeneration) {
-        const at = Date.now();
+        // Feedback on the person's Fork: a toast, never a transcript row (review of #37629).
         const reason = errorMessage(error) || undefined;
-        const id = noticeId("notice-fork");
-        this.rows.set(id, {
-          id,
-          version: 1,
-          at,
-          kind: "notice",
-          text: reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
-        });
-        this.emit("fork failed");
+        this.transient(reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"));
       }
       return undefined;
     } finally {
@@ -12084,6 +12147,7 @@ export class AcpmuxDirectClient {
     } finally {
       this.foldingBelow = undefined;
     }
+    this.sinceStale = true;
     // The held events' compactions take up the ones the page left open, in order, as reading the
     // whole record does (`compaction` above). One whose first record is a running note continues a
     // compaction the page left running, or noted as failed while it may go on (a forced Stop, or an

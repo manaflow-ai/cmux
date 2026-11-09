@@ -11,6 +11,7 @@ import { askContext } from "./context";
 import { type TranscriptNeedsYou } from "./JumpPill";
 import { nextAsk, needsYouPillOn, pillAsks } from "./jumpPillModel";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
+import { findSession } from "../sessionIndex";
 import { needsYouMode, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./needsYouModel";
 
 type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
@@ -177,7 +178,7 @@ export function useNeedsYou({
   const ours = useMemo(
     () =>
       (pillOn ? pillAsks(items, sessions, sessionId) : []).filter((item) => {
-        const target = sessions.find((session) => session.sessionId === item.sessionId);
+        const target = findSession(sessions, item.sessionId);
         if (target?.peer) return false;
         return item.sessionId === sessionId || target !== undefined;
       }),

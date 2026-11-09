@@ -78,7 +78,8 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(group: "settings.group.terminalFont"),
             GroupSpec(group: "settings.group.densityMotion"),
-            GroupSpec(keys: ["app.uiScale", "appearance.metrics.chromeFontSize", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap", "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"], title: SettingsText.keyed("settings.pageGroup.sizes", "Sizes")),
+            // Text Size (appearance.metrics.chromeFontSize) is in the Density card.
+            GroupSpec(keys: ["app.uiScale", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap", "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"], title: SettingsText.keyed("settings.pageGroup.sizes", "Sizes")),
             // Motion holds ui.animations.enabled and the per-area switches (f35023e54c1c); without a group here they had no row on the page.
             GroupSpec(group: "settings.group.motion"),
             GroupSpec(group: "settings.group.colorTransition"),
@@ -88,8 +89,8 @@ extension SettingsPageLayout {
             // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384).
             GroupSpec(group: "settings.group.sidebar"),
             GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
-            // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card.
-            GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),
+            // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.
+            GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.floatOnHover"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),
             GroupSpec(keys: ["sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps", "home.channelsEnabled"], title: SettingsText.keyed("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces")),
             GroupSpec(keys: ["sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting", "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.maxRows"], title: SettingsText.keyed("settings.pageGroup.workspaceCards", "Workspace Hover Cards")),
             GroupSpec(keys: ["sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups", "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers", "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members", "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git", "sidebar.hoverCards.groups.sections.ports"], title: SettingsText.keyed("settings.pageGroup.groupCards", "Group Hover Cards")),
