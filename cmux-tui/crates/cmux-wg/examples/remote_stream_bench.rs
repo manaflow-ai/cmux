@@ -742,20 +742,24 @@ async fn run_remote_viewer(args: &Args, clock: Arc<Clock>, record: Shared) -> io
     let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
     let first = args.peers.first().ok_or_else(|| io::Error::other("--role viewer needs --peer"))?;
     let pair = seeded_pair(args.seed, first.1);
+    // A cut needs another path to move to: with the cut path alone, the
+    // bulk phase after the stream would only wait out its timeout.
+    if let Some((_, index)) = args.drop_at
+        && (index >= args.peers.len() || args.peers.len() < 2)
+    {
+        return Err(io::Error::other(
+            "--drop-at S:I needs a --peer at index I and at least one other --peer",
+        ));
+    }
     let (underlay, control) =
         Multipath::with_probes(cmux_transport::SelectorConfig::default(), ProbeConfig::default());
     let mut labels = Vec::new();
+    let mut cut = None;
     for (index, (label, address)) in args.peers.iter().enumerate() {
         let bind = if address.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
         let socket = CutSocket { socket: UdpSocket::bind(bind).await?, cut: Arc::default() };
-        if let Some((at, cut_index)) = args.drop_at
-            && cut_index == index
-        {
-            let cut = socket.cut.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(at)).await;
-                cut.store(true, Ordering::Relaxed);
-            });
+        if args.drop_at.is_some_and(|(_, cut_index)| cut_index == index) {
+            cut = Some(socket.cut.clone());
         }
         let kind = if label.starts_with("lan") || label.starts_with("tb") {
             PathKind::DirectLan
@@ -768,6 +772,14 @@ async fn run_remote_viewer(args: &Args, clock: Arc<Clock>, record: Shared) -> io
     let net = WgNet::start_with_underlay(pair.client, underlay).map_err(err)?;
     let target = SocketAddr::new(pair.server_v4, STREAM_PORT);
     let viewer = net.connect(target).await.map_err(err)?;
+    // The cut's clock starts with the stream, not with the process: across
+    // two hosts the handshake and connect take a varying part of a second.
+    if let (Some((at, _)), Some(cut)) = (args.drop_at, cut) {
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(at)).await;
+            cut.store(true, Ordering::Relaxed);
+        });
+    }
     let end = Instant::now() + Duration::from_secs(args.seconds);
     viewer_half(viewer, args, clock, record.clone(), end).await;
     lock(&record).final_path = Some(path_label(&control, &labels));
