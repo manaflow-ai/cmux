@@ -522,8 +522,13 @@ export class SessionsBy {
     // starts again, so a session no longer listed leaves nothing behind.
     if (moved) this.seen = new Map();
     const positions = replaced ?? sessions.keys();
+    // A full pass also counts the ids listed: one listed twice changes what the list holds without
+    // changing its length. A list made in place swaps an entry for its own id, so it adds none.
+    const listedIds = replaced ? undefined : new Set<string>();
     for (const at of positions) {
       const entry = sessions[at]!;
+      if (listedIds?.has(entry.sessionId)) moved = true;
+      listedIds?.add(entry.sessionId);
       const before = this.seen.get(entry.sessionId);
       if (before?.entry === entry) {
         if (before.at !== at) {
@@ -540,11 +545,11 @@ export class SessionsBy {
         before.at = at;
       } else this.seen.set(entry.sessionId, { entry, key, at });
     }
-    // A session that left while another came keeps the same length: drop what it left behind.
-    if (this.seen.size > sessions.length) {
-      const listedIds = new Set(sessions.map((entry) => entry.sessionId));
-      for (const id of this.seen.keys()) if (!listedIds.has(id)) this.seen.delete(id);
-    }
+    // A session that left while another came, or another listed twice, keeps the same length: drop
+    // what it left behind, so it is new again when it comes back.
+    const listed = listedIds ?? (this.seen.size > sessions.length ? new Set(sessions.map((entry) => entry.sessionId)) : undefined);
+    if (listed && this.seen.size !== listed.size)
+      for (const id of this.seen.keys()) if (!listed.has(id)) this.seen.delete(id);
     this.count = sessions.length;
     if (moved) this.kept = sessions;
     return this.kept!;
