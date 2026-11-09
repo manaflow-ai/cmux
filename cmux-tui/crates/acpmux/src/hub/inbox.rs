@@ -994,12 +994,15 @@ fn reply_hint(items: &[&Item]) -> Option<String> {
         ));
     }
     for name in &later {
-        parts.push(format!("To answer {name}, inbox_reply or `acpmux send {name} \"…\"`."));
+        parts.push(format!(
+            "To answer {name}, inbox_reply or the send tool (to: \"{name}\"); `acpmux send \
+             {name}` in a shell only without them."
+        ));
     }
     for lead in &leads {
         parts.push(format!(
-            "A subagent reads only the reply to its own send; `acpmux send {lead}` reaches {lead} \
-             itself."
+            "A subagent reads only the reply to its own send; the send tool (to: \"{lead}\") \
+             reaches {lead} itself."
         ));
     }
     (!parts.is_empty()).then(|| {

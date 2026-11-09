@@ -30,6 +30,11 @@ export type AcpmuxSessionEntry = {
   createdAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
+  /** Turns that ended while nobody showed the chat, since a person last did (`unreadTurns`). */
+  unreadTurns?: number;
+  /** The log seq the person had seen when they last left the chat (`seenSeq`): where "New since
+   *  you looked" goes. */
+  seenSeq?: number;
   /** The status dot acpmux decided (`SessionSummary.indicator`, cx-zlox); absent for none. */
   indicator?: SessionIndicator;
   /** The machine the session runs on ("This Mac", or a cloud machine's name), and which kind it is. */
@@ -284,6 +289,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     createdAt: typeof session.createdAt === "number" ? session.createdAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
+    unreadTurns: count(session.unreadTurns),
+    seenSeq: count(session.seenSeq),
     indicator: INDICATORS.includes(session.indicator) ? session.indicator : undefined,
     host: text(session.host),
     peer: text(session.peer),
@@ -339,6 +346,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   };
 }
 
+const count = (value: unknown) =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 const time = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
 
 /** When the person or the agent last did something in a chat, from acpmux's session summary.
