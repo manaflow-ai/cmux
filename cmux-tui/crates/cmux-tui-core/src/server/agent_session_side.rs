@@ -69,15 +69,22 @@ pub(super) fn call(attachment: &Attachment, params: Params) -> Result<Value, Ref
     else {
         return Err(Refusal::Refused);
     };
-    let tag = json!({"sessionId": side, "chat": session});
-    if let Err(error) = link.call("_acpmux/side", attachment.stamp(tag), CALL_TIMEOUT) {
+    let take_back = || {
         let purge = json!({"sessionId": side, "purge": true, "cancelFork": true});
         let _ = link.send_ignoring_reply("_acpmux/kill", attachment.stamp(purge));
+    };
+    let tag = json!({"sessionId": side, "chat": session});
+    if let Err(error) = link.call("_acpmux/side", attachment.stamp(tag), CALL_TIMEOUT) {
+        take_back();
         return Err(Refusal::of(error));
     }
     // Followed and remembered like a listed child, so `new-conversation-tab` admits its tab
-    // beside the chat and its changes stream on this attachment.
-    attachment.follow_children(std::slice::from_ref(&side));
+    // beside the chat and its changes stream on this attachment; past the cap it could open
+    // nowhere, so it is taken back.
+    if attachment.follow_children(std::slice::from_ref(&side)).is_empty() {
+        take_back();
+        return Err(Refusal::Limit);
+    }
     let Some((text, id)) = prompt else {
         return Ok(json!({"sessionId": side, "prompted": false}));
     };

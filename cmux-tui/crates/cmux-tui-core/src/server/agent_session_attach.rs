@@ -1528,7 +1528,7 @@ fn prompt(
 /// Sends `blocks` to `session` (the attached chat, or a side chat it opened) as prompt
 /// `prompt_id` and answers once acpmux accepted it (`_acpmux/prompt_accepted`), or refuses: a
 /// prompt acpmux never took is never reported sent.
-pub(super) fn submit_prompt(
+fn submit_prompt(
     attachment: &Attachment,
     session: &str,
     blocks: Vec<Value>,
