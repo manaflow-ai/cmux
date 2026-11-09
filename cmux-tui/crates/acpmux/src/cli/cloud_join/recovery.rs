@@ -51,15 +51,14 @@ fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
     Ok(copied)
 }
 
-/// A sign-in's join proposal a sign-out set aside: never resumed (a later sign-in, by anyone,
-/// would finish it as the one that signed out), kept only until the hub revokes its credential.
-pub(super) const RETIRED: &str = "machine-join.pending.retired.json";
-
 /// Sets aside the sign-in's join proposal in `home`, if one is pending, where no join resumes
-/// it. A pasted join line's proposal stays: a sign-out leaves only what signing in began. One
-/// that does not parse cannot be resumed either and stays as it is, and one proposed on another
-/// box (`current` is this box's fingerprint) is left to `set_aside_copied_pending`. The caller
-/// holds the join lock.
+/// it (a later sign-in, by anyone, would finish it as the one that signed out): its credential is
+/// queued to be revoked at the hub (`to_revoke`), beside any queued before it, and only then is
+/// the proposal removed. A record a stopped `complete` wrote with that same credential is revoked
+/// as the record, once. A pasted join line's proposal stays: a sign-out leaves only what signing
+/// in began. One that does not parse cannot be resumed either and stays as it is, and one
+/// proposed on another box (`current` is this box's fingerprint) is left to
+/// `set_aside_copied_pending`. The caller holds the join lock.
 pub(super) fn retire_sign_in_pending_at(home: &Path, current: Option<&str>) -> Result<()> {
     let path = home.join(FILE);
     if std::fs::symlink_metadata(&path).is_err() {
@@ -75,45 +74,19 @@ pub(super) fn retire_sign_in_pending_at(home: &Path, current: Option<&str>) -> R
     if copied || p.joined_by.as_deref() != Some(super::enroll::JOINED_BY_SIGN_IN) {
         return Ok(());
     }
-    std::fs::rename(&path, home.join(RETIRED))?;
+    if !load_at(home)?.is_some_and(|record| record.credential == p.credential) {
+        to_revoke::queue(
+            home,
+            &to_revoke::Row {
+                machine_id: String::new(),
+                hub_origin: p.hub.clone(),
+                host_fingerprint: p.host_fingerprint.clone().or_else(|| current.map(str::to_owned)),
+                credential: Some(p.credential.clone()),
+            },
+        )?;
+    }
+    std::fs::remove_file(&path)?;
     sync_ancestors(home)
-}
-
-/// The retired proposal in `home` as a record the machine's self-revoke can send (its proposed
-/// credential and hub), if one is set aside. One that does not parse is dropped: nothing could
-/// revoke with it.
-pub(super) fn retired_at(home: &Path) -> Result<Option<MachineCredential>> {
-    let path = home.join(RETIRED);
-    if std::fs::symlink_metadata(&path).is_err() {
-        return Ok(None);
-    }
-    match crate::config::private_state_file(&path)
-        .and_then(|f| Ok(serde_json::from_reader::<_, Pending>(f)?))
-    {
-        Ok(p) => Ok(Some(MachineCredential {
-            credential: p.credential,
-            hub_origin: p.hub,
-            name: p.name,
-            wg_public_key: p.wg_public_key,
-            host_fingerprint: p.host_fingerprint,
-            joined_by: p.joined_by,
-            ..Default::default()
-        })),
-        Err(e) => {
-            tracing::warn!("sign-out leave: an unreadable retired join proposal is dropped: {e:#}");
-            drop_retired_at(home)?;
-            Ok(None)
-        }
-    }
-}
-
-/// Removes the retired proposal in `home`: the hub revoked its credential, or never took it.
-pub(super) fn drop_retired_at(home: &Path) -> Result<()> {
-    match std::fs::remove_file(home.join(RETIRED)) {
-        Ok(()) => sync_ancestors(home),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.into()),
-    }
 }
 
 pub(super) fn pending_origin() -> Result<Option<String>> {
@@ -339,8 +312,8 @@ fn complete(p: &Pending, record: &MachineCredential, report: Report) -> Result<(
     // Remove the immutable recovery proof only after final + relay are durable.
     crate::config::private_state_file(&state_dir().join(FILE)).map_err(|_| store_error())?;
     std::fs::remove_file(state_dir().join(FILE)).map_err(|_| store_error())?;
-    // A join made here ends what a hub's revoke kept from enrolling on its own.
-    super::enroll::clear_revoked(&state_dir());
+    // A join made here ends what this hub's revoke kept from enrolling on its own.
+    to_revoke::clear_revoked(&state_dir(), &p.hub);
     sync_ancestors(&state_dir()).map_err(|_| store_error())?;
     match report {
         Report::Quiet => {}

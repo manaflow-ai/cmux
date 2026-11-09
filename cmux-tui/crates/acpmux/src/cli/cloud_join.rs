@@ -11,6 +11,7 @@ pub(crate) mod host_fingerprint;
 mod leave;
 mod recovery;
 mod self_capabilities;
+mod to_revoke;
 
 pub(crate) use enroll::{
     EnrollOutcome, EnrollRequest, JOINED_BY_SIGN_IN, LeaveOutcome, enroll_self,

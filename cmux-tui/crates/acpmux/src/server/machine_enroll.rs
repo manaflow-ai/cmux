@@ -91,10 +91,23 @@ pub(super) async fn leave_if_auto(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, 
     local(conn, crate::rpc::method::MUX_MACHINE_LEAVE_IF_AUTO)?;
     let outcome = crate::cli::cloud_join::leave_if_auto().await;
     tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave");
-    if outcome.left {
-        stop_joined(hub).await;
-    }
+    after_leave(hub, &outcome).await;
     serde_json::to_value(outcome).map_err(|e| RpcError::internal(e.to_string()))
+}
+
+/// What a sign-out's leave stops on this daemon: the hub carrier whenever the join went, and the
+/// relay only when the leave removed the join's from config.json. A relay the person set up, or
+/// another hub's, which the leave keeps on disk, keeps running here too, and sends keep its hub
+/// client.
+async fn after_leave(hub: &Arc<Hub>, outcome: &crate::cli::cloud_join::LeaveOutcome) {
+    if !outcome.left {
+        return;
+    }
+    if outcome.relay_removed {
+        stop_joined(hub).await;
+    } else if stop_carrier(hub) {
+        tracing::info!("hub carrier: stopped by the sign-out's leave; the person's relay runs on");
+    }
 }
 
 /// Stops everything the join started on this daemon: the mesh relay, the hub client sends went
@@ -147,9 +160,9 @@ pub(crate) async fn start_joined_at_start(hub: &Arc<Hub>, carrier: Option<std::n
         hub,
         pending,
         crate::cli::cloud_join::finish_leave_at_start(),
-        move |hub: Arc<Hub>| -> BoxFuture<'static, ()> {
+        move |hub: Arc<Hub>, joined: bool| -> BoxFuture<'static, ()> {
             Box::pin(async move {
-                start_joined(&hub, carrier).await;
+                start_joined(&hub, carrier.filter(|_| joined)).await;
             })
         },
     )
@@ -157,27 +170,28 @@ pub(crate) async fn start_joined_at_start(hub: &Arc<Hub>, carrier: Option<std::n
 }
 
 /// [`start_joined_at_start`]'s order: with no leave `pending`, `start` now; with one, `finish`
-/// it in a task first and `start` only if the machine stayed joined, else stop all the join
-/// started. The task's handle, when there is one.
+/// it in a task first, then `start` (its `joined` says whether the machine stayed joined: the
+/// carrier starts only then, while a relay the person set up, which the leave kept, starts
+/// either way), or stop all the join started. The task's handle, when there is one.
 async fn at_start(
     hub: &Arc<Hub>,
     pending: bool,
     finish: impl Future<Output = Option<LeaveOutcome>> + Send + 'static,
-    start: impl FnOnce(Arc<Hub>) -> BoxFuture<'static, ()> + Send + 'static,
+    start: impl FnOnce(Arc<Hub>, bool) -> BoxFuture<'static, ()> + Send + 'static,
 ) -> Option<tokio::task::JoinHandle<()>> {
     if !pending {
-        start(Arc::clone(hub)).await;
+        start(Arc::clone(hub), true).await;
         return None;
     }
     let hub = Arc::clone(hub);
     // task-owner: one leave and maybe the relay and carrier start; ends with them.
     Some(tokio::spawn(async move {
         let Some(outcome) = finish.await else {
-            return start(hub).await;
+            return start(hub, true).await;
         };
         tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave at start");
         if crate::cli::cloud_join::relay_may_start(&outcome) {
-            start(hub).await;
+            start(hub, !outcome.left).await;
         } else if outcome.left {
             stop_joined(&hub).await;
         }
@@ -307,6 +321,31 @@ mod tests {
         let _ = mesh.send(&message).await;
     }
 
+    /// A sign-out that kept the person's relay in config.json leaves it running, and sends keep
+    /// going through it; one that removed the join's relay stops it.
+    #[tokio::test]
+    async fn a_sign_out_that_keeps_the_persons_relay_leaves_it_running() {
+        use crate::cli::cloud_join::LeaveOutcome;
+        let hub = memory_hub();
+        let (own, seen) = recording_hub().await;
+        let mut slot = hub.mesh_relay.lock().await;
+        assert_eq!(super::start_relay_with(&hub, &mut slot, own).await, "started");
+        drop(slot);
+        let kept =
+            LeaveOutcome { left: true, kept: None, hub: Some("revoked"), relay_removed: false };
+        super::after_leave(&hub, &kept).await;
+        assert!(hub.mesh_relay.lock().await.as_ref().is_some_and(|relay| !relay.is_finished()));
+        assert!(hub.config.read().await.mesh_relay.is_some());
+        assert!(hub.mesh.get().is_some(), "sends keep the person's relay's hub");
+        send_one(&hub).await;
+        assert_eq!(sends(&seen), 1);
+
+        let removed = LeaveOutcome { relay_removed: true, ..kept };
+        super::after_leave(&hub, &removed).await;
+        assert!(hub.mesh_relay.lock().await.is_none());
+        assert!(hub.mesh.get().is_none());
+    }
+
     /// A leave clears the hub client sends go through, and a later enroll on another hub's origin
     /// sets that hub's: sends go to the new hub, never the left one.
     #[tokio::test]
@@ -348,9 +387,14 @@ mod tests {
             true,
             async move {
                 let _ = finish.await;
-                Some(LeaveOutcome { left: true, kept: None, hub: Some("revoked") })
+                Some(LeaveOutcome {
+                    left: true,
+                    kept: None,
+                    hub: Some("revoked"),
+                    relay_removed: true,
+                })
             },
-            move |_| -> BoxFuture<'static, ()> {
+            move |_, _| -> BoxFuture<'static, ()> {
                 Box::pin(async move {
                     mark.store(true, Ordering::SeqCst);
                 })
@@ -373,8 +417,15 @@ mod tests {
         let task = super::at_start(
             &hub,
             true,
-            async { Some(LeaveOutcome { left: false, kept: Some("signedIn"), hub: None }) },
-            move |_| -> BoxFuture<'static, ()> {
+            async {
+                Some(LeaveOutcome {
+                    left: false,
+                    kept: Some("signedIn"),
+                    hub: None,
+                    relay_removed: false,
+                })
+            },
+            move |_, _| -> BoxFuture<'static, ()> {
                 Box::pin(async move {
                     mark.store(true, Ordering::SeqCst);
                 })
@@ -384,6 +435,36 @@ mod tests {
         .expect("a pending leave runs in a task");
         task.await.unwrap();
         assert!(started.load(Ordering::SeqCst));
+    }
+
+    /// A leave at start that left the join but kept the person's relay in config.json starts
+    /// that relay after it, and never the carrier: the machine is no longer joined.
+    #[tokio::test]
+    async fn a_pending_leave_that_keeps_the_persons_relay_starts_it_without_the_carrier() {
+        let hub = memory_hub();
+        let started = Arc::new(Mutex::new(None));
+        let mark = Arc::clone(&started);
+        let task = super::at_start(
+            &hub,
+            true,
+            async {
+                Some(LeaveOutcome {
+                    left: true,
+                    kept: None,
+                    hub: Some("revoked"),
+                    relay_removed: false,
+                })
+            },
+            move |_, joined| -> BoxFuture<'static, ()> {
+                Box::pin(async move {
+                    *mark.lock().unwrap() = Some(joined);
+                })
+            },
+        )
+        .await
+        .expect("a pending leave runs in a task");
+        task.await.unwrap();
+        assert_eq!(*started.lock().unwrap(), Some(false), "the relay starts, the carrier not");
     }
 
     /// A leave's cleanup (sign-out, or a leave finished at start) stops the hub carrier the
@@ -407,7 +488,9 @@ mod tests {
         });
         *hub.hub_carrier_serve.lock().unwrap() =
             Some(crate::hub_carrier::HubServe::of_task(serving));
-        super::stop_joined(&hub).await;
+        // A sign-out that kept the person's relay still stops the carrier: the join went.
+        let kept = LeaveOutcome { left: true, kept: None, hub: None, relay_removed: false };
+        super::after_leave(&hub, &kept).await;
         assert!(hub.hub_carrier_serve.lock().unwrap().is_none());
         tokio::time::timeout(Duration::from_secs(5), async {
             while !unregistered.load(Ordering::SeqCst) {
