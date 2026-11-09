@@ -41,7 +41,7 @@ fn w4j_pane_move_parses_one_destination_and_refuses_the_rest() {
         fields(&["--to-pane", PANE_T, "--split", "right"]),
         json!({"destination_pane": PANE_T, "split": "right"})
     );
-    assert_eq!(fields(&["--to-tab=tab_ab"]), json!({"destination_tab": "tab_ab"}));
+    assert_eq!(fields(&["--to-tab=tab_abcd"]), json!({"destination_tab": "tab_abcd"}));
     assert_eq!(
         fields(&["--to-workspace", "other", "--name", "logs"]),
         json!({"destination_workspace": "other", "new_screen": true, "name": "logs"})
@@ -90,11 +90,22 @@ fn w5p_pane_move_is_one_request_with_the_selectors_as_typed() {
     assert_eq!(plan.operation.name().ok().as_deref(), Some("pane.move"));
     assert_eq!(plan.params["pane"], "logs");
     assert_eq!(plan.params["destination_pane"], "focused");
-    for selector in ["pane_77", "7777777777777777777777777777bbbb", "name:build"] {
+    for selector in ["pane_7777", "7777777777777777777777777777bbbb", "name:build"] {
         assert_eq!(
             fields(&["--to-pane", selector]),
             json!({"destination_pane": selector}),
             "{selector}"
+        );
+    }
+    // An id prefix needs 4 hex digits (W5-P review): a shorter one is a
+    // usage error that says the minimum.
+    for short in ["pane_77", "tab_ab"] {
+        let flag = if short.starts_with("tab") { "--to-tab" } else { "--to-pane" };
+        let error =
+            parsed(&["pane", PANE_S, "move", flag, short]).err().map(|error| error.to_string());
+        assert!(
+            error.as_deref().is_some_and(|error| error.contains("at least 4 hex digits")),
+            "{short}: {error:?}"
         );
     }
     // `pane move` alone moves the caller's pane.

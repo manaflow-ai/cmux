@@ -157,6 +157,45 @@ fn a_mistyped_id_says_it_is_not_an_id_and_where_ids_come_from() {
     assert!(error.message.contains("name:"), "{}", error.message);
 }
 
+/// W5-P review: an id prefix needs at least 4 hex digits (as acpmux's chat
+/// ids), so a script's short prefix cannot drift to another object after
+/// its own closes. A shorter one is refused and says the minimum.
+#[test]
+fn w5p_an_id_prefix_needs_four_hex_digits() {
+    for short in ["tab_8", "pane_4a", "term_8a3"] {
+        let error = Selector::parse(short).unwrap_err();
+        assert_eq!(error.code, "validation.invalid", "{short}");
+        assert!(error.message.contains(&format!("{short} is not an id")), "{}", error.message);
+        assert!(error.message.contains("at least 4 hex digits"), "{}", error.message);
+        assert!(error.message.contains(&format!("name:{short}")), "{}", error.message);
+    }
+    let prefixes =
+        ["tab_8a3f", "pane_4a01", "term_8a3f0", "ws_0123", "screen_abcd", "browser_ffff"];
+    for prefix in prefixes {
+        assert_eq!(Selector::parse(prefix).unwrap(), Selector::Id(prefix.into()), "{prefix}");
+    }
+}
+
+/// W5-P review: only the kinds the resolver expands take a prefix. A
+/// session, machine, notification or agent id with a dropped digit keeps
+/// the old mistyped-id hint.
+#[test]
+fn w5p_a_dropped_digit_in_an_id_without_prefixes_keeps_the_mistyped_id_hint() {
+    for (prefix, scope) in [
+        ("session", "session"),
+        ("machine", "machine"),
+        ("notification", "notification"),
+        ("agent", "agent"),
+    ] {
+        let short = format!("{prefix}_{}", "6".repeat(31));
+        let error = Selector::parse(&short).unwrap_err();
+        assert_eq!(error.code, "validation.invalid", "{short}");
+        assert!(error.message.contains(&format!("{short} is not an id")), "{}", error.message);
+        assert!(error.message.contains("32 hex digits, and this one has 31"), "{}", error.message);
+        assert!(error.message.contains(&format!("cmux {scope} list")), "{}", error.message);
+    }
+}
+
 /// `cmux terminal term_zzz show` (bench rounds 1 and 3) said "reserved or
 /// ambiguous names must use the name: prefix". A word with an id prefix is
 /// a mistyped id: say so, and where ids come from.
