@@ -158,9 +158,15 @@ public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {
     /// video chips, webviews composer/videoPrompt.ts); nil for any other file, or a video whose
     /// frames could not be read (it goes as its link alone, as on the Mac).
     public var video: AgentVideo?
+    /// The file's path on the Mac, for a file a recorded prompt links (a video the Mac or an
+    /// earlier launch sent): its preview reads it over the link's `file-preview` service.
+    public var macPath: String?
+    /// acpmux's id of a recorded video's poster, its first frame image (`_acpmux/attachment`).
+    public var posterID: String?
 
     public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil,
-                fileURL: URL? = nil, byteCount: Int? = nil, video: AgentVideo? = nil) {
+                fileURL: URL? = nil, byteCount: Int? = nil, video: AgentVideo? = nil,
+                macPath: String? = nil, posterID: String? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
@@ -168,6 +174,8 @@ public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {
         self.fileURL = fileURL
         self.byteCount = byteCount
         self.video = video
+        self.macPath = macPath
+        self.posterID = posterID
     }
 
     /// A PDF, by its name: the Mac sends one up to `maxDocumentBytes` as a `document` block

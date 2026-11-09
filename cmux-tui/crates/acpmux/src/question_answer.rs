@@ -269,13 +269,16 @@ pub fn pending_hint(request: &Value, session: &str) -> String {
 /// A daemon default of ask, approve-reads or approve-edits is not the chat's own policy and does
 /// not change its mode (chats start in full access, `hub/policy_gate.rs`): in a mode that runs
 /// every tool unasked (`web_modes::runs_everything_unasked`, by the harness's family: Claude's
-/// `bypassPermissions` from the harness's settings, Codex's `agent-full-access`) nothing asks,
-/// so the note says that and how to hold the policy (W5-S, bench round 4 friction 6,
-/// 2026-11-08). A mode that still asks for some tools (`acceptEdits`, opencode's `build`) keeps
-/// the asking note: the default answers those. In Japanese for a Japanese locale.
+/// `bypassPermissions` from the harness's settings, Codex's `agent-full-access`, and in a harness
+/// outside that table a mode acpmux's shared rule names full access, such as Gemini's `yolo`)
+/// nothing asks, so the note says that and how to hold the policy (W5-S, bench round 4
+/// friction 6, 2026-11-08). In a mode that asks nothing and denies what is not allowed beforehand
+/// (`web_modes::denies_unasked`: Claude's `dontAsk`) the note says so. A mode that still asks for
+/// some tools (`acceptEdits`, opencode's `build`) keeps the asking note: the default answers
+/// those. In Japanese for a Japanese locale.
 pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
     use crate::config::PermissionPolicy;
-    use crate::web_modes::runs_everything_unasked;
+    use crate::web_modes::{denies_unasked, runs_everything_unasked};
     // A session's own policy, else the daemon default it runs under.
     let own = info.get("policy").and_then(Value::as_str);
     let policy = own.or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str));
@@ -286,9 +289,9 @@ pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
     let mode = info.pointer("/modes/currentModeId").and_then(Value::as_str);
     let default_only = own.is_none() && policy != PermissionPolicy::Review;
     let family = crate::web_modes::mode_family_of_detail(info).unwrap_or_default();
+    let japanese = || crate::cli::sender::japanese(|k| std::env::var(k).ok());
     if let Some(mode) = mode.filter(|m| default_only && runs_everything_unasked(&family, m)) {
-        let japanese = crate::cli::sender::japanese(|k| std::env::var(k).ok());
-        return Some(if japanese {
+        return Some(if japanese() {
             format!(
                 "注意: {session} はモード {mode} でツールを確認なしで実行します。ポリシー {policy} は\
                  デーモンの既定値にすぎず、このセッションには適用されません。適用するには \
@@ -299,6 +302,23 @@ pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
                 "note: {session} runs tools without asking (mode {mode}); policy {policy} is only \
                  the daemon default and does not hold here. To hold it: `acpmux session set \
                  {session} policy={policy}`, or start it with --policy {policy}."
+            )
+        });
+    }
+    if let Some(mode) = mode.filter(|m| default_only && denies_unasked(&family, m)) {
+        return Some(if japanese() {
+            format!(
+                "注意: {session} はモード {mode} で何も確認しません。事前に許可されていないツールは\
+                 確認なしで拒否されます。ポリシー {policy} はデーモンの既定値にすぎず、このセッションには\
+                 適用されません。適用するには `acpmux session set {session} policy={policy}` を\
+                 実行するか、--policy {policy} で開始してください。"
+            )
+        } else {
+            format!(
+                "note: {session} asks nothing (mode {mode}): a tool that is not allowed beforehand \
+                 is denied, not asked. Policy {policy} is only the daemon default and does not hold \
+                 here. To hold it: `acpmux session set {session} policy={policy}`, or start it \
+                 with --policy {policy}."
             )
         });
     }
@@ -413,8 +433,9 @@ mod tests {
     /// `dontAsk` denies what is not allowed; Codex's `read-only` and `agent` ask outside the
     /// workspace; opencode's `build` asks outside the project, for `*.env` and repeated calls.
     /// They keep the asking note. Claude's `bypassPermissions` and Codex's `agent-full-access`
-    /// run everything, so they get the note that says so; the same name in another harness
-    /// (a custom agent's mode) says nothing about what it asks.
+    /// run everything, so they get the note that says so; a mode of the same name in another
+    /// reviewed harness (opencode) says nothing about what it asks, and neither does a mode
+    /// with no full-access marker in an unreviewed one (`build`).
     #[test]
     fn w5s_only_a_mode_that_runs_everything_unasked_drops_the_asking_note() {
         let default_ask = |harness: &str, mode: &str| {
@@ -423,12 +444,11 @@ mod tests {
         };
         for (harness, mode) in [
             ("claude", "acceptEdits"),
-            ("claude", "dontAsk"),
             ("codex", "read-only"),
             ("codex", "agent"),
             ("opencode", "build"),
-            ("my-agent", "bypassPermissions"),
-            ("my-agent", "agent-full-access"),
+            ("my-agent", "build"),
+            ("gemini", "autoEdit"),
             ("opencode", "agent-full-access"),
         ] {
             let note = app_allow_note(&default_ask(harness, mode), "alpha").expect("a note");
@@ -446,5 +466,56 @@ mod tests {
                          "modes": {"currentModeId": "bypassPermissions", "availableModes": []}});
         let note = app_allow_note(&sr2, "alpha").expect("a note");
         assert!(note.contains("does not hold here"), "{note}");
+    }
+
+    /// Review 3 of #39057: a Codex launcher with a family of its own (`codex-sr2`, whose agent is
+    /// codex-acp) in `agent-full-access` runs everything as Codex does, so the note says the
+    /// default does not hold; its `agent` still asks.
+    #[test]
+    fn w5s_a_codex_launcher_in_full_access_gets_the_bypass_note() {
+        let info = |mode: &str| {
+            json!({"harness": "codex-sr2", "family": "codex-sr2", "policy": null,
+                   "agentInfo": {"name": "@agentclientprotocol/codex-acp", "title": "Codex"},
+                   "enforcement": {"policy": "ask"},
+                   "modes": {"currentModeId": mode, "availableModes": []}})
+        };
+        let note = app_allow_note(&info("agent-full-access"), "alpha").expect("a note");
+        assert!(note.contains("does not hold here"), "{note}");
+        let note = app_allow_note(&info("agent"), "alpha").expect("a note");
+        assert!(note.contains("asks before some tools run"), "{note}");
+    }
+
+    /// Review 3 of #39057: a harness outside the reviewed table whose mode skips every approval
+    /// by acpmux's shared rule (`spec/full-access-modes.json`: Gemini's `yolo`, a custom
+    /// agent's `bypassPermissions`) gets the bypass note too.
+    #[test]
+    fn w5s_a_full_access_mode_of_an_unreviewed_harness_gets_the_bypass_note() {
+        for (harness, mode) in [("gemini", "yolo"), ("my-agent", "bypassPermissions")] {
+            let info = json!({"harness": harness, "policy": null, "enforcement": {"policy": "ask"},
+                              "modes": {"currentModeId": mode, "availableModes": []}});
+            let note = app_allow_note(&info, "alpha").expect("a note");
+            assert!(note.contains("does not hold here"), "{harness} {mode}: {note}");
+        }
+    }
+
+    /// Review of #39057: Claude's `dontAsk` asks nothing; it denies a tool that is not allowed
+    /// beforehand. Under a daemon default the note says that, not "asks before some tools run"
+    /// (no question comes) and not "runs tools without asking" (denied tools do not run). The
+    /// chat's own policy keeps the asking note, and another harness's `dontAsk` says nothing.
+    #[test]
+    fn w5s_dont_ask_says_tools_not_allowed_are_denied() {
+        let info = |harness: &str, policy: Value| {
+            json!({"harness": harness, "policy": policy, "enforcement": {"policy": "ask"},
+                   "modes": {"currentModeId": "dontAsk", "availableModes": []}})
+        };
+        let note = app_allow_note(&info("claude", Value::Null), "alpha").expect("a note");
+        assert!(note.contains("denied, not asked"), "{note}");
+        assert!(note.contains("acpmux session set alpha policy=ask"), "{note}");
+        assert!(!note.contains("asks before some tools run"), "{note}");
+        assert!(!note.contains("runs tools without asking"), "{note}");
+        let own = app_allow_note(&info("claude", json!("ask")), "alpha").expect("a note");
+        assert!(own.contains("asks before some tools run"), "{own}");
+        let other = app_allow_note(&info("my-agent", Value::Null), "alpha").expect("a note");
+        assert!(other.contains("asks before some tools run"), "{other}");
     }
 }

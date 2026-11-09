@@ -46,12 +46,14 @@ extension DaemonStore {
     }
 
     /// Publishes what the lift changed: the list when it is not the same workspaces in the same order, and each held
-    /// workspace's screens likewise. O(list) pointer compares, no observer woken for a round trip.
-    /// Each held screen's tree likewise, by value (panes by identity): a batch about another workspace publishes none.
+    /// workspace's screens likewise. O(1) when nothing wrote the list, else O(list) pointer compares; no observer woken
+    /// for a round trip. Each held screen's tree likewise, by value (panes by identity): a batch about another workspace
+    /// publishes none.
     func publishOverlayNetChange(_ held: HeldOverlayPublication) {
         if let before = listBeforeLift {
             listBeforeLift = nil
-            if !before.elementsEqual(workspaceList, by: ===) { workspaces = workspaceList }
+            // The same storage: no lift or restore wrote the list (no pending intent moved a workspace), O(1).
+            if !before.sharesStorage(with: workspaceList), !before.elementsEqual(workspaceList, by: ===) { workspaces = workspaceList }
         }
         for workspace in held.workspaces { workspace.publishHeldScreens() }
         for screen in held.screens { screen.publishHeldTree() }

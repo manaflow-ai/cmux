@@ -27,7 +27,7 @@ import { sqlMeshStoreLayer } from "./db/mesh.ts";
 import { meshConfigLayer, parseMeshExperiment, parseReceiverPolicyLease } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
-import { recordedVmIds, sweepableTunnelDevices } from "./db/orphans.ts";
+import { deletedVmIds, recordedVmIds, sweepableTunnelDevices } from "./db/orphans.ts";
 import { sweepOrphanTunnels, sweepOrphanVms } from "./upstream/orphan-sweep.ts";
 import { cronPlan } from "./cron-plan.ts";
 
@@ -154,7 +154,7 @@ const unconfigured: Served = { handler: notConfigured, reap: () => Promise.resol
 
 /**
  * One cron run of the orphan sweeps (src/upstream/orphan-sweep.ts) this environment runs (src/cron-plan.ts): provider
- * VMs no ownership row records, and device tunnels nothing can use. Each is its own run, so a failure of one never
+ * VMs no ownership row protects, and device tunnels nothing can use. Each is its own run, so a failure of one never
  * skips the other.
  */
 const runOrphanSweep = async (env: Env) => {
@@ -181,14 +181,14 @@ const runOrphanSweep = async (env: Env) => {
   try {
     if (!plan.sweepVms) return;
     const report = await Effect.runPromise(
-      withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds })).pipe(
+      withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds, deletedRows: deletedVmIds })).pipe(
         Effect.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
       ),
     );
     if (report.orphans.length > 0 || !report.complete) {
       console.log(JSON.stringify({
         event: "cmux_vm_orphan_sweep", listed: report.listed, complete: report.complete, orphans: report.orphans.length,
-        deleted: report.deleted, failed: report.failed,
+        deleted_row: report.orphans.filter((vm) => vm.reason === "deleted_row").length, deleted: report.deleted, failed: report.failed,
       }));
     }
   } finally {
