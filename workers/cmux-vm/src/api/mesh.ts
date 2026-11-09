@@ -47,7 +47,8 @@ export const DeviceIntentId = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9._:~
   description:
     "The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. " +
     "A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke " +
-    "(or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live.",
+    "(or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. " +
+    "While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).",
 });
 
 export class EnrollDeviceRequest extends Schema.Class<EnrollDeviceRequest>("EnrollDeviceRequest")(
@@ -512,7 +513,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
         describe(
           "Revoke an enroll intent",
           "mesh:join",
-          `Writes a tombstone for the intentId and deletes the device it made, with its tunnel. Idempotent. An enroll with this intentId that has not committed refuses with 409 mesh.device.intent_revoked and removes what it created. A 200 is final: nothing of the intent is live. A 503 (an enroll still finishing, or a tunnel delete that failed) means retry the revoke until it answers 200. The tombstone lasts 7 days. Only the principal that used the intent or a tenant admin carrying its labels may revoke it; anyone else gets 404 and nothing is written. ${EXPERIMENT}`,
+          `Writes a tombstone for the intentId and deletes the device it made, with its tunnel. Idempotent. An enroll with this intentId that has not committed refuses with 409 mesh.device.intent_revoked and removes what it created. A 200 is final: nothing of the intent is live, and every tunnel any enroll with it made is confirmed deleted. A 503 (an enroll that may still be creating its tunnel, or a tunnel delete that failed) means retry the revoke until it answers 200. The tombstone lasts 7 days. Only the principal that used the intent or a tenant admin carrying its labels may revoke it, and a key limited to resources only if every device the intent's enrolls made is in its list; anyone else gets 404 and nothing is written. ${EXPERIMENT}`,
         ),
       ),
   )

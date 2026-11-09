@@ -30,13 +30,19 @@ export function makeMemoryMeshStore() {
 
   const layer = Layer.succeed(MeshStore, {
     findDeviceIntent: intents.findDeviceIntent,
+    listOpenAttempts: intents.listOpenAttempts,
+    findAttempt: intents.findAttempt,
     claimDeviceIntent: intents.claimDeviceIntent,
+    markAttemptSent: intents.markAttemptSent,
+    recordAttemptTunnel: intents.recordAttemptTunnel,
+    finishAttempt: intents.finishAttempt,
+    resolveUnsentAttempt: intents.resolveUnsentAttempt,
+    resolveAttempt: intents.resolveAttempt,
     commitDeviceIntent: intents.commitDeviceIntent,
     releaseDeviceIntent: intents.releaseDeviceIntent,
+    uncommitDeviceIntent: intents.uncommitDeviceIntent,
     revokeDeviceIntent: intents.revokeDeviceIntent,
     revokeIntentOfDevice: intents.revokeIntentOfDevice,
-    settleDeviceIntent: intents.settleDeviceIntent,
-    markDeviceIntentCleanup: intents.markDeviceIntentCleanup,
     insertOverlayServerCode: (row) => Effect.sync(() => { serverCodes.push({ ...row }); }),
     findOverlayServerCode: (hash) => Effect.sync(() => Option.fromNullable(serverCodes.find((row) => row.codeSha256 === hash))),
     recentOverlayServerCodes: (tenant, mesh, since) => Effect.sync(() => serverCodes.filter((row) => row.tenantId === tenant && row.meshId === mesh && row.createdAt > since)),
@@ -257,5 +263,7 @@ export function makeMemoryMeshStore() {
     overlayServerCodes: (): ReadonlyArray<OverlayServerCodeRow> => serverCodes,
     /** Enroll intents and tombstones (migration 0018). */
     deviceIntents: intents.intents,
+    /** Every create attempt made under an intent (migration 0018). */
+    deviceIntentAttempts: intents.attempts,
   };
 }

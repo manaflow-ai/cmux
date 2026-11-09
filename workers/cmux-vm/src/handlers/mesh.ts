@@ -16,7 +16,7 @@ import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceIntentI
 import { MembershipCache } from "../auth/membership-cache.ts";
 import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
-import { intentState, revokedState } from "../db/mesh-intents.ts";
+import { absenceIsFinal, claimIsReconcilable, intentState, type IntentAttemptRow } from "../db/mesh-intents.ts";
 import type { OverlayServerRow } from "../db/overlay-servers.ts";
 import { AuditStore, OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
@@ -752,6 +752,11 @@ const verifyEnroll = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>,
  * device budget, then the provider tunnel with exactly the signed key, then
  * the rows, then the ACL, then the config. Used by the credential route and by
  * the enrollment-code route (where the caller is the code's creator).
+ *
+ * With an intent, the create is one attempt (migration 0018): claimed before anything is sent, marked sent just
+ * before the provider create, and resolved only once nothing it made can be live. A provider that refused the create
+ * outright, or a tunnel delete that was confirmed, resolves it and gives the claim back; any other failure (a lost
+ * reply, a timeout, a failed delete) keeps the claim and the attempt for reconciliation (`reconcileAttempt`).
  */
 const createDevice = <C, M>(
   caller: Named<C, Principal>,
@@ -778,18 +783,29 @@ const createDevice = <C, M>(
         name(newDeviceId(), (device) =>
           Effect.gen(function* () {
             const tunnelId = newTunnelId();
-            // An intent is claimed before the provider tunnel exists; its commit (below) is the device row's insert.
-            if (intentId !== undefined) {
+            const key = intentId === undefined ? null : { tenantId: principal.tenantId, meshId: mesh.value, intentId, deviceId: device.value };
+            // Once this attempt holds nothing live; only a resolved attempt's claim is given back (below).
+            const resolve = Effect.gen(function* () {
+              if (key !== null) yield* store.resolveAttempt(key, yield* now).pipe(Effect.ignore);
+            });
+            // An intent is claimed (and its attempt recorded) before anything is sent; its commit (below) is the device row's insert.
+            if (key !== null) {
               const claimed = yield* store
                 .claimDeviceIntent(
-                  principal.tenantId,
-                  mesh.value,
-                  intentId,
-                  { deviceId: device.value, createdBy: actorRef(principal.actor), labels: principal.requiredLabels ?? {} },
+                  key.tenantId,
+                  key.meshId,
+                  key.intentId,
+                  { deviceId: device.value, tunnelId, createdBy: actorRef(principal.actor), labels: principal.requiredLabels ?? {} },
                   yield* now,
                 )
                 .pipe(Effect.catchAll(dependencyDown("mesh.claimDeviceIntent")));
-              if (!claimed) return yield* Effect.fail(yield* intentRefusal(principal.tenantId, mesh.value, intentId));
+              if (!claimed) return yield* Effect.fail(yield* intentRefusal(key.tenantId, key.meshId, key.intentId));
+              // Under the attempt's row lock: a revoke (or a reconcile) that resolved it first means it never sends.
+              const sending = yield* store.markAttemptSent(key, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markAttemptSent")));
+              if (!sending) {
+                yield* store.resolveUnsentAttempt(key, yield* now).pipe(Effect.ignore);
+                return yield* Effect.fail(yield* intentRefusal(key.tenantId, key.meshId, key.intentId));
+              }
             }
             const created = yield* upstream
               .createTunnel(mesh, { owns: proofs.owns, scope: proofs.scope, mayCreate, holds }, {
@@ -797,7 +813,13 @@ const createDevice = <C, M>(
                 deviceId: device.value,
                 routes: [cidr.value],
               })
-              .pipe(Effect.mapError((error) => (error.status === 409 ? new Conflict({ message: "The tunnel could not be created for this mesh" }) : unavailable(error))));
+              .pipe(
+                // Only a provider answer that proves nothing was made resolves the attempt. A device id (and so the
+                // tunnel's slug) is fresh per attempt and sent once, so a 409 is a refusal, never "this slug exists".
+                Effect.tapError((error) => (definitelyNotCreated(error.status) ? resolve : Effect.void)),
+                Effect.mapError((error) => (error.status === 409 ? new Conflict({ message: "The tunnel could not be created for this mesh" }) : unavailable(error))),
+              );
+            if (key !== null) yield* store.recordAttemptTunnel(key, created.upstreamId).pipe(Effect.ignore);
             const createdAt = yield* now;
             const createdBy = actorRef(principal.actor);
             const row: MeshDeviceRow = {
@@ -813,46 +835,40 @@ const createDevice = <C, M>(
             // A service key (cx-b4h.13) reaches only rows carrying its required labels: record them on the device and its
             // tunnel so the key that enrolled the device can rotate it, read its tunnel and delete it.
             const base = { tenantId: principal.tenantId, upstreamId: created.upstreamId, createdBy, createdAt, labels: principal.requiredLabels ?? {} };
+            // Deletes the tunnel. Only a confirmed delete marks the ownership rows deleted and resolves the attempt; a
+            // failed one leaves the rows live and the attempt open, so a revoke (or a later enroll) deletes it.
             const undo = (event: string) =>
               Effect.gen(function* () {
-                yield* upstream.discardCreatedTunnel(created).pipe(Effect.catchAll(() => logEvent("mesh_tunnel_discard_failed", { deviceId: device.value })));
                 const at = yield* now;
-                yield* ownership.markDeleted(principal.tenantId, "device", device.value, at).pipe(Effect.ignore);
-                yield* ownership.markDeleted(principal.tenantId, "tunnel", tunnelId, at).pipe(Effect.ignore);
                 yield* store.markDeviceDeleted(principal.tenantId, device.value, at).pipe(Effect.ignore);
+                const discarded = yield* Effect.either(upstream.discardCreatedTunnel(created));
+                // Without an intent nothing tracks the tunnel after this (as before 0018), so its rows go either way.
+                if (Either.isRight(discarded) || key === null) {
+                  yield* ownership.markDeleted(principal.tenantId, "device", device.value, at).pipe(Effect.ignore);
+                  yield* ownership.markDeleted(principal.tenantId, "tunnel", tunnelId, at).pipe(Effect.ignore);
+                  yield* resolve;
+                }
+                if (Either.isLeft(discarded)) yield* logEvent(key === null ? "mesh_tunnel_discard_failed" : "mesh_device_intent_cleanup_pending", { deviceId: device.value });
                 yield* logEvent(event, { deviceId: device.value });
               });
             yield* Effect.all([
               ownership.record({ ...base, kind: "tunnel", cmuxId: tunnelId, displayName: null }),
               ownership.record({ ...base, kind: "device", cmuxId: device.value, displayName: payload.name }),
-              ...(intentId === undefined ? [store.recordDevice(principal.tenantId, row)] : []),
+              ...(key === null ? [store.recordDevice(principal.tenantId, row)] : []),
             ]).pipe(
               Effect.tapError(() => undo("mesh_device_record_failed")),
               Effect.mapError(unavailable),
             );
-            if (intentId !== undefined) {
-              // One statement inserts the device row only while the intent is unrevoked and still this create's. A
+            if (key !== null) {
+              // One statement inserts the device row only while the intent is unrevoked and still this attempt's. A
               // revoke that won the row lock leaves it uninserted: delete the tunnel, so nothing this create made stays live.
-              const committed = yield* store.commitDeviceIntent(principal.tenantId, intentId, row, yield* now).pipe(
+              const committed = yield* store.commitDeviceIntent(key.tenantId, key.intentId, row, yield* now).pipe(
                 Effect.tapError(() => undo("mesh_device_record_failed")),
                 Effect.mapError(unavailable),
               );
               if (!committed) {
-                // Revoked (or taken over) before the commit. Delete the tunnel; only once that worked are the ownership
-                // rows marked deleted and the intent settled. If it failed, the rows stay live and the intent names the
-                // tunnel, so a revoke retries the delete (and answers 503 until it succeeds) instead of losing it.
-                const discarded = yield* Effect.either(upstream.discardCreatedTunnel(created));
-                if (Either.isRight(discarded)) {
-                  const at = yield* now;
-                  yield* ownership.markDeleted(principal.tenantId, "device", device.value, at).pipe(Effect.ignore);
-                  yield* ownership.markDeleted(principal.tenantId, "tunnel", tunnelId, at).pipe(Effect.ignore);
-                  yield* store.settleDeviceIntent(principal.tenantId, mesh.value, intentId, device.value).pipe(Effect.ignore);
-                } else {
-                  yield* store.markDeviceIntentCleanup(principal.tenantId, mesh.value, intentId, device.value, tunnelId).pipe(Effect.ignore);
-                  yield* logEvent("mesh_device_intent_cleanup_pending", { deviceId: device.value });
-                }
-                yield* logEvent("mesh_device_intent_refused", { deviceId: device.value });
-                return yield* Effect.fail(yield* intentRefusal(principal.tenantId, mesh.value, intentId));
+                yield* undo("mesh_device_intent_refused");
+                return yield* Effect.fail(yield* intentRefusal(key.tenantId, key.meshId, key.intentId));
               }
             }
             // ACL first, then config: the device's rules exist before it learns its endpoint.
@@ -861,9 +877,27 @@ const createDevice = <C, M>(
             );
             return new DeviceEnrollment({ device: toDevice(row), tunnel: toTunnel(row, created.info) });
           }).pipe(
-            // A failed create gives its claim back, so the caller may retry with the same intentId (a revoked one stays revoked).
+            Effect.ensuring(
+              key0(intentId, principal.tenantId, mesh.value, device.value, (key) =>
+                Effect.gen(function* () {
+                  const store = yield* MeshStore;
+                  // The attempt's create is over: a later enroll may reconcile it at once.
+                  yield* store.finishAttempt(key, yield* now).pipe(Effect.ignore);
+                }),
+              ),
+            ),
+            // A failed create gives its claim back only when its attempt is resolved; otherwise the claim stays (the
+            // intent reads as in progress) until a reconcile confirms its tunnel is gone. A committed device that had to
+            // be removed again (a failed ACL apply) is uncommitted either way.
             Effect.tapError(() =>
-              intentId === undefined ? Effect.void : store.releaseDeviceIntent(principal.tenantId, mesh.value, intentId, device.value).pipe(Effect.ignore),
+              key0(intentId, principal.tenantId, mesh.value, device.value, (key) =>
+                Effect.gen(function* () {
+                  const store = yield* MeshStore;
+                  const attempt = yield* store.findAttempt(key).pipe(Effect.orElseSucceed(() => Option.none()));
+                  const done = Option.isSome(attempt) && attempt.value.resolvedAt !== null;
+                  yield* (done ? store.releaseDeviceIntent(key) : store.uncommitDeviceIntent(key)).pipe(Effect.ignore);
+                }),
+              ),
             ),
           ),
         ),
@@ -871,12 +905,135 @@ const createDevice = <C, M>(
     );
   }));
 
+/** Runs `effect` with the attempt key of an intent create; nothing without an intent. */
+const key0 = <R>(
+  intentId: string | undefined,
+  tenantId: Principal["tenantId"],
+  meshId: string,
+  deviceId: string,
+  effect: (key: { readonly tenantId: Principal["tenantId"]; readonly meshId: string; readonly intentId: string; readonly deviceId: string }) => Effect.Effect<void, never, R>,
+): Effect.Effect<void, never, R> => (intentId === undefined ? Effect.void : effect({ tenantId, meshId, intentId, deviceId }));
+
+/**
+ * Provider answers that prove the tunnel create made nothing: a 4xx other than 408 (a timeout). A 5xx, a 408, a
+ * transport error or anything after the provider answered may have left a tunnel.
+ */
+const definitelyNotCreated = (status: number | null) => status !== null && status >= 400 && status < 500 && status !== 408;
+
 /** Why an intent could not be claimed or committed: its tombstone, or another create holding it. */
 const intentRefusal = (tenantId: Principal["tenantId"], meshId: string, intentId: string) =>
   Effect.gen(function* () {
     const store = yield* MeshStore;
     const row = yield* store.findDeviceIntent(tenantId, meshId, intentId).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceIntent")));
     return intentState(row, yield* now) === "revoked" ? intentRevoked() : intentInProgress();
+  });
+
+/** What reconciling one attempt found: nothing of it live (and whether this call deleted a tunnel), or not yet known. */
+type AttemptOutcome = { readonly _tag: "resolved"; readonly deleted: boolean } | { readonly _tag: "pending" };
+
+/**
+ * Settles one open attempt of an intent whose claim it no longer holds (revoked, or ended by a later enroll), so it can
+ * neither send nor commit any more. An attempt that never sent is resolved under its row lock. One that sent is looked
+ * up at the provider by the slug its create used: a tunnel found there is deleted (a failed delete is a 503), and none
+ * found resolves it only when its create answered or its send can no longer land (`INTENT_SEND_GRACE_MS`); before that
+ * it stays pending. Only a resolved attempt's ownership rows are marked deleted.
+ */
+const reconcileAttempt = <C, M>(
+  caller: Named<C, Principal>,
+  mesh: Named<M, MeshId>,
+  proofs: { readonly owns: TenantOwnsResource<C, M>; readonly scope: KeyHasScope<C, "mesh:join"> },
+  attempt: IntentAttemptRow,
+): Effect.Effect<AttemptOutcome, ServiceUnavailable, MeshStore | OwnershipStore | UpstreamMesh> =>
+  Effect.gen(function* () {
+    const store = yield* MeshStore;
+    const tenantId = caller.value.tenantId;
+    const key = { tenantId, meshId: attempt.meshId, intentId: attempt.intentId, deviceId: attempt.deviceId };
+    let current = attempt;
+    if (current.sentAt === null) {
+      if (yield* store.resolveUnsentAttempt(key, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.resolveUnsentAttempt")))) {
+        return { _tag: "resolved", deleted: false } as const;
+      }
+      // It sent (or was resolved) between the read and the write: read it again.
+      const again = yield* store.findAttempt(key).pipe(Effect.catchAll(dependencyDown("mesh.findAttempt")));
+      if (Option.isNone(again) || again.value.resolvedAt !== null) return { _tag: "resolved", deleted: false } as const;
+      current = again.value;
+    }
+    const parsed = parseDeviceId(current.deviceId);
+    if (Option.isNone(parsed)) return yield* Effect.fail(unavailable());
+    const upstream = yield* UpstreamMesh;
+    const found = yield* name(parsed.value, (device) =>
+      upstream.findDeviceTunnel(mesh, device, proofs, { tenantId }).pipe(Effect.mapError(unavailable)),
+    );
+    let deleted = false;
+    if (Option.isSome(found)) {
+      yield* upstream.discardCreatedTunnel(found.value).pipe(Effect.mapError(unavailable));
+      deleted = true;
+    } else if (!absenceIsFinal(current, yield* now)) {
+      return { _tag: "pending" } as const;
+    }
+    const at = yield* now;
+    const ownership = yield* OwnershipStore;
+    yield* Effect.all([
+      ownership.markDeleted(tenantId, "device", current.deviceId, at),
+      ownership.markDeleted(tenantId, "tunnel", current.tunnelId, at),
+      store.markDeviceDeleted(tenantId, current.deviceId, at),
+      store.resolveAttempt(key, at),
+    ]).pipe(Effect.catchAll(dependencyDown("mesh.resolveAttempt")));
+    yield* logEvent("mesh_device_intent_attempt_resolved", { deviceId: current.deviceId, deleted: String(deleted) });
+    return { _tag: "resolved", deleted } as const;
+  });
+
+/**
+ * Before an enroll claims an intent no create holds, every open attempt of it is reconciled; a live claim whose create
+ * has finished (or is older than the stale window) is ended first, so it can no longer send or commit, then reconciled.
+ * Anything still pending refuses the enroll (409, retry), so a new attempt never starts while an old one may be live.
+ */
+const reconcileBeforeClaim = <C, M>(
+  caller: Named<C, Principal>,
+  mesh: Named<M, MeshId>,
+  proofs: { readonly owns: TenantOwnsResource<C, M>; readonly scope: KeyHasScope<C, "mesh:join"> },
+  intentId: string,
+) =>
+  Effect.gen(function* () {
+    const store = yield* MeshStore;
+    const tenantId = caller.value.tenantId;
+    const intent = yield* store.findDeviceIntent(tenantId, mesh.value, intentId).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceIntent")));
+    const open = yield* store.listOpenAttempts(tenantId, mesh.value, intentId).pipe(Effect.catchAll(dependencyDown("mesh.listOpenAttempts")));
+    const at = yield* now;
+    const claim = Option.isSome(intent) && intent.value.revokedAt === null && intent.value.committedAt === null ? intent.value.deviceId : null;
+    for (const attempt of open) {
+      if (attempt.deviceId === claim) {
+        if (!claimIsReconcilable(attempt, at)) return yield* Effect.fail(intentInProgress());
+        yield* store
+          .releaseDeviceIntent({ tenantId, meshId: mesh.value, intentId, deviceId: attempt.deviceId })
+          .pipe(Effect.catchAll(dependencyDown("mesh.releaseDeviceIntent")));
+      }
+      const outcome = yield* reconcileAttempt(caller, mesh, proofs, attempt);
+      if (outcome._tag === "pending") return yield* Effect.fail(intentInProgress());
+    }
+  });
+
+/**
+ * Deletes the live device a committed intent made, under the device delete rules; false (nothing done) when its device
+ * row is gone already, so its attempt is reconciled at the provider instead.
+ */
+const closeCommittedDevice = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "mesh:join">, deviceId: string) =>
+  Effect.gen(function* () {
+    const parsed = parseDeviceId(deviceId);
+    if (Option.isNone(parsed)) return false;
+    return yield* name(parsed.value, (device) =>
+      Effect.gen(function* () {
+        const store = yield* MeshStore;
+        const row = yield* store.getDevice(caller.value.tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDevice")));
+        if (Option.isNone(row)) return false;
+        const owns = yield* tenantOwnsDevice(caller, device).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+        if (owns === null) return yield* Effect.fail(intentNotFound());
+        const acts = yield* callerActsOnDevice(caller, device, owns, row.value).pipe(Effect.mapError(unavailable));
+        if (acts === null) return yield* Effect.fail(intentNotFound());
+        yield* closeDevice(caller, device, { owns, scope, acts }, row.value);
+        return true;
+      }),
+    );
   });
 
 /** Enrolls a device into `mesh` for `caller` (the credential route): the signature, then `createDevice`. */
@@ -894,10 +1051,11 @@ const enrollInto = <C, M>(
       const found = yield* store.findDeviceIntent(caller.value.tenantId, mesh.value, intentId).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceIntent")));
       const state = intentState(found, yield* now);
       if (state === "revoked") return yield* Effect.fail(intentRevoked());
-      if (state === "pending") return yield* Effect.fail(intentInProgress());
       if (state === "committed" && Option.isSome(found) && found.value.deviceId !== null) {
         return yield* replayIntent(caller, proofs.scope, found.value.deviceId, payload);
       }
+      // A claim still held, or open attempts of earlier creates: reconcile them, or refuse while any may be live.
+      yield* reconcileBeforeClaim(caller, mesh, proofs, intentId);
     }
     const held = yield* verifyEnroll(caller, mesh, payload);
     if (held._tag !== "held") return yield* Effect.fail(signatureRefused(held._tag));
@@ -1241,57 +1399,42 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const store = yield* MeshStore;
             const at = yield* now;
             const admin = yield* isTenantAdmin(principal).pipe(Effect.mapError(unavailable));
-            // The device delete rules are part of the tombstone's own write: it changes the row only for its claimant or
-            // a tenant admin, carrying the row's labels. Anyone else gets 404 and writes nothing, also when a claim lands
-            // between this caller's check and its write. An unused intent is tombstoned with this caller as its owner.
+            // The device delete rules are part of the tombstone's own write, before anything else is answered: it changes
+            // the row only for its claimant or a tenant admin, carrying the row's labels, and for a key confined to
+            // resources only when every attempt's device is in its allowlist. Anyone else gets 404 and writes nothing,
+            // also when a claim lands between this caller's check and its write. An unused intent is tombstoned with
+            // this caller as its owner.
+            const allowlist = principal.resourceAllowlist === null ? null : [...principal.resourceAllowlist];
             const revoked = yield* store
-              .revokeDeviceIntent(principal.tenantId, mesh.value, intentId.value, { ref: actorRef(principal.actor), labels: principal.requiredLabels ?? {}, admin }, at)
+              .revokeDeviceIntent(principal.tenantId, mesh.value, intentId.value, { ref: actorRef(principal.actor), labels: principal.requiredLabels ?? {}, admin, allowlist }, at)
               .pipe(Effect.catchAll(dependencyDown("mesh.revokeDeviceIntent")));
             if (Option.isNone(revoked)) return yield* Effect.fail(intentNotFound());
-            const state = revokedState(revoked.value, at);
-            // Nothing of the intent can be live: the answer is final.
-            if (state._tag === "settled") return new DeviceIntentRevocation({ deleted: false });
-            // A create between its claim and its commit: it will refuse and delete its tunnel; retry for the final answer.
-            if (state._tag === "in_flight") return yield* Effect.fail(new ServiceUnavailable({ message: "An enroll with this intentId is still finishing; retry the revoke" }));
-            const parsed = parseDeviceId(state.deviceId);
-            if (Option.isNone(parsed)) return new DeviceIntentRevocation({ deleted: false });
-            return yield* name(parsed.value, (device) =>
-              Effect.gen(function* () {
-                const scope = proofs.scope;
-                const owns = yield* tenantOwnsDevice(caller, device).pipe(Effect.catchAll(dependencyDown("ownership.find")));
-                if (state._tag === "cleanup") {
-                  // A refused create's tunnel whose delete failed: its ownership rows are still live. Delete it now; until
-                  // that works the revoke answers 503 and a repeat retries.
-                  if (owns === null) return yield* Effect.fail(intentNotFound());
-                  const pendingRow: MeshDeviceRow = {
-                    deviceId: device.value, meshId: mesh.value, tunnelId: state.tunnelId, name: "", wgPublicKey: "", installPublicKey: null,
-                    createdBy: revoked.value.createdBy, createdAt: revoked.value.createdAt,
-                  };
-                  const acts = yield* callerActsOnDevice(caller, device, owns, pendingRow).pipe(Effect.mapError(unavailable));
-                  if (acts === null) return yield* Effect.fail(intentNotFound());
-                  yield* (yield* UpstreamMesh).deleteDeviceTunnel(device, { owns, scope, acts }).pipe(
-                    Effect.catchIf((error) => error.status === 404, () => Effect.void),
-                    Effect.mapError(unavailable),
-                  );
-                  const ownership = yield* OwnershipStore;
-                  yield* Effect.all([
-                    ownership.markDeleted(principal.tenantId, "device", device.value, at),
-                    ownership.markDeleted(principal.tenantId, "tunnel", state.tunnelId, at),
-                    store.settleDeviceIntent(principal.tenantId, mesh.value, intentId.value, device.value),
-                  ]).pipe(Effect.catchAll(dependencyDown("mesh.settleDeviceIntent")));
-                  return new DeviceIntentRevocation({ deleted: true });
-                }
+            // The tombstone ends every claim: no attempt of this intent can commit, and none that has not sent can send.
+            // Each open attempt is settled; the answer is a final 200 only when none of them can still be live.
+            const open = yield* store.listOpenAttempts(principal.tenantId, mesh.value, intentId.value).pipe(Effect.catchAll(dependencyDown("mesh.listOpenAttempts")));
+            let deleted = false;
+            let pending = false;
+            for (const attempt of open) {
+              const committed = revoked.value.committedAt !== null && revoked.value.deviceId === attempt.deviceId;
+              if (committed) {
                 // A create that committed before the tombstone made a device: delete it like DELETE /v1/devices does (a
                 // failed tunnel delete leaves it live and answers 503, so a repeat retries).
-                const row = yield* store.getDevice(principal.tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDevice")));
-                if (Option.isNone(row)) return new DeviceIntentRevocation({ deleted: false });
-                if (owns === null) return yield* Effect.fail(intentNotFound());
-                const acts = yield* callerActsOnDevice(caller, device, owns, row.value).pipe(Effect.mapError(unavailable));
-                if (acts === null) return yield* Effect.fail(intentNotFound());
-                yield* closeDevice(caller, device, { owns, scope, acts }, row.value);
-                return new DeviceIntentRevocation({ deleted: true });
-              }),
-            );
+                const closed = yield* closeCommittedDevice(caller, proofs.scope, attempt.deviceId);
+                if (closed) {
+                  yield* store
+                    .resolveAttempt({ tenantId: principal.tenantId, meshId: mesh.value, intentId: intentId.value, deviceId: attempt.deviceId }, yield* now)
+                    .pipe(Effect.catchAll(dependencyDown("mesh.resolveAttempt")));
+                  deleted = true;
+                  continue;
+                }
+              }
+              const outcome = yield* reconcileAttempt(caller, mesh, proofs, attempt);
+              if (outcome._tag === "pending") pending = true;
+              else deleted ||= outcome.deleted;
+            }
+            // A create that sent its provider call and has not answered, with no tunnel at its slug yet: it may still land.
+            if (pending) return yield* Effect.fail(new ServiceUnavailable({ message: "An enroll with this intentId may still be creating its tunnel; retry the revoke" }));
+            return new DeviceIntentRevocation({ deleted });
           }),
         ),
       ),
