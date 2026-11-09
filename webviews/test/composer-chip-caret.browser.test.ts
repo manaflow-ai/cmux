@@ -175,7 +175,24 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
         await nextFrames(page);
         expect(await field<number>(page, "caret")).toBe(0);
         const before = await caretIn(page, { ...chip!, left: Math.max(0, chip!.left - 24), right: chip!.left + 4 });
-        if (!before) failures.push(`${engine}: no caret before the chip after ArrowLeft`);
+        if (!before) {
+          // Where it is instead: the whole line, the front's box and the DOM selection.
+          const line = await caretIn(page, { ...chip!, left: 0, right: WIDTH });
+          const dom = await page.evaluate(() => {
+            const selection = getSelection()!;
+            const node = selection.anchorNode;
+            const front = document.querySelector(".acpmux-md .is-titled-start")?.getBoundingClientRect();
+            return {
+              node: node?.nodeName,
+              offset: selection.anchorOffset,
+              children: [...(node?.childNodes ?? [])].map((child) => (child as Element).className || child.nodeName),
+              front: front && [front.left, front.right],
+            };
+          });
+          failures.push(
+            `${engine}: no caret before the chip after ArrowLeft (chip ${chip!.left}-${chip!.right}, caret on the line ${JSON.stringify(line)}, ${JSON.stringify(dom)})`,
+          );
+        }
         else if (before.right > chip!.left + 1.5)
           failures.push(`${engine}: the caret before the chip is at ${before.left}, inside the chip`);
         // ArrowRight steps back over it.
@@ -190,9 +207,13 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
         await field(page, "setCaret", WORKSPACE.length);
         await field(page, "paste", WORKSPACE);
         await page
-          .waitForFunction(() => document.querySelectorAll(".acpmux-md .is-titled[data-title]").length === 2, undefined, {
-            timeout: 10_000,
-          })
+          .waitForFunction(
+            () => document.querySelectorAll(".acpmux-md .is-titled[data-title]").length === 2,
+            undefined,
+            {
+              timeout: 10_000,
+            },
+          )
           .catch(() => undefined);
         expect(await field<string>(page, "text")).toBe(`${WORKSPACE} ${WORKSPACE} x`);
         expect((await chipBoxes(page)).length).toBe(2);

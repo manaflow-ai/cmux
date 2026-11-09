@@ -27,10 +27,12 @@ const field = async (ctx: PlayContext, chips: number) => {
 };
 
 /** The caret `offset` characters into the draft, after its chips drew. */
-const caretAt = (offset: (draft: string) => number, chips = 1) => async (ctx: PlayContext) => {
-  const md = await field(ctx, chips);
-  md.setCaret(offset(md.plainText()));
-};
+const caretAt =
+  (offset: (draft: string) => number, chips = 1) =>
+  async (ctx: PlayContext) => {
+    const md = await field(ctx, chips);
+    md.setCaret(offset(md.plainText()));
+  };
 
 /** `text` pasted at the draft's end, then the caret's place checked. */
 const pasteAtEnd = (text: string, chips: number) => async (ctx: PlayContext) => {
