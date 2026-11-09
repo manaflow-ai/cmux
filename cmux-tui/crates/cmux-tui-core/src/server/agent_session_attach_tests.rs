@@ -340,6 +340,15 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            // A fork through turn 7 makes a copy acpmux then refuses to tag (side chat tests).
+            "acp.session.fork" => Some(json!({"sessionId":
+                if params["throughSeq"] == json!(7) { "acp_untaggable" } else { "acp_side_1" }})),
+            "_acpmux/side" if params["sessionId"] == json!("acp_untaggable") => {
+                Some(json!({FAKE_ERROR: "no chat with that id"}))
+            }
+            "_acpmux/side" => {
+                Some(json!({"sessionId": params["sessionId"], "tags": {"side": params["chat"]}}))
+            }
             "_acpmux/context" | "_acpmux/context_override" => Some(json!({
                 "sessionId": params["sessionId"],
                 "parts": [{"source": "cmux", "text": "Read early.", "tokens": 3}],
@@ -759,6 +768,7 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":13,"cmd":"agent-session-context","surface":surface,"op":"get"}),
         json!({"id":14,"cmd":"agent-session-context","surface":surface,"op":"set",
                "scope":"user","text":"Read early."}),
+        json!({"id":15,"cmd":"agent-session-side","surface":surface,"live":true}),
     ]
 }
 
@@ -1606,5 +1616,81 @@ fn a_permission_of_another_session_is_not_answerable() {
     let reply = client.request(json!({"cmd":"agent-session-permission","surface":surface,
                                       "permission_id":"perm_other","option_id":"allow"}));
     assert_code(&reply, "agent_session.unknown_permission");
+    fake.no_frame();
+}
+
+// MARK: Side chat
+
+/// New side chat and `/side [prompt]` of a Cloud chat (agent_session_side.rs): acpmux on the
+/// chat's machine forks the tab's own session, tags the fork its side chat and prompts it there.
+#[test]
+fn a_side_chat_forks_the_pinned_session_tags_it_and_prompts_it() {
+    let fake = FakeAcpmux::start("side");
+    let mux = mux_with(&fake, "asa-side");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "side");
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-side","surface":surface,"live":true})),
+        "agent_session.not_attached",
+    );
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    // A finished chat forks through its turn; with no prompt, none is sent.
+    let reply =
+        client.request(json!({"cmd":"agent-session-side","surface":surface,"through_seq":4}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["data"], json!({"sessionId": "acp_side_1", "prompted": false}));
+    let fork = fake.frame();
+    assert_eq!(fork["method"], json!("acp.session.fork"));
+    assert_eq!(fork["params"], json!({"sessionId": SESSION, "throughSeq": 4}));
+    let tag = fake.frame();
+    assert_eq!(tag["method"], json!("_acpmux/side"));
+    assert_eq!(tag["params"], json!({"sessionId": "acp_side_1", "chat": SESSION}));
+    fake.no_frame();
+    // A working chat forks as it is now, and `/side <prompt>` prompts the side chat, not the chat.
+    let reply = client.request(json!({"cmd":"agent-session-side","surface":surface,"live":true,
+                                      "prompt":"Try it in Rust","prompt_id":"side-p1"}));
+    assert_eq!(reply["data"], json!({"sessionId": "acp_side_1", "prompted": true}), "{reply}");
+    assert_eq!(fake.frame()["params"], json!({"sessionId": SESSION, "live": true}));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/side"));
+    let prompt = fake.frame();
+    assert_eq!(prompt["method"], json!("session/prompt"));
+    assert_eq!(
+        prompt["params"],
+        json!({"sessionId": "acp_side_1", "prompt": [{"type": "text", "text": "Try it in Rust"}],
+               "_meta": {"acpmux": {"promptId": "side-p1"}}})
+    );
+    fake.no_frame();
+    // A fork acpmux would not tag is taken back: no untagged copy stays in the lists.
+    let reply =
+        client.request(json!({"cmd":"agent-session-side","surface":surface,"through_seq":7}));
+    assert_code(&reply, "agent_session.refused");
+    let _ = fake.frame();
+    let _ = fake.frame();
+    let kill = fake.frame();
+    assert_eq!(kill["method"], json!("_acpmux/kill"));
+    assert_eq!(
+        kill["params"],
+        json!({"sessionId": "acp_untaggable", "purge": true, "cancelFork": true})
+    );
+    for bad in [
+        json!({"cmd":"agent-session-side","surface":surface}),
+        json!({"cmd":"agent-session-side","surface":surface,"through_seq":0}),
+        json!({"cmd":"agent-session-side","surface":surface,"through_seq":4,"live":true}),
+        json!({"cmd":"agent-session-side","surface":surface,"live":true,"prompt":"hi"}),
+        json!({"cmd":"agent-session-side","surface":surface,"live":true,"prompt":" ","prompt_id":"p"}),
+        json!({"cmd":"agent-session-side","surface":surface,"live":true,"sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-side","surface":surface,"live":true,"cwd":"/"}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
     fake.no_frame();
 }

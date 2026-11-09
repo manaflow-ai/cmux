@@ -50,6 +50,12 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     /// acpmux's `_acpmux/agent_login/<op>` answer, or `{refused: {reason}}`. `fields` are the
     /// daemon's (`agent`, `login_id`, `code`, `key`); the code and key are never logged.
     func login(_ op: String, _ fields: [String: String]) async throws -> Data
+    /// Whether that machine's daemon opens a side chat of this chat there (`agent-session-side-v1`).
+    func servesSide() async -> Bool
+    /// New side chat and `/side [prompt]` (`agent-session-side-v1`): that machine's acpmux forks
+    /// this chat (`throughSeq` nil: as it is now), tags the fork its side chat and sends it
+    /// `prompt`. Answers the side chat's session id on that machine.
+    func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> String
 }
 
 extension AgentSessionRemoteClient {
@@ -85,6 +91,11 @@ extension AgentSessionRemoteClient {
     }
     /// A daemon without `agent-session-login-v1` offers no sign-in.
     public func servesLogin() async -> Bool { false }
+    /// A daemon without `agent-session-side-v1` opens no side chat there.
+    public func servesSide() async -> Bool { false }
+    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> String {
+        throw AgentSessionRemoteError(code: "agent_session.fork_unsupported", message: "Update cmux on that machine to open a side chat there.")
+    }
     public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
         Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
     }

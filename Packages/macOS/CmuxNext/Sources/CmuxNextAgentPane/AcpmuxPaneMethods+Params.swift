@@ -122,6 +122,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/forum/rules": ([], []),
         "_acpmux/resolve": (["query"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
+        // The fork's boundary (`throughSeq`, or `live` for a working chat) and `/side`'s prompt.
+        "_acpmux/side_chat": (["sessionId", "throughSeq", "live", "prompt"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
         "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
