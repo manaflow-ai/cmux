@@ -487,9 +487,11 @@ where
     N: Fn() -> Instant + ?Sized,
 {
     let mut terminals: Option<Vec<String>> = None;
+    // What the last read showed, so a timeout says where each agent stood.
+    let mut last: Vec<Seen> = Vec::new();
     loop {
         let snapshot = session.snapshot(deadline).map_err(|failure| {
-            if past_at(now(), deadline) { timed_out(request, &[]) } else { failure }
+            if past_at(now(), deadline) { timed_out(request, &last) } else { failure }
         })?;
         // The names are resolved once, so a renamed tab keeps its place.
         if terminals.is_none() {
@@ -501,11 +503,12 @@ where
             Outcome::Impossible { ended } => return Err(agents_ended(request, &seen, &ended)),
             Outcome::Pending => {}
         }
+        last = seen;
         let remaining = match deadline {
             None => None,
             Some(deadline) => match deadline.checked_duration_since(now()) {
                 Some(remaining) if !remaining.is_zero() => Some(remaining),
-                _ => return Err(timed_out(request, &seen)),
+                _ => return Err(timed_out(request, &last)),
             },
         };
         match session.wake(remaining) {
