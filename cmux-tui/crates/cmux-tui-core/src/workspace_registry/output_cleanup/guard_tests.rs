@@ -1,7 +1,7 @@
-//! The cleanup copies every kept record, Phase B inside the open, so it runs
-//! only where output is most of the journal. A registry whose journal is
-//! mostly other records is not staged, and a staged cleanup that would copy
-//! too much is abandoned at open before anything is copied.
+//! The cleanup copies every kept record, so it runs only where output is
+//! most of the journal. A registry whose journal is mostly other records is
+//! not staged, and a staged cleanup that would copy too much is abandoned
+//! before the background build copies anything; an open never copies it.
 
 use std::fs;
 
@@ -59,19 +59,38 @@ fn a_registry_mostly_of_other_records_is_not_staged_and_its_staging_file_goes() 
         &StageControl {
             on_pending: &|| {},
             next_segment: &|| true,
+            catch_up: &|| false,
             stopped: std::sync::Arc::new(|| false),
         },
     )
     .unwrap();
-    assert!(!matches!(outcome, StageOutcome::Complete { .. }), "staged: {outcome:?}");
+    assert!(!matches!(outcome, StageOutcome::Built), "staged: {outcome:?}");
     assert!(!staging_path(&db_path).exists(), "the staging file stays: {outcome:?}");
     fs::remove_dir_all(&dir).unwrap();
 }
 
+/// Runs Phase A and the build to their outcome on `db_path`.
+fn stage_now(db_path: &Path) -> StageOutcome {
+    // SAFETY: nextest runs each test in its own process. Under a shared
+    // process the value only lowers the cleanup's free-space margin.
+    unsafe { std::env::set_var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES", "0") };
+    stage_registry(
+        db_path,
+        &StageControl {
+            on_pending: &|| {},
+            next_segment: &|| true,
+            catch_up: &|| false,
+            stopped: std::sync::Arc::new(|| false),
+        },
+    )
+    .unwrap()
+}
+
 #[test]
-fn an_open_abandons_a_staged_cleanup_that_would_copy_too_much() {
+fn a_staged_cleanup_that_would_copy_too_much_is_abandoned_before_the_build() {
     let dir = temp_dir("swap");
-    let db_path = registry(&dir, 1, 10);
+    // Mostly output, so the estimate before staging lets it through.
+    let db_path = registry(&dir, 100, 10);
     // A complete staging file whose segments keep two million records: the
     // open would copy every one of them.
     let staging = open_staging(&db_path, "registry-guard").unwrap();
@@ -84,9 +103,13 @@ fn an_open_abandons_a_staged_cleanup_that_would_copy_too_much() {
     drop(staging);
     let before = fs::read(&db_path).unwrap();
 
+    // An open copies nothing a background build did not finish.
     assert!(!swap_at_open(&db_path, &|_| Ok(())), "the registry was swapped");
-    assert!(!staging_path(&db_path).exists(), "the staging file stays");
     assert!(!failed_path(&db_path).exists(), "the swap ran and failed");
+    assert_eq!(fs::read(&db_path).unwrap(), before, "the registry changed");
+    let outcome = stage_now(&db_path);
+    assert!(matches!(outcome, StageOutcome::Skipped(_)), "built: {outcome:?}");
+    assert!(!staging_path(&db_path).exists(), "the staging file stays");
     assert_eq!(fs::read(&db_path).unwrap(), before, "the registry changed");
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -133,6 +156,7 @@ mod followups {
         StageControl {
             on_pending: &|| {},
             next_segment: &|| true,
+            catch_up: &|| false,
             stopped: std::sync::Arc::new(|| false),
         }
     }
@@ -176,13 +200,13 @@ mod followups {
         // process the value only lowers the cleanup's free-space margin.
         unsafe { std::env::set_var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES", "0") };
         let outcome = stage_registry(&db_path, &control()).unwrap();
-        assert!(!matches!(outcome, StageOutcome::Complete { .. }), "completed: {outcome:?}");
+        assert!(!matches!(outcome, StageOutcome::Built), "completed: {outcome:?}");
         assert!(!staging_path(&db_path).exists(), "the staging file stays: {outcome:?}");
         fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
-    fn an_open_abandons_a_cleanup_whose_tail_sealed_after_staging_would_copy_too_much() {
+    fn a_cleanup_whose_tail_sealed_after_staging_would_copy_too_much_is_abandoned() {
         // Phase A staged nothing; two million records were sealed after it.
         let dir = temp_dir("sealed-tail");
         let db_path = registry(&dir, 1, 10);
@@ -203,6 +227,9 @@ mod followups {
 
         assert!(!swap_at_open(&db_path, &|_| Ok(())), "the registry was swapped");
         assert!(!failed_path(&db_path).exists(), "the open staged the tail and failed");
+        assert_eq!(fs::read(&db_path).unwrap(), before, "the registry changed");
+        let outcome = stage_now(&db_path);
+        assert!(matches!(outcome, StageOutcome::Skipped(_)), "built: {outcome:?}");
         assert!(!staging_path(&db_path).exists(), "the staging file stays");
         assert_eq!(fs::read(&db_path).unwrap(), before, "the registry changed");
         fs::remove_dir_all(&dir).unwrap();

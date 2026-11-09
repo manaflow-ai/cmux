@@ -1,5 +1,7 @@
 # acpmux performance audit (rules D1-D8, A1-A3)
 
+New notices to PL-acpmux go in [acpmux-audit/](acpmux-audit/), one file per change named `YYYY-MM-DD-<slug>.md` (from 2026-11-09, so that parallel PRs do not conflict here); this file keeps the older ones.
+
 Status: audit landed 2026-10-23 (session cmux-4f, PL-acpmux); fixes in progress in the same
 session (the lead moved acpmux ownership here: nobody in cmux-b6 owns acpmux code). Rules and
 targets: [perf-lead.md](perf-lead.md), "Daemon and acpmux targets". Every acpmux op < 2 ms p95
