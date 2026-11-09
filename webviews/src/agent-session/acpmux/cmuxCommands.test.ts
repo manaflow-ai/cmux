@@ -15,6 +15,7 @@ test("status is available before harness commands and stays cmux-owned", () => {
     "plan",
     "import",
     "continue",
+    "run-on",
     "fork",
     "btw",
     "side",
