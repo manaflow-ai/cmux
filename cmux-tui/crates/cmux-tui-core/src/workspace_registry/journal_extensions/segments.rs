@@ -75,6 +75,28 @@ impl WorkspaceRegistry {
         Ok(u64::try_from(end)?)
     }
 
+    /// Deletes up to `JOURNAL_CHECKPOINT_PRUNE_BATCH` checkpoints that a
+    /// sealed segment already covers and that are not among the newest
+    /// `JOURNAL_CHECKPOINTS_KEPT`. Each one holds the whole reduced state, so
+    /// keeping all of them grew the registry by about 1.5 MB per checkpoint.
+    /// The newest checkpoints stay for restore (terminal respawn reads the
+    /// newest 16) and every unsealed one stays for the next seal. Returns how
+    /// many it deleted.
+    pub(crate) fn prune_journal_checkpoints(&mut self) -> anyhow::Result<usize> {
+        let deleted = self.connection.get().execute(
+            "DELETE FROM journal_checkpoints WHERE checkpoint_id IN (
+               SELECT checkpoint_id FROM journal_checkpoints
+               WHERE source_sequence
+                       <= (SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments)
+                 AND source_sequence < (
+                   SELECT source_sequence FROM journal_checkpoints
+                   ORDER BY source_sequence DESC LIMIT 1 OFFSET ?1)
+               ORDER BY source_sequence ASC LIMIT ?2)",
+            params![(JOURNAL_CHECKPOINTS_KEPT - 1) as i64, JOURNAL_CHECKPOINT_PRUNE_BATCH as i64],
+        )?;
+        Ok(deleted)
+    }
+
     pub(crate) fn begin_journal_segment_seal(
         &mut self,
         requested_through: u64,

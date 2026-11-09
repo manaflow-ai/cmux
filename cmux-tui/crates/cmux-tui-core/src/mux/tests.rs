@@ -15,6 +15,7 @@ mod agent_roster_restore;
 mod agent_screen_exit;
 mod cell_pixel_fanout;
 mod cell_pixels;
+mod checkpoint_retention;
 mod column_update;
 mod create_entity_cost;
 mod creation_burst;

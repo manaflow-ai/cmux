@@ -312,13 +312,14 @@ impl Mux {
             if !pending_seal
                 && head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS
             {
+                let pruned = self.prune_journal_checkpoints(&mut steps);
                 let pages_remain = steps.time("incremental_vacuum", || {
                     self.workspace_registry
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
                         .incremental_journal_vacuum()
                 })?;
-                return Ok(if pages_remain {
+                return Ok(if pages_remain || pruned {
                     TickOutcome::WorkRemains
                 } else {
                     TickOutcome::Settled
@@ -359,6 +360,7 @@ impl Mux {
                 }
                 sealed_through = commit.through_sequence;
             }
+            self.prune_journal_checkpoints(&mut steps);
             steps.time("incremental_vacuum", || {
                 self.workspace_registry
                     .lock()
@@ -561,6 +563,25 @@ impl Mux {
 
     pub(crate) fn note_reconnect_checkpoint_captured(&self) {
         self.reconnect_checkpoint_skip_reported.store(false, Ordering::Release);
+    }
+
+    /// Deletes a batch of old, sealed checkpoints; true when it deleted any.
+    /// A failure only defers the pruning: an older binary that opened the
+    /// registry may have put back the trigger that refuses every delete.
+    fn prune_journal_checkpoints(&self, steps: &mut MaintenanceSteps) -> bool {
+        let pruned = steps.time("checkpoint_prune", || {
+            self.workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .prune_journal_checkpoints()
+        });
+        match pruned {
+            Ok(deleted) => deleted > 0,
+            Err(error) => {
+                eprintln!("cmux-tui: journal checkpoint pruning deferred: {error:#}");
+                false
+            }
+        }
     }
 
     pub(crate) fn create_journal_checkpoint(
