@@ -313,7 +313,7 @@ extension CloudStartSession {
     }
 
     /// Copies `local` to `session` exactly as the composer's Cloud start copies its chat's folder (the same check,
-    /// ``AgentPaneCloudStart/checkedFolder(_:home:)``, and copy, ``CloudStartChat/copyFolder(_:key:account:to:cli:progress:)``),
+    /// ``AgentPaneCloudStart/checkedFolder(_:home:)``, and copy, ``CloudStartChat/copyFolder(_:key:account:to:cli:declined:failed:progress:)``),
     /// under a key of the machine and the folder, so the same command again reuses the finished copy and never pushes over
     /// what a chat changed there. Answers the chat's folder there and whether this Mac trusts the source.
     func copied(_ local: String, to session: CloudMachineSession, _ request: Request, account: [String?]) async throws -> (chat: String, trusted: Bool) {
