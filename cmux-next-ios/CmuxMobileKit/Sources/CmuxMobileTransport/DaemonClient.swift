@@ -168,7 +168,9 @@ public actor DaemonClient {
     /// waiting for the reply (``reply(to:)``). A caller that awaits each
     /// submit before the next keeps its requests in order on the channel
     /// while several are unanswered (the daemon handles a connection's lines
-    /// in order).
+    /// in order). `closeChannelOnCancel` is false only for best-effort probes:
+    /// cancelling a probe must not tear down a channel that made ordinary
+    /// progress while the probe's write was still pending.
     public func submit(_ cmd: String, params: [String: Any] = [:],
                        deadline: Duration = DaemonClient.defaultDeadline,
                        closeChannelOnCancel: Bool = true) async throws -> String {
