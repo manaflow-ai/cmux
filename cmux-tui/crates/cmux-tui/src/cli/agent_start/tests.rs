@@ -1243,12 +1243,17 @@ sr2 claude2: automatic /compact through cmux terminal term_c7d53df9a7de; log /tm
 /// A resume whose new terminal shows `screen` and whose `agent list` gives
 /// `records`, waited on for at most 5 s.
 fn resume_with(screen: &'static str, records: Value) -> (Value, i32) {
+    resume_of("claude", screen, records)
+}
+
+/// [`resume_with`] for an agent whose hooks reported as `harness`.
+fn resume_of(harness: &'static str, screen: &'static str, records: Value) -> (Value, i32) {
     let snapshot = snapshot();
     let daemon = Fake::new(move |operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "agent.list" if params["terminal_id"] == OLD || params["terminal"] == OLD => json!([
             {"terminal_id": OLD, "state": "done", "source": "hook", "updated_at_ms": "900",
-             "extra": {"agent": "claude", "agent_session_id": SESSION}},
+             "extra": {"agent": harness, "agent_session_id": SESSION}},
         ]),
         "agent.list" => records.clone(),
         "terminal.process.get" => json!({"argv": snapshot["terminals"][1]["argv_for_test"]}),
@@ -1296,6 +1301,25 @@ fn w5r_resume_is_ready_only_when_the_agents_own_hook_reports_idle() {
     let (report, exit) = resume_with(COMPOSER, hook_idle);
     assert_eq!(report["state"], "ready", "{report}");
     assert_eq!(exit, 0, "{report}");
+}
+
+/// Review 6731023492 item 4: a resume waits for the agent's own idle report
+/// only when its harness's hooks report a session start. Amp's report
+/// nothing at its start, so its input box makes it ready, as for a start,
+/// instead of a wait to the timeout.
+#[test]
+fn w5r_resume_of_a_harness_without_a_session_start_hook_is_ready_on_its_input_box() {
+    let plugin_idle = json!([{"terminal_id": NEW, "state": "idle", "source": "plugin",
+                              "updated_at_ms": "1500"}]);
+    let (report, exit) = resume_of("amp", COMPOSER, plugin_idle);
+    assert_eq!(report["state"], "ready", "amp cannot report its start: {report}");
+    assert_eq!(exit, 0, "{report}");
+    // Claude's SessionStart hook reports: its resume still waits for it.
+    let plugin_idle = json!([{"terminal_id": NEW, "state": "idle", "source": "plugin",
+                              "updated_at_ms": "1500"}]);
+    let (report, exit) = resume_of("claude", COMPOSER, plugin_idle);
+    assert_eq!(report["state"], "timeout", "{report}");
+    assert_eq!(exit, 124, "{report}");
 }
 
 /// `agent start` has the same race: a fresh screen-detection record says
