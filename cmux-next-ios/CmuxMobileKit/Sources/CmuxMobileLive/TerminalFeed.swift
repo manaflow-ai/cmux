@@ -345,6 +345,9 @@ public final class TerminalFeed {
                     guard let self, let request = self.request, let connection = self.connection else {
                         throw LinkError(code: "no-link", message: "Not connected to the Mac")
                     }
+                    // A new connection's ledger says first whether this row is still its tab's newest:
+                    // a notification that came meanwhile must not be acknowledged unseen.
+                    guard self.hydrated else { throw LinkError(code: "not-read", message: "The Mac's notifications are not read yet") }
                     let surface = self.entries.first { $0.id == entry.id }?.surface ?? surface
                     return try WorkspaceSync.check(try await request("ack-tab-notifications", ["surface": surface], connection))
                 }
@@ -362,7 +365,7 @@ public final class TerminalFeed {
     /// shows the row unread and as its tab's newest: a newer one shows, the person has not seen it.
     private func readStands(_ id: String, macID: String) -> Bool {
         guard macID == self.macID, store.item(id: Self.itemID(macID: macID, entry: id))?.isRead == true else { return false }
-        // A new connection reads the ledger again before it says anything.
+        // A new connection reads the ledger again before it says anything (the try waits for it).
         guard hydrated else { return true }
         guard let entry = entries.first(where: { $0.id == id }), !entry.acknowledged, let surface = entry.surface else { return false }
         return !entries.contains { $0.surface == surface && $0.createdAt > entry.createdAt && !isEcho($0) }

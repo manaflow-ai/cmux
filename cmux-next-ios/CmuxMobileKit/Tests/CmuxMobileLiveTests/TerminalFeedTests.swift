@@ -263,6 +263,28 @@ import Testing
         #expect(daemon.acks == [1])
     }
 
+    /// Review finding: a notification that came while the Mac was away is not acknowledged unseen
+    /// by the older read still on its way; the new connection's ledger shows it, and the read ends.
+    @Test func aReadOnItsWayEndsWhenANewerNotificationCameMeanwhile() async {
+        let daemon = FakeDaemon()
+        daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
+        let (store, feed) = Self.make(daemon)
+        feed.reads.pause = { _ in await Task.yield() }
+        feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+
+        daemon.down = true
+        store.markRead("term-mac-ntf_1")
+        await Self.settle { daemon.unanswered >= 2 }
+        daemon.rows.append(Self.row("ntf_2", "Codex finished", surface: 1, at: 2_000_000))
+        daemon.down = false
+        feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
+        await Self.settle { store.items.count == 2 }
+        await Self.settle { false }
+        #expect(daemon.acks.isEmpty)
+        #expect(store.item(id: "term-mac-ntf_2")?.isRead == false)
+    }
+
     @Test func waitingTerminalResolvesWhenItMovesOn() async {
         let daemon = FakeDaemon()
         daemon.rows = [

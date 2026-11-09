@@ -52,8 +52,12 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
             return
         }
         let tabs = Self.unreadMarks(of: workspace, in: sync.tree)
+        // The tree settles the read only once a try went: before it, a Mark as Unread still on its
+        // way may not show there yet, and this read must still go after it.
+        var tried = false
         do {
-            _ = try await reads.send(stands: { readStands(workspace, mark: mark) }) {
+            _ = try await reads.send(stands: { readStands(workspace, mark: mark, settles: tried) }) {
+                tried = true
                 let client = try daemonClient(workspace.macID)
                 var params: [String: Any] = ["marked_unread": false]
                 Self.address(workspace, into: &params)
@@ -70,10 +74,10 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
     static let readDeadline: Duration = .seconds(15)
 
     /// Whether Mark as Read `mark` of `workspace` still stands: still the newest, its Mac still
-    /// linked, and (when this phone has the Mac's tree) the Mac still shows it unread.
-    private func readStands(_ workspace: Workspace, mark: Int) -> Bool {
+    /// linked, and (when `settles` and this phone has the Mac's tree) the Mac still shows it unread.
+    private func readStands(_ workspace: Workspace, mark: Int, settles: Bool) -> Bool {
         guard readMarks[workspace.id] == mark, link.target?.macID == workspace.macID else { return false }
-        guard let tree = sync.tree, sync.macID == workspace.macID else { return true }
+        guard settles, let tree = sync.tree, sync.macID == workspace.macID else { return true }
         return tree.workspaces.first { $0.id == workspace.id }?.hasUnread == true
     }
 
@@ -89,17 +93,31 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         }
     }
 
-    /// A tab a read covers: its surface and the notification it showed unread (nil: no marker).
+    /// A tab a read covers: its surface and the unread notification it showed (nil: no marker).
     struct UnreadMark: Equatable, Sendable {
         var surface: Int
         var notification: Int?
+        /// When that notification was posted: a daemon that restarted numbers its markers anew,
+        /// and the time still names the same one.
+        var createdAt: Date?
+
+        init(surface: Int, marker: DaemonTree.NotificationMarker?) {
+            self.surface = surface
+            notification = marker.flatMap { $0.unread ? $0.notification : nil }
+            createdAt = marker.flatMap { $0.unread ? $0.createdAt : nil }
+        }
+
+        /// Whether `marker` still shows the notification read here unread (not a newer one).
+        func isStill(_ marker: DaemonTree.NotificationMarker?) -> Bool {
+            guard let marker, marker.unread else { return false }
+            if let createdAt, let now = marker.createdAt { return now <= createdAt }
+            return marker.notification == notification
+        }
     }
 
     /// `unreadSurfaces` with the notification each one showed.
     nonisolated static func unreadMarks(of workspace: Workspace, in tree: DaemonTree?) -> [UnreadMark] {
-        unreadSurfaces(of: workspace, in: tree).map { surface in
-            UnreadMark(surface: surface, notification: tree?.notificationMarkers[surface].flatMap { $0.unread ? $0.notification : nil })
-        }
+        unreadSurfaces(of: workspace, in: tree).map { UnreadMark(surface: $0, marker: tree?.notificationMarkers[$0]) }
     }
 
     /// The tabs of `marks` still to read in `tree` (all of them while there is none): one read
@@ -109,8 +127,8 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         guard let tree else { return marks.map(\.surface) }
         return marks.compactMap { mark in
             let marker = tree.notificationMarkers[mark.surface]
-            guard let notification = mark.notification else { return marker?.unread == true ? nil : mark.surface }
-            return marker?.unread == true && marker?.notification == notification ? mark.surface : nil
+            guard mark.notification != nil else { return marker?.unread == true ? nil : mark.surface }
+            return mark.isStill(marker) ? mark.surface : nil
         }
     }
 
@@ -204,9 +222,7 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
     /// every unread tab. Its notifications stay in the ledger (Clear All removes them).
     public func markAllNotificationsRead(on macID: String) async throws -> Int {
         let client = try daemonClient(macID)
-        let marks = Self.unreadNotificationSurfaces(sync.tree).map { surface in
-            UnreadMark(surface: surface, notification: sync.tree?.notificationMarkers[surface]?.notification)
-        }
+        let marks = Self.unreadNotificationSurfaces(sync.tree).map { UnreadMark(surface: $0, marker: sync.tree?.notificationMarkers[$0]) }
         guard !marks.isEmpty else { return 0 }
         do {
             try await acknowledgeAll(marks.map(\.surface), client: client)

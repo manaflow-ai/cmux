@@ -116,4 +116,24 @@ import Testing
         #expect(acks.count == 2)
         #expect(acks.allSatisfy { $0["surface"] as? Int == 5 })
     }
+
+    /// Review finding: a daemon that restarted numbers its markers anew; the notification's time
+    /// still names the one the person read, and a newer one is left unread.
+    @Test func aRenumberedMarkerIsStillTheNotificationRead() throws {
+        let posted = Date(timeIntervalSince1970: 1_000)
+        let read = LiveWorkspaceCreationBackend.UnreadMark(
+            surface: 5, marker: DaemonTree.NotificationMarker(notification: 300, unread: true, createdAt: posted))
+        let empty = try DaemonTree(reply: Data(#"{"ok":true,"data":{"workspaces":[]}}"#.utf8), macID: "m")
+        func tree(_ marker: DaemonTree.NotificationMarker) -> DaemonTree {
+            var tree = empty
+            tree.notificationMarkers[5] = marker
+            return tree
+        }
+        let renumbered = tree(DaemonTree.NotificationMarker(notification: 256, unread: true, createdAt: posted))
+        #expect(LiveWorkspaceCreationBackend.stillUnread([read], in: renumbered) == [5])
+        let newer = tree(DaemonTree.NotificationMarker(notification: 257, unread: true, createdAt: posted.addingTimeInterval(5)))
+        #expect(LiveWorkspaceCreationBackend.stillUnread([read], in: newer).isEmpty)
+        let done = tree(DaemonTree.NotificationMarker(notification: 256, unread: false, createdAt: posted))
+        #expect(LiveWorkspaceCreationBackend.stillUnread([read], in: done).isEmpty)
+    }
 }
