@@ -160,6 +160,11 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
     expect(failureKind(message, claude, "insufficient_quota"), message).toBe("rate-limited");
   expect(failureKind("You exceeded your current quota", claude, "insufficient_quota")).toBe("no-credit");
   expect(failureKind(undefined, claude, "insufficient_quota")).toBe("no-credit");
+  // A router code is the code token itself, never a provider's hostname that starts like one: a
+  // gateway's out-of-credit 402 keeps no-credit.
+  const gateway = "402 Payment Required: insufficient credits, url: https://inference.baseten.co/v1/chat/completions";
+  expect(failureKind(gateway, claude)).toBe("no-credit");
+  expect(failureKind(gateway, claude, "insufficient_quota")).toBe("no-credit");
   // A provider's bare `insufficient_quota`, with no rate words, is still out of credit.
   expect(failureKind('{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}', claude)).toBe("no-credit");
   // A plain rate limit still reads as one, and the cmux model router's refusal as needs-credits.
@@ -239,8 +244,12 @@ test("an expired cloud provider sign-in names the command that refreshes it", ()
     "google.auth.exceptions.RefreshError: invalid_grant: reauth related error (invalid_rapt)",
   ])
     expect(failureKind(message, claude), message).toBe("subscription-login");
-  // The agent's own expired login keeps its Sign in again.
+  // The agent's own expired login keeps its Sign in again, also when its refresh names the token
+  // endpoint: that host is the sign-in, not a proxy.
   expect(failureKind("OAuth token refresh failed: invalid_grant")).toBe("subscription-login");
+  const refresh = "OAuth token refresh failed: invalid_grant from https://oauth2.googleapis.com/token";
+  expect(failureKind(refresh, claude)).toBe("subscription-login");
+  expect(failureKind(refresh)).toBe("subscription-login");
   expect(failureKind("Not logged in · Please run /login")).toBe("subscription-login");
   expect(failureKind("401 Unauthorized: token expired")).toBe("auth");
 });
