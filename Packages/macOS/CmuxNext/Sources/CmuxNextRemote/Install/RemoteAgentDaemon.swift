@@ -138,17 +138,45 @@ public actor RemoteApprovalPreparations {
     public static let shared = RemoteApprovalPreparations()
     private var running: [String: Task<Bool, Never>] = [:]
     private var busyUntil: [String: ContinuousClock.Instant] = [:]
+    /// Who awaits each machine's preparation: an ``Owner`` per start (``owned(_:_:)``), nil for a caller no start owns.
+    private var owners: [String: [Owner?]] = [:]
+    /// Machines whose restart no live owner allowed: that is no busy answer, so it is not kept for a minute.
+    private var denied: Set<String> = []
+
+    /// A start that owns a preparation (``owned(_:_:)``): its end, a failed login or copy or a cancel, takes back its
+    /// leave to restart. The shared preparation keeps running for the other callers.
+    public actor Owner {
+        public private(set) var live = true
+        public init() {}
+        public func end() { live = false }
+    }
+
+    /// The owner of the preparation the current task asks for, set by ``owned(_:_:)``.
+    @TaskLocal public static var owner: Owner?
 
     public func run(machine: String, keepBusy: Bool, _ work: @escaping @Sendable () async -> Bool) async -> Bool {
         if keepBusy, let until = busyUntil[machine], ContinuousClock.now < until { return false }
+        owners[machine, default: []].append(Self.owner)
         if let task = running[machine] { return await task.value }
         // task-owner: the machine's one preparation; every caller awaits it
         let task = Task { await work() }
         running[machine] = task
         let bound = await task.value
         running[machine] = nil
-        if keepBusy || bound { busyUntil[machine] = bound ? nil : ContinuousClock.now.advanced(by: .seconds(60)) }
+        owners[machine] = nil
+        let refused = denied.remove(machine) != nil
+        if !refused, keepBusy || bound { busyUntil[machine] = bound ? nil : ContinuousClock.now.advanced(by: .seconds(60)) }
         return bound
+    }
+
+    /// Whether `machine`'s preparation may restart now: while one of its callers is no start's, or a start still live.
+    func permits(_ machine: String) async -> Bool {
+        for owner in owners[machine] ?? [] {
+            guard let owner else { return true }
+            if await owner.live { return true }
+        }
+        denied.insert(machine)
+        return false
     }
 
     /// A new chat's keyed restart. `daemonSaidSafe` (the daemon answered that it may restart): at once. Else (an older
@@ -157,23 +185,28 @@ public actor RemoteApprovalPreparations {
     /// shows the normal restart notice.
     public func prepare(machine: String, daemonSaidSafe: Bool, held: Bool, idle: @escaping @Sendable () async -> Bool,
                         restart: @escaping @Sendable () async -> Bool) async -> Bool {
-        if daemonSaidSafe { return await run(machine: machine, keepBusy: false, restart) }
+        // The restart asks, right before it, whether a caller still wants it (#39208's review F1).
+        let permitted: @Sendable () async -> Bool = { [self] in guard await permits(machine) else { return false }; return await restart() }
+        if daemonSaidSafe { return await run(machine: machine, keepBusy: false, permitted) }
         if held { return true }
         return await run(machine: machine, keepBusy: true) {
             guard await idle() else { return false }
-            return await restart()
+            return await permitted()
         }
     }
 
     /// Runs `body` while `prep` (a start's keyed-restart prep) runs beside it. The prep belongs to the caller: it is awaited
-    /// before this returns, and cancelled first on an error exit, so no restart outlives the start that asked (#39069's review).
+    /// before this returns, and on an error exit its ``Owner`` ends first, so the machine's shared preparation restarts only for a
+    /// caller still live (#39069's review, #39208's F1).
     @MainActor public static func owned<T>(_ prep: @escaping @MainActor @Sendable () async -> Bool, _ body: @MainActor () async throws -> T) async throws -> T {
-        let task = Task { await prep() } // task-owner: awaited on every exit below
+        let start = Owner()
+        let task = Self.$owner.withValue(start) { Task { await prep() } } // task-owner: awaited on every exit below
         do {
             let value = try await body()
             _ = await task.value
             return value
         } catch {
+            await start.end() // the shared preparation's restart no longer counts this start
             task.cancel()
             _ = await task.value
             throw error
