@@ -4,7 +4,7 @@
 //
 // While the chat is busy (a commit of its rows, the reader's input, a send: `poke`), each display
 // frame's gap is read. When the frames of the last second missed MISSED_ENTER_MS of their budget in
-// all (each gap's time past two frames), or a long task the engine reports (Chromium's `longtask`)
+// all (each gap's time past two frames, spread over SUSTAINED_MS of it), or a long task the engine reports (Chromium's `longtask`)
 // held the main thread that long, the page is marked `data-chat-motion="minimal"`: every chat motion
 // token goes to 0 (composerStates.css MINIMAL-MOTION), and every gate that reads them or the web
 // motion gate (`motionMode`, ui/motion/motionMode.ts) moves nothing: rows land in place in the frame
@@ -25,6 +25,10 @@ const FRAME = 1000 / 60;
 /// What the frames may miss over WINDOW (ms, each gap's time past two frames, summed) before the
 /// chat goes minimal: about seven dropped frames in a second.
 export const MISSED_ENTER_MS = 120;
+/// The misses must spread over at least this much of the window (ms, first to last): load the chat
+/// keeps meeting, not one burst. A single long task (a long chat's first draw, a page of history)
+/// misses its frames once and the chat after it draws in budget; it leaves the motion on.
+export const SUSTAINED_MS = 250;
 /// The span the frames are read over (ms).
 export const WINDOW = 1000;
 /// How long the frames hold their budget (no gap past two frames) before the chat moves again (ms).
@@ -82,7 +86,8 @@ export class FrameBudgetState {
   private decide(now: number): boolean {
     while (this.missed.length && this.missed[0]!.at < now - WINDOW) this.missed.shift();
     const missed = this.missed.reduce((sum, span) => sum + span.ms, 0);
-    if (!this.minimal && missed >= MISSED_ENTER_MS) {
+    const spread = this.missed.length ? this.missed.at(-1)!.at - this.missed[0]!.at : 0;
+    if (!this.minimal && missed >= MISSED_ENTER_MS && spread >= SUSTAINED_MS) {
       this.minimal = true;
       this.healthySince = undefined;
       return true;

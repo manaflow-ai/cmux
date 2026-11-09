@@ -31,11 +31,19 @@ test("a second of dropped frames goes minimal, and only HEALTHY_FOR of healthy f
   expect(state.minimal).toBe(false);
 });
 
-test("a long task alone goes minimal; a page coming back from hidden does not", () => {
+test("load the chat keeps meeting goes minimal; one long task or a page back from hidden does not", () => {
   const state = new FrameBudgetState();
   expect(state.frame(30_000, 30_000)).toBe(false);
   expect(state.minimal).toBe(false);
+  // One burst (a long chat's first draw): its long task and the frame it held, then frames in budget.
   state.busy(200, 30_100);
+  state.frame(250, 30_100);
+  for (let at = 30_100; at < 31_000; at += FRAME) state.frame(FRAME, at);
+  expect(state.minimal).toBe(false);
+  // A long task every 500 ms (the bench's synthetic load): the misses spread over the window.
+  state.busy(70, 32_000);
+  expect(state.minimal).toBe(false);
+  state.busy(70, 32_500);
   expect(state.minimal).toBe(true);
 });
 
