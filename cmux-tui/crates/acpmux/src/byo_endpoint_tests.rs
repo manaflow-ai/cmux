@@ -592,13 +592,13 @@ async fn byo_endpoint_fetches_the_model_list_and_fills_in_star() {
     // Without `*` nothing is asked.
     let mut p = params("openai-endpoint", "x", "http://127.0.0.1:9/v1", "m", None);
     admin::fetch_endpoint_models(&mut p, None, &fsrc, |_, _| panic!("no lookup")).await.unwrap();
+    assert_eq!(p.models, ["m"]);
     // The key the add brings is used as is: no Keychain lookup.
     let mut p = params("openai-endpoint", "fetch", &base, "*", None);
     admin::fetch_endpoint_models(&mut p, Some(GOOD_KEY), &fsrc, |_, _| panic!("no lookup"))
         .await
         .unwrap();
     assert_eq!(p.models, ["served-a", "served-b"]);
-    assert_eq!(p.models, ["m"]);
 }
 
 /// A fake `/v1/models` that answers 200 with a body past the cap: chunked (no
