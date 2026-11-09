@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
+import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
 
 const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", recover_ms: ms, carrier: "resumed the session", turn: "completed once", detail: "" });
 
@@ -47,9 +47,13 @@ describe("faults", () => {
     expect(cmd).toContain("then echo @@ok nft; else nft delete table inet cmuxchaos");
   });
 
-  test("the session host is found without matching the shell that looks for it", () => {
+  test("the session host is found in cmux-host.service's cgroup, never by a name match", () => {
     const restart = FAULTS.find((f) => f.name === "session host restart")!;
-    expect(restart.command).toContain("'--relay-slo[t]'");
+    expect(restart.command).toBe(sessionHostKillCommand());
+    expect(restart.command).toContain("systemctl show -p ControlGroup --value cmux-host.service");
+    // The only kill is of the pid read from the unit's cgroup.
+    expect(restart.command.match(/\bkill\b/g)).toEqual(["kill"]);
+    expect(restart.command).toContain("-name cgroup.procs");
   });
 
   test("a relay cut says ok only when ss -K exits 0 and closed a socket", () => {
@@ -59,8 +63,10 @@ describe("faults", () => {
       writeFileSync(join(bin, "sudo"), "#!/bin/sh\nshift\nexec \"$@\"\n");
       writeFileSync(join(bin, "ss"), [
         "#!/bin/sh",
+        // Without -n, ss names the port (`:https`), which the count must never depend on.
+        'case " $* " in *" -n "*) port=443;; *) port=https;; esac',
         'case "$SSMODE" in',
-        '  closed) echo "ESTAB 0 0 10.0.0.2:5555 1.2.3.4:443"; echo "ESTAB 0 0 10.0.0.2:5556 1.2.3.4:443";;',
+        '  closed) echo "ESTAB 0 0 10.0.0.2:5555 1.2.3.4:$port"; echo "ESTAB 0 0 10.0.0.2:5556 1.2.3.4:$port";;',
         "  nothing) ;;",
         '  refused) echo "SOCK_DESTROY answers: Operation not supported" >&2; exit 1;;',
         "esac",
@@ -78,6 +84,15 @@ describe("faults", () => {
     } finally {
       rmSync(bin, { recursive: true, force: true });
     }
+  });
+
+  test("recovery is timed from the fault command's answer, never from before the command ran", () => {
+    // A cut or a kill answered 800 ms after it went out: an identify sent in between is not recovery.
+    expect(causeEndedAt(1_000, 1_800, 0)).toBe(1_800);
+    // A 5 s drop whose command answered at once ends 5 s after it went out.
+    expect(causeEndedAt(1_000, 1_200, 5)).toBe(6_000);
+    // A drop that held the command's answer past its end ends at the answer.
+    expect(causeEndedAt(1_000, 7_000, 5)).toBe(7_000);
   });
 
   test("Leo's 5 s and 60 s drops are both in the leg", () => {

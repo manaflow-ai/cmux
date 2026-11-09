@@ -15,6 +15,7 @@ import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./agentI
 import { useSenderIconLook } from "./senderIconLook";
 import { subagentProgress } from "./subagentProgress";
 import { subagentDisplayName } from "./subsessions";
+import { namedAction } from "./trayDetail";
 import { waveProps } from "../../../ui/wave";
 import {
   SubagentHarnessContext,
@@ -125,7 +126,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = [
-    running(agent) ? (agent.action ?? t(label)) : t(label),
+    running(agent) ? (namedAction(t, agent.action, agent.actionShell) ?? t(label)) : t(label),
     ...subagentProgress(t, language, agent, { usage: false }),
   ].join(" · ");
   const content = (

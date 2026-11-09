@@ -211,6 +211,7 @@ export const MessageRow = memo(
         messageAt={row.at}
         artifactIdentity={row.id}
         artifactRevision={row.version}
+        claims={row.claims}
       />
     );
     // A finished reply its turn's footer does not serve keeps its own action row, whatever follows

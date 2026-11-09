@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { PendingSteer } from "./PendingSteer";
-import { markSentNow, NewestSteerContext, takesSteersBack } from "./pendingSteerModel";
+import { markSentNow, NewestSteerContext, SteerChatContext, takesSteersBack } from "./pendingSteerModel";
 import { TurnActionsContext } from "./turnActions";
 import type { AcpmuxRow } from "../model";
 
@@ -153,6 +153,37 @@ test("Send now on the newest steer clears the earlier steers it covers", async (
   await draw([...rows, later], "user-cover-3");
   const pending = [...container.querySelectorAll(".cv-user__pending")];
   expect(pending.map((node) => node.closest("[data-row]")?.getAttribute("data-row"))).toEqual(["user-cover-3"]);
+  expect(container.querySelectorAll(".cv-user__send-now").length).toBe(1);
+});
+
+// cmux#32846: the page switches chats in place, so a Send now in one chat must not clear the earlier
+// steers of another. Chat B's steers were sent at the same times as chat A's (two hosts' clocks).
+test("Send now in one chat leaves another chat's earlier steers their X", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const pair = (chat: string): AcpmuxRow[] =>
+    [1, 2].map((n) => ({ ...waiting, id: `user-${n}`, at: 100 + n, steerPromptId: `p-${chat}-${n}` }));
+  const draw = (chat: string) =>
+    act(async () =>
+      root!.render(
+        <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
+          <SteerChatContext.Provider value={chat}>
+            <NewestSteerContext.Provider value="user-2">
+              {pair(chat).map((row) => (
+                <div key={row.id} data-row={row.id}>
+                  <PendingSteer row={row} send={async () => true} />
+                </div>
+              ))}
+            </NewestSteerContext.Provider>
+          </SteerChatContext.Provider>
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  await draw("chat-a");
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  expect(container.querySelectorAll(".cv-user__pending").length).toBe(0);
+  await draw("chat-b");
+  expect(container.querySelectorAll(".cv-user__take-back").length).toBe(2);
   expect(container.querySelectorAll(".cv-user__send-now").length).toBe(1);
 });
 

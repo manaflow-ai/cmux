@@ -69,6 +69,8 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_bridge.rs"]
+pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
 mod goal;
 #[path = "acpmux_mcp_pr.rs"]

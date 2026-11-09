@@ -82,8 +82,7 @@ pub(super) fn person_asks(conn: &Conn) -> bool {
 /// `_meta.acpmux.waitStart` from a local connection that is no agent's or lane's: those keep the
 /// start deadline (cx-m5up), as does a remote connection.
 fn asks_to_wait_on_its_harness(conn: &Conn, params: &Value) -> bool {
-    conn.caller().is_none()
-        && conn.unproven_caller.get().is_none()
+    !conn.agent_side()
         && !conn.origin.web_class()
         && mux_meta(params).and_then(|m| m.get("waitStart")).and_then(Value::as_bool) == Some(true)
 }
@@ -987,6 +986,10 @@ pub(super) async fn handle_request(
             if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
         if let Some(prompt) = prompt {
             crate::sender_harness::stamp_checked(prompt, pid, carried).await;
+            // A Claude desktop session's own send, bound to its bridged chat by the same pid
+            // (`hub/desktop_bridge.rs`), so an answer reaches it.
+            let outbox = conn.socket_peer == crate::sender_harness::SocketPeer::Outbox;
+            hub.stamp_bridged_sender(prompt, pid, outbox, conn.caller().is_some()).await;
         }
     }
     let key = super::session_key(&params).ok().map(str::to_owned);
@@ -1733,7 +1736,11 @@ async fn dispatch_request_with_identity(
             let person_message = crate::author::of_provenance(provenance.as_ref()).is_some();
             // Sent from inside another session (its proven caller token) with none of its own:
             // that session's message, so the receiver's transcript does not show it as the person's.
-            let provenance = match (provenance, conn.caller()) {
+            // A desktop chat's send the daemon bound to its bridged chat by the socket peer's
+            // process tree (`hub/desktop_bridge.rs`) is that chat's, as a caller token's is.
+            let bridged = crate::hub::desktop_bridge::bridged_sender(&params).map(str::to_owned);
+            let caller = conn.caller().map(str::to_owned).or(bridged);
+            let provenance = match (provenance, caller.as_deref()) {
                 (None, Some(caller)) if !conn.is_person() && caller != s.id => {
                     hub.resolve(caller).ok().map(|from| {
                         let name = from.meta().name;
@@ -1823,7 +1830,7 @@ async fn dispatch_request_with_identity(
                 None => Some(crate::prompt_provenance::unverified(
                     &s.id,
                     transport,
-                    claimed_labels(&params),
+                    claimed_labels(conn, &params),
                 )),
             };
             // A peer's prompt keeps its sender and names the peer that passed it on beside it.
@@ -2028,6 +2035,11 @@ async fn dispatch_request_with_identity(
                 send_now: false,
                 thread,
                 wake_or_fail: flag("wakeOrFail") == Some(true),
+                // Only a caller that waits for the reply and prints it reads it
+                // (`hub/question_replies.rs`); an outbox delivery's open request reads nothing.
+                reply_reader: (flag(crate::cli::output::READS_REPLY_META) == Some(true)
+                    || flag("wakeOrFail") == Some(true))
+                .then(|| conn.ended.subscribe()),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,
@@ -2348,6 +2360,8 @@ async fn dispatch_request_with_identity(
             Ok(result)
         }
         "_acpmux/models" => {
+            // A starting daemon answers once its disk lists are served (`wait_model_caches`).
+            hub.wait_model_caches().await;
             // `probe`: harnesses a client now uses (the Chief's engine set),
             // probed now even when the start-time list left them out.
             if let Some(names) = params.get("probe").and_then(Value::as_array) {
@@ -2559,6 +2573,19 @@ async fn dispatch_request_with_identity(
                 .await
                 .map_err(|e| RpcError::internal(format!("session search stopped: {e}")))?
         }
+        // What a chat said and did is its person's (C5): the local socket and the app only.
+        method::MUX_REVIEW_BRIEF => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::method_not_found(method::MUX_REVIEW_BRIEF));
+            }
+            let s = hub.resolve(session_key(&params)?)?;
+            let root = params.get("root").and_then(Value::as_str).map(str::to_owned);
+            // A chat's first brief reads its log: off the runtime.
+            let hub = Arc::clone(hub);
+            tokio::task::spawn_blocking(move || hub.review_brief(&s, root.as_deref()))
+                .await
+                .map_err(|e| RpcError::internal(format!("review brief stopped: {e}")))?
+        }
         m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -2764,13 +2791,15 @@ async fn dispatch_request_with_identity(
         method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {
             let s = hub.resolve(session_key(&params)?)?;
             // The person's, or the chat's own agent's: no other session reads or answers for it.
-            let agent = conn.caller().is_some() || conn.unproven_caller.get().is_some();
-            let person = conn.is_person() || (conn.origin == Origin::Local && !agent);
+            // An old acpmux CLI or an agent's shell that declared no terminal is an agent's too
+            // (`cli_caller.rs`).
+            let person = conn.is_person() || (conn.origin == Origin::Local && !conn.agent_side());
             if !person && conn.caller() != Some(s.id.as_str()) {
-                return Err(RpcError::invalid_params(
+                let other = RpcError::invalid_params(
                     "inbox.other_session: only the person or the chat's own agent reads its inbox",
                 )
-                .with_data(json!({"reason": "inbox.other_session"})));
+                .with_data(json!({"reason": "inbox.other_session"}));
+                return Err(conn.refusal("reading another chat's inbox", other));
             }
             // Its inbox is restored from its log (`restore_queue`): read once that load is done.
             hub.session_log(&s).await;
@@ -2797,11 +2826,9 @@ async fn dispatch_request_with_identity(
                 // The person's: the app, or the local socket with no agent behind it. A
                 // session's agent never lifts a cap, its own or another's.
                 // A caller token this daemon does not know is an agent's all the same.
-                let agent = conn.caller().is_some() || conn.unproven_caller.get().is_some();
-                if !conn.is_person() && (conn.origin != Origin::Local || agent) {
-                    return Err(crate::hub::person::person_required(
-                        "changing a session's turn cap",
-                    ));
+                // So is an old acpmux CLI or a shell that declared no terminal (`cli_caller.rs`).
+                if !conn.is_person() && (conn.origin != Origin::Local || conn.agent_side()) {
+                    return Err(conn.person_only("changing a session's turn cap"));
                 }
                 let cap = match value {
                     Value::Null => None,
@@ -3324,8 +3351,12 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// transport are no terminal. Any of those stays `unverified`. A send the daemon keeps and delivers
 /// later (`_acpmux/send_queue`) replays on the outbox's own unix connection with its request's
 /// claims and the caller its sender named, proven or not (`Delivery::unproven_caller`), so it is
-/// judged here as the send itself was (#38260 F1). What is left is a plain unix
-/// connection of the user that claims nothing: the person at their terminal. A script of the
+/// judged here as the send itself was (#38260 F1). An acpmux CLI says at `initialize` whether
+/// it runs in an acpmux session's environment (`cli_caller.rs`): one that says `agent` (its token
+/// proved nothing to this daemon, or it had none), and an old acpmux CLI that says nothing (it
+/// checked nothing: bench round 4 recorded an agent's send through `acpmux` 0.1.0 as the person),
+/// are no terminal either; the outbox replays that too (`Delivery::not_terminal`). What is left
+/// is a plain unix connection of the user that claims nothing: the person at their terminal. A script of the
 /// same user that strips every label is let through, as it was before #37497; it still never
 /// releases a protected hold (`PromptOptions::unproven_owner`), never counts as an authenticated
 /// person (`human_authenticated` needs the proven person) and is never forwarded to a peer as
@@ -3346,12 +3377,17 @@ fn owner_terminal(conn: &Conn, params: &Value) -> bool {
         && !conn.is_trigger()
         && conn.caller().is_none()
         && conn.unproven_caller.get().is_none()
+        && conn.may_be_owner_terminal()
         && !claims
 }
 
-/// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`).
-fn claimed_labels(params: &Value) -> serde_json::Map<String, Value> {
+/// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`),
+/// and the old acpmux CLI its connection is (`cli_caller.rs`), which proves no caller.
+fn claimed_labels(conn: &Conn, params: &Value) -> serde_json::Map<String, Value> {
     let mut out = serde_json::Map::new();
+    if let Some(client) = conn.declared().and_then(crate::cli_caller::Declared::old_client) {
+        out.insert(crate::cli_caller::CLAIMED_CLIENT.to_owned(), json!(client));
+    }
     let Some(mux) = params.pointer("/_meta/acpmux") else { return out };
     for key in ["cliHost", "fromHarness", "via"] {
         if let Some(value) = mux.get(key).and_then(Value::as_str) {
@@ -3376,7 +3412,11 @@ fn stamp_bound_sender(
     if person_message {
         return Some(provenance);
     }
-    let bound = match conn.caller() {
+    // The session this connection proved, else the bridged chat a Claude desktop session's send
+    // was bound to by its process tree (`hub/desktop_bridge.rs`).
+    let bridged = crate::hub::desktop_bridge::bridged_sender(params);
+    let caller = conn.caller().or(bridged);
+    let bound = match caller {
         Some(caller) if !conn.is_person() && caller != to => hub
             .resolve(caller)
             .ok()
@@ -3389,7 +3429,7 @@ fn stamp_bound_sender(
         }
         _ => None,
     };
-    let caller_bound = conn.caller().is_some_and(|caller| !conn.is_person() && caller != to)
+    let caller_bound = caller.is_some_and(|caller| !conn.is_person() && caller != to)
         && bound.as_ref().is_some_and(|b| b.session_id.is_some());
     let mut provenance = crate::prompt_provenance::stamp_sender(provenance, bound.as_ref());
     // A caller token proved the sending session: the daemon bound who sent it, whatever name it

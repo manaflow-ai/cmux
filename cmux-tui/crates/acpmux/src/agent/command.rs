@@ -112,6 +112,8 @@ pub(crate) fn harness_command(
     for key in crate::hub::person::CALLER_ENV_KEYS {
         env.remove(key);
     }
+    // So is the CLI an agent runs (`cli_caller.rs`): never a profile's.
+    env.remove(crate::cli_caller::BIN_ENV);
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd =
         crate::session_scope::command(program, session.map(|(id, _)| id), &env, remote_environment);
@@ -208,6 +210,11 @@ pub(crate) fn harness_command(
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
             .envs(crate::hub::person::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
+        // This daemon's own acpmux, by absolute path: a login profile's PATH may find an older
+        // one, which proves no caller (`cli_caller.rs`, bench round 4 A5).
+        if let Some(bin) = crate::cli_caller::own_bin() {
+            cmd.env(crate::cli_caller::BIN_ENV, bin);
+        }
         // Its own temporary folder (`session_tmp.rs`); a profile's TMPDIR
         // (applied below) still wins. A remote-origin chain keeps its base.
         #[cfg(unix)]

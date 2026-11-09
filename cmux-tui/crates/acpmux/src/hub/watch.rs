@@ -143,6 +143,18 @@ fn read_lines_with_limits(
     Ok((lines, start + end as u64 + 1))
 }
 
+/// The prompt id and text of a delivered prompt `record` is the app's transcript line of: a
+/// Claude Code `peer` user line with the uuid acpmux sent it with (`bridge.rs`).
+fn bridged_line(family: &str, session_id: &str, record: &Value) -> Option<(String, String)> {
+    if family != "claude"
+        || record.get("type").and_then(Value::as_str) != Some("user")
+        || record.pointer("/origin/kind").and_then(Value::as_str) != Some("peer")
+    {
+        return None;
+    }
+    super::bridge::delivered(session_id, record.get("uuid")?.as_str()?)
+}
+
 impl Hub {
     /// Makes a just-created adopted `session` watch `file` instead of running the conversation.
     pub(super) fn begin_watch(
@@ -378,13 +390,21 @@ impl Hub {
         for line in lines {
             let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
             let at = record_time(&record);
+            // A prompt acpmux delivered into the app (`bridge.rs`) shows as sent, under its id.
+            if let Some((prompt_id, text)) = bridged_line(&watching.family, &session.id, &record) {
+                if let Some(turn) = open.take() {
+                    self.end_watched_turn(session, &turn, at);
+                }
+                *open = Some(self.begin_watched_turn(session, &text, at, Some(prompt_id)));
+                continue;
+            }
             for step in record_steps(&watching.family, &record, &mut watching.codex_items) {
                 match step {
                     Step::Prompt(text) => {
                         if let Some(turn) = open.take() {
                             self.end_watched_turn(session, &turn, at);
                         }
-                        *open = Some(self.begin_watched_turn(session, &text, at));
+                        *open = Some(self.begin_watched_turn(session, &text, at, None));
                     }
                     Step::Answer(mut text) => {
                         // The pieces of one answer (text around a tool call) read as paragraphs.
@@ -423,9 +443,17 @@ impl Hub {
     }
 
     /// The records a turn starts with, for a prompt the original app sent.
-    fn begin_watched_turn(&self, session: &Session, text: &str, at: Option<u64>) -> WatchedTurn {
+    /// `bridged`: the id of the prompt acpmux delivered (`bridge.rs`), which this turn answers.
+    fn begin_watched_turn(
+        &self,
+        session: &Session,
+        text: &str,
+        at: Option<u64>,
+        bridged: Option<String>,
+    ) -> WatchedTurn {
         let turn_id = format!("watched-{}", uuid::Uuid::now_v7());
-        let prompt_id = format!("{turn_id}-prompt");
+        let client = if bridged.is_some() { "bridge" } else { "watch" };
+        let prompt_id = bridged.unwrap_or_else(|| format!("{turn_id}-prompt"));
         {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             if m.title.is_none()
@@ -437,10 +465,9 @@ impl Hub {
             m.turn_count += 1;
         }
         let preview: String = text.chars().take(200).collect();
-        let started = json!({"prompt": preview, "client": "watch", "promptId": prompt_id, "turnId": turn_id, "control": "local"});
+        let started = json!({"prompt": preview, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": "local"});
         let turn_seq = self.append_at(session, "mux", "turn_started", started, None, at).0.seq;
-        let msg =
-            json!({"text": text, "client": "watch", "promptId": prompt_id, "turnId": turn_id});
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         self.append_at(session, "mux", "user_message", msg, None, at);
         WatchedTurn { turn_id, prompt_id, turn_seq, answered: false }
     }
@@ -452,6 +479,7 @@ impl Hub {
         self.append_at(session, "mux", "turn_end", end, None, at);
         let result = json!({"status": "completed", "stopReason": "end_turn", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
         self.append_at(session, "mux", "turn_result", result, None, at);
+        super::bridge::answered(&session.id, prompt_id, turn_id);
     }
 
     /// `_acpmux/watch_take_over`: ends the watch so the chat runs the conversation itself.

@@ -373,11 +373,11 @@ mod tests {
                 {"id": "tab_e", "pane_id": "pane_1", "content_id": "term_e", "focused": true, "name": null, "extra": {}},
             ],
             "terminals": [
-                {"id": "term_a", "tab_id": "tab_a", "title": "build"},
-                {"id": "term_b", "tab_id": "tab_b", "title": "claude"},
-                {"id": "term_c", "tab_id": "tab_c", "title": "codex"},
-                {"id": "term_d", "tab_id": "tab_d", "title": "tests"},
-                {"id": "term_e", "tab_id": "tab_e", "title": "zsh"},
+                {"id": "term_a", "tab_id": "tab_a", "title": "build", "lifecycle": "running"},
+                {"id": "term_b", "tab_id": "tab_b", "title": "claude", "lifecycle": "running"},
+                {"id": "term_c", "tab_id": "tab_c", "title": "codex", "lifecycle": "running"},
+                {"id": "term_d", "tab_id": "tab_d", "title": "tests", "lifecycle": "running"},
+                {"id": "term_e", "tab_id": "tab_e", "title": "zsh", "lifecycle": "running"},
             ],
             "agents": [
                 {"id": "agent_c", "terminal_id": "term_c", "state": "blocked", "updated_at_ms": "200"},

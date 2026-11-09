@@ -8,6 +8,7 @@ import {
 } from "../summary/transcriptPullRequests";
 import { ChildRowView, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName, showsNothing } from "../hiddenTools";
+import { toolForName } from "../toolNames";
 import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 import {
@@ -21,6 +22,9 @@ import {
   runModel,
   runReply,
 } from "./agentRuns";
+
+/// A call titled only by its shell tool's name ("Bash", "shell"), not by what it runs.
+const isBareShellTitle = (title: string): boolean => /^\S+$/.test(title.trim()) && toolForName(title) === "shell";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -275,6 +279,8 @@ export class SubagentFold {
   private readonly latestCall = new Map<string, string>();
   /// Each subagent's calls whose ACP kind is `execute` (`agent\u0000call`): a shell call's title is its command.
   private readonly shellCalls = new Set<string>();
+  /// Calls titled only by their shell tool's name (`isBareShellTitle`), by `<owner>\u0000<call>`.
+  private readonly bareShellCalls = new Set<string>();
   private readonly calls = new Set<string>();
   /// Each subagent's calls still open (`agent\u0000call`): one with any open is not quiet (``quietSince``).
   private readonly openCalls = new Set<string>();
@@ -364,17 +370,31 @@ export class SubagentFold {
         this.latestCall.set(owner.id, call);
       }
       const newest = call === undefined || (this.latestCall.get(owner.id) ?? call) === call;
-      if (tool && update.title && newest) {
-        owner.action = String(update.title);
+      const key = call === undefined ? undefined : `${owner.id}\u0000${call}`;
+      // A call titled only by its shell tool ("Bash", announced before its input) is its command,
+      // whether the command comes with that title or in a later update that repeats no title.
+      const title = update?.title ? String(update.title) : undefined;
+      if (tool && key && title !== undefined) {
+        if (isBareShellTitle(title)) this.bareShellCalls.add(key);
+        else this.bareShellCalls.delete(key);
+      }
+      const command = update?.rawInput?.command;
+      const typed =
+        typeof command === "string" &&
+        command.trim() !== "" &&
+        (title !== undefined ? isBareShellTitle(title) : key !== undefined && this.bareShellCalls.has(key));
+      if (tool && newest && (title !== undefined || typed)) {
+        owner.action = typed ? command : title!;
         // A shell call's title is its command as typed (ACP kind `execute`); the tray says it in words.
         // An update that omits its kind keeps what its own call said, never another call's.
-        const key = call === undefined ? undefined : `${owner.id}\u0000${call}`;
         if (key && typeof update.kind === "string") {
           if (update.kind === "execute") this.shellCalls.add(key);
           else this.shellCalls.delete(key);
         }
         const shell =
-          update.kind === "execute" || (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
+          typed ||
+          update.kind === "execute" ||
+          (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
         if (shell) owner.actionShell = true;
         else delete owner.actionShell;
       }

@@ -76,9 +76,7 @@ export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
   {
     name: "session host restart",
     secs: 0,
-    // The session host is the one process started with --relay-slot (cmux-host's carrier_entry.rs); its pid is read
-    // first and only that pid is killed.
-    command: "p=$(pgrep -f -- '--relay-slo[t]' | head -1); [ -n \"$p\" ] && sudo -n kill -KILL \"$p\" && echo \"@@ok $p\"",
+    command: sessionHostKillCommand(),
   },
   {
     name: "agent daemon restart",
@@ -88,14 +86,29 @@ export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
 ];
 
 /**
- * Reset every established 443 connection on the machine. `ss -K` lists each socket it closed, so `@@ok` needs both its
- * exit status and at least one closed socket: a missing `sudo`, a missing `ss`, or a kernel without SOCK_DESTROY (where
- * `ss -K` closes nothing) prints `@@failed` instead of passing as a cut that never happened.
+ * Reset every established 443 connection on the machine. `ss -K` lists each socket it closed (`-n`, so the port reads
+ * `:443`, never `:https`), so `@@ok` needs both its exit status and at least one closed socket: a missing `sudo`, a
+ * missing `ss`, or a kernel without SOCK_DESTROY (where `ss -K` closes nothing) prints `@@failed` instead of passing
+ * as a cut that never happened.
  */
 export function relayCutCommand(): string {
-  return "out=$(sudo -n ss -K -H state established '( dport = :443 )' 2>&1); rc=$?; " +
+  return "out=$(sudo -n ss -K -H -n state established '( dport = :443 )' 2>&1); rc=$?; " +
     "n=$(printf '%s\\n' \"$out\" | grep -c ':443'); " +
     "if [ \"$rc\" -eq 0 ] && [ \"$n\" -gt 0 ]; then echo \"@@ok $n\"; else echo \"@@failed rc=$rc closed=$n\"; fi";
+}
+
+/**
+ * SIGKILL the session host: the one process in cmux-host.service's own cgroup started with `--relay-slot`
+ * (carrier_entry.rs). Its pid comes from the unit systemd records, never a match across every process on the machine,
+ * and only that pid is killed.
+ */
+export function sessionHostKillCommand(): string {
+  return "cg=$(systemctl show -p ControlGroup --value cmux-host.service 2>/dev/null); host=''; " +
+    // Every cgroup.procs under the unit (the session host may sit in a child cgroup). The pattern's brackets keep this
+    // shell, whose own command line holds the pattern's text, from matching itself, and its own pid is skipped too.
+    "for p in $(find \"/sys/fs/cgroup$cg\" -name cgroup.procs -exec cat {} + 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; " +
+    "{ tr '\\0' ' ' < \"/proc/$p/cmdline\"; } 2>/dev/null | grep -q -- ' --relay-slo[t] ' && { host=$p; break; }; done; " +
+    "if [ -n \"$cg\" ] && [ -n \"$host\" ] && sudo -n kill -KILL \"$host\"; then echo \"@@ok $host\"; else echo \"@@failed cgroup=$cg pid=$host\"; fi";
 }
 
 /** Not injectable from the machine: recorded as not run, with whose lane can run them. */
@@ -128,6 +141,16 @@ export function dropCommand(secs: number): string {
     `elif command -v nft >/dev/null 2>&1; then (sleep ${secs}; nft delete table inet cmuxchaos) >/dev/null 2>&1 & ` +
     `if ${nft}; then echo @@ok nft; else nft delete table inet cmuxchaos; echo @@failed nft; fi; else echo @@none; fi`;
   return `sudo -n sh -c ${shq(script)}`;
+}
+
+/**
+ * When a fault's cause is surely over: no earlier than the fault command's answer (a cut or a kill has happened by
+ * then, and an identify sent before it may have been answered before the cause), and no earlier than the drop's own
+ * length after the command went out. Recovery is timed from here, so an answer to a request sent before the cause
+ * never counts as recovery.
+ */
+export function causeEndedAt(sentAt: number, answeredAt: number, secs: number): number {
+  return Math.max(answeredAt, sentAt + secs * 1000);
 }
 
 /** One open carrier dial, pinged; every answer's time kept. A dial that ends is replaced at once. */
@@ -548,7 +571,9 @@ async function turnState(ctx: ChaosContext, marker: string, session = ctx.sessio
     started: mine.length,
     running,
     status: mine.map((t: any) => String(t.status)).join(","),
-    detail: mine.map((t: any) => String(t.detail ?? "")).join(","),
+    // `detail` names why a failed turn ended (`outcome_unknown` for a restart cut); a daemon older than it carries the
+    // reason only in `error`'s text.
+    detail: mine.map((t: any) => String(t.detail ?? (typeof t.error === "string" ? t.error : t.error?.message ?? ""))).join(","),
   };
 }
 
@@ -698,8 +723,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         : state.running ? `mid-turn, but the client had seen only step ${reached} of ${COUNT_STEPS}` : `after the turn (${state.status})`;
       const dialsBefore = carrier.dials;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
-      // The cause starts when the command runs, which is after this moment: timing from here makes recovery an upper
-      // bound. A drop may hold the exec's own answer until it ends, so its budget covers the drop.
+      // A drop may hold the exec's own answer until it ends, so its budget covers the drop.
       const injectedAt = Date.now();
       const injected = await ctx.exec(`${ctx.guest}${f.command}`, f.secs * 1000 + 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
       if (!/@@ok/.test(injected.stdout)) {
@@ -707,7 +731,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         out.push(failed(f.name, `could not inject: ${(injected.stdout + injected.stderr).trim().slice(-200)}`));
         continue;
       }
-      const healed = injectedAt + f.secs * 1000;
+      const healed = causeEndedAt(injectedAt, Date.now(), f.secs);
       await sleep(Math.max(0, healed - Date.now()));
       const back = await carrier.answeredAfter(healed, RECOVER_DEADLINE_MS);
       const recover = back === null ? null : back - healed;

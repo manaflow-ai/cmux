@@ -9,12 +9,13 @@
 #
 # It also writes OUT.patch, beside OUT and never in it (base-autofix.sh copies
 # every file under OUT into the checkout): one `git apply` patch of every
-# export that changed, empty when none did. A step returns one file, so a lane
+# export that changed, after a one-line header, so it is never a 0-byte file
+# (the fleet's artifact store refuses one). A step returns one file, so a lane
 # without a Mac regenerates a pull request's exports with
 #   cmux-ci run --class light --script scripts/cmux-next/regenerate-action-exports.sh \
 #     --ref <pushed head> --key <key> --arg .build/exports --artifact .build/exports.patch
 #   cmux-ci artifact <step id> exports.patch
-#   [ ! -s exports.patch ] || git apply exports.patch   # empty: nothing was stale
+#   git apply --allow-empty exports.patch   # no diff when nothing was stale
 #
 # Usage: scripts/cmux-next/regenerate-action-exports.sh OUT
 set -euo pipefail
@@ -47,5 +48,8 @@ for file in "${exports[@]}"; do
   cp "$file" "$out/$file"
   echo "regenerated: $file"
 done
-git diff --binary -- "${exports[@]}" > "$out.patch"
+{
+  echo "regenerate-action-exports.sh at $(git rev-parse HEAD): the exports that changed (none when no diff follows)"
+  git diff --binary -- "${exports[@]}"
+} > "$out.patch"
 echo "patch: $out.patch ($(wc -l < "$out.patch" | tr -d ' ') lines)"
