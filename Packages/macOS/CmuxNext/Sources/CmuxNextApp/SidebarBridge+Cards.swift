@@ -2,6 +2,7 @@ import CmuxNextCompat
 import Foundation
 import CmuxNextActions
 import CmuxNextAgentLanes
+import CmuxNextDaemonService
 import CmuxNextNowPlaying
 import CmuxNextPages
 import CmuxNextSettings
@@ -18,7 +19,7 @@ extension SidebarBridge {
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView, approvals: SidebarApprovals(environment: services.feed.acpmuxEnvironment))
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
         let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks)
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks, restoring: { [weak services] in services?.daemon.recovery.restoringText })
             .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }
@@ -43,18 +44,18 @@ enum SidebarCardFeed {
     /// `document`): one task, so the bridge cancels both together. `registry` gives the tip card its action's shortcut.
     static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?,
                       document: @escaping @MainActor @Sendable () -> SidebarDocStore?, registry: ActionRegistry? = nil,
-                      settings: SettingsController? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
-        let cards = start(model: model, updater: updater, registry: registry, asks: asks)
+                      settings: SettingsController? = nil, asks: SidebarAsks? = nil, restoring: (@MainActor @Sendable () -> String?)? = nil) -> Task<Void, Never> {
+        let cards = start(model: model, updater: updater, registry: registry, asks: asks, restoring: restoring)
         guard window != nil else { return cards }
         let whatsNew = model.followTopItems(document: document)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
-    static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
+    static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil, restoring: (@MainActor @Sendable () -> String?)? = nil) -> Task<Void, Never> {
         model.updatedCard = updatedCard(updater) // before the window's first frame (relaunch layout shifts)
         return Task {
             for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
-                (updateCard(updater), updatedCard(updater), asks?.card ?? noticeCard(updater, registry: registry))
+                (updateCard(updater), updatedCard(updater), asks?.card ?? restoring?().map(SidebarNoticeCard.restoring) ?? noticeCard(updater, registry: registry))
             }) {
                 if model.updateCard != card { model.updateCard = card }
                 if model.updatedCard != updated { model.updatedCard = updated }

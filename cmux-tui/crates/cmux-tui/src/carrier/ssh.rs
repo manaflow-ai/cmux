@@ -214,11 +214,14 @@ fn route_url(candidate: &SshCandidate) -> Option<Url> {
     Url::parse(&format!("ssh://{}@{host}:{}", candidate.user, candidate.port)).ok()
 }
 
-/// A path as one ssh config word: `%` doubled (ssh expands `%` tokens in
-/// these options), no `"` or control character.
+/// A path as one ssh config word, for options ssh expands: `%` doubled
+/// (`IdentityFile`, `UserKnownHostsFile` and `ProxyCommand` expand `%`
+/// tokens), and `None` for a `"`, a control character, or `${` (the first
+/// two also expand `${VAR}`, and nothing escapes it).
 fn ssh_path(path: &Path) -> Option<String> {
     let text = path.to_str()?;
-    (!text.chars().any(|c| c == '"' || c.is_control())).then(|| text.replace('%', "%%"))
+    let unsafe_char = text.chars().any(|c| c == '"' || c.is_control());
+    (!unsafe_char && !text.contains("${")).then(|| text.replace('%', "%%"))
 }
 
 /// A path as one `/bin/sh` word inside the ProxyCommand: single-quoted,
@@ -231,11 +234,16 @@ fn shell_path(path: &Path) -> Option<String> {
 /// The ssh options of the carrier: only the carrier key, the pin, and the
 /// tunnel's `wg dial` as the ProxyCommand, with no person's config, agent,
 /// known hosts, prompt or shared master. `None` for a path ssh cannot take.
+///
+/// The key goes as `-o IdentityFile`, not `-i`: ssh `stat`s an `-i` path
+/// as given, before it expands `%%` back to `%`, so a key whose path holds
+/// a `%` would be dropped with a warning (and a single `%` is a token).
 pub(super) fn ssh_arguments(key: &Path, pin: &Path, exe: &Path, hub: &Path) -> Option<Vec<String>> {
     let proxy =
         format!("ProxyCommand={} wg dial --hub {} %h %p", shell_path(exe)?, shell_path(hub)?);
-    let mut args = vec!["-F".to_owned(), "/dev/null".to_owned(), "-i".to_owned(), ssh_path(key)?];
+    let mut args = vec!["-F".to_owned(), "/dev/null".to_owned()];
     for option in [
+        format!("IdentityFile=\"{}\"", ssh_path(key)?),
         "IdentitiesOnly=yes".to_owned(),
         "IdentityAgent=none".to_owned(),
         "StrictHostKeyChecking=yes".to_owned(),
@@ -565,6 +573,11 @@ impl SshRoute {
 
     async fn authorize_now(&self) -> Result<(), SourceError> {
         let _one = self.authorizing.lock().await;
+        // The authorization this one waited for may have been refused for
+        // good: then nothing asks again.
+        if let Some(reason) = self.refused() {
+            return Err(SourceError { retryable: false, detail: reason.to_owned() });
+        }
         if self.authorized_at(now_unix()) {
             return Ok(());
         }
