@@ -582,7 +582,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// (``returnedToView``).
     private func noteLeaving() {
         guard let window else { return }
-        windowLeftThisTurn = window
+        windowLeftThisTurn = ObjectIdentifier(window)
         leftWindowTurns += 1
         let turn = leftWindowTurns
         // task-owner: one main-actor turn; ends at once
@@ -591,7 +591,9 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// The window this view left in the current main-actor turn, nil once that turn is over (a later leave
     /// takes it over: only its own task clears it).
-    private weak var windowLeftThisTurn: NSWindow?
+    /// Its identity, not a weak reference: a view leaves while its window deallocates (a closing window), and a
+    /// weak reference to a deallocating object aborts the process.
+    private var windowLeftThisTurn: ObjectIdentifier?
     private var leftWindowTurns = 0
 
     public override func viewDidMoveToWindow() {
@@ -638,7 +640,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// The person sees this chat again now: in its window's view tree, with no hidden ancestor, and not just
     /// moved inside its window in this turn (left it and came back: the Chief panel's take and give-back).
     private var returnedToView: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, windowLeftThisTurn !== window else { return false }
+        guard let window, !isHiddenOrHasHiddenAncestor, windowLeftThisTurn != ObjectIdentifier(window) else { return false }
         let top = sequence(first: self as NSView, next: \.superview).reduce(self as NSView) { $1 }
         return top === window.contentView || top === window.contentView?.superview
     }
