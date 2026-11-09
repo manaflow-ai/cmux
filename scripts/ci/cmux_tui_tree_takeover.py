@@ -38,7 +38,8 @@ Callers:
   (a dispatch from an owner that ran an older notify, or a push whose probe found
   its publisher ended): `--commit SHA` exits 0 when the publish was taken over.
 
-usage: cmux_tui_tree_takeover.py --repo OWNER/NAME --commit SHA [--key KEY] [--exclude-run ID]
+usage: cmux_tui_tree_takeover.py --repo OWNER/NAME --commit SHA [--key KEY] [--exclude-run ID] [--reason TEXT]
+(--reason: the same-tree reason; the owner run it names, ".../actions/runs/N ended without publishing", is excluded.)
 Needs GH_TOKEN with actions: write.
 """
 from __future__ import annotations
@@ -119,7 +120,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--key", default="")
     parser.add_argument("--exclude-run", type=int, default=0, help="the reporting run, never taken as a publisher")
+    parser.add_argument("--reason", default="", help="a same-tree reason; the run it names is excluded")
     args = parser.parse_args(argv)
+    named = re.search(r"/actions/runs/([0-9]+)", args.reason)
+    exclude_run = args.exclude_run or (int(named.group(1)) if named else 0)
     token = os.environ.get("GH_TOKEN", "")
     if not token:
         print("::warning::no GH_TOKEN; cannot take over the tree publish")
@@ -129,7 +133,7 @@ def main(argv: list[str]) -> int:
 
     api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
     return 0 if take_over_any(api, repo=args.repo, commits=[args.commit], key=args.key,
-                         exclude_run=args.exclude_run) else 1
+                         exclude_run=exclude_run) else 1
 
 
 if __name__ == "__main__":

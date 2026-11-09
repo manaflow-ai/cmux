@@ -168,12 +168,24 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
         """cmux-next.yml's same-tree job runs the takeover first; red only when it is not taken."""
         workflow = (ROOT / ".github" / "workflows" / "cmux-next.yml").read_text(encoding="utf-8")
         job = workflow.split("\n  same-tree-cmux-tui:\n", 1)[1].split("\n  swift-canary-fleet:\n", 1)[0]
-        self.assertIn("python3 scripts/ci/cmux_tui_tree_takeover.py", job)
         self.assertIn("actions: write", job)
-        self.assertLess(job.index("Take over the unpublished same-tree cmux-tui"),
-                        job.index("Report the unavailable same-tree cmux-tui"))
-        self.assertIn("steps.takeover.outputs.taken != 'true'", job.split("Report the unavailable", 1)[1])
+        red = job.split("name: Report the unavailable same-tree cmux-tui", 1)[1]
+        self.assertLess(red.index("scripts/ci/cmux_tui_tree_takeover.py"), red.index("::error title=same-tree"))
+        self.assertIn('--reason "$REASON"', red)
 
+    def test_the_owner_named_in_the_reason_is_excluded(self):
+        """A dispatched same-tree reason names the owner, which may still be finishing its notify job."""
+        calls: list[tuple] = []
+        original = takeover.take_over_any
+        takeover.take_over_any = lambda api, **kw: calls.append(kw) or False  # type: ignore[assignment]
+        try:
+            import os
+            os.environ["GH_TOKEN"] = "x"
+            takeover.main(["--repo", REPO, "--commit", TIP, "--reason",
+                           "the cmux-tui artifacts run https://github.com/o/r/actions/runs/42673437035 ended without publishing"])
+        finally:
+            takeover.take_over_any = original
+        self.assertEqual(calls[0]["exclude_run"], 42673437035)
 
 if __name__ == "__main__":
     unittest.main()
