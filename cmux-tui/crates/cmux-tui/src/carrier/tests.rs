@@ -588,6 +588,17 @@ fn the_desktop_link_takes_the_answer_s_turn_relays_over_udp() {
     assert_eq!(parse_answer(&value).unwrap().rd_link.unwrap().turn.len(), 4);
     value["rd_link"] = json!({"stun": ["stun.example.net:3478"]});
     assert!(parse_answer(&value).unwrap().rd_link.unwrap().turn.is_empty());
+
+    // A credential of up to 512 bytes is kept; one byte longer drops the relay.
+    let relay = |user: &str, pass: &str| json!({"stun": [], "turn": [{"addr": "turn.example.net:3478", "username": user, "password": pass}]});
+    let long = "x".repeat(512);
+    value["rd_link"] = relay(&long, &long);
+    assert_eq!(parse_answer(&value).unwrap().rd_link.unwrap().turn.len(), 1);
+    let longer = "x".repeat(513);
+    for (user, pass) in [(longer.as_str(), "p"), ("u", longer.as_str())] {
+        value["rd_link"] = relay(user, pass);
+        assert!(parse_answer(&value).unwrap().rd_link.unwrap().turn.is_empty(), "513 bytes");
+    }
 }
 
 #[test]

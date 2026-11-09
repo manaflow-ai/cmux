@@ -165,6 +165,8 @@ enum HomeMapping {
             let shown: [Part]
             if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
                let card = HomeApprovalRowProvider.part(question) { shown = [card] }
+            else if case .widget(let widget) = p, let widgets = HomeWidgetRowProvider.installed,
+                    let card = widgets.part(widget, key: HomeWidgetRowProvider.key(item, part: i)) { shown = [card] }
             else { shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links) }
             parts += shown
             owners += Array(repeating: i, count: shown.count)
@@ -447,9 +449,10 @@ enum HomeMapping {
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
-        case .work, .approval, .question:
+        case .work, .approval, .question, .widget:
             // Agent session, approval and question cards are not MessagesLab rows
             // yet: their text. The question card moves to the custom-row seam.
+            // A widget without an installed host shows its fallback text.
             return .text(p.plainText, runs: [])
         }
     }
