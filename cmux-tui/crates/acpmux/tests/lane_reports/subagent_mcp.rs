@@ -251,7 +251,7 @@ async fn subagent_bg_start(sock: &Path, parent: &str, call: &str, n: u8) {
 #[tokio::test]
 async fn lane_report_subagent_mcp_a_bg_task_end_goes_to_the_subagent_that_started_it() {
     let hub = hub();
-    hub.set_bg_runner(daemon_env::bin().into(), acpmux::bg_run::SEGMENT);
+    hub.set_bg_runner(daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
     let sock = socket(&hub, "bgend").await;
     let mut person = Client::new(&hub);
     let gate = super::subagents::fifo("mcp-bgend");
@@ -280,7 +280,7 @@ async fn lane_report_subagent_mcp_a_bg_task_end_goes_to_the_subagent_that_starte
 #[tokio::test]
 async fn lane_report_subagent_mcp_a_bg_task_end_the_subagent_never_took_goes_to_the_lead() {
     let hub = hub();
-    hub.set_bg_runner(daemon_env::bin().into(), acpmux::bg_run::SEGMENT);
+    hub.set_bg_runner(daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
     let sock = socket(&hub, "bgswept").await;
     let mut person = Client::new(&hub);
     let gate = super::subagents::fifo("mcp-bgswept");

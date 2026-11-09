@@ -7,6 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin, ViteDevServer } from "vite-plus";
 
+import { devBase } from "./devEntrySrc";
+
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CONFIG = path.join(ROOT, "scripts/lint/perf-footguns.json");
 const VP = path.join(ROOT, "node_modules/.bin/vp");
@@ -54,9 +56,13 @@ export function perfLintOnSave(): Plugin {
   // The newest save per file wins: a slower lint of an older save never reports over it.
   const latest = new Map<string, number>();
   let server: ViteDevServer | undefined;
+  let base = "/";
   return {
     name: "cmux-perf-lint-on-save",
     apply: "serve",
+    configResolved(config) {
+      base = devBase(config.base);
+    },
     configureServer(dev) {
       server = dev;
     },
@@ -70,7 +76,7 @@ export function perfLintOnSave(): Plugin {
 });`;
     },
     transformIndexHtml: () => [
-      { tag: "script", attrs: { type: "module", src: `/@id/${CLIENT_ID}` }, injectTo: "head" },
+      { tag: "script", attrs: { type: "module", src: `${base}@id/${CLIENT_ID}` }, injectTo: "head" },
     ],
     handleHotUpdate({ file }) {
       if (!SOURCE.test(file) || !file.startsWith(path.join(ROOT, "src") + path.sep)) return;

@@ -70,7 +70,17 @@ describe("setupSteps", () => {
     expect(steps[0]).toMatchObject({ done: false, detail: "Finish signing in to Claude Code in its terminal tab" });
     expect(steps[0]?.action).toEqual({ label: "I’m Signed In", run: { kind: "confirmAgent", id: "claude" } });
     expect(steps[0]?.secondary).toEqual({ label: "Sign In Again", run: { kind: "signInAgent", id: "claude" } });
+    expect(steps[0]?.tertiary).toEqual({ label: "Install Codex", run: { kind: "installAgent", id: "codex" } });
     expect(nextStep(steps)?.id).toBe("agents");
+  });
+
+  test("an unverified agent with no other agent shows no third button", () => {
+    const [row] = setupSteps(
+      { ...fresh, agents: [{ id: "claude", name: "Claude Code", state: "unverified" }] },
+      strings,
+    );
+    expect(row?.secondary?.run).toEqual({ kind: "signInAgent", id: "claude" });
+    expect(row?.tertiary).toBeUndefined();
   });
 
   test("every agent has a button: Codex stays reachable while Claude Code installs or after it fails", () => {

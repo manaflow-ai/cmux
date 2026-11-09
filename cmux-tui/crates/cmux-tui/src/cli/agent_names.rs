@@ -133,7 +133,7 @@ pub(in crate::cli) fn places_named(snapshot: &Value, name: &str) -> Vec<Place> {
                 terminal: terminal["id"].as_str()?.to_owned(),
                 tab: tab["id"].as_str()?.to_owned(),
                 pane: tab["pane_id"].as_str()?.to_owned(),
-                live: terminal["lifecycle"] != "exited",
+                live: super::terminal_lifecycle::is_live(terminal),
             })
         })
         .collect()

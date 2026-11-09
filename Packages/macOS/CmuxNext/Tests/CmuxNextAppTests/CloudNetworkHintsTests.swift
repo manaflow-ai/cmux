@@ -11,7 +11,6 @@ import Testing
 struct CloudNetworkHintsTests {
     static var hints: [(ActionID, String)] {
         [
-            ("cloudTunnelAttach", CloudStrings.networkIDRequired), ("cloudTunnelDetach", CloudStrings.networkIDRequired),
             ("cloudFirewallGet", CloudStrings.ruleIDRequired), ("cloudFirewallDelete", CloudStrings.ruleIDRequired),
             ("cloudFirewallCreate", CloudStrings.ruleJSONRequired),
         ]
@@ -36,7 +35,17 @@ struct CloudNetworkHintsTests {
         #expect(throws: ActionFailure(message: CloudStrings.ruleIDRequired)) {
             try CloudHandlers.idArgument(ActionInvocation(arguments: ["path": .string("  ")]), CloudStrings.ruleIDRequired)
         }
-        #expect(try CloudHandlers.idArgument(ActionInvocation(arguments: ["path": .string(" net-1 ")]), CloudStrings.networkIDRequired) == "net-1")
+        #expect(try CloudHandlers.idArgument(ActionInvocation(arguments: ["path": .string(" net-1 ")]), CloudStrings.ruleIDRequired) == "net-1")
+    }
+
+    /// Attach and detach take no required id: none is the joined team's network, the only one
+    /// acpmux's tunnel joins (a given id must be that team's).
+    @Test func theTunnelNetworkIsOptional() throws {
+        for id: ActionID in ["cloudTunnelAttach", "cloudTunnelDetach"] {
+            let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
+            #expect(descriptor.arguments.map(\.name) == ["path"], "\(id)")
+            #expect(descriptor.arguments.allSatisfy { !$0.isRequired }, "\(id) runs with no network id")
+        }
     }
 
     /// The example in the create refusal is a rule the handler accepts.
