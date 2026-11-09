@@ -143,7 +143,7 @@ import Testing
     private nonisolated static func nextLiveEvent(
         _ iterator: inout AsyncStream<AgentSessionEvent>.Iterator,
         allowingRefresh: Bool = false,
-        matching predicate: (AgentSessionEvent) -> Bool
+        matching predicate: @Sendable (AgentSessionEvent) -> Bool
     ) async throws {
         while let event = await iterator.next() {
             if case .batch(let events) = event {
