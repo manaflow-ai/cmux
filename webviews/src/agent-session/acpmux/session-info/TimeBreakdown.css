@@ -38,7 +38,6 @@
   border: 0;
   padding: 0;
   opacity: 0.88;
-  cursor: pointer;
 }
 .acpmux-time-breakdown__span:hover,
 .acpmux-time-breakdown__span:focus-visible {
@@ -66,7 +65,6 @@
   text-align: start;
 }
 .acpmux-time-breakdown__total-row:not(:disabled) {
-  cursor: pointer;
 }
 .acpmux-time-breakdown__total-row:focus-visible {
   outline: var(--cmux-hairline, 0.5px) solid var(--agent-text);
@@ -130,11 +128,9 @@
   background: transparent;
   color: var(--agent-text);
   font: inherit;
-  cursor: pointer;
 }
 .acpmux-time-breakdown__pager button:disabled {
   color: var(--agent-muted);
-  cursor: default;
 }
 .acpmux-time-breakdown__pager button:focus-visible {
   outline: var(--cmux-hairline, 0.5px) solid var(--agent-text);
@@ -146,7 +142,6 @@
   }
 }
 
-.acpmux-time-breakdown__span:disabled { cursor: default; }
 .acpmux-time-breakdown__heading { flex-wrap: wrap; }
 .acpmux-time-breakdown__total-bar {
   max-width: calc(100% - (var(--grid-icon-box) * 3 + var(--grid-gap-inner)));
