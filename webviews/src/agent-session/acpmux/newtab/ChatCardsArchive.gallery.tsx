@@ -1,7 +1,7 @@
 // l10n-allow-file: public-safe gallery chat fixtures.
 // A chat in acpmux's cold archive (hub/cold_archive.rs): before it is archived its card reads the
 // live log's last reply; after, the same card reads its kept preview's last message, with a muted
-// Archived badge. Nothing else on the card moves.
+// Compressed badge. Nothing else on the card moves.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { ChatCards } from "./ChatCards";
@@ -47,17 +47,17 @@ export default componentEntry<ComponentProps<typeof ChatCards>>({
   variants: {
     "before-cards": {
       props: { ...base, cards: live },
-      note: "Before Archive Chat: the middle card reads its live log.",
+      note: "Before Compress Chat: the middle card reads its live log.",
     },
     "after-cards": {
       props: { ...base, cards: archived },
-      note: "After Archive Chat: the same card, badged Archived, reads its kept preview.",
+      note: "After Compress Chat: the same card, badged Compressed, reads its kept preview.",
     },
     "before-list": { props: { ...base, cards: live, variant: "list" }, note: "Before, in the list layout." },
     "after-list": {
       props: { ...base, cards: archived, variant: "list" },
       note: "After, in the list layout: the badge sits before the agent mark.",
     },
-    "all-archived": { props: { ...base, cards: allArchived }, note: "Every recent chat archived." },
+    "all-archived": { props: { ...base, cards: allArchived }, note: "Every recent chat compressed." },
   },
 });

@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixtures.
 // Leo 2026-11-09: a TRUE "archive chat" that you can still preview a sliver of. A chat in acpmux's
-// cold archive lists from its preview alone (`coldArchive`), badged Archived; its card's menu
+// cold archive lists from its preview alone (`coldArchive`), badged Compressed; its card's menu
 // archives it or brings it back through `_acpmux/cold_archive`.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -31,7 +31,7 @@ const summary = (id: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-test("a summary's coldArchive is the card's preview, badged archived", () => {
+test("a summary's coldArchive is the card's preview, badged compressed", () => {
   const archived = sessionEntry(summary("old", { coldArchive: cold }));
   expect(archived.coldArchive).toEqual(cold);
   // A malformed one keeps only what it can read.
@@ -138,7 +138,7 @@ async function closeMenu() {
   );
 }
 
-test("an archived card shows its badge and preview, and its menu archives or brings it back", async () => {
+test("an archived card shows its badge and preview, and its menu compresses or decompresses it", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ChatCards } = await import("../src/agent-session/acpmux/newtab/ChatCards");
   const calls: [string, boolean][] = [];
@@ -152,7 +152,7 @@ test("an archived card shows its badge and preview, and its menu archives or bri
       />,
     ),
   );
-  const badge = translateNewTab("card.archived");
+  const badge = translateNewTab("card.compressed");
   expect(card("Old chat").dataset.archived).toBe("");
   expect(card("Old chat").querySelector(".nt-card-badge")?.textContent).toBe(badge);
   expect(card("Old chat").querySelector(".nt-card-message")?.textContent).toBe("The build passes on every target.");
@@ -160,20 +160,22 @@ test("an archived card shows its badge and preview, and its menu archives or bri
   expect(card("Live chat").querySelector(".nt-card-badge")).toBeNull();
 
   const archive = (await openMenu("Live chat")).find(
-    (item) => item.textContent === translateNewTab("card.archiveChat"),
+    (item) => item.textContent === translateNewTab("card.compressChat"),
   );
   expect(archive).toBeDefined();
   await act(async () => archive!.click());
-  const unarchive = (await openMenu("Old chat")).find((item) => item.textContent === translateNewTab("card.unarchive"));
-  expect(unarchive).toBeDefined();
-  await act(async () => unarchive!.click());
+  const decompress = (await openMenu("Old chat")).find(
+    (item) => item.textContent === translateNewTab("card.decompressChat"),
+  );
+  expect(decompress).toBeDefined();
+  await act(async () => decompress!.click());
   expect(calls).toEqual([
     ["live", true],
     ["old", false],
   ]);
-  // A device chat is not acpmux's session: its menu has no archive.
+  // A device chat is not acpmux's session: its menu has no Compress Chat.
   const device = (await openMenu("Device chat")).map((item) => item.textContent);
-  expect(device).not.toContain(translateNewTab("card.archiveChat"));
-  expect(device).not.toContain(translateNewTab("card.unarchive"));
+  expect(device).not.toContain(translateNewTab("card.compressChat"));
+  expect(device).not.toContain(translateNewTab("card.decompressChat"));
   await closeMenu();
 });

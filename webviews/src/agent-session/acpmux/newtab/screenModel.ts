@@ -539,7 +539,7 @@ export type ChatCard = {
   /// `failed`: its last turn failed (the chat itself is fine); `error`: it lost its agent.
   state: "idle" | "input" | "running" | "failed" | "error" | "unread";
   /// Its log is in acpmux's cold archive: the card is drawn from the preview alone (its last
-  /// message), badged Archived; opening it brings the log back.
+  /// message), badged Compressed; opening it brings the log back.
   archived?: true;
   /// The chats its agent started (acpmux `spawnedBy`, a device chat's `parent`), newest first:
   /// listed under it, never on their own.

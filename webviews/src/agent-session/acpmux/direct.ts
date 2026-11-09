@@ -9617,8 +9617,8 @@ export class AcpmuxDirectClient {
     await this.request("_acpmux/archive", { sessionId, archived });
     return sessionId;
   }
-  /// Archive Chat (`archived`) puts chat `sessionId`'s log in acpmux's cold archive, where the
-  /// lists draw it from its preview alone; Unarchive brings the log back (acpmux
+  /// Compress Chat (`archived`) puts chat `sessionId`'s log in acpmux's cold archive, where the
+  /// lists draw it from its preview alone; Decompress Chat brings the log back (acpmux
   /// `hub/cold_archive.rs`; opening the chat does too). acpmux answers the chat's summary, which
   /// the list takes at once (its `session_changed` says the same, later).
   async coldArchive(sessionId: string, archived: boolean): Promise<void> {

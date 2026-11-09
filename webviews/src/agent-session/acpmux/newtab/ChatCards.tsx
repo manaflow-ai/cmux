@@ -33,7 +33,7 @@ export function ChatCards({
   onOpenInTerminal?(sessionId: string): void;
   /// "All Chats >"; omitted when the page shows All chats itself.
   onShowAll?(): void;
-  /// The card menu's Archive Chat and Unarchive (acpmux `_acpmux/cold_archive`): an acpmux chat's
+  /// The card menu's Compress Chat and Decompress Chat (acpmux `_acpmux/cold_archive`): an acpmux chat's
   /// log goes into its cold archive, or comes back. Omitted where the page cannot ask acpmux.
   onColdArchive?(sessionId: string, archived: boolean): void;
 }) {
@@ -62,7 +62,7 @@ export function ChatCards({
       <span className="nt-card-meta">
         <AgentMark harness={card.harness} />
         <span className="nt-card-age">{card.age}</span>
-        {card.archived && <span className="nt-card-badge">{nt("card.archived")}</span>}
+        {card.archived && <span className="nt-card-badge">{nt("card.compressed")}</span>}
       </span>
       <span className="nt-card-title">{card.title}</span>
       {(card.state !== "idle" || card.message) && (
@@ -121,8 +121,8 @@ export function ChatCards({
       ) : (
         <div ref={list} className="nt-cards" data-variant={variant}>
           {cards.map((card) => (
-            // Its right-click menu: Open, Open in Terminal (cx-2lm4), and an acpmux chat's Archive
-            // Chat or Unarchive.
+            // Its right-click menu: Open, Open in Terminal (cx-2lm4), and an acpmux chat's Compress
+            // Chat or Decompress Chat.
             <ContextMenu
               key={card.sessionId}
               className="nt-card-host"
@@ -141,7 +141,7 @@ export function ChatCards({
                   ? [
                       {
                         id: "cold-archive",
-                        label: nt(card.archived ? "card.unarchive" : "card.archiveChat"),
+                        label: nt(card.archived ? "card.decompressChat" : "card.compressChat"),
                         onSelect: () => onColdArchive(card.sessionId, !card.archived),
                       },
                     ]

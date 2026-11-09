@@ -11586,7 +11586,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       showError: (error) => setNewTabFixError(errorMessage(error) || String(error)),
                     }),
                   )}
-                  // A chat card's Archive Chat or Unarchive: acpmux's cold archive, on this page's
+                  // A chat card's Compress Chat or Decompress Chat: acpmux's cold archive, on this page's
                   // connection. acpmux answers it to this Mac's own app only, never a remote one.
                   {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
                     ? {

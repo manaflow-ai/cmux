@@ -130,7 +130,7 @@ export type ColdArchive = {
   last: { role: string; text: string; at: number }[];
 };
 
-const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
+const coldCount = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
 
 /** acpmux's `coldArchive`, else undefined. */
 export function coldArchive(value: unknown): ColdArchive | undefined {
@@ -139,13 +139,13 @@ export function coldArchive(value: unknown): ColdArchive | undefined {
   const last = (Array.isArray(cold.last) ? cold.last : []).flatMap((item) => {
     const message = item as Record<string, unknown> | null;
     const body = text(message?.text);
-    return body ? [{ role: text(message?.role) ?? "assistant", text: body, at: count(message?.at) }] : [];
+    return body ? [{ role: text(message?.role) ?? "assistant", text: body, at: coldCount(message?.at) }] : [];
   });
   return {
-    archivedAt: count(cold.archivedAt),
-    messages: count(cold.messages),
-    bytesBefore: count(cold.bytesBefore),
-    bytesAfter: count(cold.bytesAfter),
+    archivedAt: coldCount(cold.archivedAt),
+    messages: coldCount(cold.messages),
+    bytesBefore: coldCount(cold.bytesBefore),
+    bytesAfter: coldCount(cold.bytesAfter),
     last,
   };
 }
