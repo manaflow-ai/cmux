@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42603601172",
+  "recorded_at": "2026-11-09T10:57:13Z",
+  "reason": "cmux-tui 9cb41fa7e922 changes the image's cmux-tui (pinned f6dc75dbc489)",
+  "dry_run": false,
+  "cmux_tui": "9cb41fa7e9221ea17d2fae506dc8fa91aa788773",
+  "fixes": [
+    {
+      "sha": "9cb41fa7e9221ea17d2fae506dc8fa91aa788773",
+      "mergedAt": "2026-11-09T02:25:11-08:00",
+      "subject": "cmux chat cd --repo: run Add repository against the machine's own daemon (session cloud) (#39441)"
+    },
+    {
+      "sha": "5dc3a77a08805f5b5a7d3320bdb701f028f0ee40",
+      "mergedAt": "2026-11-09T02:24:39-08:00",
+      "subject": "acpmux: every narrow policy holds or the chat does not run; deny-all denies all shell; gate timeout measured (W5-L follow-up) (#39417)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T10:57:13Z",
+    "snapshot_id": "sh-ebcd9b346d574645b3920dd05b248f14",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42603601172): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f3f677976304b0775db775f15b5c82f2befb8f50",
+    "image": "cloud-native-auto-9cb41fa7-42603601172-1",
+    "revision": "ci-42603601172-1",
+    "at": "2026-11-09T10:57:13Z"
+  },
+  "rolled_back": false
+}
