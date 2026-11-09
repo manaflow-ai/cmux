@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 617,
+  "count": 615,
   "sections": [
     {
       "id": "general",
@@ -6558,22 +6558,6 @@
           "key": "cloud.newWorkspacesInCloud",
           "title": "Run New Workspaces in Cloud",
           "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Cloud Workspaces"
-        },
-        {
-          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
-          "title": "Use My Claude Login on My Own Cloud Machines",
-          "help": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Cloud Workspaces"
-        },
-        {
-          "key": "cloud.useMyCodexLoginOnMyCloudMachines",
-          "title": "Use My Codex Login on My Own Cloud Machines",
-          "help": "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead.",
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"
