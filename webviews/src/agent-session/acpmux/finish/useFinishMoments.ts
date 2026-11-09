@@ -37,7 +37,9 @@ export type TurnSummary = { readonly id: string; readonly status?: string };
 export const SUMMARY_LOOKBACK = 200;
 
 /// The newest `turnSummary` row among the last SUMMARY_LOOKBACK rows of `rows`.
-export function newestTurnSummary(rows: readonly { id: string; kind: string; status?: string }[]): TurnSummary | undefined {
+export function newestTurnSummary(
+  rows: readonly { id: string; kind: string; status?: string }[],
+): TurnSummary | undefined {
   for (let i = rows.length - 1; i >= Math.max(0, rows.length - SUMMARY_LOOKBACK); i--) {
     const row = rows[i]!;
     if (row.kind === "turnSummary") return { id: row.id, status: row.status };
