@@ -419,10 +419,10 @@ mod tests {
     fn parked(slot: &SessionSlot) -> Option<Box<dyn crate::platform::transport::Stream>> {
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if let SlotState::Restoring(parked) = &mut *slot.state.lock().unwrap() {
-                if let Some(stream) = parked.pop_front() {
-                    return Some(stream);
-                }
+            if let SlotState::Restoring(parked) = &mut *slot.state.lock().unwrap()
+                && let Some(stream) = parked.pop_front()
+            {
+                return Some(stream);
             }
             std::thread::sleep(Duration::from_millis(10));
         }
