@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { cmuxTuiInstallCommand } from "../services/vms/drivers/cmuxTuiDaemon";
+import { runChild } from "./helpers/run-child";
+
+import { cmuxTuiInstallCommand, cmuxTuiServiceInstallCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { cmuxTuiUpgradeInstallScript } from "../services/vms/drivers/cmuxTuiUpgradeInstall";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
 
@@ -28,22 +29,23 @@ describe("in-place cmux-tui upgrade", () => {
     const adapter = script.indexOf(`mv -f ${GUEST_CMUX_SHIM_PATH}.upgrade ${GUEST_CMUX_SHIM_PATH}`);
     expect(binary).toBeGreaterThan(0);
     expect(adapter).toBeGreaterThan(binary);
+    expect(script).toContain(cmuxTuiServiceInstallCommand());
     expect(script).toContain(`install -m 0755 '${ADAPTER}' ${GUEST_CMUX_SHIM_PATH}.upgrade`);
     // The image bake's guest integration steps, so the adapter and the Cloud CLI it calls match.
     expect(script).toContain("/etc/cmux/browser-opener-version");
     expect(script).toContain("cmux-cloud-");
   });
 
-  test("refuses an uploaded adapter that is not this build's before anything changes", () => {
+  test("refuses an uploaded adapter that is not this build's before anything changes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "cmux-upgrade-adapter-"));
     try {
       const file = join(dir, "cmux-cloud-adapter");
       const check = cmuxTuiUpgradeInstallScript(SOURCE, file).split("\n")[1];
       expect(check).toContain("sha256sum -c");
       writeFileSync(file, GUEST_CMUX_SHIM);
-      expect(spawnSync("sh", ["-c", check], { encoding: "utf8" }).status).toBe(0);
+      expect((await runChild("sh", ["-c", check])).status).toBe(0);
       writeFileSync(file, `${GUEST_CMUX_SHIM}\n# changed`);
-      expect(spawnSync("sh", ["-c", check], { encoding: "utf8" }).status).not.toBe(0);
+      expect((await runChild("sh", ["-c", check])).status).not.toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
