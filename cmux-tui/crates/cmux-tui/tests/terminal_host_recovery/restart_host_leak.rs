@@ -100,8 +100,10 @@ fn terminal_reap_survives_daemon_restarts_faster_than_the_grace() {
 /// The socket answers `identify` from its bind, while the owner still starts
 /// (`lifecycle_ready` false): an owner started with the reap option lists
 /// `terminal-reaper-active-v1` in that first answer. A change that starts or
-/// announces the reaper only after the bind fails here.
+/// announces the reaper only after the bind fails here. It needs the
+/// debug-only `CMUX_TUI_TEST_STARTUP_DELAY_AFTER_BIND_MS` hook.
 #[test]
+#[cfg_attr(not(debug_assertions), ignore = "needs a debug-only startup hook")]
 fn terminal_reap_identify_during_owner_startup_lists_the_reaper() {
     let mut harness = RecoveryHarness::start_unstarted("reaper-identify-startup");
     harness.extra_args =
