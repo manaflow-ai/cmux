@@ -598,7 +598,7 @@ async fn the_supervisor_lock_is_its_own_private_file_not_the_hubs_socket_lock() 
     // The hub's own `<socket>.lock` stays free for its bind.
     let mut hub_lock = socket.into_os_string();
     hub_lock.push(".lock");
-    let file = std::fs::File::create(&hub_lock).unwrap();
+    let file = File::create(&hub_lock).unwrap();
     assert!(file.try_lock().is_ok(), "the supervisor must not hold the hub's lock");
     handle.stop().await;
 }
