@@ -136,6 +136,10 @@ const SUMMARY = {
 /// open socket, as a daemon that restarts does.
 class Daemon {
   static attachDelayMs = 0;
+  /// False: acpmux lists no such chat (it was deleted while the app was closed).
+  static listsChat = true;
+  /// Every request answered, in order, by method.
+  static answered: string[] = [];
   static open = new Set<Daemon>();
   static drop(): void {
     for (const socket of Daemon.open) {
@@ -178,14 +182,16 @@ class Daemon {
     let result: unknown = {};
     if (message.method === "initialize")
       result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
-    else if (message.method === "_acpmux/watch") result = { sessions: [SUMMARY] };
+    else if (message.method === "_acpmux/watch") result = { sessions: Daemon.listsChat ? [SUMMARY] : [] };
     else if (message.method === "_acpmux/attach")
       result = { session: SUMMARY, lastSeq: RECORDS.length, events: RECORDS, hasMore: false };
     else if (message.method === "_acpmux/draft_get") result = { draft: DRAFT };
     else if (message.method === "_acpmux/events") result = { events: [], hasMore: false, lastSeq: RECORDS.length };
     const delay = message.method === "_acpmux/attach" ? Daemon.attachDelayMs : 1;
     setTimeout(() => {
-      if (this.readyState === 1) this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) });
+      if (this.readyState !== 1) return;
+      Daemon.answered.push(message.method);
+      this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) });
     }, delay);
   }
 
@@ -353,10 +359,17 @@ async function restart(record: Awaited<ReturnType<typeof relaunch>>["record"], r
     return Daemon.refused >= refusals;
   }, "the page tried acpmux while it restarted");
   Daemon.refusing = false;
+  const before = Daemon.answered.length;
+  // Through the reattach: its attach and draft read answered and drawn, not only a socket open.
   await until(() => {
     record.sample();
-    return Daemon.open.size > 0;
-  }, "the page connects again once acpmux answers");
+    const since = Daemon.answered.slice(before);
+    return since.includes("_acpmux/attach") && since.includes("_acpmux/draft_get");
+  }, "the page reattaches the chat once acpmux answers");
+  for (let pass = 0; pass < 10; pass += 1) {
+    await tick();
+    record.sample();
+  }
 }
 
 function expectMonotonic(trace: Record<Surface, State[]>) {
@@ -367,6 +380,8 @@ function expectMonotonic(trace: Record<Surface, State[]>) {
 afterEach(() => {
   Daemon.drop();
   Daemon.attachDelayMs = 0;
+  Daemon.listsChat = true;
+  Daemon.answered = [];
 });
 
 const finished = async (run: ReturnType<typeof relaunch>) => {
@@ -403,3 +418,44 @@ test("a live chat whose acpmux restarts keeps what it shows until the chat is ba
   record.stop();
   expectMonotonic(trace);
 }, 60_000);
+
+test("a relaunched chat acpmux no longer lists gives the copy up for why, at once", async () => {
+  // Not held until the copy's own 40 s bound: the unavailable state, with its way out, is the chat now.
+  Daemon.refusing = false;
+  Daemon.listsChat = false;
+  drawCopy();
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: { method: string }) =>
+            Promise.resolve({
+              ok: true,
+              value:
+                message.method === "ready"
+                  ? {
+                      protocolVersion: 1,
+                      transport: "acpmux-websocket",
+                      endpoint: "ws://acpmux.test/",
+                      token: "t",
+                      sessionId: CHAT,
+                      // A restored tab is bound to its chat: one acpmux lacks says why (direct.ts).
+                      sessionMustExist: true,
+                      machineName: "Mac",
+                    }
+                  : null,
+            }),
+        },
+      },
+    },
+  });
+  const { createRoot } = await import("react-dom/client");
+  const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
+  root = createRoot(doc().getElementById("root")!);
+  await act(async () => root!.render(<AcpmuxApp />));
+  await until(
+    () => !copyShown() && doc().querySelector(".acpmux-unavailable:not([data-unavailable='connecting'])") !== null,
+    "the copy goes for the chat's unavailable state",
+    10_000,
+  );
+});

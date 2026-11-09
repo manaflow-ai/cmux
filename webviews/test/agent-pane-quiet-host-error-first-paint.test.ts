@@ -41,6 +41,8 @@ test("over the last launch's copy only the chat itself, a said failure or a refu
   expect(pageShowsWhatItIs(copy)).toBe(false);
   expect(pageShowsWhatItIs({ ...copy, chatRead: true })).toBe(true);
   expect(pageShowsWhatItIs({ ...copy, openRefused: true })).toBe(true);
+  // acpmux lists no such chat (deleted, offline, paused): its unavailable state is the chat now.
+  expect(pageShowsWhatItIs({ ...copy, chatUnavailable: true })).toBe(true);
   expect(pageShowsWhatItIs({ ...copy, hostError: true, hostErrorSaid: true })).toBe(true);
   expect(pageShowsWhatItIs({ ...copy, handshaken: false, chatRead: true })).toBe(false);
 });

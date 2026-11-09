@@ -6245,6 +6245,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       adoptionDrawn &&
       (draftSettled === clientSnapshot.sessionId || draftWaitOver === clientSnapshot.sessionId),
     openRefused: clientSnapshot.connection === "failed",
+    chatUnavailable: clientSnapshot.unavailable !== undefined && clientSnapshot.unavailable.reason !== "connecting",
   });
   // A chat read from a kept tail before its connect answers has no draft in its prompt yet: the
   // copy, which shows the draft, waits for the read, at most DRAFT_SETTLE_HOLD_MS (a composer that
