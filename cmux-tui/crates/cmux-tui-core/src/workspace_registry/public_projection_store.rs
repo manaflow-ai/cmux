@@ -301,7 +301,7 @@ impl WorkspaceRegistry {
              ORDER BY committed_revision DESC, idempotency_key DESC
              LIMIT ?1",
         )?;
-        let ids = super::host_identity::StoredIds::load(&db)?;
+        let ids = StoredIds::load(&db)?;
         let rows = statement
             .query_map([i64::try_from(NOTIFICATION_LEDGER_CAPACITY)?], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))

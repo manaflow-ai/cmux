@@ -1050,7 +1050,7 @@ mod tests {
         .unwrap()
         .unwrap();
         expected(&terminal.result);
-        let resource = super::super::resource_store::resource_patch_replay(
+        let resource = resource_patch_replay(
             &registry.connection.get(),
             &mutation,
             "workspace.update",
@@ -1063,8 +1063,8 @@ mod tests {
             .lookup_resource_effect("moved", "notification.create", &moved_fingerprint)
             .unwrap()
         {
-            Some(super::super::ResourceEffectPreparation::Committed {
-                outcome: super::super::ResourceEffectOutcome::Success(value),
+            Some(ResourceEffectPreparation::Committed {
+                outcome: ResourceEffectOutcome::Success(value),
                 ..
             }) => expected(&value),
             other => panic!("the effect's outcome is not served: {other:?}"),

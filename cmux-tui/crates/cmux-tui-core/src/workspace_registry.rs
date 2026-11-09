@@ -58,7 +58,7 @@ use projection_size::{
     MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
 };
 mod host_identity;
-pub(crate) use host_identity::StoredIds;
+pub(crate) use StoredIds;
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
@@ -3339,7 +3339,7 @@ impl WorkspaceRegistry {
         )?;
         let sqlite_revision =
             i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
-        let ids = host_identity::StoredIds::load(&db)?;
+        let ids = StoredIds::load(&db)?;
         let rows = statement.query_map([sqlite_revision], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
@@ -3394,7 +3394,7 @@ impl WorkspaceRegistry {
         let Some((stored_fingerprint, stored_result, revision)) = stored else {
             return Ok(None);
         };
-        let ids = host_identity::StoredIds::load(&self.connection.get())?;
+        let ids = StoredIds::load(&self.connection.get())?;
         if ids.fingerprint(stored_fingerprint)? != fingerprint {
             anyhow::bail!(
                 "mutation {} from {} was retried with a different payload",
@@ -3530,7 +3530,7 @@ impl WorkspaceRegistry {
             "SELECT revision, kind, workspace_key, origin, mutation_id, result_json
              FROM workspace_events WHERE revision > ?1 ORDER BY revision ASC",
         )?;
-        let ids = host_identity::StoredIds::load(&db)?;
+        let ids = StoredIds::load(&db)?;
         let sqlite_revision =
             i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
         let rows = statement.query_map([sqlite_revision], |row| {
@@ -3640,7 +3640,7 @@ impl WorkspaceRegistry {
             )
             .optional()?
         {
-            let ids = host_identity::StoredIds::load(&tx)?;
+            let ids = StoredIds::load(&tx)?;
             let stored_fingerprint = ids.fingerprint(stored_fingerprint)?;
             let result_json = ids.text(result_json);
             if stored_fingerprint != fingerprint_digest && stored_fingerprint != fingerprint {
@@ -5000,7 +5000,7 @@ fn terminal_replay(
     let Some((stored_fingerprint, stored_result, revision)) = stored else {
         return Ok(None);
     };
-    let ids = host_identity::StoredIds::load(connection)?;
+    let ids = StoredIds::load(connection)?;
     let stored_result = ids.text(stored_result);
     if ids.fingerprint(stored_fingerprint)? != fingerprint {
         anyhow::bail!(

@@ -275,7 +275,7 @@ pub(super) fn recover_resource_effects(transaction: &Transaction<'_>) -> anyhow:
            )",
         [],
     )?;
-    let ids = host_identity::StoredIds::load(transaction)?;
+    let ids = StoredIds::load(transaction)?;
     for (idempotency_key, operation, intent_json) in interrupted {
         append_resource_effect_journal_record(
             transaction,
@@ -1316,7 +1316,7 @@ fn read_effect_preparation(
     else {
         return Ok(None);
     };
-    let ids = host_identity::StoredIds::load(connection)?;
+    let ids = StoredIds::load(connection)?;
     let (stored_fingerprint, intent_json, outcome_json) = (
         ids.fingerprint(stored_fingerprint)?,
         ids.text(intent_json),
@@ -1365,7 +1365,7 @@ fn read_effect_record(
         )
         .optional()?
         .map(|(operation, fingerprint, state, intent_json): (String, String, String, String)| {
-            let ids = host_identity::StoredIds::load(connection)?;
+            let ids = StoredIds::load(connection)?;
             Ok::<_, anyhow::Error>((
                 operation,
                 ids.fingerprint(fingerprint)?,
