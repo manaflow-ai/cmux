@@ -168,9 +168,12 @@ export class SessionHoverStore {
   private patch(sessions: readonly AcpmuxSessionEntry[]): boolean {
     if (sessions.length !== this.from.size) return false;
     const changed: AcpmuxSessionEntry[] = [];
+    const seen = new Set<string>();
     for (const entry of sessions) {
       const before = this.from.get(entry.sessionId);
-      if (!before) return false;
+      // Equal length with every id known can still hide one listed twice in place of another.
+      if (!before || seen.has(entry.sessionId)) return false;
+      seen.add(entry.sessionId);
       if (before === entry) continue;
       if (
         before.harness !== entry.harness ||
