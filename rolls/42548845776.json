@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42548845776",
+  "recorded_at": "2026-11-09T02:15:14Z",
+  "reason": "cmux-tui d90d8fda3080 changes the image's cmux-tui (pinned 16c0818dd39e)",
+  "dry_run": false,
+  "cmux_tui": "d90d8fda3080ba1b397d1497465adfb6c8b97894",
+  "fixes": [
+    {
+      "sha": "d90d8fda3080ba1b397d1497465adfb6c8b97894",
+      "mergedAt": "2026-11-08T17:48:42-08:00",
+      "subject": "fix(cmux-tui): macOS clippy: gate two Linux-only imports (#39079)"
+    },
+    {
+      "sha": "6d8be8891eb20f105f6e19b263b777827af08d61",
+      "mergedAt": "2026-11-08T17:39:41-08:00",
+      "subject": "acpmux: the hub carrier, a live stream to own machines through the platform's relay (#38363)"
+    },
+    {
+      "sha": "22753eec1002970cbe598c4bd046e69181c0f895",
+      "mergedAt": "2026-11-09T01:37:49Z",
+      "subject": "carrier: the Cloud dial runs on remote_runtime's route runner (S1) (#38953)"
+    },
+    {
+      "sha": "39fff1dc60b39aec69a0dcd51c9ef83a2f93ccc3",
+      "mergedAt": "2026-11-09T01:36:57Z",
+      "subject": "Plan approval: build here, in a new worktree, or on two agents and compare (#38399)"
+    },
+    {
+      "sha": "b4abd71833c5caaccd8651115b4c3aaf33e15dfd",
+      "mergedAt": "2026-11-08T17:34:41-08:00",
+      "subject": "ghostty-next: pin 8379ecc8a, upstream #15111 + #15121 (1.24-1.62x on ghostty-bench) (#39026)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T02:15:14Z",
+    "snapshot_id": "sh-80daaf7370c644528b053a006d524695",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42548845776): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "325c82d07192b160b19699d9ac1f1e25993313de",
+    "image": "cloud-native-auto-d90d8fda-42548845776-1",
+    "revision": "ci-42548845776-1",
+    "at": "2026-11-09T02:15:14Z"
+  },
+  "rolled_back": false
+}
