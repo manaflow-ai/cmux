@@ -98,6 +98,7 @@ import {
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
+import { FoldRide } from "./conversation/foldRide";
 import { isRegroupHold } from "./conversation/keepOpenedLineModel";
 import {
   ANCHORED_COLLAPSE_EVENT,
@@ -2082,6 +2083,22 @@ function TranscriptView({
     },
     [reportRow, flushDrawn],
   );
+  /// The rows under a disclosure's height fold, moved by translate while only folding rows change
+  /// size, and placed by one render when the fold ends (conversation/foldRide.ts).
+  const foldRide = useRef<FoldRide | undefined>(undefined);
+  foldRide.current ??= new FoldRide({
+    placed: (row) => {
+      const id = row.dataset.rowId;
+      return id === undefined ? undefined : drawnRef.current.get(id)?.height;
+    },
+    height: drawnHeightOf,
+    finish: (rows) => {
+      for (const row of rows) reportRow(row);
+      if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushSync(flushDrawn);
+      else pendingDrawn.current = new Map();
+    },
+  });
+  useEffect(() => () => void foldRide.current?.release(), []);
   const observer = useMemo(
     () =>
       typeof ResizeObserver === "undefined"
@@ -2105,6 +2122,16 @@ function TranscriptView({
             // settle, 23px on the CI runner). A reader scrolled up keeps the batch; a disclosure's
             // height animation is placed before paint too, or the rows below overlap its body.
             if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
+            // Only rows whose own fold plays changed, away from the bottom: the rows under them ride
+            // the change by translate, and the transcript renders once when the fold ends, not on
+            // every frame of it (Leo, 2026-11-09: "It just, like, lags pretty heavily").
+            // Otherwise (and when a ride gives way) every translate goes before the rows are placed.
+            else if (
+              !followingRef.current && !bottomStackFold.current
+                ? foldRide.current!.ride(targets)
+                : foldRide.current!.release()
+            )
+              return;
             else if (followingRef.current || targets.some(heightFoldInFlight) || foldHolding(foldAnchor.current)) {
               for (let pass = 0; pass < 3; pass += 1) {
                 if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
