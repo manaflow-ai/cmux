@@ -191,6 +191,28 @@ inherited roles; verify the old owner owns only cmux_vm objects (the read-only c
 change's notes); `pscale role reassign <old id> --successor <new pg role>` (pscale_admin moves the
 objects); never `--successor postgres`; verify as above; set `ownerPgRole`/`ownerRole` in trees.ts.
 
+## Staging migrations from CI
+
+Staging no longer waits for the one person holding `cmux_vm_migrator`'s login. Job `migrate-staging` in
+`cmux-vm.yml` (every feat-cmux-next push, before deploy-staging; or
+`gh workflow run cmux-vm.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f action=migrate-staging -f dry_run=false`)
+runs `scripts/cmux-next/release/staging-owner.ts migrate` with the PlanetScale service token. That token
+is held only by `cmux-vm-production` (branch policy: feat-cmux-next), and the script touches only branch
+`staging` of cmux-prod:
+
+1. A 2 h admin role on cmux-prod/staging (`pscale role create ... --inherited-roles postgres --ttl 2h`).
+2. As it: `GRANT cmux_vm_migrator TO <temp role>`.
+3. `db-release.ts apply --target staging --set-role --skip-rehearsal`: the session runs
+   `SET ROLE cmux_vm_migrator` before the lock, so objects and tracking rows belong to the owner; the
+   owner, broad-privilege, lint and plan checks all run as before. `--set-role` is refused on production,
+   without a SQL owner in trees.ts, and without `--skip-rehearsal` (the token has no restore scope, and
+   a rehearsal copy would not have a login younger than 6 minutes).
+4. As the owner: the Worker grants named by schema-requirements.ts, then the Worker's schema check.
+5. Always: `REVOKE cmux_vm_migrator FROM <temp role>`, then the role is deleted by exact id.
+
+The owner's password is never read or changed; the hand rail with `~/.secrets/cmux-vm-db/staging-migrator.json`
+still works.
+
 ## Hardening 1 (after the fourth review)
 
 No migration may name the tracking table; CREATE/DROP INDEX CONCURRENTLY is alone in its file and

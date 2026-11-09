@@ -488,6 +488,10 @@ fn execute_terminal_effect(
     if let Err(failure) = action {
         return finish_action_failure(mux, prepared, failure);
     }
+    // The input's sequence point for `terminal wait --until idle`.
+    if matches!(prepared.operation.as_str(), "terminal.input.write" | "terminal.input.keys") {
+        surface.note_terminal_input();
+    }
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));
     effects::commit_success_without_changes(mux, prepared, json!({}))
