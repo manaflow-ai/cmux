@@ -80,12 +80,15 @@ export function parseWalkthrough(json: string): Walkthrough | undefined {
   };
 }
 
-/// The last walkthrough line in some text.
+/// The last walkthrough line in some text: a line that starts with the mark. The report's own notes
+/// and selectors may hold the mark too, so a mark inside a line is never where the JSON starts.
 function fromText(output: string): Walkthrough | undefined {
-  const at = output.lastIndexOf(MARK);
-  if (at < 0) return undefined;
-  const end = output.indexOf("\n", at);
-  return parseWalkthrough(output.slice(at + MARK.length, end < 0 ? undefined : end));
+  for (let at = output.lastIndexOf(MARK); at >= 0; at = at ? output.lastIndexOf(MARK, at - 1) : -1) {
+    if (at > 0 && output[at - 1] !== "\n") continue;
+    const end = output.indexOf("\n", at);
+    return parseWalkthrough(output.slice(at + MARK.length, end < 0 ? undefined : end));
+  }
+  return undefined;
 }
 
 /// How deep the envelope walk goes, counting each JSON string it decodes as a level: an MCP

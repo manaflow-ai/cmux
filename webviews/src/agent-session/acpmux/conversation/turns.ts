@@ -1543,8 +1543,12 @@ function shapeTurn(
     }
     shaped.push(...between(after));
     shaped.push(...[...before, ...after].filter(isPlan).map(endedPlan));
-    // A wrap-up in a turn with no answer to hang under goes after the turn's last row.
-    if (nextStep && wrapUp && !underAnswer) shaped.push(card(summary.at));
+    // A wrap-up in a turn with no answer to hang under goes after the turn's last row, under its
+    // walkthrough: the strip always draws before the card.
+    if (nextStep && wrapUp && !underAnswer) {
+      if (walked && !walkedDrawn) shaped.push(strip(summary.at));
+      shaped.push(card(summary.at));
+    }
     if (taskLine && taskLook === "after-reply") shaped.push(taskLine);
   }
   // A walkthrough in a turn with no answer to hang under goes after the turn's last row.

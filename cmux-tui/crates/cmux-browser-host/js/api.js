@@ -609,8 +609,9 @@
     //   { type: "#name", text: "Ada" }        (fills the field)
     //   { expect: "Saved" }                   (waits for visible text; `in` scopes it to a selector)
     // Each may carry `note`, the step's line in the strip. Screenshots are
-    // JPEGs in the session's temp folder under `walkthrough/`, of which the
-    // newest WALKTHROUGH_KEEP stay.
+    // JPEGs in the session's temp folder under `walkthrough/<session>/`, of
+    // which each session keeps its newest WALKTHROUGH_KEEP: named sessions share
+    // the temp folder, and one must not prune shots another's chat still draws.
     const WALKTHROUGH_MAX_STEPS = 12;
     const WALKTHROUGH_KEEP = 96;
     function walkthroughBase(target) {
@@ -654,7 +655,8 @@
       const kinds = steps.map(checkWalkthroughStep);
       // The page opens first: a flow that starts with a click opens the target itself.
       const plan = kinds[0] === "open" ? steps.map((s, i) => ({ s, k: kinds[i] })) : [{ s: { open: base }, k: "open", implied: true }, ...steps.map((s, i) => ({ s, k: kinds[i] }))];
-      const dir = path.join(host.tmpdir, "walkthrough");
+      const owner = String(host.sessionId || "default").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 64) || "default";
+      const dir = path.join(host.tmpdir, "walkthrough", owner);
       fs.mkdirSync(dir, { recursive: true });
       const run = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
       const page = await session.newPage(undefined, { background: true });

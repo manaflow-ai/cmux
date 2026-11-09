@@ -98,6 +98,12 @@ describe("toolWalkthrough", () => {
     expect(() => turnView(rows, new Set())).not.toThrow();
   });
 
+  // Review F1 at f808d71: a step's note may hold the mark; only a line that starts with it is read.
+  test("a note that holds the mark does not hide the walkthrough", () => {
+    const noted = report({ passed: true, steps: [{ n: 1, line: "Check cmux.walkthrough {x} prints", ok: true }] });
+    expect(toolWalkthrough(evalCall(printed(noted)).tool)?.steps[0]?.line).toBe("Check cmux.walkthrough {x} prints");
+  });
+
   test("a report that says passed over a failed step draws as failed", () => {
     const forged = report({ passed: true, steps: [{ n: 1, line: "Open", ok: false }] });
     expect(parseWalkthrough(forged)?.passed).toBe(false);
@@ -113,6 +119,18 @@ describe("a walkthrough in the transcript", () => {
     rows.splice(3, 0, activity([wrap], 5));
     const kinds = turnView(rows, new Set()).map((row) => row.kind);
     expect(kinds.indexOf(WALKTHROUGH)).toBe(kinds.indexOf("assistant") + 1);
+    expect(kinds.indexOf(NEXT_STEP)).toBe(kinds.indexOf(WALKTHROUGH) + 1);
+  });
+
+  // Review F2 at f808d71: with no answer to hang under, the strip still draws before the card.
+  test("a turn with no answer draws it before a wrap-up's card", () => {
+    const rows = turn(printed(PASSED), { answer: false });
+    const wrap = tool("mcp__acpmux__wrap_up", "other", "completed", {
+      inputSummary: JSON.stringify({ recap: "Save confirms now.", ask: "Open a PR?" }),
+    });
+    rows.splice(2, 0, activity([wrap], 5));
+    const kinds = turnView(rows, new Set()).map((row) => row.kind);
+    expect(kinds.indexOf(WALKTHROUGH)).toBeGreaterThanOrEqual(0);
     expect(kinds.indexOf(NEXT_STEP)).toBe(kinds.indexOf(WALKTHROUGH) + 1);
   });
 
