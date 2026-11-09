@@ -193,7 +193,7 @@ export function ReviewBriefStrip({ state, labels, open, onOpenChange, onOpenSpot
       </button>
       {/* Always mounted while there is a brief, so opening is a transition, not a pop-in. */}
       {state.kind === "ready" ? (
-        <div className="review-brief-panel" id={panelId} role="region" aria-label={labels.title} inert={!shown}>
+        <section className="review-brief-panel" id={panelId} aria-label={labels.title} inert={!shown}>
           <ReviewBriefBody
             brief={state.brief}
             labels={labels}
@@ -206,7 +206,7 @@ export function ReviewBriefStrip({ state, labels, open, onOpenChange, onOpenSpot
               })
             }
           />
-        </div>
+        </section>
       ) : null}
     </div>
   );
