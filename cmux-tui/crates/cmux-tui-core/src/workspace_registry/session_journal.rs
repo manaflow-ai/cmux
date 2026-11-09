@@ -190,6 +190,11 @@ pub(crate) struct JournalRestoreCursor {
 }
 
 impl SessionJournalReader {
+    /// [`unproven_kind_maps`] on this reader's connection.
+    pub(crate) fn unproven_kind_maps(&self) -> anyhow::Result<Option<(u64, Option<u64>)>> {
+        unproven_kind_maps(&self.connection)
+    }
+
     pub(crate) fn open(database_path: &Path) -> anyhow::Result<Self> {
         let connection = open_registry_database_with_flags(
             database_path,
@@ -1657,9 +1662,16 @@ fn unproven_kind_maps_after(
     })
 }
 
-/// [`unproven_kind_maps_after`] with the marker read here: what a kind read
-/// must not trust, on a read-only reader too, which cannot run the backfill.
-pub(super) fn unproven_kind_maps(
+/// Whether a reader may trust `journal_segment_kinds`, and where not: the
+/// one check every kind-scoped read of sealed history makes (`kind_read`,
+/// and the registry premigration's read). `None`, every map is whole: the
+/// `journal_segment_kinds_backfill` marker is absent, or is `1` with no
+/// `_through` or `_end` progress row. Otherwise the segments in the returned
+/// range ([`unproven_kind_maps_after`]) are read with the full decoder: an
+/// older build (a downgrade) maps a segment one kind at a time, and a
+/// read-only reader cannot run the backfill that would finish it. The active
+/// journal's `(kind, sequence)` index is always whole.
+pub(crate) fn unproven_kind_maps(
     connection: &Connection,
 ) -> anyhow::Result<Option<(u64, Option<u64>)>> {
     let marker = connection
@@ -1686,7 +1698,7 @@ pub(super) fn kind_slice() -> std::time::Duration {
 thread_local! {
     /// Test seam: how long one kind backfill call, and one kind read's sealed
     /// part, may decode on this thread ([`kind_slice`]).
-    pub(super) static BACKFILL_SLICE_FOR_TEST: Cell<Option<std::time::Duration>> =
+    pub(crate) static BACKFILL_SLICE_FOR_TEST: Cell<Option<std::time::Duration>> =
         const { Cell::new(None) };
 }
 

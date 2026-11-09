@@ -341,6 +341,100 @@ fn a_replay_read_failure_is_retried_without_another_request() {
     let _ = std::fs::remove_dir_all(&store.root);
 }
 
+/// A kind map an older build left partly filled, as app-wedge-recover's
+/// premigration repro has it (#39503): the sealed segments' agent kinds are
+/// gone from `journal_segment_kinds`, each segment names only
+/// `personal.session.put`, and the backfill marker is an older build's `0`.
+/// Drops the roster snapshot (an unreadable one at the current version), so
+/// the next restore folds from zero through the kind read.
+fn hide_agent_kinds_from_the_kind_map(store: &SealedRosterStore) {
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    registry
+        .put_journal_reducer_state(
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+            0,
+            "",
+        )
+        .unwrap();
+    let database = registry.session_journal_database_path().unwrap();
+    drop(registry);
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DELETE FROM journal_segment_kinds WHERE kind LIKE 'agent.%' OR kind LIKE 'plugin.%';
+             INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind)
+               SELECT segment_id, 'personal.session.put' FROM journal_segments;
+             DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';
+             INSERT INTO meta(key, value) VALUES
+               ('journal_segment_kinds_backfill', '0'),
+               ('journal_segment_kinds_backfill_through', '0');",
+        )
+        .unwrap();
+}
+
+/// The owner-side mirror of #39503's
+/// `a_partial_kind_map_does_not_hide_an_agent_event_from_the_premigration`,
+/// on the start's writable connection: with a backfill slice of one segment
+/// a call, the restore's kind reads meet segments the backfill has not
+/// rescanned, whose maps it must not trust.
+#[test]
+fn a_partial_kind_map_does_not_hide_an_agent_event_from_the_start_fold() {
+    use crate::workspace_registry::session_journal::BACKFILL_SLICE_FOR_TEST;
+    let store = sealed_roster_store("roster-partial-kind-map");
+    hide_agent_kinds_from_the_kind_map(&store);
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(Duration::ZERO)));
+    let restored = crate::mux::agent_roster_restore::restore_agent_roster(&registry);
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+    let restored = restored.unwrap();
+    assert!(restored.replay.is_none());
+    for (step, terminal_id) in store.terminals.iter().enumerate() {
+        assert_eq!(
+            restored
+                .host
+                .roster
+                .entries
+                .get(terminal_id.as_str())
+                .map(|entry| entry.state.as_str()),
+            Some("idle"),
+            "roster entry of step {step}"
+        );
+    }
+    drop(registry);
+    let _ = std::fs::remove_dir_all(&store.root);
+}
+
+/// The same through the roster owner's read-only reader, where the backfill
+/// cannot run at all: the start leaves the whole fold to the background
+/// replay (a zero budget).
+#[test]
+fn a_partial_kind_map_does_not_hide_an_agent_event_from_the_background_replay() {
+    use crate::mux::agent_roster_restore::STARTUP_BUDGET_FOR_TEST;
+    let store = sealed_roster_store("roster-partial-kind-map-replay");
+    hide_agent_kinds_from_the_kind_map(&store);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(Some(Duration::ZERO)));
+    let reopened = open_persistent_test_mux(store.session, &store.root);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(None));
+    for _ in 0..100 {
+        if !reopened.agent_roster_replaying() {
+            break;
+        }
+        assert!(reopened.settle_agent_roster_for_test());
+    }
+    assert!(!reopened.agent_roster_replaying(), "the background replay did not finish");
+    for (step, terminal_id) in store.terminals.iter().enumerate() {
+        assert_eq!(
+            roster_agent_state(&reopened, terminal_id).as_deref(),
+            Some("idle"),
+            "roster entry of step {step} after the background replay"
+        );
+    }
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(&store.root);
+}
+
 /// The start's roster cost stays flat as the journal grows: a replay from
 /// zero over 6 and over 60 output-heavy sealed segments (10x the output and
 /// the records). Prints the time with no budget (the whole replay on the
