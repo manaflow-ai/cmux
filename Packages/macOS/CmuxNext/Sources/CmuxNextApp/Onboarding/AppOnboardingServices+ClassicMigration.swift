@@ -65,7 +65,7 @@ extension AppOnboardingServices {
         guard classicMigrationRunsAtLaunch else { return owner.setup.classicSettled() }
         do {
             // While the Set Up cmux card shows, its cmux Classic row asks; otherwise the dialog. A No there reads on the row.
-            let outcome = try await owner.setup.classicMigration(seam: owner.classicMigrationConfirmation, dialog: confirmClassicImport) {
+            let outcome = try await owner.setup.classicMigration(seam: owner.classicMigrationConfirmation, dialog: confirmClassicImport, imported: { !$0.opened.isEmpty }) {
                 try await migrateClassic(.automatic, firstWorkspace: firstWorkspace, confirmation: $0)
             }
             guard owner.setup.classicAnswer != .declined, let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }

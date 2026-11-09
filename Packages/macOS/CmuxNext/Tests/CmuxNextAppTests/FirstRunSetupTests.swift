@@ -303,12 +303,13 @@ import Testing
         var held: CheckedContinuation<Void, Never>?
         var holds = false
         var fails = false
+        var madeNothing = false
 
         func start(_ setup: FirstRunSetup, seam: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)? = nil,
                    screenReader: Bool = false) -> Task<ClassicImportAnswer?, Never> {
             Task { @MainActor in
                 try? await setup.classicMigration(seam: seam, dialog: { [self] _ in dialogs += 1; return .declined },
-                                                  screenReader: { screenReader }) { confirm in
+                                                  screenReader: { screenReader }, imported: { [self] _ in !madeNothing }) { confirm in
                     await withCheckedContinuation { gate = $0; gated = true }
                     let answer = await confirm(FirstRunSetupTests.plan)
                     if holds { await withCheckedContinuation { held = $0 } }
@@ -394,13 +395,13 @@ import Testing
     /// A card that shows but is drawn nowhere (its page could not be made, or its window closed mid-ask) never holds
     /// the migration: with no card drawn the dialog asks at once, and the last card closing hands an ask to it.
     @Test func withNoCardDrawnTheDialogAsks() async throws {
-        let setup = FirstRunSetup(defaults: try defaults())
+        let setup = FirstRunSetup(defaults: try defaults(), cardWait: .milliseconds(50))
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         let none = LaunchRun()
         let first = none.start(setup)
         await until { none.gated }
         none.ask()
-        #expect(await first.value == .declined && none.dialogs == 1 && setup.classic == nil, "no card drawn: the dialog")
+        #expect(await first.value == .declined && none.dialogs == 1 && setup.classic == nil, "no card drawn in time: the dialog")
 
         let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
         let closing = LaunchRun()
@@ -456,6 +457,40 @@ import Testing
         await until { run.gated }
         run.ask()
         #expect(await launch.value == .declined && run.dialogs == 1 && relaunched.classic == nil)
+    }
+
+    /// A cold launch draws the card once Home's chat starts, which can be after the migration asks: the ask waits for
+    /// that card and shows on its row, and the dialog never asks.
+    @Test func aCardDrawnAfterTheAskStartedStillAsksOnItsRow() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.route(isFirstRun: true, replacedKeys: Self.replaced) == .startCard)
+        let run = LaunchRun()
+        let launch = run.start(setup)
+        await until { run.gated }
+        run.ask()
+        await until { setup.classic != nil }
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+        defer { provider.stop() }
+        #expect(provider.state["classic"]?.objectValue?["workspaces"] == .number(0))
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string("declineClassic")]], context: click(1))
+        #expect(await launch.value == .declined && run.dialogs == 0)
+    }
+
+    /// An import that returns having made nothing (every workspace failed without throwing) is not Imported.
+    @Test func anImportThatMadeNothingIsNotImported() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+        defer { provider.stop() }
+        let run = LaunchRun()
+        run.madeNothing = true
+        let launch = run.start(setup)
+        await until { run.gated }
+        run.ask()
+        await until { setup.classic != nil }
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string("importClassic")]], context: click(1))
+        #expect(await launch.value == .accepted)
+        #expect(setup.classicImported == false && provider.state["classic"]?.objectValue?["answered"] == .string("failed"))
     }
 
     /// A browser-only import still says what Import also does (it loads the saved pages).
