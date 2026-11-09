@@ -197,6 +197,27 @@ import Testing
         #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
     }
 
+    /// Claude Code's Keychain login reads as unknown until a session proves it: once its login opened from the
+    /// card, the row is signed in and the card can finish; an unknown agent never signed in to here is not.
+    @Test func aKeychainLoginOpenedHereFinishesTheAgentsRow() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown)])
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
+            historySources: { false }, importHistory: { false }))
+        defer { provider.stop() }
+        await until { provider.agents.loaded && provider.cli != nil && provider.history != nil }
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
+        #expect(!provider.allDone)
+
+        provider.agents.signIn("claude")
+        await until { provider.agents.loginsOpened.contains("claude") }
+        provider.agents.refresh(recheck: true)
+        await until { !provider.agents.loading }
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedIn")
+        #expect(provider.allDone)
+    }
+
     /// Not Now on the chat history row answers it for good.
     @Test func notNowDismissesTheChatHistoryRow() async throws {
         let defaults = try defaults()

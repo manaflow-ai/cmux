@@ -80,6 +80,9 @@ public final class AgentsStepModel {
     public private(set) var signingIn: String?
     /// Sign In could not open its terminal tab.
     public private(set) var signInFailed = false
+    /// Agents whose login opened in a terminal tab here. Claude Code's Keychain login reads as unknown until a
+    /// session proves it, so an unknown agent the person signed in to here counts as signed in.
+    public private(set) var loginsOpened: Set<String> = []
     @ObservationIgnored let source: (any AgentSignInSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -132,9 +135,16 @@ public final class AgentsStepModel {
         // task-owner: one sign-in the person asked for; it only opens the terminal tab.
         Task { [weak self, source] in
             let opened = await source?.signInAgent(id) ?? false
-            guard let self, signingIn == id else { return }
+            guard let self else { return }
+            if opened { loginsOpened.insert(id) }
+            guard signingIn == id else { return }
             signInFailed = !opened
         }
+    }
+
+    /// Signed in, or unknown after its login opened here (``loginsOpened``).
+    public func countsAsSignedIn(_ agent: OnboardingAgent) -> Bool {
+        agent.auth == .signedIn || agent.auth == .unknown && loginsOpened.contains(agent.id)
     }
 
     /// Install: the agent's vendor installer, then its row reads again and its Sign In runs,

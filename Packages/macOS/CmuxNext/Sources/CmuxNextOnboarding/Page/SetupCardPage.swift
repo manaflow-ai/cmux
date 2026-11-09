@@ -164,7 +164,7 @@ public final class SetupCardPageProvider: PageProvider {
             let state: String = switch agents.installs[id] {
             case .installing: "installing"
             case .failed where !agent.installed: "failed"
-            default: !agent.installed ? "missing" : agent.auth == .signedIn ? "signedIn" : "signedOut"
+            default: !agent.installed ? "missing" : agents.countsAsSignedIn(agent) ? "signedIn" : "signedOut"
             }
             return ["id": .string(id), "name": .string(agent.name), "state": .string(state)]
         }
@@ -178,7 +178,7 @@ public final class SetupCardPageProvider: PageProvider {
     /// Every row is done: an agent signed in, the chat history answered (when found: never before the read of
     /// the chat sources returned, so a slow read cannot lose the row), the account signed in, this app's `cmux` on PATH.
     var allDone: Bool {
-        agents.agents.contains { Self.agentIDs.contains($0.id) && $0.auth == .signedIn } && rowsBesideAgentsDone
+        agents.agents.contains { Self.agentIDs.contains($0.id) && agents.countsAsSignedIn($0) } && rowsBesideAgentsDone
     }
 
     /// The rows besides the agents' are done (``allDone``).
