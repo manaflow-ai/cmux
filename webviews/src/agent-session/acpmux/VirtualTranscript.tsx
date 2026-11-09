@@ -42,6 +42,7 @@ import {
   isContinuationFooter,
   isLineRow,
   isLiveStep,
+  opensBackgroundTurn,
   restRoom,
   rowFrameKey,
 } from "./model";
@@ -299,6 +300,7 @@ const RowFrame = React.memo(function RowFrame({
   kind,
   joinsPrevious,
   joinsNext,
+  opensTurn,
   beforeFooter,
   beforeIndicator,
   replyActions,
@@ -338,6 +340,10 @@ const RowFrame = React.memo(function RowFrame({
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
   joinsNext: boolean;
+  /// The first row of a turn the agent ran on its own, drawn as its own turn (model.ts
+  /// `opensBackgroundTurn`): the turn gap over it is the stack's (MARK_OPENS_TURN); the row says so
+  /// as `data-opens-turn`, the turn's boundary, so nothing reads it as the row above's tail.
+  opensTurn: boolean;
   /// A reply right over its turn's footer: the footer hugs it (`--cv-meta-gap`), as a meta row.
   beforeFooter: boolean;
   /// A prompt right over the live line (transcriptGrid.ts waiting rule): the gap under it is the block
@@ -481,6 +487,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
+      data-opens-turn={opensTurn ? "true" : undefined}
       className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
@@ -4666,6 +4673,7 @@ function TranscriptView({
                           isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
                         }
                         joinsNext={isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex + 1)}
+                        opensTurn={opensBackgroundTurn(row, prevDrawnRow(rows, absoluteIndex))}
                         beforeFooter={isBeforeFooter(row, next)}
                         beforeIndicator={
                           next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR

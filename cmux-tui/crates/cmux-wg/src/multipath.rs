@@ -40,7 +40,7 @@ use cmux_transport::{
 use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
 
-use crate::probe_schedule::{PathProbe, ProbeConfig};
+use crate::probe_schedule::{PathWatch, ProbeConfig};
 use crate::underlay::{DueProbes, Origin, Received, Underlay, is_transient};
 
 /// Times one carrier is re-polled after a transient receive error before the
@@ -96,17 +96,13 @@ struct Slot {
     sent: u64,
     received: u64,
     failed: bool,
-    probe: PathProbe,
+    /// Probes and the quiet-path watch.
+    watch: PathWatch,
     /// The last round trip measured, smoothed jitter (mean deviation of
     /// successive round trips, RFC 3550 style) and smoothed probe loss.
     last_rtt_us: Option<u64>,
     jitter_us: f64,
     loss_pct: f64,
-    /// The first send on this path since it last delivered an
-    /// authenticated datagram: how long it has been silent.
-    unanswered_since: Option<Instant>,
-    /// The outstanding probe that already made this path suspect.
-    flagged_probe: Option<u64>,
 }
 
 struct Shared {
@@ -346,19 +342,16 @@ impl MultipathControl {
                     .unwrap_or(PathId(shared.next_id));
             };
             let carrier = Box::new(carrier);
-            let probe = PathProbe::default();
             shared.slots.push(Slot {
                 id,
                 carrier,
                 sent: 0,
                 received: 0,
                 failed: false,
-                probe,
+                watch: PathWatch::default(),
                 last_rtt_us: None,
                 jitter_us: 0.0,
                 loss_pct: 0.0,
-                unanswered_since: None,
-                flagged_probe: None,
             });
             (id, shared.waker.take())
         };
@@ -464,7 +457,7 @@ impl Underlay for Multipath {
             }
             slot.carrier.send(datagram);
             slot.sent += 1;
-            slot.unanswered_since.get_or_insert_with(Instant::now);
+            slot.watch.sent(Instant::now());
         }
     }
 
@@ -496,50 +489,21 @@ impl Underlay for Multipath {
         let Shared { slots, selector, last_probe_id, .. } = &mut *shared;
         for slot in slots.iter_mut().filter(|slot| !slot.failed) {
             let Some(view) = selector.path(slot.id) else { continue };
-            let is_current = current == Some(slot.id);
-            // The chosen path's silence: probe it at once when it went
-            // quiet, and make it suspect when that probe is not answered
-            // within the window.
-            let mut silence_at = None;
-            let window = silence_window(view.rtt_us);
-            if chosen == Some(slot.id) {
-                match slot.probe.outstanding() {
-                    Some((probe, sent)) if slot.flagged_probe != Some(probe) => {
-                        if now >= sent + window {
-                            slot.flagged_probe = Some(probe);
-                            silent.push(slot.id);
-                        } else {
-                            silence_at = Some(sent + window);
-                        }
-                    }
-                    Some(_) => {}
-                    None => match slot.unanswered_since {
-                        Some(since) if now >= since + window => slot.probe.due_now(now),
-                        Some(since) => silence_at = Some(since + window),
-                        None => {}
-                    },
-                }
-            }
-            let step = config.step(&mut slot.probe, &view, is_current, last_probe_id, now);
+            let roles = (current == Some(slot.id), chosen == Some(slot.id));
+            let step = slot.watch.step(&config, &view, roles, last_probe_id, now);
             if step.lost {
                 lost.push(slot.id);
             }
+            if step.silent {
+                silent.push(slot.id);
+            }
             if let Some(id) = step.ping {
                 due.pings.push((slot.id, id));
-                // A probe just sent on the chosen path (a silence probe
-                // among them) is judged one window from now, not at its
-                // 1 s timeout.
-                if chosen == Some(slot.id) {
-                    let at = now + window;
-                    silence_at = Some(silence_at.map_or(at, |old: Instant| old.min(at)));
-                }
             }
-            for next in [step.next, silence_at] {
-                due.next = match (due.next, next) {
-                    (Some(a), Some(b)) => Some(a.min(b)),
-                    (a, b) => a.or(b),
-                };
-            }
+            due.next = match (due.next, step.next) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
         }
         for id in lost {
             shared.probe(id, ProbeOutcome::Lost);
@@ -559,7 +523,7 @@ impl Underlay for Multipath {
         let mut shared = lock(&self.shared);
         let Some(config) = shared.probes else { return };
         let Some(slot) = shared.slot_mut(path) else { return };
-        if let Some(rtt_us) = config.answer(&mut slot.probe, id, now) {
+        if let Some(rtt_us) = slot.watch.answer(&config, id, now) {
             shared.probe(path, ProbeOutcome::Answered { rtt_us });
         }
     }
@@ -628,7 +592,7 @@ impl Underlay for Multipath {
 
     fn authenticated(&mut self, origin: Origin) {
         if let Some(slot) = lock(&self.shared).slot_mut(origin.path) {
-            slot.unanswered_since = None;
+            slot.watch.heard();
             slot.carrier.authenticated(origin);
         }
     }

@@ -27,7 +27,7 @@ import type { SendGesture } from "./heldPrompt";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
-import { opensProcessTerminal } from "./processTerminal";
+import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
@@ -740,7 +740,7 @@ function ComposerFrame({
     // the prompt to its new session.
     scope: sessionId,
     // A chat on this Mac (Quick Chat too): its attached videos show their posters.
-    localChat: opensProcessTerminal(snapshot.summary),
+    localChat: chatProcessesHere(snapshot.summary),
     elsewhere: (chat, chips) => {
       if (keptAttachments) void keepElsewhere(keptAttachments, chat, chips);
     },
