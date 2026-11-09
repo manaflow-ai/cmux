@@ -72,7 +72,10 @@ pub(super) fn check(cmd: &str) -> anyhow::Result<()> {
     let mut fence = lock();
     let Some(held) = fence.as_mut() else { return Ok(()) };
     let (socket, job) = (held.socket.clone(), held.job.clone());
-    held.allows(now(), || super::machine_call(&socket, "git.seed.status", json!({"job": job})))
+    held.allows(now(), || {
+        let answer = super::machine_call(&socket, "git.seed.status", json!({"job": job}));
+        (answer, now())
+    })
 }
 
 fn lock() -> std::sync::MutexGuard<'static, Option<Held>> {
@@ -120,17 +123,19 @@ impl Held {
         }
     }
 
-    /// Whether a write may go now, reading the job (`status`) when the last word on it is
-    /// older than half the lease on either clock.
+    /// Whether a write may go now, reading the job (`status`: its answer and when it came)
+    /// when the last word on it is older than half the lease on either clock. The answer is
+    /// as old as the question, and is judged when it comes: one that came back across a
+    /// sleep past the lease lets nothing through.
     fn allows(
         &mut self,
         now: Now,
-        status: impl FnOnce() -> anyhow::Result<Value>,
+        status: impl FnOnce() -> (anyhow::Result<Value>, Now),
     ) -> anyhow::Result<()> {
         if self.lost.is_none() && !self.fresh(now) {
-            let answer = status();
+            let (answer, came) = status();
             self.heard_now(&answer, now);
-            if self.lost.is_none() && !self.fresh(now) {
+            if self.lost.is_none() && !self.fresh(came) {
                 return Err(FsRefusal {
                     code: "seed.hold_expired".to_owned(),
                     message: "the machine did not say this folder's hold still runs".to_owned(),
@@ -172,8 +177,13 @@ mod tests {
         }
     }
 
-    fn running() -> anyhow::Result<Value> {
-        Ok(json!({"state": "running"}))
+    fn running() -> (anyhow::Result<Value>, Now) {
+        (Ok(json!({"state": "running"})), (Instant::now(), SystemTime::now()))
+    }
+
+    /// An answer `json` that came at `came`.
+    fn said(json: Value, came: Now) -> impl FnOnce() -> (anyhow::Result<Value>, Now) {
+        move || (Ok(json), came)
     }
 
     fn code(result: anyhow::Result<()>) -> String {
@@ -193,7 +203,7 @@ mod tests {
         let mut fence = held(then);
         // A Mac asleep: the monotonic clock stood still, the wall clock did not.
         let woke = (then.0, then.1 + LEASE * 2);
-        let expired = || Ok(json!({"state": "failed", "error_code": "seed.hold_expired"}));
+        let expired = said(json!({"state": "failed", "error_code": "seed.hold_expired"}), woke);
         assert_eq!(code(fence.allows(woke, expired)), "seed.hold_expired");
         // Ended for good: no later write goes either.
         assert_eq!(code(fence.allows(woke, running)), "seed.hold_expired");
@@ -204,28 +214,41 @@ mod tests {
         let then = (Instant::now(), SystemTime::now());
         let mut fence = held(then);
         let later = (then.0 + LEASE, then.1 + LEASE);
-        fence.allows(later, running).unwrap();
+        fence.allows(later, said(json!({"state": "running"}), later)).unwrap();
         fence.allows(later, || panic!("just heard")).unwrap();
+    }
+
+    #[test]
+    fn a_running_answer_that_came_back_past_the_lease_lets_nothing_through() {
+        let then = (Instant::now(), SystemTime::now());
+        let mut fence = held(then);
+        let asked = (then.0 + LEASE, then.1 + LEASE);
+        // The Mac slept while the answer waited: it came a lease later.
+        let came = (asked.0, asked.1 + LEASE * 2);
+        let late = said(json!({"state": "running"}), came);
+        assert_eq!(code(fence.allows(asked, late)), "seed.hold_expired");
     }
 
     #[test]
     fn a_fence_raised_unheard_reads_the_job_before_its_first_write() {
         let now = (Instant::now(), SystemTime::now());
         let mut fence = Held { heard: None, ..held(now) };
-        let expired = || Ok(json!({"state": "failed", "error_code": "seed.hold_expired"}));
+        let expired = said(json!({"state": "failed", "error_code": "seed.hold_expired"}), now);
         assert_eq!(code(fence.allows(now, expired)), "seed.hold_expired");
         let mut fence = Held { heard: None, ..held(now) };
-        fence.allows(now, running).unwrap();
+        fence.allows(now, said(json!({"state": "running"}), now)).unwrap();
     }
 
     #[test]
     fn a_job_the_machine_forgot_or_cannot_say_stops_the_writes() {
         let then = (Instant::now(), SystemTime::now());
         let later = (then.0 + LEASE, then.1 + LEASE);
-        let unreachable = || Err(anyhow::anyhow!("connection refused"));
+        let unreachable = move || (Err(anyhow::anyhow!("connection refused")), later);
         assert_eq!(code(held(then).allows(later, unreachable)), "seed.hold_expired");
-        let forgot = || {
-            Err(FsRefusal { code: "seed.job_unknown".into(), message: "no such job".into() }.into())
+        let forgot = move || {
+            let refusal =
+                FsRefusal { code: "seed.job_unknown".into(), message: "no such job".into() };
+            (Err(refusal.into()), later)
         };
         assert_eq!(code(held(then).allows(later, forgot)), "seed.hold_expired");
     }
