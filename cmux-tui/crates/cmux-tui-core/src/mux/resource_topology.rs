@@ -2555,6 +2555,10 @@ impl Mux {
                     drop(_creation_handoff);
                     return Ok(self.finish_resource_close(committed));
                 }
+                #[cfg(test)]
+                if let Some(hook) = self.topology_effect_before_execute.lock().unwrap().clone() {
+                    hook();
+                }
                 let result = match self.execute_resource_topology_effect(operation, &intent) {
                     Ok(result) => result,
                     Err(error)
