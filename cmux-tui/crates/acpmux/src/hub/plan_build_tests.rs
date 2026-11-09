@@ -117,7 +117,13 @@ fn a_worktree_is_still_made_only_with_its_folder_and_branch() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::copy(dir.join("away/.git"), root.join(".git")).unwrap();
     assert!(still_made(&made).is_err());
-    // Made again after the first went, even where the file system gives it the same inode.
+    // Made again after the first went, even where the file system gives it the same inode. Only
+    // its creation time tells the two apart, so a file system that records none (the Linux CI
+    // runner's) has nothing to check it with.
+    if made.born.is_none() {
+        let _ = std::fs::remove_dir_all(&dir);
+        return;
+    }
     std::fs::remove_dir_all(&root).unwrap();
     std::fs::remove_dir_all(dir.join("away")).unwrap();
     std::fs::create_dir_all(&root).unwrap();
