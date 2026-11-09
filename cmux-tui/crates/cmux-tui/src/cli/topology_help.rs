@@ -305,11 +305,12 @@ command's exit_status (absent when the shell reports none, never guessed).
 (the echo never does) and when the command finishes without a match (exit 1).
 --exit-with-status exits with the command's status (125: unknown). A passed
 --timeout exits 124 with the output so far. An agent that waits on a dialog
-is refused unless --force. A send to an agent whose hooks report fails with
-send.not_submitted (exit 1) when the agent starts no turn within 10 s of
-Enter, or the message is still in its input box; read the screen before you
-send again. Slash commands are not checked. --wait none returns once the
-message is typed and Enter is pressed, and is never checked.
+is refused unless --force. A send to an idle agent whose hooks report each
+prompt it takes fails with send.not_submitted (exit 1) when the agent starts
+no turn within 10 s of Enter, or the message is still in its input box; read
+the screen before you send again. A send to a working agent, /, ! and #
+input, --pattern and --wait none are not checked. --wait none returns once
+the message is typed and Enter is pressed.
 run types a command into the terminal's shell, waits for it to finish and
 exits with its status: send --wait prompt --exit-with-status. status also
 names the last command's exit status (terminal show --json:
