@@ -438,7 +438,8 @@ public final class DaemonService {
                 if Task.isCancelled { return }
                 // Ended for good: only an event can change that (an explicit reconnect for an
                 // incompatible daemon when following a link; the link's own wakes would retry it forever).
-                let explicit = followsLink && Self.needsExplicitReconnect(await connection.endedBy)
+                let endedBy = await connection.endedBy
+                let explicit = followsLink && Self.needsExplicitReconnect(endedBy)
                 wake.rebaseline()
                 guard await Self.awaitRetry(wake, clock: clock, explicit: explicit, requests: requests) else { return }
             }
