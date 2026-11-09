@@ -29,6 +29,7 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
+import type { MockEndpoint } from "../pages/settings/mockAgents";
 import type { BranchPickerGroup } from "../diff/generated/protocol";
 import type { SourceOption } from "../toolbar-model";
 import type {
@@ -66,6 +67,9 @@ export type SettingsPageVariant = VariantBase & {
   tailnet?: TailnetState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
+  /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello
+   * turn's answer; default three models and a passing turn. */
+  endpoint?: Partial<MockEndpoint>;
   /** Settings > Agents > Harnesses; default the mock's four. */
   harnesses?: HarnessesState;
   /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */

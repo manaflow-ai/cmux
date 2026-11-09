@@ -100,10 +100,16 @@ pub struct AddParams {
     pub replace: bool,
     /// Endpoint examples: the endpoint's base URL.
     pub base_url: Option<String>,
-    /// Endpoint examples: the model id.
-    pub model: Option<String>,
+    /// Endpoint examples: the model ids, the default first; an entry may hold
+    /// several separated by commas, and `*` stands for every model the
+    /// endpoint lists ([`fetch_endpoint_models`] fills it in).
+    pub models: Vec<String>,
     /// Endpoint examples: the Keychain item that holds the key.
     pub keychain_item: Option<String>,
+    /// Endpoint examples: an endpoint profile of the same id is written
+    /// again without `replace` (the daemon's add: the app adds again after a
+    /// failed check, and its key under that id was just stored again).
+    pub replace_endpoint: bool,
 }
 
 impl AddParams {
@@ -154,6 +160,21 @@ impl AddParams {
                 .collect::<Result<_, _>>()?,
             Some(_) => return Err(AdminError::Invalid("env must be an object".into())),
         };
+        let mut models: Vec<String> = text("model")?.into_iter().collect();
+        match params.get("models") {
+            None | Some(Value::Null) => {}
+            Some(Value::Array(items)) => {
+                for m in items {
+                    let m = m
+                        .as_str()
+                        .ok_or_else(|| AdminError::Invalid("models must be strings".into()))?;
+                    models.push(m.to_owned());
+                }
+            }
+            Some(_) => {
+                return Err(AdminError::Invalid("models must be an array of strings".into()));
+            }
+        }
         Ok(Self {
             id: text("id")?,
             display_name: text("displayName")?,
@@ -165,8 +186,9 @@ impl AddParams {
             env,
             replace: params.get("replace").and_then(Value::as_bool).unwrap_or(false),
             base_url: text("baseUrl")?,
-            model: text("model")?,
+            models,
             keychain_item: text("keychainItem")?,
+            replace_endpoint: false,
         })
     }
 }
@@ -369,7 +391,7 @@ pub fn add(
     if let Some(kind) = p.example.as_deref().and_then(byo_endpoint::Kind::from_example) {
         return add_endpoint(kind, p, &dir);
     }
-    if p.base_url.is_some() || p.model.is_some() || p.keychain_item.is_some() {
+    if p.base_url.is_some() || !p.models.is_empty() || p.keychain_item.is_some() {
         return Err(AdminError::Invalid(
             "baseUrl, model and keychainItem go with example anthropic-endpoint or openai-endpoint"
                 .into(),
@@ -453,8 +475,13 @@ fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<A
             byo_endpoint::UrlError::Invalid(m) => AdminError::Invalid(m),
             byo_endpoint::UrlError::Secret(m) => AdminError::SecretInline(m),
         })?;
-    let model =
-        byo_endpoint::check_model(p.model.as_deref().unwrap_or("")).map_err(AdminError::Invalid)?;
+    let models = byo_endpoint::check_models(&p.models).map_err(AdminError::Invalid)?;
+    if models.iter().any(|m| m == byo_endpoint::ALL_MODELS) {
+        return Err(AdminError::Invalid(
+            "`*` (every model the endpoint lists) is filled in before the add: type the model ids"
+                .into(),
+        ));
+    }
     let item = match &p.keychain_item {
         Some(item) => byo_endpoint::check_keychain_item(item).map_err(|(secret, m)| {
             if secret { AdminError::SecretInline(m) } else { AdminError::Invalid(m) }
@@ -472,11 +499,11 @@ fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<A
         id: &id,
         name: &name,
         base_url: &base_url,
-        model: &model,
+        models: &models,
         keychain_item: &item,
     });
     let path = dir.join(format!("{id}.toml"));
-    if path.exists() && !p.replace {
+    if path.exists() && !p.replace && !(p.replace_endpoint && is_endpoint_file(&path)) {
         return Err(AdminError::Exists(format!(
             "{} exists; pass replace to write it again",
             path.display()
@@ -490,6 +517,65 @@ fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<A
         id,
         path,
     })
+}
+
+/// Whether the profile file at `path` is an endpoint harness `add` wrote.
+fn is_endpoint_file(path: &Path) -> bool {
+    let marker = format!("{} = ", byo_endpoint::OWN_ENDPOINT_KEY);
+    std::fs::read_to_string(path).is_ok_and(|text| text.lines().any(|l| l.starts_with(&marker)))
+}
+
+/// Fills in `*` of an endpoint add's models with what the endpoint lists
+/// (`byo_endpoint::fetch_models`), after the models typed before it. The key
+/// is read from the Keychain item the add names (else the default item);
+/// without one the list is asked for without a key (a local server).
+/// Nothing to do for any other add.
+pub async fn fetch_endpoint_models(
+    p: &mut AddParams,
+    lookup_keychain: impl Fn(&str, Option<&str>) -> Result<String, String> + Send + 'static,
+) -> Result<(), AdminError> {
+    let Some(kind) = p.example.as_deref().and_then(byo_endpoint::Kind::from_example) else {
+        return Ok(());
+    };
+    let wanted = byo_endpoint::check_models(&p.models).map_err(AdminError::Invalid)?;
+    if !wanted.iter().any(|m| m == byo_endpoint::ALL_MODELS) {
+        return Ok(());
+    }
+    let base_url = p.base_url.clone().unwrap_or_default();
+    let item = match &p.keychain_item {
+        Some(item) => byo_endpoint::check_keychain_item(item).map_err(|(secret, m)| {
+            if secret { AdminError::SecretInline(m) } else { AdminError::Invalid(m) }
+        })?,
+        None => byo_endpoint::default_item(kind, p.id.as_deref().unwrap_or(kind.example())),
+    };
+    let key = tokio::task::spawn_blocking(move || {
+        let (service, account) = match item.split_once('/') {
+            Some((s, a)) => (s.to_owned(), Some(a.to_owned())),
+            None => (item.clone(), None),
+        };
+        lookup_keychain(&service, account.as_deref()).ok().map(zeroize::Zeroizing::new)
+    })
+    .await
+    .map_err(failed)?;
+    let fetched = byo_endpoint::fetch_models(
+        kind,
+        &base_url,
+        key.as_ref().map(|k| k.as_str()),
+        byo_endpoint::FETCH_TIMEOUT,
+    )
+    .await
+    .map_err(|e| AdminError::Invalid(format!("could not list the endpoint's models: {e}")))?;
+    let mut models: Vec<String> = Vec::new();
+    for m in wanted
+        .into_iter()
+        .flat_map(|m| if m == byo_endpoint::ALL_MODELS { fetched.clone() } else { vec![m] })
+    {
+        if !models.contains(&m) && models.len() < byo_endpoint::MAX_MODELS {
+            models.push(m);
+        }
+    }
+    p.models = models;
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -605,7 +691,8 @@ pub struct SecretStored {
     /// The Keychain item (`cmux-harness/<id>/<key>`).
     pub keychain_item: String,
     /// `written` (the profile now names the item), `unchanged` (it did
-    /// already) or `manual` (add `line` under `[env]` by hand).
+    /// already), `manual` (add `line` under `[env]` by hand) or `pending`
+    /// (no such harness yet: the add that follows names the item).
     pub profile: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
@@ -616,8 +703,10 @@ pub struct SecretStored {
 /// `_acpmux/harness/secret/set`: store `value` for harness `id`'s env `key`
 /// in the system secret store (service `cmux-harness`, account
 /// `<id>/<key>`, the item `keychain_lookup` reads) and point a user profile
-/// at it, as `cmux harness secret set` does. `store` runs the store command
-/// (the value only on its stdin). No error or reply holds the value.
+/// at it, as `cmux harness secret set` does. An id with no harness yet is
+/// stored too (the app's endpoint add: key first, then the profile naming
+/// it). `store` runs the store command (the value only on its stdin). No
+/// error or reply holds the value.
 pub fn secret_set(
     id: &str,
     key: &str,
@@ -632,10 +721,21 @@ pub fn secret_set(
     if !profiles::valid_env_key(key) {
         return Err(AdminError::Invalid(format!("{key:?} is not an env variable name")));
     }
+    // A harness not added yet: the app stores an endpoint's key first and then
+    // adds the profile that names this item (`keychainItem`), so the key is
+    // never in the add. Nothing to point at yet: `profile` is `pending`.
     if cfg.profile(id).is_none() {
-        return Err(AdminError::NotFound(format!(
-            "unknown harness {id:?}; add it first (`_acpmux/harness/add`)"
-        )));
+        let cmd = secret::store_command(std::env::consts::OS, id, key, value)
+            .map_err(|e| AdminError::Failed(format!("{e:#}")))?;
+        store(&cmd).map_err(|e| AdminError::Failed(format!("{e:#}")))?;
+        return Ok(SecretStored {
+            id: id.to_owned(),
+            key: key.to_owned(),
+            keychain_item: secret::reference(id, key),
+            profile: "pending",
+            path: None,
+            line: None,
+        });
     }
     // Errors of the store path name the step, never the value.
     let change = secret::secret_set(id, key, value, cfg, store)

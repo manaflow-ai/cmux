@@ -38,7 +38,7 @@ fn params(example: &str, id: &str, url: &str, model: &str, item: Option<&str>) -
         id: Some(id.into()),
         example: Some(example.into()),
         base_url: Some(url.into()),
-        model: Some(model.into()),
+        models: vec![model.into()],
         keychain_item: item.map(str::to_owned),
         ..Default::default()
     }
@@ -196,7 +196,7 @@ fn byo_endpoint_add_checks_the_url_and_refuses_a_literal_key() {
     }
     // Model and base URL are required; they go only with an endpoint example.
     let mut p = params("openai-endpoint", "u", "https://x.example.com", "m", None);
-    p.model = None;
+    p.models.clear();
     assert!(matches!(add(&p, &src), Err(AdminError::Invalid(_))));
     let mut p = params("openai-endpoint", "u", "https://x.example.com", "m", None);
     p.base_url = None;
@@ -320,14 +320,252 @@ fn byo_endpoint_secret_set_stores_through_stdin_and_never_echoes() {
     let (profile, _) = load(&added.path, "sec");
     assert_eq!(profile.env["ANTHROPIC_AUTH_TOKEN"], format!("${{keychain:{item}}}"));
 
-    // An unknown harness stores nothing.
-    let e = admin::secret_set("nope", "ANTHROPIC_AUTH_TOKEN", GOOD_KEY, &cfg, &store).unwrap_err();
-    assert_eq!(e.reason(), Some("harness.not_found"), "{e}");
-    assert_eq!(seen.lock().unwrap().len(), 1);
+    // A harness not added yet (the app stores an endpoint's key, then adds the profile that
+    // names it): the item is stored and nothing is pointed at it yet.
+    let done = admin::secret_set("new-one", "API_KEY", GOOD_KEY, &cfg, &store).unwrap();
+    let reply = serde_json::to_value(&done).unwrap();
+    assert_eq!(reply["profile"], "pending", "{reply}");
+    assert_eq!(
+        reply["keychainItem"],
+        json!(crate::cli::harness_secret::reference("new-one", "API_KEY")),
+        "{reply}"
+    );
+    assert!(!reply.to_string().contains(GOOD_KEY), "{reply}");
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(seen[1].0.iter().all(|a| !a.contains(GOOD_KEY)), "the value is in argv");
+    }
+    // Not an id: nothing is stored.
+    let e = admin::secret_set("Not An Id", "API_KEY", GOOD_KEY, &cfg, &store).unwrap_err();
+    assert!(matches!(e, AdminError::Invalid(_)), "{e}");
+    assert_eq!(seen.lock().unwrap().len(), 2);
     // A failing store names no value.
     let failing = |_: &StoreCommand| -> anyhow::Result<()> { anyhow::bail!("security failed") };
     let e = admin::secret_set("sec", "ANTHROPIC_AUTH_TOKEN", GOOD_KEY, &cfg, &failing).unwrap_err();
     assert!(!e.message().contains(GOOD_KEY), "{e}");
+}
+
+#[test]
+fn byo_endpoint_several_models_fill_the_picker_and_claude_codes_slots() {
+    let root = scratch("models");
+    let src = sources(&root);
+    // One string with commas (what the app's add sends) and a repeated entry.
+    let mut p = params("anthropic-endpoint", "gw", "https://gw.example.com", "big, mid", None);
+    p.models.push("small".into());
+    p.models.push("mid".into());
+    let added = add(&p, &src).unwrap();
+    assert!(added.diagnostics.is_empty(), "{:?}", added.diagnostics);
+    let (profile, _) = load(&added.path, "gw");
+    let ids: Vec<&str> = profile.models.iter().map(|m| m.id()).collect();
+    assert_eq!(ids, ["big", "mid", "small"]);
+    assert_eq!(profile.model.as_deref(), Some("big"));
+    let env = &profile.env;
+    assert_eq!(env["ANTHROPIC_MODEL"], "big");
+    assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "big");
+    assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "mid");
+    assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "small");
+    assert_eq!(env["ANTHROPIC_SMALL_FAST_MODEL"], "small");
+
+    // Two models: Haiku takes Sonnet's; one model fills every slot.
+    let slots = claude_slots(&["a".to_owned(), "b".to_owned()]);
+    assert_eq!(slots.map(|(_, m)| m), ["a", "b", "b", "b"]);
+    let slots = claude_slots(&["only".to_owned()]);
+    assert_eq!(slots.map(|(_, m)| m), ["only"; 4]);
+
+    // OpenCode: every model in provider.byo.models and the picker, the first the default.
+    let p =
+        params("openai-endpoint", "oc", "http://127.0.0.1:11434/v1", "qwen3,org/coder-7b", None);
+    let added = add(&p, &src).unwrap();
+    let (profile, _) = load(&added.path, "oc");
+    let ids: Vec<&str> = profile.models.iter().map(|m| m.id()).collect();
+    assert_eq!(ids, ["byo/qwen3", "byo/org/coder-7b"]);
+    assert_eq!(profile.model.as_deref(), Some("byo/qwen3"));
+    let config: Value = serde_json::from_str(&profile.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    let listed = config["provider"]["byo"]["models"].as_object().unwrap();
+    let mut keys: Vec<&String> = listed.keys().collect();
+    keys.sort();
+    assert_eq!(keys, ["org/coder-7b", "qwen3"], "{config}");
+    assert_eq!(config["model"], "byo/qwen3", "{config}");
+
+    // A bad id anywhere in the list refuses the add; `*` is filled in before add, never written.
+    for list in ["good,two words", "a,{env:HOME}"] {
+        let p = params("openai-endpoint", "bad", "https://x.example.com", list, None);
+        assert!(matches!(add(&p, &src), Err(AdminError::Invalid(_))), "{list}");
+    }
+    let p = params("openai-endpoint", "bad", "https://x.example.com", "*", None);
+    assert!(matches!(add(&p, &src), Err(AdminError::Invalid(_))));
+    assert!(!root.join("harnesses").join("bad.toml").exists());
+    let many: Vec<String> = (0..=MAX_MODELS).map(|i| format!("m{i}")).collect();
+    assert!(check_models(&many).is_err());
+    assert_eq!(check_models(&[" a , *,a ".into()]).unwrap(), ["a", "*"]);
+}
+
+#[test]
+fn byo_endpoint_the_daemons_add_writes_an_endpoint_profile_again() {
+    let root = scratch("again");
+    let src = sources(&root);
+    let mut p = params("openai-endpoint", "again", "https://x.example.com/v1", "m1", None);
+    add(&p, &src).unwrap();
+    // The CLI without --force keeps the file.
+    assert!(matches!(add(&p, &src), Err(AdminError::Exists(_))));
+    // The daemon's add (the app adds again after a failed check) writes it again.
+    p.replace_endpoint = true;
+    p.models = vec!["m2".into()];
+    let added = add(&p, &src).unwrap();
+    let (profile, _) = load(&added.path, "again");
+    assert_eq!(profile.model.as_deref(), Some("byo/m2"));
+    // Never over a profile that is not an endpoint's.
+    let other = root.join("harnesses").join("mine.toml");
+    std::fs::write(&other, "schema = 1\nid = \"mine\"\ncommand = \"mine\"\n").unwrap();
+    let mut p = params("openai-endpoint", "mine", "https://x.example.com/v1", "m1", None);
+    p.replace_endpoint = true;
+    assert!(matches!(add(&p, &src), Err(AdminError::Exists(_))));
+    assert!(std::fs::read_to_string(&other).unwrap().contains("command = \"mine\""));
+}
+
+#[test]
+fn byo_endpoint_model_lists_parse_from_every_shape() {
+    // OpenAI's and Anthropic's shape.
+    let openai =
+        r#"{"object":"list","data":[{"id":"qwen3","object":"model"},{"id":"org/coder-7b"}]}"#;
+    assert_eq!(parse_models(openai).unwrap(), ["qwen3", "org/coder-7b"]);
+    let anthropic =
+        r#"{"data":[{"type":"model","id":"big","display_name":"Big"}],"has_more":false}"#;
+    assert_eq!(parse_models(anthropic).unwrap(), ["big"]);
+    // A local server's own shape: `name` or `model`.
+    let local = r#"{"models":[{"name":"llama3:8b","model":"llama3:8b"},{"model":"phi4"}]}"#;
+    assert_eq!(parse_models(local).unwrap(), ["llama3:8b", "phi4"]);
+    // Repeats, ids the profile may not hold, and non-strings are left out.
+    let messy =
+        r#"{"data":[{"id":"a"},{"id":"a"},{"id":"two words"},{"id":"${HOME}"},{"id":7},"b"]}"#;
+    assert_eq!(parse_models(messy).unwrap(), ["a", "b"]);
+    assert!(parse_models("<html>").is_err());
+    assert!(parse_models(r#"{"error":"nope"}"#).is_err());
+    let many =
+        json!({"data": (0..500).map(|i| json!({"id": format!("m{i}")})).collect::<Vec<_>>()});
+    assert_eq!(parse_models(&many.to_string()).unwrap().len(), MAX_MODELS);
+    // Where each API lists its models.
+    assert_eq!(
+        models_url(Kind::OpenAi, "http://127.0.0.1:1234/v1/"),
+        "http://127.0.0.1:1234/v1/models"
+    );
+    assert_eq!(
+        models_url(Kind::Anthropic, "https://gw.example.com"),
+        "https://gw.example.com/v1/models"
+    );
+    assert_eq!(
+        models_url(Kind::Anthropic, "https://gw.example.com/v1"),
+        "https://gw.example.com/v1/models"
+    );
+}
+
+/// A one-thread fake `/v1/models` on 127.0.0.1: the list for `Bearer
+/// GOOD_KEY` (or any request when `open`), else 401; the auth headers seen.
+fn fake_models(open: bool, seen: Arc<std::sync::Mutex<Vec<String>>>) -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            let _ = reader.read_line(&mut line);
+            let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+            let mut auth = String::new();
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).is_err() || header.trim_end().is_empty() {
+                    break;
+                }
+                if let Some((name, value)) = header.trim_end().split_once(':') {
+                    let name = name.trim().to_ascii_lowercase();
+                    if name == "authorization" || name == "x-api-key" {
+                        auth = value.trim().to_owned();
+                        seen.lock().unwrap().push(format!("{name}: {auth}"));
+                    }
+                }
+            }
+            let (status, body) = if path != "/v1/models" {
+                ("404 Not Found", "Not Found".to_owned())
+            } else if !open && auth != format!("Bearer {GOOD_KEY}") && auth != GOOD_KEY {
+                ("401 Unauthorized", r#"{"error":"bad key"}"#.to_owned())
+            } else {
+                ("200 OK", r#"{"data":[{"id":"served-a"},{"id":"served-b"}]}"#.to_owned())
+            };
+            let mut stream = stream;
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    port
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn byo_endpoint_fetches_the_model_list_and_fills_in_star() {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let port = fake_models(false, seen.clone());
+    let base = format!("http://127.0.0.1:{port}/v1");
+    let t = Duration::from_secs(5);
+    assert_eq!(
+        fetch_models(Kind::OpenAi, &base, Some(GOOD_KEY), t).await.unwrap(),
+        ["served-a", "served-b"]
+    );
+    // Anthropic: `<base>/v1/models`, the key as a bearer token and x-api-key.
+    let root_base = format!("http://127.0.0.1:{port}");
+    assert_eq!(
+        fetch_models(Kind::Anthropic, &root_base, Some(GOOD_KEY), t).await.unwrap().len(),
+        2
+    );
+    assert!(seen.lock().unwrap().iter().any(|h| h.starts_with("x-api-key")));
+    // A refused key, a wrong path and a closed port each say so, never with the key.
+    let e = fetch_models(Kind::OpenAi, &base, Some(BAD_KEY), t).await.unwrap_err();
+    assert!(e.contains("refused the key") && !e.contains(BAD_KEY), "{e}");
+    let e = fetch_models(Kind::OpenAi, &format!("http://127.0.0.1:{port}/api"), None, t)
+        .await
+        .unwrap_err();
+    assert!(e.contains("no model list"), "{e}");
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let e = fetch_models(Kind::OpenAi, &format!("http://127.0.0.1:{closed}/v1"), None, t)
+        .await
+        .unwrap_err();
+    assert!(e.contains("not reached"), "{e}");
+    // Plain http only to this machine.
+    let e = fetch_models(Kind::OpenAi, "http://llm.example.com/v1", None, t).await.unwrap_err();
+    assert!(e.contains("https"), "{e}");
+
+    // The add's `*`: typed models first, then the endpoint's, the key read from the item.
+    let mut p = params("openai-endpoint", "fetch", &base, "mine,*", Some("byo-test/key"));
+    let looked = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let log = looked.clone();
+    admin::fetch_endpoint_models(&mut p, move |service, account| {
+        log.lock().unwrap().push(format!("{service}/{}", account.unwrap_or("")));
+        Ok(GOOD_KEY.to_owned())
+    })
+    .await
+    .unwrap();
+    assert_eq!(p.models, ["mine", "served-a", "served-b"]);
+    assert_eq!(*looked.lock().unwrap(), ["byo-test/key"]);
+    let root = scratch("fetch");
+    let added = add(&p, &sources(&root)).unwrap();
+    let (profile, _) = load(&added.path, "fetch");
+    assert_eq!(profile.models.len(), 3);
+    // No key in the Keychain: asked without one; the endpoint's refusal is the error.
+    let mut p = params("openai-endpoint", "fetch", &base, "*", None);
+    let e = admin::fetch_endpoint_models(&mut p, |_, _| Err("not found".into())).await.unwrap_err();
+    assert!(e.message().contains("refused the key"), "{e}");
+    // A keyless local server answers without one.
+    let open = fake_models(true, Arc::new(std::sync::Mutex::new(Vec::new())));
+    let mut p =
+        params("openai-endpoint", "local", &format!("http://127.0.0.1:{open}/v1"), "*", None);
+    admin::fetch_endpoint_models(&mut p, |_, _| Err("not found".into())).await.unwrap();
+    assert_eq!(p.models, ["served-a", "served-b"]);
+    // Without `*` nothing is asked.
+    let mut p = params("openai-endpoint", "x", "http://127.0.0.1:9/v1", "m", None);
+    admin::fetch_endpoint_models(&mut p, |_, _| panic!("no lookup")).await.unwrap();
+    assert_eq!(p.models, ["m"]);
 }
 
 // ------------------------------------------------- doctor's hello turn

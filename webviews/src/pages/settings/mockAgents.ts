@@ -57,11 +57,70 @@ const REGISTRY: AgentRegistryAgent[] = [
   { id: "auggie", name: "Auggie", description: "Augment Code's agent", version: "0.9.0", launch: "none" },
 ];
 
+/** Settings > Agents > Add > Endpoint's host calls (`cmux.chief.backend.add|doctor`): what the
+ * endpoint lists for `*` and the hello turn's answer. */
+export type MockEndpoint = {
+  served: string[];
+  doctor: { ok: boolean; steps: { name: string; ok: boolean; detail?: string; fix?: string }[] };
+};
+
 export class MockAgents {
   state: AgentsState = { status: "ready", manages: true, harnesses: HARNESSES, doctor: {} };
+  endpoint: MockEndpoint = {
+    served: ["model-large", "model-medium", "model-small"],
+    doctor: { ok: true, steps: [{ name: "prompt", ok: true }] },
+  };
+  /** Each endpoint harness added and its models, as acpmux lists them. */
+  private endpoints = new Map<string, { name: string; kind: string; models: string[] }>();
   registry: AgentRegistryAgent[] = REGISTRY;
   readonly listeners = new Set<(state: AgentsState) => void>();
   private backups = 0;
+
+  /** `cmux.chief.backend.add` for an endpoint, as the host and acpmux run it: the id from the name,
+   * `*` the endpoint's list, an endpoint profile of the same id written again. Never keeps the key. */
+  addEndpoint(params: Record<string, unknown>): { id: string } {
+    const name = String(params.name ?? "").trim();
+    const kind = String(params.kind ?? "");
+    if (!name) throw new ProtocolError("cmux.page.invalid_params", "name is required");
+    if (!String(params.apiKey ?? "")) throw new ProtocolError("cmux.page.invalid_params", "apiKey is required");
+    const id =
+      name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 48) || "my-backend";
+    const models: string[] = [];
+    for (const word of String(params.model ?? "").split(",")) {
+      for (const model of word.trim() === "*" ? this.endpoint.served : [word.trim()])
+        if (model && !models.includes(model)) models.push(model);
+    }
+    if (models.length === 0) throw new ProtocolError("cmux.page.invalid_params", "model is required");
+    if (this.state.harnesses.some((row) => row.id === id) && !this.endpoints.has(id))
+      throw new ProtocolError("cmux.agents.exists", `${id} already has a profile.`);
+    this.endpoints.set(id, { name, kind, models });
+    const row: AgentHarnessRow = {
+      id,
+      name,
+      kind: kind === "anthropic-endpoint" ? "claude-stdio" : "acp",
+      source: "user",
+      removable: true,
+      default: false,
+    };
+    this.state = { ...this.state, harnesses: [...this.state.harnesses.filter((entry) => entry.id !== id), row] };
+    for (const listener of this.listeners) listener(this.state);
+    return { id };
+  }
+
+  /** The endpoint harnesses for `cmux.chief.backend.list`'s `_acpmux/harnesses` part. */
+  endpointHarnesses(): Record<string, { displayName: string; models: { id: string }[] }> {
+    const out: Record<string, { displayName: string; models: { id: string }[] }> = {};
+    for (const [id, entry] of this.endpoints)
+      out[id] = {
+        displayName: entry.name,
+        models: entry.models.map((model) => ({ id: entry.kind === "openai-endpoint" ? `byo/${model}` : model })),
+      };
+    return out;
+  }
 
   /** One gesture, as the host runs it; the change goes to every subscriber. */
   run(gesture: AgentsRun): unknown {

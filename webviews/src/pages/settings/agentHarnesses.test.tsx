@@ -158,3 +158,77 @@ test("a profile's icon is set from its row and the row draws it", async () => {
   expect(row().querySelector<HTMLImageElement>("img.agent-mark-image")?.src).toBe("data:image/png;base64,iVBORw==");
   page.unmount();
 });
+
+// Plan api-and-open-models gaps 3 and 6: an open-weight model or your own endpoint from Settings,
+// through the same host calls as the Chief editor's Bring your own (`cmux.chief.backend.*`).
+const endpointForm = (container: ParentNode) => container.querySelector<HTMLFormElement>("[data-agents-endpoint]")!;
+const endpointInput = (container: ParentNode, name: string) =>
+  container.querySelector<HTMLInputElement>(`[data-endpoint-field="${name}"] input`);
+
+test("Endpoint: a model server on this Mac needs no key; Fetch Models fills the list; Check and Add saves after the check", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  expect(endpointInput(form(), "baseUrl")!.value).toBe("http://127.0.0.1:11434/v1");
+  expect(endpointInput(form(), "apiKey")).toBeNull();
+  // No model yet: Check and Add waits.
+  expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(true);
+  await act(async () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!.click());
+  await settle();
+  // `*` asks acpmux for every model the endpoint lists; the host requires a key, so a keyless one gets a stand-in.
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toEqual({
+    kind: "openai-endpoint",
+    name: "Local Models",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    model: "*",
+    apiKey: "no-key",
+  });
+  expect(endpointInput(form(), "models")!.value).toBe("model-large, model-medium, model-small");
+  expect(form().querySelector("[data-endpoint-fetched]")!.textContent).toContain("3");
+  await changeValue(endpointInput(form(), "models")!, "model-large, model-small");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toMatchObject({ model: "model-large,model-small" });
+  expect(ops(page.provider, "cmux.chief.backend.doctor").at(-1)).toEqual({ id: "local-models", prompt: true });
+  // The check passed: the panel closes and the new harness is listed (and in the model picker).
+  expect(page.container.querySelector("[data-agents-endpoint]")).toBeNull();
+  expect(harness(page.container, "local-models")).not.toBeNull();
+  page.unmount();
+});
+
+test("Endpoint: a gateway's key goes only in the add call, and a failed check shows the step and keeps the form", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  page.provider.agents.endpoint.doctor = {
+    ok: false,
+    steps: [
+      { name: "launch", ok: true },
+      { name: "prompt", ok: false, detail: "401 Unauthorized", fix: "check the key" },
+    ],
+  };
+  const form = () => endpointForm(page.container);
+  await changeValue(form().querySelector("select")!, "gateway");
+  expect(form().textContent).toContain("Claude Code");
+  // A gateway needs a key: Check and Add waits for one.
+  await changeValue(endpointInput(form(), "baseUrl")!, "https://gateway.example.com");
+  await changeValue(endpointInput(form(), "models")!, "big mid small");
+  expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(true);
+  await changeValue(endpointInput(form(), "apiKey")!, "sk-gateway-secret");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toEqual({
+    kind: "anthropic-endpoint",
+    name: "Claude Gateway",
+    baseUrl: "https://gateway.example.com",
+    model: "big,mid,small",
+    apiKey: "sk-gateway-secret",
+  });
+  const failed = form().querySelector('[data-endpoint-status="failed"]')!;
+  expect(failed.textContent).toContain("prompt failed");
+  expect(failed.textContent).toContain("401 Unauthorized");
+  expect(failed.textContent).toContain("Fix: check the key");
+  expect(endpointInput(form(), "apiKey")!.value).toBe("");
+  expect(page.container.innerHTML).not.toContain("sk-gateway-secret");
+  // Plain http to another machine is refused before anything is sent.
+  await changeValue(endpointInput(form(), "baseUrl")!, "http://gateway.example.com");
+  expect(form().textContent).toContain("Plain http works only to this Mac");
+  page.unmount();
+});

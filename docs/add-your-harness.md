@@ -182,30 +182,65 @@ values; harness output that the doctor prints has every resolved env value maske
 
 ## Your own model endpoint
 
-An Anthropic-compatible or OpenAI-compatible endpoint (a company gateway, a local model server)
-becomes a harness with one command. A Chief can then use it as its backend.
+An Anthropic-compatible or OpenAI-compatible endpoint (a company gateway, your team's inference
+server, a hosted provider, a model server on your Mac) becomes a harness from Settings or with one
+command. A Chief can then use it as its backend.
+
+### From Settings
+
+Settings › Agents › Add Agent… › **Endpoint**:
+
+1. Pick a preset. Each fills the URL it can and says whether a key is needed:
+
+   | Preset | Base URL | Key |
+   |---|---|---|
+   | Model server on this Mac (port 11434) | `http://127.0.0.1:11434/v1` | none |
+   | Desktop model app (port 1234) | `http://127.0.0.1:1234/v1` | none |
+   | Your team's inference server | its OpenAI-compatible URL, usually ending in `/v1` | optional |
+   | Hosted OpenAI-compatible provider | the provider's URL, usually ending in `/v1` | required |
+   | Anthropic-compatible gateway (runs Claude Code) | the URL before `/v1/messages` | required |
+
+2. Type the model ids, separated by commas (the first is the default), or press **Fetch Models**:
+   acpmux asks the endpoint for `<base URL>/models` (10 s at most; https, or plain http only to
+   this Mac) and fills the list. Remove the ones you don't want. Fetch Models already adds the
+   endpoint with every model it lists; Check and Add writes it again with the models you kept.
+3. Press **Check and Add**. The key goes to your Keychain in the same call, the profile is
+   written, and one real prompt is sent. If it fails, the form stays open and shows the failing
+   step with its message and fix (the key, the base URL or the model); change the field and press
+   Check and Add again, which writes the same endpoint again. When it answers, the panel closes and
+   the new harness is in the model picker with each of its models.
+
+### From the CLI
 
 ```sh
 cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com \
-    --model acme-large [--keychain-item ITEM] [--name "Acme"]
+    --model acme-large,acme-medium,acme-small [--keychain-item ITEM] [--name "Acme"]
 cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 \
-    --model qwen3 [--keychain-item ITEM]
+    --model '*' [--keychain-item ITEM]
 cmux harness secret set acme ANTHROPIC_AUTH_TOKEN     # openai-endpoint: CMUX_BYO_API_KEY
 cmux harness doctor acme                              # one real hello turn
 ```
 
+- `--model` takes one id, several separated by commas, or the flag repeated; the first is the
+  default and every one is in the model picker. `'*'` adds every model the endpoint lists at
+  `<base URL>/models` (the key is read from the Keychain item; without one the list is asked for
+  without a key, as a model server on your Mac expects).
 - `anthropic-endpoint` writes a `claude-stdio` profile (acpmux's own Claude Code adapter,
-  command `claude`) with `ANTHROPIC_BASE_URL` (the URL before `/v1/messages`), `ANTHROPIC_MODEL`,
-  `ANTHROPIC_SMALL_FAST_MODEL` and `ANTHROPIC_DEFAULT_HAIKU_MODEL` set to the model, and
-  `ANTHROPIC_AUTH_TOKEN = { keychain = ITEM }` (sent as `Authorization: Bearer`). Every other
+  command `claude`) with `ANTHROPIC_BASE_URL` (the URL before `/v1/messages`), `ANTHROPIC_MODEL`
+  (the first model), Claude Code's model slots and `ANTHROPIC_AUTH_TOKEN = { keychain = ITEM }`
+  (sent as `Authorization: Bearer`). List models largest first: `ANTHROPIC_DEFAULT_OPUS_MODEL` is
+  the first, `ANTHROPIC_DEFAULT_SONNET_MODEL` the second and `ANTHROPIC_DEFAULT_HAIKU_MODEL` (and
+  `ANTHROPIC_SMALL_FAST_MODEL`) the third; a slot without a model of its own takes the one before
+  it, so a subagent never asks the endpoint for a model it does not serve. Every other
   `ANTHROPIC_*` and Claude provider switch from your login shell or the daemon
   (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, ...) is removed
   from its environment, so your own Claude login never redirects it.
 - `openai-endpoint` writes an `opencode acp` profile with `OPENCODE_CONFIG_CONTENT` (OpenCode's
   inline config, which wins over your global and project config): provider `byo` on
   `@ai-sdk/openai-compatible` with `options.baseURL` (the URL before `/chat/completions`, usually
-  ending in `/v1`), `options.apiKey = "{env:CMUX_BYO_API_KEY}"` and your model, and
-  `"model": "byo/<model>"`; `CMUX_BYO_API_KEY = { keychain = ITEM }`.
+  ending in `/v1`), `options.apiKey = "{env:CMUX_BYO_API_KEY}"` and every model, and
+  `"model": "byo/<first model>"`; `CMUX_BYO_API_KEY = { keychain = ITEM }`. A chat starts on any of
+  the models.
 - The base URL is https; plain http only to `localhost`, `127.0.0.1` or `::1`. A URL with a user,
   password or key, a Keychain item name that looks like a key, and a key passed as a parameter are
   refused: the key goes only into the Keychain.
@@ -218,11 +253,14 @@ cmux harness doctor acme                              # one real hello turn
   `openai-endpoint`. A failure names the fix: **check the key**, **check the base URL** or
   **model not found**. Env values are masked in everything it prints.
 
-From the app (the unix socket): `_acpmux/harness/add {example: "anthropic-endpoint" |
-"openai-endpoint", id, displayName, baseUrl, model, keychainItem?}` answers with `secret: {key,
-keychainItem}`; `_acpmux/harness/secret/set {id, key, value}` stores the value (service
-`cmux-harness`, account `<id>/<key>`, through `security -i` on stdin) and points the profile at
-it, never echoing the value; then `_acpmux/harness/doctor {id, prompt: true}`.
+From the app (the unix socket): `_acpmux/harness/secret/set {id, key, value}` stores the value
+(service `cmux-harness`, account `<id>/<key>`, through `security -i` on stdin) and points the
+profile at it, never echoing the value; for an id not added yet it stores the item and answers
+`profile: "pending"`. Then `_acpmux/harness/add {example: "anthropic-endpoint" |
+"openai-endpoint", id, displayName, baseUrl, model (one id, several comma separated, or `*`),
+models?, keychainItem?}` answers with `secret: {key, keychainItem}`; it writes an endpoint profile
+of the same id again without `replace`. Then `_acpmux/harness/doctor {id, prompt: true}`. The
+Settings form and the Chief editor reach these through the app's `cmux.chief.backend.add|doctor`.
 
 ## Terminal harnesses (no ACP)
 

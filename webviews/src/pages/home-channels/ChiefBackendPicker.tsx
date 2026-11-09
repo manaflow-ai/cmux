@@ -7,7 +7,18 @@
 // after its check passed.
 import { useEffect, useId, useState, type InputHTMLAttributes } from "react";
 import type { Strings } from "../shared/i18n";
-import { describeError, type ChiefEditorService } from "./chiefEditing";
+import { EndpointFields } from "../shared/EndpointFields";
+import {
+  bringEndpoint,
+  checkEndpoint,
+  endpointBackend,
+  endpointBusy,
+  modelList,
+  type EndpointDraft,
+  type EndpointKind,
+  type EndpointStatus,
+} from "../shared/byoEndpoint";
+import type { ChiefEditorService } from "./chiefEditing";
 import { chiefEffortName, chiefModelName } from "./chiefNames";
 import {
   chiefBackend,
@@ -239,13 +250,10 @@ function Failure({
 }
 
 type Kind = HomeChiefByoBackend["kind"];
-type Status =
-  | { state: "editing" }
-  | { state: "adding" }
-  | { state: "checking"; harness: string; model: string }
-  | { state: "failed"; harness?: string; model?: string; step?: HomeChiefDoctor["steps"][number] };
 
-/** The inline Bring your own form: three kinds, then add (the host) and check (a hello turn). */
+/** The inline Bring your own form: three kinds, then add (the host) and check (a hello turn). The
+ * endpoint fields and the add-then-check sequence are the ones Settings > Agents > Add > Endpoint
+ * uses (shared/byoEndpoint.ts). */
 function BringYourOwn({
   service,
   strings,
@@ -262,46 +270,35 @@ function BringYourOwn({
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [model, setModel] = useState("");
-  // The key lives here only while the person types it; sending the form clears it.
-  const [apiKey, setApiKey] = useState("");
-  const [status, setStatus] = useState<Status>({ state: "editing" });
+  // The key lives in the draft only while the person types it; sending the form clears it.
+  const [draft, setDraft] = useState<Omit<EndpointDraft, "kind" | "name">>({ baseUrl: "", models: "", apiKey: "" });
+  const [status, setStatus] = useState<EndpointStatus>({ state: "editing" });
+  // The model a passed check picks: the first of the endpoint's.
+  const [picked, setPicked] = useState("");
   const endpoint = kind !== "command";
-  const busy = status.state === "adding" || status.state === "checking";
+  const busy = endpointBusy(status);
   const complete =
     name.trim() !== "" &&
-    (endpoint ? baseUrl.trim() !== "" && model.trim() !== "" && apiKey !== "" : command.trim() !== "");
-  const check = async (harness: string, picked: string) => {
-    setStatus({ state: "checking", harness, model: picked });
-    try {
-      const result = await service.checkBackend(harness);
-      if (result.ok) return onPassed(harness, picked);
-      setStatus({ state: "failed", harness, model: picked, step: result.steps.find((step) => !step.ok) });
-    } catch (failure) {
-      setStatus({
-        state: "failed",
-        harness,
-        model: picked,
-        step: { name: "doctor", ok: false, detail: describeError(failure) },
-      });
-    }
+    (endpoint
+      ? draft.baseUrl.trim() !== "" && modelList(draft.models).length > 0 && draft.apiKey !== ""
+      : command.trim() !== "");
+  const recheck = async (harness: string) => {
+    setStatus({ state: "checking", harness });
+    const checked = await checkEndpoint(service, harness);
+    if (checked.state === "passed") return onPassed(harness, picked);
+    setStatus(checked);
   };
   const submit = async () => {
     if (!complete || busy) return;
+    const model = endpoint ? (modelList(draft.models)[0] ?? "") : "";
     const backend: HomeChiefByoBackend = endpoint
-      ? { kind, name: name.trim(), baseUrl: baseUrl.trim(), model: model.trim(), apiKey }
+      ? endpointBackend({ ...draft, kind: kind as EndpointKind, name })
       : { kind: "command", name: name.trim(), command: command.trim(), args: words(args) };
     // The key leaves the page's state now: only the host's add call carries it.
-    setApiKey("");
-    setStatus({ state: "adding" });
-    let harness: string;
-    try {
-      harness = await service.addBackend(backend);
-    } catch (failure) {
-      return setStatus({ state: "failed", step: { name: "add", ok: false, detail: describeError(failure) } });
-    }
-    await check(harness, endpoint ? model.trim() : "");
+    setDraft((before) => ({ ...before, apiKey: "" }));
+    setPicked(model);
+    const done = await bringEndpoint(service, backend, setStatus);
+    if (done.state === "passed") onPassed(done.harness, model);
   };
   const kinds: [Kind, string][] = [
     ["command", t("chief.byo.kind.command")],
@@ -354,17 +351,15 @@ function BringYourOwn({
       {text(t("chief.byo.name"), name, setName, { placeholder: t("chief.byo.namePlaceholder"), maxLength: 64 })}
       {endpoint ? (
         <>
-          {text(t("chief.byo.baseUrl"), baseUrl, setBaseUrl, {
-            type: "url",
-            placeholder: kind === "anthropic-endpoint" ? "https://api.anthropic.com" : "https://api.openai.com/v1",
-            spellCheck: false,
-          })}
-          {text(t("chief.byo.model"), model, setModel, { spellCheck: false, maxLength: 128 })}
-          {text(t("chief.byo.apiKey"), apiKey, setApiKey, {
-            type: "password",
-            autoComplete: "off",
-            spellCheck: false,
-          })}
+          <EndpointFields
+            draft={{ ...draft, kind: kind as EndpointKind, name }}
+            change={(patch) => setDraft((before) => ({ ...before, ...patch }))}
+            labels={{ baseUrl: t("chief.byo.baseUrl"), models: t("chief.byo.model"), apiKey: t("chief.byo.apiKey") }}
+            placeholders={{
+              baseUrl: kind === "anthropic-endpoint" ? "https://api.anthropic.com" : "https://api.openai.com/v1",
+            }}
+            field={(spec) => text(spec.label, spec.value, spec.set, spec.attrs)}
+          />
           <span className="ce-note">{t("chief.byo.keyNote")}</span>
         </>
       ) : (
@@ -383,7 +378,7 @@ function BringYourOwn({
         <Failure
           strings={strings}
           step={status.step}
-          onRetry={status.harness ? () => void check(status.harness!, status.model ?? "") : undefined}
+          onRetry={status.harness ? () => void recheck(status.harness!) : undefined}
         />
       )}
       <span className="ce-row ce-byo-actions">

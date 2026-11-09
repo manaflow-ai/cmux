@@ -754,9 +754,11 @@ pub enum HarnessCmd {
         /// to localhost or 127.0.0.1).
         #[arg(long)]
         base_url: Option<String>,
-        /// anthropic-endpoint / openai-endpoint: the model id the endpoint serves.
+        /// anthropic-endpoint / openai-endpoint: a model id the endpoint serves; repeat it or
+        /// separate ids with commas for several (the first is the default). '*' adds every
+        /// model the endpoint lists at <base URL>/models.
         #[arg(long)]
-        model: Option<String>,
+        model: Vec<String>,
         /// anthropic-endpoint / openai-endpoint: the Keychain item that holds the key
         /// (default: cmux-harness/ID/KEY, which `cmux harness secret set ID KEY` writes).
         #[arg(long)]

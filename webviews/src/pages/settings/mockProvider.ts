@@ -390,7 +390,11 @@ export class MockSettingsProvider {
       "cmux.chief.backend.list": () => ({
         harnesses: {
           defaultHarness: "claude",
-          harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } },
+          harnesses: {
+            claude: { displayName: "Claude Code" },
+            codex: { displayName: "Codex" },
+            ...this.agents.endpointHarnesses(),
+          },
         },
         // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
         models: {
@@ -405,7 +409,8 @@ export class MockSettingsProvider {
           ],
         },
       }),
-      "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),
+      "cmux.chief.backend.add": (params) => this.agents.addEndpoint(params),
+      "cmux.chief.backend.doctor": () => this.agents.endpoint.doctor,
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
@@ -607,6 +612,7 @@ export class MockSettingsProvider {
       "cmux.chief.profile.update",
       "cmux.chief.profile.create",
       "cmux.chief.backend.list",
+      "cmux.chief.backend.add",
       "cmux.chief.backend.doctor",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",

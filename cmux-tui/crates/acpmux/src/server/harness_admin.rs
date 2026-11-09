@@ -175,7 +175,13 @@ pub(super) async fn handle(
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
     let reply = match m {
         method::MUX_HARNESS_ADD => {
-            let p = AddParams::from_json(params).map_err(rpc_error)?;
+            let mut p = AddParams::from_json(params).map_err(rpc_error)?;
+            // The app adds an endpoint again after a failed check (byo_endpoint.rs).
+            p.replace_endpoint = true;
+            // `*`: the endpoint's own model list, read with the key just stored.
+            admin::fetch_endpoint_models(&mut p, profiles::keychain_lookup)
+                .await
+                .map_err(rpc_error)?;
             let registry = match &p.registry {
                 Some(rid) => {
                     let reg = crate::cli::harness_registry::registry(false)

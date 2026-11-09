@@ -151,7 +151,7 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             icon,
         } if example.as_deref().is_some_and(|e| byo_endpoint::Kind::from_example(e).is_some())
             || base_url.is_some()
-            || model.is_some()
+            || !model.is_empty()
             || keychain_item.is_some()
             || name.is_some() =>
         {
@@ -162,7 +162,7 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
                 protocol: (protocol != "acp").then_some(protocol),
                 example,
                 base_url,
-                model,
+                models: model,
                 keychain_item,
                 replace: force,
                 ..Default::default()
@@ -284,6 +284,11 @@ async fn add_endpoint_cmd(
             "--base-url, --model, --keychain-item and --name go with --example anthropic-endpoint or openai-endpoint"
         );
     }
+    let mut p = p.clone();
+    crate::harness_admin::fetch_endpoint_models(&mut p, profiles::keychain_lookup)
+        .await
+        .map_err(|e| anyhow!("{e}"))?;
+    let p = &p;
     let added = crate::harness_admin::add(p, &ProfileSources::current(), None, &|_| None)
         .map_err(|e| anyhow!("{e}"))?;
     if let Some(icon) = icon {
@@ -334,8 +339,11 @@ Your own model endpoint:
       Claude Code (acpmux's own adapter) on an Anthropic Messages API endpoint:
       ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, and ANTHROPIC_AUTH_TOKEN from the Keychain.
   cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 \\
-      --model qwen3 [--keychain-item ITEM]
+      --model my-model,my-coder [--keychain-item ITEM]
       OpenCode (`opencode acp`) on an OpenAI Chat Completions endpoint (provider byo).
+  Several models: repeat --model or separate ids with commas; the first is the default (and
+  Claude Code's Opus slot; the second its Sonnet slot, the third its Haiku slot). --model '*'
+  adds every model the endpoint lists at <base URL>/models.
   The base URL is https (plain http only to localhost or 127.0.0.1). The key never goes on the
   command line or into the profile: store it with `cmux harness secret set ID KEY` (KEY is
   ANTHROPIC_AUTH_TOKEN or CMUX_BYO_API_KEY), or name the Keychain item that holds it with
@@ -349,8 +357,11 @@ const ADD_HELP_JA: &str = "\
       Anthropic Messages API 互換のエンドポイントで Claude Code (acpmux のアダプター) を使います:
       ANTHROPIC_BASE_URL、ANTHROPIC_MODEL、キーチェーンから ANTHROPIC_AUTH_TOKEN。
   cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 \\
-      --model qwen3 [--keychain-item ITEM]
+      --model my-model,my-coder [--keychain-item ITEM]
       OpenAI Chat Completions 互換のエンドポイントで OpenCode (`opencode acp`、プロバイダー byo) を使います。
+  複数のモデル: --model を繰り返すか、カンマで区切ります。最初のものが既定です (Claude Code の
+  Opus 枠。2 番目は Sonnet 枠、3 番目は Haiku 枠)。--model '*' はエンドポイントの
+  <ベース URL>/models にあるすべてのモデルを加えます。
   ベース URL は https です (http は localhost と 127.0.0.1 だけ)。キーはコマンドラインにも
   プロファイルにも書きません: `cmux harness secret set ID KEY` (KEY は ANTHROPIC_AUTH_TOKEN
   または CMUX_BYO_API_KEY) で保存するか、--keychain-item でキーのあるキーチェーン項目を指定します。
