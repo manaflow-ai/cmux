@@ -3719,7 +3719,19 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
         &server,
         &["--quiet", "terminal", &terminal, "write", "--text", &format!("echo {marker}\r")],
     );
-    assert_success(&send);
+    // A loaded runner can miss the 2 s InputAck window: the daemon then
+    // reports the documented indeterminate outcome (exit 1) instead of
+    // success, as for `keys` below. The marker on the screen proves the
+    // write reached the shell either way.
+    if !send.status.success() {
+        assert_eq!(send.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&send.stderr)
+                .contains("the external effect may have run before its outcome was recorded"),
+            "unexpected terminal write failure: {}",
+            String::from_utf8_lossy(&send.stderr)
+        );
+    }
     assert!(send.stdout.is_empty(), "--quiet mutation wrote output");
     let screen = wait_for_screen(&server, &terminal, &marker);
     assert!(screen.contains(&marker), "screen did not contain marker; got {screen:?}");
