@@ -98,8 +98,9 @@ pub(super) fn replay_roster(
     let mut pages = 0;
     let mut skipped = Vec::new();
     while cursor < head {
-        // RED: the budget is not enforced.
-        let _ = (budget.pages, started);
+        if pages >= budget.pages || started.elapsed() >= budget.time {
+            break;
+        }
         pages += 1;
         // A page read is restore progress for a supervisor
         // (restore_progress.rs); outside a restore it only counts.

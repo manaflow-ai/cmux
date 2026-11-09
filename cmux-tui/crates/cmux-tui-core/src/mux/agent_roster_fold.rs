@@ -7,6 +7,19 @@ use super::*;
 mod agent_roster_worker;
 pub(super) use agent_roster_worker::AgentRosterWorker;
 
+/// What one pass did with a start's roster backlog
+/// (`Mux::fold_roster_backlog`).
+enum Backlog {
+    /// There is none.
+    None,
+    /// The pass folded the last of it.
+    Done,
+    /// The pass folded a bounded piece; more is left.
+    Left,
+    /// The journal could not be read; more is left.
+    Failed,
+}
+
 /// The roster owner's fold state ([`AgentRosterWorker`]): its own journal
 /// reader. Only the owner's passes take it, so it orders folds and snapshot
 /// saves.
@@ -398,13 +411,15 @@ impl Mux {
         // records' deltas must apply on a roster that has folded what came
         // before them. Until it is folded, the requests wait for later passes.
         let backlog_done = match self.fold_roster_backlog(&mut fold) {
-            Some(true) => true,
-            Some(false) => {
+            Backlog::None => false,
+            Backlog::Done => true,
+            Backlog::Left => {
                 drop(fold);
                 self.agent_roster_worker.requeue(pass.head);
                 return pass.retire;
             }
-            None => false,
+            // The next request reads again; no pass spins on a store error.
+            Backlog::Failed => return pass.retire,
         };
         let mut target = pass.wanted;
         // The head a retirement waits for. It is read after the close
@@ -534,8 +549,7 @@ impl Mux {
     /// One bounded pass over a start's backlog (`AgentRosterHost::
     /// backlog_through`): fold it as the start's replay does (no deltas,
     /// undecodable ranges skipped) and save the snapshot with its cursor.
-    /// `None`: no backlog. `Some(done)`: whether the backlog is folded now.
-    fn fold_roster_backlog(&self, fold: &mut AgentRosterFold) -> Option<bool> {
+    fn fold_roster_backlog(&self, fold: &mut AgentRosterFold) -> Backlog {
         use super::agent_roster_restore::{
             BACKLOG_PASS, ReplaySource, neutralize_live_claims, replay_roster,
             skipped_ranges_problem,
@@ -548,7 +562,7 @@ impl Mux {
             (host.cursor, host.backlog_through)
         };
         if through == 0 {
-            return None;
+            return Backlog::None;
         }
         #[cfg(test)]
         fold.note_io_for_test();
@@ -580,12 +594,12 @@ impl Mux {
                 }
                 host.cursor = reached;
             });
-        let skipped = match replayed {
-            Ok((_, skipped)) => skipped,
+        let (skipped, failed) = match replayed {
+            Ok((_, skipped)) => (skipped, false),
             Err(error) => {
-                // A store error, not a bad range: the next pass reads again.
+                // A store error, not a bad range: a later pass reads again.
                 eprintln!("cmux-tui: reading the agent roster backlog failed: {error}");
-                Vec::new()
+                (Vec::new(), true)
             }
         };
         let mut problem = None;
@@ -622,7 +636,11 @@ impl Mux {
                 "agent roster restored with problems: {problem}"
             ));
         }
-        Some(done)
+        match (done, failed) {
+            (true, _) => Backlog::Done,
+            (false, true) => Backlog::Failed,
+            (false, false) => Backlog::Left,
+        }
     }
 
     /// Repair public projections whose plugin or program-status roster event

@@ -146,7 +146,6 @@ pub(crate) fn replace_if_unresponsive(spec: &OwnerSpec) -> Result<Option<Replace
     // would only start its restore over (Leo 2026-11-09).
     if let Ok(listener) = listener_of(key.clone())
         && cmux_tui_core::restore_progress::progressing(&spec.socket, listener.pid)
-        && false
     {
         eprintln!(
             "cmux-tui: the owner (pid {}) is still restoring its session; it is kept",

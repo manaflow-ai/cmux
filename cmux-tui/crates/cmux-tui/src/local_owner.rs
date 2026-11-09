@@ -521,6 +521,7 @@ pub(crate) fn ensure_owner(
         // next ensure finds it restoring and waits again, and only
         // `--replace-unresponsive` stops one, never while its restore makes
         // progress (`restore_progress`).
+        Err(EnsureError::RestoreTimeout) if !owner.exited() => Err(EnsureError::RestoreTimeout),
         Err(error) => {
             owner.terminate();
             Err(error)
