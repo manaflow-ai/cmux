@@ -17,6 +17,7 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
 pub(crate) mod foreign_login;
+mod leader_exit;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
 pub(crate) use command::{
@@ -87,6 +88,26 @@ pub enum Inbound {
     /// is not heard until a reattach. The hub's full-access bound treats such an agent as unheard
     /// (#23322).
     LinkBroken { agent: u64 },
+}
+
+#[cfg(all(test, unix))]
+#[path = "agent_idle_tests.rs"]
+mod idle_tests;
+
+/// Tests only: how often the readers on this thread's runtime woke to check their agent's
+/// process while its output was quiet (`agent_idle_tests.rs`).
+#[cfg(test)]
+pub(crate) mod leader_wakeups {
+    thread_local! {
+        static WAKEUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+    pub(crate) fn count() {
+        WAKEUPS.with(|w| w.set(w.get() + 1));
+    }
+    /// The wakeups since the last take.
+    pub(crate) fn take() -> u64 {
+        WAKEUPS.with(|w| w.replace(0))
+    }
 }
 
 /// Tests only: the agent generation `ChildAgent::replay_pending` reports as replaying.
@@ -173,7 +194,8 @@ pub enum Attached {
 /// How long `kill` lets the agent's process group exit after SIGTERM.
 pub(crate) const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
 
-/// How often the reader checks that the agent process is still running.
+/// How often the reader checks that the agent process is still running, where the kernel gives
+/// no exit event for it (`agent/leader_exit.rs`).
 const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// How long the reader keeps draining stdout after the agent process exits.
@@ -671,6 +693,8 @@ struct CodexLink {
 struct Spawned {
     child: Option<Child>,
     pid: Option<u32>,
+    /// The exit event of `child`, opened while it is unreaped.
+    exit: Option<leader_exit::LeaderExit>,
     stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send>,
     stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
     stderr: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
@@ -733,12 +757,14 @@ impl Spawned {
             }
         };
         let pid = child.id();
+        let exit = pid.and_then(leader_exit::LeaderExit::open);
         let stdin = child.stdin.take().context("agent stdin")?;
         let stdout = child.stdout.take().context("agent stdout")?;
         let stderr = child.stderr.take().context("agent stderr")?;
         Ok(Self {
             child: Some(child),
             pid,
+            exit,
             stdin: Box::new(stdin),
             stdout: Box::new(stdout),
             stderr: Box::new(stderr),
@@ -758,6 +784,7 @@ impl Spawned {
         Self {
             child: None,
             pid: None,
+            exit: None,
             stdin: pipes.stdin,
             stdout: pipes.stdout,
             stderr: pipes.stderr,
@@ -847,6 +874,7 @@ impl ChildAgent {
         let Spawned {
             child,
             pid,
+            exit,
             stdin,
             stdout,
             stderr,
@@ -954,20 +982,36 @@ impl ChildAgent {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 // The leader can exit while a descendant still holds stdout
-                // open; watch it so its exit is reported regardless.
-                let mut leader_check = tokio::time::interval(LEADER_CHECK);
+                // open; watch it so its exit is reported regardless. The
+                // kernel's exit event where there is one: a quiet agent then
+                // never wakes this task. Otherwise a check every LEADER_CHECK.
+                let mut exit = exit;
+                let mut leader_check = exit.is_none().then(|| tokio::time::interval(LEADER_CHECK));
                 let mut leader_gone: Option<tokio::time::Instant> = None;
                 // The carry whose hold was waited out (`claude_stdio/carry.rs`): once per carry.
                 let mut held: Option<u64> = None;
                 loop {
+                    let leader = async {
+                        match (leader_gone, &exit, leader_check.as_mut()) {
+                            // Give buffered output a moment, then stop reading.
+                            (Some(at), _, _) => {
+                                let until = at.checked_add(LEADER_DRAIN).unwrap_or(at);
+                                tokio::time::sleep_until(until).await;
+                            }
+                            (None, Some(exit), _) => exit.exited().await,
+                            (None, None, Some(check)) => {
+                                check.tick().await;
+                            }
+                            (None, None, None) => std::future::pending().await,
+                        }
+                    };
                     let next = tokio::select! {
                         next = lines.next_line() => next,
-                        _ = leader_check.tick() => {
-                            if let Some(at) = leader_gone {
-                                // Give buffered output a moment, then stop reading.
-                                if at.elapsed() >= LEADER_DRAIN {
-                                    break;
-                                }
+                        _ = leader => {
+                            #[cfg(test)]
+                            leader_wakeups::count();
+                            if leader_gone.is_some() {
+                                break;
                             } else if !agent_for_exit.is_alive().await {
                                 leader_gone = Some(tokio::time::Instant::now());
                                 // Stop what the agent left running so the pipe closes.
@@ -979,6 +1023,9 @@ impl ChildAgent {
                                 }
                                 #[cfg(windows)]
                                 agent_for_exit.kill_job();
+                            } else if exit.take().is_some() {
+                                // An exit event for a process still running: check on a timer.
+                                leader_check = Some(tokio::time::interval(LEADER_CHECK));
                             }
                             continue;
                         }

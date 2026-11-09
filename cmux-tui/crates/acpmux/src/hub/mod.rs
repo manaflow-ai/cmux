@@ -207,6 +207,7 @@ pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;
+mod question_replies;
 mod resume;
 mod secrets;
 mod seen;
@@ -284,6 +285,7 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+mod review_brief;
 pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
@@ -577,6 +579,11 @@ pub struct PromptOptions {
     /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
     /// `not_woken`), never left waiting for a turn that does not come.
     pub wake_or_fail: bool,
+    /// The sender waits for the reply and prints it (`readsReply`, `wakeOrFail`): its
+    /// connection's end, `true` once it left. An inbox message keeps it, so a notice says
+    /// "waiting" only while that caller is still there, and a question nobody waits for gets its
+    /// reply sent back (`hub/question_replies.rs`).
+    pub reply_reader: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -874,6 +881,8 @@ pub struct Hub {
     #[cfg(test)]
     pub(super) queue_approval_off: AtomicBool,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
+    /// The one check of every watched transcript (`watch_tick.rs`).
+    pub(super) watch_ticker: watch::WatchTicker,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
@@ -1187,6 +1196,7 @@ impl Hub {
             #[cfg(test)]
             refuse_seam: Default::default(),
             harness_watch: Default::default(),
+            watch_ticker: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
