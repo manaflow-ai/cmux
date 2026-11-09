@@ -411,7 +411,7 @@ fn new_pending(
         name,
         hostname: crate::pairing::machine_name(),
         platform: if cfg!(target_os = "macos") { "macos" } else { "linux" }.to_owned(),
-        wg_public_key: crate::cli::mesh_node_key::load_or_create()
+        wg_public_key: leave::node_key_for_join_at(&state_dir())
             .map_err(|_| store_error())?
             .public_key_b64(),
         prior,
