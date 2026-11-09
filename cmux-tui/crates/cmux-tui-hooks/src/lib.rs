@@ -2292,17 +2292,17 @@ pub fn shell_quote(value: &str) -> String {
 
 thread_local! {
     /// Durable syncs [`atomic_write`] made on this thread (a file or its folder each).
-    static DURABLE_SYNCS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static DURABLE_SYNCS: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The durable syncs [`atomic_write`] made on this thread so far: a test reads it around a
 /// write path to tell a durable write from a replaceable one.
 #[doc(hidden)]
 pub fn durable_syncs_on_this_thread() -> u64 {
-    DURABLE_SYNCS.with(std::cell::Cell::get)
+    DURABLE_SYNCS.with(Cell::get)
 }
 
-fn durable_sync(file: &fs::File) -> std::io::Result<()> {
+fn durable_sync(file: &fs::File) -> io::Result<()> {
     DURABLE_SYNCS.with(|syncs| syncs.set(syncs.get() + 1));
     file.sync_all()
 }
