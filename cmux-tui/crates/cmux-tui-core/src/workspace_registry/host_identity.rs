@@ -633,9 +633,54 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// Mutation receipts and the events they recorded, `count` of each kind:
+    /// what a long-lived registry accumulates, none naming the registry id.
+    fn seed_receipts(root: &Path, count: usize) {
+        let connection = Connection::open(registry_file(root)).unwrap();
+        let tx = connection.unchecked_transaction().unwrap();
+        for index in 0..count {
+            let id = format!("mutation_{index:08}");
+            let result =
+                serde_json::json!({"workspace_key": format!("ws_{index:032x}"), "ok": true})
+                    .to_string();
+            tx.execute(
+                "INSERT INTO mutations(origin, mutation_id, fingerprint, result_json, committed_revision)
+                 VALUES('client', ?1, '{}', ?2, ?3)",
+                params![id, result, index as i64 + 1],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO workspace_events(revision, kind, workspace_key, origin, mutation_id, result_json)
+                 VALUES(?3 + 1000000, 'workspace.update', 'one', 'client', ?1, ?2)",
+                params![id, result, index as i64],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO terminal_mutations(origin, mutation_id, fingerprint, result_json, committed_revision)
+                 VALUES('client', ?1, '{}', ?2, ?3)",
+                params![id, result, index as i64 + 1],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO terminal_events(revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json)
+                 VALUES(?3 + 1000000, 'terminal.update', ?1, 'one', 'client', ?1, ?2)",
+                params![id, result, index as i64],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO projection_mutations(origin, mutation_id, fingerprint, result_json)
+                 VALUES('client', ?1, '{}', ?2)",
+                params![id, result],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
     /// SQLite VM steps the rehome of a registry with `records` journal
-    /// records takes, after a copy to another machine.
-    fn rehome_steps(records: usize) -> u64 {
+    /// records and `receipts` of each mutation receipt takes, after a copy
+    /// to another machine.
+    fn rehome_steps(records: usize, receipts: usize) -> u64 {
         use std::sync::atomic::{AtomicU64, Ordering};
 
         use super::super::session_journal::kind_read_tests::TestJournalRecord;
@@ -656,6 +701,7 @@ mod tests {
             .collect::<Vec<_>>();
         registry.append_journal_records_for_test(&records);
         drop(registry);
+        seed_receipts(&root, receipts);
         as_machine(Some("fedcba9876543210fedcba9876543210"));
         let connection = Connection::open(registry_file(&root)).unwrap();
         let steps = std::sync::Arc::new(AtomicU64::new(0));
@@ -685,7 +731,7 @@ mod tests {
     #[test]
     fn the_rehome_cost_does_not_grow_with_the_journal() {
         let sizes = [2_000, 20_000];
-        let steps = sizes.map(rehome_steps);
+        let steps = sizes.map(|records| rehome_steps(records, 0));
         let per_record = steps[1].saturating_sub(steps[0]) / (sizes[1] - sizes[0]) as u64;
         assert!(
             per_record < 1,
@@ -695,6 +741,99 @@ mod tests {
             steps[1],
             sizes[1]
         );
+    }
+
+    /// Mutation receipts and their events grow with every change and are
+    /// never pruned; the rehome leaves them as stored and they are read
+    /// with the new id (`StoredIds`). Scanning them took 1.9 s of a 4.2 s
+    /// first start of a 58.7 GB registry on its new machine (2026-11-09).
+    #[test]
+    fn the_rehome_cost_does_not_grow_with_mutation_receipts() {
+        let sizes = [500, 5_000];
+        let steps = sizes.map(|receipts| rehome_steps(0, receipts));
+        let per_receipt = steps[1].saturating_sub(steps[0]) / (sizes[1] - sizes[0]) as u64;
+        assert!(
+            per_receipt < 1,
+            "the rehome costs {per_receipt} VM steps per receipt ({} at {}, {} at {})",
+            steps[0],
+            sizes[0],
+            steps[1],
+            sizes[1]
+        );
+    }
+
+    /// A receipt or event stored before the move, naming the copied id, is
+    /// served naming the new one: a retried mutation's result, a
+    /// subscriber's catch-up and a terminal mutation's replay.
+    #[test]
+    fn receipts_stored_before_a_move_are_served_with_the_new_id() {
+        let root = temp_root("rehome-receipts");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let copied = ids(&root).0;
+        let result = serde_json::json!({
+            "ref": {"session_id": copied},
+            "placement": format!("{copied}/one"),
+            "note": format!("echo {copied}"),
+        });
+        let fingerprint = serde_json::json!({"session": copied});
+        {
+            let connection = Connection::open(registry_file(&root)).unwrap();
+            for table in ["mutations", "terminal_mutations"] {
+                connection
+                    .execute(
+                        &format!(
+                            "INSERT INTO {table}(origin, mutation_id, fingerprint, result_json, committed_revision)
+                             VALUES('client', 'moved', ?1, ?2, 7)"
+                        ),
+                        params![
+                            canonical_json(&fingerprint).unwrap(),
+                            result.to_string()
+                        ],
+                    )
+                    .unwrap();
+            }
+            connection
+                .execute(
+                    "INSERT INTO workspace_events(revision, kind, workspace_key, origin, mutation_id, result_json)
+                     VALUES(1000000, 'workspace.update', 'one', 'client', 'moved', ?1)",
+                    [result.to_string()],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO terminal_events(revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json)
+                     VALUES(1000000, 'terminal.update', 'moved', 'one', 'client', 'moved', ?1)",
+                    [result.to_string()],
+                )
+                .unwrap();
+        }
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        let registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
+        let rehomed = registry.registry_id().to_string();
+        assert_ne!(rehomed, copied);
+        let expected = |served: &Value| {
+            assert_eq!(served["ref"]["session_id"], rehomed, "{served}");
+            assert_eq!(served["placement"], format!("{rehomed}/one"), "{served}");
+            assert_eq!(served["note"], format!("echo {copied}"), "free text is kept: {served}");
+        };
+        let moved_fingerprint = serde_json::json!({"session": rehomed});
+        let mutation = WorkspaceMutation::daemon("moved", "client").unwrap();
+        let replayed = registry.replay(&mutation, &moved_fingerprint).unwrap().unwrap();
+        expected(&replayed.result);
+        let event = registry.events_after(999_999).unwrap().pop().unwrap();
+        expected(&event.result);
+        let terminal_event = registry.terminal_events_after(999_999).unwrap().pop().unwrap();
+        expected(&terminal_event.result);
+        let terminal = terminal_replay(
+            &registry.connection.get(),
+            &mutation,
+            &canonical_json(&moved_fingerprint).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        expected(&terminal.result);
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
