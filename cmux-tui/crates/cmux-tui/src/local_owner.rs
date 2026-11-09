@@ -234,8 +234,11 @@ pub(crate) struct OwnerSpec {
     /// owner has no terminal of its own, so the client passes these values
     /// through the private startup contract before it creates a PTY.
     pub initial_host_colors: Option<cmux_tui_core::DefaultColors>,
-    /// `--terminal-reap-grace-seconds` for the owner. Reaping is opt-in, so
-    /// `None` starts an owner that never reaps unplaced terminals.
+    /// `--terminal-reap-grace-seconds` for the owner. `None` starts it with
+    /// the default grace ([`cmux_tui_core::DEFAULT_TERMINAL_REAP_GRACE`]):
+    /// an owner a client starts ends every terminal that has had no tab for
+    /// the grace. Without it each closed tab's shell ran until the session
+    /// ended (W5-O, bench round 4: five hidden shells after 8 min).
     pub terminal_reap_grace: Option<Duration>,
     /// `--exit-with-pid` for an owner this call spawns (`exit_with`).
     pub exit_with_pid: Option<ExitWith>,
@@ -864,9 +867,8 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(term) = &spec.term {
         command.arg("--term").arg(term);
     }
-    if let Some(grace) = spec.terminal_reap_grace {
-        command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
-    }
+    let grace = spec.terminal_reap_grace.unwrap_or(cmux_tui_core::DEFAULT_TERMINAL_REAP_GRACE);
+    command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
     if let Some(exit_with) = spec.exit_with_pid {
         command.arg(EXIT_WITH_PID_ARG).arg(exit_with.arg());
     }

@@ -1183,7 +1183,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextFilesTests",
-            dependencies: ["CmuxNextFiles"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextFiles",
+                "CmuxNextTestSupport",
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         // The Files pane's AppKit views over CmuxNextFiles: list (NSTableView), icons
@@ -1481,6 +1484,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextChiefViews",
                 "CmuxNextPages",
                 "CmuxNextSettings",
+                "CmuxNextTestSupport",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1944,6 +1948,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (moved out of CmuxNextApp to keep it under its size cap).
         .target(
             name: "CmuxNextCLIInstall",
+            dependencies: ["CmuxNextCompat"],
+            resources: [.process("Resources")],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCLIInstallTests",
+            dependencies: ["CmuxNextCLIInstall"],
             swiftSettings: daemonSwiftSettings
         ),
         // The freeze gate for this process's environment writes (libghostty
@@ -1965,6 +1976,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextHangReports",
+                "CmuxNextTestSupport",
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2097,6 +2109,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
+                "CmuxNextTestSupport",
                 "CmuxNextWakeupsTestSupport",
             ],
             swiftSettings: daemonSwiftSettings

@@ -170,7 +170,7 @@ class FleetCacheTests(unittest.TestCase):
             "#!/bin/bash\n"
             f"count=0; [[ -f '{count}' ]] && count=$(cat '{count}'); count=$((count + 1)); echo $count > '{count}'\n"
             f"printf '%s\\n' --- >> '{args_log}'; printf '%s\\n' \"$@\" >> '{args_log}'\n"
-            f"if [[ $count -eq 1 ]]; then echo {diagnostic!r}; exit 65; fi\n"
+            f"if [[ $count -eq 1 || -n \"${{STUB_FAIL_EVERY_BUILD:-}}\" ]]; then echo {diagnostic!r}; exit 65; fi\n"
         )
         xcode.chmod(0o755)
         env = {**self.env, "PATH": str(self.root) + os.pathsep + self.env["PATH"],
@@ -202,9 +202,29 @@ class FleetCacheTests(unittest.TestCase):
             self.assertNotIn("COMPILATION_CACHE_ENABLE_PLUGIN=YES", attempts[1])
             self.assertNotIn("COMPILATION_CACHE_REMOTE_SERVICE_PATH=", attempts[1])
 
-        result, count, _ = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'")
+        # Without the fleet cache (a cold-cache run), a code error is not a cache failure: one build, red.
+        result, count, _ = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'",
+                                                          DECIDE_COLD_CACHE_DISABLE="1")
         self.assertEqual(result.returncode, 65)
         self.assertEqual(count.read_text().strip(), "1")
+
+    def test_a_fleet_cache_build_retries_once_whatever_the_error_says(self):
+        """The fleet cache's failures keep changing form, so a fleet-cache build that fails for any reason
+        retries once with the local cache; a real error fails the retry too, and there is no third build."""
+        for diagnostic in ("error: use of unresolved identifier 'cas'",
+                           "<unknown>:0: error: fatal error encountered during compilation; please submit a bug report",
+                           "error: some failure no one has seen yet"):
+            result, count, args_log = self._run_nightly_release_stub(diagnostic)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(count.read_text().strip(), "2")
+            attempts = args_log.read_text().split("---\n")[1:]
+            self.assertIn("COMPILATION_CACHE_CAS_PATH=", attempts[0])
+            self.assertNotIn("COMPILATION_CACHE_CAS_PATH=", attempts[1])
+            self.assertIn("failed on the managed fleet compilation cache", result.stdout + result.stderr)
+        result, count, _ = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'",
+                                                          STUB_FAIL_EVERY_BUILD="1")
+        self.assertEqual(result.returncode, 65)
+        self.assertEqual(count.read_text().strip(), "2")
 
     def test_the_job_summary_names_the_retry_s_cache_from_the_first_build(self):
         """Only a retry of a fleet-cache build is "after the fleet cache failed"; a cold-cache first build
@@ -225,12 +245,13 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn("run_release_build()", step)
         self.assertIn("release_status=${PIPESTATUS[0]}", step)
         self.assertIn("cmux_next_runtime_cas_failed \"$RUNNER_TEMP/nightly-release-build.log\"", step)
+        self.assertIn('"$release_status" -ne 0 && "$build_cache" == fleet', step)
         self.assertIn("local_cache_settings=()", step)
         self.assertIn("local_cache_settings+=(\"$setting\")", step)
         self.assertIn('settings=("${local_cache_settings[@]}")', step)
         self.assertIn('${settings[@]+"${settings[@]}"}', step)
         self.assertIn('run_release_build 1', step)
-        self.assertIn("retrying the Release build with the local cache", step)
+        self.assertIn("retrying the Release build once with the local cache", step)
         self.assertIn('exit "$release_status"', step)
 
 

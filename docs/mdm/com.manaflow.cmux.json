@@ -4069,6 +4069,12 @@
       "title" : "End Sharing When cmux Quits",
       "type" : "boolean"
     },
+    "remote.ultraMode" : {
+      "default" : false,
+      "description" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
+      "title" : "Ultra Connection Mode",
+      "type" : "boolean"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
