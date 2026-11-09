@@ -220377,6 +220377,268 @@
         }
       }
     },
+    "settings.sessions.keepAwakeWhenLocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء الوكلاء قيد التشغيل أثناء القفل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neka agenti rade dok je Mac zaključan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold agenter kørende, mens Mac er låst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten bei gesperrtem Mac weiterlaufen lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener los agentes en marcha con el Mac bloqueado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les agents actifs quand le Mac est verrouillé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni attivi gli agenti con il Mac bloccato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック中もエージェントを実行し続ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តដំណើរការភ្នាក់ងារពេល Mac ជាប់សោ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠긴 동안에도 에이전트 계속 실행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold agenter i gang mens Mac er låst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci działają, gdy Mac jest zablokowany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter agentes em execução com o Mac bloqueado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не останавливать агентов при блокировке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้เอเจนต์ทำงานต่อขณะล็อก Mac"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac kilitliyken ajanlar çalışmaya devam etsin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не зупиняти агентів, коли Mac заблоковано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ tác nhân chạy khi Mac bị khóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锁定时保持智能体运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖定時保持代理程式執行"
+          }
+        }
+      }
+    },
+    "settings.sessions.keepAwakeWhenLocked.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أثناء قفل الـ Mac، يبقى مستيقظًا لوكيل يعمل، حتى على البطارية، لمدة تصل إلى ساعتين. إغلاق الغطاء أثناء العمل على البطارية لا يزال يُدخله في وضع السكون."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dok je Mac zaključan, ostaje budan za agenta koji radi, čak i na bateriji, do 2 sata. Zatvaranje poklopca na bateriji ga i dalje uspavljuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mens din Mac er låst, forbliver den vågen for en agent, der arbejder, også på batteri, i op til 2 timer. Lukker du låget på batteri, går den stadig i dvale."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solange dein Mac gesperrt ist, bleibt er für einen arbeitenden Agenten wach, auch im Akkubetrieb, bis zu 2 Stunden. Zuklappen im Akkubetrieb versetzt ihn weiterhin in den Ruhezustand."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mientras tu Mac está bloqueado, sigue activo para un agente que está trabajando, incluso con batería, durante hasta 2 horas. Cerrar la tapa con batería lo sigue poniendo en reposo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand votre Mac est verrouillé, il reste éveillé pour un agent au travail, même sur batterie, jusqu’à 2 heures. Fermer l’écran sur batterie le met toujours en veille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mentre il Mac è bloccato, resta attivo per un agente al lavoro, anche a batteria, per un massimo di 2 ore. Chiudere il coperchio a batteria lo mette comunque in stop."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac がロックされている間も、作業中のエージェントのためにバッテリー駆動時でも最長 2 時間スリープしません。バッテリー駆動中に蓋を閉じるとスリープします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេល Mac របស់អ្នកជាប់សោ វានៅភ្ញាក់សម្រាប់ភ្នាក់ងារដែលកំពុងធ្វើការ ទោះប្រើថ្មក៏ដោយ រហូតដល់ 2 ម៉ោង។ ការបិទគម្របពេលប្រើថ្មនៅតែធ្វើឲ្យវាដេក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac이 잠겨 있는 동안 작업 중인 에이전트를 위해 배터리 사용 중에도 최대 2시간 동안 깨어 있습니다. 배터리 사용 중 덮개를 닫으면 여전히 잠자기 상태가 됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mens Macen er låst, holder den seg våken for en agent som jobber, også på batteri, i opptil 2 timer. Lukker du lokket på batteri, går den fortsatt i dvale."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy Mac jest zablokowany, nie usypia się, dopóki agent pracuje, także na baterii, maksymalnie przez 2 godziny. Zamknięcie pokrywy na baterii nadal go usypia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enquanto o Mac está bloqueado, ele continua ativo para um agente que está trabalhando, mesmo na bateria, por até 2 horas. Fechar a tampa na bateria ainda o coloca em repouso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока Mac заблокирован, он не засыпает, пока агент работает, даже от батареи, до 2 часов. Если закрыть крышку при работе от батареи, Mac всё равно уснёт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขณะที่ Mac ล็อกอยู่ เครื่องจะไม่พักเครื่องเมื่อมีเอเจนต์ทำงาน แม้ใช้แบตเตอรี่ นานสูงสุด 2 ชั่วโมง การปิดฝาขณะใช้แบตเตอรี่ยังคงทำให้เครื่องพัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac kilitliyken, çalışan bir ajan için pildeyken bile 2 saate kadar uyanık kalır. Pildeyken kapağı kapatmak onu yine uyku moduna alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поки Mac заблоковано, він не засинає, доки агент працює, навіть від батареї, до 2 годин. Якщо закрити кришку під час роботи від батареї, Mac однаково засне."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi Mac bị khóa, máy vẫn thức cho tác nhân đang làm việc, kể cả khi dùng pin, tối đa 2 giờ. Gập nắp khi dùng pin vẫn khiến máy ngủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 锁定时，只要有智能体在工作，即使使用电池也保持唤醒，最长 2 小时。使用电池时合上盖子仍会让 Mac 睡眠。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 鎖定時，只要有代理程式在工作，即使使用電池也保持喚醒，最長 2 小時。使用電池時闔上螢幕仍會讓 Mac 睡眠。"
+          }
+        }
+      }
+    },
     "settings.sessions.keepAwakeForCommands": {
       "extractionState": "manual",
       "localizations": {

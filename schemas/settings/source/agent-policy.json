@@ -1377,6 +1377,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether a locked Mac stays up on battery for agents is the person's call too.",
+      "keys": [
+        "sessions.keepAwakeWhenLocked"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Whether agents start again by themselves after a restart is the person's call.",
       "keys": [
         "sessions.resumeAgents"

@@ -161,7 +161,16 @@ pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
 pub struct Helper<S> {
     stream: BufReader<S>,
     next_id: u64,
+    /// Whether the admission reply listed [`LOCK_CAPABILITY`]: the helper reads the screen lock
+    /// right before a tool runs. A helper without it gets no call.
+    checks_lock: bool,
 }
+
+/// The admission capability of a helper that reads the screen lock after its last await before
+/// a tool runs (`ConsentGate.lockCapability`). A call can wait in the helper (on consent, on a
+/// takeover) after this bridge read the lock, so only such a helper is sent one; a DEV build's
+/// prebuilt helper from before the check is not (review of #37239, rounds 8 and 9).
+pub const LOCK_CAPABILITY: &str = "screen-lock-at-execution-v1";
 
 #[cfg(unix)]
 impl Helper<UnixStream> {
@@ -187,7 +196,7 @@ impl Helper<UnixStream> {
 impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
     /// Sends the secret and reads the helper's answer.
     pub async fn admit(stream: S, secret: &str) -> Result<Self> {
-        let mut helper = Helper { stream: BufReader::new(stream), next_id: 1 };
+        let mut helper = Helper { stream: BufReader::new(stream), next_id: 1, checks_lock: false };
         helper.send(&json!({ "secret": secret })).await?;
         let hello = helper.receive().await?;
         if hello["ok"] != json!(true) {
@@ -196,17 +205,27 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
                 hello["reason"].as_str().unwrap_or("no reason")
             );
         }
+        helper.checks_lock = hello
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .is_some_and(|capabilities| capabilities.iter().any(|c| c == LOCK_CAPABILITY));
         Ok(helper)
     }
 
-    /// `tools/list` or `tools/call`; returns the helper's `result`.
+    /// `tools/list` or `tools/call`; returns the helper's `result`. A call fails with
+    /// [`MAC_LOCKED`](crate::mac_lock::MAC_LOCKED) if `locked()` says the screen locked while it
+    /// waited for the connection or the consent answer.
     pub async fn request(
         &mut self,
         method: &str,
         name: Option<&str>,
         arguments: Value,
+        locked: impl Fn() -> bool,
     ) -> Result<Value> {
         if method == "tools/call" {
+            if !self.checks_lock {
+                bail!(crate::cua_lock_gate::HELPER_OUTDATED);
+            }
             // Only the admitted host can select the machine's consent authority.
             // Never consult this agent descendant's HOME, ACPMUX_HOME or socket env.
             let status = tokio::time::timeout(
@@ -244,6 +263,11 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
                 false
             };
             require_tool_consent(read_only, &status)?;
+            // The last await is behind us: read the lock again, so a call the gate passed while
+            // unlocked never runs on a screen that locked during the waits (design item 3).
+            if locked() {
+                bail!(crate::mac_lock::MAC_LOCKED);
+            }
         }
         self.exchange(method, name, arguments).await
     }
@@ -270,6 +294,9 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         }
         if reply["ok"] == json!(true) {
             Ok(reply.get("result").cloned().unwrap_or(Value::Null))
+        } else if reply.get("code").and_then(Value::as_str) == Some(crate::mac_lock::MAC_LOCKED) {
+            // The helper read the lock after its own waits (ConsentGate.admit).
+            bail!(crate::mac_lock::MAC_LOCKED)
         } else {
             bail!("{}", reply["error"].as_str().unwrap_or("the Computer Use helper failed"))
         }
@@ -307,8 +334,26 @@ pub async fn run_bridge() -> Result<()> {
     serve(stdin, stdout, || async { Helper::connect(&read_endpoint(&dir)?).await }).await
 }
 
-/// The MCP loop, generic over the transport and the helper connection.
-pub async fn serve<R, W, S, C, F>(input: R, mut output: W, connect: C) -> Result<()>
+/// The MCP loop, generic over the transport and the helper connection. A call waits with
+/// `mac_locked` while this Mac's screen is locked (`cua_lock_gate.rs`).
+pub async fn serve<R, W, S, C, F>(input: R, output: W, connect: C) -> Result<()>
+where
+    R: AsyncBufRead + Unpin,
+    W: AsyncWrite + Unpin,
+    S: tokio::io::AsyncRead + AsyncWrite + Unpin,
+    C: Fn() -> F,
+    F: std::future::Future<Output = Result<Helper<S>>>,
+{
+    serve_gated(input, output, connect, crate::mac_lock::computer_use_held).await
+}
+
+/// [`serve`] with the screen lock read passed in.
+pub async fn serve_gated<R, W, S, C, F>(
+    input: R,
+    mut output: W,
+    connect: C,
+    locked: impl Fn() -> bool,
+) -> Result<()>
 where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -331,6 +376,14 @@ where
             .await?;
             continue;
         };
+        match crate::cua_lock_gate::gate(&message, &locked) {
+            crate::cua_lock_gate::Gated::Pass => {}
+            crate::cua_lock_gate::Gated::Reply(reply) => {
+                write_line(&mut output, &reply).await?;
+                continue; // never reaches the helper
+            }
+            crate::cua_lock_gate::Gated::Drop => continue,
+        }
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
         let method = message["method"].as_str().unwrap_or_default();
         let reply = match method {
@@ -340,9 +393,11 @@ where
                 "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
             })),
             "ping" => Ok(json!({})),
-            "tools/list" => forward(&mut helper, &connect, "tools/list", None, Value::Null)
-                .await
-                .map(|inventory| wait_for::with_definition(tools_list_result(inventory))),
+            "tools/list" => {
+                forward(&mut helper, &connect, "tools/list", None, Value::Null, &locked)
+                    .await
+                    .map(|inventory| wait_for::with_definition(tools_list_result(inventory)))
+            }
             "tools/call" => {
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
                 let arguments =
@@ -350,8 +405,11 @@ where
                 if name == wait_for::TOOL {
                     let result = match wait_for::Wait::parse(&arguments) {
                         Ok(wait) => {
-                            let mut reader =
-                                HelperReader { helper: &mut helper, connect: &connect };
+                            let mut reader = HelperReader {
+                                helper: &mut helper,
+                                connect: &connect,
+                                locked: &locked,
+                            };
                             wait_for::run(&wait, &mut reader).await
                         }
                         Err(text) => {
@@ -363,9 +421,23 @@ where
                     continue;
                 }
                 Ok(
-                    match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
+                    match forward(
+                        &mut helper,
+                        &connect,
+                        "tools/call",
+                        Some(&name),
+                        arguments,
+                        &locked,
+                    )
+                    .await
                     {
                         Ok(result) => call_result(result),
+                        Err((_, text)) if text == crate::mac_lock::MAC_LOCKED => {
+                            crate::cua_lock_gate::locked_result()
+                        }
+                        Err((_, text)) if text == crate::cua_lock_gate::HELPER_OUTDATED => {
+                            crate::cua_lock_gate::outdated_result()
+                        }
                         Err((_, text)) => {
                             json!({"content": [{"type":"text", "text":text}], "isError":true})
                         }
@@ -415,6 +487,7 @@ async fn forward<S, C, F>(
     method: &str,
     name: Option<&str>,
     arguments: Value,
+    locked: &impl Fn() -> bool,
 ) -> Result<Value, (i64, String)>
 where
     S: tokio::io::AsyncRead + AsyncWrite + Unpin,
@@ -426,11 +499,17 @@ where
             *helper = Some(connect().await.map_err(|e| (-32000, format!("{e:#}")))?);
         }
         let Some(current) = helper.as_mut() else { continue };
-        match current.request(method, name, arguments.clone()).await {
+        match current.request(method, name, arguments.clone(), locked).await {
             Ok(result) => return Ok(result),
             Err(e) => {
                 if e.to_string() == crate::cli::cloud_join::CONSENT_REQUIRED {
                     return Err((-32020, crate::cli::cloud_join::CONSENT_REQUIRED.to_owned()));
+                }
+                if e.to_string() == crate::mac_lock::MAC_LOCKED {
+                    return Err((-32000, crate::mac_lock::MAC_LOCKED.to_owned()));
+                }
+                if e.to_string() == crate::cua_lock_gate::HELPER_OUTDATED {
+                    return Err((-32000, crate::cua_lock_gate::HELPER_OUTDATED.to_owned()));
                 }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {
@@ -443,20 +522,23 @@ where
 }
 
 /// [`wait_for`]'s checks: `get_window_state` through [`forward`], so each one
-/// passes the machine consent check and reconnects like a direct call.
-struct HelperReader<'a, S, C> {
+/// passes the machine consent check, the screen-lock check and reconnects like a direct call.
+struct HelperReader<'a, S, C, L> {
     helper: &'a mut Option<Helper<S>>,
     connect: &'a C,
+    locked: &'a L,
 }
 
-impl<S, C, F> wait_for::TreeReader for HelperReader<'_, S, C>
+impl<S, C, F, L> wait_for::TreeReader for HelperReader<'_, S, C, L>
 where
     S: tokio::io::AsyncRead + AsyncWrite + Unpin,
     C: Fn() -> F,
     F: std::future::Future<Output = Result<Helper<S>>>,
+    L: Fn() -> bool,
 {
     async fn read(&mut self, arguments: Value) -> Result<Value, String> {
-        forward(self.helper, self.connect, "tools/call", Some(wait_for::READ_TOOL), arguments)
+        let name = Some(wait_for::READ_TOOL);
+        forward(self.helper, self.connect, "tools/call", name, arguments, self.locked)
             .await
             .map_err(|(_, text)| text)
     }

@@ -61,7 +61,10 @@ fn helper(dir: &Path, appears_at: Option<usize>) -> Receiver<Value> {
             let mut writer = stream.try_clone().unwrap();
             let mut lines = BufReader::new(stream).lines();
             let Some(Ok(_secret)) = lines.next() else { continue };
-            writeln!(writer, "{}", json!({"ok": true, "protocol": 1})).unwrap();
+            // A current helper: it reads the screen lock at execution (cua_v2::LOCK_CAPABILITY).
+            let hello = json!({"ok": true, "protocol": 1,
+                "capabilities": ["machine-consent-gate-v1", acpmux::cua_v2::LOCK_CAPABILITY]});
+            writeln!(writer, "{hello}").unwrap();
             while let Some(Ok(line)) = lines.next() {
                 let request: Value = serde_json::from_str(&line).unwrap();
                 let result = match request["method"].as_str().unwrap() {

@@ -451,6 +451,13 @@ pub enum Command {
     /// agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     CuaMcp,
+    /// Runs the legacy Computer Use MCP server (`-- CMD ARGS`) behind the locked-screen
+    /// gate (cua_lock_gate.rs; agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    CuaLockGate {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+    },
     /// The agent's request_secret and run_with_secret tools: an MCP stdio
     /// server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]

@@ -121,6 +121,8 @@ impl Hub {
         crate::vault::start_worker().await;
         self.startup_ready.send_replace(true);
         self.care_worker();
+        // Keeps a locked Mac from idle sleep while a turn runs (`lock_bridge.rs`): opt-in.
+        self.lock_bridge_worker();
         // A spare for each harness this machine used (`pool/spare.rs`).
         {
             let hub = self.clone();

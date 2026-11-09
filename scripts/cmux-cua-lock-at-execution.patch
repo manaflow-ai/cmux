@@ -1,0 +1,476 @@
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/protocol.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/protocol.rs
+index a82e4186..4335288c 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/protocol.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/protocol.rs
+@@ -147,6 +147,32 @@ impl ToolResult {
+ 
+ // ── Initialize result ─────────────────────────────────────────────────────────
+ 
++/// The `capabilities.experimental` key of an initialize result whose calls
++/// run only where the screen lock is read after the last consent check, right
++/// before dispatch (`ToolRegistry::require_unlocked`). Only the process that
++/// knows where its calls run says it: the in-process server when its own
++/// registry reads the lock ([`ToolRegistry::checks_screen_lock`]), and the
++/// daemon proxy, which sends a call only as [`LOCK_CHECKED_CALL`]. cmux's lock
++/// gate passes a call while the Mac is unlocked, and runs only a server that
++/// says this, so a call that waits while the Mac locks never runs. v1 was
++/// said by the proxy from its own build, whatever daemon ran its calls.
++///
++/// [`ToolRegistry::checks_screen_lock`]: crate::tool::ToolRegistry::checks_screen_lock
++pub const LOCK_AT_EXECUTION_CAPABILITY: &str = "cmux/lock-at-execution-v2";
++
++/// The daemon request that runs a tool only in a daemon whose registry reads
++/// the screen lock right before dispatch. A daemon built before that check
++/// knows only `call` and refuses it as an unknown method, so the step never
++/// runs there.
++pub const LOCK_CHECKED_CALL: &str = "call_lock_checked";
++
++/// `initialize` with [`LOCK_AT_EXECUTION_CAPABILITY`] added.
++pub fn with_lock_at_execution(mut initialize: Value) -> Value {
++    initialize["capabilities"]["experimental"][LOCK_AT_EXECUTION_CAPABILITY] =
++        serde_json::json!({});
++    initialize
++}
++
+ pub fn initialize_result() -> Value {
+     serde_json::json!({
+         "protocolVersion": "2025-06-18",
+@@ -219,7 +245,24 @@ Calls that target the user's cmux, other terminal apps, or macOS security surfac
+ 
+ #[cfg(test)]
+ mod image_mime_type_tests {
+-    use super::{codex_computer_use_initialize_result, Content};
++    use super::{
++        codex_computer_use_initialize_result, initialize_result, with_lock_at_execution, Content,
++    };
++
++    /// The bare initialize answers claim no lock check (review of
++    /// cmux#37239, round 7): only a caller that knows where its calls run adds
++    /// it, keeping the profile's own capabilities.
++    #[test]
++    fn only_a_caller_that_knows_adds_the_lock_check_at_execution() {
++        for result in [initialize_result(), codex_computer_use_initialize_result()] {
++            assert!(result["capabilities"].get("experimental").is_none(), "{result}");
++            let claimed = with_lock_at_execution(result.clone());
++            assert!(claimed["capabilities"]["experimental"]
++                .get("cmux/lock-at-execution-v2")
++                .is_some());
++            assert_eq!(claimed["capabilities"]["tools"], result["capabilities"]["tools"]);
++        }
++    }
+ 
+     #[test]
+     fn codex_computer_use_initialize_matches_builtin_shape() {
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/server.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/server.rs
+index 7b7623fd..a6cf6353 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/server.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/server.rs
+@@ -4,7 +4,10 @@ use std::sync::Arc;
+ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+ use tracing::{debug, error, warn};
+ 
+-use crate::protocol::{codex_computer_use_initialize_result, initialize_result, Request, Response};
++use crate::protocol::{
++    codex_computer_use_initialize_result, initialize_result, with_lock_at_execution, Request,
++    Response,
++};
+ use crate::tool::ToolRegistry;
+ 
+ /// Run the MCP server, reading JSON-RPC lines from stdin and writing
+@@ -37,6 +40,13 @@ async fn run_with_initialize_result_and_tool_profile(
+     initialize: serde_json::Value,
+     codex_computer_use_compat: bool,
+ ) -> anyhow::Result<()> {
++    // This process runs the calls, so it says it reads the lock right before
++    // each one only when its own registry does.
++    let initialize = if registry.checks_screen_lock() {
++        with_lock_at_execution(initialize)
++    } else {
++        initialize
++    };
+     // One stdio process is one embedded MCP session. Keep its implicit cursor
+     // under the same session_end lifecycle as declared sessions, including I/O
+     // errors: the guard fires cleanup when this function returns or unwinds.
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
+index 379762eb..970962bb 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
+@@ -459,6 +459,9 @@ fn dispatch_validation_error(tool_name: &str, detail: &str) -> ToolResult {
+ }
+ 
+ /// Thread-safe collection of all registered tools.
++/// The typed reason of a call refused while the screen is locked (acpmux's `mac_lock::MAC_LOCKED`).
++pub const MAC_LOCKED: &str = "mac_locked";
++
+ pub struct ToolRegistry {
+     tools: HashMap<String, Box<dyn Tool>>,
+     /// Ordered list of tool names for `tools/list`.
+@@ -481,6 +484,11 @@ pub struct ToolRegistry {
+     /// tool name, its args, and the trusted allow list before every call; an
+     /// `Err` is returned to the caller and the tool does not run.
+     target_policy_hook: Option<TargetPolicyHook>,
++    /// Whether the screen is locked now (`None`: unknown, which refuses).
++    /// Read after the last consent check, right before dispatch, so a call
++    /// that waited on consent or fronting while the Mac locked never runs on
++    /// the lock screen. `None` here (no hook) checks nothing.
++    screen_lock_hook: Option<fn() -> Option<bool>>,
+     /// Where machine-join consent comes from. Asked on every call and right
+     /// before every capture (see [`crate::machine_consent::ConsentSource`]).
+     consent: Arc<dyn crate::machine_consent::ConsentSource>,
+@@ -520,6 +528,7 @@ impl ToolRegistry {
+             target_app_resolver: Some(crate::session_state::resolve_process_name),
+             target_front_hook: None,
+             target_policy_hook: None,
++            screen_lock_hook: None,
+             consent: crate::machine_consent::default_source(),
+             consent_watcher: std::sync::Mutex::new(None),
+             #[cfg(test)]
+@@ -558,6 +567,17 @@ impl ToolRegistry {
+     }
+ 
+     /// Install the platform hook that fronts a driven target in watchable mode.
++    /// See [`ToolRegistry::screen_lock_hook`].
++    pub fn set_screen_lock_hook(&mut self, hook: fn() -> Option<bool>) {
++        self.screen_lock_hook = Some(hook);
++    }
++
++    /// Whether this registry reads the screen lock right before it dispatches
++    /// a call: what a server or daemon running its calls may say to cmux.
++    pub fn checks_screen_lock(&self) -> bool {
++        self.screen_lock_hook.is_some()
++    }
++
+     /// See [`ToolRegistry::target_front_hook`].
+     pub fn set_target_front_hook(&mut self, hook: fn(i64, Option<&str>)) {
+         self.target_front_hook = Some(hook);
+@@ -685,6 +705,7 @@ impl ToolRegistry {
+     }
+ 
+     /// Invoke a tool by name and (if recording is enabled) write its result to disk.
++    /// A call the screen lock refuses answers `{"error": "mac_locked"}`, as acpmux's gate does.
+     pub async fn invoke(&self, name: &str, mut args: Value) -> ToolResult {
+         // The trusted allow list never reaches a tool; trusted entry points
+         // put it here with `target_policy::scope_target_args`.
+@@ -788,7 +809,10 @@ impl ToolRegistry {
+                 self.target_front_hook,
+             )
+         });
+-        if let Err(error) = fronted.and_then(|()| self.require(resolved_name, false)) {
++        if let Err(error) = fronted
++            .and_then(|()| self.require(resolved_name, false))
++            .and_then(|()| self.require_unlocked(resolved_name))
++        {
+             if let Some(pending_turn) = pending_turn {
+                 let result_text = error.content.iter().find_map(|content| match content {
+                     Content::Text { text, .. } => Some(text.as_str()),
+@@ -961,6 +985,23 @@ impl ToolRegistry {
+         Err(refuse(self.consent.as_ref(), &status, tool, surface))
+     }
+ 
++    /// Refuses a call that needs the screen or input while the screen is
++    /// locked (or its lock state is unknown): a screenshot would see only the
++    /// lock screen, and a click or keystroke would land in its password field.
++    /// No await follows this read before dispatch.
++    fn require_unlocked(&self, tool: &str) -> Result<(), ToolResult> {
++        use crate::machine_consent::{requirement_for, Requirement};
++        let Some(locked) = self.screen_lock_hook else { return Ok(()) };
++        if requirement_for(tool) == Requirement::Nothing || locked() == Some(false) {
++            return Ok(());
++        }
++        Err(ToolResult::error(format!(
++            "{MAC_LOCKED}: this Mac's screen is locked, so nothing can see or use it. `{tool}` did not run. \
++             It runs again once the person unlocks the Mac."
++        ))
++        .with_structured(serde_json::json!({"error": MAC_LOCKED})))
++    }
++
+     fn watchable_front(&self) -> bool {
+         #[cfg(test)]
+         if self.force_watchable_front {
+@@ -2229,6 +2270,48 @@ mod machine_consent_registry_tests {
+         assert_eq!((result.is_error, fronts, ran), (None, 1, 1));
+     }
+ 
++    static LOCKED_BY_CONSENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
++
++    fn locked_by_consent() -> Option<bool> {
++        Some(LOCKED_BY_CONSENT.load(Ordering::SeqCst))
++    }
++
++    /// Grants everything, and locks the screen as it answers.
++    struct LockingSource;
++
++    impl crate::machine_consent::ConsentSource for LockingSource {
++        fn status(&self) -> crate::machine_consent::ConsentStatus {
++            LOCKED_BY_CONSENT.store(true, Ordering::SeqCst);
++            crate::machine_consent::ConsentStatus { screen: true, control: true, ..crate::machine_consent::ConsentStatus::UNKNOWN }
++        }
++        fn record_refusal(&self, _surface: crate::machine_consent::Surface) {}
++    }
++
++    /// The person locked the Mac while the call waited on consent (acpmux's
++    /// lock gate passed it while unlocked; review of cmux#37239): the lock
++    /// read after the last consent answer refuses it as `mac_locked`, and
++    /// nothing is fronted or dispatched. Unlocked, the same call runs.
++    #[tokio::test]
++    async fn a_mac_that_locks_during_the_consent_wait_runs_nothing() {
++        let home = tempfile::tempdir().unwrap();
++        let (mut registry, _screen, control) = counting_registry(home.path());
++        registry.set_consent_source(Arc::new(LockingSource));
++        registry.set_screen_lock_hook(locked_by_consent);
++        LOCKED_BY_CONSENT.store(false, Ordering::SeqCst);
++        let result = registry.invoke("click", json!({"pid": 4242})).await;
++        assert!(LOCKED_BY_CONSENT.load(Ordering::SeqCst), "the consent answer locked the Mac");
++        assert_eq!(result.is_error, Some(true));
++        assert_eq!(result.structured_content.unwrap()["error"], MAC_LOCKED);
++        assert_eq!(control.load(Ordering::SeqCst), 0, "dispatched on a locked screen");
++
++        fn unlocked() -> Option<bool> {
++            Some(false)
++        }
++        registry.set_screen_lock_hook(unlocked);
++        assert_eq!(registry.invoke("click", json!({"pid": 4242})).await.is_error, None);
++        assert_eq!(control.load(Ordering::SeqCst), 1);
++    }
++
+     #[tokio::test]
+     async fn every_check_asks_the_consent_source_and_nothing_else() {
+         use crate::machine_consent::ConsentStatus;
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/proxy.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/proxy.rs
+index 565ce101..c1ec9840 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/src/proxy.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua/src/proxy.rs
+@@ -1234,7 +1234,7 @@ async fn call_daemon_tool(
+     send_daemon_request_async(
+         socket_path,
+         DaemonRequest {
+-            method: "call".to_owned(),
++            method: daemon_call_method().to_owned(),
+             name: Some(name.to_owned()),
+             args: Some(args),
+             session_id: Some(session_id.to_owned()),
+@@ -1949,13 +1949,9 @@ async fn handle_proxy_request(
+     match req.method.as_str() {
+         "initialize" => Response::ok(
+             id,
+-            crate::journal::with_complaint_instructions(
+-                if expected_profile == DaemonProfile::CodexComputerUseCompat {
+-                    codex_computer_use_initialize_result()
+-                } else {
+-                    initialize_result()
+-                },
+-            ),
++            crate::journal::with_complaint_instructions(proxy_initialize_result(
++                expected_profile,
++            )),
+         ),
+ 
+         "tools/list" => Response::ok(id, cached_tools_list.clone()),
+@@ -2088,7 +2084,7 @@ fn prepare_action_group(
+         prepared.push(PreparedProxyAction {
+             tool: tool.to_owned(),
+             request: DaemonRequest {
+-                method: "call".into(),
++                method: daemon_call_method().into(),
+                 name: Some(tool.to_owned()),
+                 args: Some(arguments),
+                 session_id: Some(session_id.to_owned()),
+@@ -2163,7 +2159,9 @@ async fn forward_action_group(
+             };
+ 
+             let transport_ok = response.ok;
+-            let result = if transport_ok {
++            let result = if daemon_predates_lock_check(&response) {
++                helper_outdated_result()
++            } else if transport_ok {
+                 response.result.unwrap_or_else(|| {
+                     serde_json::json!({ "content": [], "isError": false })
+                 })
+@@ -2273,11 +2271,67 @@ async fn forward_tool_call(
+     daemon_response_to_mcp(id, &name, response)
+ }
+ 
++/// The daemon request a tool call goes as. On a Mac it is
++/// [`LOCK_CHECKED_CALL`](cmux_cua_core::protocol::LOCK_CHECKED_CALL): the
++/// daemon is installed separately and may be older than this proxy, and only
++/// one that reads the screen lock right before dispatch runs it. That is why
++/// this proxy may tell cmux it checks the lock at execution
++/// ([`proxy_initialize_result`]). Elsewhere there is no screen lock to read.
++fn daemon_call_method() -> &'static str {
++    if cfg!(target_os = "macos") {
++        cmux_cua_core::protocol::LOCK_CHECKED_CALL
++    } else {
++        "call"
++    }
++}
++
++/// The typed reason a call gets from a daemon built before the lock check,
++/// as cmux's lock gate answers a helper that does not say it.
++const HELPER_OUTDATED: &str = "cua_helper_outdated";
++
++/// Whether the daemon refused [`daemon_call_method`] as a method it does not
++/// know: it was built before the lock check, and the call did not run.
++fn daemon_predates_lock_check(response: &DaemonResponse) -> bool {
++    let unknown = format!("Unknown method: {}", cmux_cua_core::protocol::LOCK_CHECKED_CALL);
++    !response.ok && response.error.as_deref() == Some(unknown.as_str())
++}
++
++fn helper_outdated_result() -> serde_json::Value {
++    serde_json::json!({
++        "content": [{ "type": "text", "text": format!(
++            "{HELPER_OUTDATED}: this Mac's Computer Use helper is too old to check the \
++             screen lock right before it acts, so it was sent no steps. The step was not \
++             run. Update cmux, which updates the helper, then start a new chat."
++        ) }],
++        "isError": true,
++        "structuredContent": { "error": HELPER_OUTDATED }
++    })
++}
++
++/// The proxy's `initialize` answer. On a Mac it says the lock is read at
++/// execution: every call goes as [`daemon_call_method`], which runs only in
++/// a daemon that reads it.
++fn proxy_initialize_result(expected_profile: DaemonProfile) -> serde_json::Value {
++    let initialize = if expected_profile == DaemonProfile::CodexComputerUseCompat {
++        codex_computer_use_initialize_result()
++    } else {
++        initialize_result()
++    };
++    if cfg!(target_os = "macos") {
++        cmux_cua_core::protocol::with_lock_at_execution(initialize)
++    } else {
++        initialize
++    }
++}
++
+ fn daemon_response_to_mcp(
+     id: serde_json::Value,
+     _name: &str,
+     response: DaemonResponse,
+ ) -> Response {
++    if daemon_predates_lock_check(&response) {
++        return Response::ok(id, helper_outdated_result());
++    }
+     if !response.ok {
+         // MCP separates two failure modes:
+         //   - JSON-RPC errors → `Response::error(...)`, used for
+@@ -2584,6 +2638,64 @@ mod tests {
+         );
+     }
+ 
++    /// A new proxy in front of an older installed daemon (review of
++    /// cmux#37239, round 7): that daemon knows only `call` and runs a step
++    /// without reading the screen lock, so a step admitted while the Mac was
++    /// unlocked could run after it locked. The proxy must not send it the
++    /// step: the daemon runs nothing, and the agent gets `cua_helper_outdated`.
++    #[cfg(target_os = "macos")]
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn a_daemon_that_does_not_check_the_lock_runs_no_call() {
++        use tokio::net::UnixListener;
++
++        let directory = tempfile::tempdir().unwrap();
++        let socket = directory.path().join("older.sock");
++        let listener = UnixListener::bind(&socket).unwrap();
++        let ran = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let daemon_ran = ran.clone();
++        let daemon = tokio::spawn(async move {
++            let (mut stream, _) = listener.accept().await.unwrap();
++            let mut line = String::new();
++            BufReader::new(&mut stream).read_line(&mut line).await.unwrap();
++            let request: DaemonRequest = serde_json::from_str(line.trim()).unwrap();
++            // What a daemon built before the lock check answers.
++            let response = if request.method == "call" {
++                daemon_ran.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++                DaemonResponse::ok(serde_json::json!({"content": [], "isError": false}))
++            } else {
++                DaemonResponse::err(format!("Unknown method: {}", request.method), 65)
++            };
++            stream
++                .write_all(format!("{}\n", serde_json::to_string(&response).unwrap()).as_bytes())
++                .await
++                .unwrap();
++        });
++        let (_control_tx, control_rx) = tokio::sync::watch::channel(
++            ControlConnectionState::Ready { approval_broker_token: None },
++        );
++        let response = forward_tool_call(
++            serde_json::json!(1),
++            "get_screen_size".to_owned(),
++            serde_json::json!({}),
++            socket.to_str().unwrap(),
++            "older-daemon-session",
++            &control_rx,
++        )
++        .await;
++        tokio::time::timeout(std::time::Duration::from_secs(20), daemon)
++            .await
++            .expect("the proxy reached the daemon")
++            .unwrap();
++        let response = serde_json::to_value(response).unwrap();
++        assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 0, "the older daemon ran it");
++        assert_eq!(response["result"]["isError"], true, "{response}");
++        assert_eq!(
++            response["result"]["structuredContent"]["error"],
++            "cua_helper_outdated",
++            "{response}"
++        );
++    }
++
+     #[cfg(unix)]
+     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+     async fn unsupported_client_does_not_elicit_resolve_or_retry() {
+@@ -2600,7 +2712,7 @@ mod tests {
+                 reader.read_line(&mut line).await.unwrap();
+             }
+             let request: DaemonRequest = serde_json::from_str(line.trim()).unwrap();
+-            assert_eq!(request.method, "call");
++            assert_eq!(request.method, daemon_call_method());
+             assert_eq!(request.name.as_deref(), Some("get_app_state"));
+             assert_eq!(
+                 request.args.as_ref().unwrap()[APPROVAL_BROKER_TOKEN_ARG],
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
+index d990479d..2af65a28 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
+@@ -3165,7 +3165,12 @@ pub async fn run_serve_with_owner(
+                                     (serde_json::to_string(&resp).unwrap() + "\n").as_bytes()
+                                 ).await;
+                             }
+-                            "call" => {
++                            // The proxy's LOCK_CHECKED_CALL runs only where the
++                            // registry reads the screen lock right before
++                            // dispatch; anywhere else it is an unknown method.
++                            "call" | cmux_cua_core::protocol::LOCK_CHECKED_CALL
++                                if req.method == "call" || reg.checks_screen_lock() =>
++                            {
+                                 let raw_name = req.name.as_deref().unwrap_or("").to_owned();
+                                 // Deprecated alias: `type_text_chars` → `type_text`.
+                                 // Mirrors Swift's `ToolRegistry.call` aliasing.
+@@ -3949,7 +3954,12 @@ pub async fn run_serve(
+                                     (serde_json::to_string(&resp).unwrap() + "\n").as_bytes()
+                                 ).await;
+                             }
+-                            "call" => {
++                            // The proxy's LOCK_CHECKED_CALL runs only where the
++                            // registry reads the screen lock right before
++                            // dispatch; anywhere else it is an unknown method.
++                            "call" | cmux_cua_core::protocol::LOCK_CHECKED_CALL
++                                if req.method == "call" || reg.checks_screen_lock() =>
++                            {
+                                 // Recording idle-TTL liveness (#1764).
+                                 last_activity.store(
+                                     now_unix_secs(),
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs b/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs
+index e6e32040..979809d7 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs
+@@ -604,6 +604,9 @@ pub fn register_all(registry: &mut ToolRegistry, compat: bool) {
+     // driver, and security surfaces in every profile, not only Codex
+     // compatibility. See cmux_cua_core::target_policy.
+     registry.set_target_policy_hook(crate::target_guard::enforce_native);
++    // A call that waited on consent or fronting while the Mac locked never
++    // runs on the lock screen (cmux's lock gate checks only on the way in).
++    registry.set_screen_lock_hook(crate::session::current_screen_locked);
+     let state = Arc::new(ToolState::default());
+     // Share the element cache with the recording-hook layer so it can
+     // resolve element_index → window-local screenshot coords for click.png.

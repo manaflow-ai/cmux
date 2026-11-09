@@ -94,21 +94,48 @@ fn cmux_cua_falls_back_to_the_nested_helper_app() {
     let helper = helper_dir.join("cmux-cua");
     std::fs::write(&helper, "#!/bin/sh\nexit 0\n").unwrap();
     std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // The helper the server runs: its command, or on a Mac the one after the lock gate's `--`.
     let cua = |tools: &super::AgentTools| {
-        tools.servers.iter().find(|s| s.name == "cmux-cua").map(|s| s.command.clone())
+        tools.servers.iter().find(|s| s.name == "cmux-cua").map(|s| {
+            match s.args.iter().position(|a| a == "--") {
+                Some(i) => std::path::PathBuf::from(&s.args[i + 1]),
+                None => s.command.clone(),
+            }
+        })
     };
-    let tools = super::resolve(&memory_inputs(&bin, None));
+    let inputs = |bin: &std::path::Path| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(root.join("acpmux"), Vec::new())),
+        ..memory_inputs(bin, None)
+    };
+    let tools = super::resolve(&inputs(&bin));
     assert_eq!(cua(&tools), Some(helper.clone()), "the nested helper stands in");
     // A bin copy (a DEV build) wins over the helper.
     let bin_cua = bin.join("cmux-cua");
     std::fs::write(&bin_cua, "#!/bin/sh\nexit 0\n").unwrap();
     std::fs::set_permissions(&bin_cua, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), Some(bin_cua.clone()));
+    assert_eq!(cua(&super::resolve(&inputs(&bin))), Some(bin_cua.clone()));
     // Neither: no server.
     std::fs::remove_file(&bin_cua).unwrap();
     std::fs::remove_file(&helper).unwrap();
-    assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), None);
+    assert_eq!(cua(&super::resolve(&inputs(&bin))), None);
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// On a Mac, `cmux-cua mcp` runs only behind acpmux's locked-screen gate. When this acpmux
+/// cannot name itself to run the gate, no Computer Use server starts: never one that acts on a
+/// locked screen (review follow-up on #37239, F2).
+#[test]
+fn a_mac_without_the_lock_gate_starts_no_computer_use_server() {
+    let cua = std::path::PathBuf::from("/app/bin/cmux-cua");
+    let args = vec!["mcp".to_owned()];
+    assert_eq!(super::cua_launch(cua.clone(), args.clone(), None, true), None);
+    let acpmux = crate::self_command::SelfCommand::new("/app/bin/acpmux".into(), Vec::new());
+    let (command, gated) =
+        super::cua_launch(cua.clone(), args.clone(), Some(&acpmux), true).unwrap();
+    assert_eq!(command, std::path::PathBuf::from("/app/bin/acpmux"));
+    assert_eq!(gated, [crate::cua_lock_gate::COMMAND, "--", "/app/bin/cmux-cua", "mcp"]);
+    // Off a Mac there is no screen lock to gate on.
+    assert_eq!(super::cua_launch(cua.clone(), args.clone(), None, false), Some((cua, args)));
 }
 
 /// On a Linux machine `acpmux` is a symlink to `cmux-tui`, and `current_exe`

@@ -5,6 +5,9 @@ extension SessionSettings {
     /// `sessions.keepAwake`: Idle system sleep stays off while a local agent works (KeepAwakeService). The display can still sleep, and closing the lid still sleeps the Mac.
     public nonisolated static let keepAwakePath = ["sessions", "keepAwake"]
     public nonisolated static let keepAwakeDefault: SessionKeepAwakeSetting = .pluggedIn
+    /// `sessions.keepAwakeWhenLocked`: Off by default. On: while this Mac's screen is locked and an agent turn runs, acpmux holds idle sleep off too, also on battery, so the turn keeps running (hub/lock_bridge.rs, design/lock-bridge.md). At most 2 hours per locked stretch, and 10 minutes after the last running turn while one waits for the person. Keep Mac Awake set to Off turns it off. A closed lid on battery and low battery still sleep the Mac. Computer use and permission prompts wait while the screen is locked, on or off.
+    public nonisolated static let keepAwakeWhenLockedPath = ["sessions", "keepAwakeWhenLocked"]
+    public nonisolated static let keepAwakeWhenLockedDefault = false
     /// `sessions.keepAwakeForCommands`: On: a terminal command on this Mac that has run a minute and printed in the last ten minutes also keeps the Mac awake, under the same Off, While Plugged In or Always choice as sessions.keepAwake (KeepAwakeService; the rule is Rust keep_awake_plan). Off by default: Leo has not said whether it should be on.
     public nonisolated static let keepAwakeForCommandsPath = ["sessions", "keepAwakeForCommands"]
     public nonisolated static let keepAwakeForCommandsDefault = false
@@ -59,6 +62,16 @@ nonisolated enum SessionSettingsSchema {
                 ]),
                 default: .string(SessionSettings.keepAwakeDefault.rawValue),
                 keywords: ["sleep", "awake", "keep awake", "stay awake", "prevent sleep", "no sleep", "idle", "caffeinate", "battery", "power", "agents"]
+            ),
+            SettingDescriptor(
+                SessionSettings.keepAwakeWhenLockedPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.keepAwakeWhenLocked", "Keep Agents Running While Locked"),
+                help: SettingsText.keyed("settings.sessions.keepAwakeWhenLocked.help", "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."),
+                kind: .toggle,
+                default: .bool(SessionSettings.keepAwakeWhenLockedDefault),
+                keywords: ["lock", "locked", "sleep", "awake", "battery", "agents", "acpmux"]
             ),
             SettingDescriptor(
                 SessionSettings.keepAwakeForCommandsPath,
