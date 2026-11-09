@@ -193,21 +193,19 @@ pub(crate) const FROM_LABEL_ENV: &str = "ACPMUX_FROM_LABEL";
 /// At most this many bytes of the sender's name go in `ACPMUX_FROM_LABEL`.
 const LABEL_NAME_BYTES: usize = 64;
 
-/// A character the label leaves out of a sender's name: a control character, a Unicode line or
-/// paragraph separator (U+2028, U+2029), or a bidi control or mark (U+202A-U+202E,
-/// U+2066-U+2069, U+200E, U+200F, U+061C).
+/// A character the label leaves out of a sender's name: a control character (Unicode class Cc),
+/// a line or paragraph separator (Zl, Zp: U+2028, U+2029), or a format character (Cf): the bidi
+/// controls and marks, zero-width characters, the soft hyphen, the byte order mark and the tag
+/// characters (U+E0000-U+E007F), which can carry text a person does not see but an agent reads.
 fn hidden_in_a_label(c: char) -> bool {
-    c.is_control()
-        || matches!(
-            c,
-            '\u{061C}'
-                | '\u{200E}'
-                | '\u{200F}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202A}'..='\u{202E}'
-                | '\u{2066}'..='\u{2069}'
-        )
+    use unicode_general_category::{GeneralCategory, get_general_category};
+    matches!(
+        get_general_category(c),
+        GeneralCategory::Control
+            | GeneralCategory::Format
+            | GeneralCategory::LineSeparator
+            | GeneralCategory::ParagraphSeparator
+    )
 }
 
 /// Who a relayed send is from: `name`, the relay's `ACPMUX_FROM` (the sender's session, where

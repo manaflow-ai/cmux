@@ -110,6 +110,8 @@ bytes.workspace = true
 tempfile = "3"
 # Model-sized copies of large PNG uploads (src/model_copies.rs).
 png.workspace = true
+# The characters the send relay's sender label leaves out (src/cli/send_relay.rs).
+unicode-general-category = "1.1"
 unicode-width = "0.2"
 # NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
 unicode-normalization.workspace = true
