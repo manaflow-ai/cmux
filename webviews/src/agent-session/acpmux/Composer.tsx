@@ -1212,6 +1212,13 @@ function ComposerFrame({
     unsentDraft.current?.push(unsentText(text));
   }, [text, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;
+  // The / menu offers `/run-on` only while nothing is staged: a run's prompt is text alone, as the +
+  // menu's row is (sendMenuModel.ts). Typed with files staged, the composer keeps them for a send.
+  const textOnly = attachments.length === 0 && pending.length === 0;
+  const offered = useMemo(
+    () => (textOnly ? commands : commands?.filter((c) => !(c.source === "cmux" && c.name === "run-on"))),
+    [commands, textOnly],
+  );
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
   const permissionModes = (snapshot.summary?.modes?.availableModes ?? []).filter(
@@ -1243,7 +1250,7 @@ function ComposerFrame({
   // match: mid-prompt, `/tmp` with nothing to offer is the person's text, not an empty menu.
   const typedSlash = slash !== undefined && dismissed !== text && !recalling ? slash : undefined;
   const query = typedSlash?.query;
-  const matches = useMemo(() => (typedSlash ? slashMatches(commands ?? [], typedSlash) : []), [commands, typedSlash]);
+  const matches = useMemo(() => (typedSlash ? slashMatches(offered ?? [], typedSlash) : []), [offered, typedSlash]);
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
@@ -2790,8 +2797,7 @@ function ComposerFrame({
                   extensions: plusExtensions,
                   canCapture: Boolean(capture && allowImages),
                   canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
-                  canRunOnAgents:
-                    Boolean(runOnAgents) && !shell && attachments.length === 0 && pending.length === 0,
+                  canRunOnAgents: Boolean(runOnAgents) && !shell && attachments.length === 0 && pending.length === 0,
                   ...(planChoice && plan
                     ? { planMode: { id: plan.id, name: planChoice.name, description: t("picker.planHint") } }
                     : {}),

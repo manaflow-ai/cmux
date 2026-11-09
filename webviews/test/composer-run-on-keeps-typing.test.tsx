@@ -111,6 +111,7 @@ async function type(text: string) {
 async function render(
   run: (text: string, variants: RunVariant[]) => Promise<unknown>,
   handle?: (value: import("../src/agent-session/acpmux/Composer").ComposerHandle | null) => void,
+  commands?: import("../src/agent-session/acpmux/slashCommands").SlashCommand[],
 ) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
@@ -118,6 +119,7 @@ async function render(
   const snapshot = noChat([], {
     sessionId,
     summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 0 },
+    ...(commands && { commands }),
   });
   root ??= createRoot(host);
   await act(async () =>
@@ -204,7 +206,10 @@ test("the runs get the prompt as typed, not the field's escaped markdown", async
 test("with a file staged, ⌘⌥Return opens no run: a run carries text alone and the file would be left out", async () => {
   const ran: string[] = [];
   let composer: import("../src/agent-session/acpmux/Composer").ComposerHandle | null = null;
-  await render(async (text) => void ran.push(text), (value) => void (composer = value));
+  await render(
+    async (text) => void ran.push(text),
+    (value) => void (composer = value),
+  );
   const file = { id: "f1", kind: "text", name: "notes.txt", mimeType: "text/plain", size: 5, text: "notes" } as const;
   await act(async () => composer!.restore("Add a NOTICE", [file]));
   await settle();
@@ -218,4 +223,31 @@ test("with a file staged, ⌘⌥Return opens no run: a run carries text alone an
   expect(dom.window.document.querySelector(".acpmux-run-on")).toBeNull();
   expect(ran).toEqual([]);
   expect(prompt()).toContain("Add a NOTICE");
+});
+
+const slashRows = () =>
+  [...host.querySelectorAll<HTMLElement>(".acpmux-slash-row")].map((row) => row.textContent ?? "");
+
+test("the / menu offers /run-on while nothing is staged", async () => {
+  const { mergedCommands } = await import("../src/agent-session/acpmux/cmuxCommands");
+  await render(async () => undefined, undefined, mergedCommands(undefined, new Set(["runOn", "model"])));
+  await type("/run");
+  await until(() => slashRows().some((row) => row.includes("run-on")), "the /run-on row");
+});
+
+test("with a file staged, the / menu does not offer /run-on: a run carries text alone", async () => {
+  const { mergedCommands } = await import("../src/agent-session/acpmux/cmuxCommands");
+  let composer: import("../src/agent-session/acpmux/Composer").ComposerHandle | null = null;
+  const commands = mergedCommands(undefined, new Set(["runOn", "model"]));
+  await render(
+    async () => undefined,
+    (value) => void (composer = value),
+    commands,
+  );
+  const file = { id: "f1", kind: "text", name: "notes.txt", mimeType: "text/plain", size: 5, text: "notes" } as const;
+  await act(async () => composer!.restore("", [file]));
+  await settle();
+  await type("/");
+  await until(() => slashRows().length > 0, "the / menu");
+  expect(slashRows().some((row) => row.includes("run-on"))).toBe(false);
 });

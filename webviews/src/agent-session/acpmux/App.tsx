@@ -6269,6 +6269,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       throw error;
     }
   };
+  /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
+  /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
+  const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
+  // Run on N agents is offered only from a chat that exists on this Mac (runOnOffered).
+  const runOn = runOnOffered({ quick, sessionId: snapshot.sessionId, cloudPicked, sandboxing, onOtherMachine });
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>([
       "import",
@@ -6285,6 +6290,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
     if (forkRefusal(snapshot) === undefined && localCwd !== undefined && !quick) enabledCmuxActions.add("side");
     if (continueAvailable) enabledCmuxActions.add("continue");
+    // Offered where its panel opens; with files staged, the composer keeps the command for a send
+    // instead (a run's prompt is text alone).
+    if (runOn) enabledCmuxActions.add("runOn");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
@@ -6317,6 +6325,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     localCwd,
     quick,
     keptStopping,
+    runOn,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -6332,14 +6341,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// goes back to this Mac when the folder's history no longer says Cloud or Cloud is not offered.
   /// Settings' Start New Chats In (`agentPane.newChatsIn`) set to Cloud makes it Cloud whatever the
   /// folder's history says (newChatRunLocation); This Mac in the composer's picker still wins.
-  /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
-  /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
-  const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
   // Run on N agents: the prompt on 2 to 4 agents, each a sub-session of this chat in its own
-  // worktree (`_acpmux/plan/fanout`); the chat's builds card compares them. Only from a chat that
-  // exists on this Mac (runOnOffered). One object while its inputs hold, so a turn's updates never
-  // redraw the composer for it.
-  const runOn = runOnOffered({ quick, sessionId: snapshot.sessionId, cloudPicked, sandboxing, onOtherMachine });
+  // worktree (`_acpmux/plan/fanout`); the chat's builds card compares them. One object while its
+  // inputs hold, so a turn's updates never redraw the composer for it.
   const composerRunOnAgents = useMemo(
     () =>
       runOn
