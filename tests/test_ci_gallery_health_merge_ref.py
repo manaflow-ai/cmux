@@ -160,6 +160,8 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
             stubs = {
                 "scripts/ci/ensure-system-chrome.sh":
                     '#!/bin/sh\nprintf "CMUX_CHROME_HEADLESS_SHELL=%s\\n" "$TEST_BROWSER" >> "$GITHUB_ENV"\n',
+                # The bounded install (scripts/ci/bun-install.sh) hands its arguments to bun.
+                "scripts/ci/bun-install.sh": '#!/bin/sh\nexec bun install "$@"\n',
                 "bin/git": '#!/bin/sh\nprintf "%s\\n" "$GITHUB_WORKSPACE"\n',
                 "bin/bun": '#!/bin/sh\nif [ "$1" = health.ts ]; then\n'
                     '  printf "%s\\n" "${CMUX_CHROME_HEADLESS_SHELL:-chrome}" >> "$TEST_LAUNCHES"\nfi\n',
