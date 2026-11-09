@@ -201,6 +201,7 @@ struct TabPinMotionTests {
         var icons: [CGFloat] = []
         var iconOverTitle = false
         var separatorOverIcon = false
+        var separatorOverMovingTab = false
         for k in 0...ticks {
             let time = begin + Double(k) / 120
             let frame = shown(cell, at: time)
@@ -258,8 +259,10 @@ struct TabPinMotionTests {
             if !strip.pinnedDivider.isHidden, opacity(strip.pinnedDivider, at: time) > 0.05 {
                 lines.append(("the divider", MotionPath(strip.pinnedDivider, "position").value(at: time).x))
             }
+            // A cell's separator draws only where its cell draws: a passed tab's mask hides the line under the pill.
             for (id, other) in strip.cells where !other.separatorLayer.isHidden && opacity(other.separatorLayer, at: time) > 0.05 {
-                lines.append(("\(id.rawValue)'s separator", shown(other, at: time).minX + MotionPath(other.separatorLayer, "position").value(at: time).x))
+                let x = shown(other, at: time).minX + MotionPath(other.separatorLayer, "position").value(at: time).x
+                if drawn(other, at: time).contains(where: { x > $0.minX && x < $0.maxX }) { lines.append(("\(id.rawValue)'s separator", x)) }
             }
             iconCheck: for (id, other) in strip.cells where !other.iconLayer.isHidden {
                 let otherFrame = shown(other, at: time)
@@ -272,6 +275,21 @@ struct TabPinMotionTests {
                         failures.append("tick \(k): \(name) at \(x) draws through \(id.rawValue)'s icon \(iconMinX)...\(iconMinX + width)")
                     }
                     break iconCheck
+                }
+            }
+            // No other tab's separator draws over the moving tab (the PIN6 K6 and K12 films: a separator drew over the
+            // flying tab's right end for one frame): the moving tab is drawn above the tabs it passes, so a line of one
+            // of them shows only where that tab draws (its mask, `drawn`) and never inside the moving tab's frame.
+            if !separatorOverMovingTab {
+                for (id, other) in strip.cells where id != moved && !other.separatorLayer.isHidden
+                    && opacity(other.separatorLayer, at: time) > 0.05 {
+                    let x = shown(other, at: time).minX + MotionPath(other.separatorLayer, "position").value(at: time).x
+                    guard drawn(other, at: time).contains(where: { x > $0.minX && x < $0.maxX }),
+                          x > frame.minX + 0.5, x < frame.maxX - 0.5 else { continue }
+                    separatorOverMovingTab = true
+                    let place = x > pill.minX + 0.5 && x < pill.maxX - 0.5 ? "inside its pill" : "outside its pill"
+                    failures.append("tick \(k): \(id.rawValue)'s separator at \(x) draws over the moving tab \(frame) (\(place) \(pill))")
+                    break
                 }
             }
             // The divider never draws over the moving tab.

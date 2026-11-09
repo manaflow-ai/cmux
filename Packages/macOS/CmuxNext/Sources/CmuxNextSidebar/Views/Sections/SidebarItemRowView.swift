@@ -90,6 +90,10 @@ class SidebarItemRowView: NSView {
     private let pin = DecorativeImageView() // a pinned row's leading pin; Pinned's header names it
     /// The leading pin glyph (a pin's flight fades it in on the move, `SidebarPinFlight`); nil when the item draws none.
     var pinGlyph: NSView? { pin.isHidden || pin.image == nil ? nil : pin }
+    /// How far the pill is inset from each side of the bounds (`layout`): a workspace row's bounds are its fill, this
+    /// item's fill is narrower. A pin's hand-off maps fill to fill (`SidebarPinFlight`), so neither copy draws wider or
+    /// narrower than the other on the first frame.
+    var fillInset: CGFloat { style.isIconOnly || style == .chip || style == .favorite ? 0 : SidebarStyle.horizontalInset }
     /// The leading icon column's box of the row's first glyph (the pin on a pinned row, else its own icon), in row
     /// coordinates; `.zero` for a text-only row or a look without a leading column (tests).
     private(set) var leadingColumnFrame: CGRect = .zero
@@ -147,9 +151,12 @@ class SidebarItemRowView: NSView {
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
         [pin, icon, title, badge, rowBadge, avatarView, activity].forEach(addSubview)
-        // The pin has its own layer from the start: a pin's flight fades it in on the move (`SidebarPinFlight.glyph`) in
-        // the turn that makes the item, before AppKit's first display pass would give the subview a layer of its own.
+        // The pin and the title have their own layers from the start: a pin's flight fades the pin in and slides both
+        // from the list row's title (`SidebarPinFlight`) in the turn that makes the item, before AppKit's first display
+        // pass would give the subviews layers of their own. With no layer the title's slide was dropped: it stood on its
+        // slot while the pin rode in from the left (PIN8 films, SB-PIN). The list row's title has one (`WorkspaceRowView`).
         pin.wantsLayer = true
+        title.wantsLayer = true
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.

@@ -256,7 +256,7 @@ extension SidebarListViewComponents {
         // the leaving one is drawn now and moves on the rows' spring (`SidebarListView+PinFlight`).
         if opensRows, !adopting, labPinFlies() { showFlownItems(to: layout) }
         let flightSources = pinFlightSources(from: old, to: layout, moves: opensRows && !adopting)
-        if !flightSources.pins.isEmpty { for region in blockRegions { region.flyingWorkspaces = Set(flightSources.pins.keys) } }
+        let flyingPins = Set(flightSources.pins.keys)
         var flights: [SidebarPinFlight] = []
         // A spliced row is its own run (rows still opening that moved by themselves are found by the walk).
         let insertRuns = spliced.flatMap { key in reopened.isEmpty ? layout.row(for: key).map { [key: $0.y] } : nil }
@@ -321,6 +321,11 @@ extension SidebarListViewComponents {
             // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
             // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
             let view = existing ?? dequeue(row.key, rebinding: !animate && !adopting)
+            // A pin's new item goes to its slot at once in the block that takes it (the list's flight moves it), in a
+            // block dequeued for this apply too: the Pinned block scrolled out of view parks with its old content, and
+            // its animated show placed the new item on an AppKit frame animation, so its frame was still zero when the
+            // flight started and the item shrank to nothing (aPinToABlockOutOfViewSlidesOutOfView, PIN MOTION 7).
+            if let block = view as? SidebarBlockRowView { block.region.flyingWorkspaces = flyingPins }
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
