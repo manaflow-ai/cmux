@@ -208,7 +208,7 @@ pub(super) fn create(
             let branch = attempt.branch.as_str();
             arguments.extend(["-b", branch, root.as_ref(), attempt.base_commit.as_str()]);
         }
-        let environment = if trusted { Vec::new() } else { untrusted(&repository.root)? };
+        let environment = if trusted { Vec::new() } else { offline(&repository.root)? };
         let run = git
             .run_with(&arguments, &borrowed(&environment))
             .map_err(|failure| run_failed(OPERATION, &failure))?;
@@ -263,7 +263,7 @@ pub(super) fn create(
         // main checkout's does not (`includeIf "onbranch:..."`): its files are
         // checked out with every driver it sees blanked. Again on a retry, so
         // a run stopped before this step still gets its files.
-        let environment = untrusted(&attempt.root)?;
+        let environment = offline(&attempt.root)?;
         let checkout = UserGit { root: &attempt.root, deadline: git.deadline };
         let run = checkout
             .run_with(&["reset", "--hard", "--quiet"], &borrowed(&environment))
@@ -301,6 +301,19 @@ pub(super) fn untrusted(root: &Path) -> Result<Vec<(String, String)>, ResourceEr
         environment.push((format!("GIT_CONFIG_KEY_{index}"), key));
         environment.push((format!("GIT_CONFIG_VALUE_{index}"), value));
     }
+    Ok(environment)
+}
+
+/// [`untrusted`] for a run that reaches no remote: a partial clone's missing
+/// object would be fetched on demand through the transport command
+/// (`uploadpack`, `core.sshCommand`) the checked-out branch's own
+/// configuration names. An empty `GIT_ALLOW_PROTOCOL` refuses every
+/// transport and `GIT_NO_LAZY_FETCH` stops git before it tries, as
+/// cmux-git's confined reads do.
+pub(super) fn offline(root: &Path) -> Result<Vec<(String, String)>, ResourceError> {
+    let mut environment = untrusted(root)?;
+    environment.push(("GIT_NO_LAZY_FETCH".to_string(), "1".to_string()));
+    environment.push(("GIT_ALLOW_PROTOCOL".to_string(), String::new()));
     Ok(environment)
 }
 

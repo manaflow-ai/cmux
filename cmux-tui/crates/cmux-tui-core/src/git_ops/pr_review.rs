@@ -108,6 +108,10 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
         let git = UserGit { root: &repository.root, deadline: deadline() };
         let view = view(&git, &pull)?;
         let remote = remote(repository, &pull)?;
+        if partial(repository) {
+            let message = "a review needs a full clone: this partial clone would fetch the pull request's files through its own configuration";
+            return Err(refused(START, "partial_clone", message, Value::Null));
+        }
         let pulled = format!("refs/pull/{}/head", pull.number);
         let base_branch = format!("refs/heads/{}", view.base_branch);
         let arguments = ["fetch", "--no-tags", "--quiet", &remote, &pulled, &base_branch];
@@ -238,6 +242,23 @@ fn remote(repository: &Repository, pull: &PullRef) -> Result<String, ResourceErr
             );
             refused(START, "no_remote", message, json!({"repo": pull.repository()}))
         })
+}
+
+/// Whether the main checkout is a partial clone. Its checkout of the pull
+/// request would lack the files the fetch left out, and fetching them on
+/// demand runs a transport the review branch's configuration can name; the
+/// checkout runs offline, so it would fail midway instead.
+fn partial(repository: &Repository) -> bool {
+    let set = |arguments: &[&str]| {
+        repository.run(arguments, 4096).is_ok_and(|output| {
+            String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+                let value = line.rsplit(' ').next().unwrap_or(line).trim();
+                !value.is_empty() && value != "false"
+            })
+        })
+    };
+    set(&["config", "--get", "extensions.partialClone"])
+        || set(&["config", "--type=bool", "--get-regexp", r"^remote\..*\.promisor$"])
 }
 
 fn merge_base(repository: &Repository, base: &str, head: &str) -> Result<String, ResourceError> {

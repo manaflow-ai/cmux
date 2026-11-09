@@ -251,10 +251,11 @@ fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceEr
     let git = UserGit { root: &attempt.main_root, deadline: deadline() };
     // A review's checkout is the pull request's code: `worktree remove`
     // checks it is clean inside it, so its hooks, fsmonitor and filter
-    // drivers (the worktree's own included) are off for every run here.
+    // drivers (the worktree's own included) are off for every run here, and
+    // no run reaches a remote.
     let untrusted = if reviews(repository, attempt) {
         let root = if attempt.root.exists() { &attempt.root } else { &attempt.main_root };
-        worktree::untrusted(root)?
+        worktree::offline(root)?
     } else {
         Vec::new()
     };

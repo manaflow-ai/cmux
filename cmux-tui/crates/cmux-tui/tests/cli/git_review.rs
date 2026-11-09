@@ -526,6 +526,17 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert!(!moved.status.success());
     assert!(String::from_utf8_lossy(&moved.stderr).contains("pull_request_moved"));
 
+    // A partial clone is refused before anything is fetched: its checkout
+    // would fetch the left-out files through the review branch's own
+    // transport command.
+    git(&checkout, &["config", "extensions.partialClone", "origin"]);
+    let partial =
+        git_cli(&server, &checkout, &["review", "start", url, "--idempotency-key", "rv-partial"]);
+    git(&checkout, &["config", "--unset", "extensions.partialClone"]);
+    assert!(!partial.status.success());
+    assert!(String::from_utf8_lossy(&partial.stderr).contains("partial_clone"));
+    assert!(!fetch_ran.exists(), "a review branch's fetch command ran");
+
     // A comment outside a review worktree is refused.
     let plain = git_cli(&server, &checkout, &draft);
     assert!(!plain.status.success());
