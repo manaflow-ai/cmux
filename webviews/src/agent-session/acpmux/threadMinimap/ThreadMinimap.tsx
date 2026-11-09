@@ -244,11 +244,12 @@ export function ThreadMinimap({
   // falls back to every prompt when the filter would leave none, so the rail and its menu stay.
   const named = useMemo(() => {
     const start = read.loadedStart ?? 0;
-    const kept = filter === "all" ? undefined : filterTurns(read.turns, read.ticks, start, filter);
+    // The full-height map draws every loaded turn and finds its jump in these lists: it never filters.
+    const kept = filter === "all" || full ? undefined : filterTurns(read.turns, read.ticks, start, filter);
     if (kept?.ticks.length) return { ...kept, filtered: true };
     const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, start) : read;
     return { turns: folded.turns, ticks: folded.ticks, loadedStart: start, filtered: false };
-  }, [filter, incomingLook.fold, read]);
+  }, [filter, full, incomingLook.fold, read]);
   // Prompts known only by count have no sender yet: a filtered rail draws none of them.
   const pendingCount = named.filtered ? 0 : (read.pendingCount ?? 0);
   const loadedStart = named.loadedStart + pendingCount;

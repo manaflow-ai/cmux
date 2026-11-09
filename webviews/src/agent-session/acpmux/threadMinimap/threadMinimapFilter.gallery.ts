@@ -50,7 +50,8 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 720,
   widths: { normal: 1040 },
-  anchors: [{ selector: ".acpmux-minimap__rail" }],
+  // The transcript holds still; the rail itself shortens when a filter drops ticks.
+  anchors: [{ selector: ".acpmux-scroll" }],
   covers: ["agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap"],
   variants: {
     "top-no-fade": {
