@@ -18,13 +18,12 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-/// How long each older page takes to land: longer than the whole scroll up below.
-const PAGE_MS = 8000;
-const STEP = 40;
-const STEPS = 40;
-
 await requireBrowserLane("transcript-tail-scroll.test.ts", async () => {
   setDefaultTimeout(120_000);
+  /// How long each older page takes to land: longer than the whole scroll up below.
+  const PAGE_MS = 8000;
+  const STEP = 40;
+  const STEPS = 40;
   try {
     await (await webkit.launch({ headless: true })).close();
   } catch {
@@ -58,8 +57,11 @@ await requireBrowserLane("transcript-tail-scroll.test.ts", async () => {
     const rows = document.querySelectorAll<HTMLElement>(".acpmux-row");
     return rows[rows.length - 1]!.getBoundingClientRect().top;
   };
-  const older = () =>
-    (window as unknown as { __older: { asks: { landed?: number }[]; loaded(): number } }).__older;
+  /// Whether a page of older history has landed yet (runs in the page).
+  const landed = () =>
+    (window as unknown as { __older: { asks: { landed?: number }[] } }).__older.asks.some(
+      (ask) => ask.landed !== undefined,
+    );
 
   const open = async (tail: number): Promise<Page> => {
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -113,8 +115,10 @@ await requireBrowserLane("transcript-tail-scroll.test.ts", async () => {
     test(`a ${tail}-row tail: a scroll up is never pushed back down, and the late page lands above in place`, async () => {
       const page = await open(tail);
       const tops = await wheelUp(page, STEPS);
-      const offsets = (await page.evaluate(() => (window as unknown as { __probe: Probe }).__probe.offsets)) as number[];
-      const waiting = (await page.evaluate(() => older().asks.every((ask) => ask.landed === undefined))) as boolean;
+      const offsets = (await page.evaluate(
+        () => (window as unknown as { __probe: Probe }).__probe.offsets,
+      )) as number[];
+      const waiting = !((await page.evaluate(landed)) as boolean);
       const backs = { rows: pushedBack(tops, -1), offsets: pushedBack(offsets, 1) };
       console.log(`transcript-tail-scroll ${tail} rows: ${JSON.stringify({ backs, tops, offsets })}`);
       // The whole scroll happened while the first page was still being read.
@@ -122,7 +126,7 @@ await requireBrowserLane("transcript-tail-scroll.test.ts", async () => {
       expect(backs).toEqual({ rows: 0, offsets: 0 });
       // The page lands: the rows in view stay where they are drawn.
       const before = tops.at(-1)!;
-      await page.waitForFunction(() => older().asks.some((ask) => ask.landed !== undefined), undefined, {
+      await page.waitForFunction(landed, undefined, {
         timeout: PAGE_MS + 5000,
       });
       for (let frame = 0; frame < 10; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
