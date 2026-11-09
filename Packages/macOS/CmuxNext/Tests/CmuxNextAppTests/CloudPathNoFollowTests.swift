@@ -108,6 +108,17 @@ struct CloudPathNoFollowTests {
         #expect(machine.asked == ["read"])
     }
 
+    /// A folder chip opens the Files tree only when the stat says folder, and the daemon spells a
+    /// folder `dir` on the wire (`EntryKind::Dir`).
+    @Test func aFolderIsKnownByTheDaemonsOwnSpelling() throws {
+        func kind(_ json: String) throws -> FileSystemStatRequest.Response {
+            try JSONDecoder().decode(FileSystemStatRequest.Response.self, from: Data(json.utf8))
+        }
+        #expect(try kind(#"{"kind":"dir","revision":"r1"}"#).isFolder)
+        #expect(try !kind(#"{"kind":"file","size":3,"revision":"r1"}"#).isFolder)
+        #expect(try !kind(#"{"kind":"symlink","revision":"r1"}"#).isFolder)
+    }
+
     /// A machine's folder in the Files tree: a path inside it is made by spelling, with no look at
     /// this Mac's disk (where no such folder exists), and a path that leaves it is refused.
     @Test func aMachineFoldersTreePathsAreCheckedBySpellingAlone() throws {

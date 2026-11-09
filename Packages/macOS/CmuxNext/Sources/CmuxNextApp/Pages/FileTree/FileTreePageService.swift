@@ -74,7 +74,7 @@ final class FileTreePageService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
         var tab = tabs[key] ?? Tab()
-        let provider = FileTreePageProvider(folder: tab.folder, link: tab.link, onMachine: tab.machine != nil) { [weak self] file in await self?.open(file, from: key) ?? FileTreeStrings.unavailable }
+        let provider = FileTreePageProvider(folder: tab.folder, link: tab.link, onMachine: tab.machine != nil) { [weak self] file in guard let self else { return FileTreeStrings.unavailable }; return await self.open(file, from: key) }
         let native = AppPageNativeProvider(services: services, page: .files)
         let routes = [PageRoute(prefix: "cmux.files.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .files, routes: routes) else { return NSView() }

@@ -89,8 +89,10 @@ public nonisolated struct FileSystemStatRequest: DaemonRequest {
     }
 
     public nonisolated struct Response: Decodable, Sendable, Equatable {
-        /// `file`, `directory`, `symlink` or `other`.
+        /// `file`, `dir`, `symlink` or `other` (the daemon's `EntryKind`).
         public let kind: String
+        /// A folder: `kind` is `dir` on the wire.
+        public var isFolder: Bool { kind == "dir" }
         public let size: UInt64?
         public let revision: String
 
