@@ -51,6 +51,8 @@ struct ClassicFolderItemsMoveTests {
         #expect(try Self.read(support.appending(path: "cmux-next/\(bundle)/cloud-next/device-id")) == "mac-1")
         #expect(try Self.read(support.appending(path: "cmux-next/\(bundle)/ssh-next/link-state/known.json")) == "{}")
         #expect(try Self.read(support.appending(path: "cmux/\(bundle)/config.ghostty")) == "classic")
+        // No link for SSH: an older build's cmux-tui refuses a state directory through a symlink.
+        #expect(!FileManager.default.fileExists(atPath: support.appending(path: "cmux/\(bundle)/ssh-next").path))
         #expect(move.run(bundleID: bundle) == [.nothing, .nothing, .nothing, .nothing])
     }
 

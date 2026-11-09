@@ -19,6 +19,10 @@ public struct ClassicFolderItemsMove: Sendable {
     /// Folders only NEXT writes in classic's `cmux/<bundle id>` (Cloud's and SSH's link state; ``CloudPaths``,
     /// `SSHPaths`). The bundle's folder itself can be classic's (NIGHTLY's bundle id), so only these move.
     static let bundleFolders = ["cloud-next", "ssh-next"]
+    /// Folders left with no symlink at the old path: an older build's cmux-tui refuses a state directory reached
+    /// through a symlink (ClientIdentityStore's secure walk), so a rolled-back build starts SSH's state afresh
+    /// there instead of failing to connect.
+    static let unlinked: Set<String> = ["ssh-next"]
 
     let applicationSupport: URL
     private static let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
@@ -35,7 +39,7 @@ public struct ClassicFolderItemsMove: Sendable {
             let (old, new) = paths(name)
             var info = stat()
             guard lstat(old.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return .nothing }
-            return log(StateFolderMove.move(old: old, new: new), old: old)
+            return log(StateFolderMove.move(old: old, new: new, link: !Self.unlinked.contains(old.lastPathComponent)), old: old)
         }
     }
 
