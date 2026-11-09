@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import cliGenerated from "../data/next-docs/cli-reference.generated.json";
 import paletteGenerated from "../data/next-docs/palette-reference.generated.json";
 import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
-import { nextDocHref, nextDocPage, nextDocPages } from "../data/next-docs/pages";
+import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
+import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
+import { sitemapEntries } from "../app/sitemap";
 import {
   buildCliReference,
   buildPaletteReference,
@@ -93,10 +95,14 @@ describe("cmux-next docs", () => {
 
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
     const verbs = new Set(buildCliReference(surfaces).nouns.flatMap((noun) => noun.verbs.map((verb) => verb.command)));
-    // Commands of the Rust CLI itself, not app actions (cmux --help).
+    // Commands of the Rust CLI itself, not app actions (cmux --help). `cmux harness` and
+    // `cmux acp` are acpmux's CLI (cmux-tui/crates/acpmux/src/cli/harness.rs, ledger.rs,
+    // host_enroll.rs); `cloud secret` and `machine vault` are cmux-tui's
+    // (src/cli/cloud_secret.rs, src/cli/machine_join/vault.rs).
     const allowed = new Set([
       "cmux action list", "cmux action run", "cmux <noun> <verb>", "cmux mcp serve", "cmux mcp tools",
-      "cmux settings set", "cmux version",
+      "cmux settings set", "cmux version", "cmux harness add", "cmux harness secret", "cmux harness doctor",
+      "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault",
     ]);
     const unknown: string[] = [];
     for (const page of nextDocPages) {
@@ -118,6 +124,29 @@ describe("cmux-next docs", () => {
     expect(hrefs("nightly").sort()).toEqual(expected.sort());
     expect(hrefs("release")).toEqual([]);
     expect(flatNavItems(navItemsForLocale("ja", "nightly")).some((item) => item.href.startsWith("/docs/next"))).toBe(false);
+  });
+
+  // The pages were in neither the sitemap nor llms.txt, so search and answer engines
+  // never found them.
+  test("the sitemap and llms.txt list every page at its nightly URL", () => {
+    const urls = sitemapEntries().map((entry) => entry.url);
+    const llms = buildLlmsText("https://cmux.com");
+    for (const page of nextDocPages) {
+      const path = nextDocPublicPath(page.slug);
+      expect(urls).toContain(`https://cmux.com${path}`);
+      expect(urls).not.toContain(`https://cmux.com/ja${path}`);
+      expect(llms).toContain(`https://cmux.com${path}.md`);
+    }
+    expect(nextDocPublicPath("getting-started")).toBe("/docs/nightly/next");
+    expect(nextDocPublicPath("own-keys")).toBe("/docs/nightly/next/own-keys");
+  });
+
+  test("Markdown variants resolve on cmux.com and in the nightly zone", () => {
+    // The nightly zone gets the path without /nightly (next.config.ts rewrites).
+    for (const path of ["/docs/nightly/next/own-keys.md", "/docs/next/own-keys.md", "/docs/next.txt"]) {
+      expect(resolveAgentPageVariant(path)).not.toBeNull();
+    }
+    expect(resolveAgentPageVariant("/docs/next/no-such-page.md")).toBeNull();
   });
 
   test("release docs fall back to Getting Started for a next page", () => {
