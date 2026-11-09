@@ -10,10 +10,11 @@ mod enroll;
 pub(crate) mod host_fingerprint;
 mod leave;
 mod recovery;
+mod to_revoke;
 
 pub(crate) use enroll::{
-    EnrollOutcome, EnrollRequest, enroll_self, finish_leave_at_start, leave_if_auto, leave_pending,
-    relay_may_start,
+    EnrollOutcome, EnrollRequest, LeaveOutcome, enroll_self, finish_leave_at_start, leave_if_auto,
+    leave_pending, relay_may_start,
 };
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";

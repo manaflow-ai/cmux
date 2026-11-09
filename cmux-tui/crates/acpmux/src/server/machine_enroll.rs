@@ -89,10 +89,17 @@ pub(super) async fn leave_if_auto(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, 
     local(conn, crate::rpc::method::MUX_MACHINE_LEAVE_IF_AUTO)?;
     let outcome = crate::cli::cloud_join::leave_if_auto().await;
     tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave");
-    if outcome.left {
+    after_leave(hub, &outcome).await;
+    serde_json::to_value(outcome).map_err(|e| RpcError::internal(e.to_string()))
+}
+
+/// What a sign-out's leave stops on this daemon: the relay only when the leave removed the
+/// join's from config.json. A relay the person set up, or another hub's, which the leave keeps
+/// on disk, keeps running here too, and sends keep its hub client.
+async fn after_leave(hub: &Arc<Hub>, outcome: &crate::cli::cloud_join::LeaveOutcome) {
+    if outcome.left && outcome.relay_removed {
         stop_joined(hub).await;
     }
-    serde_json::to_value(outcome).map_err(|e| RpcError::internal(e.to_string()))
 }
 
 /// Stops what the join started on this daemon: the mesh relay and the hub client sends went
@@ -250,6 +257,31 @@ mod tests {
         .unwrap();
         let mesh = hub.mesh.get().expect("a relay runs, so sends have a hub");
         let _ = mesh.send(&message).await;
+    }
+
+    /// A sign-out that kept the person's relay in config.json leaves it running, and sends keep
+    /// going through it; one that removed the join's relay stops it.
+    #[tokio::test]
+    async fn a_sign_out_that_keeps_the_persons_relay_leaves_it_running() {
+        use crate::cli::cloud_join::LeaveOutcome;
+        let hub = memory_hub();
+        let (own, seen) = recording_hub().await;
+        let mut slot = hub.mesh_relay.lock().await;
+        assert_eq!(super::start_relay_with(&hub, &mut slot, own).await, "started");
+        drop(slot);
+        let kept =
+            LeaveOutcome { left: true, kept: None, hub: Some("revoked"), relay_removed: false };
+        super::after_leave(&hub, &kept).await;
+        assert!(hub.mesh_relay.lock().await.as_ref().is_some_and(|relay| !relay.is_finished()));
+        assert!(hub.config.read().await.mesh_relay.is_some());
+        assert!(hub.mesh.get().is_some(), "sends keep the person's relay's hub");
+        send_one(&hub).await;
+        assert_eq!(sends(&seen), 1);
+
+        let removed = LeaveOutcome { relay_removed: true, ..kept };
+        super::after_leave(&hub, &removed).await;
+        assert!(hub.mesh_relay.lock().await.is_none());
+        assert!(hub.mesh.get().is_none());
     }
 
     /// A leave clears the hub client sends go through, and a later enroll on another hub's origin

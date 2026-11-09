@@ -171,6 +171,16 @@ fn remove_relay_at(
     Ok(true)
 }
 
+/// Whether `home`'s config.json holds a `meshRelay` (one it cannot read counts as holding one: a
+/// running relay is never stopped on a guess).
+pub(super) fn relay_configured(home: &Path) -> bool {
+    let config_path = home.join("config.json");
+    if !config_path.exists() {
+        return false;
+    }
+    !matches!(crate::config::Config::load_from(&config_path), Ok(config) if config.mesh_relay.is_none())
+}
+
 /// A person's own `machine leave` with nothing joined: a join's relay left with no record
 /// (the join's credential and no `tokenCommand`, for any hub) goes, as it always did. A
 /// sign-out never takes this path; it removes only the relay its join wrote ([`remove_local`]).

@@ -21,14 +21,19 @@
 //!   daemon did not finish (no answer, the join lock held, a failed write, a stop) is finished
 //!   at its next start, before its mesh relay starts. A sign-in clears the mark. A leave whose
 //!   local cleanup stopped part way says so in its mark, so it is finished, never read as a
-//!   revoke at the hub.
+//!   revoke at the hub. Its revoke is marked before it is sent, so a revoke the hub committed
+//!   before this box stopped is read as this box's own, never as someone else's: the next
+//!   sign-in still enrolls the machine.
+//! - Signing out stops the daemon's relay only when the leave removed the join's relay from
+//!   config.json; a relay the person set up, or another hub's, keeps running.
 //! - A sign-in's join left pending (the hub took its redeem, its answer or probe never came) goes
 //!   with a sign-out too: the proposal is set aside where no join resumes it (a later sign-in by
 //!   another person would otherwise finish it as this one's), and its credential is revoked at
 //!   the hub with the credential itself. Until the hub says so, each start asks again.
-//! - A revoke the hub did not answer is asked again with the machine's own credential, kept
-//!   beside the stale row, at each start and each sign-in until the hub says it is revoked,
-//!   whoever signs in meanwhile.
+//! - A revoke the hub did not answer is asked again with the machine's own credential, at each
+//!   start and each sign-in until the hub says it is revoked, whoever signs in meanwhile. Each
+//!   such credential and row is queued on its own (`to_revoke.rs`): a later sign-out's never
+//!   replaces an earlier one's.
 //! - Another person signing in on a machine the last person's sign-in joined finishes that
 //!   person's leave first (an account switch whose sign-out acpmux never got), then enrolls.
 //! - A machine someone revoked at the hub stays revoked here when its sign-out finds it so: a
@@ -99,6 +104,11 @@ pub(crate) struct LeaveOutcome {
     /// What the hub said to the revoke, when one was asked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hub: Option<&'static str>,
+    /// The leave left config.json with no relay of the join's: the daemon stops its running relay
+    /// only then. A relay the person set up, or another hub's, which the leave keeps, keeps
+    /// running.
+    #[serde(skip)]
+    pub relay_removed: bool,
 }
 
 /// What the hub says to a joined record's own credential.
@@ -152,97 +162,42 @@ fn enroll_name(build_tag: Option<&str>) -> String {
     name.trim_end_matches('-').to_owned()
 }
 
-/// The hub row a sign-out left behind when the hub did not revoke it: the next sign-in on this box
-/// revokes exactly that row. Never a match on the node key or the host name alone, which a copied
-/// home or a twin machine shares.
-const STALE_FILE: &str = "machine-join.stale.json";
-
-/// The mark a sign-out leaves when someone had revoked this machine at the hub: the next sign-in
-/// does not enroll it again. A join made here (`recovery::complete`) clears it.
-const REVOKED_FILE: &str = "machine-join.revoked.json";
 /// A sign-out's leave, marked before it starts and cleared when it is done (or a sign-in comes).
 const LEAVE_FILE: &str = "machine-join.leave.json";
 
-/// One hub row of this box (a stale row, or a revoked machine's mark).
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StaleRow {
-    machine_id: String,
-    hub_origin: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    host_fingerprint: Option<String>,
-    /// A stale row's own credential, when the hub did not answer its revoke: asked again with it
-    /// until the hub says it is revoked. Never sent anywhere else.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    credential: Option<String>,
-}
-
-fn write_row(home: &Path, file: &str, record: &MachineCredential, credential: bool) -> Result<()> {
-    let row = StaleRow {
-        machine_id: record.machine_id.clone(),
-        hub_origin: record.hub_origin.clone(),
-        host_fingerprint: record.host_fingerprint.clone(),
-        credential: credential.then(|| record.credential.clone()),
-    };
-    recovery::write_durable(&home.join(file), &serde_json::to_vec(&row)?, true)
-}
-
-/// Records `record`'s hub row as stale; with `retry`, with its credential, so its own revoke is
-/// asked again.
+/// Queues `record`'s hub row, which the hub did not revoke, so it is revoked later; with
+/// `retry`, with its credential, so its own revoke is asked again. Never a match on the node key
+/// or the host name alone, which a copied home or a twin machine shares.
 fn record_stale(home: &Path, record: &MachineCredential, retry: bool) -> Result<()> {
-    write_row(home, STALE_FILE, record, retry)
+    to_revoke::queue(home, &to_revoke::Row::of(record, retry))
 }
 
-/// Asks the hub again to revoke the stale row this box's sign-out could not, with its own
-/// credential (`revoke`), and drops the credential once the hub says it is revoked. Rows without
-/// one, or a copied home's, are left to a sign-in's revoke by id. True when none is left to ask.
-async fn revoke_stale_own<F, Fut>(home: &Path, current: Option<&str>, revoke: &F) -> bool
+/// Asks the hub again to revoke each credential this box queued (a stale row's, a set-aside
+/// join proposal's), with the credential itself (`revoke`), and drops each once the hub says it
+/// is revoked or gone. Rows without one, or a copied home's, are left to a sign-in's revoke by
+/// id. True when none of this box's is left to ask.
+async fn revoke_queued_own<F, Fut>(home: &Path, current: Option<&str>, revoke: &F) -> bool
 where
     F: Fn(MachineCredential) -> Fut,
     Fut: Future<Output = leave::HubAnswer>,
 {
-    let Ok(file) = crate::config::private_state_file(&home.join(STALE_FILE)) else { return true };
-    let Ok(row) = serde_json::from_reader::<_, StaleRow>(file) else { return true };
-    let Some(credential) =
-        row.credential.clone().filter(|_| row.host_fingerprint.as_deref() == current)
-    else {
-        return true;
-    };
-    let answer = revoke(MachineCredential {
-        credential,
-        machine_id: row.machine_id.clone(),
-        hub_origin: row.hub_origin.clone(),
-        host_fingerprint: row.host_fingerprint.clone(),
-        ..Default::default()
-    })
-    .await;
-    if !answer.revoked() {
-        tracing::warn!(hub = answer.label(), "sign-out leave: the stale row is not revoked yet");
-        return false;
+    let Ok(queued) = to_revoke::queued(home) else { return false };
+    let mut done = true;
+    for (path, row) in queued {
+        if row.host_fingerprint.as_deref() != current {
+            continue;
+        }
+        let Some(record) = row.as_record() else { continue };
+        let answer = revoke(record).await;
+        if !answer.revoked() {
+            tracing::warn!(hub = answer.label(), "sign-out leave: a queued revoke is not done yet");
+            done = false;
+        } else if let Err(e) = to_revoke::remove(&path) {
+            tracing::warn!("sign-out leave: a revoked entry stayed queued: {e:#}");
+            done = false;
+        }
     }
-    match std::fs::remove_file(home.join(STALE_FILE)) {
-        Ok(()) => true,
-        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
-    }
-}
-
-/// The row in `file` this box's own sign-out left on `hub`, if any (a copied home's is not this
-/// box's).
-fn read_row(home: &Path, file: &str, hub: &str, current: Option<&str>) -> Option<StaleRow> {
-    let file = crate::config::private_state_file(&home.join(file)).ok()?;
-    let row: StaleRow = serde_json::from_reader(file).ok()?;
-    (row.host_fingerprint.as_deref() == current
-        && origin(Some(row.hub_origin.clone())).ok().as_deref() == Some(hub))
-    .then_some(row)
-}
-
-fn stale_row(home: &Path, hub: &str, current: Option<&str>) -> Option<StaleRow> {
-    read_row(home, STALE_FILE, hub, current)
-}
-
-/// Ends the revoked mark: the person joined this machine again themselves.
-pub(super) fn clear_revoked(home: &Path) {
-    remove_mark(home, REVOKED_FILE);
+    done
 }
 
 fn remove_mark(home: &Path, file: &str) {
@@ -254,13 +209,11 @@ fn remove_mark(home: &Path, file: &str) {
 }
 
 /// Whether a sign-out's leave is not finished yet (the daemon finishes it at start).
-/// Also when a revoke the hub did not answer is still to be asked again (a sign-in's join
-/// proposal a sign-out set aside, or a stale row).
+/// Also when a revoke the hub did not answer is still queued (a sign-in's join proposal a
+/// sign-out set aside, or a stale row).
 pub(crate) fn leave_pending() -> bool {
     let home = state_dir();
-    [LEAVE_FILE, recovery::RETIRED, STALE_FILE]
-        .iter()
-        .any(|file| std::fs::symlink_metadata(home.join(file)).is_ok())
+    std::fs::symlink_metadata(home.join(LEAVE_FILE)).is_ok() || to_revoke::any_queued(&home)
 }
 
 /// Marks a sign-out's leave. A mark that already says its local cleanup began keeps saying so.
@@ -314,15 +267,17 @@ pub(super) async fn enroll_at(
     let Some(_lock) = wait_for_lock(home).await else { return EnrollOutcome::Unavailable };
     // A sign-out whose local cleanup stopped part way left the record marked revoked: finished
     // first, so that mark is never read as a revoke at the hub.
-    if leave_removing(home) && leave::remove_local(home, false).is_err() {
-        return EnrollOutcome::Unavailable;
+    if leave_removing(home) {
+        if leave::remove_local(home, false).is_err() {
+            return EnrollOutcome::Unavailable;
+        }
+        to_revoke::clear_self_revoke(home);
     }
     // Signed in again: a sign-out's leave not finished yet is not finished at all. What it set
     // aside or could not revoke is still revoked: those are the last join's, never this one's.
     remove_mark(home, LEAVE_FILE);
     let revoke_own = |record: MachineCredential| port.revoke_own(record);
-    let _ = revoke_retired(home, &revoke_own).await;
-    revoke_stale_own(home, current, &revoke_own).await;
+    revoke_queued_own(home, current, &revoke_own).await;
     // A home copied from another box: marked, and this box given its own node key, before the
     // key is compared with the hub's rows below.
     if settle_clone_at(home, current).is_err() {
@@ -354,19 +309,31 @@ pub(super) async fn enroll_at(
     }
     let mut replace = false;
     if let Some(record) = record.filter(|record| !copied_here(home, record, current)) {
-        if record.revoked {
-            return EnrollOutcome::Revoked;
-        }
-        if origin(Some(record.hub_origin.clone())).ok().as_deref() != Some(hub) {
-            return EnrollOutcome::OtherHub;
-        }
-        if let (Some(mine), Some(theirs)) = (user_id, record.user_id.as_deref())
-            && mine != theirs
-        {
-            return EnrollOutcome::OtherUser;
-        }
-        match port.check_self(&record).await {
+        // This box's own sign-out was revoking this credential when it stopped: a revoke the
+        // hub holds for it is that sign-out's, never someone else's.
+        let own = to_revoke::self_revoking(home, &record);
+        let check = if record.revoked {
+            if !own {
+                return EnrollOutcome::Revoked;
+            }
+            SelfCheck::Revoked
+        } else {
+            if origin(Some(record.hub_origin.clone())).ok().as_deref() != Some(hub) {
+                return EnrollOutcome::OtherHub;
+            }
+            if let (Some(mine), Some(theirs)) = (user_id, record.user_id.as_deref())
+                && mine != theirs
+            {
+                return EnrollOutcome::OtherUser;
+            }
+            port.check_self(&record).await
+        };
+        match check {
             SelfCheck::Live => {
+                // The sign-out's revoke never reached the hub: this sign-in keeps the join.
+                if own {
+                    to_revoke::clear_self_revoke(home);
+                }
                 if let Err(e) = port.repair_relay() {
                     tracing::warn!("sign-in enroll: the relay config was not repaired: {e:#}");
                 }
@@ -374,6 +341,14 @@ pub(super) async fn enroll_at(
             }
             // Unreachable says nothing against the join here: it stays as it is.
             SelfCheck::Unavailable => return EnrollOutcome::AlreadyJoined,
+            // That sign-out's revoke reached the hub before it stopped: its cleanup is finished
+            // here, and this sign-in enrolls the machine again.
+            SelfCheck::Revoked if own => {
+                if leave::remove_local(home, false).is_err() {
+                    return EnrollOutcome::Unavailable;
+                }
+                to_revoke::clear_self_revoke(home);
+            }
             SelfCheck::Revoked => {
                 let _ = save_at(home, &MachineCredential { revoked: true, ..record });
                 return EnrollOutcome::Revoked;
@@ -383,21 +358,26 @@ pub(super) async fn enroll_at(
         }
     }
     // Someone revoked this machine at the hub, and its sign-out found it so: it stays out.
-    if read_row(home, REVOKED_FILE, hub, current).is_some() {
+    if to_revoke::revoked_on(home, hub, current) {
         return EnrollOutcome::Revoked;
     }
-    // The row this box's last sign-out could not revoke: revoke it now with the person's token,
-    // so the machine never shows twice. A failed list or revoke does not stop the enroll.
-    if let Some(stale) = stale_row(home, hub, current)
-        && stale.credential.is_none()
+    // The rows this box's sign-outs could not revoke on this hub: revoked now with the person's
+    // token, each by its id, so the machine never shows twice. A failed list or revoke does not
+    // stop the enroll; what stays is asked again at the next sign-in.
+    let stale: Vec<_> = to_revoke::queued(home)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(_, row)| row.credential.is_none() && row.on(hub, current))
+        .collect();
+    if !stale.is_empty()
         && let Ok(rows) = port.credentials().await
     {
-        let live = rows.iter().any(|(id, _, revoked)| *id == stale.machine_id && !revoked);
-        let gone = !live || port.revoke(&stale.machine_id).await.is_ok();
-        if gone {
-            let _ = std::fs::remove_file(home.join(STALE_FILE));
-        } else {
-            tracing::warn!(machine = %stale.machine_id, "sign-in enroll: the stale row stayed");
+        for (path, stale) in stale {
+            let live = rows.iter().any(|(id, _, revoked)| *id == stale.machine_id && !revoked);
+            let gone = !live || port.revoke(&stale.machine_id).await.is_ok();
+            if !gone || to_revoke::remove(&path).is_err() {
+                tracing::warn!(machine = %stale.machine_id, "sign-in enroll: a stale row stayed");
+            }
         }
     }
     // A relay the person set up stays theirs: a join here would replace it with the join's.
@@ -598,36 +578,11 @@ pub(crate) async fn finish_leave_at_start() -> Option<LeaveOutcome> {
     Some(leave_marked(&state_dir(), current.as_deref(), true, revoke_self).await)
 }
 
-/// Whether the mesh relay may start after a start's leave: not when the join left, nor when the
-/// leave is still not finished.
+/// Whether the mesh relay may start after a start's leave: not while the leave is still not
+/// finished, nor when it removed the join's relay. A relay the person set up, or another hub's,
+/// which the leave keeps in config.json, starts.
 pub(crate) fn relay_may_start(outcome: &LeaveOutcome) -> bool {
-    !outcome.left && outcome.kept != Some("busy")
-}
-
-/// Revokes the credential of the sign-in's join proposal a sign-out set aside in `home`, if any
-/// (`recovery::RETIRED`), and drops the proposal once the hub revoked it or never took it.
-/// `Ok(revoked)`: none is left, and `revoked` is the credential this call revoked, if any.
-async fn revoke_retired<F, Fut>(home: &Path, revoke: &F) -> Result<Option<String>, ()>
-where
-    F: Fn(MachineCredential) -> Fut,
-    Fut: Future<Output = leave::HubAnswer>,
-{
-    let proposal = match recovery::retired_at(home) {
-        Ok(None) => return Ok(None),
-        Ok(Some(proposal)) => proposal,
-        Err(_) => return Err(()),
-    };
-    let credential = proposal.credential.clone();
-    let answer = revoke(proposal).await;
-    if !answer.revoked() {
-        tracing::warn!(
-            hub = answer.label(),
-            "sign-out leave: a sign-in's join proposal is not revoked yet; asked again at the next start"
-        );
-        return Err(());
-    }
-    recovery::drop_retired_at(home).map_err(|_| ())?;
-    Ok(Some(credential))
+    outcome.kept != Some("busy") && !(outcome.left && outcome.relay_removed)
 }
 
 /// The leave marked in `home`. With `only_marked` (a daemon start's), a sign-in that cleared the
@@ -645,26 +600,33 @@ where
     let Some(_lock) = wait_for_lock(home).await else { return kept("busy") };
     if only_marked && std::fs::symlink_metadata(home.join(LEAVE_FILE)).is_err() {
         // Signed in since: that sign-in's own proposal stays; only what was set aside is revoked.
-        let _ = revoke_retired(home, &revoke).await;
-        revoke_stale_own(home, current, &revoke).await;
+        revoke_queued_own(home, current, &revoke).await;
         return kept("signedIn");
     }
     leave_locked(home, current, &revoke).await
 }
 
 fn kept(why: &'static str) -> LeaveOutcome {
-    LeaveOutcome { left: false, kept: Some(why), hub: None }
+    LeaveOutcome { left: false, kept: Some(why), hub: None, relay_removed: false }
+}
+
+/// A leave that removed the join here: `removed` is what its cleanup removed.
+fn left(home: &Path, removed: &[&str], hub: Option<&'static str>) -> LeaveOutcome {
+    // Removed now, or by a cleanup of this leave's cut short before: either way none is left.
+    let relay_removed = removed.contains(&"meshRelay") || !leave::relay_configured(home);
+    LeaveOutcome { left: true, kept: None, hub, relay_removed }
 }
 
 /// A sign-out's leave of the join in `home`, marked ([`mark_leave`]), with the join lock held. A
-/// sign-in's join proposal still pending is set aside where no join resumes it, and its
-/// credential is revoked at the hub; the mark stays until that revoke is done. The hub is asked
-/// to revoke the joined credential with the credential itself (`revoke`), unless that same
-/// credential was just revoked as the proposal's (`recovery::complete` writes the record before
-/// it removes the proposal). The join here goes either way: a row the hub did not revoke is
-/// recorded so it is asked again, and a machine someone had revoked there is marked so no sign-in
-/// enrolls it again on its own. The mark stays until the leave is done, and says when its local
-/// cleanup began, so a cleanup cut short is finished.
+/// sign-in's join proposal still pending is set aside where no join resumes it, its credential
+/// queued to be revoked at the hub (`to_revoke`); the mark stays until every queued revoke of
+/// this box is done. The hub is asked to revoke the joined credential with the credential itself
+/// (`revoke`), after a durable mark says this box is revoking it, so a revoke the hub committed
+/// before this box stopped is read as this leave's own when asked again. The join here goes
+/// either way: a row the hub did not revoke is queued so it is asked again, and a machine
+/// someone had revoked there is marked so no sign-in enrolls it again on its own. The mark stays
+/// until the leave is done, and says when its local cleanup began, so a cleanup cut short is
+/// finished.
 async fn leave_locked<F, Fut>(home: &Path, current: Option<&str>, revoke: &F) -> LeaveOutcome
 where
     F: Fn(MachineCredential) -> Fut,
@@ -673,10 +635,9 @@ where
     if recovery::retire_sign_in_pending_at(home, current).is_err() {
         return kept("busy");
     }
-    let retired = revoke_retired(home, revoke).await;
-    let stale_done = revoke_stale_own(home, current, revoke).await;
+    let queued_done = revoke_queued_own(home, current, revoke).await;
     let finish = || {
-        if retired.is_ok() && stale_done {
+        if queued_done {
             remove_mark(home, LEAVE_FILE);
         }
     };
@@ -692,14 +653,16 @@ where
     if record.joined_by.as_deref() != Some(JOINED_BY_SIGN_IN) {
         return done("notBySignIn");
     }
+    // This box's sign-out was already revoking this credential when it stopped.
+    let own = to_revoke::self_revoking(home, &record);
     if record.revoked {
-        // This leave's own cleanup marked it revoked and stopped: finished now.
-        if leave_removing(home) {
-            if leave::remove_local(home, false).is_err() {
-                return kept("busy");
-            }
+        // This leave's own cleanup marked it revoked and stopped, or the hub's 401 to this
+        // leave's own revoke did: finished now.
+        if leave_removing(home) || own {
+            let Ok(removed) = leave::remove_local(home, false) else { return kept("busy") };
+            to_revoke::clear_self_revoke(home);
             finish();
-            return LeaveOutcome { left: true, kept: None, hub: None };
+            return left(home, &removed, None);
         }
         // A revoked machine stays so: its record keeps the next sign-in from enrolling it again.
         return done("revoked");
@@ -707,21 +670,23 @@ where
     let copy = copied_here(home, &record, current);
     let answer = if copy {
         None
-    } else if retired.as_ref().is_ok_and(|done| done.as_deref() == Some(record.credential.as_str()))
-    {
-        // The proposal's revoke above was this credential's: asking again would read as someone
-        // else's revoke.
-        Some(leave::HubAnswer::Revoked)
     } else {
-        Some(revoke(record.clone()).await)
+        if to_revoke::mark_self_revoke(home, &record).is_err() {
+            return kept("busy");
+        }
+        Some(match revoke(record.clone()).await {
+            // Asked again after a stop: the revoke the hub holds is this leave's own.
+            leave::HubAnswer::AlreadyGone { revoked: true } if own => leave::HubAnswer::Revoked,
+            answer => answer,
+        })
     };
     // Someone revoked it at the hub before this sign-out: no sign-in brings it back on its own.
     if matches!(answer, Some(leave::HubAnswer::AlreadyGone { revoked: true }))
-        && write_row(home, REVOKED_FILE, &record, false).is_err()
+        && to_revoke::mark_revoked(home, &record).is_err()
     {
         return kept("busy");
     }
-    // Not revoked at the hub: recorded so it is revoked later. A revoke that went unanswered
+    // Not revoked at the hub: queued so it is revoked later. A revoke that went unanswered
     // keeps the credential, so it is asked again with it at each start and sign-in.
     if let Some(answer) = answer.as_ref().filter(|answer| !answer.revoked()) {
         let retry = matches!(answer, leave::HubAnswer::Unavailable(_));
@@ -729,11 +694,13 @@ where
             return kept("busy");
         }
     }
-    if mark_leave_removing(home).is_err() || leave::remove_local(home, copy).is_err() {
+    if mark_leave_removing(home).is_err() {
         return kept("busy");
     }
+    let Ok(removed) = leave::remove_local(home, copy) else { return kept("busy") };
+    to_revoke::clear_self_revoke(home);
     finish();
-    LeaveOutcome { left: true, kept: None, hub: answer.map(|answer| answer.label()) }
+    left(home, &removed, answer.map(|answer| answer.label()))
 }
 
 #[cfg(all(test, unix))]
@@ -979,7 +946,7 @@ mod tests {
         record_stale(home.path(), &lost, false).unwrap();
         assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
         assert_eq!(*port.revoked.lock().unwrap(), vec!["machine_lost".to_owned()]);
-        assert!(!home.path().join(STALE_FILE).exists());
+        assert!(!to_revoke::any_queued(home.path()));
     }
 
     #[tokio::test]
@@ -1056,8 +1023,12 @@ mod tests {
 
     /// A join proposal in `home` as `recovery::new_pending` writes it.
     fn pending_join(home: &Path, joined_by: Option<&str>, fingerprint: &str) {
+        pending_join_as(home, "cmm_pending", joined_by, fingerprint);
+    }
+
+    fn pending_join_as(home: &Path, credential: &str, joined_by: Option<&str>, fingerprint: &str) {
         let mut pending = json!({
-            "version": 1, "credential": "cmm_pending", "hub": HUB, "name": "box",
+            "version": 1, "credential": credential, "hub": HUB, "name": "box",
             "hostname": "box", "platform": "linux", "wg_public_key": "key", "prior": null,
             "host_fingerprint": fingerprint,
         });
@@ -1088,7 +1059,7 @@ mod tests {
         assert_eq!(*asked.lock().unwrap(), vec![("cmm_pending".to_owned(), HUB.to_owned())]);
         // Set aside at once, so no sign-in (by anyone) resumes it as this person's join.
         assert!(!home.path().join("machine-join.pending.json").exists());
-        assert!(home.path().join(recovery::RETIRED).exists());
+        assert!(to_revoke::any_queued(home.path()));
         // Not revoked yet: the mark stays, so the next start asks again.
         assert!(home.path().join(LEAVE_FILE).exists());
         let at_start =
@@ -1096,7 +1067,7 @@ mod tests {
                 .await;
         assert_eq!(at_start.kept, Some("notJoined"));
         assert!(relay_may_start(&at_start));
-        assert!(!home.path().join(recovery::RETIRED).exists());
+        assert!(!to_revoke::any_queued(home.path()));
         assert!(!home.path().join(LEAVE_FILE).exists());
 
         // A sign-in since cleared the mark: a start still revokes what was set aside, and the
@@ -1115,7 +1086,7 @@ mod tests {
         })
         .await;
         assert_eq!(at_start.kept, Some("signedIn"));
-        assert!(!home.path().join(recovery::RETIRED).exists());
+        assert!(!to_revoke::any_queued(home.path()));
         assert!(home.path().join("machine-join.pending.json").exists());
 
         // A pasted join line's proposal, and one copied from another box, are not this
@@ -1211,7 +1182,10 @@ mod tests {
         .await;
         assert!(left.left, "{left:?}");
         assert_eq!(*asked.lock().unwrap(), vec!["cmm_pending".to_owned()]);
-        assert!(!home.path().join(REVOKED_FILE).exists(), "no tombstone for its own revoke");
+        assert!(
+            !to_revoke::revoked_on(home.path(), HUB, Some("box-a")),
+            "no mark for its own revoke"
+        );
         let port = FakeHub::at(home.path());
         assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
     }
@@ -1246,16 +1220,16 @@ mod tests {
         *port.own_answer.lock().unwrap() = Some(leave::HubAnswer::Unavailable("down".into()));
         assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
         assert_eq!(load_at(home.path()).unwrap().unwrap().user_id.as_deref(), Some("user_me"));
-        let stale: StaleRow =
-            serde_json::from_slice(&std::fs::read(home.path().join(STALE_FILE)).unwrap()).unwrap();
-        assert_eq!(stale.credential.as_deref(), Some("cmm_old"));
+        let stale = to_revoke::queued(home.path()).unwrap();
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale.first().unwrap().1.credential.as_deref(), Some("cmm_old"));
         // A start with the hub still down: asked again, kept.
         let at_start = leave_marked(home.path(), Some("box-a"), true, |_| async {
             leave::HubAnswer::Unavailable("down".into())
         })
         .await;
         assert!(relay_may_start(&at_start), "B's relay runs meanwhile");
-        assert!(home.path().join(STALE_FILE).exists());
+        assert!(to_revoke::any_queued(home.path()));
         // The hub answers: revoked with A's own credential, and dropped.
         let asked = Mutex::new(Vec::new());
         leave_marked(home.path(), Some("box-a"), true, |record: MachineCredential| {
@@ -1264,7 +1238,7 @@ mod tests {
         })
         .await;
         assert_eq!(*asked.lock().unwrap(), vec!["cmm_old".to_owned()]);
-        assert!(!home.path().join(STALE_FILE).exists());
+        assert!(!to_revoke::any_queued(home.path()));
         assert_eq!(load_at(home.path()).unwrap().unwrap().user_id.as_deref(), Some("user_me"));
 
         // A's join made with a join line, or already revoked: left as it was.
@@ -1511,6 +1485,141 @@ mod tests {
         assert_eq!(port.mints.load(Ordering::SeqCst), 0);
         let left = sign_out(home.path(), leave::HubAnswer::Revoked).await;
         assert!(left.left, "{left:?}");
+    }
+
+    fn queued_credentials(home: &Path) -> Vec<String> {
+        let mut credentials: Vec<String> = to_revoke::queued(home)
+            .unwrap()
+            .into_iter()
+            .filter_map(|(_, row)| row.credential)
+            .collect();
+        credentials.sort();
+        credentials
+    }
+
+    /// Every revoke at the next start answered `Revoked`; the credentials asked, sorted.
+    async fn start_with_the_hub_up(home: &Path) -> Vec<String> {
+        let asked = Mutex::new(Vec::new());
+        leave_marked(home, Some("box-a"), true, |record: MachineCredential| {
+            asked.lock().unwrap().push(record.credential);
+            async { leave::HubAnswer::Revoked }
+        })
+        .await;
+        let mut asked = asked.into_inner().unwrap();
+        asked.sort();
+        asked
+    }
+
+    #[tokio::test]
+    async fn two_failed_revokes_in_a_row_are_both_kept_and_both_revoked() {
+        let home = tempfile::tempdir().unwrap();
+        let down = || leave::HubAnswer::Unavailable("down".into());
+        joined(home.path(), signed_in);
+        assert!(sign_out(home.path(), down()).await.left);
+        joined(home.path(), |r| {
+            signed_in(r);
+            r.credential = "cmm_second".into();
+            r.machine_id = "machine_second".into();
+        });
+        assert!(sign_out(home.path(), down()).await.left);
+        // The second sign-out's row never replaces the first's.
+        assert_eq!(queued_credentials(home.path()), ["cmm_old", "cmm_second"]);
+        assert_eq!(start_with_the_hub_up(home.path()).await, ["cmm_old", "cmm_second"]);
+        assert!(!to_revoke::any_queued(home.path()));
+        assert!(!home.path().join(LEAVE_FILE).exists());
+    }
+
+    #[tokio::test]
+    async fn two_set_aside_proposals_whose_revokes_fail_are_both_kept_and_revoked_later() {
+        let home = tempfile::tempdir().unwrap();
+        for credential in ["cmm_first", "cmm_second"] {
+            pending_join_as(home.path(), credential, Some(JOINED_BY_SIGN_IN), "box-a");
+            let left = sign_out(home.path(), leave::HubAnswer::Unavailable("down".into())).await;
+            assert_eq!(left.kept, Some("notJoined"));
+            assert!(!home.path().join("machine-join.pending.json").exists());
+        }
+        assert_eq!(queued_credentials(home.path()), ["cmm_first", "cmm_second"]);
+        assert_eq!(start_with_the_hub_up(home.path()).await, ["cmm_first", "cmm_second"]);
+        assert!(!to_revoke::any_queued(home.path()));
+    }
+
+    /// A sign-in join whose sign-out sent its revoke, which the hub committed, and stopped before
+    /// the answer (the leave's future is dropped there): nothing here was removed yet.
+    async fn stopped_after_the_revoke(home: &Path) {
+        joined(home, signed_in);
+        configure_mesh_relay_at(&home.join("config.json"), HUB).unwrap();
+        mark_leave(home).unwrap();
+        let leave = leave_marked(home, Some("box-a"), false, |_| {
+            std::future::pending::<leave::HubAnswer>()
+        });
+        let stop = tokio::time::timeout(std::time::Duration::from_millis(300), leave).await;
+        assert!(stop.is_err(), "the leave stops at its revoke");
+        assert!(!load_at(home).unwrap().unwrap().revoked);
+    }
+
+    #[tokio::test]
+    async fn a_sign_out_stopped_after_the_hub_took_its_revoke_still_lets_a_sign_in_enroll() {
+        // Finished at the next start: the hub's "already revoked" is this sign-out's own.
+        let home = tempfile::tempdir().unwrap();
+        stopped_after_the_revoke(home.path()).await;
+        let at_start = leave_marked(home.path(), Some("box-a"), true, |_| async {
+            leave::HubAnswer::AlreadyGone { revoked: true }
+        })
+        .await;
+        assert!(at_start.left, "{at_start:?}");
+        assert_eq!(at_start.hub, Some("revoked"));
+        assert!(!to_revoke::revoked_on(home.path(), HUB, Some("box-a")));
+        assert!(load_at(home.path()).unwrap().is_none());
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+
+        // Signed in before any start: the hub says the record is revoked, by that sign-out.
+        let home = tempfile::tempdir().unwrap();
+        stopped_after_the_revoke(home.path()).await;
+        let port = FakeHub::at(home.path());
+        *port.self_check.lock().unwrap() = Some(SelfCheck::Revoked);
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+        assert_eq!(load_at(home.path()).unwrap().unwrap().credential, "cmm_new");
+
+        // Its relay's 401 marked the record revoked here first: the same.
+        let home = tempfile::tempdir().unwrap();
+        stopped_after_the_revoke(home.path()).await;
+        let mut record = load_at(home.path()).unwrap().unwrap();
+        record.revoked = true;
+        save_at(home.path(), &record).unwrap();
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+
+        // The revoke never reached the hub: the sign-in keeps the join, and a later revoke of it
+        // by someone else is theirs again.
+        let home = tempfile::tempdir().unwrap();
+        stopped_after_the_revoke(home.path()).await;
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+        let gone = sign_out(home.path(), leave::HubAnswer::AlreadyGone { revoked: true }).await;
+        assert!(gone.left);
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Revoked);
+    }
+
+    #[tokio::test]
+    async fn a_sign_out_says_the_relay_went_only_when_it_removed_the_joins() {
+        // The person's relay beside a sign-in join stays in config.json, so it keeps running.
+        let home = tempfile::tempdir().unwrap();
+        let own = json!({"url": "https://own.example", "tokenCommand": ["mint"]});
+        std::fs::write(home.path().join("config.json"), json!({"meshRelay": own}).to_string())
+            .unwrap();
+        joined(home.path(), signed_in);
+        let left = sign_out(home.path(), leave::HubAnswer::Revoked).await;
+        assert!(left.left && !left.relay_removed, "{left:?}");
+        assert!(relay_may_start(&left), "a start after it runs the person's relay");
+        assert_eq!(relay_config(home.path()), Some(own));
+        // The join's own relay goes, and stops.
+        let home = tempfile::tempdir().unwrap();
+        configure_mesh_relay_at(&home.path().join("config.json"), HUB).unwrap();
+        joined(home.path(), signed_in);
+        let left = sign_out(home.path(), leave::HubAnswer::Revoked).await;
+        assert!(left.left && left.relay_removed, "{left:?}");
+        assert!(!relay_may_start(&left));
     }
 
     #[test]
