@@ -2115,16 +2115,28 @@ let package = Package(
         # rendered at the commit before had nothing to draw and the improvement shipped with no before.
         improved = self.HIGHLIGHT_NO_PICTURE.replace("category: new", "category: improved")
         new_file = "webviews/src/side/SideChat.gallery.ts"
+        marked = 'id: "side.chat",\nvariants: {\n  open: {},\n  closed: {\n    note: "Before: one row.",\n  },\n}\n'
+        unmarked = 'id: "side.chat",\nvariants: {\n  open: {\n    note: "Selected: open.",\n  },\n}\n'
+        named = improved.replace("category: improved\n", "category: improved\ngallery: side.chat/open\n")
         cases = {
-            "unmarked": ('variants: { open: { note: "Selected: open." } }\n', True),
-            "a Before note": ('variants: { open: {}, closed: { note: "Before: one row." } }\n', False),
-            "an old-look name": ('variants: { open: {}, "open-before": {} }\n', False),
+            "unmarked": (improved, {new_file: unmarked}, True),
+            "a Before note": (improved, {new_file: marked}, False),
+            "an old-look name": (improved, {new_file: 'variants: {\n  open: {},\n  "open-before": {},\n}\n'}, False),
+            # Review of #39651: a prop or comment is not a variant, one marked file never covers another, and a
+            # `gallery:` line with no `before:` renders its before at the commit before too.
+            "a prop named before": (improved, {new_file: 'variants: {\n  open: { props: { before: true } },\n}\n'}, True),
+            "a second new file unmarked": (improved, {new_file: marked, "webviews/src/side/Other.gallery.ts": unmarked}, True),
+            "a gallery line on a new file": (named, {new_file: unmarked}, True),
+            "a gallery line and a before line": (named.replace("gallery: side.chat/open\n",
+                                                               "gallery: side.chat/open\nbefore: side.chat/closed\n"),
+                                                 {new_file: unmarked}, False),
         }
-        for name, (gallery, refused) in cases.items():
+        for name, (highlight, galleries, refused) in cases.items():
             with self.subTest(gallery=name):
                 self.git("reset", "--quiet", "--hard", "origin/feat-cmux-next")
-                self.write(f"{self.HIGHLIGHTS}/side-chat.md", improved)
-                self.write(new_file, gallery)
+                self.write(f"{self.HIGHLIGHTS}/side-chat.md", highlight)
+                for path, gallery in galleries.items():
+                    self.write(path, gallery)
                 self.commit(f"adds an improvement on a new gallery file, {name}")
 
                 direct = subprocess.run(["python3", "-I", GATE, "--only", "pictures"], cwd=self.repo, env=self.env,
