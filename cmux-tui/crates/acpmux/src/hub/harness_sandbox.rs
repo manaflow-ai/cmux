@@ -95,15 +95,15 @@ mod tests {
     /// Every later Bash call fails the same way: one record, one summary change, never a flood.
     #[tokio::test]
     async fn the_first_refusal_is_recorded_once_and_shown_in_the_summary() {
-        let hub = Hub::new(
-            crate::config::Config::default(),
-            Box::new(crate::store::MemoryStore::default()),
-        );
-        let meta = serde_json::from_value(json!({
+        let store = crate::store::MemoryStore::default();
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA, "id": "sandbox-test", "name": "sandbox-test",
             "harness": "fake", "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1,
         }))
         .unwrap();
+        // The memory store keeps the records of a session it holds.
+        crate::store::Store::save(&store, &meta).unwrap();
+        let hub = Hub::new(crate::config::Config::default(), Box::new(store));
         let session = hub.make_session(meta);
         assert!(hub.session_summary(&session)["harnessSandboxFailed"].is_null());
         let before = session.state_seq.load(Ordering::SeqCst);
