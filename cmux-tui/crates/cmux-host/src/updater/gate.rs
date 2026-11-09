@@ -129,29 +129,30 @@ struct Locked {
 /// What `act` may do inside [`Gate::run`], under the gate's flock.
 pub struct Inside<'a> {
     gate: &'a Gate,
-    now_ms: u64,
     skipped: Option<HoldKind>,
 }
 
 impl Inside<'_> {
     /// Marks the service's restart pending: after the flip, before the restarts.
-    pub fn restart_queued(&self) {
+    pub fn restart_queued(&self, now_ms: u64) {
         let mut state = self.gate.read();
-        state.restart_pending_until_ms = Some(self.now_ms.saturating_add(ms(RESTART_PENDING_FOR)));
+        state.restart_pending_until_ms = Some(now_ms.saturating_add(ms(RESTART_PENDING_FOR)));
         let _ = self.gate.write(&state);
     }
 
     /// Starts or extends a connect hold under the flock already held (a new
     /// carrier session the flip's last look found), so the next flip sees it.
-    pub fn hold_connects(&self) {
-        self.hold(HoldKind::Connect);
+    pub fn hold_connects(&self, now_ms: u64) {
+        self.hold(HoldKind::Connect, now_ms);
     }
 
     /// Starts or extends a hold of `kind` under the flock already held: a
     /// connect, or a stop the flip's last look found (the machine's own wake).
-    pub fn hold(&self, kind: HoldKind) {
+    /// `now_ms` is read when the hold starts, not the run's start: the look
+    /// before it can take seconds, and a pause during it minutes.
+    pub fn hold(&self, kind: HoldKind, now_ms: u64) {
         let mut state = self.gate.read();
-        state.hold(self.now_ms.saturating_add(ms(CONNECT_HOLD)), kind);
+        state.hold(now_ms.saturating_add(ms(CONNECT_HOLD)), kind);
         let _ = self.gate.write(&state);
     }
 
@@ -254,7 +255,7 @@ impl Gate {
             }
             Honor::Nothing => {}
         }
-        Ok(act(&Inside { gate: self, now_ms, skipped }))
+        Ok(act(&Inside { gate: self, skipped }))
     }
 
     /// The service started: no restart of it is pending any more.

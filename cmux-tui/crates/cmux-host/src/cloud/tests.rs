@@ -582,7 +582,7 @@ fn a_bind_with_a_restart_pending_waits_for_the_restarted_service() {
 
     let root = tempfile::tempdir().unwrap();
     let paths = crate::config::Paths::new(root.path());
-    assert!(Gate::new(&paths).run(T0, Honor::All, |inside| inside.restart_queued()).is_ok());
+    assert!(Gate::new(&paths).run(T0, Honor::All, |inside| inside.restart_queued(T0)).is_ok());
     let fake = Fake::new();
     let mut store = MemoryStore::default();
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();

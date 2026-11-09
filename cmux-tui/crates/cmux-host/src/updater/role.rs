@@ -659,7 +659,7 @@ fn check_inner(
         restore_look(&mut last, crate::linux::realtime_minus_boottime_ns()) || paused
     };
     let (flipped, went_past) =
-        flip_in_gate(paths, wall_ms(), honor, carrier_sessions, stopped, |inside| {
+        flip_in_gate(paths, wall_ms, honor, carrier_sessions, stopped, |inside| {
             store::flip(paths, plan.to)?;
             log(&format!(
                 "profile {} -> {}: cmux-tui {} ({}); restarting the services",
@@ -668,7 +668,7 @@ fn check_inner(
                 short_hex(&plan.cmux_tui.sha256),
                 short_hex(&plan.commit)
             ));
-            inside.restart_queued();
+            inside.restart_queued(wall_ms());
             restart_after_flip(&store_binary(&plan.old_cmux_tui));
             Ok::<(), std::io::Error>(())
         });
@@ -709,30 +709,31 @@ pub(super) enum Gated<E> {
 /// carrier look can take seconds (its query's bound is 20 s), so `stopped`
 /// looks for a pause or restore again after it: one during the query starts
 /// the hold (resume kind) and stops this flip whatever `honor` is, as a pause
-/// found before the gate would. With the hold the run went past
-/// (`--skip-resume-hold`), if any.
+/// found before the gate would. Each hold starts at `clock()` when it is
+/// taken, after the look, not at the run's start. With the hold the run went
+/// past (`--skip-resume-hold`), if any.
 pub(super) fn flip_in_gate<E>(
     paths: &Paths,
-    now_ms: u64,
+    clock: impl Fn() -> u64,
     honor: Honor,
     carrier: impl FnOnce() -> Result<Vec<String>, String>,
     stopped: impl FnOnce() -> bool,
     flip: impl FnOnce(&super::gate::Inside) -> Result<(), E>,
 ) -> (Gated<E>, Option<HoldKind>) {
-    let ran = Gate::new(paths).run(now_ms, honor, |inside| {
+    let ran = Gate::new(paths).run(clock(), honor, |inside| {
         if paths.at(super::OFF_FILE).exists() {
             return (Gated::Off(format!("{} exists", super::OFF_FILE)), inside.skipped());
         }
         let new_session = Cell::new(false);
         let busy = carrier_look(carrier(), || {
-            inside.hold_connects();
+            inside.hold_connects(clock());
             new_session.set(true);
         });
         let gated = match busy {
             Some(why) => Gated::Busy(why),
             None if new_session.get() => Gated::Held(CONNECT_HOLD),
             None if stopped() => {
-                inside.hold(HoldKind::Resume);
+                inside.hold(HoldKind::Resume, clock());
                 log("the machine was stopped during the carrier look: no flip during the connect hold");
                 Gated::Held(CONNECT_HOLD)
             }
@@ -1162,7 +1163,7 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
         if in_host {
             disarm_guard();
         }
-        inside.restart_queued();
+        inside.restart_queued(wall_ms());
         restart_after_flip(&store_binary(&pending.cmux_tui));
     });
 }

@@ -583,14 +583,14 @@ fn a_pause_watch_hold_flips_with_the_flag_and_holds_without_it() {
     let now = resumed.1 + 1_000;
 
     let (gated, skipped) =
-        role::flip_in_gate(&paths, now, gate::Honor::All, || Ok(Vec::new()), || false, no_flip);
+        role::flip_in_gate(&paths, || now, gate::Honor::All, || Ok(Vec::new()), || false, no_flip);
     assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
     assert_eq!(skipped, None);
 
     let mut flipped = false;
     let (gated, skipped) = role::flip_in_gate(
         &paths,
-        now,
+        || now,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
         || false,
@@ -956,7 +956,7 @@ fn a_cli_check_sees_the_service_connect_hold_and_does_not_flip() {
 #[test]
 fn a_cli_queued_restart_refuses_binds_until_the_service_restarts() {
     let (_dir, service, cli) = gate_handles();
-    assert!(cli.run(T0_MS, gate::Honor::All, |inside| inside.restart_queued()).is_ok());
+    assert!(cli.run(T0_MS, gate::Honor::All, |inside| inside.restart_queued(T0_MS)).is_ok());
     assert!(
         !service.hold(T0_MS + 1_000, gate::CONNECT_HOLD, gate::HoldKind::Connect),
         "a bind went out with a restart pending"
@@ -979,7 +979,7 @@ fn a_cli_queued_restart_refuses_binds_until_the_service_restarts() {
 fn a_pending_restart_mark_expires_after_its_bound() {
     let (_dir, service, cli) = gate_handles();
     assert!(
-        cli.run(T0_MS, gate::Honor::Nothing, |inside| inside.restart_queued()).is_ok(),
+        cli.run(T0_MS, gate::Honor::Nothing, |inside| inside.restart_queued(T0_MS)).is_ok(),
         "a rollback runs under no hold too"
     );
     let bound = gate::RESTART_PENDING_FOR.as_millis() as u64;
@@ -1007,7 +1007,7 @@ fn a_bind_waits_for_another_process_gate_and_sees_its_restart() {
             gate::Gate::new(&Paths::new(&root)).run(T0_MS, honor, |inside| {
                 in_window.send(()).unwrap();
                 std::thread::sleep(Duration::from_millis(200));
-                inside.restart_queued();
+                inside.restart_queued(T0_MS);
                 Instant::now()
             })
         });
@@ -1075,7 +1075,7 @@ fn a_resume_hold_alone_flips_with_the_flag() {
     let mut flipped = false;
     let (gated, skipped) = role::flip_in_gate(
         &paths,
-        T0_MS + 1_000,
+        || T0_MS + 1_000,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
         || false,
@@ -1116,7 +1116,7 @@ fn a_resume_hold_without_the_flag_is_busy() {
     gate::Gate::new(&paths).hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume);
     let (gated, skipped) = role::flip_in_gate(
         &paths,
-        T0_MS + 1_000,
+        || T0_MS + 1_000,
         gate::Honor::All,
         || Ok(Vec::new()),
         || false,
@@ -1156,7 +1156,7 @@ fn a_bind_or_carrier_connect_hold_with_the_flag_is_busy() {
     let end = T0_MS + 60_000 + gate::CONNECT_HOLD.as_millis() as u64;
     let (gated, skipped) = role::flip_in_gate(
         &paths,
-        end - 1_000,
+        || end - 1_000,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
         || false,
@@ -1177,7 +1177,7 @@ fn a_bind_or_carrier_connect_hold_with_the_flag_is_busy() {
     assert!(role::carrier_busy_from(&paths, Ok(vec![id])).is_some());
     let (gated, _) = role::flip_in_gate(
         &paths,
-        now + 1_000,
+        || now + 1_000,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
         || false,
@@ -1217,7 +1217,7 @@ fn an_attached_carrier_session_with_the_flag_is_busy() {
     role::carrier_busy_from(&Paths::new(other.path()), Ok(vec![id.clone()]));
     let (gated, skipped) = role::flip_in_gate(
         &paths,
-        now + 1_000,
+        || now + 1_000,
         gate::Honor::AllButResume,
         || Ok(vec![id]),
         || false,
@@ -1247,7 +1247,7 @@ fn a_carrier_session_attaching_before_the_flip_is_seen_inside_the_gate() {
     let id = format!("claimer/{}#1", T0_MS + 13);
     let (gated, _) = role::flip_in_gate(
         &paths,
-        now + 1_000,
+        || now + 1_000,
         gate::Honor::AllButResume,
         || {
             let other = fs::OpenOptions::new().write(true).open(&lock_path).unwrap();
@@ -1278,7 +1278,7 @@ fn the_off_file_with_the_flag_stops_the_flip() {
     fs::write(&off, "").unwrap();
     let (gated, _) = role::flip_in_gate(
         &paths,
-        T0_MS + 1_000,
+        || T0_MS + 1_000,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
         || false,
@@ -1289,15 +1289,24 @@ fn the_off_file_with_the_flag_stops_the_flip() {
 
 /// A pause or restore during the carrier look (its query can take 20 s)
 /// stops the flip, with the flag too: the look after the query starts a
-/// resume hold under the gate's flock, so the next plain check honors it.
+/// resume hold under the gate's flock, so the next plain check honors it. The
+/// hold starts when the stop is seen, not at the run's start: a pause longer
+/// than the hold during the query still leaves a whole hold.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_stop_during_the_carrier_look_stops_the_flip() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
+    let seen = T0_MS + 2 * gate::CONNECT_HOLD.as_millis() as u64;
+    let reads = std::cell::Cell::new(0);
+    let clock = || {
+        reads.set(reads.get() + 1);
+        if reads.get() == 1 { T0_MS } else { seen }
+    };
     let mut flipped = false;
     let (gated, _) = role::flip_in_gate(
         &paths,
-        T0_MS,
+        clock,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
         || true,
@@ -1310,13 +1319,41 @@ fn a_stop_during_the_carrier_look_stops_the_flip() {
     assert!(!flipped, "flipped across a stop");
     let (gated, _) = role::flip_in_gate(
         &paths,
-        T0_MS + 1_000,
+        || seen + 1_000,
         gate::Honor::All,
         || Ok(Vec::new()),
         || false,
         no_flip,
     );
     assert!(matches!(gated, role::Gated::Held(_)), "the stop's hold did not last: {gated:?}");
+}
+
+/// A carrier session the flip's last look finds takes its connect hold from
+/// when the look answered, not from the run's start.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_session_found_by_a_slow_carrier_look_holds_from_the_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let seen = T0_MS + 2 * gate::CONNECT_HOLD.as_millis() as u64;
+    let reads = std::cell::Cell::new(0);
+    let clock = || {
+        reads.set(reads.get() + 1);
+        if reads.get() == 1 { T0_MS } else { seen }
+    };
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        clock,
+        gate::Honor::All,
+        || Ok(vec![format!("claimer/{}#1", T0_MS + 17)]),
+        || false,
+        no_flip,
+    );
+    assert!(matches!(gated, role::Gated::Busy(_)), "{gated:?}");
+    assert!(
+        gate::Gate::new(&paths).run(seen + 1_000, gate::Honor::AllButResume, |_| ()).is_err(),
+        "the connect hold started before the look answered"
+    );
 }
 
 /// A gate file from before the hold kinds (no `connect_until_ms`) reads as
