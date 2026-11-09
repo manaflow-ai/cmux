@@ -346,6 +346,7 @@ impl MeshPaths {
         let current = self.selector.current();
         let chosen = self.selector.chosen();
         let mut due = DueProbes::default();
+        let mut chosen_quiet = false;
         for path in &mut self.paths {
             let Some(view) = self.selector.path(path.id) else { continue };
             let roles = (current == Some(path.id), chosen == Some(path.id));
@@ -354,6 +355,7 @@ impl MeshPaths {
                 let _ = self.selector.on_probe(path.id, ProbeOutcome::Lost);
             }
             if step.silent {
+                chosen_quiet |= chosen == Some(path.id);
                 let _ = self.selector.on_silence(path.id);
             }
             if let Some(probe) = step.ping {
@@ -363,6 +365,18 @@ impl MeshPaths {
                 (Some(a), Some(b)) => Some(a.min(b)),
                 (a, b) => a.or(b),
             };
+        }
+        // As in `Multipath`: when the path we sent on loses its standing, by
+        // silence or by a lost probe, every other path is probed now rather
+        // than at its 30 s turn.
+        let left_current = current.is_some() && self.selector.current() != current;
+        if chosen_quiet || left_current {
+            for path in &mut self.paths {
+                if Some(path.id) != chosen {
+                    path.watch.probe_now(now);
+                }
+            }
+            due.next = Some(now);
         }
         due
     }
@@ -490,6 +504,41 @@ mod tests {
             "fell back after {:?}",
             now - start
         );
+    }
+
+    #[test]
+    fn a_slow_chosen_path_that_loses_a_probe_probes_the_others_at_once() {
+        let ms = std::time::Duration::from_millis;
+        let start = Instant::now();
+        let lan = addr("192.168.1.20:4101");
+        let relay = addr("203.0.113.5:4101");
+        let candidates = [
+            PeerCandidate { address: lan, kind: Some(PathKind::DirectLan) },
+            PeerCandidate { address: relay, kind: Some(PathKind::DoRelay) },
+        ];
+        let mut paths = MeshPaths::new(Some(lan), &candidates, &[], start);
+        // A 400 ms LAN: four round trips of silence outlast the 1 s probe
+        // timeout, so the chosen path turns suspect by a lost probe.
+        let answered = start + ms(400);
+        for (id, probe) in paths.poll(start).pings {
+            let address = paths.address_of(id).unwrap();
+            paths.pong(id, probe, address, answered);
+        }
+        assert_eq!(targets(&mut paths, answered), vec![lan]);
+        // The LAN is cut; nothing is answered from here on.
+        let mut now = answered;
+        let mut refreshed = None;
+        for _ in 0..1000 {
+            now += ms(10);
+            let due = paths.poll(now);
+            let sprayed = targets(&mut paths, now).len() == 2;
+            if due.pings.iter().any(|(id, _)| paths.address_of(*id) == Some(relay)) {
+                refreshed = Some((now, sprayed));
+                break;
+            }
+        }
+        let (at, sprayed) = refreshed.expect("the relay is probed before its 30 s turn");
+        assert!(sprayed, "the relay is probed when the LAN turns suspect, at {:?}", at - start);
     }
 
     #[test]
