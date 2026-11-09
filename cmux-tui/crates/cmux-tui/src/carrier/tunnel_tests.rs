@@ -131,7 +131,7 @@ fn tunnel_read(host: &str) -> Reply {
         200,
         json!({"id": "tun_1", "meshId": MESH, "deviceId": DEVICE, "endpointHost": host,
         "endpointPort": 51820, "serverPublicKey": GATEWAY, "interfaceAddress": "10.128.0.2/32",
-        "meshAddress": "10.128.0.2", "allowedIps": ["0.0.0.0/0"], "mtu": 1280,
+        "meshAddress": "10.128.0.2", "allowedIps": ["10.128.0.0/20"], "mtu": 1280,
         "persistentKeepaliveSeconds": 25}),
     )
 }
@@ -144,6 +144,7 @@ struct Rig {
     wg_public: String,
     jwk: Value,
     install_public: String,
+    vm_origin: String,
 }
 
 fn socket_path(tag: &str) -> PathBuf {
@@ -181,13 +182,13 @@ async fn rig(tag: &str, timing: TunnelTiming) -> Rig {
     let plan = TunnelPlan {
         identity,
         platform: Arc::new(source),
-        vm_api: vm_origin,
+        vm_api: vm_origin.clone(),
         socket: socket_path(tag),
         launcher: Arc::new(FakeLauncher(Arc::clone(&hubs))),
         timing,
         jitter: |d| d,
     };
-    Rig { platform, vm, hubs, plan: Some(plan), wg_public, jwk, install_public }
+    Rig { platform, vm, hubs, plan: Some(plan), wg_public, jwk, install_public, vm_origin }
 }
 
 fn quick() -> TunnelTiming {
@@ -352,10 +353,8 @@ async fn refresh_restarts_the_hub_on_a_changed_tunnel_and_reattaches_when_the_de
     }
     let configs = rig.hubs.configs.lock().unwrap().clone();
     assert!(configs[0].contains("Endpoint = gw.example:51820"));
-    // An unchanged read keeps the hub; a changed gateway restarts it with the
-    // attach's routes, not the read's.
+    // An unchanged read keeps the hub; a changed gateway restarts it.
     assert!(configs[1].contains("Endpoint = gw2.example:51820"));
-    assert!(configs[1].contains("AllowedIPs = 10.128.0.0/20"));
     // 404: attach again.
     assert!(configs[2].contains("Endpoint = gw3.example:51820"));
     assert_eq!(rig.platform.requests("/attach").len(), 4);
@@ -483,4 +482,65 @@ fn the_cli_reads_its_flags_and_keys() {
     let zero = json!({"wg_private_key": STANDARD.encode([0u8; 32]), "install_key": install.pkcs8_base64url()});
     assert!(parse_keys(zero.to_string().as_bytes()).is_err());
     assert!(parse_keys(b"{}").is_err());
+}
+
+#[test]
+fn a_refresh_replaces_the_routes_gateway_and_keys_and_keeps_routes_it_omits() {
+    let (_, attached) = enrolled("x", "gw.example:51820");
+    let tunnel = DeviceTunnel::from_attach(&attached).unwrap();
+    let (_, mut read) = tunnel_read("gw2.example");
+    let other_key = STANDARD.encode([5u8; 32]);
+    read["allowedIps"] = json!(["10.129.0.0/20", "10.130.0.0/20"]);
+    read["serverPublicKey"] = json!(other_key);
+    read["interfaceAddress"] = json!("10.129.0.9/32");
+    let fresh = tunnel.refreshed(&read).unwrap();
+    assert_eq!(fresh.allowed_ips, ["10.129.0.0/20", "10.130.0.0/20"]);
+    assert_eq!(fresh.endpoint, "gw2.example:51820");
+    assert_eq!(fresh.server_public_key, other_key);
+    assert_eq!(fresh.interface_address, "10.129.0.9/32");
+    let config = fresh.wg_quick(&[9u8; 32]);
+    assert!(config.contains("AllowedIPs = 10.129.0.0/20, 10.130.0.0/20"));
+    assert!(config.contains(&format!("PublicKey = {other_key}")));
+
+    for omitted in [Value::Null, json!("absent")] {
+        let mut read = read.clone();
+        if omitted.is_null() {
+            read["allowedIps"] = Value::Null;
+        } else if let Some(fields) = read.as_object_mut() {
+            fields.remove("allowedIps");
+        }
+        assert_eq!(tunnel.refreshed(&read).unwrap().allowed_ips, ["10.128.0.0/20"]);
+    }
+    for bad in [json!([]), json!(["10.0.0.0/8\n[Peer]"]), json!("10.0.0.0/8")] {
+        let mut read = read.clone();
+        read["allowedIps"] = bad;
+        assert!(tunnel.refreshed(&read).is_none(), "an unsafe route list is refused");
+    }
+}
+
+#[tokio::test]
+async fn the_refresh_goes_to_the_vm_api_origin_attach_names() {
+    let mut timing = quick();
+    timing.refresh_every = Duration::from_millis(30);
+    let mut rig = rig("vmorigin", timing).await;
+    let (status, mut answer) = enrolled(&rig.wg_public, "gw.example:51820");
+    answer["vm_api_origin"] = json!(rig.vm_origin);
+    rig.platform.answer("/attach", vec![mesh_only(), (status, answer)]);
+    rig.vm.answer("/signed/tunnel", vec![tunnel_read("gw2.example")]);
+    let mut plan = rig.plan.take().unwrap();
+    // The derived origin answers nothing: only attach's origin can refresh.
+    plan.vm_api = "http://127.0.0.1:9".into();
+    let handle = start(plan).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while rig.hubs.configs.lock().unwrap().len() < 2 {
+        assert!(tokio::time::Instant::now() < deadline, "a refreshed hub in time");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(rig.hubs.configs.lock().unwrap()[1].contains("Endpoint = gw2.example:51820"));
+    handle.stop().await;
+
+    // A non-https origin is ignored in favour of the derived one.
+    let (_, mut answer) = enrolled("x", "gw.example:51820");
+    answer["vm_api_origin"] = json!("http://vm.example");
+    assert_eq!(DeviceTunnel::from_attach(&answer).unwrap().vm_api_origin, None);
 }
