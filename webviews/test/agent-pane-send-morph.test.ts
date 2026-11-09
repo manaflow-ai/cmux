@@ -290,7 +290,9 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       const landed = seen.findIndex((frame, index) => index > mounted && frame.ghosts.length === 0);
       expect(landed, "the copies never landed").toBeGreaterThan(mounted);
       const last = seen[landed - 1]!;
-      near(ghost(last, "attachment"), last.preview, "the screenshot's copy lands on its thumbnail");
+      // The reply lands within the flight too and moves the row a few px between the copy's frame and
+      // the test's read; a copy left on the detached thumbnail is drawn at 0,0, hundreds of px away.
+      near(ghost(last, "attachment"), last.preview, "the screenshot's copy lands on its thumbnail", 12);
       for (const frame of seen.slice(mounted, landed))
         if (frame.preview)
           expect(frame.preview.shown, `the thumbnail hides under its copy at ${frame.at} ms`).toBe(false);

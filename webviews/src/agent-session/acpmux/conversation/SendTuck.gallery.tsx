@@ -28,7 +28,7 @@ const HISTORY = [
 function Row({ kind, text }: { kind: string; text: string }) {
   return kind === "user" ? (
     <div className="cv-user" style={{ display: "flex", justifyContent: "flex-end", padding: "4px 16px" }}>
-      <div className="cv-user__bubble">{text}</div>
+      <div className="ui-glass cv-user__bubble">{text}</div>
     </div>
   ) : (
     <p className="cv-assistant" style={{ margin: 0, padding: "4px 16px", color: "var(--cv-text)" }}>

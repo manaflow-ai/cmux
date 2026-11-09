@@ -6018,6 +6018,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
   /// preference can preserve the exact visible row while the new prompt arrives below it.
   const followingTranscript = useRef(true);
+  /// The composer reads it as it sends (conversation/sendTuck.ts); one function for the pane's life,
+  /// so the composer's props stay the same while the transcript scrolls.
+  const transcriptFollowing = useCallback(() => followingTranscript.current, []);
   const onTranscriptFollowingChange = useCallback((following: boolean) => {
     followingTranscript.current = following;
     // Back at the latest row: the commands held out while scrolled up go back into their runs.
@@ -10930,7 +10933,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               };
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
-            transcriptFollowing={() => followingTranscript.current}
+            transcriptFollowing={transcriptFollowing}
             onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
