@@ -27,6 +27,13 @@ pub(crate) const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
 /// Result arrays are capped by the embedded resource-operation catalog.
 pub(crate) const JOURNAL_LIST_MAX_ITEMS: usize = 4096;
+/// The newest checkpoints always kept. The `journal_checkpoints_keep_recent`
+/// trigger repeats this number; keep the two equal.
+pub(crate) const JOURNAL_CHECKPOINTS_KEPT: usize = 16;
+/// The newest checkpoint the prune keeps, counting from 0.
+const JOURNAL_CHECKPOINT_OLDEST_KEPT_OFFSET: usize = JOURNAL_CHECKPOINTS_KEPT - 1;
+/// The most checkpoints one maintenance tick deletes.
+pub(crate) const JOURNAL_CHECKPOINT_PRUNE_BATCH: usize = 64;
 
 fn ensure_journal_deadline(deadline: Option<Instant>) -> anyhow::Result<()> {
     if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -448,10 +455,15 @@ pub(super) fn create_journal_extensions_schema(
          BEGIN
            SELECT RAISE(ABORT, 'journal checkpoints are immutable');
          END;
-         CREATE TRIGGER IF NOT EXISTS journal_checkpoints_reject_delete
+         DROP TRIGGER IF EXISTS journal_checkpoints_reject_delete;
+         CREATE TRIGGER IF NOT EXISTS journal_checkpoints_keep_recent
            BEFORE DELETE ON journal_checkpoints
+           WHEN OLD.source_sequence
+                  > (SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments)
+             OR (SELECT COUNT(*) FROM journal_checkpoints
+                 WHERE source_sequence > OLD.source_sequence) < 16
          BEGIN
-           SELECT RAISE(ABORT, 'journal checkpoints are immutable');
+           SELECT RAISE(ABORT, 'journal checkpoints keep the newest 16 and every unsealed one');
          END;
          CREATE TABLE IF NOT EXISTS terminal_exit_snapshots (
            terminal_id TEXT PRIMARY KEY NOT NULL,
@@ -1827,7 +1839,7 @@ fn sensitivity_rank(value: JournalSensitivity) -> u8 {
     }
 }
 
-fn random_event_id(category: &str) -> String {
+pub(super) fn random_event_id(category: &str) -> String {
     format!("event_{category}_{}", new_uuid_v4().replace('-', ""))
 }
 

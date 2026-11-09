@@ -172,7 +172,7 @@ async fn lane_report_subagent_mcp_send_reports_to_the_subagent_that_called_it() 
 #[tokio::test]
 async fn lane_report_subagent_mcp_bg_start_runs_as_the_subagent_that_called_it() {
     let hub = hub();
-    hub.set_bg_runner(daemon_env::bin().into(), acpmux::bg_run::SEGMENT);
+    hub.set_bg_runner(daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
     let sock = socket(&hub, "bg").await;
     let mut person = Client::new(&hub);
     let parent = person.new_session("parent", json!({})).await;

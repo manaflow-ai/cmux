@@ -83,7 +83,7 @@ extension ActionDescriptor {
         "layout.centerFocusedColumn.never", "layout.centerFocusedColumn.onOverflow", "layout.toggleStripScrollbar",
         "appearance.titlebar.minimal", "appearance.titlebar.standard", "increaseWorkspaceTerminalFontSize",
         "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize",
-        // Interface Size is a Debug opt-in (chrome.interfaceSize); Interface Scale is the setting.
+        // Text Size steps rank below App Zoom; the Density card is the main place for Text Size.
         "appearance.interfaceSize.increase", "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset",
         // Cloud machine plumbing.
         "cloudPrepareSCP", "cloudDomainList", "cloudNetworkList", "cloudPublicationList", "cloudAPIKeyList", "cloudAPIKeyRevoke",

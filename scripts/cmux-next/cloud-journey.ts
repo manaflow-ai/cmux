@@ -79,6 +79,14 @@
  * (GITHUB_TOKEN reads it), the live list has it and the rule allows it, logged first (cmux-vm.yml action
  * journey-machines-staging).
  *
+ * --desktop-link (with --cmux): once the machine runs, the desktop's UDP link instead of the chat. The journey is a
+ * viewer of `cmux carrier dial --service desktop` (hello, start, a feedback datagram every half second) with its own
+ * state dir, prints the account's team id and every `cloud.desktop_link machine=vm_… <note>` line of the dial's connect
+ * log, writes them to desktop-link.json in --out, and fails unless a note is `up` or `host_up`. No line means the
+ * platform sent no rd_link (the team's CLOUD_RD_LINK is off). Then the machine is deleted (cloud-rd-link-readback.yml).
+ * --cleanup-tag jr-… deletes the machine a run with that tag made (`cloud journey auto jr-…`, its exact name), for a
+ * workflow's always() step after a run cut off before its own cleanup.
+ *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
  *
@@ -629,6 +637,192 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
     rmSync(stateDir, { recursive: true, force: true });
     carrierStateDirs.delete(stateDir);
   }
+}
+
+/** A `cmux.rd/1` frame on the dial's stdin and stdout: u8 type (1 control JSON, 2 datagram), u32 little-endian length, payload. */
+export function rdFrame(type: 1 | 2, payload: Uint8Array): Buffer {
+  const head = Buffer.alloc(5);
+  head[0] = type;
+  head.writeUInt32LE(payload.length, 1);
+  return Buffer.concat([head, payload]);
+}
+
+/**
+ * An empty viewer feedback datagram: the 16-byte header (cmux-rd-proto datagram.rs: version 1 in the high nibble, kind
+ * 7 Feedback, the rest 0), then feedback.rs's payload with nothing acked, no recovery, no arrivals and no NACKs. The
+ * host ends a session after 3 s without feedback (cmux-rd-host stream.rs LIVENESS_NS), sooner than a link through NAT
+ * may come up.
+ */
+export const RD_FEEDBACK = Buffer.concat([Buffer.from([0x10, 7]), Buffer.alloc(14), Buffer.alloc(12)]);
+
+/** The viewer's hello: the app's (RemoteRdHello.cloudDesktop), no token (the link's owner is the carrier's person). */
+export const RD_HELLO = { t: "hello", user: "cloud-journey", install: "cloud-journey", class: "user", interactive: true, udp_port: null, max_datagram: 1200, service: "desktop", caps: [] as string[] };
+
+/** The `cloud.desktop_link machine=vm_… <note>` lines of a dial's connect log (cmux-tui carrier/mod.rs). */
+export function desktopLinkLines(log: string): string[] {
+  return log.split("\n").filter((l) => l.startsWith("cloud.desktop_link "));
+}
+
+/** A desktop_link line's note: `answered`, `up`, `host_up`, `failed …`, `not_answered`, `host_down …`, `not_offered …`. */
+export function desktopLinkNote(line: string): string {
+  return line.replace(/^cloud\.desktop_link machine=\S+ ?/, "");
+}
+
+/** Addresses in a public log are left out: a candidate keeps its kind, never the runner's or the machine's address. */
+export function maskAddresses(text: string): string {
+  return text.replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, "<addr>").replace(/\[?\b[0-9a-f]{1,4}(?::[0-9a-f]{0,4}){2,7}\]?(?::\d+)?/gi, "<addr>");
+}
+
+/** Up when a note says the link is up on either side; else why not, by the note that names it. */
+export function desktopLinkVerdict(lines: string[]): { up: boolean; why: string } {
+  const notes = lines.map(desktopLinkNote);
+  const up = notes.filter((n) => /^(up|host_up)\b/.test(n));
+  if (up.length) return { up: true, why: `the link came up (${up.join(", ")})` };
+  if (!notes.length) return { up: false, why: "no cloud.desktop_link line: the platform sent no rd_link for this team (CLOUD_RD_LINK off), or the dial never reached the desktop" };
+  if (notes.some((n) => n.startsWith("not_answered"))) return { up: false, why: "not_answered: the host's welcome has no link.udp (an image without cmux-rd 0.2.3 --link-stun)" };
+  return { up: false, why: `the link did not come up: ${notes.join("; ")}` };
+}
+
+/** Every team id named in these values (`team_<id>`), once each, in order. */
+export function teamIdsIn(...values: unknown[]): string[] {
+  return [...new Set(values.flatMap((v) => JSON.stringify(v ?? null).match(/\bteam_[0-9a-z]{8,64}\b/g) ?? []))];
+}
+
+export type DesktopLinkRun = { status: unknown; controls: string[]; datagrams: number; lines: string[]; error: string | null; ms: number };
+
+/**
+ * `cmux carrier dial --service desktop` with this run as the viewer: once the dial's status line is ok, a hello and a
+ * view-only start, then an empty feedback datagram every 500 ms after `started`, as the app's viewer keeps the session.
+ * The dial splices the link in (rd_link.rs) and writes its notes to its own connect log. It stops 3 s after the first
+ * final note (up, host_up or a failure, so both sides' up are read), when the host ends the session, or after holdMs.
+ * Never throws for what the dial said: the caller reads the lines.
+ */
+export async function desktopLinkDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, holdMs = 45_000, deadlineMs = 60_000): Promise<DesktopLinkRun> {
+  const started = performance.now();
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-desktop-link-"));
+  carrierStateDirs.add(stateDir);
+  const log = () => {
+    try {
+      return readFileSync(path.join(stateDir, "carrier", "connect.log"), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: stateDir };
+  const args = ["carrier", "dial", "--machine", machine, "--service", "desktop", "--deadline-ms", String(deadlineMs), ...(api.team ? ["--team", api.team] : [])];
+  const child = spawn(cmux, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+  carrierDials.add(child);
+  let exited = false;
+  let error: string | null = null;
+  child.on("exit", () => {
+    exited = true;
+    carrierDials.delete(child);
+  });
+  child.on("error", (e) => {
+    exited = true;
+    error ??= `carrier dial: ${e.message}`;
+  });
+  child.stdin!.on("error", () => undefined);
+  const write = (bytes: Buffer) => {
+    if (!exited && child.stdin!.writable) child.stdin!.write(bytes);
+  };
+  let status: unknown = undefined;
+  let errText = "";
+  child.stderr!.setEncoding("utf8");
+  child.stderr!.on("data", (chunk: string) => {
+    errText += chunk;
+    for (let at = errText.indexOf("\n"); at >= 0; at = errText.indexOf("\n")) {
+      const line = errText.slice(0, at);
+      errText = errText.slice(at + 1);
+      if (status !== undefined) continue;
+      try {
+        status = JSON.parse(line);
+      } catch {
+        status = { ok: false, not_a_status_line: line.slice(0, 200) };
+      }
+    }
+  });
+  const controls: string[] = [];
+  let datagrams = 0;
+  let feedback: ReturnType<typeof setInterval> | undefined;
+  let pending = Buffer.alloc(0);
+  child.stdout!.on("data", (chunk: Buffer) => {
+    pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+    while (pending.length >= 5) {
+      const size = pending.readUInt32LE(1);
+      if (pending.length < 5 + size) break;
+      const type = pending[0];
+      const payload = pending.subarray(5, 5 + size);
+      pending = pending.subarray(5 + size);
+      if (type !== 1) {
+        datagrams += 1;
+        continue;
+      }
+      let name = "?";
+      try {
+        const c = JSON.parse(payload.toString("utf8"));
+        name = `${c.t}${typeof c.reason === "string" ? ` ${c.reason}` : ""}`;
+      } catch { /* counted as "?" */ }
+      controls.push(name.slice(0, 160));
+      if (name === "started" && !feedback) feedback = setInterval(() => write(rdFrame(2, RD_FEEDBACK)), 500);
+    }
+  });
+  try {
+    const statusBy = Date.now() + deadlineMs + 15_000;
+    while (status === undefined && !exited && Date.now() < statusBy) await sleep(100);
+    if (status === undefined) error ??= exited ? "carrier dial: ended with no status line" : `carrier dial: no status line within ${deadlineMs + 15_000} ms`;
+    else if ((status as any)?.ok !== true) error = `carrier dial: ${short(status)}`;
+    else {
+      write(rdFrame(1, Buffer.from(JSON.stringify(RD_HELLO))));
+      write(rdFrame(1, Buffer.from(JSON.stringify({ t: "start", key: randomUUID(), mode: "view" }))));
+      const until = Date.now() + holdMs;
+      let settleBy = Infinity;
+      while (!exited && Date.now() < Math.min(until, settleBy)) {
+        await sleep(250);
+        const notes = desktopLinkLines(log()).map(desktopLinkNote);
+        if (settleBy === Infinity && notes.some((n) => /^(up|host_up|failed|not_answered|not_offered|not_started|host_down)\b/.test(n))) settleBy = Date.now() + 3_000;
+        if (controls.some((c) => c.startsWith("ended") || c.startsWith("refused"))) break;
+      }
+      if (exited && !error) error = "carrier dial: ended while the desktop was open";
+    }
+    return { status, controls, datagrams, lines: desktopLinkLines(log()), error, ms: Math.round(performance.now() - started) };
+  } finally {
+    clearInterval(feedback);
+    child.stdin!.end();
+    child.kill("SIGTERM");
+    rmSync(stateDir, { recursive: true, force: true });
+    carrierStateDirs.delete(stateDir);
+  }
+}
+
+/**
+ * --cleanup-tag TAG: deletes the machines a journey run with this tag made (`cloud journey auto TAG` and its gateway,
+ * by exact name, never another run's), each logged first. For a workflow's always() step: the run's own cleanup is
+ * the first line, this the second when the run was cut off.
+ */
+async function cleanupTagMode(tag: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {
+  if (!/^jr-[0-9a-z]{1,16}$/.test(tag)) throw new Error(`--cleanup-tag ${JSON.stringify(tag.slice(0, 40))}: not a journey tag (jr-<base36>)`);
+  if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
+  const secrets = [password];
+  const s = await passwordSignIn(STACK[backend.stack], email, password);
+  secrets.push(s.access, s.refresh);
+  const api = new Api(backend.api, team);
+  api.bearer = s.access;
+  const names = new Set([`cloud journey auto ${tag}`, `cloud journey auto ${tag} gateway`]);
+  const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+  const mine = rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting");
+  let failed = 0;
+  for (const r of mine) {
+    const id = String(r.id ?? r.machine_id ?? "");
+    console.log(JSON.stringify({ deleting: id, name: r.name, status: r.status }));
+    await api.deleteMachine(id, `${tag}-tag-cleanup-${id}`).catch((e: Error) => {
+      failed += 1;
+      console.log(scrub(JSON.stringify({ failed: id, error: String(e?.message ?? e).slice(0, 300) }), secrets));
+    });
+  }
+  console.log(JSON.stringify({ tag, found: mine.length, deleted: mine.length - failed }));
+  return failed ? 1 : 0;
 }
 
 /**
@@ -1434,6 +1628,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
   // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
   if (argv.includes("--machines") || argv.includes("--delete-ids")) return machinesMode(argv, backend, email, password, team);
+  const cleanupTag = argValue("--cleanup-tag", argv);
+  if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team);
   const agent = argValue("--agent", argv) ?? "claude";
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
@@ -1441,6 +1637,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
   const reuse = argValue("--machine", argv);
   const keyedStart = argv.includes("--keyed-start");
+  // --desktop-link: the desktop's UDP link readback instead of the chat (needs --cmux for the dial).
+  const desktopLink = argv.includes("--desktop-link");
+  if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
   const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
   if (reuse) only.add("pause");
@@ -1681,6 +1880,57 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
       return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
     });
+
+    if (desktopLink) {
+      // The team the platform decides rd_link for: --team, else the account's personal team (user.ensure).
+      const acting = team ?? (typeof user?.personal_team === "string" ? user.personal_team : null);
+      const named = teamIdsIn(user, created, bound);
+      console.log(`desktop link: team ${acting ?? "?"} (team ids named by user.ensure and the machine: ${named.join(", ") || "none"})`);
+      J.record({ step: "desktop link: account team", status: acting ? "pass" : "skip", ms: 0, detail: `${acting ?? "not named"}; named: ${named.join(", ") || "none"}` });
+      await J.step("desktop link (carrier dial --service desktop)", async () => {
+        let run: DesktopLinkRun | null = null;
+        // A desktop that is not up yet (a refused or failed dial with no link note) gets two more tries.
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          run = await desktopLinkDial(cmux!, api, created.id);
+          if (run.lines.length || !run.error) break;
+          console.log(`desktop link: attempt ${attempt}: ${run.error}`);
+          if (attempt < 3) await sleep(10_000);
+        }
+        const r = run!;
+        const lines = r.lines.map(maskAddresses);
+        for (const l of lines) console.log(l);
+        const verdict = desktopLinkVerdict(r.lines);
+        if (outDir) {
+          writeFileSync(path.join(outDir, "desktop-link.json"), `${JSON.stringify({
+            api: backend.api,
+            backend: backend.name,
+            machine: created.id,
+            team: acting,
+            team_ids_named: named,
+            status: r.status,
+            error: r.error,
+            controls: r.controls.slice(0, 20),
+            datagrams: r.datagrams,
+            ms: r.ms,
+            lines,
+            up: verdict.up,
+            why: verdict.why,
+            // rd_link.rs logs `up` with no candidate pair: which path won (direct or STUN srflx) is not in the CLI's log.
+            path: "not logged by cmux carrier dial (its `up` note names no candidate pair)",
+          }, null, 2)}\n`);
+        }
+        if (!verdict.up) throw new Error(`${verdict.why}${r.error ? ` (${r.error})` : ""}; controls ${r.controls.slice(0, 8).join(", ") || "none"}`);
+        return { value: null, detail: `${verdict.why}; ${lines.length} desktop_link lines, ${r.datagrams} datagrams, controls ${r.controls.slice(0, 8).join(", ")}, ${r.ms} ms` };
+      }).catch(() => undefined);
+      // The host's side, if its journal says more about the link (cmux-agent-rd.service); never fails the run.
+      const t0 = Date.now();
+      const journal = await exec(`{ sudo -n journalctl -u cmux-agent-rd.service --no-pager -o cat --since '15 min ago' 2>/dev/null || journalctl -u cmux-agent-rd.service --no-pager -o cat --since '15 min ago' 2>&1; } | grep -iE 'link|stun|srflx|candidate|udp' | tail -n 20`).catch((e: Error) => ({ code: -1, stdout: "", stderr: e.message }));
+      const hostLines = maskAddresses(journal.stdout.trim()).split("\n").filter(Boolean);
+      for (const l of hostLines) console.log(`host: ${l}`);
+      J.record({ step: "desktop link: host journal", status: "skip", ms: Date.now() - t0, detail: hostLines.join("; ").slice(0, 900) || `no link lines (exit ${journal.code} ${journal.stderr.slice(-200)})` });
+      // The readback is the whole run: the machine is deleted by the cleanup below.
+      throw new Error("desktop link readback done");
+    }
 
     if (keyedStart) {
       await J.step("keyed acpmux start holds", async () => {
