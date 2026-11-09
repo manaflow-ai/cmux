@@ -233,7 +233,7 @@ impl Mux {
         Ok(())
     }
 
-    pub(super) fn stop_journal_maintenance(&self) {
+    pub(crate) fn stop_journal_maintenance(&self) {
         let maintenance =
             self.journal_maintenance.lock().unwrap_or_else(PoisonError::into_inner).take();
         if let Some(maintenance) = maintenance {
