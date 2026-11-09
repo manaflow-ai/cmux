@@ -4823,7 +4823,6 @@ CmuxNextCloud	enum	CloudLinkPhase	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextCloud	class	CloudLinkOwnership	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkRedial.swift	from class CloudLinkRedial:8: redial state from client snapshots
 CmuxNextCloud	class	CloudLinkRedial	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkRedial.swift	from class CloudLinkRedial:8: redial state from client snapshots
 CmuxNextCloud	protocol	CloudLinkResolver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkResolver.swift	resolver seam protocol
-CmuxNextCloud	struct	CloudTerminalLinkResolver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkResolver.swift	from protocol CloudLinkResolver:19: resolver seam protocol
 CmuxNextCloud	actor	CloudLinkSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkSession.swift	app link session state machine with generations
 CmuxNextCloud	struct	CloudLinkTicket	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkSession.swift	from actor CloudLinkSession:13: app link session state machine with generations
 CmuxNextCloud	enum	CloudLinkSocketPolicy	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkSocketPolicy.swift	link socket path acceptance rule (name, length, owner)
@@ -9686,25 +9685,15 @@ CmuxNextServer	struct	JoinLine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/Cm
 CmuxNextServer	struct	MachineJoinService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/MachineJoinService.swift	from struct JoinLine:6: thin call site that mints join line via CLI
 CmuxNextServer	class	SSHConnectRecovery	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/SSHConnectRecovery.swift	first-connect recovery dialog via dialog center
 CmuxNextServer	class	SSHPeerForgets	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/SSHPeerForgets.swift	from class SSHPeerForgets:9: forget peers for ssh host: match predicate and rm
-CmuxNextServer	class	AddMachineCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift	from class AddMachineCard:9: Add Machine card presenter
-CmuxNextServer	class	AddMachineCardPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift	from class AddMachineCard:9: Add Machine card presenter
-CmuxNextServer	class	AddMachineHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift	from class AddMachineCard:9: Add Machine card presenter
-CmuxNextServer	struct	AddMachineRoot	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift	from class AddMachineCard:9: Add Machine card presenter
-CmuxNextServer	class	AddMachineModel	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from enum HostCommand:5: command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
-CmuxNextServer	enum	AddMachineAction	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from enum HostCommand:5: command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
-CmuxNextServer	enum	HostCommand	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
-CmuxNextServer	struct	AddMachineButton	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from enum HostCommand:5: command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
-CmuxNextServer	struct	AddMachineServices	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from enum HostCommand:5: command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
-CmuxNextServer	struct	HostDestination	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from enum HostCommand:5: command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
+CmuxNextServer	enum	HostCommand	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	Add Machine runs: enroll/doctor CLI runs, app install fallback, connect, health record (system seam)
+CmuxNextServer	class	AddMachineRuns	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	Add Machine runs: enroll/doctor CLI runs, app install fallback, connect, health record (system seam)
+CmuxNextServer	class	AddMachineCardProvider	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCardProvider.swift	Page relay: cmux.addMachine.<op> to AddMachineRuns for the server-cards page
+CmuxNextServer	struct	AddMachineServices	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from class AddMachineRuns:107: Add Machine runs: enroll/doctor CLI runs, app install fallback, connect, health record (system seam)
+CmuxNextServer	struct	HostDestination	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from class AddMachineRuns:107: Add Machine runs: enroll/doctor CLI runs, app install fallback, connect, health record (system seam)
 CmuxNextServer	enum	AddMachineStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineStrings.swift	localized strings
-CmuxNextServer	enum	AddMachineMetrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift	from struct AddMachineView:11: SwiftUI Add Machine view
-CmuxNextServer	struct	AddMachineCandidateList	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift	from struct AddMachineView:11: SwiftUI Add Machine view
-CmuxNextServer	struct	AddMachineChecklistView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift	from struct AddMachineView:11: SwiftUI Add Machine view
-CmuxNextServer	struct	AddMachineView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift	SwiftUI Add Machine view
+CmuxNextServer	enum	AddMachineMetrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/MachineSection.swift	Machines section row metrics
 CmuxNextServer	struct	GroupSpawnHost	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/GroupSpawnHost.swift	spawn host placement rule for groups
-CmuxNextServer	enum	HostCandidates	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostCandidate.swift	from struct HostCandidate:5: decoded host candidates list from CLI
 CmuxNextServer	struct	HostCandidate	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostCandidate.swift	decoded host candidates list from CLI
-CmuxNextServer	struct	HostChecklist	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostChecklist.swift	checklist merge of step lines, unknown steps appended
 CmuxNextServer	enum	HostHealth	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostStep.swift	from struct HostStep:6: Swift copy of host step ids and states
 CmuxNextServer	enum	HostLine	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostStep.swift	from struct HostStep:6: Swift copy of host step ids and states
 CmuxNextServer	enum	HostStepState	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostStep.swift	from struct HostStep:6: Swift copy of host step ids and states

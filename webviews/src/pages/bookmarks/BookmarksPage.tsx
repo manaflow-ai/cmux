@@ -13,6 +13,7 @@ import {
   type MouseEvent,
 } from "react";
 import { Breadcrumbs } from "../../ui/Breadcrumbs";
+import { SplitEdge } from "../../ui/SplitEdge";
 import { useLasting } from "../../ui/lasting";
 import { Tree, type TreeLine } from "../../ui/Tree";
 import { VirtualList } from "../../ui/VirtualList";
@@ -550,6 +551,14 @@ function FolderTree({ snap, titles, searching, dropMark, label, ...on }: TreePro
         onSelect={on.onShow}
         onExpand={on.onToggle}
         onActivate={(item) => on.onShow(item.key)}
+      />
+      {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
+      <SplitEdge
+        side="end"
+        property="--bookmarks-tree-width"
+        storageKey="cmux.bookmarks.tree.width"
+        min={140}
+        max={420}
       />
     </nav>
   );

@@ -259,6 +259,11 @@ export const PAGES = {
     out: "webviews/src/pages/server-cards/generated/strings.json",
     catalogs: [
       { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
+      // Add Machine's card shares its table with the Machines section (`addMachine.` keys only).
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("addMachine.")),
+      },
       // The server surfaces' own table (the menu bar panel, Health, pairing, Add Server); the app's
       // refusals (`refusal.*`) stay native.
       {
