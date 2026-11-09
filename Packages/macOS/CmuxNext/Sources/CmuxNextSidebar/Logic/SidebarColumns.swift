@@ -5,7 +5,7 @@ import CoreGraphics
 /// group nesting; band rows translate these coordinates by their highlight's origin.
 nonisolated struct SidebarColumns: Hashable, Sendable {
     var rowWidth: CGFloat
-    var comfortable: Bool
+    var baseIconBox: CGFloat
     var depth: Int = 0
     var leadingOffset: CGFloat = 0
     var leadingInset: CGFloat = LayoutGrid.sidebarHighlightInset
@@ -18,7 +18,7 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     /// size; a larger control slot moves the column in rather than over the resize edge.
     var minTrailingCenterInset: CGFloat = 0
 
-    var iconBox: CGFloat { max(comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox, minIconBox) }
+    var iconBox: CGFloat { max(baseIconBox, minIconBox) }
     var lead: CGFloat { LayoutGrid.sidebarLead - leadingInset + CGFloat(max(0, depth)) * LayoutGrid.sidebarDepthIndent + leadingOffset }
     var text: CGFloat { lead + iconBox + LayoutGrid.gap }
     /// Only a visible leading icon or pin reserves the icon column. Text-only rows start

@@ -194,7 +194,7 @@ import Testing
 extension SidebarGridAlignmentTests {
     @Test(arguments: cases)
     func pureColumnsKeepIconDisclosureTextAndTrailingBoxesOnTheirLines(_ c: Case) {
-        let columns = SidebarColumns(rowWidth: 304, comfortable: c.comfortable, depth: c.depth)
+        let columns = SidebarColumns(rowWidth: 304, baseIconBox: c.comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox, depth: c.depth)
         let height: CGFloat = c.comfortable ? 28 : 24
         let icon = columns.iconFrame(height: height)
         #expect(abs(icon.minX - CGFloat(8 + c.depth * 16)) <= 0.5)
@@ -221,7 +221,7 @@ extension SidebarGridAlignmentTests {
 
     @Test(arguments: [false, true], [CGFloat(6), 12, 16, 18, 20, 24, 45, 72])
     func aWideBadgeReservesWholePitchesWithoutMovingTheNextMark(comfortable: Bool, width: CGFloat) {
-        let columns = SidebarColumns(rowWidth: 304, comfortable: comfortable)
+        let columns = SidebarColumns(rowWidth: 304, baseIconBox: comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox)
         let badge = columns.trailingFrame(before: columns.trailingEdge, centerY: 14, size: CGSize(width: width, height: 16))
         if width <= 20 {
             #expect(abs(badge.midX - 288) <= 0.5)
@@ -383,7 +383,7 @@ extension SidebarGridAlignmentTests {
 
     @Test(arguments: [false, true])
     func twentyPointHitBoxesUseConsecutiveSlots(comfortable: Bool) {
-        let columns = SidebarColumns(rowWidth: 304, comfortable: comfortable)
+        let columns = SidebarColumns(rowWidth: 304, baseIconBox: comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox)
         let first = columns.trailingFrame(centerY: 14, side: SidebarStyle.controlSize)
         let second = columns.trailingFrame(before: columns.trailingEdge(before: first), centerY: 14,
                                            size: CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))

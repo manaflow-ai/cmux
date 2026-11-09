@@ -69,6 +69,7 @@ nonisolated enum ObjectMenuLabels {
     static var widthFull: String { text("menu.column.widthFull", "Full Width") }
 
     // The sidebar's Options submenu.
+    static var densityUltraCompact: String { text("menu.sidebar.densityUltraCompact", "Ultra-Compact Rows") }
     static var densityCompact: String { text("menu.sidebar.densityCompact", "Compact Rows") }
     static var densityNormal: String { text("menu.sidebar.densityNormal", "Normal Rows") }
     static var densityComfortable: String { text("menu.sidebar.densityComfortable", "Comfortable Rows") }

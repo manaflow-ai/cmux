@@ -720,6 +720,13 @@
           "kind": "choice",
           "choices": [
             {
+              "value": "ultraCompact",
+              "title": {
+                "key": "settings.choice.ultraCompact",
+                "text": "Ultra-compact"
+              }
+            },
+            {
               "value": "compact",
               "title": {
                 "key": "settings.choice.compact",

@@ -247,6 +247,7 @@ extension SidebarSettingsSchema {
                 title: SettingsText.keyed("settings.sidebar.density", "Sidebar Density"),
                 help: SettingsText.keyed("settings.sidebar.density.help", "Normal rows match the Codex app's sidebar. Compact rows are smaller and closer together. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
                 kind: .choice([
+                    SettingChoice(SidebarDensity.ultraCompact.rawValue, SettingsText.keyed("settings.choice.ultraCompact", "Ultra-compact")),
                     SettingChoice(SidebarDensity.compact.rawValue, SettingsText.keyed("settings.choice.compact", "Compact")),
                     SettingChoice(SidebarDensity.normal.rawValue, SettingsText.keyed("settings.choice.normal", "Normal")),
                     SettingChoice(SidebarDensity.comfortable.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable")),

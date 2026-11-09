@@ -12,7 +12,7 @@ extension SidebarStyle {
     /// (Lawrence 2026-10-23), so lead lands 12 / 16 from the sidebar edge. The trailing line is
     /// `trailingCenterInset` inside the fill, mirroring that inset: 19 / 23 from the sidebar edge.
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
-        SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
+        SidebarColumns(rowWidth: rowWidth, baseIconBox: SidebarDensityTokens.iconBox,
                        depth: depth, leadingOffset: leadingOffset,
                        leadingInset: LayoutGrid.sidebarLead - horizontalInset,
                        trailingCenterInset: trailingCenterInset, minIconBox: iconBox,

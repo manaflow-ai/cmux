@@ -42,6 +42,8 @@ nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
 
     static func title(_ density: SidebarDensity) -> String {
         switch density {
+        case .ultraCompact:
+            String(localized: "sidebar.statesPlayground.density.ultraCompact", defaultValue: "Ultra-compact", bundle: .module)
         case .compact: String(localized: "sidebar.statesPlayground.density.compact", defaultValue: "Compact", bundle: .module)
         case .normal: String(localized: "sidebar.statesPlayground.density.normal", defaultValue: "Normal", bundle: .module)
         case .comfortable:
