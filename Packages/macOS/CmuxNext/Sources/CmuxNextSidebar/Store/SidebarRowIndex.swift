@@ -47,16 +47,19 @@ nonisolated struct SidebarRowIndex: Sendable {
     }
 
     static func set(_ row: SidebarWorkspace, at path: Path, in sections: inout [SidebarSection]) {
-        switch sections[path.section].nodes[path.node] {
+        // The node is swapped out in place first: a `switch` over `sections[s].nodes[n]` holds a copy of the section
+        // while its cases write, so every write copied the section's whole node list (O(rows) per row patch).
+        var node = SidebarNode.workspace(row)
+        swap(&node, &sections[path.section].nodes[path.node])
+        switch node {
         case .workspace:
-            sections[path.section].nodes[path.node] = .workspace(row)
+            return
         case var .group(group):
-            // The list lets go of its copy first, so the member write below is in place (no copy of every member).
-            sections[path.section].nodes[path.node] = .workspace(row)
+            node = .workspace(row) // the group's members are held by `group` alone: the write below is in place
             group.workspaces[path.member ?? 0] = row
             sections[path.section].nodes[path.node] = .group(group)
         case .item:
-            break
+            sections[path.section].nodes[path.node] = node
         }
     }
 
