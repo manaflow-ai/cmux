@@ -1,0 +1,200 @@
+{
+ "title": "Show more / Show less round trip returns the view where it was",
+ "steps": [
+  {
+   "title": "scratch workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scratch"
+   ],
+   "shot": false
+  },
+  {
+   "title": "show Scratch",
+   "cmux": [
+    "workspace",
+    "name:Scratch",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "make the chat folder",
+   "daemon": true,
+   "cmux": [
+    "workspace",
+    "name:Scratch",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "mkdir -p ~/proj && cd ~/proj && git init -q && echo ok\n"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "chat: a new agent chat",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.newAgentChat",
+     "focus": true
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "chat: on the fake harness",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "fake"
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "warm-up prompt",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "hello"
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "trust the folder so the prompt goes",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-trust-ask-primary"
+    }
+   },
+   "wait": 4,
+   "optional": "no trust ask when the folder is already trusted"
+  },
+  {
+   "title": "a long message (41 lines) gets Show more",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Line 01: the quick brown fox jumps over the lazy dog while the build runs.\nLine 02: the quick brown fox jumps over the lazy dog while the build runs.\nLine 03: the quick brown fox jumps over the lazy dog while the build runs.\nLine 04: the quick brown fox jumps over the lazy dog while the build runs.\nLine 05: the quick brown fox jumps over the lazy dog while the build runs.\nLine 06: the quick brown fox jumps over the lazy dog while the build runs.\nLine 07: the quick brown fox jumps over the lazy dog while the build runs.\nLine 08: the quick brown fox jumps over the lazy dog while the build runs.\nLine 09: the quick brown fox jumps over the lazy dog while the build runs.\nLine 10: the quick brown fox jumps over the lazy dog while the build runs.\nLine 11: the quick brown fox jumps over the lazy dog while the build runs.\nLine 12: the quick brown fox jumps over the lazy dog while the build runs.\nLine 13: the quick brown fox jumps over the lazy dog while the build runs.\nLine 14: the quick brown fox jumps over the lazy dog while the build runs.\nLine 15: the quick brown fox jumps over the lazy dog while the build runs.\nLine 16: the quick brown fox jumps over the lazy dog while the build runs.\nLine 17: the quick brown fox jumps over the lazy dog while the build runs.\nLine 18: the quick brown fox jumps over the lazy dog while the build runs.\nLine 19: the quick brown fox jumps over the lazy dog while the build runs.\nLine 20: the quick brown fox jumps over the lazy dog while the build runs.\nLine 21: the quick brown fox jumps over the lazy dog while the build runs.\nLine 22: the quick brown fox jumps over the lazy dog while the build runs.\nLine 23: the quick brown fox jumps over the lazy dog while the build runs.\nLine 24: the quick brown fox jumps over the lazy dog while the build runs.\nLine 25: the quick brown fox jumps over the lazy dog while the build runs.\nLine 26: the quick brown fox jumps over the lazy dog while the build runs.\nLine 27: the quick brown fox jumps over the lazy dog while the build runs.\nLine 28: the quick brown fox jumps over the lazy dog while the build runs.\nLine 29: the quick brown fox jumps over the lazy dog while the build runs.\nLine 30: the quick brown fox jumps over the lazy dog while the build runs.\nLine 31: the quick brown fox jumps over the lazy dog while the build runs.\nLine 32: the quick brown fox jumps over the lazy dog while the build runs.\nLine 33: the quick brown fox jumps over the lazy dog while the build runs.\nLine 34: the quick brown fox jumps over the lazy dog while the build runs.\nLine 35: the quick brown fox jumps over the lazy dog while the build runs.\nLine 36: the quick brown fox jumps over the lazy dog while the build runs.\nLine 37: the quick brown fox jumps over the lazy dog while the build runs.\nLine 38: the quick brown fox jumps over the lazy dog while the build runs.\nLine 39: the quick brown fox jumps over the lazy dog while the build runs.\nLine 40: the quick brown fox jumps over the lazy dog while the build runs.\nend"
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "scroll the transcript up so the bubble's Show more is on screen",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "scroll",
+     "dy": 500,
+     "x": 870,
+     "y": 300
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "before: folded",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness"
+    }
+   },
+   "wait": 0.5
+  },
+  {
+   "title": "click Show more",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".cv-user__more"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "after Show more (open) read",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness"
+    }
+   },
+   "wait": 0.5
+  },
+  {
+   "title": "click Show less",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".cv-user__more"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "after round trip 1 read",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness"
+    }
+   },
+   "wait": 0.5
+  },
+  {
+   "title": "click Show more again",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".cv-user__more"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "click Show less again",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".cv-user__more"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "after round trip 2 read",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness"
+    }
+   },
+   "wait": 0.5
+  }
+ ],
+ "fakeHarness": true
+}

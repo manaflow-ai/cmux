@@ -1,0 +1,167 @@
+{
+ "title": "Compaction live line: quiet-compaction (a running compaction for 1s) and /compact",
+ "steps": [
+  {
+   "title": "scratch workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scratch"
+   ],
+   "shot": false
+  },
+  {
+   "title": "show Scratch",
+   "cmux": [
+    "workspace",
+    "name:Scratch",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "make the chat folder",
+   "daemon": true,
+   "cmux": [
+    "workspace",
+    "name:Scratch",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "mkdir -p ~/proj && cd ~/proj && git init -q && echo ok\n"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "chat: a new agent chat",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.newAgentChat",
+     "focus": true
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "chat: on the fake harness",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "fake"
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "warm-up prompt",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "hello"
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "trust the folder so the prompt goes",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-trust-ask-primary"
+    }
+   },
+   "wait": 4,
+   "optional": "no trust ask when the folder is already trusted"
+  },
+  {
+   "title": "quiet-compaction #1: shot 0s after send",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "quiet-compaction"
+    }
+   },
+   "wait": 0
+  },
+  {
+   "title": "quiet-compaction #1: after it ends",
+   "wait": 2.5
+  },
+  {
+   "title": "quiet-compaction #2: shot 0.25s after send",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "quiet-compaction"
+    }
+   },
+   "wait": 0.25
+  },
+  {
+   "title": "quiet-compaction #2: after it ends",
+   "wait": 2.5
+  },
+  {
+   "title": "quiet-compaction #3: shot 0.5s after send",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "quiet-compaction"
+    }
+   },
+   "wait": 0.5
+  },
+  {
+   "title": "quiet-compaction #3: after it ends",
+   "wait": 2.5
+  },
+  {
+   "title": "quiet-compaction #4: shot 0.75s after send",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "quiet-compaction"
+    }
+   },
+   "wait": 0.75
+  },
+  {
+   "title": "quiet-compaction #4: after it ends",
+   "wait": 2.5
+  },
+  {
+   "title": "/compact: a whole compaction, start to end",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "/compact"
+    }
+   },
+   "wait": 0
+  },
+  {
+   "title": "/compact: after",
+   "wait": 2.5
+  }
+ ],
+ "fakeHarness": true
+}

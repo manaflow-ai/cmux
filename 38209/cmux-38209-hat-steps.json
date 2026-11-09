@@ -1,0 +1,181 @@
+{
+ "title": "Composer hat (running tray) expand and collapse with a background subagent",
+ "steps": [
+  {
+   "title": "scratch workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Scratch"
+   ],
+   "shot": false
+  },
+  {
+   "title": "show Scratch",
+   "cmux": [
+    "workspace",
+    "name:Scratch",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "make the chat folder",
+   "daemon": true,
+   "cmux": [
+    "workspace",
+    "name:Scratch",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "mkdir -p ~/proj && cd ~/proj && git init -q && echo ok\n"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "chat: a new agent chat",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.newAgentChat",
+     "focus": true
+    }
+   },
+   "wait": 6
+  },
+  {
+   "title": "chat: on the fake harness",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "fake"
+    }
+   },
+   "wait": 6
+  },
+  {
+   "title": "warm-up prompt",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "hello"
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "trust the folder so the prompt goes",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-trust-ask-primary"
+    }
+   },
+   "wait": 4,
+   "optional": "no trust ask when the folder is already trusted"
+  },
+  {
+   "title": "work: a background subagent and a running step (60s)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "silent-through-cancel-beside-background"
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "hat folded",
+   "wait": 1
+  },
+  {
+   "title": "expand the hat",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-running-tray__head"
+    }
+   },
+   "wait": 0.15
+  },
+  {
+   "title": "expand +0.3s",
+   "wait": 0.15
+  },
+  {
+   "title": "hat open, settled",
+   "wait": 1.5
+  },
+  {
+   "title": "collapse the hat",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-running-tray__head"
+    }
+   },
+   "wait": 0.15
+  },
+  {
+   "title": "collapse +0.3s",
+   "wait": 0.15
+  },
+  {
+   "title": "hat folded again, settled",
+   "wait": 1.5
+  },
+  {
+   "title": "frame strip: expand",
+   "rpc": {
+    "method": "debug.new_tab",
+    "params": {
+     "action": "frame_strip",
+     "gesture": "agent_click",
+     "click": {
+      "selector": ".acpmux-running-tray__head"
+     },
+     "duration_ms": 700,
+     "scale": 0.5,
+     "content": "none"
+    }
+   },
+   "wait": 1.5,
+   "optional": "frame strip report"
+  },
+  {
+   "title": "frame strip: collapse",
+   "rpc": {
+    "method": "debug.new_tab",
+    "params": {
+     "action": "frame_strip",
+     "gesture": "agent_click",
+     "click": {
+      "selector": ".acpmux-running-tray__head"
+     },
+     "duration_ms": 700,
+     "scale": 0.5,
+     "content": "none"
+    }
+   },
+   "wait": 1.5,
+   "optional": "frame strip report"
+  }
+ ],
+ "fakeHarness": true
+}
