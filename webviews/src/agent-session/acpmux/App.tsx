@@ -11423,6 +11423,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         detail={hostWords.detail}
         retrying={retryQueued}
         onRetry={() => retryHost.current?.()}
+        // The pane asks again by itself unless asking cannot change the answer: a chat too large to
+        // open, or another build's acpmux holding the socket (only Restart clears it).
+        selfRetrying={!hostRefusedTooLarge(hostFailure) && !acpmuxRestartOffered}
         restarting={restartingAcpmux}
         onRestart={
           acpmuxRestartOffered

@@ -421,6 +421,15 @@
 /* The line and its Details text, one group: it may shrink like the line it wraps did, so a long
    reason is cut to the line and its button stays on screen. */
 .acpmux-host-line-group{min-width:0}
+/* The waiting line and the failure line are the same two rows at the same heights (HostError.tsx):
+   the message row holds a 24px button or none, and the row under it says cmux is running and the
+   chats are kept, so one line turning into the other moves nothing. */
+.acpmux-host-line-group>.acpmux-host-line:first-child{min-height:24px;padding-bottom:0}
+.acpmux-host-line.acpmux-host-line-reassure{min-height:20px;gap:4px;flex-wrap:wrap}
+.acpmux-host-line-note{flex:0 1 auto;min-width:0;margin:0;color:color-mix(in srgb,var(--agent-muted) 85%,transparent)}
+/* An optional step after the reassurance (Restart agent service): text, not a filled button. */
+.acpmux-host-line .acpmux-host-line-quiet{height:20px;padding:0 4px;background:transparent;color:var(--agent-muted);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--agent-muted) 40%,transparent);text-underline-offset:2px}
+.acpmux-host-line .acpmux-host-line-quiet:hover:not(:disabled){background:transparent;color:var(--agent-text)}
 /* Details: acpmux's own words behind the plain line (hostLine.ts), a quiet text button; the text it
    opens sits under the line at the same inset, never red. */
 .acpmux-host-line .acpmux-host-line-details{padding:0 4px;background:transparent;color:var(--agent-muted)}
