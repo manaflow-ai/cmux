@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "first-launch", "first-launch-offline", "first-launch-failed", "refresh-failed", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -50,6 +50,16 @@ struct DemoDriver {
         case "settings-middle": await settingsScrolled(to: "appearance")
         case "states": await states()
         case "retry-workspaces":
+            shell.tab = .workspaces
+            shell.store.teamDataState = .failed
+        // CMUX-49: the launch states. A first launch (nothing cached) loading, waiting
+        // offline, or failed; and a cached list whose refresh failed (the rows stay).
+        case "first-launch", "first-launch-offline", "first-launch-failed":
+            shell.tab = .workspaces
+            shell.store.workspaces = []
+            shell.store.isOffline = name != "first-launch"
+            shell.store.teamDataState = name == "first-launch-failed" ? .failed : .loading
+        case "refresh-failed":
             shell.tab = .workspaces
             shell.store.teamDataState = .failed
         case "retry-feed":
