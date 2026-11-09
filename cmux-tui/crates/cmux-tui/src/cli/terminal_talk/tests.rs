@@ -1407,3 +1407,75 @@ fn w5r_send_after_the_agent_quit_is_not_stalled() {
     let receipt = send::run(&daemon, None, &request).expect("a shell send");
     assert_eq!(receipt["state"], "idle");
 }
+
+/// A hooked terminal whose agent's own newest record is `state`, reported by
+/// harness `harness` before the send.
+fn hooked_with(harness: &str, state: &str) -> Value {
+    let mut hooked = snapshot();
+    if let Some(terminal) = hooked.pointer_mut("/terminals/0") {
+        terminal["extra"] = json!({"agent": harness, "agent_session_id": "5b0e7c1e-0d6c"});
+    }
+    if let Some(record) = hooked.pointer_mut("/agents/0") {
+        record["state"] = json!(state);
+        record["extra"] = json!({"agent": harness});
+    }
+    hooked
+}
+
+/// Review B2 (W5-R): a message sent to an agent that works queues; no hook
+/// reports it until the running turn ends, so a busy agent is no stall.
+#[test]
+fn w5r_send_to_a_working_hook_agent_is_not_stalled() {
+    let daemon = FakeDaemon::new(hooked_with("claude", "working"), &[(1, RESUMED_EMPTY)]);
+    let request = SendRequest {
+        timeout: Duration::from_secs(60),
+        poll: Duration::from_millis(500),
+        ..quick("Also check the tests")
+    };
+    let outcome = send_on_fake_clock(&daemon, &request);
+    assert!(
+        outcome.as_ref().is_ok_and(|receipt| receipt["sent"] == true),
+        "a queued message to a working agent is sent, not stalled: {:?}",
+        outcome.err().map(|failure| failure.failure.error)
+    );
+}
+
+/// Review M2 (W5-R): a harness with no prompt-submit hook (Copilot,
+/// CodeBuddy, Factory, Qoder) reports no turn start, so silence is no stall.
+#[test]
+fn w5r_send_to_a_harness_without_a_prompt_submit_hook_is_not_stalled() {
+    for harness in ["copilot", "codebuddy", "factory", "qoder"] {
+        let daemon = FakeDaemon::new(hooked_with(harness, "idle"), &[(1, RESUMED_EMPTY)]);
+        let request = SendRequest {
+            timeout: Duration::from_secs(60),
+            poll: Duration::from_millis(500),
+            ..quick("Reply with exactly OK")
+        };
+        let outcome = send_on_fake_clock(&daemon, &request);
+        assert!(
+            outcome.is_ok(),
+            "{harness}: {:?}",
+            outcome.err().map(|failure| failure.failure.error)
+        );
+    }
+}
+
+/// Review (W5-R): Claude Code's `!` (shell) and `#` (memory) input runs no
+/// prompt hook, like a `/` command.
+#[test]
+fn w5r_send_of_bang_and_hash_input_to_a_hook_agent_is_not_stalled() {
+    for text in ["!git status", "# always run the linter"] {
+        let daemon = FakeDaemon::new(hooked_with("claude", "idle"), &[(1, RESUMED_EMPTY)]);
+        let request = SendRequest {
+            timeout: Duration::from_secs(60),
+            poll: Duration::from_millis(500),
+            ..quick(text)
+        };
+        let outcome = send_on_fake_clock(&daemon, &request);
+        assert!(
+            outcome.is_ok(),
+            "{text}: {:?}",
+            outcome.err().map(|failure| failure.failure.error)
+        );
+    }
+}
