@@ -24,7 +24,7 @@ extension HomeChiefProfileView {
             gateButton.title = HomeEngineStrings.computerProvision
             gateButton.isHidden = making
         case .notSetUp:
-            gateLabel.stringValue = HomeEngineStrings.computerNotSetUp(name())
+            gateLabel.stringValue = computer.provisioning ? HomeEngineStrings.computerProvisioning(name()) : HomeEngineStrings.computerNotSetUp(name())
             gateButton.isHidden = true
         case .machine:
             gateLabel.stringValue = HomeEngineStrings.computerOnMachine(name())

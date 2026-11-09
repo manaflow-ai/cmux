@@ -7,7 +7,7 @@ import CmuxNextWakeups
 /// (16:10, view only) with "<name>'s screen" under it (Lawrence's reference, 2026-11-04). While the
 /// computer runs and the tab shows, its screen refreshes, so the person watches the Chief work on
 /// it; asleep, the screen says so and is not woken. Hidden while ``HomeChiefComputer`` is nil (no
-/// paid plan, or the Chief never set up a computer), which also hides the tab.
+/// paid plan, or the Chief has no computer now).
 @MainActor
 public final class HomeChiefComputerSection: NSStackView {
     /// What the app gives the section; read only while the card is open.

@@ -12,8 +12,8 @@ import CmuxNextHome
 /// the Chief runs and links to Settings, and Computer shows the screen large.
 ///
 /// Computer always shows, so the feature can be found: without a plan that pays for cmux Cloud it is
-/// the upsell, for a Chief of this Mac it offers the move or a Cloud machine, and until the Chief sets
-/// one up it says how to ask. Under a live screen the control bar says who drives and changes it.
+/// the upsell, for a Chief of this Mac it offers the move or a Cloud machine, and while the Chief has
+/// none (never set up, or the one it had is gone) it offers one or says how to ask. Under a live screen the control bar says who drives and changes it.
 @MainActor
 public final class HomeChiefProfileView: NSView {
     /// Why the Computer tab has no screen; nil when it does.

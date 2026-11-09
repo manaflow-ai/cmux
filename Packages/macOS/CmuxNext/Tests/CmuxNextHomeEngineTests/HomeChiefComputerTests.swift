@@ -15,8 +15,8 @@ import Testing
         #expect(HomeChiefComputer(status: nil, paid: true, chief: "Ada") == nil)
         #expect(HomeChiefComputer(status: running, paid: true, chief: "Ada")
             == HomeChiefComputer(machineID: "vm-1", title: "Ada’s screen", state: .live))
-        // Used once, gone now: the section stays, unavailable.
-        #expect(HomeChiefComputer(status: .init(used: true, computer: nil), paid: true, chief: "Ada")?.state == .unavailable)
+        // Used once, gone now (the sandbox's TTL ended): no section, so the tab offers a new one.
+        #expect(HomeChiefComputer(status: .init(used: true, computer: nil), paid: true, chief: "Ada") == nil)
     }
 
     /// The app-server machine list carries no plan limits, so the Mac does not know the plan: the

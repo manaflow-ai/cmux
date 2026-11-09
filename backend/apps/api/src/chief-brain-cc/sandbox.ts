@@ -489,8 +489,11 @@ type Refusal = { status: 400 | 404 | 409 | 502; code: string; error: string; sta
  * The size a Chief's computer is given when its owner sets one up from the profile (Austin, 2026-11-06: "a machine that
  * seems reasonable for each Chief"): 4 vCPU and 8 GiB, the size every sandbox grows to, which runs the desktop, Chrome
  * and a build beside them; the computer image's 16 GB disk (Chrome's profile and downloads fit). About $0.27 an hour
- * while it runs and nothing but its disk while it sleeps (it pauses when idle). A Chief's computer is one of its own
- * sandboxes, never one of the team's Cloud machines, so it does not count toward the Cloud plan's machine limits.
+ * while it runs; it pauses when idle only with CLOUD_IDLE_PAUSE on (IDLE_S), and a paused one still costs its disk. It
+ * lives as long as any sandbox: Freestyle deletes it, disk and all, when its TTL ends (TTL_S, 12 hours after it was made;
+ * provisioning passes no other). The status then answers `computer: null` and the owner sets up a new one, empty. A
+ * Chief's computer is one of its own sandboxes, never one of the team's Cloud machines, so it does not count toward the
+ * Cloud plan's machine limits.
  */
 export const COMPUTER_SIZE = { cpu: 4, memory_mb: 8192 } as const
 

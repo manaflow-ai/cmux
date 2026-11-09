@@ -43,6 +43,36 @@ import Testing
         rig.page.computer.close()
     }
 
+    /// The sandbox's TTL ended (`used: true, computer: null`): the tab offers a new computer and the bar
+    /// is gone (it would say the Chief is using it, and Take Over would get 404). Being made, it says so.
+    @Test func aComputerThatIsGoneOffersANewOneAndHidesTheBar() async {
+        let rig = Rig(status: .init(used: true, computer: nil))
+        rig.page.onProvision = {}
+        rig.page.control = HomeChiefComputerControlSource(state: { .chief }, observe: { _ in NSObject() }, takeOver: {}, handBack: {})
+        rig.page.computer.open()
+        await until { rig.feed.statuses >= 1 }
+        await settle()
+        #expect(rig.page.shownGate == .notSetUp)
+        #expect(rig.page.computer.isHidden, "no \"Computer isn't available\" beside the offer")
+        #expect(!rig.page.gateButton.isHidden)
+        #expect(rig.page.gateButton.title == HomeEngineStrings.computerProvision)
+        #expect(rig.page.controlBar.isHidden)
+
+        rig.feed.status = .init(used: true, computer: nil, provisioning: true)
+        rig.page.computer.open()
+        await until { rig.feed.statuses >= 2 }
+        await settle()
+        #expect(rig.page.shownGate == .notSetUp)
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisioning("mario"))
+        #expect(rig.page.gateButton.isHidden)
+        #expect(rig.page.controlBar.isHidden)
+
+        // A page with no Set Up Computer still says it is being made.
+        rig.page.onProvision = nil
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisioning("mario"))
+        rig.page.computer.close()
+    }
+
     @Test func thePopupShowsOnlyWhileTheChiefActsDuringATurn() async {
         let feed = Feed(status: .init(used: true, computer: ("vm", "running"), acting: true))
         let popup = Self.popup(feed)

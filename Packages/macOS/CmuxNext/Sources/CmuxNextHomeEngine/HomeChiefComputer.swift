@@ -2,8 +2,9 @@ public import Foundation
 
 /// What the Chief profile card's Computer tab shows (cmux issue 31488): the Chief's own computer,
 /// a Cloud sandbox with a desktop that the Chief works on by sight (`chief-vm computer`, backend
-/// chief-brain-cc/sandbox-computer.ts), captioned "<name>'s screen". The tab shows only when the plan pays for cmux Cloud and the Chief has
-/// set up a computer at least once; from then on it stays, also while the computer sleeps or is gone.
+/// chief-brain-cc/sandbox-computer.ts), captioned "<name>'s screen". The screen shows only when the plan pays for cmux Cloud and the
+/// Chief has a computer now, also while it sleeps. One that is gone (its sandbox's TTL ended) is no computer:
+/// the Computer tab offers a new one (``HomeChiefProfileView/Gate/notSetUp``).
 public struct HomeChiefComputer: Equatable, Sendable {
     public enum State: Equatable, Sendable {
         /// Running: its screen streams.
@@ -12,7 +13,7 @@ public struct HomeChiefComputer: Equatable, Sendable {
         case asleep
         /// Starting or resuming.
         case waking
-        /// Gone, failed, or the Cloud service did not say.
+        /// Failed, or the Cloud service did not say.
         case unavailable
     }
 
@@ -53,7 +54,7 @@ public struct HomeChiefComputer: Equatable, Sendable {
         }
     }
 
-    /// The computer's sandbox id; nil when the Chief has none now.
+    /// The computer's sandbox id.
     public var machineID: String?
     /// "<Chief name>'s screen".
     public var title: String
@@ -73,11 +74,10 @@ public struct HomeChiefComputer: Equatable, Sendable {
     /// `cloud.plan.required` refusal stays the real gate.
     public static func planAllows(paysForCloud: Bool?) -> Bool { paysForCloud ?? true }
 
-    /// The section for `status` (nil hides it): a paid plan and a Chief that has used a computer.
+    /// The section for `status` (nil hides it): a paid plan and a Chief with a computer now.
     public init?(status: Status?, paid: Bool, chief: String) {
-        guard paid, let status, status.used else { return nil }
-        self.init(machineID: status.computer?.id, title: HomeEngineStrings.computerTitle(chief),
-                  state: status.computer.map { Self.state(of: $0.state) } ?? .unavailable, acting: status.acting)
+        guard paid, let status, status.used, let computer = status.computer else { return nil }
+        self.init(machineID: computer.id, title: HomeEngineStrings.computerTitle(chief), state: Self.state(of: computer.state), acting: status.acting)
     }
 
     /// Freestyle's VM states (`GET /v5/vms/ID`).
