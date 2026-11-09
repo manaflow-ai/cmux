@@ -294,6 +294,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `cmux.app` | not-a-host | a file name |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
+| `apps.registry.app` | not-a-host | an error code |
 | `arrow.down.app` | not-a-host | a symbol or icon name |
 | `arrow.up.forward.app` | not-a-host | a symbol or icon name |
 | `host.app` | not-a-host | a file name |
