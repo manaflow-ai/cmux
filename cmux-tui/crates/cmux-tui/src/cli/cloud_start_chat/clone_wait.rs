@@ -318,17 +318,18 @@ fn unix_seconds(text: &str) -> Option<i64> {
         return None;
     }
     let b = whole.as_bytes();
+    let is = |at: usize, byte: u8| b.get(at) == Some(&byte);
     if b.len() != 19
-        || b[4] != b'-'
-        || b[7] != b'-'
-        || b[10] != b'T'
-        || b[13] != b':'
-        || b[16] != b':'
+        || !is(4, b'-')
+        || !is(7, b'-')
+        || !is(10, b'T')
+        || !is(13, b':')
+        || !is(16, b':')
     {
         return None;
     }
     let num = |from: usize, to: usize| -> Option<i64> {
-        let part = &whole[from..to];
+        let part = whole.get(from..to)?;
         part.bytes().all(|b| b.is_ascii_digit()).then(|| part.parse().ok()).flatten()
     };
     let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
