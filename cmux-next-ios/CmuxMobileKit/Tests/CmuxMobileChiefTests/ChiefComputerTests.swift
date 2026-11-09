@@ -17,6 +17,14 @@ import Testing
         #expect(ChiefComputer.shown(.init(used: true, machineID: nil, state: nil), name: "Ada")?.state == .unavailable)
     }
 
+    @Test func aFailedStatusReadKeepsTheCardAsUnavailable() {
+        let live = ChiefComputer.shown(.init(used: true, machineID: "vm", state: "running"), name: "Ada")
+        let failed = ChiefComputer.shown(nil, name: "Ada", before: live)
+        #expect(failed?.state == .unavailable)
+        #expect(failed?.machineID == "vm")
+        #expect(failed?.title == live?.title)
+    }
+
     @Test func theRouteAnswerParses() {
         let body = Data(#"{"ok":true,"value":{"used":true,"computer":{"id":"vm-9","state":"paused","name":null}}}"#.utf8)
         #expect(ChiefComputerStatus(json: body) == .init(used: true, machineID: "vm-9", state: "paused"))
@@ -45,6 +53,21 @@ import Testing
         #expect(computer.frame == nil)
         follow.cancel()
         await follow.value
+    }
+
+    @Test func aFailedReadNeverShowsAnotherChiefsCard() async {
+        let source = Source(.init(used: true, machineID: "vm-a", state: "running"))
+        let computer = rig(source)
+        let first = Task { await computer.follow(chief: "agent_a", name: "Ada") }
+        await until { computer.shown?.machineID == "vm-a" }
+        first.cancel()
+        await first.value
+        source.status = nil
+        let second = Task { await computer.follow(chief: "agent_b", name: "Bea") }
+        await until { source.statuses >= 3 }
+        #expect(computer.shown == nil)
+        second.cancel()
+        await second.value
     }
 
     @Test func noCloudChiefHidesTheCard() async {
