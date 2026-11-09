@@ -4,7 +4,7 @@ import CmuxMobileTransport
 import Foundation
 import OSLog
 
-private let creationLog = Logger(subsystem: "dev.cmux.mobile", category: "creation")
+let creationLog = Logger(subsystem: "dev.cmux.mobile", category: "creation")
 
 /// Creates workspaces and tabs on the linked Mac's cmux-tui daemon. The
 /// phone's `daemon` lane (cmux-mobile-host policy) allows `new-workspace {name}`,

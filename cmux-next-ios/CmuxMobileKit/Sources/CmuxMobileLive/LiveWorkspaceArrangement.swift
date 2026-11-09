@@ -1,6 +1,7 @@
 import CmuxMobileModel
 import CmuxMobileTransport
 import Foundation
+import OSLog
 
 /// Pin, color, order, read marks and Clear All Notifications on the linked
 /// Mac, with the commands the Mac's own sidebar sends (cmux-next-ios/SECURITY.md
@@ -217,31 +218,35 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         try await resource(client, "notification.clear", [:], key: "cmux-next-ios-notification-clear")
     }
 
+    /// Mark All works while this Mac is linked, also while its daemon is down or reconnecting:
+    /// its reads wait for it (`StickyRead`).
+    public func canMarkAllNotificationsRead(on macID: String) -> Bool { link.target?.macID == macID }
+
     /// The Mac's Mark All Notifications as Read (`markAllNotificationsRead`): each tab whose
     /// notification is unread is read with `ack-tab-notifications`, as the Mac's handler acks
     /// every unread tab. Its notifications stay in the ledger (Clear All removes them).
+    ///
+    /// The tabs are the ones the Mac's last tree showed unread, read on in the background until
+    /// the Mac answers (`StickyRead`): a Mac whose daemon is down, restarting or silent never
+    /// makes another linked Mac's read wait. Returns how many tabs it reads.
     public func markAllNotificationsRead(on macID: String) async throws -> Int {
-        let client = try daemonClient(macID)
-        let marks = Self.unreadNotificationSurfaces(sync.tree).map { UnreadMark(surface: $0, marker: sync.tree?.notificationMarkers[$0]) }
+        guard canMarkAllNotificationsRead(on: macID) else { throw WorkspaceCreationError("Not connected") }
+        let tree = sync.macID == macID ? sync.tree : nil
+        let marks = Self.unreadNotificationSurfaces(tree).map { UnreadMark(surface: $0, marker: tree?.notificationMarkers[$0]) }
         guard !marks.isEmpty else { return 0 }
-        do {
-            try await acknowledgeAll(marks.map(\.surface), client: client)
-            _ = try? await sync.listNow()
-        } catch where StickyRead.isUnanswered(error) {
-            // The Mac's daemon is down or restarting: the reads go on in the background, so
-            // another linked Mac's read does not wait for this one.
-            let reads = reads
-            // task-owner: one Mark All the person made, sent again while this Mac is unanswered; ends
-            // on its answer, a refusal, every tab settled, or this backend or its Mac gone
-            Task { [weak self] in
-                _ = try? await reads.send(stands: { self?.markAllStands(marks, on: macID) == true }) {
+        let reads = reads
+        // task-owner: one Mark All the person made, sent again while this Mac is unanswered; ends
+        // on its answer, a refusal, every tab settled, or this backend or its Mac gone
+        Task { [weak self] in
+            do {
+                _ = try await reads.send(stands: { self?.markAllStands(marks, on: macID) == true }) {
                     guard let self else { throw CancellationError() }
                     try await self.acknowledgeAll(Self.stillUnread(marks, in: self.sync.tree), client: self.daemonClient(macID))
                 }
-                _ = try? await self?.sync.listNow()
+            } catch {
+                creationLog.error("Mark All Notifications as Read refused: \(String(describing: error), privacy: .public)")
             }
-        } catch let error as DaemonReplyError {
-            throw WorkspaceCreationError(error.message)
+            _ = try? await self?.sync.listNow()
         }
         return marks.count
     }

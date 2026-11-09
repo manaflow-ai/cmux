@@ -117,6 +117,20 @@ import Testing
         #expect(acks.allSatisfy { $0["surface"] as? Int == 5 })
     }
 
+    /// Review finding: Mark All made while the Mac's daemon channel is unbound (reconnecting)
+    /// still takes that Mac, and its reads reach it once it is back.
+    @Test func markAllAsReadMadeWhileReconnectingReachesTheMacOnceItIsBack() async throws {
+        let mac = Mac()
+        let (backend, sync) = try await connected(mac)
+        await sync.daemon?.close()
+        await sync.bind(nil, macID: "m")
+        #expect(backend.canMarkAllNotificationsRead(on: "m"))
+        #expect(try await backend.markAllNotificationsRead(on: "m") == 1)
+        await sync.bind(try await mac.link().openChannel(service: "daemon", args: [:]), macID: "m")
+        await Self.waitUntil { mac.commands.contains("ack-tab-notifications") }
+        #expect(mac.mutations.filter { $0["cmd"] as? String == "ack-tab-notifications" }.map { $0["surface"] as? Int } == [5])
+    }
+
     /// Review finding: a daemon that restarted numbers its markers anew; the notification's time
     /// still names the one the person read, and a newer one is left unread.
     @Test func aRenumberedMarkerIsStillTheNotificationRead() throws {
