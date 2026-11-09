@@ -5,8 +5,7 @@
 created its x86_64 musl build job, so it ended without publishing, and its notify dispatched
 feat-cmux-next's tip daemon suite and base tier in red ("artifacts run ... ended without
 publishing tree ..."). Base stayed red until a later commit published the tree. Now the waiting
-feat-cmux-next commit re-runs its own artifacts run (cmux-tui-tree-request.yml), which builds and
-publishes the key; that publication starts the waiters' tree jobs, so nobody goes red for a run
+feat-cmux-next commit re-runs its own artifacts run, which claims, builds and publishes the key; that publication starts the waiters' tree jobs, so nobody goes red for a run
 that is not theirs.
 """
 
@@ -45,8 +44,8 @@ def tip_marker(suite: str, run_id: int) -> dict:
 
 
 class Repo:
-    """GitHub as notify and the takeover see it, with a tree-request dispatch that re-runs the
-    waiter's artifacts run and a publish that the re-run makes."""
+    """GitHub as notify and the takeover see it: a re-run of the waiter's artifacts run, and the
+    publish that the re-run makes."""
 
     def __init__(self, markers: list[dict], tip_runs: list[dict]):
         self.artifacts = [
@@ -57,7 +56,7 @@ class Repo:
         self.zips = {f"zip/{100 + index}": marker_zip(marker) for index, marker in enumerate(markers)}
         self.tip_runs = tip_runs
         self.next_dispatches: list[dict] = []  # cmux-next.yml same-tree dispatches
-        self.tree_requests: list[dict] = []  # cmux-tui-tree-request.yml dispatches
+        self.reruns: list[int] = []  # artifacts runs re-run
         self.deleted: list[int] = []
         self.published = False
 
@@ -79,30 +78,33 @@ class Repo:
         if path == f"repos/{REPO}/actions/workflows/cmux-next.yml/dispatches":
             self.next_dispatches.append(body)
             return 204
-        if path == f"repos/{REPO}/actions/workflows/cmux-tui-tree-request.yml/dispatches":
-            self.tree_requests.append(body)
-            return 204
+        if path.startswith(f"repos/{REPO}/actions/runs/") and path.endswith("/rerun"):
+            run_id = int(path.split("/")[-2])
+            run = next(run for run in self.tip_runs if run["id"] == run_id)
+            if run["status"] != "completed":
+                return 403  # GitHub: "This workflow is already running"
+            self.reruns.append(run_id)
+            return 201
         raise AssertionError(f"unexpected POST {path}")
 
     def delete(self, path: str) -> int:
         self.deleted.append(int(path.rsplit("/", 1)[1]))
         return 204
 
-    def tree_request_runs(self) -> None:
-        """cmux-tui-tree-request.yml re-runs the waiter's artifacts run, which wins the claim and
-        publishes the key (publish-cmux-tui-tree.py writes completion.json)."""
-        for request in self.tree_requests:
-            assert request == {"ref": "feat-cmux-next", "inputs": {"commit": TIP}}, request
-            for run in self.tip_runs:
+    def reruns_publish(self) -> None:
+        """The re-run wins the claim and publishes the key (publish-cmux-tui-tree.py writes completion.json)."""
+        for run in self.tip_runs:
+            if run["id"] in self.reruns:
                 run["run_attempt"] = int(run.get("run_attempt") or 1) + 1
-        self.published = bool(self.tree_requests)
+        self.published = bool(self.reruns)
 
 
-def notify_run(repo: Repo, state: str) -> int:
+def notify_run(repo: Repo, state: str, exclude_run: int = 0) -> int:
     completion = {"key": KEY, "binaries": {"cmux-tui-aarch64-apple-darwin": "f" * 64}} if repo.published else None
     return notify.notify(repo, repo=REPO, key=KEY, state=state,
                          reason=f"the cmux-tui artifacts run 42673437035 ended without publishing tree {KEY}",
-                         log=lambda _line: None, fetch_completion=lambda _key: completion)
+                         log=lambda _line: None, fetch_completion=lambda _key: completion,
+                         exclude_run=exclude_run)
 
 
 def tip_run(attempt: int = 1, status: str = "completed") -> dict:
@@ -119,11 +121,10 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
         self.assertEqual(notify_run(repo, "failed"), 0)
         self.assertEqual([body["inputs"]["same_tree_state"] for body in repo.next_dispatches], [],
                          "no waiter goes red for a run that is not its own")
-        self.assertEqual(repo.tree_requests, [{"ref": "feat-cmux-next", "inputs": {"commit": TIP}}],
-                         "one takeover per key, from the waiting feat-cmux-next commit")
+        self.assertEqual(repo.reruns, [42672456466], "one takeover per key: the waiting commit's own artifacts run")
         self.assertEqual(repo.deleted, [], "the markers stay for the publication")
         # The waiter's re-run publishes the key, and its notify --state ready starts both waiters green.
-        repo.tree_request_runs()
+        repo.reruns_publish()
         self.assertTrue(repo.published)
         self.assertEqual(notify_run(repo, "ready"), 2)
         self.assertEqual([body["inputs"]["same_tree_state"] for body in repo.next_dispatches], ["ready", "ready"])
@@ -131,14 +132,22 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
     def test_an_active_waiter_run_is_already_the_publisher(self):
         repo = Repo([tip_marker("daemon", 1)], [tip_run(status="in_progress")])
         self.assertEqual(notify_run(repo, "failed"), 0)
-        self.assertEqual(repo.tree_requests, [])
+        self.assertEqual(repo.reruns, [])
         self.assertEqual(repo.next_dispatches, [])
+
+    def test_the_reporting_run_is_no_publisher(self):
+        """notify runs inside the failed artifacts run, which is still in progress while it reports. When that run
+        is the waiter's own, it is neither a live publisher nor a run to re-run: the waiter is told, as before."""
+        repo = Repo([tip_marker("daemon", 1)], [tip_run(status="in_progress")])
+        self.assertEqual(notify_run(repo, "failed", exclude_run=42672456466), 1)
+        self.assertEqual(repo.reruns, [])
+        self.assertEqual(repo.next_dispatches[0]["inputs"]["same_tree_state"], "failed")
 
     def test_a_tree_that_failed_every_takeover_is_red_again(self):
         """A key that cannot build is still seen: past the re-run cap the waiters go red."""
         repo = Repo([tip_marker("daemon", 1)], [tip_run(attempt=takeover.MAX_ATTEMPT)])
         self.assertEqual(notify_run(repo, "failed"), 1)
-        self.assertEqual(repo.tree_requests, [])
+        self.assertEqual(repo.reruns, [])
         self.assertEqual(repo.next_dispatches[0]["inputs"]["same_tree_state"], "failed")
 
     def test_a_waiter_without_a_feat_cmux_next_run_cannot_take_over(self):
@@ -146,9 +155,9 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
         lane.pop("tip_suite")
         repo = Repo([lane], [tip_run()])
         self.assertFalse(takeover.take_over_any(repo, repo=REPO, commits=[LANE], key=KEY, log=lambda _l: None))
-        self.assertEqual(repo.tree_requests, [])
+        self.assertEqual(repo.reruns, [])
 
-    def test_a_refused_tree_request_is_no_takeover(self):
+    def test_a_refused_rerun_is_no_takeover(self):
         repo = Repo([tip_marker("daemon", 1)], [tip_run()])
         repo.post = lambda path, body: 422  # type: ignore[method-assign]
         taken, why = takeover.take_over(repo, repo=REPO, commit=TIP, key=KEY)

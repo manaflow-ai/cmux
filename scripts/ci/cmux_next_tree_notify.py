@@ -31,8 +31,8 @@ created after the marker was uploaded is not dispatched again. A ready
 state always dispatches.
 
 A failed state is first taken over (cmux_tui_tree_takeover.py): a waiting
-feat-cmux-next commit re-runs its own artifacts run through
-cmux-tui-tree-request.yml, which builds and publishes the key; its publish
+feat-cmux-next commit re-runs its own artifacts run, which claims, builds
+and publishes the key (never the reporting run itself); its publish
 then starts every marker's tree jobs. Only when no waiter can take it over
 are the markers reported in red. One run that died (or whose jobs GitHub
 never created) no longer turns every commit waiting on its tree red.
@@ -254,7 +254,7 @@ def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
 
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
            log: Callable[[str], None] = print,
-           fetch_completion: Callable[[str], object | None] = fetch_completion) -> int:
+           fetch_completion: Callable[[str], object | None] = fetch_completion, exclude_run: int = 0) -> int:
     """Dispatches same-tree runs for the markers of <key>; returns how many."""
     if state == "failed" and completion_attests(fetch_completion(key), key):
         log(f"tree {key}: its completion.json is published, so the tree is ready whatever the "
@@ -276,7 +276,7 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         import cmux_tui_tree_takeover as takeover
 
         taken_over = takeover.take_over_any(
-            api, repo=repo, key=key, log=log,
+            api, repo=repo, key=key, log=log, exclude_run=exclude_run,
             commits=[marker["sha"] for marker in markers.values()
                      if marker is not None and marker.get("origin") in ("push", "dispatch")
                      and marker.get("branch") == takeover.BRANCH and marker.get("ref_kind", "heads") == "heads"])
@@ -364,7 +364,10 @@ def main(argv: list[str]) -> int:
         return 0
     api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
     try:
-        notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason)
+        # This script runs inside the artifacts run that reports: that run is no publisher to wait on.
+        own_run = os.environ.get("GITHUB_RUN_ID", "")
+        notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason,
+               exclude_run=int(own_run) if own_run.isdigit() else 0)
     except (RuntimeError, OSError, ValueError) as error:
         print(f"::warning::could not start the deferred cmux-next tree jobs for tree {args.key}: {error}")
     return 0

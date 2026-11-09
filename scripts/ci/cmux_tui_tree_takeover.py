@@ -11,16 +11,21 @@ published the key (2026-11-09: run 42673437035 on a lane branch owned tree
 c9b813e8; GitHub never created its x86_64 musl build job, and feat-cmux-next's
 tip daemon suite and base tier went red for it).
 
-A waiter takes the publish over instead. For a waiting feat-cmux-next commit it
-dispatches cmux-tui-tree-request.yml, which re-runs that commit's own artifacts
-run when the tree is still missing and no run of the key is active; the re-run
-wins the claim, builds and publishes the key, and its publish starts every
-waiter's tree jobs through the markers, which stay. The publish itself is
+A waiter takes the publish over instead: it re-runs a waiting feat-cmux-next
+commit's own artifacts run (the re-run cmux-tui-tree-request.yml makes, done
+here directly so its "a run of the key is still active" check cannot see the
+dying owner and start nothing). The re-run's tree-preflight claims the key; if
+the owner is still finishing, tree-owner-wait waits for it to end and takes
+over. It builds and publishes the key, and its publish starts every waiter's
+tree jobs through the markers, which stay. The publish itself is
 unchanged: publish-cmux-tui-tree.py still writes the tree once, and a second
 publisher of the same key still meets the claim.
 
 Only feat-cmux-next commits are taken over (their push run holds the R2 publish
-credentials; cmux-tui-tree-request.yml refuses any other commit). A commit whose
+credentials; cmux-tui-tree-request.yml refuses any other commit likewise). The
+run that is reporting its own failure (--exclude-run, notify's GITHUB_RUN_ID)
+is neither a live publisher nor a run to re-run: it is still in progress while
+it reports, and it is the run that failed. A commit whose
 artifacts run is already active is publishing: nothing is started. A run already
 on its MAX_ATTEMPT-th attempt is not re-run (the hand-off's cap,
 cmux_tui_tree_handoff.py): the waiter then reports the tree unavailable in red,
@@ -33,7 +38,7 @@ Callers:
   (a dispatch from an owner that ran an older notify, or a push whose probe found
   its publisher ended): `--commit SHA` exits 0 when the publish was taken over.
 
-usage: cmux_tui_tree_takeover.py --repo OWNER/NAME --commit SHA [--key KEY]
+usage: cmux_tui_tree_takeover.py --repo OWNER/NAME --commit SHA [--key KEY] [--exclude-run ID]
 Needs GH_TOKEN with actions: write.
 """
 from __future__ import annotations
@@ -47,7 +52,6 @@ from typing import Callable, Iterable, Protocol
 SHA = re.compile(r"^[0-9a-f]{40}$")
 BRANCH = "feat-cmux-next"
 ARTIFACTS_WORKFLOW = "cmux-tui-artifacts.yml"
-REQUEST_WORKFLOW = "cmux-tui-tree-request.yml"
 # A commit's artifacts run is re-run at most twice for a takeover (attempt 3 is its last), like the hand-off.
 MAX_ATTEMPT = 3
 
@@ -63,13 +67,14 @@ def trusted_runs(runs: Iterable[object]) -> list[dict]:
             and run.get("event") in ("push", "workflow_dispatch")]
 
 
-def take_over(api: Api, *, repo: str, commit: str, key: str = "") -> tuple[bool, str]:
+def take_over(api: Api, *, repo: str, commit: str, key: str = "", exclude_run: int = 0) -> tuple[bool, str]:
     """(taken over, why). True when a publisher of the commit's tree is active or was just requested."""
     tree = f"tree {key}" if key else f"the tree of {commit[:12]}"
     if not SHA.match(commit):
         return False, f"{commit!r} is not a 40-hex commit"
     listing = api.get(f"repos/{repo}/actions/workflows/{ARTIFACTS_WORKFLOW}/runs?head_sha={commit}&per_page=50")
-    runs = trusted_runs(listing.get("workflow_runs", []) if isinstance(listing, dict) else [])
+    runs = [run for run in trusted_runs(listing.get("workflow_runs", []) if isinstance(listing, dict) else [])
+            if not exclude_run or int(run.get("id") or 0) != exclude_run]
     if not runs:
         return False, (f"{commit[:12]} has no {BRANCH} cmux-tui artifacts run to publish {tree} "
                        f"(only a {BRANCH} commit's run holds the publish credentials)")
@@ -81,16 +86,15 @@ def take_over(api: Api, *, repo: str, commit: str, key: str = "") -> tuple[bool,
     if attempt >= MAX_ATTEMPT:
         return False, (f"cmux-tui artifacts run {latest.get('html_url') or latest.get('id')} of {commit[:12]} "
                        f"already ended {attempt} times without publishing {tree} (cap {MAX_ATTEMPT})")
-    status = api.post(f"repos/{repo}/actions/workflows/{REQUEST_WORKFLOW}/dispatches",
-                      {"ref": BRANCH, "inputs": {"commit": commit}})
-    if status != 204:
-        return False, f"dispatching {REQUEST_WORKFLOW} for {commit[:12]} was refused (HTTP {status})"
-    return True, (f"dispatched {REQUEST_WORKFLOW} for {commit[:12]}: it re-runs that commit's cmux-tui artifacts "
-                  f"run {latest.get('html_url') or latest.get('id')} (attempt {attempt}), which builds and "
-                  f"publishes {tree}; its publish starts the waiting tree jobs")
+    status = api.post(f"repos/{repo}/actions/runs/{int(latest['id'])}/rerun", {})
+    if status not in (201, 204):
+        return False, f"re-running cmux-tui artifacts run {latest.get('id')} of {commit[:12]} was refused (HTTP {status})"
+    return True, (f"re-ran cmux-tui artifacts run {latest.get('html_url') or latest.get('id')} of {commit[:12]} "
+                  f"(after attempt {attempt}): it claims, builds and publishes {tree}, and its publish starts the "
+                  f"waiting tree jobs")
 
 
-def take_over_any(api: Api, *, repo: str, commits: Iterable[str], key: str = "",
+def take_over_any(api: Api, *, repo: str, commits: Iterable[str], key: str = "", exclude_run: int = 0,
                   log: Callable[[str], None] = print) -> bool:
     """Tries each distinct commit in order until one takes the publish over."""
     seen: set[str] = set()
@@ -99,7 +103,7 @@ def take_over_any(api: Api, *, repo: str, commits: Iterable[str], key: str = "",
             continue
         seen.add(commit)
         try:
-            taken, why = take_over(api, repo=repo, commit=commit, key=key)
+            taken, why = take_over(api, repo=repo, commit=commit, key=key, exclude_run=exclude_run)
         except (RuntimeError, OSError, ValueError) as error:
             log(f"::warning::could not take over the publish from {commit[:12]}: {error}")
             continue
@@ -114,6 +118,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--key", default="")
+    parser.add_argument("--exclude-run", type=int, default=0, help="the reporting run, never taken as a publisher")
     args = parser.parse_args(argv)
     token = os.environ.get("GH_TOKEN", "")
     if not token:
@@ -123,7 +128,8 @@ def main(argv: list[str]) -> int:
     from cmux_next_tree_notify import GitHub  # noqa: E402
 
     api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
-    return 0 if take_over_any(api, repo=args.repo, commits=[args.commit], key=args.key) else 1
+    return 0 if take_over_any(api, repo=args.repo, commits=[args.commit], key=args.key,
+                         exclude_run=args.exclude_run) else 1
 
 
 if __name__ == "__main__":

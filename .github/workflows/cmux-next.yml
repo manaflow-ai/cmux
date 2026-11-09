@@ -2842,7 +2842,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     permissions:
       statuses: write
-      # actions: write dispatches cmux-tui-tree-request.yml when this run takes a tree's publish over.
+      # actions: write re-runs a waiting commit's artifacts run when this run takes a tree's publish over.
       actions: write
       contents: read
     timeout-minutes: 3
@@ -2863,7 +2863,7 @@ jobs:
       # build, a cancel, or jobs GitHub never created: 2026-11-09, run 42673437035).
       # That is never this commit's red: a waiting feat-cmux-next commit takes the
       # publish over (scripts/ci/cmux_tui_tree_takeover.py re-runs its own artifacts
-      # run through cmux-tui-tree-request.yml), and the publication starts these tree
+      # run, which claims and builds the key), and the publication starts these tree
       # jobs through the marker, which stays. Red only when nothing can take it over.
       - name: Take over the unpublished same-tree cmux-tui
         id: takeover
@@ -2872,10 +2872,15 @@ jobs:
         env:
           COMMIT: ${{ inputs.same_tree_sha || github.sha }}
           KEY: ${{ needs.path_route.outputs.tree_key }}
+          REASON: ${{ inputs.same_tree_reason || needs.path_route.outputs.tree_reason }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if python3 scripts/ci/cmux_tui_tree_takeover.py --repo "$GITHUB_REPOSITORY" --commit "$COMMIT" --key "$KEY"; then
+          # The owner that reported the miss (".../actions/runs/N ended without publishing") may still be
+          # finishing its notify job: it is no publisher to wait on, and not the run to re-run.
+          owner="$(grep -oE 'actions/runs/[0-9]+' <<<"$REASON" | head -1 | cut -d/ -f3 || true)"
+          if python3 scripts/ci/cmux_tui_tree_takeover.py --repo "$GITHUB_REPOSITORY" --commit "$COMMIT" --key "$KEY" \
+              --exclude-run "${owner:-0}"; then
             echo "taken=true" >> "$GITHUB_OUTPUT"
             echo "::notice title=same-tree cmux-tui taken over::the run that owned ${KEY:+tree $KEY of }$COMMIT ended without publishing it; this run started its publish, which starts the tree jobs"
           fi
