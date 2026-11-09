@@ -27,6 +27,7 @@ import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgro
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
+import { threadMinimapRestTick } from "../agent-session/acpmux/threadMinimap/restTick.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
@@ -101,6 +102,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapLayout,
   threadMinimapHeight,
   threadMinimapGutter,
+  threadMinimapRestTick,
   newTabHeadline,
   newTabComposerTrailingGap,
   newTabIconColumn,

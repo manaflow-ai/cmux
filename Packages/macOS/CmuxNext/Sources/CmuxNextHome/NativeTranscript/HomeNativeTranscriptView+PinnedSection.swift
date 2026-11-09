@@ -7,6 +7,8 @@ public import AppKit
 extension HomeNativeTranscriptView {
     /// The pinned section shown now (tests and `debug.home`).
     public var pinnedSection: NSView? { pinned?.view }
+    /// The Set Up cmux card's view shown now: its buttons keep their keys (Home's typing redirect skips it).
+    public var setupCardView: NSView? { setupCard?.view }
 
     /// Shows `view` pinned under the header, measured now (its fitting height); nil removes it.
     public func setPinnedSection(_ view: NSView?) {
@@ -58,11 +60,14 @@ extension HomeNativeTranscriptView {
         let x = ((bounds.width - width) / 2).rounded()
         var top = transcript.headerHeight + 4
         var bottom: CGFloat?
+        // A sized setup card keeps a usable height under a tall pinned section (many Needs you rows), which
+        // gives up that room and clips; the card's page scrolls in what it gets.
+        let cardFloor = setupCard.map { min($0.height, Self.setupCardMinHeight) } ?? 0
         if let pinned {
             let view = pinned.view
             let height = pinned.height ?? ceil(view.fittingSize.height)
             if pinned.height == nil { self.pinned = (view, height) }
-            let shown = min(height, max(0, transcript.fieldTop - top - 8))
+            let shown = min(height, max(0, transcript.fieldTop - top - 8 - (cardFloor > 0 ? cardFloor + 8 : 0)))
             let frame = CGRect(x: x, y: top, width: width, height: shown)
             if view.frame != frame { view.frame = frame }
             if shown > 0 { bottom = frame.maxY; top = frame.maxY + 8 }
@@ -82,4 +87,6 @@ extension HomeNativeTranscriptView {
 
     /// The pinned section's widest.
     static let pinnedSectionMaxWidth: CGFloat = 640
+    /// The least of a sized setup card's height a pinned section leaves it: its title and a row, the rest scrolls.
+    static let setupCardMinHeight: CGFloat = 120
 }

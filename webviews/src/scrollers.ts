@@ -213,6 +213,15 @@ export type UserInput = { at: number; target: EventTarget | null; path?: readonl
 /** The user's last input in each document. */
 const lastUserInput = new WeakMap<Document, UserInput>();
 
+/** The element that scrolled last in each document (<html> for the page's own scroller). */
+const lastScrolled = new WeakMap<Document, Element>();
+
+/** The element that scrolled last in `document`, however it scrolled, or null before any scroll
+    (or before `installScrollingMarks`). A reload keeps its position (pages/shared/pageHealth.ts). */
+export function lastScrolledElement(document: Document): Element | null {
+  return lastScrolled.get(document) ?? null;
+}
+
 /** Keys that scroll whatever the page scrolls by keyboard, wherever focus is (outside a text field).
     "Spacebar" is an older engine's name for " ". */
 const SCROLLING_KEYS = new Set([
@@ -304,6 +313,8 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
     "scroll",
     (event) => {
       const target = event.target;
+      if (target === document) lastScrolled.set(document, document.documentElement);
+      else if (target && "setAttribute" in target) lastScrolled.set(document, target as Element);
       // The page's own scroller is <html>, and it answers to the same rule as every other.
       if (target === document) {
         if (isUserScroll(document.documentElement, lastUserInput.get(document), now()))

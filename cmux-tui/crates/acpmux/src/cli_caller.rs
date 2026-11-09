@@ -193,7 +193,9 @@ pub enum BinChoice {
     /// acpmux's CLI. The alias's own path, not the file it resolves to.
     Alias(std::path::PathBuf),
     /// A host binary with no such alias: the text of a script that runs it with its prefix
-    /// (`exec '/…/cmux' 'acp' "$@"`).
+    /// (`exec '/…/cmux' 'acp' "$@"`). optchat-chief reads this exact shape to find the daemon's
+    /// binary for its socket peer check (`Native/OptChat/optchat-chief/src/acpmux_wrapper.rs`):
+    /// change both together.
     Wrapper(String),
 }
 

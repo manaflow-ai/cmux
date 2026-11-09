@@ -2,7 +2,7 @@
    then rows ranked by cost with a share bar each. Borderless; the bar is a tonal fill whose
    length follows --cst-share (0 to 1) over the house settle when the range or the grouping
    changes. Rows are windowed (ui/VirtualList): a frame costs the visible rows only. */
-.cst{flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--ds-space-3);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;color:var(--agent-text)}
+.cst{container:cst/inline-size;flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--ds-space-3);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;color:var(--agent-text)}
 .cst-controls{flex:none;display:flex;align-items:center;gap:var(--ds-space-3);flex-wrap:wrap}
 .cst-fill{flex:1}
 .cst-strip{flex:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:var(--ds-space-2);margin:0}
@@ -14,12 +14,12 @@
 .cst[data-loading] .cst-strip,.cst[data-loading] .cst-scroll{opacity:.6;transition:opacity var(--cmux-motion-settle,180ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1))}
 .cst-scroll{flex:1;min-height:0;display:flex;flex-direction:column;transition:opacity var(--cmux-motion-settle,180ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1))}
 .cst-list{flex:1;min-height:0}
-.cst-head{flex:none;display:grid;grid-template-columns:minmax(0,1fr) repeat(5,72px);gap:var(--ds-space-2);padding:0 var(--ds-space-3);font-size:var(--text-detail);color:var(--agent-muted);text-align:right}
+.cst-head{flex:none;display:grid;grid-template-columns:minmax(0,1fr) repeat(8,64px);gap:var(--ds-space-2);padding:0 var(--ds-space-3);font-size:var(--text-detail);color:var(--agent-muted);text-align:right}
 .cst-head-label{text-align:left}
 .cst-row{position:relative;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:var(--ds-space-3);padding:var(--ds-space-2) var(--ds-space-3);border:0;border-radius:var(--radius-control);background:transparent;color:inherit;font:inherit;text-align:left;overflow:hidden}
 button.cst-row:hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent)}
 button.cst-row:focus-visible{outline:none;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 12%,transparent)}
-.cst-row[data-look="table"]{display:grid;grid-template-columns:minmax(0,1fr) repeat(5,72px);gap:var(--ds-space-2)}
+.cst-row[data-look="table"]{display:grid;grid-template-columns:minmax(0,1fr) repeat(8,64px);gap:var(--ds-space-2)}
 .cst-row[data-look="stacked"]{flex-wrap:wrap;row-gap:var(--ds-space-1)}
 .cst-text{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}
 .cst-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body);line-height:var(--text-body--line-height)}
@@ -32,10 +32,16 @@ button.cst-row:focus-visible{outline:none;background:color-mix(in srgb,var(--age
 .cst-row[data-look="stacked"] .cst-bar{position:relative;flex:1 0 100%;height:0;padding-top:var(--ds-space-1);border-radius:999px;background:var(--agent-accent,var(--agent-text));opacity:.55}
 .cst-source{display:inline-block;width:6px;aspect-ratio:1;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 35%,transparent)}
 .cst-source[data-source="mixed"]{background:linear-gradient(90deg,color-mix(in srgb,var(--agent-text) 35%,transparent) 50%,color-mix(in srgb,var(--agent-text) 12%,transparent) 50%)}
-.cst-source[data-source="unpriced"]{width:8px;aspect-ratio:4;border-radius:999px;background:var(--warning,var(--agent-muted))}
+.cst-source[data-source="unpriced"]{width:8px;aspect-ratio:4;border-radius:999px;background:var(--agent-warning,var(--agent-status-warning,var(--agent-muted)))}
 .cst-status{flex:none;display:flex;align-items:center;gap:var(--ds-space-2);min-height:var(--text-body--line-height);padding:var(--ds-space-2) var(--ds-space-3);font-size:var(--text-detail);color:var(--agent-muted)}
 .cst-link{height:24px;padding:0 var(--ds-space-2);border:0;border-radius:var(--radius-control);background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-detail)}
 .cst-legend{display:inline-flex;align-items:center;gap:var(--ds-space-1)}
 .cst-link:disabled{opacity:.5}
 .cst-copied{color:var(--agent-muted)}
 .cst-copied[data-tone="error"]{color:var(--danger)}
+.cst-copied[data-tone="warning"]{color:var(--agent-warning,var(--agent-status-warning,var(--agent-text)))}
+/* The table's columns follow the page's width, so the five it always had stay in view: wide, all
+   eight; under 640px the cache read and write columns go (they stay in the row's tooltip); under
+   560px From cache goes too, and the five take their old 72px. */
+@container cst (max-width:639.98px){.cst-head,.cst-row[data-look="table"]{grid-template-columns:minmax(0,1fr) repeat(6,64px)}.cst [data-col="cacheRead"],.cst [data-col="cacheWrite"]{display:none}}
+@container cst (max-width:559.98px){.cst-head,.cst-row[data-look="table"]{grid-template-columns:minmax(0,1fr) repeat(5,72px)}.cst [data-col="fromCache"]{display:none}}
