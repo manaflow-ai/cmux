@@ -107,6 +107,8 @@ function BackgroundSource({ source }: { source: AcpmuxBackgroundSource }) {
         (ownerId && openSubagent ? (
           <span
             className="cv-background-turn__owner"
+            // An <a> may not sit inside the line's <button>; this opens a helper in the pane, not a URL.
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="link"
             tabIndex={0}
             data-deeplink={`#subagent:${ownerId}`}
