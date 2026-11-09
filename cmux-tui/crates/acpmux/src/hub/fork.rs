@@ -393,6 +393,9 @@ impl Hub {
         } else {
             parent_meta.cmux_context.clone()
         };
+        let rules_kept = !matches!(made, Made::Fresh | Made::Empty)
+            && !moved
+            && crate::context_inventory::fork_keeps_rules(&parent_meta, fork_seq);
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -475,10 +478,11 @@ impl Hub {
             cmux_context_delivered: !matches!(made, Made::Fresh | Made::Empty)
                 && !moved
                 && parent_meta.cmux_context_delivered,
-            // Rules the parent's transcript carries, which a native fork keeps.
-            cmux_rules_in_transcript: !matches!(made, Made::Fresh | Made::Empty)
-                && !moved
-                && parent_meta.cmux_rules_in_transcript,
+            // Rules the parent's transcript carries, which a native fork keeps when its cut is
+            // after the turn that carried them; from its own start on, so its own forks keep
+            // them at any cut.
+            cmux_rules_in_transcript: rules_kept,
+            cmux_rules_seq: rules_kept.then_some(0),
             // The account's limits, which the fork shares.
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
