@@ -13,12 +13,17 @@ use std::net::{IpAddr, SocketAddr};
 use std::os::fd::{AsFd, AsRawFd};
 use std::path::{Path, PathBuf};
 
-use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello, parse_line};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use cmux_link::dial::{
+    MAX_LINE_BYTES, RekeyReply, RekeyRequest, Service, ServiceHello, line, parse_line,
+};
 use cmux_link::owner_session::{IDENTIFY_REQUEST, OwnerRefused, OwnerSession, is_brain_identity};
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use super::acpmux::{AcpmuxTarget, hand_to_acpmux};
+use super::control::RekeyTarget;
 use super::lines::read_line;
 
 /// Why an inbound stream was closed without reaching the daemon.
@@ -44,6 +49,39 @@ pub(super) enum InboundRefused {
 }
 
 pub(super) use super::paired_streams::Revocations;
+
+/// A paired peer names the key its link serves from now on ([`RekeyRequest`]).
+/// The stream came in on the old key, which the pairing trusts, so the record
+/// moves to the new one; a key another install's record holds is refused.
+async fn serve_rekey<S>(
+    stream: &mut S,
+    install: &str,
+    target: Option<&RekeyTarget>,
+) -> Result<(), InboundRefused>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let target = target.ok_or(InboundRefused::EntryUnavailable)?;
+    let text = read_line(stream, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::BadHello)?;
+    let request = parse_line::<RekeyRequest>(&text).ok_or(InboundRefused::BadHello)?;
+    let refused = |why: String| RekeyReply { ok: false, error: Some(why) };
+    let reply = match rekey_key(&request.public_key) {
+        Some(key) => match target.apply(install, &key) {
+            Ok(_) => RekeyReply { ok: true, error: None },
+            Err(error) => refused(error.to_string()),
+        },
+        None => refused("invalid_key".to_owned()),
+    };
+    let _ = stream.write_all(line(&reply).as_bytes()).await;
+    let _ = stream.shutdown().await;
+    Ok(())
+}
+
+/// A rekey's key: canonical standard base64 of 32 bytes, not all zero.
+fn rekey_key(text: &str) -> Option<[u8; 32]> {
+    let key: [u8; 32] = STANDARD.decode(text).ok()?.try_into().ok()?;
+    (STANDARD.encode(key) == text && key != [0; 32]).then_some(key)
+}
 use super::paired_streams::{close_revoked, while_paired};
 
 /// The daemon entry a link stream may reach for the session listening on
@@ -77,6 +115,7 @@ where
         owner,
         &AcpmuxTarget::Off,
         None,
+        None,
     )
     .await
 }
@@ -96,6 +135,7 @@ pub(super) async fn serve_inbound_watched<S>(
     owner: Option<&OwnerSession>,
     acpmux: &AcpmuxTarget,
     mut revocations: Option<Revocations>,
+    rekey: Option<&RekeyTarget>,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -155,6 +195,17 @@ where
                 peer_key,
                 &peer,
                 hand_to_acpmux(&mut stream, acpmux),
+            )
+            .await,
+            false,
+        ),
+        // The peer's link adopted its node key: its record moves to the key it names.
+        Some(ServiceHello { service: Service::Rekey, link_token: None, epoch: None }) => (
+            while_paired(
+                revocations.as_mut(),
+                peer_key,
+                &peer,
+                serve_rekey(&mut stream, &record.install, rekey),
             )
             .await,
             false,

@@ -72,6 +72,7 @@ async fn open_daemon_with(subscription: Option<Revocations>) -> OpenDaemon {
             None,
             &super::acpmux::AcpmuxTarget::Off,
             Some(subscription.unwrap_or(Revocations { view: receiver, open: Arc::default() })),
+            None,
         )
         .await
     });
@@ -212,6 +213,7 @@ async fn a_stale_pairing_snapshot_cannot_reopen_a_revoked_daemon_or_owner() {
             Some(&owner),
             &super::acpmux::AcpmuxTarget::Off,
             Some(Revocations { view, open: Arc::default() }),
+            None,
         ))
         .await;
         if served != Err(InboundRefused::UnknownPeer)
@@ -262,6 +264,7 @@ async fn revocation_during_owner_identification_closes_the_probe_before_session_
             Some(&owner),
             &super::acpmux::AcpmuxTarget::Off,
             Some(Revocations { view, open: Arc::default() }),
+            None,
         )
         .await
     });
@@ -337,6 +340,7 @@ async fn failed_overlay_sync_never_restores_the_revoked_admission_view() {
         None,
         &super::acpmux::AcpmuxTarget::Off,
         Some(peers.revocations()),
+        None,
     ))
     .await;
     assert_eq!(result, Err(InboundRefused::UnknownPeer));

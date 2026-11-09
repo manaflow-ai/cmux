@@ -14,6 +14,7 @@ mod dial_cli;
 mod enrollment;
 mod ensure;
 mod inbound;
+mod key_adoption;
 mod key_lock;
 // Also in tests elsewhere: its plist rewrite needs no launchd.
 #[cfg(any(test, target_os = "macos"))]
@@ -310,6 +311,8 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
         "socket": live.map(|registration| registration.socket),
         "peers_file": state.peers_path(),
         "identity_source": if config.server_identity.is_some() { "server_pairing" } else { "local" },
+        // The link key the node key replaced, for re-pairing a peer that missed it.
+        "retired_public_key": key_adoption::adopted(state)?.and_then(|adopted| adopted.retired_public_key),
     }))
 }
 
@@ -490,7 +493,9 @@ async fn serve(
     watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
-    let private_key = state.private_key(key)?;
+    let pairings = cmux_link::pairing::Pairings::load(&state.peers_path())?;
+    // One key per machine: the node key, adopted under the held lock (`key_adoption.rs`).
+    let private_key = key_adoption::serve_key(&state, key, config.port, &pairings).await?;
     let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
@@ -535,12 +540,24 @@ async fn serve(
     let result = tokio::select! {
         served = serve_local(local, overlay.clone(), peers.clone(), status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
+        () = reload_on_rekey(&peers, &*overlay) => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
     result
+}
+
+/// A paired peer's link named its new key (`inbound.rs`): the pairing file
+/// changed, so the overlay takes the new key.
+async fn reload_on_rekey(peers: &Peers, overlay: &MeshOverlay) {
+    loop {
+        peers.rekeyed().await;
+        if let Err(error) = peers.reload(overlay).await {
+            eprintln!("cmux link: reload after a paired peer's rekey failed: {error}");
+        }
+    }
 }
 
 /// Bind the local socket at mode 0600 in a 0700 directory, replacing a

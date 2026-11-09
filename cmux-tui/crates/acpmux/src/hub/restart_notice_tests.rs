@@ -35,12 +35,20 @@ async fn restart_settles_without_stale_rows_or_delayed_flap_notices() {
 /// A machine with a cmux link serving (it holds the machine's WireGuard key lock in the
 /// acpmux home for its whole life) and one WireGuard peer `b`, `linked` through the link or
 /// not. `same_key`: the link serves this node's own key (one key); otherwise a key of its own,
-/// as every link does before the one-key migration.
+/// as a link does until its first start adopts the node key.
 struct LinkServing {
     home: tempfile::TempDir,
-    link_dir: tempfile::TempDir,
-    _lock: cmux_link::key_holder::KeyHolder,
+    link_dir: Option<tempfile::TempDir>,
+    _lock: Option<cmux_link::key_holder::KeyHolder>,
     cfg: crate::config::Config,
+}
+
+/// The same machine with no cmux link (a Linux headless host): no link state, no lock held.
+fn link_less() -> LinkServing {
+    let mut machine = link_serving(true, false);
+    machine.link_dir = None;
+    machine._lock = None;
+    machine
 }
 
 fn link_serving(same_key: bool, linked: bool) -> LinkServing {
@@ -53,6 +61,8 @@ fn link_serving(same_key: bool, linked: bool) -> LinkServing {
     let link_key = if same_key { node } else { vec![9; 32] };
     let b64 = base64::engine::general_purpose::STANDARD;
     std::fs::write(KeyFile::Link.path_in(link_dir.path()), b64.encode(&link_key)).unwrap();
+    std::fs::write(link_dir.path().join("config.json"), r#"{"install":"inst_a","port":4101}"#)
+        .unwrap();
     let lock = KeyHolder::acquire(home.path()).unwrap();
     let mut cfg = crate::config::Config::default();
     cfg.store.mode = crate::config::StoreMode::Memory;
@@ -77,7 +87,7 @@ fn link_serving(same_key: bool, linked: bool) -> LinkServing {
             github_broker: false,
         },
     );
-    LinkServing { home, link_dir, _lock: lock, cfg }
+    LinkServing { home, link_dir: Some(link_dir), _lock: Some(lock), cfg }
 }
 
 impl LinkServing {
@@ -86,7 +96,7 @@ impl LinkServing {
         let wireguard = crate::wireguard::Transport::start_with_link(
             &self.cfg,
             self.home.path(),
-            Some(self.link_dir.path()),
+            self.link_dir.as_ref().map(tempfile::TempDir::path),
             "127.0.0.1:1".parse().unwrap(),
         )
         .await
@@ -108,13 +118,27 @@ impl LinkServing {
     }
 }
 
-/// Review of #38357 at 506641de (F1): an upgraded config (no `linkHost`) whose link serves
-/// a key of its own keeps acpmux's WireGuard next to the serving link, as before the upgrade.
+/// One key per machine: a configured link holds it, also before its first start adopts the
+/// node key (it serves a key of its own until then), so acpmux opens no WireGuard of its own
+/// and its peer keeps its URL path. (#38357 kept acpmux's WireGuard next to such a link; the
+/// link now adopts the node key, so that second key and socket go.)
 #[tokio::test]
-async fn a_link_with_its_own_key_leaves_a_wireguard_peer_on_acpmux_wireguard() {
+async fn a_configured_link_keeps_acpmux_off_its_own_wireguard_whatever_key_it_serves() {
     let (wireguard, vias, _machine) = link_serving(false, false).start().await;
-    let wireguard = wireguard.expect("acpmux's WireGuard stepped down for another key's link");
+    assert!(wireguard.is_none(), "acpmux opened a second WireGuard next to the link");
+    assert_eq!(vias, ["url"]);
+}
+
+/// A host with no cmux link (Linux headless) runs acpmux's own WireGuard under the key lock.
+#[tokio::test]
+async fn a_link_less_host_runs_acpmux_wireguard_under_the_lock() {
+    let (wireguard, vias, machine) = link_less().start().await;
+    let wireguard = wireguard.expect("a link-less host has no WireGuard");
     assert_eq!(vias, ["wireguard", "url"]);
+    assert!(matches!(
+        cmux_link::key_holder::KeyHolder::acquire(machine.home.path()),
+        Err(cmux_link::key_holder::KeyHolderError::KeyHeld { .. })
+    ));
     wireguard.shutdown(tokio::time::Instant::now()).await;
 }
 
@@ -123,7 +147,7 @@ async fn a_link_with_its_own_key_leaves_a_wireguard_peer_on_acpmux_wireguard() {
 #[cfg(feature = "hub-carrier")]
 #[tokio::test]
 async fn a_joined_daemon_with_the_transports_lock_lists_the_hub_path() {
-    let mut machine = link_serving(false, false);
+    let mut machine = link_less();
     machine.cfg.mesh_relay = Some(crate::mesh_http::MeshRelayConfig {
         url: "http://127.0.0.1:9".into(),
         token_command: Vec::new(),

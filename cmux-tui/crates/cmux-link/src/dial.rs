@@ -41,6 +41,28 @@ pub enum Service {
     /// The link only carries the bytes: acpmux still checks its listener
     /// token and peer proof on the upgrade, so pairing grants nothing more.
     Acpmux,
+    /// Link to link only: the dialing link names the key it serves from now on
+    /// ([`RekeyRequest`]), over its old key's session, when it adopts this
+    /// machine's node key. A local caller cannot dial it.
+    Rekey,
+}
+
+/// The one line a link writes after a [`Service::Rekey`] hello: its new
+/// WireGuard public key, standard base64 of 32 bytes. The answer is one
+/// [`RekeyReply`] line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RekeyRequest {
+    pub public_key: String,
+}
+
+/// The receiving link's answer to a [`RekeyRequest`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RekeyReply {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// How the stream reaches the peer. Lane 10's UI shows "same network only"

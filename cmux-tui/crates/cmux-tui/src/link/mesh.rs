@@ -38,6 +38,11 @@ impl MeshOverlay {
     pub(super) fn local_addr(&self) -> io::Result<SocketAddr> {
         self.mesh.local_addr()
     }
+
+    /// Stop the mesh and release its UDP socket before returning.
+    pub(super) async fn shutdown(self) {
+        self.mesh.shutdown().await;
+    }
 }
 
 /// The mesh shape of every paired peer.

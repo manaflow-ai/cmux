@@ -4,14 +4,13 @@
 //! only this daemon's loopback WebSocket listener, which still checks tokens,
 //! peer proofs and policy. They never reach the privileged local socket.
 //!
-//! The transport runs only while it holds its key's lock (`cmux_link::key_holder`).
-//! Which lock depends on the key the cmux link serves ([`key_lock_dir`]): when
-//! the link serves this same node key, the machine's lock in the acpmux home,
-//! and while the link holds it the transport steps down for the run (peers
-//! with a link route dial through the link; the others go on over their URL or
-//! ssh). Until the one-key migration the link serves a key of its own, so the
-//! two never share a key: the transport locks only its own key and runs as
-//! before, next to a serving link.
+//! It runs only on a host with no cmux link ([`link_configured`]): there the
+//! link is the one holder of this machine's WireGuard key, the node key it
+//! adopts (`cmux link serve`), and the transport never takes the key lock, so a
+//! link that starts later still gets it. Peers with a link route dial through
+//! the link; the others go on over their URL or ssh. On a link-less host
+//! (Linux headless) it runs under the same lock the link would take, in the
+//! acpmux home (`cmux_link::key_holder`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{IpAddr, SocketAddr};
@@ -21,7 +20,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, ensure};
 use base64::Engine;
-use cmux_link::key_holder::{self, KeyFile, KeyHolder, KeyHolderError};
+use cmux_link::key_holder::{KeyHolder, KeyHolderError};
 use cmux_wg::{
     InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
 };
@@ -62,46 +61,11 @@ pub struct Transport {
     key: Mutex<Option<Arc<KeyHolder>>>,
 }
 
-/// Where acpmux takes the lock for its node key, beside the cmux link whose state directory is
-/// `link_dir`. The link holds the machine's lock (`state_dir`) for its whole life. When the key
-/// the link serves is this node key (one key on the machine), the transport takes that same lock
-/// and steps down while the link holds it: one key never runs in two tunnels. While the link
-/// serves a key of its own (its `private.key`, before the one-key migration), the two keys never
-/// meet: the transport locks only its own key, in [`OWN_KEY_LOCK`], and runs next to the link.
-pub(crate) fn key_lock_dir(state_dir: &Path, link_dir: Option<&Path>) -> PathBuf {
-    if link_dir.is_some_and(|link_dir| link_serves_node_key(state_dir, link_dir)) {
-        state_dir.to_path_buf()
-    } else {
-        state_dir.join(OWN_KEY_LOCK)
-    }
-}
-
-/// The lock directory of a node key the cmux link does not serve.
-pub(crate) const OWN_KEY_LOCK: &str = "node-key-lock";
-
-/// Whether the link in `link_dir` serves the node key in `state_dir`: both are there and are the
-/// same key. Only their public halves are compared.
-fn link_serves_node_key(state_dir: &Path, link_dir: &Path) -> bool {
-    let node = key_holder::open_for_public_key(KeyFile::Node, state_dir, |path| {
-        std::fs::read(path).map(zeroize::Zeroizing::new)
-    });
-    let link = key_holder::open_for_public_key(KeyFile::Link, link_dir, |path| {
-        std::fs::read_to_string(path).map(zeroize::Zeroizing::new)
-    });
-    let (Ok(node), Ok(link)) = (node, link) else { return false };
-    let Ok(link) = base64::engine::general_purpose::STANDARD.decode(link.trim()) else {
-        return false;
-    };
-    let link = zeroize::Zeroizing::new(link);
-    let (Ok(node), Ok(link)) = (<[u8; 32]>::try_from(&node[..]), <[u8; 32]>::try_from(&link[..]))
-    else {
-        return false;
-    };
-    let public = |key: [u8; 32]| {
-        let secret = x25519_dalek::StaticSecret::from(key);
-        x25519_dalek::PublicKey::from(&secret).to_bytes()
-    };
-    public(node) == public(link)
+/// Whether a cmux link is set up in `link_dir` (`cmux link init` wrote its config): the link
+/// then holds this machine's WireGuard key for its whole life, whether it runs now or starts
+/// later.
+pub(crate) fn link_configured(link_dir: Option<&Path>) -> bool {
+    link_dir.is_some_and(|dir| dir.join("config.json").is_file())
 }
 
 /// This machine's cmux link state directory (`<daemon state dir>/link`).
@@ -119,9 +83,25 @@ pub(crate) fn paired_install_in(link_dir: &Path, wireguard_key: &str) -> Option<
         .map(|record| record.install.clone())
 }
 
+/// One line per WireGuard peer the link has no route to: it goes on over its URL or ssh.
+fn warn_unlinked_peers(config: &crate::config::Config, link_dir: Option<&Path>) {
+    for (name, peer) in &config.peers {
+        if let Some(wg) = &peer.wireguard
+            && peer.link_host.is_none()
+            && link_dir.and_then(|dir| paired_install_in(dir, &wg.public_key)).is_none()
+        {
+            tracing::warn!(
+                peer = %name,
+                "the cmux link has no route to this WireGuard peer: it goes on over its URL or ssh"
+            );
+        }
+    }
+}
+
 impl Transport {
     /// Disabled means no key access, DNS lookup, UDP bind or background task.
-    /// So does a key lock another process holds: the transport steps down.
+    /// So does a host with a cmux link, or a key lock another process holds:
+    /// the transport steps down.
     pub async fn start(
         config: &crate::config::Config,
         state_dir: &Path,
@@ -147,24 +127,21 @@ impl Transport {
             .as_ref()
             .context("transport.wireguard requires wireguardStatic settings")?;
         let target = local_websocket(websocket)?;
-        let key = match KeyHolder::acquire(&key_lock_dir(state_dir, link_dir)) {
+        if link_configured(link_dir) {
+            tracing::info!(
+                "WireGuard transport off: the cmux link holds this machine's WireGuard key; peers with a link route use the link, the others their URL or ssh"
+            );
+            warn_unlinked_peers(config, link_dir);
+            return Ok(None);
+        }
+        let key = match KeyHolder::acquire(state_dir) {
             Ok(key) => key,
             Err(KeyHolderError::KeyHeld { pid }) => {
                 tracing::warn!(
                     holder_pid = ?pid,
                     "WireGuard transport off for this run: another process holds this machine's WireGuard key; peers with a link route use the cmux link, the others their URL or ssh"
                 );
-                for (name, peer) in &config.peers {
-                    if let Some(wg) = &peer.wireguard
-                        && peer.link_host.is_none()
-                        && link_dir.and_then(|dir| paired_install_in(dir, &wg.public_key)).is_none()
-                    {
-                        tracing::warn!(
-                            peer = %name,
-                            "the cmux link serves this node's WireGuard key and has no route to this peer: it goes on over its URL or ssh"
-                        );
-                    }
-                }
+                warn_unlinked_peers(config, link_dir);
                 return Ok(None);
             }
             Err(KeyHolderError::Io(error)) => {

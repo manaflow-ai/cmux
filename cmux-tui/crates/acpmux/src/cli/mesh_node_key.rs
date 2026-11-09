@@ -54,7 +54,7 @@ pub fn load_or_create_at(state_dir: &Path) -> Result<NodeKeypair> {
 
 /// The node key in `state_dir` for a session, created on first use: only
 /// with this machine's WireGuard key lock (`holder`) held.
-pub(crate) fn load_or_create_held(
+pub fn load_or_create_held(
     state_dir: &Path,
     holder: &KeyHolder,
 ) -> Result<(NodeKeypair, Zeroizing<[u8; 32]>)> {

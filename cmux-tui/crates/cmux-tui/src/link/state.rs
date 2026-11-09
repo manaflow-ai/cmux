@@ -216,15 +216,35 @@ impl LinkState {
     }
 
     /// The public half of this link's key (`show`, `status`, the enrollment
-    /// checks), read without the lock: no session runs with it.
+    /// checks), read without the lock: no session runs with it. Once the link
+    /// adopted the node key (`key_adoption.rs`), the node key's.
     pub(super) fn own_public_key(&self) -> io::Result<[u8; 32]> {
         let config = self.config()?;
-        let private = if config.server_identity.is_some() {
-            enrolled(&config)?.wireguard_key()
-        } else {
-            key_holder::open_for_public_key(KeyFile::Link, &self.dir, read_key)?
-        };
+        if config.server_identity.is_some() {
+            return Ok(public_key(&enrolled(&config)?.wireguard_key()));
+        }
+        if let Some(adopted) = super::key_adoption::adopted(self)? {
+            return acpmux::cli::mesh_node_key::public_key_at(&adopted.key_dir).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "the adopted node key is missing")
+            });
+        }
+        let private = key_holder::open_for_public_key(KeyFile::Link, &self.dir, read_key)?;
         Ok(public_key(&private))
+    }
+
+    /// Whether the link's own key file (`private.key`) is there.
+    pub(super) fn has_link_key(&self) -> bool {
+        self.key_path().symlink_metadata().is_ok()
+    }
+
+    /// Remove the link's own key once the node key replaced it (`key_adoption.rs`),
+    /// then sync the directory so the removal survives a crash.
+    pub(super) fn retire_link_key(&self) -> io::Result<()> {
+        match std::fs::remove_file(self.key_path()) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+        std::fs::File::open(&self.dir)?.sync_all()
     }
 }
 
@@ -374,6 +394,13 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+
+/// [`write_private`], then the directory synced: the new file survives a crash.
+pub(super) fn write_private_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_private(path, bytes)?;
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::File::open(dir)?.sync_all()
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {

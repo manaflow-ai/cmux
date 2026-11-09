@@ -106,6 +106,26 @@ impl Pairings {
         Ok(())
     }
 
+    /// Move `install`'s record to `public_key`: its link adopted this machine's node key and
+    /// said so over its old key's session. Refused when `install` has no record or another
+    /// install's record holds the key (a peer never takes over another's pairing); false when
+    /// the record already holds it.
+    pub fn rekey(&mut self, install: &str, public_key: &[u8; 32]) -> io::Result<bool> {
+        if self.by_key(public_key).is_some_and(|record| record.install != install) {
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, "key_in_use"));
+        }
+        let record = self
+            .peers
+            .iter_mut()
+            .find(|record| record.install == install)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not_paired"))?;
+        if record.key().as_ref() == Some(public_key) {
+            return Ok(false);
+        }
+        record.public_key = STANDARD.encode(public_key);
+        Ok(true)
+    }
+
     /// Remove the record of `install`; true when one existed.
     pub fn remove(&mut self, install: &str) -> bool {
         let before = self.peers.len();
@@ -190,5 +210,19 @@ mod tests {
         short.public_key = STANDARD.encode([1u8; 16]);
         assert!(pairings.upsert(short).is_err());
         assert!(pairings.upsert(record("../a", 1)).is_err());
+    }
+
+    #[test]
+    fn a_rekey_moves_only_its_own_record_and_never_takes_another_key() {
+        let mut pairings = Pairings::default();
+        pairings.upsert(record("inst_a", 1)).unwrap();
+        pairings.upsert(record("inst_b", 2)).unwrap();
+        assert!(pairings.rekey("inst_a", &[3; 32]).unwrap());
+        assert_eq!(pairings.by_install("inst_a").unwrap().key(), Some([3; 32]));
+        assert!(!pairings.rekey("inst_a", &[3; 32]).unwrap(), "already on that key");
+        let taken = pairings.rekey("inst_a", &[2; 32]).unwrap_err();
+        assert_eq!(taken.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(pairings.by_install("inst_b").unwrap().key(), Some([2; 32]));
+        assert_eq!(pairings.rekey("inst_c", &[4; 32]).unwrap_err().kind(), io::ErrorKind::NotFound);
     }
 }

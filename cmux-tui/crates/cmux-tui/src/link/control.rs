@@ -28,6 +28,29 @@ pub(super) struct Peers {
     /// Every admitted or handshaking paired stream.
     open: Arc<OpenStreams>,
     updates: tokio::sync::Mutex<()>,
+    /// Woken when a paired peer's link named its new key ([`RekeyTarget`]).
+    rekeyed: Arc<tokio::sync::Notify>,
+}
+
+/// Where a paired peer's [`cmux_link::dial::Service::Rekey`] goes: its record
+/// in the pairing file, then a reload (`serve` waits on [`Peers::rekeyed`]).
+#[derive(Clone)]
+pub(super) struct RekeyTarget {
+    path: PathBuf,
+    changed: Arc<tokio::sync::Notify>,
+}
+
+impl RekeyTarget {
+    /// Move `install`'s pairing to `key`; true when the file changed.
+    pub(super) fn apply(&self, install: &str, key: &[u8; 32]) -> io::Result<bool> {
+        let mut pairings = Pairings::load(&self.path)?;
+        let changed = pairings.rekey(install, key)?;
+        if changed {
+            pairings.save(&self.path)?;
+            self.changed.notify_one();
+        }
+        Ok(changed)
+    }
 }
 
 /// How long a reload waits for revoked paired streams to close before it
@@ -38,7 +61,23 @@ impl Peers {
     pub(super) fn load(path: PathBuf) -> io::Result<Self> {
         let loaded = Arc::new(Pairings::load(&path)?);
         let (changes, _) = tokio::sync::watch::channel(loaded);
-        Ok(Self { path, changes, open: Arc::default(), updates: tokio::sync::Mutex::new(()) })
+        Ok(Self {
+            path,
+            changes,
+            open: Arc::default(),
+            updates: tokio::sync::Mutex::new(()),
+            rekeyed: Arc::default(),
+        })
+    }
+
+    /// Where inbound rekeys write.
+    pub(super) fn rekey_target(&self) -> RekeyTarget {
+        RekeyTarget { path: self.path.clone(), changed: self.rekeyed.clone() }
+    }
+
+    /// Wait until a paired peer's rekey changed the pairing file.
+    pub(super) async fn rekeyed(&self) {
+        self.rekeyed.notified().await;
     }
 
     /// What every incoming or outgoing paired stream watches for revocation.
@@ -166,11 +205,10 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
     owner: Option<Arc<OwnerSession>>,
     acpmux: AcpmuxTarget,
 ) {
-    let serves_nothing = session_socket.is_none() && matches!(acpmux, AcpmuxTarget::Off);
+    // Every paired stream is read: a link that serves nothing else still takes its peers' rekeys.
+    let rekey = peers.rekey_target();
     while let Some((stream, key, address)) = listener.accept().await {
-        if serves_nothing {
-            continue;
-        }
+        let rekey = rekey.clone();
         let session_socket = session_socket.clone();
         let acpmux = acpmux.clone();
         let pairings = peers.snapshot();
@@ -189,6 +227,7 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
                 owner.as_deref(),
                 &acpmux,
                 Some(revocations),
+                Some(&rekey),
             )
             .await;
             // Owner session refusals are security events: always log them.
