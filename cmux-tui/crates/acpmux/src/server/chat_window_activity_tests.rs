@@ -27,7 +27,7 @@ struct Setup {
     out: mpsc::Receiver<String>,
 }
 
-/// Three chats in a temp home, the chat index started, and one connection.
+/// Three chats in a temp home, chat 2 newest, the chat index started, and one connection.
 async fn setup() -> Setup {
     let home = tempfile::tempdir().unwrap();
     let home_path = std::fs::canonicalize(home.path()).unwrap();
@@ -37,8 +37,11 @@ async fn setup() -> Setup {
         let line = json!({"type": "user", "isSidechain": false, "cwd": "/work",
             "sessionId": session_id(i), "timestamp": format!("2026-10-01T01:00:0{i}.000Z"),
             "message": {"role": "user", "content": format!("chat {i}")}});
-        std::fs::write(projects.join(format!("{}.jsonl", session_id(i))), format!("{line}\n"))
-            .unwrap();
+        let file = projects.join(format!("{}.jsonl", session_id(i)));
+        std::fs::write(&file, format!("{line}\n")).unwrap();
+        // A Claude chat's order is its file's mtime: files written in one millisecond would tie.
+        let at = std::time::UNIX_EPOCH + Duration::from_secs(1_790_000_000 + i as u64);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(at).unwrap();
     }
     let mut config = Config::default();
     config.store.mode = StoreMode::Memory;
