@@ -753,6 +753,45 @@ console.log('NO_TAB_LEFT');
         .unwrap();
     let output = child.wait_with_output().unwrap();
     release("verify-flow-timeout");
+    // Review F1 at 646322c: a session named `..` must keep its shots under `walkthrough/`, where
+    // pruning cannot reach other files in the temp folder.
+    let mut dotted = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["eval", "--engine", "headless", "--session", "..", "--socket"])
+        .arg(&socket)
+        .arg("-")
+        .current_dir(&dir)
+        .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run cmux-browser-host eval as session ..");
+    dotted
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            r#"
+const run = await verifyFlow(__PORT__, [{ open: '/walkthrough' }]);
+const shot = /: (\/[^\]]+)\]$/.exec(run.steps[0].screenshot)[1];
+const under = path.join(os.tmpdir(), 'walkthrough') + '/';
+if (!shot.startsWith(under) || path.dirname(shot) + '/' === under) throw new Error('shot left walkthrough/: ' + shot);
+console.log('DOT_SESSION_OK');
+"#
+            .replace("__PORT__", &port.to_string())
+            .as_bytes(),
+        )
+        .unwrap();
+    let dotted = dotted.wait_with_output().unwrap();
+    let dotted_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&dotted.stdout),
+        String::from_utf8_lossy(&dotted.stderr)
+    );
+    assert!(
+        dotted.status.success() && dotted_output.contains("DOT_SESSION_OK"),
+        "verifyFlow as session `..`: {dotted_output}"
+    );
     let success = output.status.success();
     let output = format!(
         "{}{}",
