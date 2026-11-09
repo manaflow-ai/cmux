@@ -21,6 +21,8 @@ import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
 import { BoltIcon } from "./BoltIcon";
+import { setModelChipIcon, useModelChipIcon } from "./modelChipIcon";
+import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
@@ -421,6 +423,7 @@ export function ModelPicker(props: ModelPickerProps) {
     return true;
   };
   const t = useT();
+  const showChipIcon = useModelChipIcon();
   // The Default row's name follows the pane language (`sectionsFor`), so the model rows do too.
   const lang = usePaneLanguage();
   const newTab = useContext(OnNewTab);
@@ -1231,8 +1234,9 @@ export function ModelPicker(props: ModelPickerProps) {
   const chipFace = (
     <>
       {/* The provider's logo left of the model's name (cmux#38053): Claude for Claude models, OpenAI
-          for Codex and GPT, each harness's own mark, in its brand colors as the model menu draws it. */}
-      <AgentMark agent={chipHarness} size={16} />
+          for Codex and GPT, each harness's own mark, in its brand colors as the model menu draws it.
+          The chip's right-click hides it (modelChipIcon.ts). */}
+      {showChipIcon && <AgentMark agent={chipHarness} size={16} />}
       {sessionAuthChip && (
         <span className="acpmux-model-detail" aria-label={sessionAuthText}>
           {sessionAuthChip}
@@ -1281,10 +1285,12 @@ export function ModelPicker(props: ModelPickerProps) {
       <span className="sr-only">{forkText}</span>
     </span>
   );
-  return (
+  const picker = (
     <span
       ref={root}
       className="acpmux-picker acpmux-model"
+      // Its right-click is its own customize menu (below), not its picker (composerChipMenu.ts).
+      data-own-context-menu=""
       style={{ position: "relative" }}
       // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
       {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
@@ -1835,5 +1841,24 @@ export function ModelPicker(props: ModelPickerProps) {
         </PickerDialog>
       )}
     </span>
+  );
+  // The chip's right-click customizes it (Leo 2026-11-08: "make right clicking the model picker let
+  // you customize"). A right-click inside its open menu or picker keeps theirs.
+  return (
+    <ContextMenu
+      asChild
+      targets="own"
+      ignore=".acpmux-mp"
+      items={[
+        {
+          id: "model-chip-icon",
+          label: t("modelChip.menu.showIcon"),
+          checked: showChipIcon,
+          onSelect: () => setModelChipIcon(!showChipIcon),
+        },
+      ]}
+    >
+      {picker}
+    </ContextMenu>
   );
 }
