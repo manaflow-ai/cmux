@@ -104,8 +104,11 @@ impl AgentRoster {
             agent: existing.agent.clone(),
             updated_at_ms: observed_at_ms,
             since_ms: Some(observed_at_ms),
-            cause: Some(StateCause::of(event, FoldDecision::ProgramStatusClearedHookBlocker)),
-            previous: Some(PreviousState::of(existing, observed_at_ms)),
+            cause: Some(Box::new(StateCause::of(
+                event,
+                FoldDecision::ProgramStatusClearedHookBlocker,
+            ))),
+            previous: Some(Box::new(PreviousState::of(existing, observed_at_ms))),
         };
         self.entries.insert(terminal_id.to_string(), entry.clone());
         vec![RosterDelta::Upsert { terminal_id: terminal_id.to_string(), entry }]

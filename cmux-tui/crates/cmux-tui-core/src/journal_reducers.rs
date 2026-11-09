@@ -550,11 +550,12 @@ pub(crate) struct RosterEntry {
     /// The journal record that moved the terminal into `state`, and how the
     /// fold took it ([`StateCause`]); kept while the state lasts. Absent from
     /// entries written before it.
+    /// Boxed: most rows are folded and copied far more often than explained.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) cause: Option<StateCause>,
+    pub(crate) cause: Option<Box<StateCause>>,
     /// The state the terminal held before `state` ([`PreviousState`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) previous: Option<PreviousState>,
+    pub(crate) previous: Option<Box<PreviousState>>,
 }
 
 /// Restart fences retained after a plugin child exits. A tagged observation
@@ -1064,8 +1065,8 @@ impl AgentRoster {
         let (cause, previous) = match kept {
             Some(kept) => (kept.cause.clone(), kept.previous.clone()),
             None => (
-                Some(StateCause::of(event, decision)),
-                existing.map(|existing| PreviousState::of(existing, updated_at_ms)),
+                Some(Box::new(StateCause::of(event, decision))),
+                existing.map(|existing| Box::new(PreviousState::of(existing, updated_at_ms))),
             ),
         };
         let entry = RosterEntry {
