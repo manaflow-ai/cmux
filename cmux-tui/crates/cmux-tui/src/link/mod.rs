@@ -493,7 +493,7 @@ async fn serve(
     watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
-    let pairings = cmux_link::pairing::Pairings::load(&state.peers_path())?;
+    let pairings = Pairings::load(&state.peers_path())?;
     // One key per machine: the node key, adopted under the held lock (`key_adoption.rs`).
     let private_key = key_adoption::serve_key(&state, key, config.port, &pairings).await?;
     let public_key = state::public_key(&private_key);
