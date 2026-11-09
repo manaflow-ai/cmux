@@ -12,7 +12,8 @@
 // bench/web-ui-suite.ts probes right before and right after each bench, while none of the bench's own processes run,
 // so the factor is the other work on the host, not the app's own cost: an app that burns more CPU is not normalized
 // away. It divides the bench's wall-clock rows (unit ms) by that factor; counts, shifts, scores, MB and ratios are not
-// times and stay as measured.
+// times, and CPU rows (clock "cpu": idle CPU, task ms per second) are work done, not time waited, so they stay as
+// measured.
 import type { PerfRow } from "./perfRow";
 
 const SPIN_MS = 20;
@@ -48,14 +49,14 @@ export function contentionFactor(ratios: readonly number[]): number {
   return Math.round(Math.min(MAX_FACTOR, Math.max(1, median)) * 100) / 100;
 }
 
-/// A bench's rows on an idle host's scale (pure): each wall-clock row (unit ms, the default) divided by the factor,
+/// A bench's rows on an idle host's scale (pure): each wall-clock row (unit ms and clock "wall", the defaults) divided by the factor,
 /// with the measured p95 kept as raw_p95 and the factor as load. Every other row, and every row at factor 1, is
 /// returned as it is.
 export function normalizeRows(rows: readonly PerfRow[], factor: number): PerfRow[] {
   if (!(factor > 1)) return [...rows];
   const scale = (value: number) => Math.round((value / factor) * 1_000_000) / 1_000_000;
   return rows.map((row) =>
-    (row.unit ?? "ms") !== "ms"
+    (row.unit ?? "ms") !== "ms" || row.clock === "cpu"
       ? row
       : {
           ...row,
