@@ -222,6 +222,7 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/conversation/sendTuck.ts": {
     count: 2,
     what: "a prompt sent while scrolled up arcs over the composer and tucks behind it",
+  },
   "src/agent-session/acpmux/conversation/turnEndFold.ts": {
     count: 1,
     what: "a turn's end folds its work in one motion: the rows that stay slide to their place, copies of the rows it took away fade where they were",
