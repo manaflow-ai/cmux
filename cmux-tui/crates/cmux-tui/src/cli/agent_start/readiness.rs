@@ -10,8 +10,13 @@
 //!   onboarding, Codex's trust or update prompt), or a fresh hook record
 //!   says the agent waits on the person. The dialog's id and a reason come
 //!   with it. cmux never answers the dialog.
-//! - `ready`: no dialog, and a fresh hook record says the agent is idle (the
-//!   `SessionStart` hook) or the screen shows the agent's input box.
+//! - `ready`: no dialog, and a fresh record the agent reported itself (its
+//!   hooks or the socket, never the screen-detection plugin) says it is idle
+//!   (the `SessionStart` hook), or the screen shows the agent's input box. A
+//!   harness whose hooks report a session start
+//!   ([`session_report_pending`](super::super::terminal_talk::roster::session_report_pending))
+//!   is ready on that report alone: Claude Code draws its input box seconds
+//!   before it takes a message.
 //! - `starting`: neither yet.
 //! - `exited`: the terminal's process ended.
 //!
@@ -204,8 +209,16 @@ pub(in crate::cli) struct Look<'a> {
     pub hook_state: Option<&'a str>,
 }
 
-/// The readiness one look shows (see the module docs).
+/// The readiness one look shows for an agent whose own report is not
+/// required (see the module docs).
+#[cfg(test)]
 pub(in crate::cli) fn assess(look: &Look<'_>) -> Readiness {
+    assess_for(look, false)
+}
+
+/// [`assess`], where `report_required` leaves only the agent's own idle
+/// report as ready, not its input box on the screen.
+pub(in crate::cli) fn assess_for(look: &Look<'_>, report_required: bool) -> Readiness {
     if look.exited {
         return Readiness::Exited;
     }
@@ -216,7 +229,7 @@ pub(in crate::cli) fn assess(look: &Look<'_>) -> Readiness {
         Some("blocked") => Readiness::Blocked(AGENT_QUESTION),
         Some("working") => Readiness::Starting,
         Some("idle") => Readiness::Ready,
-        _ if composer_visible(look.screen) => Readiness::Ready,
+        _ if !report_required && composer_visible(look.screen) => Readiness::Ready,
         _ => Readiness::Starting,
     }
 }
@@ -266,11 +279,19 @@ pub(in crate::cli) struct WaitOptions {
     pub poll: Duration,
     /// Agent records older than this (Unix ms) do not count.
     pub since_ms: u64,
+    /// Ready only on the agent's own idle report ([`assess_for`]).
+    pub report_required: bool,
 }
 
 impl WaitOptions {
     pub(in crate::cli) fn new(timeout: Duration, since_ms: u64) -> Self {
-        Self { timeout, settle: DEFAULT_SETTLE, poll: DEFAULT_POLL, since_ms }
+        Self {
+            timeout,
+            settle: DEFAULT_SETTLE,
+            poll: DEFAULT_POLL,
+            since_ms,
+            report_required: false,
+        }
     }
 }
 
@@ -281,6 +302,8 @@ pub(in crate::cli) struct Outcome {
     /// The last readiness seen (`starting` when nothing else was).
     pub last: Readiness,
     pub waited: Duration,
+    /// The wait took only the agent's own report as ready.
+    pub report_required: bool,
 }
 
 fn number(value: &Value) -> Option<u64> {
@@ -288,11 +311,13 @@ fn number(value: &Value) -> Option<u64> {
 }
 
 /// The state of the newest agent record of `records` written at or after
-/// `since_ms`.
+/// `since_ms` that the agent reported itself
+/// ([`reported_by_agent`](super::super::terminal_talk::roster::reported_by_agent)).
 pub(in crate::cli) fn fresh_hook_state(records: &Value, since_ms: u64) -> Option<&str> {
     records
         .as_array()?
         .iter()
+        .filter(|record| super::super::terminal_talk::roster::reported_by_agent(record))
         .filter(|record| number(&record["updated_at_ms"]).is_some_and(|ms| ms >= since_ms))
         .max_by_key(|record| number(&record["updated_at_ms"]).unwrap_or(0))
         .and_then(|record| record["state"].as_str())
@@ -334,13 +359,14 @@ where
                         .is_some_and(|lifecycle| lifecycle == "exited"),
                     hook_state: fresh_hook_state(&records, options.since_ms),
                 };
-                last = assess(&look);
+                last = assess_for(&look, options.report_required);
                 let at = now();
                 if let Some(done) = gate.observe(screen, last, at) {
                     return Ok(Outcome {
                         readiness: Some(done),
                         last,
                         waited: at.saturating_duration_since(started),
+                        report_required: options.report_required,
                     });
                 }
             }
@@ -356,6 +382,7 @@ where
                 readiness: None,
                 last,
                 waited: at.saturating_duration_since(started),
+                report_required: options.report_required,
             });
         }
         sleep(options.poll.min(deadline.saturating_duration_since(at)));

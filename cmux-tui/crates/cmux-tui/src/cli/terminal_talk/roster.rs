@@ -154,6 +154,37 @@ fn status_of(word: &str, unseen: bool) -> Option<AgentStatus> {
     }
 }
 
+/// Whether an agent record is the agent's own report (its hooks, or a
+/// report over the socket), not a guess from the screen (the screen-detection
+/// plugin, `plugin`, or the older `detected`). Only an own report says when
+/// an agent accepts a message or took one (W5-R: a screen record said idle
+/// before Claude Code had started).
+pub(in crate::cli) fn reported_by_agent(record: &Value) -> bool {
+    !matches!(record.get("source").and_then(Value::as_str), Some("plugin" | "detected"))
+}
+
+/// Whether the hooks cmux installs for `harness` (any alias,
+/// cmux-tui-hooks `provider_events`) include one that `kind` matches, a
+/// cmux-tui-core `agent_hook_event_*` predicate. A harness with no such hook
+/// never reports that event, so no wait may depend on it.
+pub(in crate::cli) fn harness_hooks_report(harness: &str, kind: fn(&str, &str) -> bool) -> bool {
+    let harness = super::super::agent_vocabulary::harness_name(harness);
+    cmux_tui_hooks::provider_events(&harness)
+        .is_some_and(|events| events.iter().any(|event| kind(&harness, event)))
+}
+
+/// Whether a screen guess of `idle` must wait for the agent's own report:
+/// `harness`'s hooks report a session start, and none has come for this
+/// terminal yet (`session_id`, the harness session id its hooks leave on the
+/// terminal, `extra.agent_session_id`). Claude Code draws its input box
+/// seconds before its `SessionStart`, and a prompt typed then is lost
+/// (W5-T real-build check). `agent start`, `terminal wait --until ready`
+/// and `terminal wait --any|--all` share this rule.
+pub(in crate::cli) fn session_report_pending(harness: &str, session_id: Option<&str>) -> bool {
+    session_id.is_none_or(str::is_empty)
+        && harness_hooks_report(harness, cmux_tui_core::agent_hook_event_starts_session)
+}
+
 /// The agent of one terminal record, from the daemon's agent records of
 /// that terminal (newest first wins) or its OSC 7501 program status.
 /// `unseen` is whether the terminal carries an unread notification.

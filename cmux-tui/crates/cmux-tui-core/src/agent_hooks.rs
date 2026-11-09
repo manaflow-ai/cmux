@@ -487,6 +487,14 @@ fn validate_native_event(native_event: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Whether `source`'s native hook event `native_event` reports a session
+/// start (`agent.session.started`, which the roster shows as `idle`):
+/// Claude's, Codex's and Gemini's `SessionStart`, Cursor's `sessionStart`.
+/// A harness none of whose hooks does reports nothing when it starts.
+pub fn agent_hook_event_starts_session(source: &str, native_event: &str) -> bool {
+    semantic_kind(source, native_event, &Map::new()) == "agent.session.started"
+}
+
 fn semantic_kind(
     source: &str,
     native_event: &str,

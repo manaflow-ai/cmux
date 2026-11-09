@@ -209,7 +209,9 @@ pub(super) struct Seen {
     pub(super) terminal: String,
     pub(super) name: Option<String>,
     /// The shared status word, `ended` for an ended session, `gone` for a
-    /// terminal the session no longer has, `none` while no agent reported.
+    /// terminal the session no longer has, `none` while no agent reported,
+    /// `starting` while the screen says idle before the agent's own
+    /// session-start report.
     pub(super) status: &'static str,
     pub(super) source: Option<String>,
     pub(super) updated_at_ms: Option<u64>,
@@ -249,6 +251,7 @@ pub(super) fn observe(snapshot: &Value, terminals: &[String]) -> Vec<Seen> {
             let status = match (record, &row) {
                 (None, _) => "gone",
                 (Some(record), _) if record["lifecycle"] == "exited" => "ended",
+                (Some(record), Some(row)) if starting(record, row) => "starting",
                 (Some(_), Some(row)) => row.status_word(),
                 (Some(_), None) => "none",
             };
@@ -261,6 +264,18 @@ pub(super) fn observe(snapshot: &Value, terminals: &[String]) -> Vec<Seen> {
             }
         })
         .collect()
+}
+
+/// A screen guess of idle for an agent whose harness reports its session
+/// start before that report came: the agent takes no message yet
+/// ([`roster::session_report_pending`]).
+fn starting(record: &Value, row: &roster::AgentRow) -> bool {
+    matches!(row.status_word(), "idle" | "done")
+        && matches!(row.source.as_str(), "plugin" | "detected")
+        && roster::session_report_pending(
+            &row.harness,
+            record.pointer("/extra/agent_session_id").and_then(Value::as_str),
+        )
 }
 
 /// What one look at the listed agents says.

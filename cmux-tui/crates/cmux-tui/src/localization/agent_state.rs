@@ -10,6 +10,10 @@ pub(crate) struct AgentStateMessages {
     pub explain_help: &'static str,
     /// `cmux terminal wait --help`.
     pub wait_help: &'static str,
+    /// `agent start` / `terminal wait --until ready` timed out waiting for the
+    /// agent's own session-start report. `{waited}`: a duration; `{who}`: the
+    /// agent or terminal.
+    pub session_not_reported: &'static str,
     /// Row label: the agent's state now.
     pub state: &'static str,
     /// Row label: the record that set the state.
@@ -83,6 +87,7 @@ the journal record itself; a record that left the journal says so.
 --json prints the same data (exit 0); no agent in the terminal is
 agent.not_found (exit 1).
 ",
+    session_not_reported: "the agent did not report that it is ready (its SessionStart hook) within {waited}; its input box alone does not count, because the agent takes no message before that report. Read its screen with cmux terminal {who} screen read",
     wait_help: "\
 USAGE
   cmux terminal <selector> wait --until idle|prompt|ready [--timeout D]
@@ -93,7 +98,9 @@ USAGE
 --all when every listed agent does. A target is a terminal, tab or agent
 name; --until takes idle, blocked, done, working or ended, as a comma list or
 repeated (default idle,blocked,done). idle also matches done (a finished turn
-nobody has viewed). A wait that already holds returns at once. The result
+nobody has viewed). An agent whose hooks report a session start (Claude Code)
+shows starting, not idle, until that report comes: its input box is drawn
+before it takes a message. A wait that already holds returns at once. The result
 names the terminal that matched, its state and every listed agent's state.
 It waits on the session's event stream (no polling). A passed --timeout is
 wait.timeout (exit 124); agents that ended so the wait can never hold are
@@ -149,6 +156,7 @@ cmux がエージェントの状態をそう判断した理由を表示します
 --json は同じ内容を JSON で出力します (終了コード 0)。端末にエージェントがない場合は
 agent.not_found (終了コード 1) です。
 ",
+    session_not_reported: "エージェントが {waited} 以内に準備完了を報告しませんでした (SessionStart フック)。その報告の前はメッセージを受け付けないため、入力欄が見えるだけでは準備完了とみなしません。cmux terminal {who} screen read で画面を確認してください",
     wait_help: "\
 使い方
   cmux terminal <selector> wait --until idle|prompt|ready [--timeout D]
@@ -159,7 +167,9 @@ agent.not_found (終了コード 1) です。
 --all はすべてがそうなった時点で戻ります。対象には端末、タブ、エージェント名を
 指定できます。--until には idle、blocked、done、working、ended をカンマ区切りまたは
 繰り返しで指定します (既定値 idle,blocked,done)。idle は done (誰も見ていない完了した
-ターン) にも一致します。すでに条件を満たしていればすぐに戻ります。結果には一致した
+ターン) にも一致します。フックでセッション開始を報告するエージェント (Claude Code) は、
+その報告が来るまで idle ではなく starting と表示されます (入力欄はメッセージを
+受け付ける前に表示されるため)。すでに条件を満たしていればすぐに戻ります。結果には一致した
 端末とその状態、列挙した全エージェントの状態が含まれます。待機はセッションの
 イベントストリームで行います (ポーリングしません)。--timeout を過ぎると wait.timeout
 (終了コード 124)、エージェントが終了して条件を満たせなくなった場合は

@@ -34,6 +34,11 @@ const TRUST: &str = "\
 
  Enter to confirm · Esc to cancel";
 
+/// The agent's own idle report (its SessionStart hook).
+static SESSION_STARTED: std::sync::LazyLock<Value> = std::sync::LazyLock::new(
+    || json!([{"terminal_id": NEW, "state": "idle", "source": "hook", "updated_at_ms": "2000"}]),
+);
+
 const COMPOSER: &str = "\
  ✻ Welcome to Claude Code!
 
@@ -489,7 +494,8 @@ fn w3h_start_in_a_session_with_no_pane_opens_a_workspace_for_the_agent() {
         ),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
-        "agent.list" => json!([]),
+        // Claude Code is ready on its SessionStart hook, not its input box.
+        "agent.list" => SESSION_STARTED.clone(),
         _ => json!({}),
     });
     let env = Env { caller_terminal: None, ..env() };
@@ -550,7 +556,7 @@ fn w3h_start_in_an_empty_session_uses_the_workspace_it_created_not_the_focused_o
             "pane.run" => created(PANE_B, "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0", NEW),
             "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
             "terminal.screen.read" => json!({"text": COMPOSER}),
-            "agent.list" => json!([]),
+            "agent.list" => SESSION_STARTED.clone(),
             _ => json!({}),
         });
         let env = Env { caller_terminal: None, ..env() };

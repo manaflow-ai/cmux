@@ -379,6 +379,18 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
                  cmux terminal {who} resume brings it back"
             )),
         ),
+        Some(Readiness::Starting) | None if outcome.report_required => (
+            "timeout",
+            TIMEOUT_EXIT,
+            None,
+            Some(
+                crate::localization::catalog()
+                    .agent_state
+                    .session_not_reported
+                    .replace("{waited}", &waited)
+                    .replace("{who}", who),
+            ),
+        ),
         Some(Readiness::Starting) | None => (
             "timeout",
             TIMEOUT_EXIT,
@@ -400,7 +412,8 @@ fn humantime(duration: Duration) -> String {
     super::terminal_talk::roster::age(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// Waits (unless `--no-wait`) and records the end in `report`.
+/// Waits (unless `--no-wait`) and records the end in `report`. With
+/// `report_required` the agent is ready only once it reports idle itself.
 fn finish<D: Daemon + ?Sized>(
     daemon: &D,
     clock: &mut Clock<'_>,
@@ -408,6 +421,7 @@ fn finish<D: Daemon + ?Sized>(
     created: &Created,
     who: &str,
     report: &mut Value,
+    report_required: bool,
 ) -> Result<i32, Failure> {
     if options.focus
         && let Ok(focus) = plan(&["tab", created.tab.as_str(), "focus"])
@@ -420,7 +434,7 @@ fn finish<D: Daemon + ?Sized>(
         return Ok(0);
     }
     let reads = terminal_reads(&created.terminal)?;
-    let wait = WaitOptions::new(options.timeout, clock.now_ms);
+    let wait = WaitOptions { report_required, ..WaitOptions::new(options.timeout, clock.now_ms) };
     let outcome = readiness::wait(daemon, &reads, wait, clock.now, clock.sleep)?;
     Ok(apply_outcome(report, &outcome, who))
 }
@@ -500,7 +514,11 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     }
     let mut report =
         report(Some(name), &launch, harness.as_deref(), cwd.as_deref(), &placement, &created);
-    let exit = finish(daemon, clock, options, &created, name, &mut report)?;
+    // A new terminal: no hook of this agent has reported its session yet.
+    let report_required = harness
+        .as_deref()
+        .is_some_and(|harness| super::terminal_talk::roster::session_report_pending(harness, None));
+    let exit = finish(daemon, clock, options, &created, name, &mut report, report_required)?;
     Ok((report, exit))
 }
 
@@ -736,8 +754,36 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
         }),
     );
     let who = name.unwrap_or(created.terminal.as_str()).to_owned();
-    let exit = finish(daemon, clock, options, &created, &who, &mut report)?;
+    // W5-R owns when a resume waits for the agent's own report.
+    let exit = finish(daemon, clock, options, &created, &who, &mut report, false)?;
     Ok((report, exit))
+}
+
+/// The harness of terminal `id`'s agent in `snapshot`: its newest agent
+/// record's, else the one its hooks left on the terminal (`extra.agent`).
+fn terminal_harness(snapshot: &Value, id: &str) -> Option<String> {
+    let records = snapshot.get("agents").and_then(Value::as_array);
+    let from_record = records.and_then(|records| {
+        records
+            .iter()
+            .filter(|record| record.get("terminal_id").and_then(Value::as_str) == Some(id))
+            .find_map(|record| {
+                record
+                    .pointer("/extra/agent")
+                    .or_else(|| record.get("agent"))
+                    .and_then(Value::as_str)
+            })
+    });
+    let from_terminal = || {
+        snapshot.get("terminals").and_then(Value::as_array).and_then(|terminals| {
+            terminals
+                .iter()
+                .find(|terminal| terminal.get("id").and_then(Value::as_str) == Some(id))
+                .and_then(|terminal| terminal.pointer("/extra/agent"))
+                .and_then(Value::as_str)
+        })
+    };
+    from_record.or_else(from_terminal).map(harness_name)
 }
 
 /// `terminal <t> wait --until ready [--timeout D]`: waits as `agent start`
@@ -761,9 +807,14 @@ fn wait_ready<D: Daemon + ?Sized>(
 ) -> Result<(Value, i32), Failure> {
     let snapshot = send::snapshot(daemon, None)?;
     let terminal = send::find_terminal(&snapshot, selector)?;
-    let id = terminal["id"].as_str().unwrap_or_default().to_owned();
+    let id = terminal.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let reads = terminal_reads(&id)?;
-    let options = WaitOptions::new(timeout.unwrap_or(UNBOUNDED_WAIT), 0);
+    let session_id = terminal.pointer("/extra/agent_session_id").and_then(Value::as_str);
+    let report_required = terminal_harness(&snapshot, &id).is_some_and(|harness| {
+        super::terminal_talk::roster::session_report_pending(&harness, session_id)
+    });
+    let options =
+        WaitOptions { report_required, ..WaitOptions::new(timeout.unwrap_or(UNBOUNDED_WAIT), 0) };
     let outcome = readiness::wait(daemon, &reads, options, &Instant::now, &mut std::thread::sleep)?;
     let mut report = json!({"terminal_id": id, "until": "ready"});
     let exit = apply_outcome(&mut report, &outcome, &id);
