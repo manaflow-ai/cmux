@@ -2628,7 +2628,9 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertTrue(self.runs(unjudged(self.context([source], head_repo="someone/cmux"))))
         place = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["macos-placement"]["steps"]
                      if step.get("id") == "place")
-        self.assertIn("needs.path_route.outputs.mac_release == 'true' && 'release-compile'", place["env"]["GATEWAY_CASCADE"])
+        # With no gateway for the app compile, the Mac Release compile it falls back to takes the cascade.
+        self.assertIn("needs.path_route.outputs.mac_release == 'true' && !(needs.app-compile-placement.outputs.gateway_attempt",
+                      place["env"]["CASCADE_RUNS"])
 
     def test_fast_gate_is_the_first_compile_path_and_has_no_single_host_reservation(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -3119,6 +3121,9 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
 
     LIGHT = "glaeda-side-light-xcode-26.6"
     STD = "glaeda-side-std-xcode-26.6"
+    # The job whose gateway reading each gateway job takes: macos-placement, after the PR quiet period, except
+    # the PR's app compile, judged at once (app-compile-placement; Leo, 2026-11-08: only the Mac jobs wait).
+    READING = {"app-compile-fleet": "app-compile-placement"}
     # Each gateway job's Mac fallback, which must run when the gateway job does not, and the event it runs on.
     FALLBACKS = {"app-compile-fleet": ("release-compile", "pull_request"),
                  "swift-canary-fleet": ("swift-canary", "pull_request"),
@@ -3166,8 +3171,9 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
             "needs.macos-placement.outputs.fleet_jobs": " fast-tier ",
         }
         if reading is not None:
-            context["needs.macos-placement.outputs.gateway_attempt"] = reading[0]
-            context["needs.macos-placement.outputs.gateway_runner"] = reading[1]
+            for placement in ("macos-placement", "app-compile-placement"):
+                context[f"needs.{placement}.outputs.gateway_attempt"] = reading[0]
+                context[f"needs.{placement}.outputs.gateway_runner"] = reading[1]
         return context
 
     def test_every_job_that_can_run_on_the_gateway_is_guarded(self):
@@ -3180,7 +3186,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
         placement_env = next(step["env"] for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
         for name, (fallback, event) in self.FALLBACKS.items():
             job = jobs[name]
-            self.assertIn("macos-placement", job["needs"])
+            self.assertIn(self.READING.get(name, "macos-placement"), job["needs"])
             for attempt, reading in ((1, ("1", self.LIGHT)), (1, ("1", self.STD)), (1, ("1", "")), (1, ("", "")),
                                      (1, None), (2, ("1", self.LIGHT)), (2, ("2", self.LIGHT)), (2, ("2", "")),
                                      (2, None), (3, ("2", self.STD))):
@@ -3211,8 +3217,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
                                "needs.fast-tier-fleet.result": "skipped", "needs.fast-tier-fleet.outputs.verdict": ""}
                     self.assertTrue(evaluate(jobs[fallback]["if"], skipped), f"{fallback} must run when {name} skips")
                     self.assertIn(fallback, self.cascade_jobs())
-                    runs = (evaluate(placement_env["CASCADE_RUNS"], skipped) + " "
-                            + evaluate(placement_env["GATEWAY_CASCADE"], skipped)).split()
+                    runs = evaluate(placement_env["CASCADE_RUNS"], skipped).split()
                     self.assertIn(fallback, runs, f"{fallback} must join the cascade when {name} skips")
 
 
@@ -3244,26 +3249,27 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
     def test_it_runs_on_a_same_repository_pr_the_native_tier_reaches(self):
         job = self.job()
         self.assertEqual(job["name"], self.NAME)
-        context = {**self.context(), "needs.macos-placement.outputs.gateway_attempt": "1",
-                   "needs.macos-placement.outputs.gateway_runner": "glaeda-gateway"}
+        context = {**self.context(), "needs.app-compile-placement.outputs.gateway_attempt": "1",
+                   "needs.app-compile-placement.outputs.gateway_runner": "glaeda-gateway"}
         self.assertTrue(evaluate(job["if"], context))
         self.assertEqual(evaluate(job["runs-on"], context), "glaeda-gateway")
 
     def test_it_takes_only_an_idle_gateway_placement_saw(self):
         """2026-10-26 06:00Z: 44 jobs queued on the light side gateway, oldest 58 minutes; PR #24155's
-        compile queued there three times. macos-placement names an idle gateway runner or none."""
+        compile queued there three times. Its placement (app-compile-placement for the app compile,
+        macos-placement for the canary) names an idle gateway runner or none."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        for name in ("app-compile-fleet", "swift-canary-fleet"):
+        for name, placement in (("app-compile-fleet", "app-compile-placement"), ("swift-canary-fleet", "macos-placement")):
             job = jobs[name]
             with self.subTest(job=name):
-                self.assertIn("macos-placement", job["needs"])
+                self.assertIn(placement, job["needs"])
                 context = {**self.context(), "needs.path_route.outputs.swift_canary": "true",
                            "github.run_attempt": 1}
-                idle = {**context, "needs.macos-placement.outputs.gateway_attempt": "1",
-                        "needs.macos-placement.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}
+                idle = {**context, f"needs.{placement}.outputs.gateway_attempt": "1",
+                        f"needs.{placement}.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}
                 self.assertTrue(evaluate(job["if"], idle))
                 self.assertEqual(evaluate(job["runs-on"], idle), "glaeda-side-std-xcode-26.6")
-                none_idle = {**idle, "needs.macos-placement.outputs.gateway_runner": ""}
+                none_idle = {**idle, f"needs.{placement}.outputs.gateway_runner": ""}
                 self.assertFalse(evaluate(job["if"], none_idle))
                 # Placement skipped, failed, or ran an older base script: no reading, no gateway queue.
                 self.assertFalse(evaluate(job["if"], context))
@@ -3271,32 +3277,54 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
                 self.assertFalse(evaluate(job["if"], {**idle, "github.run_attempt": 2}))
                 self.assertFalse(evaluate(job["if"], {**context, "github.run_attempt": 2}))
                 self.assertTrue(evaluate(job["if"], {**idle, "github.run_attempt": 2,
-                                                     "needs.macos-placement.outputs.gateway_attempt": "2"}))
+                                                     f"needs.{placement}.outputs.gateway_attempt": "2"}))
 
     def test_placement_judges_the_gateway_for_the_jobs_that_start(self):
+        """The app compile's gateway is judged at once (app-compile-placement, Leo 2026-11-08: only the Mac
+        jobs wait for the PR quiet period); macos-placement judges the canary's after the wait."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        early = jobs["app-compile-placement"]
+        self.assertNotIn("pr-quiet-period", early["needs"])
+        self.assertNotIn("macos-placement", early["needs"])
+        early_env = next(step["env"] for step in early["steps"] if step.get("id") == "place")
+        self.assertEqual(early_env["PLACEMENT"], "app-compile")
+        self.assertEqual(early_env["GATEWAY_LABEL"], "${{ vars.CI_COMPILE_CHECK_GATEWAY }}")
+        self.assertEqual(early_env["GATEWAY_JOBS"], "app-compile-fleet")
         placement = jobs["macos-placement"]
-        for output in ("gateway_runner", "gateway_attempt"):
-            self.assertEqual(placement["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
+        self.assertIn("app-compile-placement", placement["needs"])
+        for job in (early, placement):
+            for output in ("gateway_runner", "gateway_attempt"):
+                self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
         step_env = next(step["env"] for step in placement["steps"] if step.get("id") == "place")
         self.assertEqual(step_env["GATEWAY_LABEL"], "${{ vars.CI_COMPILE_CHECK_GATEWAY }}")
+        self.assertNotIn("GATEWAY_CASCADE", step_env)
         for why, context in (("same-repo PR", self.context()), ("fork", self.context(head_repo="someone/cmux")),
                              ("full-ci", self.context(labels=("full-ci",))), ("push", self.context("push")),
                              ("no native tier", self.context(native="false"))):
             with self.subTest(why=why):
-                context = {**context, "needs.path_route.outputs.swift_canary": "false"}
-                app = bool(evaluate(self.job()["if"], {**context, "needs.macos-placement.outputs.gateway_attempt": "1",
-                                                      "needs.macos-placement.outputs.gateway_runner": "glaeda-gateway"}))
-                # The Mac Release compile runs exactly when the fleet compile is skipped, so it joins the
-                # cascade exactly where the app compile would have run.
-                self.assertEqual(evaluate(step_env["GATEWAY_CASCADE"], context), "release-compile" if app else "")
-                self.assertEqual(evaluate(step_env["GATEWAY_JOBS"], context).split(), ["app-compile-fleet"] if app else [])
+                context = {**context, "needs.path_route.outputs.swift_canary": "false",
+                           "needs.path_route.outputs.macos": "true", "vars.CI_PR_POOL_OWNED": "1"}
+                placed = bool(evaluate(early["if"], context))
+                idle = {**context, "needs.app-compile-placement.outputs.gateway_attempt": "1",
+                        "needs.app-compile-placement.outputs.gateway_runner": "glaeda-gateway"}
+                app = bool(evaluate(self.job()["if"], idle))
+                # The early placement runs exactly where the app compile can.
+                self.assertEqual(placed, app)
+                self.assertFalse(evaluate(early["if"], {**context, "github.run_attempt": 2}))
+                # macos-placement no longer judges a gateway for it: its runner is already busy by then.
+                self.assertNotIn("app-compile-fleet", evaluate(step_env["GATEWAY_JOBS"], context).split())
+                # The Mac Release compile joins the cascade exactly where the app compile does not run.
+                if context["github.event_name"] == "pull_request" and not context["github.event.pull_request.labels.*.name"] \
+                        and context["github.event.pull_request.head.repo.full_name"] == "manaflow-ai/cmux":
+                    self.assertNotIn("release-compile", evaluate(step_env["CASCADE_RUNS"], idle).split())
+                    self.assertEqual("release-compile" in evaluate(step_env["CASCADE_RUNS"], context).split(),
+                                     context["needs.path_route.outputs.native"] == "true")
                 canary = {**context, "needs.path_route.outputs.swift_canary": "true"}
                 self.assertIn("swift-canary-fleet", evaluate(step_env["GATEWAY_JOBS"], canary).split())
 
     def test_it_does_not_run_where_the_mac_release_compile_does(self):
-        idle = {"needs.macos-placement.outputs.gateway_attempt": "1",
-                "needs.macos-placement.outputs.gateway_runner": "glaeda-gateway"}
+        idle = {"needs.app-compile-placement.outputs.gateway_attempt": "1",
+                "needs.app-compile-placement.outputs.gateway_runner": "glaeda-gateway"}
         for why, context in (("fork", self.context(head_repo="someone/cmux")),
                              ("full-ci", self.context(labels=("full-ci",))),
                              ("push", self.context("push")),

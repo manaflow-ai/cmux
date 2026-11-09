@@ -94385,6 +94385,86 @@
       "arguments" : [
 
       ],
+      "category" : "window",
+      "cliName" : "action home-show-hide-chief-from-any-app",
+      "computed" : {
+        "canonical_action_id" : "home.showHideChiefFromAnyApp",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : " ",
+        "modifiers" : [
+          "opt",
+          "shift"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "LayoutActionCatalog",
+      "hint" : null,
+      "id" : "home.showHideChiefFromAnyApp",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : true,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "chief",
+        "float",
+        "panel",
+        "show",
+        "hide",
+        "toggle",
+        "global",
+        "hotkey",
+        "hot key",
+        "any app",
+        "summon"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "familyMember"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "familyMember"
+        }
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "bubble.left",
+      "targets" : [
+
+      ],
+      "title" : "Show/Hide Chief from Any App",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
       "category" : "pane",
       "cliName" : "pane move-to-dock",
       "computed" : {

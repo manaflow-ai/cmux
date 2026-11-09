@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "status": "pending",
+  "reason": "No numeric baseline until the first hosted Linux Chromium run.",
+  "source": null,
+  "results": {}
+}

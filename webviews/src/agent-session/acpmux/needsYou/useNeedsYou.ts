@@ -39,6 +39,23 @@ export function answerParams(
   };
 }
 
+/// An answer to an ask of a chat this pane does not show: a tool permission the host answers on
+/// this click (`chat.asks.answer`, AgentPaneAskAnswer: allow once or deny once, a chat on this
+/// Mac's acpmux only), else that chat opens, where its card takes the answer ("opened"). A
+/// question, or another computer's chat, always opens. Needs you's rows and Waiting on you
+/// (queue/QueueScreen.tsx) answer through this one path.
+export async function answerAnotherChat(
+  callNative: CallNative,
+  item: NeedsYouItem,
+  choice: NeedsYouAnswer,
+  { peer, open }: { peer: boolean; open: () => unknown },
+): Promise<"answered" | "opened"> {
+  if (!answerParams(item, choice)) throw new Error("unanswerable");
+  if (!item.question && !peer) return answerFromHome(callNative, item, choice, () => void open());
+  await open();
+  return "opened";
+}
+
 export function useNeedsYou({
   snapshot,
   callNative,
@@ -123,10 +140,11 @@ export function useNeedsYou({
       // Mac's acpmux only); a host that can't opens that chat, whose card answers it, and the row
       // stays. A question, or another computer's chat, opens the chat on the side.
       if (item.sessionId !== sessionId && item.kind !== "held") {
-        if (!item.question && !isPeer(item)) {
-          const outcome = await answerFromHome(callNative, item, choice, () => void openElsewhere(item));
-          if (outcome === "answered") return;
-        } else await openElsewhere(item);
+        const outcome = await answerAnotherChat(callNative, item, choice, {
+          peer: isPeer(item),
+          open: () => openElsewhere(item),
+        });
+        if (outcome === "answered") return;
         throw new Error();
       }
       return callNative(call.method, call.params);
