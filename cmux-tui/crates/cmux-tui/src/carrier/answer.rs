@@ -211,7 +211,7 @@ impl Credential {
 }
 
 /// cmux-platform over HTTPS with the person's credential.
-pub(super) struct HttpSource {
+pub(crate) struct HttpSource {
     api: String,
     credential: Credential,
     /// A credential handed over later (`carrier serve`'s stdin), used in

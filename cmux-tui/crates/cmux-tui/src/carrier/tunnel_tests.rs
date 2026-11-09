@@ -217,12 +217,11 @@ fn signed(rig: &Rig, proof: &Value, lines: [&str; 4]) -> bool {
 
 async fn wait_status(handle: &TunnelHandle, want: impl Fn(&TunnelStatus) -> bool) -> TunnelStatus {
     let mut status = handle.status();
-    let got = tokio::time::timeout(Duration::from_secs(10), status.wait_for(|s| want(s)))
+    tokio::time::timeout(Duration::from_secs(10), status.wait_for(|s| want(s)))
         .await
         .expect("status in time")
         .expect("supervisor alive")
-        .clone();
-    got
+        .clone()
 }
 
 #[tokio::test]
