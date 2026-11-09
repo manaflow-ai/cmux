@@ -385,3 +385,33 @@ async fn datagrams_go_on_every_path_until_one_answers() {
     assert_eq!(control.path(relay).unwrap().sent, 3);
     assert_eq!(control.path(direct).unwrap().sent, 3);
 }
+
+/// A cut under a stream in flight: the tunnel moves to the relay within its
+/// silence windows, and the stream resumes there at once instead of waiting
+/// out a retransmission timer that backed off while the dead path lost its
+/// retransmissions (`Socket::path_changed`).
+#[tokio::test(start_paused = true)]
+async fn a_cut_path_stalls_the_stream_for_less_than_two_rto_floors() {
+    let probes = ProbeConfig::default();
+    let mut world = world(Some(probes)).await;
+    world.run_until(2 * MIB, MIB).await;
+    world.direct_comes_up().await;
+    world.allow.send_replace(TOTAL);
+    let progress = *world.progress.borrow();
+    within(world.progress.wait_for(|offset| *offset >= progress + MIB)).await.expect("reader");
+    // Mid-stream, cut the direct link both ways.
+    let at_cut = *world.progress.borrow();
+    let cut = tokio::time::Instant::now();
+    let down = LinkProfile { latency: DIRECT_LATENCY, cut: true, ..LinkProfile::default() };
+    world.sim.set_link(addr(A_DIRECT), addr(B_DIRECT), down);
+    within(world.progress.wait_for(|offset| *offset >= at_cut + 256 * 1024))
+        .await
+        .expect("reader alive");
+    let stall = cut.elapsed();
+    eprintln!("stall after the cut: {stall:?}");
+    // The tunnel TCP's RTO floor is 200 ms; without the resend on a path
+    // change, the stream waits for a backed-off second RTO (about 600 ms).
+    assert!(stall < Duration::from_millis(400), "the stream stalled {stall:?} after the cut");
+    assert!(*world.progress.borrow() < TOTAL, "the cut happened mid-transfer");
+    world.finish().await;
+}
