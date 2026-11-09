@@ -462,6 +462,17 @@ class SidebarItemRowView: NSView {
         return ink.offsetBy(dx: pin.frame.minX, dy: pin.frame.minY)
     }
 
+    /// The pin's square in the row's coordinates; nil without a pin (tests): Home's glyph square (`SidebarStyle.pinGlyphSide`).
+    var pinSquareFrame: CGRect? { pin.isHidden || pin.image == nil ? nil : pin.frame }
+
+    /// The ink in the row's leading icon column (tests): the pin, else a color dot, else the item's glyph (Home's, a
+    /// band row's, or a pinned workspace's own icon in the pin's place, `SidebarPinnedRowLeading`).
+    var leadingInkFrame: CGRect? {
+        if let pin = pinInkFrame { return pin }
+        if showsSwatchDot { return chip.frame }
+        return glyphInkFrame
+    }
+
     /// The drawn ink of the item's glyph in the row's coordinates; nil when no glyph draws (tests).
     var glyphInkFrame: CGRect? {
         guard !icon.isHidden, let image = icon.image, icon.frame.width > 0,
