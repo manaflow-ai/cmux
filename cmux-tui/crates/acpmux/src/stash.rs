@@ -49,8 +49,6 @@ pub const MAX_CHAT_CHARS: usize = 256;
 pub const ROW_TEXT_CHARS: usize = 2000;
 /// What a `stash_get` reply holds besides the draft: its framing, id and field names.
 pub const REPLY_SLACK: usize = 64 * 1024;
-/// The most ids a chat remembers taking in by a move (each move takes at most [`STASH_LIMIT`]).
-pub const RECEIVED_LIMIT: usize = 64;
 
 /// Every read-modify-write holds this, so two pushes at once never lose one.
 static WRITES: Mutex<()> = Mutex::new(());
@@ -100,10 +98,6 @@ struct ChatFile {
     version: u32,
     chat: String,
     drafts: Vec<Draft>,
-    /// The ids of drafts a move brought in, newest first, kept after the draft is restored or
-    /// dropped: a move tried again after its source's removal failed adds none of them back.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    received: Vec<String>,
 }
 
 /// A new draft's id: a UUIDv7 (its time and 74 random bits), unique across chats and daemon
@@ -193,13 +187,13 @@ pub fn push(
     }
     let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let path = chat_path(dir, chat);
-    let (mut drafts, received) = load_file(&path).map_err(unreadable)?;
+    let mut drafts = load(&path).map_err(unreadable)?;
     if let Some(replaces) = replaces {
         drafts.retain(|d| d.id != replaces);
     }
     drafts.insert(0, draft.clone());
     drafts.truncate(STASH_LIMIT);
-    write(&path, chat, &drafts, &received).map_err(not_saved)?;
+    write(&path, chat, &drafts).map_err(not_saved)?;
     trim_chats(dir, &path);
     Ok(draft)
 }
@@ -208,13 +202,13 @@ pub fn push(
 pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
     let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let path = chat_path(dir, chat);
-    let (mut drafts, received) = load_file(&path).map_err(unreadable)?;
+    let mut drafts = load(&path).map_err(unreadable)?;
     let before = drafts.len();
     drafts.retain(|d| d.id != id);
     if drafts.len() == before {
         return Ok(false);
     }
-    if drafts.is_empty() && received.is_empty() {
+    if drafts.is_empty() {
         // A home that was replaced keeps its files, as a write would refuse it.
         crate::config::refuse_lost_home(&path).map_err(io::Error::other).map_err(not_saved)?;
         match fs::remove_file(&path) {
@@ -223,16 +217,26 @@ pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
             Err(e) => return Err(not_saved(e)),
         }
     } else {
-        write(&path, chat, &drafts, &received).map_err(not_saved)?;
+        write(&path, chat, &drafts).map_err(not_saved)?;
     }
     Ok(true)
 }
 
 /// Moves `from`'s stack onto `to`'s: one write of `to` with `from`'s drafts on top in their order
 /// (as pushing each would put them) and `to`'s own below, the oldest past [`STASH_LIMIT`] let go,
-/// then `from`'s file removed. A draft `to` took in before (a move a failed removal left behind,
-/// whether `to` still holds it or it was restored or dropped since) is not added again.
+/// then `from`'s file removed; when it cannot be, `to` is put back and the move fails whole. A
+/// draft `to` already holds (only a put-back that failed too leaves one) is not added again.
 pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<Moved, RpcError> {
+    move_stack_with(dir, from, to, |path| fs::remove_file(path))
+}
+
+/// [`move_stack`], with the source's removal given (a test makes it fail).
+fn move_stack_with(
+    dir: &Path,
+    from: &str,
+    to: &str,
+    remove_source: impl Fn(&Path) -> io::Result<()>,
+) -> Result<Moved, RpcError> {
     if from == to {
         return Ok(Moved::default());
     }
@@ -244,23 +248,25 @@ pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<Moved, RpcError> {
     }
     let ids: Vec<String> = moving.iter().map(|d| d.id.clone()).collect();
     let to_path = chat_path(dir, to);
-    let (own, mut received) = load_file(&to_path).map_err(unreadable)?;
-    // Ids are unique across chats and relaunches (`new_id`): one `to` holds or took in is a draft
-    // an earlier move put there before its removal failed.
-    let taken = |id: &str| own.iter().any(|d| d.id == id) || received.iter().any(|r| r == id);
-    let mut drafts: Vec<Draft> = moving.into_iter().filter(|draft| !taken(&draft.id)).collect();
+    let own = load(&to_path).map_err(unreadable)?;
+    // Ids are unique across chats and relaunches (`new_id`): one `to` holds is a draft an
+    // earlier move put there before its removal failed.
+    let mut drafts: Vec<Draft> =
+        moving.into_iter().filter(|draft| !own.iter().any(|d| d.id == draft.id)).collect();
     let moved = drafts.len();
-    let mut newest: Vec<String> = drafts.iter().map(|d| d.id.clone()).collect();
-    newest.append(&mut received);
-    newest.truncate(RECEIVED_LIMIT);
-    drafts.extend(own);
+    drafts.extend(own.iter().cloned());
     drafts.truncate(STASH_LIMIT);
-    write(&to_path, to, &drafts, &newest).map_err(not_saved)?;
-    crate::config::refuse_lost_home(&from_path).map_err(io::Error::other).map_err(not_saved)?;
-    match fs::remove_file(&from_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(not_saved(e)),
+    write(&to_path, to, &drafts).map_err(not_saved)?;
+    // A source that stays puts `to` back as it was: a move is whole or not at all, so no draft is
+    // in two stacks for a later move to take twice or one of them to lose.
+    let removed = crate::config::refuse_lost_home(&from_path)
+        .map_err(io::Error::other)
+        .and_then(|()| match remove_source(&from_path) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        });
+    if let Err(e) = removed {
+        return Err(not_saved(e));
     }
     trim_chats(dir, &to_path);
     Ok(Moved { count: moved, ids })
@@ -275,28 +281,17 @@ pub struct Moved {
 }
 
 /// Lets the chats written longest ago go once more than [`STASH_CHATS`] have a stack; never `keep`.
-/// A file that holds no draft, only the ids moves brought in, counts apart, against its own
-/// [`STASH_CHATS`]: a chat whose moved drafts were all used never pushes out one with drafts.
 fn trim_chats(dir: &Path, keep: &Path) {
     let Ok(entries) = fs::read_dir(dir) else { return };
-    let mut stacks: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
-    let mut receipts: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
-    for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
-        if path.extension().is_none_or(|ext| ext != "json") || path == keep {
-            continue;
-        }
-        let Some(modified) = fs::metadata(&path).ok().and_then(|m| m.modified().ok()) else { continue };
-        match load(&path) {
-            Ok(drafts) if drafts.is_empty() => receipts.push((modified, path)),
-            _ => stacks.push((modified, path)),
-        }
-    }
-    let over_stacks = (stacks.len() + 1).saturating_sub(STASH_CHATS);
-    let over_receipts = receipts.len().saturating_sub(STASH_CHATS);
-    stacks.sort();
-    receipts.sort();
-    let going = stacks.into_iter().take(over_stacks).chain(receipts.into_iter().take(over_receipts));
-    for (_, path) in going {
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json") && path != keep)
+        .filter_map(|path| Some((fs::metadata(&path).ok()?.modified().ok()?, path)))
+        .collect();
+    let over = (files.len() + 1).saturating_sub(STASH_CHATS);
+    files.sort();
+    for (_, path) in files.into_iter().take(over) {
         if crate::config::refuse_lost_home(&path).is_err() {
             return;
         }
@@ -338,14 +333,9 @@ fn not_saved(e: io::Error) -> RpcError {
 /// A chat's drafts: none when its file is missing, an error when it cannot be read, does not
 /// parse, or has another version.
 fn load(path: &Path) -> Result<Vec<Draft>, String> {
-    load_file(path).map(|(drafts, _)| drafts)
-}
-
-/// A chat's drafts and the ids moves brought in ([`ChatFile::received`]).
-fn load_file(path: &Path) -> Result<(Vec<Draft>, Vec<String>), String> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), Vec::new())),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(format!("{} cannot be read: {e}", path.display())),
     };
     let file: ChatFile = serde_json::from_slice(&bytes)
@@ -357,21 +347,16 @@ fn load_file(path: &Path) -> Result<(Vec<Draft>, Vec<String>), String> {
             file.version
         ));
     }
-    Ok((file.drafts, file.received))
+    Ok(file.drafts)
 }
 
 /// Writes a chat's file (0600, through a temp file and a rename), as `prompts.rs` does.
-fn write(path: &Path, chat: &str, drafts: &[Draft], received: &[String]) -> io::Result<()> {
+fn write(path: &Path, chat: &str, drafts: &[Draft]) -> io::Result<()> {
     static SAVES: AtomicU64 = AtomicU64::new(0);
     crate::config::refuse_lost_home(path).map_err(io::Error::other)?;
     let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
     fs::create_dir_all(dir)?;
-    let file = ChatFile {
-        version: VERSION,
-        chat: chat.to_owned(),
-        drafts: drafts.to_vec(),
-        received: received.to_vec(),
-    };
+    let file = ChatFile { version: VERSION, chat: chat.to_owned(), drafts: drafts.to_vec() };
     let bytes = serde_json::to_vec(&file).map_err(io::Error::other)?;
     let n = SAVES.fetch_add(1, Ordering::Relaxed);
     let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
@@ -549,46 +534,25 @@ mod tests {
     }
 
     #[test]
-    fn a_move_tried_again_after_its_drafts_were_used_adds_none_back() {
+    fn a_move_whose_source_cannot_be_removed_changes_neither_stack() {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
-        for at in 0..STASH_LIMIT as u64 {
-            push(&dir, "new", &format!("moved {at}"), Vec::new(), None, at).unwrap();
-        }
-        // The move wrote the session's stack but its source stayed (a removal that failed).
-        let source = fs::read(chat_path(&dir, "new")).unwrap();
-        let first = move_stack(&dir, "new", "session").unwrap();
-        fs::write(chat_path(&dir, "new"), source).unwrap();
-        // The moved drafts are restored, then five newer ones stashed.
-        for id in &first.ids {
-            assert!(remove(&dir, "session", id).unwrap());
-        }
-        for at in 0..STASH_LIMIT as u64 {
-            push(&dir, "session", &format!("newer {at}"), Vec::new(), None, 10 + at).unwrap();
-        }
-        // Tried again, the move brings none of the used drafts back and lets no newer one go.
-        let again = move_stack(&dir, "new", "session").unwrap();
-        assert_eq!(again.count, 0);
-        assert_eq!(again.ids, first.ids);
+        push(&dir, "new", "moving", Vec::new(), None, 1).unwrap();
+        push(&dir, "session", "own", Vec::new(), None, 2).unwrap();
+        let session = fs::read(chat_path(&dir, "session")).unwrap();
+        let refused = move_stack_with(&dir, "new", "session", |_| Err(io::Error::other("refused")));
+        assert!(refused.is_err());
+        // The session's stack is as it was and the draft is still the new chat's, only there.
+        assert_eq!(fs::read(chat_path(&dir, "session")).unwrap(), session);
+        assert_eq!(load(&chat_path(&dir, "new")).unwrap()[0].text, "moving");
+        // Into a chat with no stack, the put-back leaves none.
+        assert!(move_stack_with(&dir, "new", "empty", |_| Err(io::Error::other("refused"))).is_err());
+        assert!(!chat_path(&dir, "empty").exists());
+        // Tried again with the removal working, it moves once.
+        assert_eq!(move_stack(&dir, "new", "session").unwrap().count, 1);
         let texts: Vec<String> =
             load(&chat_path(&dir, "session")).unwrap().into_iter().map(|d| d.text).collect();
-        assert_eq!(texts, ["newer 4", "newer 3", "newer 2", "newer 1", "newer 0"]);
-        assert!(!chat_path(&dir, "new").exists());
-    }
-
-    #[test]
-    fn chats_whose_moved_drafts_were_used_push_out_no_stack() {
-        let home = tempfile::tempdir().unwrap();
-        let dir = home.path().join(DIR);
-        push(&dir, "kept", "an older draft", Vec::new(), None, 1).unwrap();
-        // 49 chats each take a move and have its draft restored: their files hold only receipts.
-        for n in 0..STASH_CHATS as u64 - 1 {
-            push(&dir, "new", "moved", Vec::new(), None, 10 + n).unwrap();
-            let moved = move_stack(&dir, "new", &format!("session {n}")).unwrap();
-            assert!(remove(&dir, &format!("session {n}"), &moved.ids[0]).unwrap());
-        }
-        push(&dir, "another", "a new draft", Vec::new(), None, 100).unwrap();
-        assert_eq!(load(&chat_path(&dir, "kept")).unwrap()[0].text, "an older draft");
+        assert_eq!(texts, ["moving", "own"]);
     }
 
     #[test]
