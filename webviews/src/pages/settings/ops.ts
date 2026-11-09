@@ -783,11 +783,16 @@ export type HarnessesRun = {
  * plans/cmux-next/cloud-environments-DESIGN.md): the team's environments on the cmux-next Cloud path.
  * `status` is CloudDO's; the page localizes it. `error` texts come from the host. */
 export type CloudEnvironmentStatus = "unbuilt" | "building" | "ready" | "stale" | "failed";
+/** A plain variable (baked into the snapshot) or a secret (a vault item's name; its value never
+ * enters the snapshot), as CloudDO's `CloudEnvironmentVariable`. */
+export type CloudEnvironmentVariable = { name: string; value: string } | { name: string; secret: string };
 export type CloudEnvironmentRow = {
   id: string;
   name: string;
   repo: string | null;
   setup_script: string;
+  /** Absent from a host that predates variables. */
+  env?: CloudEnvironmentVariable[];
   status: CloudEnvironmentStatus | string;
   /** The last failed build's message and its log tail; null otherwise. */
   error: string | null;
@@ -803,7 +808,16 @@ export type CloudEnvironmentsState = {
 /** One Cloud Environments gesture: Refresh, Save (create, or edit with `id`), Build, Delete. */
 export type CloudEnvironmentsRun =
   | { action: "refresh" }
-  | { action: "save"; id?: string; name: string; repo?: string; setup_script?: string }
+  | {
+      action: "save";
+      id?: string;
+      /** Required to create; an edit sends it only when renamed. */
+      name?: string;
+      repo?: string;
+      setup_script?: string;
+      /** The whole list; absent leaves it as it is. */
+      env?: CloudEnvironmentVariable[];
+    }
   | { action: "build"; id: string }
   | { action: "delete"; id: string };
 
