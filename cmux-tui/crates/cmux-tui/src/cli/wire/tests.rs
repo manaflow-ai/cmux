@@ -33,13 +33,13 @@ fn a_terminal_wait_that_ran_out_of_time_exits_124() {
     assert_eq!(success_exit_code(&unsend, &json!({"value": {"outcome": "failed"}})), 1);
 }
 
-/// A Cloud guest whose adapter predates exit 124 (an update that replaced
-/// only the binary) keeps exit 0 for a timed-out `process wait`, which that
-/// adapter's `agent --wait` slices read as pending; once the adapter says it
-/// reads 124, the wait exits 124. `screen wait` exits 124 either way: every
-/// adapter reads its printed `matched: false`.
+/// On a Cloud guest (one with a guest adapter), a timed-out `process wait`
+/// exits 124 only for a caller that says it reads 124: an adapter that
+/// predates 124, on disk or still running in a shell, reads any other exit as
+/// a failed `agent --wait`, so it keeps 0. `screen wait` exits 124 either way:
+/// every adapter reads its printed `matched: false`.
 #[test]
-fn a_timed_out_process_wait_exits_zero_under_an_adapter_that_predates_124() {
+fn a_timed_out_process_wait_exits_zero_for_a_guest_caller_that_predates_124() {
     let dir = std::env::temp_dir().join(format!("cmux-wait-adapter-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let adapter = dir.join("cmux-cloud-adapter");
@@ -48,12 +48,12 @@ fn a_timed_out_process_wait_exits_zero_under_an_adapter_that_predates_124() {
     let missed = json!({"matched": false, "text": ""});
     let wait = plan(ResourceOperation::TerminalWait);
 
-    assert_eq!(wait_timeout::exit_code_with(&exit, &pending, &adapter), Some(124), "no adapter: not a guest");
-    std::fs::write(&adapter, "#!/bin/sh\n# an adapter from before exit 124\n").unwrap();
-    assert_eq!(wait_timeout::exit_code_with(&exit, &pending, &adapter), None);
-    assert_eq!(wait_timeout::exit_code_with(&wait, &missed, &adapter), Some(124));
-    std::fs::write(&adapter, "#!/bin/sh\n# cmux-adapter-reads: process-wait-124\n").unwrap();
-    assert_eq!(wait_timeout::exit_code_with(&exit, &pending, &adapter), Some(124));
+    let code = |plan, result, reads| wait_timeout::exit_code_with(plan, result, &adapter, reads);
+    assert_eq!(code(&exit, &pending, false), Some(124), "no adapter: not a guest");
+    std::fs::write(&adapter, "#!/bin/sh\n").unwrap();
+    assert_eq!(code(&exit, &pending, false), None);
+    assert_eq!(code(&exit, &pending, true), Some(124));
+    assert_eq!(code(&wait, &missed, false), Some(124));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

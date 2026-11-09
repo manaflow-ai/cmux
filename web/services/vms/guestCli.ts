@@ -46,8 +46,6 @@ export const GUEST_CMUX_SHIM = `#!/bin/sh
 #   cmux vm <verb> <machine> …  ANOTHER machine of the same owner, over a peer link
 #   cmux vm ls                  the owner's machines, this one marked *
 #   cmux self [<path>]          who am I (reflection; aliases whoami, reflect)
-# cmux-adapter-reads: process-wait-124
-#   (cmux-tui exits 124 from a timed-out process wait only under an adapter with this line)
 set -eu
 
 ${GUEST_CMUX_MESSAGE_SHELL}
@@ -69,6 +67,10 @@ cmux_tui_default() {
   command -v cmux-tui 2>/dev/null || printf '%s' /root/.cmux/bin/cmux-tui
 }
 CMUX_TUI_BIN="\${CMUX_TUI_BIN:-\$(cmux_tui_default)}"
+# This adapter reads a timed-out process wait's exit 124 as pending. cmux-tui
+# on a Cloud machine exits 124 there only for a caller that says so, since an
+# older adapter (on disk, or still running in a shell) reads 124 as a failure.
+export CMUX_CALLER_READS_WAIT_124=1
 CMUX_GUEST_HOME="\${CMUX_GUEST_HOME:-\${HOME:-/root}/.cmux}"
 PEERS_DIR="\$CMUX_GUEST_HOME/peers"
 LINKS_DIR="\$CMUX_GUEST_HOME/peer-links"

@@ -478,6 +478,17 @@ esac
       expect(run.stdout.trim().split("\n")).toEqual(["exec", "reply exactly pong"]);
     });
 
+    // cmux-tui on a Cloud machine exits 124 from a timed-out process wait only
+    // for a caller that says it reads 124; an older adapter, on disk or still
+    // running in a shell, does not, and keeps exit 0.
+    test("tells cmux-tui that it reads a timed-out wait's 124", async () => {
+      const run = await runShim(["agent", "list"], {}, (directory) => {
+        writeFileSync(join(directory, "cmux-tui"), '#!/bin/sh\nprintf \'%s\\n\' "${CMUX_CALLER_READS_WAIT_124:-unset}"\n');
+      });
+      expect(run.status).toBe(0);
+      expect(run.argv).toEqual(["1"]);
+    });
+
     test("keeps cmux-tui's local agent scope available", async () => {
       const run = await runShim(["agent", "list"]);
       expect(run.status).toBe(0);

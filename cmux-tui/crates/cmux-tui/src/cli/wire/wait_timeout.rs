@@ -21,9 +21,9 @@ pub(in crate::cli) const TIMEOUT_EXIT: i32 = 124;
 /// A Cloud machine's guest `cmux` adapter (web/services/vms/guestCliDistribution.ts).
 const GUEST_ADAPTER: &str = "/usr/local/libexec/cmux-cloud-adapter";
 
-/// The line an adapter carries once it reads a timed-out `process wait`'s 124
-/// as pending (web/services/vms/guestCli.ts).
-const ADAPTER_READS_TIMEOUT_EXIT: &str = "cmux-adapter-reads: process-wait-124";
+/// Set to `1` by a guest adapter that reads a timed-out `process wait`'s 124
+/// as pending, on each call it makes (web/services/vms/guestCli.ts).
+pub(in crate::cli) const CALLER_READS_TIMEOUT_EXIT: &str = "CMUX_CALLER_READS_WAIT_124";
 
 /// A `screen wait` (`terminal.wait`) or `process wait` (`terminal.wait_exit`)
 /// request, kept to read its answer.
@@ -80,19 +80,28 @@ pub(super) fn mark(plan: &RequestPlan, result: &mut Value) {
 
 /// 124 for a terminal wait whose time ran out, `None` for any other answer.
 pub(super) fn exit_code(plan: &RequestPlan, result: &Value) -> Option<i32> {
-    exit_code_with(plan, result, Path::new(GUEST_ADAPTER))
+    let caller_reads = std::env::var_os(CALLER_READS_TIMEOUT_EXIT).is_some_and(|value| value == "1");
+    exit_code_with(plan, result, Path::new(GUEST_ADAPTER), caller_reads)
 }
 
 /// [`exit_code`] with the guest adapter at `adapter`. An adapter older than
 /// this build calls `process wait` in slices and takes any exit but 0 for a
-/// failed `agent --wait`, and an update that replaces only the binary (the
-/// app's machine update, `link machine update`) keeps that adapter. So while
-/// the installed adapter does not say it reads 124, a timed-out `process wait`
-/// exits 0 as before; its answer still says `timed_out: true`. A machine with
-/// no adapter is not a Cloud guest.
-pub(super) fn exit_code_with(plan: &RequestPlan, result: &Value, adapter: &Path) -> Option<i32> {
+/// failed `agent --wait`. An update that replaces only the binary (the app's
+/// machine update, `link machine update`) keeps that adapter, and one that
+/// replaces the adapter file too leaves the old code running in the shells
+/// that already read it. So on a Cloud guest (one with an adapter), a
+/// timed-out `process wait` exits 124 only for a caller that says it reads
+/// 124 (`caller_reads`); any other caller gets 0 as before, and the answer
+/// still says `timed_out: true`.
+pub(super) fn exit_code_with(
+    plan: &RequestPlan,
+    result: &Value,
+    adapter: &Path,
+    caller_reads: bool,
+) -> Option<i32> {
     let wait = Wait::of(plan).filter(|wait| wait.ran_out(result))?;
-    let old_adapter = matches!(wait.operation, ResourceOperation::TerminalWaitExit)
-        && std::fs::read_to_string(adapter).is_ok_and(|text| !text.contains(ADAPTER_READS_TIMEOUT_EXIT));
-    (!old_adapter).then_some(TIMEOUT_EXIT)
+    let old_caller = matches!(wait.operation, ResourceOperation::TerminalWaitExit)
+        && !caller_reads
+        && adapter.exists();
+    (!old_caller).then_some(TIMEOUT_EXIT)
 }
