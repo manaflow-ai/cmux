@@ -1712,7 +1712,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2026,6 +2026,8 @@ dependencies = [
  "cmux-process",
  "cmux-pty",
  "cmux-rd-host",
+ "cmux-rd-link",
+ "cmux-rd-proto",
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
