@@ -94,7 +94,7 @@ extension DeviceHubSettings {
 extension CmuxConfigSnapshot {
     /// `imessage.enabled`.
     public nonisolated static let imessageEnabledPath = ["imessage", "enabled"]
-    public nonisolated static let imessageEnabledDefault = true
+    public nonisolated static let imessageEnabledDefault = false
     /// `imessage.automationSkipped`.
     public nonisolated static let imessageAutomationSkippedPath = ["imessage", "automationSkipped"]
     public nonisolated static let imessageAutomationSkippedDefault = false

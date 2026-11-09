@@ -657,7 +657,7 @@
             "text": "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "imessage",
             "messages",
