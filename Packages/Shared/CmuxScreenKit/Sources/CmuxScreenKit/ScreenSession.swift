@@ -130,7 +130,7 @@ public final class ScreenSession {
             imagePaste = .failed("This Mac can't take pasted images.")
             return
         }
-        guard !ScreenInput.pasteImage(data, type: type).isEmpty else {
+        guard !data.isEmpty, data.count <= ScreenInput.pasteImageMaximumBytes, ScreenInput.pasteImageTypes.contains(type) else {
             imagePaste = .failed("This image is too large to paste.")
             return
         }

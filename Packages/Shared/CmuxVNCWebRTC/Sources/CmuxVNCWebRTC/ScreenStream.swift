@@ -1200,7 +1200,9 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// listed ``ScreenHostMessage/pasteImageCapability``): its chunks in
     /// order, waiting while the channel is full. False when nothing could
     /// be sent (no channel, or the image is empty, too large or of another
-    /// type); the Mac's answer comes in ``onPasteImage``.
+    /// type); the Mac's answer comes in ``onPasteImage``. Runs off the
+    /// caller's actor: up to 20 MB of base64 and JSON never lands on the main thread.
+    @concurrent
     public func pasteImage(_ data: Data, type: String) async -> Bool {
         let messages = ScreenInput.pasteImage(data, type: type)
         guard !messages.isEmpty, let link = lock.withLock({ link }) else { return false }
