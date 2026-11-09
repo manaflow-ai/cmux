@@ -126,7 +126,7 @@ impl Mux {
         let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
         let owner = std::thread::current().id();
         let reply: Arc<str> = Arc::from(reply);
-        texts.last_replies.insert(terminal.clone(), (Arc::clone(&reply), super::now_ms()));
+        texts.last_replies.insert(terminal.clone(), (Arc::clone(&reply), now_ms()));
         texts.replies.insert(terminal.clone(), (owner, reply));
         true
     }
