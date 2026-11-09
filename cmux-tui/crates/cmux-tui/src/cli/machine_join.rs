@@ -703,7 +703,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 46] = [
+const KNOWN_CODES: [&str; 47] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
