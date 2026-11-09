@@ -340,6 +340,32 @@ struct BookmarksBarPagesTests {
         bar.removeFromSuperview()
     }
 
+    /// The bar opens on the middle release: a press held past the gesture window still opens,
+    /// since the release is a gesture of its own.
+    @Test func aHeldMiddleClickOnTheBarIsAGestureAtTheRelease() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bar = BookmarksBarHostView(tabKey: "tab-held", pages: pages, profile: { "default" })
+        bar.frame = NSRect(x: 0, y: 0, width: 800, height: BookmarksBarHostView.height)
+        let window = Self.window()
+        defer { window.close() }
+        window.contentView?.addSubview(bar)
+        let view = try #require(bar.pageView)
+        func middle(_ type: NSEvent.EventType, at uptime: TimeInterval) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: 10, y: 10), modifierFlags: [],
+                                            timestamp: uptime, windowNumber: window.windowNumber,
+                                            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        let pressed: TimeInterval = 100
+        let released = pressed + 3 // held well past the one-second window
+        view.webView.otherMouseDown(with: try middle(.otherMouseDown, at: pressed))
+        #expect(view.recentUserGestureEvent(now: released) == nil, "the press alone has expired by the release")
+        view.webView.otherMouseUp(with: try middle(.otherMouseUp, at: released))
+        #expect(view.recentUserGestureEvent(now: released) == released)
+        bar.removeFromSuperview()
+    }
+
     /// An open whose bookmark is read from the daemon (the app's copy lags) acts for the tab it
     /// was accepted in: the page lent to another tab meanwhile opens nothing, for open and Open All.
     @Test func anOpenHeldOnTheOwnersTreeOpensNothingAfterATabSwitch() async throws {
