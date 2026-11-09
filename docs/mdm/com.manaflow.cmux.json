@@ -657,10 +657,10 @@
     },
     "app.uiScale" : {
       "default" : 1,
-      "description" : "app.uiScale",
+      "description" : "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.",
       "maximum" : 1.5,
       "minimum" : 0.85,
-      "title" : "Interface Scale",
+      "title" : "App Zoom",
       "type" : "number"
     },
     "app.warnBeforeClosingAgentSession" : {
@@ -1177,8 +1177,8 @@
       "type" : "string"
     },
     "appearance.density" : {
-      "default" : "compact",
-      "description" : "Row height, padding, corners, icons and text size together. Compact is the default.",
+      "default" : "cozy",
+      "description" : "Row height, padding, corners, icons and text size together.",
       "enum" : [
         "ultraCompact",
         "compact",
@@ -1292,10 +1292,10 @@
       "type" : "object"
     },
     "appearance.metrics.chromeFontSize" : {
-      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+      "description" : "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size.",
       "maximum" : 16,
       "minimum" : 10,
-      "title" : "Interface Size",
+      "title" : "Text Size",
       "type" : "number"
     },
     "appearance.metrics.columnGap" : {
@@ -2998,7 +2998,7 @@
     },
     "home.chiefPanel.seesScreen" : {
       "default" : true,
-      "description" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off.",
+      "description" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on.",
       "title" : "Chief Sees Your Screen When It Opens",
       "type" : "boolean"
     },
@@ -3117,7 +3117,7 @@
       "type" : "string"
     },
     "layout.closeFocus" : {
-      "default" : "previousNeighbor",
+      "default" : "mostRecent",
       "description" : "Which pane gets focus when the focused pane closes.",
       "enum" : [
         "previousNeighbor",
@@ -4075,6 +4075,12 @@
       "title" : "End Sharing When cmux Quits",
       "type" : "boolean"
     },
+    "remote.ultraMode" : {
+      "default" : false,
+      "description" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
+      "title" : "Ultra Connection Mode",
+      "type" : "boolean"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
@@ -4113,6 +4119,12 @@
       ],
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
+    },
+    "sessions.keepAwakeForCommands" : {
+      "default" : false,
+      "description" : "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work.",
+      "title" : "Also While Terminal Commands Run",
+      "type" : "boolean"
     },
     "sessions.promptSuggestions" : {
       "default" : true,
@@ -4196,6 +4208,12 @@
       "default" : false,
       "description" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you.",
       "title" : "Detailed Status Icons",
+      "type" : "boolean"
+    },
+    "sidebar.floatOnHover" : {
+      "default" : true,
+      "description" : "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it.",
+      "title" : "Float Hidden Sidebar on Hover",
       "type" : "boolean"
     },
     "sidebar.groupBy" : {
