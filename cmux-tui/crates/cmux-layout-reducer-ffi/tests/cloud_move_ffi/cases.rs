@@ -227,7 +227,17 @@ fn a_move_says_its_step_and_about_how_long_is_left() {
     assert_eq!(copying["text"], "2 of 4 · Copying the folder (1,204 files) · about 45 s left");
     assert_eq!((copying["step"].clone(), copying["steps"].clone()), (json!(2), json!(4)));
     assert_eq!(copying["etaMs"], 43_000);
-    assert_eq!(copying["nextMs"], Value::Null, "a measured copy changes with its progress lines");
+    assert_eq!(copying["nextMs"], 3_000, "a measured copy counts down to its next text");
+    let stale = ok(
+        c"cloud_move_progress",
+        json!({"stage": "copy", "name": "dev", "stageMs": 120_000, "copyMs": 10_000,
+               "copy": {"phase": "copy", "filesDone": 99, "filesTotal": 100}}),
+    );
+    assert_eq!(
+        stale["text"],
+        "2 of 4 · Copying the folder (100 files) · taking longer than its progress said"
+    );
+    assert_eq!((stale["etaMs"].clone(), stale["nextMs"].clone()), (Value::Null, Value::Null));
     let back = ok(
         c"cloud_move_progress",
         json!({"direction": "bringBack", "stage": "machine", "machine": "paused", "name": "dev"}),

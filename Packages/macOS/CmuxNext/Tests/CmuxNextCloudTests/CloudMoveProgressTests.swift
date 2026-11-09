@@ -60,8 +60,12 @@ struct CloudMoveProgressTests {
         #expect(rust.shown.last == "copy 301")
         #expect(rust.asked.last?.direction == .bringBack && rust.asked.last?.stage == .copy && rust.asked.last?.name == "dev")
         #expect(!progress.isWaiting && clock.sleeperCount == 0, "the copy's progress lines change it, never a wake")
+        #expect(rust.asked.last?.copyMs == 0)
+        clock.advance(by: .seconds(2))
         progress.copied(SeedProgress(phase: "copy", filesDone: 600, filesTotal: 1_204))
         #expect(rust.shown.last == "copy 600")
+        #expect(rust.asked.last?.copyMs == 2_000 && rust.asked.last?.stageMs == 2_000,
+                "Rust hears when the newest progress line came, to tell a stale estimate")
         progress.end()
     }
 

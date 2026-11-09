@@ -62,6 +62,8 @@ pub struct Facts {
     pub stage_ms: u64,
     /// The folder copy's newest progress line, during [`Stage::Copy`].
     pub copy: Option<seed::Progress>,
+    /// How long the current step had run when that line came; none: just now (`stage_ms`).
+    pub copy_ms: Option<u64>,
 }
 
 /// The toast's second line, and what it is made of.
@@ -76,11 +78,15 @@ pub struct Line {
     /// and no copy progress says how far it is.
     pub eta_ms: Option<u64>,
     /// How long from now until this text changes on its own (the countdown reaches its next
-    /// value, or the step runs past its usual time); none when only a new fact changes it (a new
-    /// step, the copy's next progress line, which the app hands on as it comes). The app asks
-    /// again once at that time, and never after the move ended.
+    /// value, or the step runs past its usual time, or a measured copy past its estimate); none
+    /// when only a new fact changes it (a new step, the copy's next progress line, which the app
+    /// hands on as it comes). The app asks again once at that time, and never after the move ended.
     pub next_ms: Option<u64>,
 }
+
+/// How long a measured copy may run past its estimate with no new progress line before the
+/// estimate is stale.
+const STALE_AFTER_MS: u64 = 5_000;
 
 /// The longest countdown searched for its next change, in whole seconds (an hour).
 const MAX_SEARCH_SECONDS: u64 = 3_600;
@@ -114,8 +120,9 @@ fn count(value: Option<i64>) -> Option<u64> {
     value.and_then(|value| u64::try_from(value).ok())
 }
 
-/// How long the copy has left at the rate it ran so far: by files, else by bytes. None until it
-/// has run a second and a half and done some of its work, or when its numbers do not add up.
+/// How long the copy had left when its progress line came `stage_ms` into the step, at the rate it
+/// ran until then: by files, else by bytes. None until it has run a second and a half and done some
+/// of its work, or when its numbers do not add up.
 fn copy_left_ms(copy: &seed::Progress, stage_ms: u64) -> Option<u64> {
     if stage_ms < 1_500 {
         return None;
@@ -140,25 +147,41 @@ pub fn line(facts: &Facts) -> Line {
         .map(|stage| typical_ms(facts, *stage))
         .fold(0, u64::saturating_add);
     let typical = typical_ms(facts, facts.stage);
-    let measured = facts.copy.as_ref().and_then(|copy| copy_left_ms(copy, facts.stage_ms));
+    // A measured copy counts down from what its newest progress line said, while that line is fresh:
+    // a few seconds past its estimate with no new line (one large file after many small ones), it
+    // is stale and says so instead.
+    let measured = facts.copy.as_ref().and_then(|copy| {
+        let at = facts.copy_ms.unwrap_or(facts.stage_ms).min(facts.stage_ms);
+        let left = copy_left_ms(copy, at)?;
+        let since = facts.stage_ms.saturating_sub(at);
+        let fresh = left.saturating_add(STALE_AFTER_MS);
+        Some((since <= fresh).then(|| (left.saturating_sub(since), fresh.saturating_sub(since))))
+    });
+    // What is left of this step, and how long until the line says it overran.
     let current = match measured {
-        Some(left) => Some(left),
-        None if facts.stage_ms <= typical => Some(typical.saturating_sub(facts.stage_ms)),
+        Some(left) => left,
+        None if facts.stage_ms <= typical => {
+            let left = typical.saturating_sub(facts.stage_ms);
+            Some((left, left))
+        }
         None => None,
     };
-    let eta_ms = current.map(|current| current.saturating_add(later));
-    // A measured copy changes with its progress lines; an overrun line never changes on its own.
-    let next_ms = match (measured, current, eta_ms) {
-        (None, Some(current), Some(eta)) => {
-            let overrun = current.saturating_add(1);
-            Some(next_change_ms(eta).map_or(overrun, |next| next.min(overrun)))
+    let eta_ms = current.map(|(current, _)| current.saturating_add(later));
+    // A countdown wakes when its text changes (only while it still counts down: past its estimate a
+    // measured copy holds there) or it overruns; an overrun line never changes on its own.
+    let next_ms = match (current, eta_ms) {
+        (Some((left, overrun)), Some(eta)) => {
+            let overrun = overrun.saturating_add(1);
+            let change = next_change_ms(eta).filter(|next| *next <= left);
+            Some(change.map_or(overrun, |next| next.min(overrun)))
         }
         _ => None,
     };
     let what = doing(facts);
-    let when = match eta_ms {
-        Some(eta) => left_text(eta),
-        None => format!("taking longer than usual (usually {})", about(typical)),
+    let when = match (eta_ms, measured) {
+        (Some(eta), _) => left_text(eta),
+        (None, Some(None)) => "taking longer than its progress said".to_owned(),
+        (None, _) => format!("taking longer than usual (usually {})", about(typical)),
     };
     let steps = STAGES.len();
     let step = step.saturating_add(1);
@@ -319,11 +342,12 @@ mod tests {
         // "a few seconds left" changes only when the step runs past its usual 3 s.
         assert_eq!(line(&facts(Stage::Tab, 1_000)).next_ms, Some(2_001));
         assert!(line(&facts(Stage::Tab, 3_001)).text.contains("longer than usual"));
-        // An overrun line, and a copy its progress lines measure, never change on their own.
+        // An overrun line never changes on its own; a measured copy counts down too: 43 s left
+        // reads "about 45 s" until 40 s, 3 s from now.
         assert_eq!(line(&facts(Stage::Agent, 30_000)).next_ms, None);
         let mut copying = facts(Stage::Copy, 10_000);
         copying.copy = Some(copy(301, 1_204));
-        assert_eq!(line(&copying).next_ms, None);
+        assert_eq!(line(&copying).next_ms, Some(3_000));
         // Minutes: 88 s reads "about 1 min" until 55 s, 33 s from now.
         let mut new = facts(Stage::Machine, 0);
         new.machine = Machine::New;
@@ -344,6 +368,20 @@ mod tests {
                 assert_ne!(line(&facts(stage, ms)).text, before, "{stage:?} at {ms} ms");
             }
         }
+        // A measured copy whose progress lines stopped, down to its stale line.
+        let measured = |ms: u64| {
+            let mut copying = facts(Stage::Copy, ms);
+            (copying.copy, copying.copy_ms) = (Some(copy(301, 1_204)), Some(10_000));
+            line(&copying)
+        };
+        let mut ms = 10_000;
+        while let Some(next) = measured(ms).next_ms {
+            let before = measured(ms).text;
+            assert_eq!(measured(ms.saturating_add(next).saturating_sub(1)).text, before);
+            ms = ms.saturating_add(next);
+            assert_ne!(measured(ms).text, before, "measured copy at {ms} ms");
+        }
+        assert!(measured(ms).text.ends_with("taking longer than its progress said"));
     }
 
     #[test]
@@ -372,8 +410,35 @@ mod tests {
         let measured = line(&copying);
         assert_eq!(measured.eta_ms, Some(43_000));
         assert_eq!(measured.text, "2 of 4 · Copying the folder (1,204 files) · about 45 s left");
-        // A measured copy never reads "longer than usual".
+        // A measured copy never reads "longer than usual", while its newest progress line is fresh.
         copying.stage_ms = 600_000;
+        assert!(line(&copying).eta_ms.is_some());
+    }
+
+    #[test]
+    fn a_measured_estimate_goes_stale_when_progress_stops() {
+        // 99 small files in 10 s, then one large file copies with no progress line (Codex review of #39502).
+        let mut copying = facts(Stage::Copy, 10_000);
+        (copying.copy, copying.copy_ms) = (Some(copy(99, 100)), Some(10_000));
+        let fresh = line(&copying);
+        assert_eq!(fresh.eta_ms, Some(13_101));
+        assert_eq!(fresh.next_ms, Some(5_102), "one wake, when the estimate goes stale");
+        // Past its estimate it holds at the steps after it, a few seconds more.
+        copying.stage_ms = 15_101;
+        assert_eq!(line(&copying).eta_ms, Some(13_000));
+        assert_eq!(line(&copying).next_ms, Some(1));
+        copying.stage_ms = 15_102;
+        let stale = line(&copying);
+        assert_eq!((stale.eta_ms, stale.next_ms), (None, None));
+        assert_eq!(
+            stale.text,
+            "2 of 4 · Copying the folder (100 files) · taking longer than its progress said"
+        );
+        // Minutes later it still says so, never "about 15 s left".
+        copying.stage_ms = 300_000;
+        assert_eq!(line(&copying).text, stale.text);
+        // The next progress line measures again.
+        copying.copy_ms = Some(300_000);
         assert!(line(&copying).eta_ms.is_some());
     }
 

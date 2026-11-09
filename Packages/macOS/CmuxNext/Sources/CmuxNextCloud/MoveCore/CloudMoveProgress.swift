@@ -16,6 +16,8 @@ public final class CloudMoveProgress {
     /// What the app tells Rust (op `cloud_move_progress`).
     struct Facts: Encodable, Equatable {
         var direction: Direction, stage: Stage, machine: String?, name: String?, stageMs: UInt64, copy: SeedProgress?
+        /// How long the step had run when `copy` came: Rust counts its estimate down from then, and says when it is stale.
+        var copyMs: UInt64? = nil
     }
     /// Rust's answer: the line, and how long until it changes on its own.
     struct Line: Decodable, Equatable { var text: String, nextMs: UInt64? }
@@ -27,6 +29,7 @@ public final class CloudMoveProgress {
     private var facts: (stage: Stage, machine: String?, name: String?)?
     private var started = Duration.zero
     private var copy: SeedProgress?
+    private var copyAt = Duration.zero
     private var shown: String?
     private let wake: DemandTimer
 
@@ -72,6 +75,7 @@ public final class CloudMoveProgress {
     /// The folder copy's newest progress line, pushed as it comes.
     public func copied(_ progress: SeedProgress) {
         copy = progress
+        copyAt = elapsed()
         render()
     }
 
@@ -93,7 +97,8 @@ public final class CloudMoveProgress {
         stopWaking()
         guard let facts else { return }
         let ms = UInt64(max(0, (elapsed() - started).wholeMilliseconds))
-        let request = Facts(direction: direction, stage: facts.stage, machine: facts.machine, name: facts.name, stageMs: ms, copy: copy)
+        let copyMs = copy.map { _ in UInt64(max(0, (copyAt - started).wholeMilliseconds)) }
+        let request = Facts(direction: direction, stage: facts.stage, machine: facts.machine, name: facts.name, stageMs: ms, copy: copy, copyMs: copyMs)
         guard let line = ask(request) else { return }
         if line.text != shown {
             shown = line.text

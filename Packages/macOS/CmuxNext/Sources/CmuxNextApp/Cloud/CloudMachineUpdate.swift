@@ -31,7 +31,7 @@ enum CloudMachineUpdate {
     /// the chat's card says the move). Throws a stop whose Retry is `retry` when trying again can help.
     static func run(_ services: AppServices, name: String, socket: String, cli: CloudMoveCLI, toast toastID: String?,
                     retry: CloudMoveRetries.Retry) async throws {
-        if let toastID { CloudMove.toast(services, toastID, CloudMachineUpdateStrings.updating(name), duration: CloudMoveCLI.machineUpdateTimeout) }
+        if let toastID { CloudMove.toast(services, toastID, CloudMachineUpdateStrings.updating(name), duration: CloudMoveCLI.machineUpdateTimeout, working: true) }
         let answer: CloudMoveCLI.Answer
         do {
             answer = try await cli.machineUpdate(socket: socket)

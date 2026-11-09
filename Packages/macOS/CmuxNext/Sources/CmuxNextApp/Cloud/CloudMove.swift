@@ -117,9 +117,9 @@ struct CloudMove {
         let asks = services.cloud.moveAsks
         let carded = asks.hasCard(tabID)
         // A failure toast an earlier move without a card left up (with its Retry) goes too.
-        if carded { CmuxToastCenter.shared.close(id: toastID) } else { toast(toastID, CloudMoveStrings.moving, duration: Self.working) }
+        if carded { CmuxToastCenter.shared.close(id: toastID) } else { toast(toastID, CloudMoveStrings.moving, duration: Self.working, working: true) }
         asks.moveStarted(tabID, services: services)
-        let progress = CloudMoveProgress(.move) { [services] in if !carded { Self.toast(services, toastID, CloudMoveStrings.moving + "\n" + $0, duration: Self.working) } }
+        let progress = CloudMoveProgress(.move) { [services] in if !carded { Self.toast(services, toastID, CloudMoveStrings.moving + "\n" + $0, duration: Self.working, working: true) } }
         let work: ActionWork = Task { @MainActor in
             defer { progress.end() }
             do {
@@ -188,7 +188,7 @@ struct CloudMove {
             try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: carded ? nil : "cloud-move-" + tab.id,
                                              retry: .update(machineID: machine.machineID))
             if carded { CmuxToastCenter.shared.close(id: "cloud-move-" + tab.id) } else {
-                toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: Self.working)
+                toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: Self.working, working: true)
             }
         }
         progress.enter(.copy, name: name)
@@ -368,16 +368,16 @@ struct CloudMove {
         }
     }
 
-    private func toast(_ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) { Self.toast(services, id, message, duration: duration, retry: retry) }
+    private func toast(_ id: String, _ message: String, duration: Duration, working: Bool = false) { Self.toast(services, id, message, duration: duration, working: working) }
     /// A run's working toast (Moving, Bringing back) never times out: its result replaces it (a fixed 10 minutes ended it mid-copy).
     static let working = CmuxToast.untilClosed
 
-    /// A toast on the active window, with Retry when `retry` is set (Bring Back Local's too); one window at a time.
+    /// A toast on the active window, with Retry when `retry` is set (Bring Back Local's too); one window at a time; `working`: a run's progress (``CmuxToast/working``).
     static func toast(_ services: AppServices, _ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil,
-                      retryTitle: String = CloudMoveStrings.retry) {
+                      retryTitle: String = CloudMoveStrings.retry, working: Bool = false) {
         guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
         let action = retry == nil ? nil : CmuxToast.Action(title: retryTitle)
-        let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: action, duration: duration, oneWindow: true), in: window)
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: action, duration: duration, oneWindow: true, working: working), in: window)
         handle.onAction = { retry?() }
     }
 }

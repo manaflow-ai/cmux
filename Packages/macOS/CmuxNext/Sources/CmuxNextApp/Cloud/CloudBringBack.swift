@@ -79,8 +79,8 @@ struct CloudBringBack {
         let toastID = "cloud-bring-back-" + tab.id
         let tabID = tab.id
         let retries = services.cloud.bringBackRetries
-        CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
-        let progress = CloudMoveProgress(.bringBack) { [services] in CloudMove.toast(services, toastID, CloudBringBackStrings.bringing + "\n" + $0, duration: CloudMove.working) }
+        CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working, working: true)
+        let progress = CloudMoveProgress(.bringBack) { [services] in CloudMove.toast(services, toastID, CloudBringBackStrings.bringing + "\n" + $0, duration: CloudMove.working, working: true) }
         let work: ActionWork = Task { @MainActor in
             defer { progress.end() }
             do {
@@ -148,7 +148,7 @@ struct CloudBringBack {
             let toastID = "cloud-bring-back-" + tab.id
             progress.hold()
             try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: toastID, retry: again.updating)
-            CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
+            CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working, working: true)
         }
         progress.enter(.copy, name: name)
         let pulled: CloudMoveCLI.Answer

@@ -36,6 +36,9 @@ public final class CmuxToastCenter {
     /// (same id and detail, no action) asked for again in that time does not show.
     /// A toast with an action (Undo, Reopen, Retry) is never quieted.
     public var closedCooldown: Duration = .seconds(120)
+    /// The ids of runs whose working toast the person closed (``CmuxToast/working``): each update of the
+    /// run's progress under a changed message would get past the quiet above. Its result ends it.
+    private var closedWorking: Set<String> = []
 
     /// A notice by what it says: its id, message and detail.
     private struct QuietKey: Hashable {
@@ -61,6 +64,8 @@ public final class CmuxToastCenter {
         let serial = nextSerial
         nextSerial += 1
         let handle = CmuxToastHandle(serial: serial, toast: toast, center: self)
+        // The run's result shows, even after its working toast was closed.
+        if !toast.working { closedWorking.remove(toast.id) }
         // A one-window toast ends its copy in every other window, and in this one too when it stays
         // quiet below: a never-ending working toast is never left behind (``CmuxToast/oneWindow``).
         if toast.oneWindow {
@@ -144,6 +149,7 @@ public final class CmuxToastCenter {
     /// Ends the toast with `id` in every window (a run that ended with nothing to say, after its working
     /// toast showed in a window no longer in front). Unlike the close button it quiets nothing.
     public func close(id: String) {
+        closedWorking.remove(id)
         for (serial, entry) in entries where entry.handle.toast.id == id { end(serial, .closed) }
     }
 
@@ -167,15 +173,18 @@ public final class CmuxToastCenter {
     // MARK: Quiet after close
 
     /// Whether `toast` is a notice the person closed less than
-    /// ``closedCooldown`` ago (same id, message and detail, no action).
+    /// ``closedCooldown`` ago (same id, message and detail, no action), or a working toast of a run
+    /// whose working toast the person closed (any message, until its result).
     public func isQuieted(_ toast: CmuxToast) -> Bool {
-        toast.action == nil && quieted[QuietKey(toast)] != nil
+        toast.action == nil && (quieted[QuietKey(toast)] != nil || toast.working && closedWorking.contains(toast.id))
     }
 
     /// The close button: the toast ends, and a notice without an action
-    /// stays quiet for ``closedCooldown``.
+    /// stays quiet for ``closedCooldown``; a working one, for the rest of its run (the next run's shows).
     func closedByPerson(_ serial: Int) {
-        if let toast = entries[serial]?.handle.toast, toast.action == nil, closedCooldown > .zero {
+        if let toast = entries[serial]?.handle.toast, toast.action == nil, toast.working {
+            closedWorking.insert(toast.id)
+        } else if let toast = entries[serial]?.handle.toast, toast.action == nil, closedCooldown > .zero {
             let quiet = QuietKey(toast)
             quieted[quiet]?.cancel()
             let timer = DemandTimer(owner: "toast.quiet", clock: clock)
