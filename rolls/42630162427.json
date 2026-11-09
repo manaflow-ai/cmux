@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42630162427",
+  "recorded_at": "2026-11-09T14:08:16Z",
+  "reason": "cmux-tui 77544557eb71 changes the image's cmux-tui (pinned 335e21db5980)",
+  "dry_run": false,
+  "cmux_tui": "77544557eb71e1c6f1a662f1305c177f650e9e54",
+  "fixes": [
+    {
+      "sha": "77544557eb71e1c6f1a662f1305c177f650e9e54",
+      "mergedAt": "2026-11-09T05:31:40-08:00",
+      "subject": "fix(tui): termination of a host that ended before the request still reads its exit (#39478) (#39590)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T14:08:16Z",
+    "snapshot_id": "sh-95ac01474465442794128c8988c6209f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42630162427): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "395eae49afe36fcd53f2ad103e07c3e3634e77ac",
+    "image": "cloud-native-auto-77544557-42630162427-1",
+    "revision": "ci-42630162427-1",
+    "at": "2026-11-09T14:08:16Z"
+  },
+  "rolled_back": false
+}
