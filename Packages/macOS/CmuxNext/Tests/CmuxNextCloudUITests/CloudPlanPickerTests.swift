@@ -34,6 +34,9 @@ import Testing
         #expect(CloudPlanPicker.recommended(for: "max") == .max)
         #expect(CloudPlanPicker.recommended(for: "pro") == .pro)
         #expect(CloudPlanPicker.recommended(for: nil) == .pro)
+        #expect(CloudPlanPicker().shownPlans.map(\.id) == [.pro, .max, .team])
+        // A refusal that needs Max comes from an account that already pays: it is offered Max only, not Pro again.
+        #expect(CloudPlanPicker(recommended: .max).shownPlans.map(\.id) == [.max])
     }
 
     @Test func pricesAreWholeDollars() {

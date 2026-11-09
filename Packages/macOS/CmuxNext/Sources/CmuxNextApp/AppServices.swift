@@ -938,8 +938,10 @@ extension AppServices {
     /// The Cloud plan picker over the active window (cmux#38299); a picked plan starts its checkout, billed as picked.
     func cloudPlanPicked(_ picker: CloudPlanPicker, source: PaidPlanUpgrade.Source, fallback: URL? = nil) async -> CloudPlanPicker.Choice? {
         let choice = await CloudPlanPickerPresenter().choose(picker, in: windows.active?.window)
+        // The checkout request runs on its own: the create's refusal (or the Retry) does not wait for cmux.com.
         if case let .plan(plan, interval)? = choice {
-            await paidPlanUpgrade(yearly: interval == .year).start(plan: plan.rawValue, source: source, fallback: fallback)
+            let upgrade = paidPlanUpgrade(yearly: interval == .year)
+            Task { await upgrade.start(plan: plan.rawValue, source: source, fallback: fallback) }
         }
         return choice
     }

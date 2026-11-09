@@ -63,6 +63,10 @@ public nonisolated struct CloudPlanPicker: Equatable, Sendable {
     /// Offers Run on This Mac (a create that can run here instead).
     public var offersRunHere: Bool
 
+    /// The cards shown: every plan, or only Max when Max is what the refusal asks for (the account already has a
+    /// paid plan, so Pro and Team would sell it what it has).
+    public var shownPlans: [Plan] { recommended == .max ? Self.plans.filter { $0.id == .max } : Self.plans }
+
     public init(interval: Interval = .month, recommended: PlanID = .pro, offersRunHere: Bool = false) {
         self.interval = interval
         self.recommended = recommended

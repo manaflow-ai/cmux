@@ -23,7 +23,7 @@ struct CloudPlanPickerView: View {
                         .font(Font(Typography.title))
                         .foregroundStyle(palette.text)
                         .accessibilityAddTraits(.isHeader)
-                    Text(CloudPlanPickerStrings.subtitle)
+                    Text(picker.recommended == .max ? CloudPlanPickerStrings.subtitleMax : CloudPlanPickerStrings.subtitle)
                         .font(Font(Typography.body))
                         .foregroundStyle(palette.secondary)
                         .multilineTextAlignment(.center)
@@ -31,7 +31,7 @@ struct CloudPlanPickerView: View {
                 }
                 intervalToggle
                 HStack(alignment: .top, spacing: Metrics.space4) {
-                    ForEach(CloudPlanPicker.plans, id: \.id) { plan in
+                    ForEach(picker.shownPlans, id: \.id) { plan in
                         CloudPlanCard(plan: plan, picker: picker, palette: palette) { actions.choose(picker.choice(plan)) }
                     }
                 }
@@ -44,7 +44,7 @@ struct CloudPlanPickerView: View {
                 }
             }
             .padding(Metrics.space6)
-            .frame(maxWidth: 960)
+            .frame(maxWidth: picker.shownPlans.count == 1 ? 360 : 960)
             .frame(maxWidth: .infinity)
         }
         .background(palette.background)

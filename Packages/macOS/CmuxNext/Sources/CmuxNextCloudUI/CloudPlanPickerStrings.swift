@@ -18,6 +18,10 @@ struct CloudPlanPickerStrings {
         String(localized: "cloud.planPicker.subtitle", defaultValue: "Cloud workspaces run on cmux machines and need a paid plan. Everything on this Mac stays free.",
                table: "Cloud", bundle: .module)
     }
+    static var subtitleMax: String {
+        String(localized: "cloud.planPicker.subtitleMax", defaultValue: "This machine needs Max: larger machines and a bigger shared pool. Everything on this Mac stays free.",
+               table: "Cloud", bundle: .module)
+    }
     static var monthly: String { String(localized: "cloud.planPicker.monthly", defaultValue: "Monthly", table: "Cloud", bundle: .module) }
     static var annual: String { String(localized: "cloud.planPicker.annual", defaultValue: "Annual", table: "Cloud", bundle: .module) }
     static func save(_ percent: Int) -> String {

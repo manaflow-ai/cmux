@@ -90,14 +90,6 @@ public enum CloudStrings {
         String(localized: "cloud.create.confirm.approval", defaultValue: "The machine counts against your Cloud plan. Click Create to approve it.", table: "Cloud", bundle: .module)
     }
     public static var upgradeTitle: String { String(localized: "cloud.upgrade.title", defaultValue: "Cloud machines need a paid plan", table: "Cloud", bundle: .module) }
-    public static func upgradeDetail(_ reason: CloudUpgradeReason) -> String {
-        switch reason {
-        case .freePlan, .server:
-            String(localized: "cloud.upgrade.detail.free", defaultValue: "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month.", table: "Cloud", bundle: .module)
-        case .atLimit, .pool:
-            String(localized: "cloud.upgrade.detail.limit", defaultValue: "All the running Cloud machines your plan allows are in use. Upgrade (Pro is $50 a month) or delete one.", table: "Cloud", bundle: .module)
-        }
-    }
     public static var upgradeButton: String { String(localized: "cloud.upgrade.button", defaultValue: "Upgrade", table: "Cloud", bundle: .module) }
     public static var notNow: String { String(localized: "cloud.upgrade.notNow", defaultValue: "Not now", table: "Cloud", bundle: .module) }
     nonisolated public static var upgradeRequired: String {

@@ -38,7 +38,7 @@ final class CloudService {
     @ObservationIgnored let work: BackgroundWork
     /// Sign-out's peer tail erase (an acpmux child, no deadline): it runs after the revokes.
     @ObservationIgnored var clearPeerTails: @MainActor (BuildIdentity?, BackgroundWork) async throws -> Void = AcpmuxEnvironment.clearPeerTails(build:work:)
-    /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
+    /// Whether the plan picker a refused create offers is on screen (AppServices.cloudPlanPicked).
     @ObservationIgnored var proOfferOpen = false
     /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
     /// (AppServices+PaidPlan.swift) watches for the plan turning paid after an upgrade.
