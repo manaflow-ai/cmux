@@ -171,13 +171,21 @@ redrew only after the animation and the daemon echo.
   shrinking pane does not have its final size yet, and Ghostty's padding math is not visible to
   Swift) and reports it at once (`TerminalGridPolicy.finalSized`). A daemon IO takes every grid on the
   main actor (`TerminalIO.resizeOnMain`), so a final grid never races an older grid still in the
-  ordered input stream; `ResizeCoordinator.submitFinal` sends it in the caller's turn, and the
+  ordered input stream; `ResizeCoordinator.submitNow` sends it (and every other grid the view
+  reports, already coalesced, T-KEYS 4) in the caller's turn, and the
   one-in-flight echo rule keeps only the newest of a burst. The landing at the final grid reports
   nothing.
 - Presentation: no frame reflows. A pane that grows has its content held at the rest size, so the
   surface is already final and its reflow preview reflows once until the owner announces the grid. A
   pane that shrinks keeps its larger view; once the owner announces the final grid the preview is off
-  (`previewsViewGrid`), so Ghostty pads the final grid instead of reflowing it back to the wider frame.
+  (`previewsViewGrid(followingPane:)`), so Ghostty pads the final grid instead of reflowing it back to the wider
+  frame. A key resize whose host follows its pane is the exception (cmux-ad m14, m18; switch on or off): its
+  surface takes the pane's size in every frame, so the preview stays on and each frame draws the grid that size
+  fits, with the cursor row in view (no low-prompt bottom hold). Its grid goes to the PTY through
+  `TerminalGridReportCoalescer` (the first change opens a window, the newest goes at the next display refresh, the
+  landing flushes; RESIZE P0 6: Chromium's begin-frame rule, not Ghostty.app's 25 ms `min_ms`, which is only the
+  backstop when no refresh comes), not as a final grid at the press. With the switch on, a frame not drawn by the commit
+  that carries its bounds lands late (`TerminalFramePresenter.Stats.lateLandings`); nothing keeps an old size.
 - Anchor: a pane that grows downward pins its held content to the bottom when the cursor is in the
   lower half of a normal screen (the owner pulls scrollback down as rows grow, so the prompt is on the
   last row); a full-screen program (alternate screen) or a cursor near the top pins to the top.

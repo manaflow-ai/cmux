@@ -245,6 +245,49 @@
 .acpmux-attachment-file.acpmux-attachment-pending {
   gap: 4px;
 }
+/* A loading image whose header gave its size (composer/attachmentIntakeModel.ts imageShape): the
+   width its thumbnail will have (`.acpmux-attachment-image img`: its height, its shape, 48 to
+   128px wide), so a wide or tall screenshot's picture arriving moves nothing (Leo, 2026-11-07: "they
+   go up top above and then they land to where they should be"). In the strip and in the text. */
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sized] {
+  width: auto;
+  min-width: 48px;
+  max-width: 128px;
+}
+/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, HEADER_WAIT_MS at most): held
+   zero wide and unseen, so its first frame shown is its final size, not a stand-in width. */
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing] {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+}
+.acpmux-md-inline > .acpmux-md-inline-chip[data-sizing] {
+  margin-inline-end: 0;
+}
+/* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
+   is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
+   (Leo, 2026-11-07: "can't we make this all "appear" a lot faster"). */
+:is(.acpmux-attachment, .acpmux-md-inline-chip) .acpmux-attachment-instant {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  outline: none;
+  pointer-events: none;
+}
+/* Over the loading glass's own `background` shorthand (below), which would reset its size. */
+.acpmux-attachment.acpmux-attachment-pending[data-instant] {
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+/* Positioned, and after the picture: it paints over it. */
+:is(.acpmux-attachment-spinner, .acpmux-md-inline-spinner) {
+  position: relative;
+}
 /* Its spinner says it is loading (Leo, 2026-10-24: "why don't you put a spinner on the attachment
    rather than this placeholder that doesn't do anything"); its × cancels it. */
 .acpmux-attachment-spinner {
@@ -453,12 +496,8 @@
   overflow: hidden;
   /* The width stays, the line is clear: the glass rim draws the one edge (.ui-glass). */
   border: var(--cmux-hairline, 0.5px) solid transparent;
-  border-radius: 12px;
   /* Glass, not the page color: a translucent window's page color is clear, so the chat read
-     through the viewer (as the Add project dialog, addProject.css). */
-  --glass-elevation: var(--elevation-2);
-  /* glass-opaque-allow: the Reduce Transparency fill only */
-  --glass-opaque: var(--surface-popup);
+     through the viewer (as the Add project dialog, addProject.css); the sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -484,7 +523,7 @@
 .acpmux-pdf-viewer-open {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: calc(100% - 32px);
   margin: 12px 16px 0;
   padding: 7px 10px;
@@ -519,15 +558,17 @@
   height: 16px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   opacity: 0;
-  transition: opacity 120ms ease-out;
-  /* The composer's own surface, so the badge reads as a cut-out in the thumbnail in every theme. */
-  background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
-  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
-  color: var(--agent-text);
+  /* Solid and inverted (RemoveGlyph.tsx): the text's own colour as the fill and the page's opaque
+     base as the ×, so it reads over a thumbnail or a text card's lines in every theme. Never the
+     composer's glass (13% of the text over a see-through page) and never a fade: both left a faint
+     × floating over the label (Leo, 2026-11-06: "Also this close button, this is bad clarity."). */
+  background: var(--agent-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
+  color: var(--acpmux-base, Canvas);
   cursor: default;
 }
 .acpmux-attachment-file .acpmux-attachment-remove {
@@ -538,11 +579,11 @@
   opacity: 1;
 }
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:hover {
-  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+  background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
 }
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
+  outline-offset: 1.5px;
 }
 .acpmux-attachment-note {
   color: var(--agent-muted);
@@ -570,7 +611,7 @@
 /* A text attachment (a huge paste, pastedText.ts, or a text file) as a small page of its text, as
    Claude and ChatGPT draw a long paste (composer/TextAttachmentCard.tsx): its first lines in 11 px
    monospace, left-aligned from the top, fading out over the bottom, with one quiet label under them
-   ("Pasted text · 25 lines"). The strip's card is the thumbnails' 64 px tall; the prompt's inline
+   ("Pasted text · 25 lines · 1.2K characters"). The strip's card is the thumbnails' 64 px tall; the prompt's inline
    one (markdownField.css) is 48. A pasted card is a button that puts the text back in the prompt;
    × removes it. Leo, 2026-11-01: "bro this is a TERRIBLE text preview we need to do better for
    these text type attachments' previews". Gallery: agent-pane.text-attachment-card. */
@@ -580,6 +621,10 @@
   max-width: 70vw;
   height: var(--acpmux-attach-height);
   overflow: hidden;
+}
+/* A paste's card is wider than a file's: its lines wrap, and its label carries its size. */
+.acpmux-attachment-pasted:not([data-text-kind="file"]) {
+  width: 256px;
 }
 .acpmux-attachment-pasted-open {
   flex: 1;
@@ -597,6 +642,9 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-attachment-pasted-open:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
+}
+.acpmux-text-card {
+  position: relative;
 }
 /* The card's body, in either host: lines from the top, the label pinned to the bottom. */
 .acpmux-text-card .acpmux-attachment-pasted-open,
@@ -629,8 +677,25 @@ button.acpmux-attachment-pasted-open:hover {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent);
 }
-.acpmux-text-card__label {
+/* A paste's card wraps in the composer's own font (TextAttachmentCard `wrap`): one long paragraph
+   fills its lines instead of its first five words cut at the edge (Leo, 2026-11-05: "you're
+   previewing one, two, three, four, five words out of a multi-hundred-word pasted text bit"). A
+   file's card keeps its lines unwrapped in monospace, as code reads. */
+.acpmux-text-card__lines[data-wrap] {
+  font-family: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The label's row, under the lines: the label never flexes into the lines' room. */
+.acpmux-text-card__foot {
+  display: flex;
   flex: none;
+  gap: 8px;
+  min-width: 0;
+}
+.acpmux-text-card__label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--agent-muted);
   font-size: var(--text-caption);
@@ -642,6 +707,214 @@ button.acpmux-attachment-pasted-open:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* An oversized paste's chip (composer/PastedTextChip.tsx), in the strip and in the prompt: a page
+   glyph, the paste's first words and its label in a compact row, never wider than it needs. A click,
+   Return or Space opens the whole text; nothing floats over the chip. Leo, 2026-11-08, on the old
+   card: "this is really ugly and bad and normally in chatgpt you can just click it to expand or smth
+   and maybe in claude you see it in a viewer?". Gallery: agent-pane.composer-paste-chip. */
+.acpmux-paste-chip.acpmux-attachment-pasted {
+  width: max-content;
+  min-width: 0;
+  max-width: min(320px, 100%);
+}
+.acpmux-paste-chip > button.acpmux-paste-chip__face {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--ds-space-3) 0 var(--ds-space-2);
+  overflow: hidden;
+  text-align: start;
+}
+.acpmux-paste-chip__glyph {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--agent-muted);
+}
+.acpmux-paste-chip__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  /* Never narrower than the label's widest part: the name always shows whole. */
+  min-width: min-content;
+}
+/* The paste's first words on one line, fading out at the chip's end. `contain` keeps them from
+   widening the chip: the label alone sets its width. */
+.acpmux-paste-chip__body > .acpmux-paste-chip__preview.acpmux-text-card__lines {
+  flex: none;
+  contain: inline-size;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--agent-text) 88%, transparent);
+  font-family: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: var(--text-detail--line-height);
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+/* The label: its parts on one row that wraps only between parts and shows only that row, so with
+   too little room the size goes, then the line count; the name stays and no part is ever cut. */
+.acpmux-paste-chip__body > .acpmux-paste-chip__label.acpmux-text-card__label {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  height: var(--text-caption--line-height);
+  min-width: min-content;
+  overflow: hidden;
+  line-height: var(--text-caption--line-height);
+  text-overflow: clip;
+  white-space: normal;
+}
+.acpmux-paste-chip__part {
+  flex: none;
+  white-space: pre;
+}
+.acpmux-paste-chip__part[data-part="name"] {
+  color: var(--agent-text);
+}
+/* The tile: no words, the name over its size. */
+.acpmux-paste-chip[data-design="tile"] .acpmux-paste-chip__label.acpmux-text-card__label {
+  height: calc(var(--text-caption--line-height) * 2 + var(--ds-space-1));
+  row-gap: var(--ds-space-1);
+}
+.acpmux-paste-chip[data-design="tile"] .acpmux-paste-chip__part[data-part="name"] {
+  flex-basis: 100%;
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-paste-chip[data-design="tile"] .acpmux-paste-chip__part:nth-child(2) > .acpmux-paste-chip__sep {
+  display: none;
+}
+
+/* The opened paste as a sheet over the pane (PastedTextChip.tsx PastedTextSheet): the sheet role's
+   glass (ui/popupSurface.css), its name and size, the text in a scroller, the actions under it. */
+/* A column as tall as its content, never past the pane: the dialog starts 12vh down (ui/popupSurface.css),
+   so it takes at most the rest less a margin, and only its text gives up height (review of #38350:
+   at a 200 px pane its actions fell below the pane). */
+.acpmux-paste-view {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(88vh - var(--ds-space-2));
+  padding: 0;
+  overflow: hidden;
+  border: var(--cmux-hairline, 0.5px) solid transparent;
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+  line-height: var(--text-body--line-height);
+}
+.acpmux-paste-view__content {
+  display: contents;
+}
+.acpmux-paste-view__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4);
+  border-bottom: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+/* The name over its size, so the size has the bar's width to itself. */
+.acpmux-paste-view__heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-paste-view__title {
+  font-weight: var(--weight-emphasis);
+}
+/* The size wraps between its parts when the sheet is narrow, never through one. */
+.acpmux-paste-view__size {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: var(--text-detail--line-height);
+}
+/* The text takes the room the bar and the actions leave, scrolling in it. */
+.acpmux-paste-view__text {
+  display: block;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  min-height: 0;
+  max-height: min(60vh, 480px);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  overflow: auto;
+  color: var(--agent-text);
+  font-family: var(--cv-mono, var(--cmux-diff-code-font-family, ui-monospace, monospace));
+  font-size: var(--text-detail);
+  letter-spacing: 0;
+  line-height: 18px;
+  text-align: start;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+.acpmux-paste-view__text:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+}
+.acpmux-paste-view__actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+
+/* The other opening, compared in the gallery (design `expand`): the chip grows a panel under its
+   row with the text and the actions, the row and the panel one box that eases open together. */
+.acpmux-paste-chip[data-design="expand"] {
+  flex-direction: column;
+  height: auto;
+}
+.acpmux-paste-chip[data-design="expand"] > .acpmux-paste-chip__face {
+  flex: none;
+  height: var(--acpmux-attach-height, calc(var(--cmux-control-height, 24px) * 2));
+}
+.acpmux-paste-chip__panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  /* As wide as the chip's row, never wider: the text wraps in it; as tall as its content. */
+  flex: none;
+  align-self: stretch;
+  contain: inline-size;
+  transition: grid-template-rows var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+}
+.acpmux-paste-chip[data-open] > .acpmux-paste-chip__panel {
+  grid-template-rows: 1fr;
+}
+.acpmux-paste-chip__panel-inner {
+  display: block;
+  min-height: 0;
+  overflow: hidden;
+}
+.acpmux-paste-chip__panel .acpmux-paste-view__text {
+  max-height: min(200px, 30vh);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+.acpmux-paste-chip__panel .acpmux-paste-view__actions {
+  padding: var(--ds-space-2) var(--ds-space-3);
+}
+:root[data-cmux-motion="off"] .acpmux-paste-chip__panel {
+  transition: none;
+}
+
 /* Dragging a staged chip moves it along the strip (composer/stripReorder.ts): its slot draws
    nothing of its own, the chip being dragged lifts a little, and the strip says it can be grabbed. */
 .acpmux-attachment-slot {
@@ -747,6 +1020,7 @@ button.acpmux-attachment-pasted-open:hover {
      tall as an unsourced one. */
   display: flex;
   flex: none;
+  max-width: 100%;
 }
 .cv-user__sourced > .acpmux-source-badge {
   top: 6px;
@@ -759,4 +1033,98 @@ button.acpmux-attachment-pasted-open:hover {
   outline: none;
   background: none;
   object-fit: contain;
+}
+
+/* Loading (composer/pasteLoading.tsx): a pasted or dropped attachment still being read, in the text
+   at the caret or in the strip, is the composer's own glass (ui-glass ui-glass-material, its tint,
+   frost and rim), never a solid fill, and starts dim, coming up as it loads (Leo, 2026-11-07: "why
+   do we have a solid color thing anyway? Shouldn't it also be glass?"). No drop shadow: it sits in
+   the composer's glass, not over the page. */
+:is(.acpmux-md-inline-chip, .acpmux-attachment).acpmux-paste-loading {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--glass-rim-shadow);
+  color: var(--agent-muted);
+  opacity: 0.85;
+}
+/* Its indicator (a ring, a bar, an upload's progress) shows only once a read passes 400 ms
+   (pasteLoading.tsx sets data-late from one timer); a quick paste never flashes one. */
+.acpmux-paste-late {
+  display: inline-flex;
+}
+/* Transparent, not hidden: an upload's assistive <progress> inside is read all along. */
+.acpmux-paste-late:not([data-late]) {
+  opacity: 0;
+}
+.acpmux-paste-bar {
+  position: absolute;
+  right: 8px;
+  bottom: var(--ds-space-1);
+  left: 8px;
+  height: calc(var(--ds-space-1) / 2);
+  overflow: hidden;
+  border-radius: var(--ds-radius-sm);
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.acpmux-paste-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--agent-text) 55%, transparent);
+  transform: scaleX(0.5);
+  transform-origin: left;
+}
+/* A picture that loaded in place comes up from the tile's dim instead of popping in. */
+@keyframes acpmux-paste-arrive {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
+@keyframes acpmux-paste-late-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes acpmux-paste-bar-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(0.9);
+  }
+}
+@keyframes acpmux-paste-reveal {
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* The motion gate (data-cmux-motion, Reduce Motion): the tile is simply there at its loading dim,
+   the indicator appears at 400 ms with no fade, the bar is its track and half fill, the picture
+   shows at once. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-loading {
+    animation: acpmux-paste-arrive calc(var(--agent-motion-in, 120ms) * 8) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-late[data-late] {
+    animation: acpmux-paste-late-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-bar[data-late]::after {
+    animation: acpmux-paste-bar-fill calc(var(--cmux-motion-large, 240ms) * 25) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+    .acpmux-md-inline-chip[data-loaded]
+    .acpmux-attachment-image
+    img {
+    animation: acpmux-paste-reveal var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  }
 }

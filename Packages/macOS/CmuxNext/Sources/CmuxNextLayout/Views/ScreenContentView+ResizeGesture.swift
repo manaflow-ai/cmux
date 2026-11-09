@@ -29,11 +29,15 @@ struct PaneResizeGestureListener {
 /// release (`LayoutRootView.sync`; a frame tick that finds the sync still pending runs it,
 /// `LayoutRootView.advanceFrame`) and the frame its spring lands in (`step`), or at once when motion is
 /// settled without frames (Reduce Motion, a hidden screen, a parked or removed workspace, a teardown).
+///
+/// From the first move to that end, the displayed panes' views post no frame notices (``FrameNoticeHold``):
+/// each drag frame's commit then skips AppKit's titlebar drag-shape walk, and each moved view posts once at the end.
 extension ScreenContentView {
     func resizeGestureMoved() {
         // A hidden or parked screen steps no frames, so a drag there could not land; its pages lay out as before.
         guard window != nil, !isHiddenOrHasHiddenAncestor, !isParkedOrHasParkedAncestor else { return }
         if resizeGesture == .idle {
+            paneFrameNotices.hold(displayedHosts)
             resizeGestureListeners = displayedHosts.flatMap { $0.content.paneResizeGestureFollowers() }
                 .map { PaneResizeGestureListener(view: $0) }
             for listener in resizeGestureListeners { listener.view?.paneResizeGestureDidChange(active: true) }
@@ -41,15 +45,15 @@ extension ScreenContentView {
         resizeGesture = .active
     }
 
-    /// The pointer let go (or the drag was cancelled): the end waits for the release's layout and its landing.
+    /// The pointer let go (or the drag was cancelled): the contents hear it now; the end waits for the release's landing.
     func resizeGestureReleased() {
         guard resizeGesture == .active else { return }
         resizeGesture = .releasing
+        for listener in resizeGestureListeners { listener.view?.paneResizeGestureReleased() }
         context.requestFrames()
     }
 
-    /// `LayoutRootView.sync` applied the model with its gesture flag: once it is off, the release's
-    /// layout (and the spring it starts) is in this screen.
+    /// `LayoutRootView.sync` applied the model with its gesture flag: once off, the release's layout is in this screen.
     func resizeGestureModelSynced(gestureActive: Bool) {
         guard resizeGesture == .releasing, !gestureActive else { return }
         resizeGesture = .landing
@@ -66,6 +70,7 @@ extension ScreenContentView {
     /// A screen going away: its listeners, to hand to the screen their panes moved to
     /// (`LayoutRootView.sync`), without telling them anything.
     func takeResizeGestureListeners() -> [PaneResizeGestureListener] {
+        paneFrameNotices.release()
         guard resizeGesture != .idle else { return [] }
         let listeners = resizeGestureListeners
         resizeGesture = .idle
@@ -87,8 +92,16 @@ extension ScreenContentView {
         context.requestFrames()
     }
 
+    /// Gives the pane views their frame notices back once no resize drag and no zoom moves them (``FrameNoticeHold``).
+    func releasePaneFrameNoticesIfSettled() {
+        guard resizeGesture == .idle, zoomMotion.pane == nil, paneFrameNotices.isHolding else { return }
+        paneFrameNotices.release()
+    }
+
     /// Tells the contents that heard the start that the drag is over, now.
     func finishResizeGesture() {
+        // Each pane view the drag moved posts its one frame notice now (a zoom still on its spring keeps them).
+        defer { releasePaneFrameNoticesIfSettled() }
         guard resizeGesture != .idle else { return }
         resizeGesture = .idle
         let listeners = resizeGestureListeners

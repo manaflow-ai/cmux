@@ -57,6 +57,8 @@ final class LineTransport: Sendable {
         var sawShutdown = false
         /// The daemon refused this connection at its connection limit (`server.busy`).
         var sawBusyRefusal = false
+        /// The machine's link refused this stream (`link.refused`): its stated reason.
+        var linkRefusal: String?
         /// Events routed so far; responses capture it as their barrier.
         var eventCount: UInt64 = 0
         /// Lines read so far, every kind, in socket order: the daemon counts the lines it writes the same way.
@@ -382,8 +384,9 @@ final class LineTransport: Sendable {
     /// (`{"type":"refused","code":"server.busy"}`, then EOF): the daemon is alive and busy.
     static let busyRefusal = "refused: the session is at its connection limit (server.busy)"
 
-    /// The `code` of a `cmux.protocol/2` refusal line (`type: "refused"`).
-    private struct Refusal: Decodable { var code: String? }
+    /// The `code` of a `cmux.protocol/2` refusal line (`type: "refused"`); a machine's link
+    /// refusal (`link.refused`) adds its reason, failed check and detail.
+    private struct Refusal: Decodable { var code: String?; var reason: String?; var check: String?; var detail: String? }
 
     /// The daemon's busy refusal line is waiting unread at the front of `fd`'s receive buffer
     /// (`MSG_PEEK`, never blocks): the connection was refused, not broken.
@@ -451,7 +454,8 @@ final class LineTransport: Sendable {
         let reason: TransportCloseReason = state.withLock { state in
             if let closed = state.closed { return closed }
             if state.sawShutdown { return .daemonShutdown }
-            return .lost(state.sawBusyRefusal ? Self.busyRefusal : closeDetail)
+            if state.sawBusyRefusal { return .lost(Self.busyRefusal) }
+            return .lost(state.linkRefusal.map { "refused by the machine's link: \($0)" } ?? closeDetail)
         }
         failAll(reason)
         writer.close()
@@ -495,7 +499,13 @@ final class LineTransport: Sendable {
         }
         if envelope.type == "refused" {
             // The one line of a connection refused at the limit, then EOF: no request ran.
-            if (try? decoder.decode(Refusal.self, from: line))?.code == "server.busy" { state.withLock { $0.sawBusyRefusal = true } }
+            let refusal = try? decoder.decode(Refusal.self, from: line)
+            if refusal?.code == "server.busy" { state.withLock { $0.sawBusyRefusal = true } }
+            if let refusal, refusal.code == "link.refused" {
+                // The machine refused the stream before any daemon byte; the close names why, not a bare EOF.
+                let stated = [refusal.reason, refusal.check, refusal.detail].compactMap(\.self).joined(separator: ": ")
+                state.withLock { $0.linkRefusal = stated.isEmpty ? "link.refused" : stated }
+            }
             return
         }
         guard envelope.ok != nil || envelope.id != nil else { return }

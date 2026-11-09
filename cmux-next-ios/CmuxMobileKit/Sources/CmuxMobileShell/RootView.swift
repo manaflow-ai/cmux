@@ -89,6 +89,8 @@ public struct RootView: View {
     @State private var accountUserID: String?
     /// A pairing code opened while signed out: applied once the account's live data starts.
     @State private var heldInvite: PairInvite?
+    /// A Mac's invite for a new machine (`https://cmux.com/pair?i=…`): Pair Another Machine, its code filled in.
+    @State private var machineInvite: MachineInvite?
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
     @State private var shellModel = KeptModel<ShellModel>()
     private let options: ShellLaunchOptions
@@ -149,8 +151,8 @@ public struct RootView: View {
                 // transaction); every other swap crossfades, Welcome's exit
                 // after sign-in included.
                 .transition(welcomeCut && destination == .welcome
-                    ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation))
-                    : .opacity.animation(theme.motion.gentle.animation))
+                    ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                    : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
             } else {
                 // Welcome redraws this mark on its first frame and animates it
                 // from there, so on that path the swap is a true cut: an
@@ -161,10 +163,10 @@ public struct RootView: View {
                     .ignoresSafeArea()
                     .transition(destination == .welcome
                         ? .identity
-                        : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation))
+                        : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation.unlessReduceMotion))
             }
         }
-        .animation(theme.motion.gentle.animation, value: destination)
+        .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
@@ -191,9 +193,16 @@ public struct RootView: View {
                     launchFinished = true
                 }
             } else {
-                withAnimation(theme.motion.gentle.animation) { launchFinished = true }
+                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { launchFinished = true }
             }
             #if DEBUG
+            // Test-only (compiled out of Release): a launch is handed a URL as the system opens one
+            // (.onOpenURL below). `simctl openurl` of an https link cmux.com's site association does
+            // not claim lands in Safari, so UI tests and fleet simulator runs open `/pair?i=` here.
+            if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_OPEN_URL"], let url = URL(string: text),
+               let opened = OpenedURL(url: url) {
+                open(opened)
+            }
             if options.setupPairDemo { await runSetupPairDemo() }
             #endif
         }
@@ -219,16 +228,20 @@ public struct RootView: View {
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
+        // A Mac's invite for a new machine (`https://cmux.com/pair?i=…`) opens Pair Another Machine.
         // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
         .onOpenURL { url in
-            if let link = CmuxLink(url: url) { return NotificationRouter.shared.open(link: link) }
-            guard let invite = PairInvite(url: url) else { return }
-            if let live { live.accept(invite) } else { heldInvite = invite }
+            if let opened = OpenedURL(url: url) { open(opened) }
         }
-        // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, a cloud group's page).
+        // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, `/pair?i=`, a cloud group's page).
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-            guard let url = activity.webpageURL, let link = CmuxLink(url: url) else { return }
-            NotificationRouter.shared.open(link: link)
+            guard let url = activity.webpageURL, let opened = OpenedURL(webpage: url) else { return }
+            open(opened)
+        }
+        .sheet(item: $machineInvite) { invite in
+            NavigationStack {
+                MachineInviteSheet(invite: invite) { machineInvite = nil }
+            }
         }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
@@ -241,6 +254,18 @@ public struct RootView: View {
         }
         .onChange(of: settings.appearance, initial: true) { _, mode in
             applyAppearance(mode)
+        }
+    }
+
+    private func open(_ opened: OpenedURL) {
+        switch opened {
+        case .machineInvite(let invite):
+            log.info("opening a Mac's invite for a new machine")
+            machineInvite = invite
+        case .link(let link):
+            NotificationRouter.shared.open(link: link)
+        case .macPairingCode(let invite):
+            if let live { live.accept(invite) } else { heldInvite = invite }
         }
     }
 
@@ -528,6 +553,9 @@ struct ShellView: View {
         .sheet(item: $shell.messagingChief) { subject in
             ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
         }
+        .sheet(item: $shell.messagingChiefText) { draft in
+            ChiefMessageAboutSheet(subject: nil, initialText: draft.text, sending: shell.sendingToChief) { text in shell.sendToChief(text) }
+        }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
         }
@@ -726,6 +754,7 @@ extension CmuxMobileModel.TransportKind {
 private struct LiveCallHost: ViewModifier {
     let shell: ShellModel
     private let call = ChiefLiveCall.shared
+    private let voice = AgentVoiceMode.shared
 
     func body(content: Content) -> some View {
         content
@@ -734,9 +763,15 @@ private struct LiveCallHost: ViewModifier {
                     LiveCallPill(call: call, session: session)
                         .padding(.top, 2)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                } else if let session = voice.session {
+                    // Voice mode on an agent session: captions, mute and end, over every screen.
+                    AgentVoiceBar(mode: voice, session: session)
+                        .padding(.top, 2)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .animation(theme.motion.snappy.animation, value: call.isMinimized)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: call.isMinimized)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: voice.session?.id)
             .fullScreenCover(isPresented: Binding(
                 get: { call.showsScreen },
                 set: { if !$0 { call.isMinimized = true } }
@@ -749,14 +784,21 @@ private struct LiveCallHost: ViewModifier {
                 let user = shell.auth.isSignedIn ? shell.auth.user : nil
                 call.configure(store: shell.store, accountID: user?.id,
                                userName: user?.name.split(separator: " ").first.map(String.init))
-                ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+                ChiefCallLauncher.shared.handler = { [shell] chief in shell.callChief(chief) }
+                voice.install(accountID: user?.id)
+                voice.openKeySettings = { [shell] in shell.openChiefCallSettings() }
+                // One audio line at a time: voice mode ends a Chief call, a Chief call ends voice mode.
+                voice.endOtherAudio = { [call] in call.close() }
                 AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
                 ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
+                ChiefMessenger.shared.composeText = { [weak shell] text in shell?.messagingChiefText = ChiefTextDraft(text: text) }
             }
             .onDisappear {
                 ChiefCallLauncher.shared.handler = nil
+                voice.install(accountID: nil)
                 AgentChatLauncher.shared.handler = nil
                 ChiefMessenger.shared.compose = nil
+                ChiefMessenger.shared.composeText = nil
             }
     }
 }
@@ -800,6 +842,10 @@ struct ShellTabs: View {
                     sizing: shell.sizingService,
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
+                    cloudPages: shell.live == nil || ChiefCloudConfig.current() == nil ? nil : SettingsCloudPages(
+                        automations: { AnyView(CloudAutomationsScreen()) },
+                        connectGitHub: { AnyView(GitHubConnectRow()) }
+                    ),
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {

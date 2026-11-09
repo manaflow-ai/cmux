@@ -7,4 +7,5 @@ extension AppServices: WorkspaceHibernationHost {
     func hibernationShownSpaces() -> Set<String> { Set(windows.shownSpaceIDs.map(\.rawValue)) }
     func hibernationPolicy() -> WorkspaceHibernationPlanner.Policy { WorkspaceHibernationPlanner.Policy(settings?.snapshot.workspaceHibernation) }
     func hibernate(workspace id: String) { hibernateWorkspace(id) }
+    func hibernate(workspace id: String, byPerson: Bool) { hibernateWorkspace(id, byPerson: byPerson) }
 }

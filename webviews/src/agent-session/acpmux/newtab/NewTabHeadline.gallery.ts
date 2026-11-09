@@ -91,7 +91,7 @@ export default agentPaneEntry({
   },
   variants: {
     on: {
-      note: 'Ask What to Work On turned on, before a pick: "What should we work on?" over the composer, Choose project under it.',
+      note: 'Ask What to Work On turned on, before a pick: "What should we work on?" over the composer, Choose folder under it.',
       ready: page(["greeting"]),
       snapshot: noChat(manySessions(12)),
       play: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".nt-headline") !== null),
@@ -113,7 +113,7 @@ export default agentPaneEntry({
       },
     },
     "picker-open": {
-      note: "The headline's picker open under the question: the recent projects with a search field, Browse and Do not work in a project.",
+      note: "The headline's picker open under the question: the recent projects with a search field, Add folder… and No folder.",
       ready: page(["greeting"]),
       snapshot: noChat(manySessions(12)),
       play: async (ctx) => {

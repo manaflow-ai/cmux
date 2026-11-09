@@ -24,21 +24,24 @@ public struct SettingsDiagnosticNotices: Sendable {
         /// The file's value at the key as compact JSON, nil when it has none.
         public let value: String?
         public let message: String
+        /// The file the value came from when it is not cmux-next.json (a theme file), else nil.
+        public let file: String?
         /// What ``remembered`` stores: the key, a digest of the value (never
         /// the value itself) and the reason. A file that does not parse is one
         /// notice whatever the parse error says, so an autosave that moves the
         /// error does not announce it again.
         public let fingerprint: String
 
-        public init(kind: SettingsDiagnostic.Kind = .invalidValue, path: String, value: String?, message: String) {
+        public init(kind: SettingsDiagnostic.Kind = .invalidValue, path: String, value: String?, message: String, file: String? = nil) {
             self.path = path
             self.value = value
             self.message = message
+            self.file = file
             if kind == .unreadableFile {
-                fingerprint = kind.rawValue
+                fingerprint = ([file, kind.rawValue] as [String?]).compactMap(\.self).joined(separator: "\u{0}")
             } else {
                 let digest = value.map { SHA256.hash(data: Data($0.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined() } ?? ""
-                fingerprint = [path, digest, message].joined(separator: "\u{0}")
+                fingerprint = ([file, path, digest, message] as [String?]).compactMap(\.self).joined(separator: "\u{0}")
             }
         }
     }
@@ -64,7 +67,7 @@ public struct SettingsDiagnosticNotices: Sendable {
     public static func announces(_ kind: SettingsDiagnostic.Kind) -> Bool {
         switch kind {
         case .unreadableFile, .invalidValue, .unknownAction, .unknownMetric, .unsupportedChord, .removedSetting: true
-        case .shortcutConflict, .managedOverride, .managedConflict: false
+        case .shortcutConflict, .managedOverride, .managedConflict, .correctedValue, .setByThemeFile: false
         }
     }
 
@@ -74,8 +77,10 @@ public struct SettingsDiagnosticNotices: Sendable {
         var seen: Set<String> = []
         var pending: [Notice] = []
         for diagnostic in diagnostics where Self.announces(diagnostic.kind) && !Self.isManaged(diagnostic.path, managed) {
-            let value = diagnostic.path.isEmpty ? nil : file.value(at: CmuxConfigFile.keyPath(from: diagnostic.path))?.compactText
-            let notice = Notice(kind: diagnostic.kind, path: diagnostic.path, value: value, message: diagnostic.message)
+            // A theme file's refusal carries its own value; cmux-next.json's is read from the file.
+            let value = diagnostic.file != nil ? diagnostic.value
+                : diagnostic.path.isEmpty ? nil : file.value(at: CmuxConfigFile.keyPath(from: diagnostic.path))?.compactText
+            let notice = Notice(kind: diagnostic.kind, path: diagnostic.path, value: value, message: diagnostic.message, file: diagnostic.file)
             guard seen.insert(notice.fingerprint).inserted else { continue }
             if !remembered.contains(notice.fingerprint) { pending.append(notice) }
         }

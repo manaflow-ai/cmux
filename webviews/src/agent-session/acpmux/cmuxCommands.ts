@@ -104,6 +104,7 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "side",
     description: "",
     descriptionKey: "composer.slashSide",
+    hint: "<prompt>",
     source: "cmux",
     action: "side",
   },
@@ -123,11 +124,13 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     action: "cd",
   },
   // Claude Code's own /resume and /login need its terminal UI; these are the GUI's (Lawrence:
-  // "in gui, having /resume would be nice, maybe /login as well"). /resume opens the chats search.
+  // "in gui, having /resume would be nice, maybe /login as well"). /resume opens the chats search;
+  // `/resume <session-id>` resumes that chat (resumeCommand.ts).
   {
     name: "resume",
     description: "",
     descriptionKey: "composer.slashResume",
+    hint: "[session-id]",
     source: "cmux",
     action: "resume",
   },
@@ -256,6 +259,9 @@ export function cmuxCommandRefusal(
   state: {
     summary: boolean;
     forkable: boolean;
+    /// Why `/side` cannot fork the chat now (`sideChatRefusal`), undefined when it can: unlike `/fork`,
+    /// a working chat forks as it is now and its own turn goes on (#38042).
+    sideFork?: "unavailable" | "nothingYet";
     sideAvailable: boolean;
     canContinue: boolean;
     sideSessions: boolean;
@@ -284,7 +290,10 @@ export function cmuxCommandRefusal(
       if (state.newTab) return "composer.cmuxCdNewTab";
       return !args?.trim() || cdFolder(args, state.cwd) ? undefined : "composer.cmuxCdPath";
     case "side":
-      return !args?.trim() && state.forkable && state.sideAvailable ? undefined : "composer.cmuxSideUnavailable";
+      // `/side <prompt>` sends the prompt to the side chat; the chat itself gets nothing.
+      if (!state.sideAvailable) return "composer.cmuxSideUnavailable";
+      if (state.sideFork === "nothingYet") return "notice.forkNothingYet";
+      return state.sideFork ? "composer.cmuxForkBusy" : undefined;
     case "fork":
       if (args?.trim()) return "composer.cmuxForkArgs";
       return state.forkable ? undefined : "composer.cmuxForkBusy";

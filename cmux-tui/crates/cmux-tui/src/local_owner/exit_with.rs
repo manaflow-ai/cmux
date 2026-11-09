@@ -63,6 +63,15 @@ pub(crate) fn parse_owner_exit_with(value: &str) -> Result<ExitWith, String> {
     Ok(ExitWith { pid: parse_pid(pid)?, started_ms })
 }
 
+/// The test process this owner runs under (`cmux_tui_core::test_owner`,
+/// cx-leo45), for an owner no `--exit-with-pid` names one for: a fixture that
+/// kills its daemon, panics or times out leaves no terminal behind.
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub(crate) fn test_owner_exit_with() -> Option<ExitWith> {
+    cmux_tui_core::test_owner::owner()
+        .map(|starter| ExitWith { pid: starter.pid, started_ms: starter.started_ms })
+}
+
 /// Starts the owner's watch. A watch that cannot start is reported and
 /// leaves the owner running, as without the option.
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]

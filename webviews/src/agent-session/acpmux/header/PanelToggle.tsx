@@ -5,7 +5,7 @@
 // centred on the icon grid (Leo 2026-11-04: "make our session info button 2 rows too"); SF Symbols has no two-row
 // list.bullet, so it has no HEADER_SYMBOLS entry and draws from the cmux pack in the app too.
 import { HeaderIcon } from "./HeaderIcon";
-import { HEADER_GLYPH } from "./ChatHeaderTools";
+import { HEADER_GLYPH } from "./chatHeaderToolsModel";
 import { tooltipProps } from "../shortcuts";
 
 export function PanelToggle({

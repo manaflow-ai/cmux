@@ -2,8 +2,8 @@ import Foundation
 
 /// The shared card for messages to the user above the footer (BOTTOM-LEFT-
 /// CARDS K1; Lawrence 2026-10-09): the "Did you know" tip and the update
-/// status use it. An optional icon beside the title, an optional small
-/// heading above it, one short detail (up to two lines), an optional
+/// status use it. An optional icon above the title, an optional small
+/// heading above it, a detail (wrapped in full), an optional
 /// progress bar, up to two buttons with an optional shortcut beside them,
 /// and an x. A button sends `SidebarIntent.noticeAction(card:action:)`, the
 /// x `dismissNotice(id)`. The App fills it only when no update card shows
@@ -56,14 +56,14 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     }
 
     public var id: String
-    /// An SF Symbol beside the title, nil for none (status cards show none: their text starts at
+    /// An SF Symbol above the title, nil for none (status cards show none: their text starts at
     /// the card's padding).
     public var symbol: String?
     /// A small heading above the title ("Did you know?"), nil for none.
     public var eyebrow: String?
     public var title: String
     public var detail: String?
-    /// Short list lines under the detail (a changelog), one line each.
+    /// Short list lines under the detail (a changelog), each wrapped in full.
     public var lines: [String]
     public var progress: Progress?
     public var actions: [Action]

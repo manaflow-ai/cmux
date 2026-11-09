@@ -5,10 +5,10 @@
 //! deleted file is first moved aside, and any failure puts back what the
 //! pull changed before it.
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
 use std::path::Path;
 
 use anyhow::{Context as _, bail};
@@ -160,6 +160,48 @@ impl Dir {
         }
     }
 
+    /// Writes `bytes` as the new file `name` with `mode`: to a hidden name
+    /// first, then renamed to `name` in one atomic step that takes the name
+    /// only while it is still missing. Anything already at `name` (a file,
+    /// a folder, a symlink, or one made meanwhile) stays untouched, and the
+    /// answer is `AlreadyExists`.
+    pub(super) fn new_file(&self, name: &str, bytes: &[u8], mode: u32) -> io::Result<()> {
+        use std::io::Write as _;
+        if !matches!(self.entry(name)?, Entry::Missing) {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
+        // A hidden name of its own, made with O_EXCL: nothing already there
+        // (anyone's file by any name) is removed or reused.
+        let (part, mut file) = {
+            let mut tries = 0u32;
+            loop {
+                let part = format!(".{name}.{}-{tries}.cmux-sync-part", std::process::id());
+                match self.create_file(&part, mode) {
+                    Ok(file) => break (part, file),
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists && tries < 64 => {
+                        tries += 1;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        };
+        let written = file.write_all(bytes).and_then(|()| file.sync_all());
+        drop(file);
+        let placed = written.and_then(|()| {
+            let fd = self.0.as_raw_fd();
+            match rename_noreplace(fd, &c_name(&part)?, &c_name(name)?) {
+                Err(error) if error.raw_os_error() == Some(libc::EEXIST) => {
+                    Err(io::Error::from(io::ErrorKind::AlreadyExists))
+                }
+                other => other,
+            }
+        });
+        if placed.is_err() {
+            let _ = self.unlink(&part, false);
+        }
+        placed
+    }
+
     /// The text of the symlink `name` (never followed).
     pub(super) fn read_link(&self, name: &str) -> io::Result<String> {
         let c = c_name(name)?;
@@ -235,6 +277,36 @@ impl Dir {
     fn dup(&self) -> io::Result<Self> {
         Ok(Self(self.0.try_clone()?))
     }
+
+    /// This folder's device and inode.
+    fn identity(&self) -> io::Result<(u64, u64)> {
+        // SAFETY: zeroed stat is a valid out value.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: a valid descriptor and out pointer; the result is checked.
+        check(unsafe { libc::fstat(self.0.as_raw_fd(), &mut stat) })?;
+        Ok((widen_u64(stat.st_dev), widen_u64(stat.st_ino)))
+    }
+}
+
+/// A file [`open_beneath`] opened, its device and inode, and its root's.
+pub(super) type Beneath = (File, (u64, u64), (u64, u64));
+
+/// The regular file `relative` under the folder `root`, opened one name at
+/// a time with `O_NOFOLLOW`, so no symlink anywhere below `root` is
+/// followed; with the file's device and inode and the root's.
+pub(super) fn open_beneath(root: &Path, relative: &str) -> anyhow::Result<Beneath> {
+    use std::os::unix::fs::MetadataExt as _;
+    let dir = Dir::open(root)?;
+    let root_identity = dir.identity()?;
+    let Some((parent, name)) = parent_of(&dir, relative)? else {
+        bail!("{relative} is gone from {}", root.display());
+    };
+    let file = parent.open_file(&name)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        bail!("{relative} in {} is not a regular file", root.display());
+    }
+    Ok((file, (meta.dev(), meta.ino()), root_identity))
 }
 
 /// What a file here must still be for the pull to replace or delete it:
@@ -640,6 +712,37 @@ fn link_new(from: &Dir, from_name: &str, to: &Dir, to_name: &str) -> io::Result<
             from.rename(from_name, to, to_name)
         }
         Err(error) => Err(error),
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn renameat2(fd: RawFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. The syscall does not retain the pointers; calling it
+    // directly avoids depending on glibc's `renameat2` wrapper.
+    let done =
+        unsafe { libc::syscall(libc::SYS_renameat2, fd, from.as_ptr(), fd, to.as_ptr(), flags) };
+    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+#[cfg(target_vendor = "apple")]
+fn renameatx(fd: RawFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. `renameatx_np` does not retain the pointers.
+    let done = unsafe { libc::renameatx_np(fd, from.as_ptr(), fd, to.as_ptr(), flags) };
+    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+/// Renames `from` to `to` in one folder only while `to` is missing.
+fn rename_noreplace(fd: RawFd, from: &CStr, to: &CStr) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return renameat2(fd, from, to, libc::RENAME_NOREPLACE);
+    #[cfg(target_vendor = "apple")]
+    return renameatx(fd, from, to, libc::RENAME_EXCL);
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    {
+        let _ = (fd, from, to);
+        Err(io::Error::from(io::ErrorKind::Unsupported))
     }
 }
 

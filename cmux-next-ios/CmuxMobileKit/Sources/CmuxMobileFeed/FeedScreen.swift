@@ -3,6 +3,7 @@ import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileMarkdown
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 /// SPEC 8.1 Feed tab: an X-style live timeline of agent events across every
@@ -146,7 +147,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             HStack(spacing: 8) {
                 ForEach(FeedFilter.allCases, id: \.self) { filter in
                     Button {
-                        withAnimation(.cmuxMobileSnap) { store.filter = filter }
+                        withAnimation(.cmuxMobileSnap.unlessReduceMotion) { store.filter = filter }
                     } label: {
                         HStack(spacing: 10) {
                             Text(filter.rawValue)
@@ -208,15 +209,19 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @ViewBuilder
     private var newPill: some View {
         let count = list.newAbove + store.unseenNewIDs.count
-        if count > 0, !list.atTop {
+        // The pill stays through its jump: had it gone at the tap, a second tap on the same spot
+        // reached the row moving under it mid-jump. Its count clears (and it goes) near the top.
+        if count > 0, !list.atTop || list.jumpingToTop {
             Button {
                 list.scrollToTop()
-                store.clearUnseen()
             } label: {
                 Label("\(count) new", systemImage: "arrow.up")
                     .font(.footnote.weight(.semibold))
                     .padding(.horizontal, 14)
                     .frame(height: 36)
+                    // The whole capsule takes the tap: a plain button's padding is not hit-testable,
+                    // so a tap on the glass around the text fell through to the row under the pill.
+                    .contentShape(.capsule)
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .capsule)
@@ -229,7 +234,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// No events known yet and the Mac has not answered: not "Nothing yet".
     private var connectingState: some View {
         VStack(spacing: 10) {
-            ProgressView()
+            CmuxSpinner()
             Text("Connecting to your Mac…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -269,16 +274,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             store.clearUnseen()
         case .feedOpen(let id):
             if let item = store.items.first(where: { $0.id == id }) { open(item) }
-        case .feedSwipe(let id, _):
-            swipe.demoReveal = id
-            swipe.demoPerform = nil
-            swipe.demoSerial += 1
         case .feedSwipeAction(let id, let action):
-            swipe.demoReveal = nil
             swipe.demoPerform = (id, action)
             swipe.demoSerial += 1
-        case .feedSwipeClose:
-            swipe.openID = nil
         case .feedExpand, .feedReply, .answerQuestion:
             list.demo(command)
         default:
@@ -366,7 +364,7 @@ private struct DoneUndoBar: View {
                 HStack(spacing: 14) {
                     Label("Marked done", systemImage: "checkmark.circle")
                         .font(.subheadline.weight(.medium))
-                    Button("Undo") { withAnimation(.cmuxMobileSmooth) { store.undoDone() } }
+                    Button("Undo") { withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.undoDone() } }
                         .font(.subheadline.weight(.semibold))
                 }
                 .padding(.horizontal, 18)
@@ -374,17 +372,17 @@ private struct DoneUndoBar: View {
                 .glassEffect(.regular.interactive(), in: .capsule)
                 // Swipe down or sideways to dismiss (it came from the bottom); a tap is Undo's.
                 .cmuxMobileDismissibleToast(entry: .bottom, announcement: "Marked done", tapDismisses: false) {
-                    if store.lastDoneID == id { withAnimation(.cmuxMobileSmooth) { store.clearDone() } }
+                    if store.lastDoneID == id { withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clearDone() } }
                 }
                 .padding(.bottom, 12)
                 .transition(.offset(y: 16).combined(with: .opacity))
                 .task(id: id) {
                     try? await Task.sleep(for: .seconds(4))
-                    if store.lastDoneID == id { withAnimation(.cmuxMobileSmooth) { store.clearDone() } }
+                    if store.lastDoneID == id { withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clearDone() } }
                 }
             }
         }
-        .animation(.cmuxMobileSnappy, value: store.lastDoneID)
+        .animation(.cmuxMobileSnappy.unlessReduceMotion, value: store.lastDoneID)
     }
 }
 #endif

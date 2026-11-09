@@ -15,6 +15,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.next-step-card";
+  const PANE_ENTRY = "agent-pane.next-step-in-pane";
   const HEIGHT = 280;
   const WIDTH = 640;
   const VARIANTS: Record<string, { buttons: number }> = {
@@ -98,7 +99,6 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
 
   // The real pane on a snapshot: the transcript's own shaping places the card (turns.ts NEXT_STEP).
   describe("in the agent pane", () => {
-    const PANE = "agent-pane.next-step-in-pane";
     for (const [variant, cards] of [
       ["waiting", 1],
       ["answered", 1],
@@ -109,7 +109,7 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
           const page = await browser!.newPage({ viewport: { width: 760, height: 560 }, deviceScaleFactor: 2 });
           try {
             const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-            await page.goto(base + galleryFrame(PANE, { variant, width: 760, height: 560, colorScheme: scheme }));
+            await page.goto(base + galleryFrame(PANE_ENTRY, { variant, width: 760, height: 560, colorScheme: scheme }));
             await page.waitForFunction(
               () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
               undefined,
@@ -124,5 +124,101 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
             await page.close();
           }
         });
+  });
+
+  // The click path, headless: the box from a real chat's call_log (a wrap-up called from a
+  // cmux_exec script), a click on an answer, and that answer sent as the next prompt, a reply
+  // quoting the ask, which its bubble draws as a quote.
+  test("a wrap-up answer click sends the answer as a reply quoting the ask", async () => {
+    const page = await browser!.newPage({ viewport: { width: 760, height: 560 }, deviceScaleFactor: 2 });
+    try {
+      const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+      await page.goto(
+        base + galleryFrame(PANE_ENTRY, { variant: "wrap-up-click", width: 760, height: 560, colorScheme: "dark" }),
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+        timeout: 90_000,
+      });
+      const card = page.locator(".acpmux-next-step").first();
+      await card.waitFor({ timeout: 20_000 }).catch(async (error: unknown) => {
+        const seen = await page.evaluate(() => ({
+          attach: (window as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] }).cmuxGalleryLog
+            .filter((entry) => entry.method.includes("attach") || entry.method.includes("session/load"))
+            .map((entry) => JSON.stringify(entry.params)),
+          text: document.body.innerText.slice(0, 1200),
+        }));
+        throw new Error(`no next-step box; attach ${seen.attach.join(" | ")}; page: ${seen.text}`, { cause: error });
+      });
+      expect(await card.textContent()).toContain("Checked the folder: it is empty.");
+      expect(await card.locator(".acpmux-next-step__answer").allTextContents()).toEqual([
+        expect.stringContaining("Yes, add README"),
+        "No thanks",
+      ]);
+      if (out) await page.screenshot({ path: path.join(out, "pane-wrap-up-code-mode-dark.png") });
+      await card.locator(".acpmux-next-step__answer", { hasText: "Yes, add README" }).click();
+      // The pane's send path on its acpmux link: the in-page mock logs each request it answers.
+      const sent = await page
+        .waitForFunction(
+          () => {
+            type Entry = { method: string; params?: { prompt?: unknown } };
+            const log = (window as unknown as { cmuxGalleryLog: Entry[] }).cmuxGalleryLog;
+            for (const entry of log) {
+              if (entry.method === "acpmux session/prompt" && Array.isArray(entry.params?.prompt))
+                return (entry.params.prompt as { text?: string }[]).map((block) => block.text ?? "").join("");
+            }
+            return undefined;
+          },
+          undefined,
+          { timeout: 30_000 },
+        )
+        .catch(async (error: unknown) => {
+          const calls = await page.evaluate(() =>
+            (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.map((entry) => entry.method),
+          );
+          throw new Error(`no prompt was sent; the frame's calls: ${calls.join(", ")}`, { cause: error });
+        });
+      // The answer goes as a reply to the ask (nextStepAsk.ts `answerPrompt`): the ask quoted under
+      // who asked, then the answer. Leo, 2026-11-08, on a bare "Not now" bubble: "wait this thing
+      // should've shown that it was a reply to an ask from you".
+      const quote = "Claude Code: Should I add a README here?";
+      expect(await sent.jsonValue()).toBe(`> ${quote}\n\nYes, add README`);
+      // Its bubble draws the quote as every quoted reply does (the muted bar), the answer under it.
+      const bubble = page.locator(".cv-user__body", { has: page.locator(".cv-quote") }).last();
+      await bubble.waitFor({ timeout: 30_000 });
+      expect((await bubble.locator(".cv-quote").textContent())?.trim()).toBe(quote);
+      expect(await bubble.textContent()).toContain("Yes, add README");
+      expect(await bubble.textContent()).not.toContain(">");
+      // The row's first-layout estimate (model.ts `layoutConversation`) is its drawn height, so
+      // nothing under the reply moves when it mounts. A plain prompt is measured the same way.
+      const fits = await page.evaluate(
+        async (texts) => {
+          const model = "/gallery/src/agent-session/acpmux/model.ts";
+          const { layoutConversation } = (await import(
+            /* @vite-ignore */ model
+          )) as typeof import("../src/agent-session/acpmux/model");
+          const rows = [...document.querySelectorAll<HTMLElement>("article[data-row-id]")];
+          return texts.map((text) => {
+            const row = rows
+              .filter((one) => one.querySelector(".cv-user__body")?.textContent?.includes(text.split("\n").at(-1)!))
+              .at(-1)!;
+            const { width, height } = row.getBoundingClientRect();
+            const estimate = layoutConversation([{ id: "fit", version: 1, at: 0, kind: "user", text }], width)
+              .heights[0]!;
+            return { text, drawn: height, estimate };
+          });
+        },
+        [`> ${quote}\n\nYes, add README`, "What's in this folder?"],
+      );
+      for (const fit of fits)
+        expect({ ...fit, off: Math.abs(fit.drawn - fit.estimate) < 1 }).toMatchObject({ off: true });
+      // The card folds to the answer, not the quote.
+      await page.locator(".acpmux-next-step--answered").first().waitFor({ timeout: 30_000 });
+      expect(
+        await page.locator(".acpmux-next-step--answered .acpmux-question-answered-answer").first().textContent(),
+      ).toBe("Yes, add README");
+      if (out) await page.screenshot({ path: path.join(out, "pane-wrap-up-answered-reply-dark.png") });
+    } finally {
+      await page.close();
+    }
   });
 });

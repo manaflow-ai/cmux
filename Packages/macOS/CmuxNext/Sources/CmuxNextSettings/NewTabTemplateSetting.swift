@@ -24,9 +24,6 @@ public nonisolated enum NewTabTemplate: String, Sendable, Hashable, CaseIterable
 /// `tabs.newTabTemplate` in cmux.json. Unset is nil (the page then shows ``fallback``, Minimal, unless
 /// the Debug Settings design tunable picks Classic); a bad value is nil plus a diagnostic.
 nonisolated extension NewTabTemplate {
-    public static let configPath = ["tabs", "newTabTemplate"]
-    public static let fallback: NewTabTemplate = .minimal
-
     static func parse(_ root: JSONValue) -> (NewTabTemplate?, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (nil, nil) }
         guard let text = value.stringValue, let template = NewTabTemplate(rawValue: text) else {

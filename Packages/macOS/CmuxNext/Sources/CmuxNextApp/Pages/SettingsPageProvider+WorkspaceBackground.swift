@@ -64,7 +64,7 @@ extension SettingsPageProvider {
         var value: JSONValue?
         if let given = params["value"], given != .null { value = given }
         if let value {
-            guard let descriptor = SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath), descriptor.accepts(value) else {
+            guard let descriptor = SettingsSchema.descriptor(for: BackdropSelectionSetting.configPath), descriptor.accepts(value) else {
                 throw PageError(code: "cmux.settings.invalid", message: "not a background: \(value)")
             }
         }

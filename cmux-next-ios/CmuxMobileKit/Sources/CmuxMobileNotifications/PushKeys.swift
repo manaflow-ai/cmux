@@ -11,6 +11,12 @@ public protocol PushSecretStore: Sendable {
     func read(_ account: String) throws -> Data?
     func write(_ data: Data, account: String) throws
     func delete(_ account: String)
+    /// Deletes every item this store holds (sign-out). A store that cannot list its items keeps them.
+    func deleteAll()
+}
+
+public extension PushSecretStore {
+    func deleteAll() {}
 }
 
 /// The shared keychain group.
@@ -64,6 +70,13 @@ public struct PushKeychainStore: PushSecretStore {
     public func delete(_ account: String) {
         SecItemDelete(query(account) as CFDictionary)
     }
+
+    /// Every item of this service in this group.
+    public func deleteAll() {
+        let all: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                  kSecAttrAccessGroup as String: group, kSecUseDataProtectionKeychain as String: true]
+        SecItemDelete(all as CFDictionary)
+    }
 }
 
 /// Memory (tests).
@@ -76,6 +89,7 @@ public final class PushMemoryStore: PushSecretStore, @unchecked Sendable { // cr
     public func read(_ account: String) throws -> Data? { lock.withLock { items[account] } }
     public func write(_ data: Data, account: String) throws { lock.withLock { items[account] = data } }
     public func delete(_ account: String) { _ = lock.withLock { items.removeValue(forKey: account) } }
+    public func deleteAll() { lock.withLock { items.removeAll() } }
 }
 
 /// What the service extension needs to open a sealed push: whose phone this

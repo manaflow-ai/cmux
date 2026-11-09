@@ -4,7 +4,8 @@
 # com.cmuxterm.cua.dev): the Swift helper (Packages/macOS/CmuxComputerUseHelper)
 # plus the pinned upstream libcua_driver_sdk.dylib (cua-driver-sdk.pin.json).
 # Run on cmux-lawrence-2 (nx-remote) or a fleet Mac, never on a laptop.
-# sign-cua-helper-dev.sh signs it with Apple Development and publishes it.
+# sign-cua-helper-dev.sh signs and publishes it (in CI: the dev helper signing
+# workflow on main, with the Developer ID certificate).
 #
 #   build-cua-helper-dev.sh [--out DIR]   (default $NX_ARTIFACTS or ./out)
 #
@@ -97,7 +98,7 @@ plistlib.dump({
 }, open(path, "wb"))
 PY
 # Ad-hoc signatures only so the bundle is valid; sign-cua-helper-dev.sh
-# replaces them with Apple Development.
+# replaces them.
 codesign --force --sign - "$app/Contents/Frameworks/libcua_driver_sdk.dylib"
 codesign --force --sign - "$app"
 mkdir -p "$out"

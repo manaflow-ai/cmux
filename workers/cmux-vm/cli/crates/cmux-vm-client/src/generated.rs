@@ -13594,6 +13594,56 @@ pub mod types {
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct VmImageList {
         pub items: ::std::vec::Vec<VmImage>,
+        ///"configured": items are in the operator's configured order, the first being the image in use. Absent: the order carries no meaning.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub order: ::std::option::Option<VmImageListOrder>,
+    }
+    ///"configured": items are in the operator's configured order, the first being the image in use. Absent: the order carries no meaning.
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum VmImageListOrder {
+        #[serde(rename = "configured")]
+        Configured,
+    }
+    impl ::std::fmt::Display for VmImageListOrder {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Configured => f.write_str("configured"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for VmImageListOrder {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "configured" => Ok(Self::Configured),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmImageListOrder {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmImageListOrder {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
     }
     ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -14070,6 +14120,12 @@ pub mod types {
         ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
         #[serde(rename = "meshId")]
         pub mesh_id: VmReceiverPolicyMeshId,
+        ///The earliest expiry of an API key that owns one of the listed peers' devices, or null when none expires. Also folded into expiresAt; the Cloud owner bounds the receiver's local admission horizon by it.
+        #[serde(
+            rename = "ownerExpiresAt",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub owner_expires_at: ::std::option::Option<u64>,
         ///an array of at most 128 item(s)
         pub peers: ::std::vec::Vec<VmReceiverPolicyPeersItem>,
         ///a string matching the pattern ^[0-9a-f]{64}$

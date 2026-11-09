@@ -118,11 +118,11 @@ extension ScreenshotMask.Rules {
 extension ScreenshotMask {
     /// The app pages a capture shows: they hold no secret, chat or browsing data, and nothing an
     /// agent cannot read another way (files, diffs, keys, the changelog). Every other app page
-    /// (Settings with its key fields, Passwords, History, Home Channels, the agent page, Agent
+    /// (Settings with its key fields, Passwords, History, Home Channels, Home Messages, the agent page, Agent
     /// Activity's screen frames, the Chief's pages) is masked.
     static let shownAppPages: Set<String> = [
         "cmux.keybindings", "cmux.changelog", "cmux.icon-picker", "cmux.apps", "cmux.diff", "cmux.markdown", "cmux.editor",
-        "cmux.files", "cmux.debug-settings",
+        "cmux.files", "cmux.debug-settings", "cmux.home-chat-colors",
     ]
 
     /// The native page tabs (``InternalPageView`` whose content is not a ``PageWebView``) a

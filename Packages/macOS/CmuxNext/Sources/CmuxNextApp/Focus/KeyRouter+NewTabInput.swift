@@ -28,12 +28,12 @@ final class NewTabInputCoordinator {
     var incomingHoldLimit: Duration = .seconds(4)
     /// Injected for tests; the hold limit is the only time this coordinator reads.
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
-    /// Runs `fire` once `limit` from now (a task by default; injected for tests).
-    var scheduleDeadline: (_ limit: Duration, _ fire: @escaping @MainActor () -> Void) -> Task<Void, Never> = { limit, fire in
-        Task { @MainActor in
+    /// Runs `fire` once `limit` from now (injected for tests), detached: never inside the opening run's `ActionRunScope`.
+    var scheduleDeadline: (_ limit: Duration, _ fire: @escaping @MainActor @Sendable () -> Void) -> Task<Void, Never> = { limit, fire in
+        Task.detached(priority: .high) {
             // wakeup-allow: one-shot bound on a New Tab key hold; cancelled when the hold ends first
             do { try await Task.sleep(for: limit) } catch { return }
-            fire()
+            await fire()
         }
     }
 
@@ -118,7 +118,7 @@ final class NewTabInputCoordinator {
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
-            // The native page (tabs.nativeNewTabPage): its field, once SwiftUI has made it.
+            // The native page (tabs.nativeNewTabPage): its field, once the page is in the pane.
             if let pane, let window, let key = pane.currentTabKey, LocalPageTab.page(of: key) == .nativeNewTab {
                 guard let field = nativeNewTabHost(in: pane.view)?.fieldView, field.window === window else { return false }
                 return window.firstResponder === field || window.makeFirstResponder(field)

@@ -39,6 +39,8 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
             "  web:\n    needs: coalesce\n"
             "    # A yielded coalesce job (a newer push's run checks these commits) runs no checks.\n"
             "    if: ${{ needs.coalesce.outputs.run != 'false' }}\n"
+            "    # actions: read: the webview base replay reads the base's flake history artifact (ci-web.yml).\n"
+            "    permissions:\n      contents: read\n      actions: read\n"
             "    uses: ./.github/workflows/ci-web.yml\n    with:\n"
             "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
             self.text,
@@ -282,6 +284,16 @@ class WebValidationTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(ROOT / "scripts/ci/web_validation.py"), "check"],
             env={**os.environ, "WEB_VALIDATION_NEEDS": json.dumps(needs),
                  "GITHUB_EVENT_NAME": event}, capture_output=True).returncode
+
+    def test_failed_or_skipped_optional_placement_does_not_fail_selected_web_results(self):
+        needs = {"changes": {"result": "success", "outputs": {"required": "true"}},
+                 "build": {"result": "success"}, "tests": {"result": "success"},
+                 "database": {"result": "success"}}
+        for result in ("failure", "skipped"):
+            with self.subTest(result=result):
+                placed = {**needs, "portable-placement": {"result": result}}
+                self.assertEqual(gate.failures(placed), {})
+                self.assertEqual(self.check_results(placed, "merge_group"), 0)
 
     def test_gate_rejects_missing_cancelled_failed_or_skipped_required_jobs(self):
         good = {"changes": {"result": "success", "outputs": {"required": "true"}},

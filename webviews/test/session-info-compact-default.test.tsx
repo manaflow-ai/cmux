@@ -1,12 +1,14 @@
 // l10n-allow-file: test fixture names, not shipped UI.
 // Session Info's default view is short (Leo, 2026-11-03: "i feel like it's a bit too much stuff by
 // default there's a bunch of things there that can be a bit more hidden under 'show more' or
-// whatnot"): his four (the machine, Context, subagents and background tasks, Sources) show, and the
-// less-used sections (Usage, Changes, Outputs, Connectors) wait behind one Show more that names them.
+// whatnot"): the sections above the Show more line show (the machine, Context, subagents and
+// background tasks, Sources, Outputs), and the ones under it (Changes, Usage, Connectors) wait behind it.
+// - The line is an item of the order (sectionOrder.ts MORE_LINE): its words stay in place, and open it
+//   reads Show less over the sections it holds.
 // - No section is dropped: Show more draws every one, in the panel's order, and Show less hides them.
-// - The choice stays: a new panel reads it back, and a chat saved before Show more starts compact.
-// - A person's own choices win: a fold saved shut stays shut under Show more, and a less-used section
-//   dragged above one of the four stays in view.
+// - The choice stays: a new panel reads it back.
+// - A person's own choices win: a fold saved shut stays shut under Show more, and a section dragged
+//   above the line stays in view.
 // - A reveal (a running line's count, the header's chip) of a held section opens Show more.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
@@ -55,7 +57,7 @@ const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SessionInfo } = await import("../src/agent-session/acpmux/session-info/SessionInfo");
 const { resetSessionInfoState, sessionInfoState, setSessionInfoSection } =
   await import("../src/agent-session/acpmux/session-info/sessionInfoState");
-const { ORDER_KEY, resetSectionOrderForTests, tuckedSections, DEFAULT_ORDER } =
+const { MORE_LINE, ORDER_KEY, resetSectionOrderForTests, tuckedSections, DEFAULT_ORDER } =
   await import("../src/agent-session/acpmux/session-info/sectionOrder");
 const gallery = (await import("../src/agent-session/acpmux/session-info/SessionInfo.gallery")).default;
 type SessionInfoProps = import("react").ComponentProps<typeof SessionInfo>;
@@ -72,8 +74,8 @@ setPaneLanguage("en");
 
 // The gallery's full chat, every section present, as a pane draws it: Show more from the pane's state.
 const full = { ...(gallery.variants.full!.props as SessionInfoProps), more: undefined };
-const FOUR = ["environment", "context", "subagents", "tasks", "sources"];
-const EVERY = ["environment", "context", "usage", "subagents", "tasks", "sources", "changes", "outputs", "connectors"];
+const FOUR = ["environment", "context", "subagents", "tasks", "sources", "outputs", "more"];
+const EVERY = [...FOUR, "changes", "usage", "connectors"];
 
 beforeEach(() => {
   dom.window.localStorage.clear();
@@ -94,12 +96,12 @@ const drawn = (container: HTMLElement) =>
   );
 const more = (container: HTMLElement) => container.querySelector<HTMLButtonElement>(".acpmux-session-info-more");
 
-test("the default view draws Leo's four and one Show more naming the rest", async () => {
+test("the default view draws what is above the line, then the line's Show more", async () => {
   const { container, root } = await mount();
   expect(drawn(container)).toEqual(FOUR);
   const button = more(container)!;
   expect(button.getAttribute("aria-expanded")).toBe("false");
-  expect(button.textContent).toBe("Show more· Usage · Changes · Outputs · Connectors");
+  expect(button.textContent).toBe("Show more");
   await act(async () => button.click());
   expect(drawn(container)).toEqual(EVERY);
   expect(more(container)!.getAttribute("aria-expanded")).toBe("true");
@@ -119,17 +121,23 @@ test("Show more stays open for a new panel", async () => {
   await act(async () => second.root.unmount());
 });
 
-test("a chat with nothing less-used draws no Show more", async () => {
+test("a chat with nothing less-used still holds Usage and Connectors under Show more, each one plain line", async () => {
   const { container, root } = await mount({
     ...full,
     made: { ...full.made!, pullRequests: [], outputs: [] },
-    links: [],
     artifacts: 0,
     summary: { ...full.summary!, mcpServers: [], usageStats: undefined },
     allSessions: [],
+    imessage: false,
   });
-  expect(drawn(container).some((id) => ["usage", "changes", "outputs", "connectors"].includes(id))).toBe(false);
-  expect(more(container)).toBeNull();
+  expect(drawn(container)).not.toContain("changes");
+  await act(async () => more(container)!.click());
+  expect(drawn(container).slice(-3)).toEqual([MORE_LINE, "usage", "connectors"]);
+  for (const id of ["usage", "connectors"]) {
+    const section = container.querySelector<HTMLElement>(`section[data-section="${id}"]`)!;
+    expect(section.querySelector(".ui-disclosure-trigger")).toBeNull();
+    expect(section.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("None");
+  }
   await act(async () => root.unmount());
 });
 
@@ -142,55 +150,47 @@ test("a fold saved shut stays shut under Show more", async () => {
   await act(async () => root.unmount());
 });
 
-test("a less-used section dragged above one of the four stays in view", async () => {
+test("a less-used section dragged above the line stays in view", async () => {
   dom.window.localStorage.setItem(
     ORDER_KEY,
-    JSON.stringify(["changes", ...DEFAULT_ORDER.filter((id) => id !== "changes")]),
+    JSON.stringify([
+      "environment",
+      "changes",
+      ...DEFAULT_ORDER.filter((id) => id !== "changes" && id !== "environment"),
+    ]),
   );
   resetSectionOrderForTests();
   const { container, root } = await mount();
-  expect(drawn(container)).toEqual(["changes", ...FOUR]);
-  expect(more(container)!.textContent).toBe("Show more· Usage · Outputs · Connectors");
+  // Right under the pinned Environment (sectionOrder.ts PINNED_TOP).
+  expect(drawn(container)).toEqual(["environment", "changes", ...FOUR.slice(1)]);
   await act(async () => root.unmount());
 });
 
-test("tuckedSections: the default order holds back every less-used section; a drag above wins", () => {
-  expect(tuckedSections(DEFAULT_ORDER)).toEqual(["usage", "changes", "outputs", "connectors"]);
-  // Usage moved above Context: placed by the person.
-  const usageFirst = [
+test("tuckedSections: what the order puts under the line", () => {
+  expect(tuckedSections(DEFAULT_ORDER)).toEqual(["changes", "usage", "connectors"]);
+  // Usage moved above the line: placed by the person; Sources moved under it: tucked.
+  const moved = [
     "environment",
     "usage",
     "context",
     "subagents",
     "tasks",
-    "sources",
-    "changes",
     "outputs",
-    "connectors",
-  ] as const;
-  expect(tuckedSections(usageFirst)).toEqual(["changes", "outputs", "connectors"]);
-  // Outputs moved between the four but below none it follows by default... above Sources: placed.
-  const outputsUp = [
-    "environment",
-    "context",
-    "usage",
-    "outputs",
-    "subagents",
-    "tasks",
+    MORE_LINE,
     "sources",
     "changes",
     "connectors",
   ] as const;
-  expect(tuckedSections(outputsUp)).toEqual(["usage", "changes", "connectors"]);
+  expect(tuckedSections(moved)).toEqual(["sources", "changes", "connectors"]);
 });
 
 test("revealing a held section opens Show more and draws it", async () => {
   const { container, root } = await mount({
     ...full,
-    revealed: { section: "outputs", at: 1 },
+    revealed: { section: "usage", at: 1 },
     onRevealed: () => undefined,
   });
-  expect(drawn(container)).toContain("outputs");
+  expect(drawn(container)).toContain("usage");
   expect(sessionInfoState().more).toBe(true);
   await act(async () => root.unmount());
 });

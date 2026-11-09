@@ -248,7 +248,7 @@ fn parse(args: &[String]) -> Option<Command> {
         (Some(head), Some(index), Some(work))
             if [&head, &index, &work].iter().all(|sha| sync_cli::is_sha(sha)) =>
         {
-            Some(SeedBase { head, index, work })
+            Some(SeedBase { head, index, work, stash: None, stash_known: false })
         }
         _ => return None,
     };
@@ -305,7 +305,10 @@ impl<'a> Machine<'a> {
                 .and_then(|identity| machine_gate::outdated_identity(identity, &[capability]))
         };
         if let Some(outdated) = lacks(cmux_tui_core::fs_ops::FS_CAPABILITY) {
-            return Err(SeedError::new(machine_gate::OUTDATED, outdated.message()));
+            // `machine_outdated` only for an older build: a current one that does not serve
+            // `fs-v1` on this connection names it instead (an update would change nothing).
+            let outdated = outdated.judged(socket);
+            return Err(SeedError::new(outdated.code(), outdated.message()));
         }
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
         let id = identity
@@ -363,6 +366,12 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     if record.mode == Kept::Copy {
         return copy(&machine, &local, remote, None);
     }
+    if !record.stash_known {
+        return Err(no_previous(
+            "the older seed record has no refs/stash baseline; seed the folder again before moving",
+        )
+        .into());
+    }
     let (Some(head), Some(index), Some(work)) = (record.head, record.index, record.work) else {
         return Err(no_previous("the last seed's record is incomplete").into());
     };
@@ -370,7 +379,7 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
         return Err(Machine::outdated().into());
     }
     let bundle = LocalBundle::new()?;
-    let previous = PreviousSeed { head, index, work };
+    let previous = PreviousSeed { head, index, work, stash: record.stash };
     let planned = plan::plan_since(&local, &bundle.file, &previous).map_err(|fallback| {
         let code = match fallback.code {
             FallbackCode::NoPrevious => "seed.no_previous".to_string(),
@@ -450,6 +459,8 @@ fn copy(
         head: None,
         index: None,
         work: None,
+        stash: None,
+        stash_known: false,
     };
     // A record that could not be kept only makes the next --since-last
     // answer seed.no_previous; the copy itself is done.
@@ -475,6 +486,8 @@ fn keep_seed(machine: &Machine<'_>, local: &Path, remote: &str, planned: &Planne
         head: Some(planned.params.head.clone()),
         index: Some(planned.params.index.clone()),
         work: Some(planned.params.work.clone()),
+        stash: planned.params.stash.clone(),
+        stash_known: true,
     };
     let _ = record::save(local, remote, &record);
 }

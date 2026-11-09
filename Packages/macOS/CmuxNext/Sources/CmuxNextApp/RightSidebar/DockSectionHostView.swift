@@ -5,8 +5,9 @@ import CmuxNextLayout
 import SwiftUI
 
 /// Hosts the Dock section for one window: follows the shown workspace's
-/// layout (its `LayoutModel` is observable) and runs the column actions
-/// through the registry.
+/// layout (its `LayoutModel` is observable) and, through the window's
+/// `content` (`refresh()` on each swap), the next shown workspace; runs
+/// the column actions through the registry.
 final class DockSectionHostView: NSView, RightSidebarRefreshing {
     let model = DockSectionModel()
     private weak var controller: WindowController?
@@ -23,12 +24,8 @@ final class DockSectionHostView: NSView, RightSidebarRefreshing {
         let hosting = NSHostingView(rootView: DockSectionListView(model: model, actions: actions))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
-        NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        NSLayoutConstraint.activate([hosting.leadingAnchor.constraint(equalTo: leadingAnchor), hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
+                                     hosting.topAnchor.constraint(equalTo: topAnchor), hosting.bottomAnchor.constraint(equalTo: bottomAnchor)])
         refresh()
     }
 

@@ -1,10 +1,21 @@
 // What a session reference's hover card says (SessionHoverCard.tsx), the way a row of Claude Code
-// desktop's PR list does: the title, then the status line (the status, then `· repo #N`), then where
-// it runs (its folder, then its cloud machine, worktree or branch), as Claude desktop's card ends.
+// desktop's PR list does: the title, then the status line (the status, then `· repo #N`), then what
+// it is doing now (its running turn's step, what it waits on you for, else its latest reply's line),
+// then where it runs (its folder, then its cloud machine, worktree or branch) and when it last
+// changed. Leo, 2026-11-05, on Claude desktop's card (a status pill, the project and "now"):
+// "the metadata.... ehh..": the card says what is useful about the session, not only where it is.
 // The pane keeps it in one small store fed from the session list, so a chip in a reply reads the
 // session's current state when its card opens, and a reply never redraws because a session changed.
 import { useSyncExternalStore } from "react";
-import { type AcpmuxSessionEntry, listed, projectLabel, sessionPlace } from "../sessionList";
+import {
+  type AcpmuxSessionEntry,
+  type SessionWaiting,
+  activityTime,
+  cloudHost,
+  listed,
+  projectLabel,
+  sessionPlace,
+} from "../sessionList";
 import {
   MIN_TITLE_MENTION,
   type SessionMention,
@@ -25,18 +36,41 @@ export type SessionHoverInfo = {
   /// Where it runs, for the meta line: its folder, then its cloud machine, worktree or branch
   /// (``sessionPlace``). Absent without a folder.
   meta?: string[];
+  /// What its running turn does now (acpmux `doing`), absent while it runs nothing.
+  doing?: string;
+  /// What it waits on the person for, while it does (acpmux `waitingOn`).
+  waiting?: SessionWaiting;
+  /// A line of its latest reply, for a chat that runs nothing and waits on nobody.
+  preview?: string;
+  /// When the person or its agent last did something in it (``activityTime``), epoch ms.
+  changedAt?: number;
 };
+
+/// One line of `text`: its first non-empty line, trimmed; undefined when it has none.
+const oneLine = (text: string | undefined) =>
+  text
+    ?.split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
 
 export function hoverInfo(entry: AcpmuxSessionEntry): SessionHoverInfo {
   const pullRequests = startedPullRequests(entry);
   const place = sessionPlace(entry)?.label;
   const meta = entry.cwd ? [projectLabel(entry.cwd), ...(place ? [place] : [])] : undefined;
+  const doing = oneLine(entry.doing);
+  const waiting = doing ? undefined : entry.waitingOn;
+  const preview = doing || waiting ? undefined : oneLine(entry.preview ?? entry.lastMessage);
+  const changedAt = activityTime(entry);
   return {
     sessionId: entry.sessionId,
     title: entry.displayTitle || entry.title || entry.sessionId,
     status: sessionStatus(startedState(entry), entry.unread, pullRequests),
     ...(pullRequests ? { pullRequests } : {}),
     ...(meta ? { meta } : {}),
+    ...(doing ? { doing } : {}),
+    ...(waiting ? { waiting } : {}),
+    ...(preview ? { preview } : {}),
+    ...(changedAt ? { changedAt } : {}),
   };
 }
 
@@ -64,31 +98,73 @@ export function withSessionIds(
 }
 
 /// The sessions' hover cards by id, which components read with ``useSessionHoverInfo``.
+/// The key an outside agent's link finds its chat by (`cmux://agent/<harness>/<session>`): the
+/// harness and the harness's own session id.
+export const agentLinkKey = (harness: string, agentSessionId: string) => `${harness}/${agentSessionId}`;
+
 export class SessionHoverStore {
   private infos = new Map<string, SessionHoverInfo>();
   private keys = new Map<string, string>();
+  /// Each listed chat by its agent link key (``agentLinkKey``), built with the cards: a pasted
+  /// agent link finds its chat in one lookup however many chats are listed.
+  private agents = new Map<string, string>();
+  /// Each listed chat by its harness's own session id alone: a cmux.com agent link may name the
+  /// session with no harness (`?session=`), which is that id, never an acpmux one.
+  private agentSessions = new Map<string, string>();
+  /// The machine each chat on another machine runs on, as the session list names it.
+  private hosts = new Map<string, string>();
   private readonly listeners = new Set<() => void>();
 
   /// Replaces the cards with `sessions`'; a card whose content did not change keeps its object.
   set(sessions: readonly AcpmuxSessionEntry[]): void {
     const infos = new Map<string, SessionHoverInfo>();
     const keys = new Map<string, string>();
-    let changed = sessions.length !== this.infos.size;
+    const agents = new Map<string, string>();
+    const agentSessions = new Map<string, string>();
+    const hosts = new Map<string, string>();
+    let changed = false;
     for (const entry of sessions) {
       const info = hoverInfo(entry);
-      const key = JSON.stringify(info);
+      const agent = entry.harness && entry.agentSessionId ? agentLinkKey(entry.harness, entry.agentSessionId) : "";
+      if (agent && !agents.has(agent)) agents.set(agent, entry.sessionId);
+      if (entry.agentSessionId && !agentSessions.has(entry.agentSessionId))
+        agentSessions.set(entry.agentSessionId, entry.sessionId);
+      // This Mac's chats name no machine: only another machine's chat says where it runs.
+      const host = cloudHost(entry);
+      if (host) hosts.set(entry.sessionId, host);
+      const key = `${JSON.stringify(info)}\u0000${agent}\u0000${host ?? ""}`;
       const kept = this.keys.get(entry.sessionId) === key ? this.infos.get(entry.sessionId) : undefined;
       if (!kept) changed = true;
       infos.set(entry.sessionId, kept ?? info);
       keys.set(entry.sessionId, key);
     }
+    // A page can list a session twice: the count that matters is of ids, not of entries.
+    if (infos.size !== this.infos.size) changed = true;
     this.infos = infos;
     this.keys = keys;
+    this.agents = agents;
+    this.agentSessions = agentSessions;
+    this.hosts = hosts;
     if (changed) for (const listener of this.listeners) listener();
   }
 
   get(sessionId: string): SessionHoverInfo | undefined {
     return this.infos.get(sessionId);
+  }
+
+  /// The listed chat an agent link names (``agentLinkKey``), or undefined.
+  byAgent(harness: string, agentSessionId: string): string | undefined {
+    return this.agents.get(agentLinkKey(harness, agentSessionId));
+  }
+
+  /// The listed chat whose harness's own session id is `agentSessionId`, whatever its harness.
+  byAgentSession(agentSessionId: string): string | undefined {
+    return this.agentSessions.get(agentSessionId);
+  }
+
+  /// The machine chat `sessionId` runs on, as the session list names it.
+  host(sessionId: string): string | undefined {
+    return this.hosts.get(sessionId);
   }
 
   subscribe = (listener: () => void): (() => void) => {

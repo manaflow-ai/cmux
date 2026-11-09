@@ -41,11 +41,19 @@ final class ChromiumPageHost: PageChromiumHosting {
     }
 
     func focusViewChanged(_ page: PageWebView) -> Bool { paneFocus(page) }
+    /// A page's Inspect Element row: its Chromium DevTools or Web Inspector (WebInspectorTargets).
+    func inspectPage(_ view: NSView) { (WebInspectorTargets.target(of: view) ?? nil)?.inspectElement() }
     var preference: BrowserDefaultEngine { enginePreference() }
 
     var isAvailable: Bool { cef.unavailableReason == nil }
 
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
+
+    /// Off always reaches the runtime, so a stale "on" is never applied once CEF becomes available.
+    func setLivePages(_ live: Bool) -> Bool {
+        guard live else { _ = cef.setLivePages(false); return false }
+        return isAvailable && cef.setLivePages(true)
+    }
 
     func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage {
         #if DEBUG || CMUX_BENCH_HOOKS

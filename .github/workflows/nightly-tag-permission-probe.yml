@@ -27,12 +27,18 @@ on:
         type: string
 permissions: {}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   probe:
     environment: ci-routing-agent
     permissions:
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    # Called only by nightly.yml, so a nightly job: never Blacksmith. It holds contents: write and OIDC, so it
+    # stays on GitHub-hosted Ubuntu, an ephemeral runner, not a reused mini.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check out the probe target

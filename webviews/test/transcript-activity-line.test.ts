@@ -24,19 +24,15 @@ const live = (rows: AcpmuxRow[], sessionStatus: boolean) =>
   turnView(rows, new Set(), { working: true, sessionStatus }).filter((shaped) => shaped.kind !== "date");
 const kinds = (rows: AcpmuxRow[]) => rows.map((shaped) => `${shaped.kind}:${shaped.id}`);
 
-test("the toggle off keeps the status over the work, the list pinned under it", () => {
+test("the toggle off pins the list under the work, the live line under it", () => {
   const rows = [row("u", "user"), steps, tool("edit-a", "in_progress")];
-  expect(kinds(live(rows, false))).toEqual(["user:u", "working:working-u", "activity:edit-a", "plan:plan"]);
+  // The edit in flight leaves its run for the live line, which names it.
+  expect(kinds(live(rows, false))).toEqual(["user:u", "plan:plan", "thinking:thinking-live"]);
 });
 
 test("the toggle on moves the list under the work, with the activity line in the status's place", () => {
   const rows = [row("u", "user"), steps, tool("edit-a", "in_progress")];
-  expect(kinds(live(rows, true))).toEqual([
-    "user:u",
-    "activity:edit-a",
-    "plan:plan",
-    `${ACTIVITY_LINE}:${ACTIVITY_LINE}-u`,
-  ]);
+  expect(kinds(live(rows, true))).toEqual(["user:u", "plan:plan", `${ACTIVITY_LINE}:${ACTIVITY_LINE}-u`]);
 });
 
 test("the activity line replaces WorkingFor when the session status list is enabled", () => {
@@ -102,9 +98,15 @@ test("a call whose path arrives after its title redraws the line", () => {
   expect(after.version).not.toBe(before.version);
 });
 
-test("while the answer streams the list stays pinned under it and the line goes", () => {
+test("while the answer streams the list stays pinned under it and the live line under both", () => {
   const rows = [row("u", "user"), steps, tool("edit-a", "completed"), row("answer", "assistant", { text: "Done" })];
-  expect(kinds(live(rows, true))).toEqual(["user:u", "activity:edit-a", "assistant:answer", "plan:plan"]);
+  expect(kinds(live(rows, true))).toEqual([
+    "user:u",
+    "activity:edit-a",
+    "assistant:answer",
+    "plan:plan",
+    "thinking:thinking-live",
+  ]);
 });
 
 test("a turn without a list draws as before with the toggle on", () => {

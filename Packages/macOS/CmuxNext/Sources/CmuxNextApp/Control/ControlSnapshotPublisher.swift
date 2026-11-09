@@ -114,9 +114,10 @@ final class ControlSnapshotPublisher {
         let shape = services.windows.controllers.flatMap { [ObjectIdentifier($0)] + ($0.content.map { [ObjectIdentifier($0)] + $0.panes.values.map { ObjectIdentifier($0) }.sorted() } ?? []) }
         let (built, settings, tabSearch) = tracking.track(shape: shape + (services.windows.active.map { [ObjectIdentifier($0)] } ?? [])) {
             (Self.topology(services, cache: workspaceInfos, sequences: false), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services, cache: workspaceInfos))
-        } onChange: { [weak self] in
-            // Runs synchronously inside the mutation; publish after it lands.
+        } onChange: { [weak self, snapshots = router.snapshots] in
+            // Runs synchronously inside the mutation: the next read builds it, whatever made the change; publish after it lands.
             self?.topologyDirty.store(true, ordering: .releasing)
+            snapshots.markStale()
             Task { @MainActor in self?.modelChanged() }
         }
         // Outside the tracking: a sequence alone never rebuilds (observeSequences).

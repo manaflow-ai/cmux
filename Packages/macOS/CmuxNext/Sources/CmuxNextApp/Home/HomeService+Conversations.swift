@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFloating
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import Foundation
@@ -308,9 +309,4 @@ extension HomeService {
         let chiefs = participants.filter(\.isChief)
         return chiefs.count == 1 ? chiefs[0].id.rawValue : nil
     }
-}
-
-enum HomeActionChiefResult {
-    case success(HomeChiefRecord)
-    case failure(HomeComposeOutcome)
 }

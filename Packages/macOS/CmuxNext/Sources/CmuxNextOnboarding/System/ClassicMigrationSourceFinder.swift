@@ -4,13 +4,17 @@ public import Foundation
 ///
 /// Classic saves `~/Library/Application Support/cmux/session-<bundle>.json`
 /// per channel, a `-previous` copy, and archives in `session-history/`. The
-/// finder prefers the classic channel that matches this build's own bundle id
-/// (cmux-next stable migrates classic stable; nightly migrates nightly), then
-/// the channel saved last. Classic debug builds are never a source.
+/// finder reads the channel saved last, whichever classic app that was: a
+/// cmux-next nightly installed beside the classic stable someone still uses
+/// brings stable's session, not an older classic nightly one. Equal save times
+/// go to this build's own channel. When no file of the newest channel decodes,
+/// ``allCandidates()`` goes on to the next channel's. Classic debug builds are
+/// never a source.
 ///
 /// ```swift
 /// let finder = ClassicMigrationSourceFinder(support: temporaryDirectory, ownBundleID: "com.cmuxterm.app")
-/// let files = finder.candidates()   // primary, -previous, newest archive
+/// let files = finder.candidates()      // the newest channel's primary, -previous, newest archive
+/// let every = finder.allCandidates()   // then the next channel's, newest first
 /// ```
 public nonisolated struct ClassicMigrationSourceFinder: Sendable {
     /// Classic's shipping channels, stable first.
@@ -18,7 +22,7 @@ public nonisolated struct ClassicMigrationSourceFinder: Sendable {
 
     /// The Application Support folder (classic's files are in its `cmux` folder).
     public let support: URL
-    /// This build's bundle id; nil prefers no channel.
+    /// This build's bundle id; its channel wins a tie between equally new saves.
     public let ownBundleID: String?
 
     public init(support: URL, ownBundleID: String?) {
@@ -33,15 +37,24 @@ public nonisolated struct ClassicMigrationSourceFinder: Sendable {
         return Self.channels.reversed().first { ownBundleID == $0 || ownBundleID.hasPrefix($0 + ".") }
     }
 
-    /// The channel to read: this build's own when classic saved one, else
-    /// the channel whose session file changed last.
-    public func channel() -> String? {
+    /// The channel to read: the one whose session file changed last.
+    public func channel() -> String? { channelsByRecency().first }
+
+    /// Every channel classic saved, the newest save first; equal times put this
+    /// build's own channel first, then stable before nightly, rc and staging.
+    public func channelsByRecency() -> [String] {
+        let own = ownChannel
         // A channel whose session file is gone still counts by its `-previous` copy.
-        let saved = Self.channels.compactMap { channel -> (String, Date)? in
-            (modified(primary(channel)) ?? modified(previous(channel))).map { (channel, $0) }
+        let saved = Self.channels.enumerated().compactMap { index, channel -> (channel: String, date: Date, rank: Int)? in
+            (modified(primary(channel)) ?? modified(previous(channel))).map { (channel, $0, channel == own ? -1 : index) }
         }
-        if let own = ownChannel, saved.contains(where: { $0.0 == own }) { return own }
-        return saved.max { $0.1 < $1.1 }?.0
+        return saved.sorted { $0.date != $1.date ? $0.date > $1.date : $0.rank < $1.rank }.map(\.channel)
+    }
+
+    /// ``candidates(channel:)`` of every channel in ``channelsByRecency()`` order:
+    /// a reader that cannot decode the newest channel's files goes on to the next.
+    public func allCandidates() -> [(url: URL, bundleID: String)] {
+        channelsByRecency().flatMap { candidates(channel: $0) }
     }
 
     /// The files to try, best first, for `channel` (``channel()`` when nil):
