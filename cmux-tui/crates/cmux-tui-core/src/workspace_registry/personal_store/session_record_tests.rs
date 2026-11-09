@@ -293,6 +293,6 @@ fn a_flapping_session_put_journals_the_capability_hash_not_the_list() {
     assert_eq!(first["capabilities_sha256"], last["capabilities_sha256"]);
     assert_eq!(last["session"]["capabilities"], Value::Null);
     // The row keeps the whole list for restore.
-    let stored = super::read_session(registry.connection.get(), "remote-1").unwrap().unwrap();
+    let stored = super::read_session(&registry.connection.get(), "remote-1").unwrap().unwrap();
     assert_eq!(stored.capabilities.as_ref(), Some(&capabilities));
 }

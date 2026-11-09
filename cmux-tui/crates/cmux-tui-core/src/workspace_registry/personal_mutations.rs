@@ -456,7 +456,7 @@ impl WorkspaceRegistry {
             tx,
             "personal.session.put",
             vec![subject("session", session)],
-            &session_put_fact(&record, created, capabilities_changed),
+            &Self::session_put_fact(&record, created, capabilities_changed),
         )?;
         Ok((record, created))
     }
