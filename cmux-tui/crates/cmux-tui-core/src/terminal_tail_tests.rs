@@ -15,6 +15,9 @@ fn osc_titles_links_and_control_bytes_never_reach_the_tail() {
     let mut line = TailLine::default();
     line.feed(b"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\ done\x07\x08\n");
     assert_eq!(line.tail(), Some("link done"));
+    // A DCS query or APC graphics payload never shows: the line before it stays.
+    line.feed(b"ready\x1bP$qm\x1b\\\n\x1b_Gf=100;AAAA\x1b\\\n");
+    assert_eq!(line.tail(), Some("ready"));
     line.feed(b"a\tb    c\n");
     assert_eq!(line.tail(), Some("a b c"), "tabs become spaces and runs fold to one");
 }

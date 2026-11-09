@@ -133,6 +133,24 @@ impl Mux {
         })
     }
 
+    /// End the pin of terminal `terminal` (its public `term_` id) found by its
+    /// record, for a terminal no tab shows. Returns whether one was pinned.
+    pub(crate) fn end_terminal_tail_of(&self, terminal: &str) -> bool {
+        let _publishing = self.terminal_tail_pins.publishing();
+        let found = {
+            let state = self.terminal_tail_pins.lock();
+            state.pins.iter().find_map(|(runtime, pin)| {
+                (pin.terminal.as_str() == terminal).then(|| (*runtime, pin.surface.upgrade()))
+            })
+        };
+        let Some((runtime, surface)) = found else { return false };
+        if let Some(slot) = surface.as_deref().and_then(Surface::tail_pin) {
+            slot.set_pinned(false, None);
+        }
+        self.end_terminal_tail_locked(runtime);
+        true
+    }
+
     /// Whether `view`'s terminal is pinned.
     #[cfg(test)]
     pub(crate) fn terminal_tail_pinned(&self, view: SurfaceId) -> bool {
@@ -389,7 +407,16 @@ fn run_publisher(weak: &Weak<Mux>) {
                 .min()
                 .map_or(PIN_IDLE_WAIT, |at| at.saturating_duration_since(now))
                 .min(PIN_IDLE_WAIT);
-            drop(pins.wake.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner));
+            let (mut state, waited) =
+                pins.wake.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner);
+            // A quiet stretch: every pin checks its placement once, so a quiet
+            // terminal whose last tab closed ends its pin and line.
+            if waited.timed_out() && state.due.is_empty() {
+                let now = Instant::now();
+                let ids: Vec<SurfaceId> = state.pins.keys().copied().collect();
+                state.due.extend(ids.into_iter().map(|id| (id, now)));
+            }
+            drop(state);
             continue;
         }
         for id in &ready {

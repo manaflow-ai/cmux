@@ -150,6 +150,34 @@ fn an_ended_terminal_drops_its_pin_and_its_line() {
 }
 
 #[test]
+fn closing_a_quiet_pinned_tab_ends_its_pin_and_its_line() {
+    let f = fixture("tail-pin-close-tab");
+    let pane = f.mux.with_state(|state| state.pane_of(f.surface.id)).expect("the tab's pane");
+    // A second tab keeps the workspace open.
+    let _other = f.mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+    f.print(b"watching\n");
+    let terminal = f.mux.set_terminal_tail_pin(f.surface.id, true).unwrap();
+    wait_for("the tail published", || f.tail_text().is_some());
+    // No output after the close: the publisher's quiet pass finds no tab.
+    f.mux.close_surface(f.surface.id).unwrap();
+    wait_for("the line went away", || f.tails().is_empty());
+    wait_for("the publisher thread ended", || !f.mux.terminal_tail_pins.worker_running());
+    // An unpin by terminal id with no tab answers, and there is nothing to end.
+    assert!(!f.mux.end_terminal_tail_of(terminal.as_str()));
+}
+
+#[test]
+fn unpinning_by_terminal_id_ends_the_pin_from_its_record() {
+    let f = fixture("tail-pin-by-id");
+    f.print(b"deploying\n");
+    let terminal = f.mux.set_terminal_tail_pin(f.surface.id, true).unwrap();
+    wait_for("the tail published", || f.tail_text().is_some());
+    assert!(f.mux.end_terminal_tail_of(terminal.as_str()));
+    assert!(!f.mux.terminal_tail_pinned(f.surface.id));
+    assert_eq!(f.tails(), Vec::new());
+}
+
+#[test]
 fn a_restart_keeps_a_status_key_that_only_looks_like_a_tail() {
     let f = fixture("tail-pin-foreign");
     // A script's own entry under a `tail:` key, not made by a pin.
