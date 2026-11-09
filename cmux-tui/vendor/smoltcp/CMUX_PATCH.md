@@ -29,6 +29,14 @@ only in ESTABLISHED and CLOSE-WAIT, only after an RTT measurement, only when it
 would fire before the RTO, and at most once per ACK of new data. cmux-wg turns
 it on with a 25 ms allowance.
 
+`Socket::path_changed()` is for a tunnel whose route under the connection
+changed (cmux-wg calls it when its multipath underlay leaves the path that
+carried the session, or the peer roams). With data unacknowledged, the socket
+resends from the oldest unacknowledged byte at its next poll, as an RTO would,
+slow start included, but its RTO returns to the RTT estimate's value instead of
+doubling: the losses were the old route's. With nothing in flight it does
+nothing.
+
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
