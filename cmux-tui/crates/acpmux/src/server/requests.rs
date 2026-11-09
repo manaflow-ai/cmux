@@ -794,7 +794,16 @@ fn route_ask_below(hub: &Arc<Hub>, m: &str, params: &mut Value) {
     }
 }
 
-fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), RpcError> {
+/// Methods that write to a session: from an agent's side (`Conn::agent_side`), their key names it
+/// exactly (`Hub::exact_key_route`).
+const MESSAGES: [&str; 2] = [method::SESSION_PROMPT, method::MUX_SEND_QUEUE];
+
+fn route_bare_key(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    m: &str,
+    params: &mut Value,
+) -> Result<(), RpcError> {
     // A machine named in another case or by a prefix (`new --host`, `dispatch --host`) reads as
     // the one peer it names, by the same rule (`Hub::host_route`).
     let host = match m {
@@ -822,7 +831,12 @@ fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), Rpc
     };
     let Some(slot) = slot else { return Ok(()) };
     let Some(key) = slot.as_str() else { return Ok(()) };
-    if let Some(route) = hub.key_route(key)? {
+    let route = if MESSAGES.contains(&m) && conn.agent_side() {
+        hub.exact_key_route(key)?
+    } else {
+        hub.key_route(key)?
+    };
+    if let Some(route) = route {
         *slot = Value::String(route);
     }
     Ok(())
@@ -877,7 +891,7 @@ pub(super) async fn handle_request(
     // A bare name or prefix on this machine's socket names the one live session here or on a
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
-        route_bare_key(hub, m, &mut params)?;
+        route_bare_key(hub, conn, m, &mut params)?;
     }
     // The app's pane answers as `LocalApp`; a Web or peer connection never reaches a child so.
     if matches!(conn.origin, Origin::Local | Origin::LocalApp) {

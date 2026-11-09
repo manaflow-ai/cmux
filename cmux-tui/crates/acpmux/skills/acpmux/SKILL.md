@@ -319,7 +319,10 @@ machine or the machines you added has it; when several do, the command refuses a
 `MACHINE/NAME` command for each, so pick one and run it. A name in another case (`td2-a` for
 `td2-A`), a unique prefix of it or the name without `-`, `_` and spaces works too, and so does a
 machine named that way; several matches are refused with each one, never guessed. Say and pass `MACHINE/NAME`: never ask the
-person for a session id.
+person for a session id. Your own messages (`send`, `run` to a session) are stricter: they take only
+the exact name, `MACHINE/NAME`, the id or an id prefix of 8 or more characters. A prefix, another case
+or a name without separators is refused (`session_not_exact`) with the session it would reach, so
+send again to that exact name. Reads (`info`, `tail`, `history`, `ls`) keep the loose rules.
 
 ```bash
 acpmux machine status                            # each machine: reachable, round trip, disk, load, build
