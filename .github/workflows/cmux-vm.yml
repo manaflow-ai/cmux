@@ -1462,7 +1462,7 @@ jobs:
           bun-version: "1.4.4"
       - name: Install the release rails
         working-directory: scripts/cmux-next/release
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: Install pscale 0.349.0 (checksum pinned)
         run: |
           set -euo pipefail
