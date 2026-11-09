@@ -1220,14 +1220,14 @@ impl<'a> Socket<'a> {
         let mut sacked_above = self.sack_scoreboard.sacked_bytes();
         let mut hole_start = self.local_seq_no;
         for (i, &(start, end)) in ranges.iter().enumerate() {
-            // The hole is [hole_start, start). Fewer bytes are SACKed above each
-            // higher hole, so once one is not lost none above it is.
-            if hole_start < start {
-                let Some(congestion) =
+            // The hole is [hole_start, start). Each hole is judged on its own:
+            // a higher one has less SACKed above it, but also less outstanding
+            // after it, so it can qualify for early retransmit when a lower
+            // one does not.
+            if hole_start < start
+                && let Some(congestion) =
                     self.sack_hole_is_lost(hole_start, sacked_above, ranges.len() - i)
-                else {
-                    break;
-                };
+            {
                 scan.congestion |= congestion;
                 let from = hole_start.max(high_rxt);
                 if from < start {
@@ -11192,6 +11192,16 @@ mod test {
         send!(s, time 50, sack_ack(0, [sack_block(30, 36), None, None]));
         recv_nothing!(s, time 50);
         assert_eq!(s.sack_recovery_point, None);
+    }
+
+    #[test]
+    fn test_sack_early_retransmit_judges_each_hole() {
+        let mut s = socket_sacking();
+        // The low hole (three segments, a long way from the tail) is not
+        // lost yet; the high one, a segment before the last, is.
+        send!(s, time 50, sack_ack(0, [sack_block(18, 24), sack_block(30, 36), None]));
+        recv!(s, time 50, sack_resent(24));
+        recv_nothing!(s, time 50);
     }
 
     #[test]
