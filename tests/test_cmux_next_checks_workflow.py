@@ -369,6 +369,14 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
             f"print('{self.merge} {self.ZEROS}')  # planted\n")
         self.assert_own_stale_pin(self.run_step())
 
+    def test_ffi_inputs_rewritten_on_disk_do_not_count(self):
+        # An earlier step's code deletes the FFI crate's Cargo.toml (no FFI inputs are left to compare) and repins
+        # Package.swift to the merge commit on disk. The pull request's commit still has both as they were.
+        (self.repo / "cmux-tui/crates/cmux-app-ffi/Cargo.toml").unlink()
+        manifest = self.repo / "Packages/macOS/CmuxNext/Package.swift"
+        manifest.write_text(manifest.read_text().replace(self.pinned, self.merge))
+        self.assert_own_stale_pin(self.run_step())
+
     def test_a_changed_path_does_not_reach_the_check(self):
         # An earlier step's code puts its own python3 (which reads every pin as the merge commit, so the sources
         # match) and curl first on PATH for the steps after it.
