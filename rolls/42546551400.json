@@ -45,8 +45,19 @@
     "superseded": false
   },
   "rollback": {
-    "result": "pushed",
+    "result": "verified",
     "commit": "c23635bfdd40760734a1c32b32be31a200f17ffb",
-    "at": "2026-11-09T02:00:01Z"
-  }
+    "at": "2026-11-09T02:00:01Z",
+    "deploys": {
+      "1": {
+        "commit": "c23635bfdd40760734a1c32b32be31a200f17ffb",
+        "run": "https://github.com/manaflow-ai/cmux/actions/runs/42548474989",
+        "deploy": "success",
+        "product_smoke": "success",
+        "boot_image": "cloud-native-auto-c6ba53b0-42545763077-1",
+        "at": "2026-11-09T02:06:32Z"
+      }
+    }
+  },
+  "rollback_failed": false
 }
