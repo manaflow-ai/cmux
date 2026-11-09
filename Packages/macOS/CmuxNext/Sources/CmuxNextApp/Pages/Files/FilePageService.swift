@@ -413,7 +413,7 @@ final class FilePageService: InternalPageProvider {
         }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
-        page.holdsUnsavedEdits = { [weak provider] in provider?.holdsReportedEdits ?? false }
+        page.holdsUnsavedEdits = { [weak provider] in provider?.reportedEdits.held ?? false }
         // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send To… on a selection; Reset
         // Column Widths on a table (viewer-comments-DESIGN.md).
         installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)

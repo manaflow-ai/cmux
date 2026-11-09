@@ -16,6 +16,8 @@ extension DaemonLauncher {
         public var code: String
         public var message: String?
         public var description: String { "\(message ?? "replace refused") [\(code)]" }
+        /// The app's own refusal: app health held the replace when it was about to start (``replaceUnresponsive(unlessHeld:)``).
+        public static let heldCode = "app.replace_held"
     }
 
     /// The longest a replace stays silent on stdout before its first line:
@@ -25,7 +27,11 @@ extension DaemonLauncher {
     /// Runs the app's `server ensure` with `--replace-unresponsive` and
     /// returns its result. Throws ``ReplaceRefusal`` when the owner was not
     /// stopped, and the usual ensure errors when the new owner did not start.
-    @concurrent public func replaceUnresponsive() async throws -> EnsureResult {
+    /// `held`: asked again just before the replace starts (the automatic restart passes app health's
+    /// ``AppHealth/holdsReplace``), so a restore that made progress since the caller checked is not
+    /// replaced; true refuses with ``ReplaceRefusal/heldCode``. Past that point the replace's own
+    /// probe decides: it stops only an owner that does not answer.
+    @concurrent public func replaceUnresponsive(unlessHeld held: (@Sendable () -> Bool)? = nil) async throws -> EnsureResult {
         async let reapGrace = supportsReapGrace()
         let environment = await ensureEnvironment()
         let progress = configuration.binaryIsBundled
@@ -38,6 +44,8 @@ extension DaemonLauncher {
         // owner's restore progress holds the automatic replace, and its ready or a failed start ends the hold.
         let note = health.map(EnsureProgressNote.init)
         do {
+            // The last moment the app decides (Codex's review of #39247 at f02e048): the caller's check ran before its claim.
+            if held?() == true { throw ReplaceRefusal(code: ReplaceRefusal.heldCode, message: "the owner is restoring and still makes progress") }
             // No progress line while the old owner is probed and stopped: the
             // silence bound covers that, then restore progress bounds the rest.
             let result = try await ProcessRunner.run(

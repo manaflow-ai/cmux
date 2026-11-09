@@ -36,6 +36,11 @@ export const HEALTH_INJECT_NAME = "__cmuxHealthInject";
 export const HEALTH_INJECT_ALLOWED_NAME = "__cmuxHealthInjectAllowed";
 /** Marks an editor (or an ancestor) holding text nothing has saved yet; the host keeps the page. */
 export const UNSAVED_EDITS_ATTRIBUTE = "data-cmux-unsaved-edits";
+/** Marks (or clears) the whole document as holding unsaved edits: a file page whose text is not on disk
+ * yet (edited, saving, or its save failed). Synchronous, so the beat after the input sees it. */
+export function markUnsavedEdits(unsaved: boolean, doc: Document | undefined = globalThis.document): void {
+  doc?.documentElement?.toggleAttribute(UNSAVED_EDITS_ATTRIBUTE, unsaved);
+}
 /** sessionStorage key prefix; the page's URL follows. */
 export const KEPT_STATE_PREFIX = "cmux.page.kept:";
 /** How many frames a restore waits for its scroller and field to appear (about 2 s). */

@@ -66,4 +66,22 @@ import Testing
         await #expect(throws: DaemonLauncher.ReplaceRefusal.self) { try await launcher.replaceUnresponsive() }
         #expect(seen.all.isEmpty, "\(seen.all)")
     }
+
+    /// Codex's review of #39247 at f02e048 (F3): the automatic restart checked app health's hold before
+    /// its claim, so restore progress that came since could still be replaced. The launcher asks again
+    /// just before it starts the replace, and a held replace runs nothing.
+    @Test func aReplaceHeldAtItsStartRunsNothing() async throws {
+        let (launcher, seen, root) = try Self.launcher(lines: [
+            #"{"status":"replaced","session":"replace-health","socket":"/tmp/replace-health.sock","pid":4242,"generation":"g2"}"#,
+        ], status: 0)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ran = root.appendingPathComponent("ran")
+        let script = "#!/bin/sh\ntouch '\(ran.path)'\nexit 1\n"
+        try Data(script.utf8).write(to: root.appendingPathComponent("cmux-tui"))
+        await #expect(throws: DaemonLauncher.ReplaceRefusal(code: DaemonLauncher.ReplaceRefusal.heldCode, message: "the owner is restoring and still makes progress")) {
+            try await launcher.replaceUnresponsive(unlessHeld: { true })
+        }
+        #expect(!FileManager.default.fileExists(atPath: ran.path), "the held replace started server ensure")
+        #expect(seen.all.isEmpty, "\(seen.all)")
+    }
 }
