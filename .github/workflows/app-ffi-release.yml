@@ -74,11 +74,14 @@ on:
 
 # No run-level group: with one (cancel-in-progress: false) a newer FFI push
 # waited for the whole older run, publish and re-pin included, before its own
-# build started, while the older pin could no longer land (#36262). Now the
-# build job's own group cancels an older build. An older run already past its
-# build still publishes (its tag is its own, never overwritten); its re-pin
-# finishes long before the newer build does, and the app-ffi-repin group runs
-# the re-pins one at a time on the same pull request.
+# build started (#36262). Now only the build job has a group, and it never
+# cancels a running build: cancelling it on each newer FFI push (#36346)
+# starved the releases when FFI pushes came faster than one build (2026-11-08:
+# four pushes in 45 minutes, nothing published). The group keeps one build
+# running and only the newest pending; each finished build publishes its own
+# tag (never overwritten), and its re-pin pins the newest published release,
+# which the app compiles against. The app-ffi-repin group runs the re-pins one
+# at a time on the same pull request.
 
 permissions: {}
 
@@ -95,12 +98,11 @@ jobs:
     # variable takes the Blacksmith label as before.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
-    # A newer push or dispatch on the same ref cancels this build: its pin
-    # could never land once newer FFI sources are on the base
-    # (check-app-ffi-pin.sh fails it).
+    # A newer push or dispatch on the same ref waits for this build, never
+    # cancels it; a still newer one replaces it while it waits.
     concurrency:
       group: app-ffi-release-build-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       contents: read
     outputs:

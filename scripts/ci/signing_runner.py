@@ -97,9 +97,11 @@ def slot_label(label: str) -> bool:
 ENABLED_VALUE = "1"
 # The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS; tests/test_ci_signing_owned_mac.py keeps the
 # lists equal): the workflow file and the job's display name (its `name:` or id; a matrix adds " (...)").
+# publish-nightly-next-github is not one: it uploads on GitHub-hosted Ubuntu and never takes an owned Mac.
 SIGNING_JOBS = {
     "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization",
-                    "generate-nightly-deltas", "publish-nightly", "publish-nightly-next-github"),
+                    "generate-nightly-deltas", "publish-nightly",
+                    "keep-published-dsyms", "republish-nightly-deltas"),
     "release.yml": ("build-sign-notarize",),
     "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),

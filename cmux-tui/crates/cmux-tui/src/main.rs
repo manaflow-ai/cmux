@@ -29,6 +29,8 @@ mod build_adopt;
 mod carrier;
 mod classic_hooks;
 #[cfg(unix)]
+mod claude_plugin;
+#[cfg(unix)]
 mod claude_wrapper;
 mod cli;
 mod client_log;
@@ -57,6 +59,8 @@ mod screen_detection_status;
 mod share_room;
 #[cfg(unix)]
 mod signal_sender;
+#[cfg(unix)]
+mod terminal_paste;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[cfg(unix)]
@@ -2551,6 +2555,7 @@ fn run_server(
         cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
             .serve_restoring()?;
     startup_timings.lap("socket.bind");
+    local_owner::debug_slow_restore();
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2776,10 +2781,12 @@ fn run_server(
     #[cfg(unix)]
     cmux_tui_core::server::start_link_share_bridge(&mux, share_room::url().as_deref());
     // Ends terminals that have had no tab placement for the reap grace
-    // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
-    // has always left the terminal running unplaced, and clients built
-    // before the reaper (and Cloud supervisors) rely on that, so only a
-    // daemon started with `--terminal-reap-grace-seconds` reaps.
+    // period and are not marked keep (`terminal-reap-v1`). Every owner that
+    // `ensure` starts (`cmux`, `cmux-tui`, `daemon ensure`, also over SSH:
+    // the iOS remote and `remote_host/serve.rs`) gets the option, 30 s unless
+    // the client names another (local_owner.rs, W5-O). Only a daemon started
+    // directly with `--headless` and no option does not reap (the Mac app's
+    // SSH remote, `SSHCommandLine.swift`).
     let terminal_reaper = match args.terminal_reap_grace {
         Some(grace) => {
             mux.set_terminal_reap_grace(grace)?;

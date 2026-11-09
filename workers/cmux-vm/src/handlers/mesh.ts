@@ -789,7 +789,9 @@ const createDevice = <C, M>(
               createdBy,
               createdAt,
             };
-            const base = { tenantId: principal.tenantId, upstreamId: created.upstreamId, createdBy, createdAt, labels: {} };
+            // A service key (cx-b4h.13) reaches only rows carrying its required labels: record them on the device and its
+            // tunnel so the key that enrolled the device can rotate it, read its tunnel and delete it.
+            const base = { tenantId: principal.tenantId, upstreamId: created.upstreamId, createdBy, createdAt, labels: principal.requiredLabels ?? {} };
             const undo = (event: string) =>
               Effect.gen(function* () {
                 yield* upstream.discardCreatedTunnel(created).pipe(Effect.catchAll(() => logEvent("mesh_tunnel_discard_failed", { deviceId: device.value })));
@@ -1058,6 +1060,11 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
           mesh.value,
           Effect.gen(function* () {
             const principal = caller.value;
+            // A redeemed code runs as its creator without the creator's required labels (codeEnrollDevice rebuilds the
+            // principal from created_by alone), so a labelled key (service or agent) never makes one: fail closed.
+            if (principal.requiredLabels !== undefined) {
+              return yield* Effect.fail(new Forbidden({ message: "A credential confined to labels cannot create enrollment codes" }));
+            }
             const store = yield* MeshStore;
             const config = yield* MeshConfig;
             const started = yield* Clock.currentTimeMillis;

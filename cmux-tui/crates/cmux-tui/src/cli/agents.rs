@@ -32,7 +32,7 @@ pub(super) use wait::{
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
 };
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty] [--top]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents doctor [--json]\n";
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty] [--top]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--attach <file>]... [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents events --until <kind>.<change>|<prefix>* [--match <path>=<value> ...] [--timeout <duration>] [--json]   (the first matching event; exit 124 on timeout)\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -150,19 +150,33 @@ fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
         Ok(value) if lines => {
             print!("{}", events::human_lines(&value));
             eprintln!("next_after={}", value["next_after"].as_str().unwrap_or_default());
-            0
+            if events_ran_out(&command, &value) { 124 } else { 0 }
         }
         Ok(value) => {
             let code = wire::print_local_success(&value, global.output);
             // A chat message stored but not handed to its chat: the receipt
-            // is printed, and the exit status says it failed.
-            if code == 0 && chat::delivery_failed(&value) { 1 } else { code }
+            // is printed, and the exit status says it failed. An `events
+            // --until` wait that ran out of time exits 124, as timeout(1).
+            if code != 0 {
+                code
+            } else if chat::delivery_failed(&value) {
+                1
+            } else if events_ran_out(&command, &value) {
+                124
+            } else {
+                0
+            }
         }
         Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
         Err(AgentFailure::Owner(failure)) => {
             wire::print_local_error(&mcp::agent_failure_value(failure), global.output, 3)
         }
     }
+}
+
+/// An `agents events --until` / `--match` wait that ran out of time.
+fn events_ran_out(command: &AgentCommand, value: &Value) -> bool {
+    matches!(command, AgentCommand::Events(request) if request.ran_out(value))
 }
 
 /// `--help` or `-h` before any `--` (chat text after `--` may hold either).
@@ -291,6 +305,7 @@ pub(super) fn snapshot_plan() -> RequestPlan {
         stream: false,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     }
 }
 

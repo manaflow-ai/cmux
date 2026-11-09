@@ -39,10 +39,10 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let fontPresetPath = ["agentPane", "display", "font", "preset"]
     nonisolated static let fontPresetDefault = "markdown"
     nonisolated static let fontPresetValues = ["markdown", "system", "serif", "mono"]
-    /// `agentPane.display.font.ui`: The face of the whole chat (webviews .../chatUiFont.ts; Leo, 2026-11-05: "I haven't tried switching fonts in my own app yet. So we could just try some stuff like that"). The default is today's: Inter with its calculated tracking.
+    /// `agentPane.display.font.ui`: The face of the whole chat (webviews .../chatUiFont.ts; Leo, 2026-11-05: "I haven't tried switching fonts in my own app yet. So we could just try some stuff like that"). The default is the macOS system font (Lawrence, 2026-11-07: "default fonts on cmux for everything should be macos default, not inter"); Inter, with its calculated tracking or stock, is a choice.
     nonisolated static let uiFontPath = ["agentPane", "display", "font", "ui"]
-    nonisolated static let uiFontDefault = "inter-tuned"
-    nonisolated static let uiFontValues = ["inter-tuned", "inter", "verdana", "roboto", "plex", "source-sans", "geist", "cmux-sans", "hanken", "atkinson", "system-ui", "system-ui-tight"]
+    nonisolated static let uiFontDefault = "system-ui"
+    nonisolated static let uiFontValues = ["system-ui", "system-ui-tight", "inter-tuned", "inter", "verdana", "roboto", "plex", "source-sans", "geist", "cmux-sans", "hanken", "atkinson"]
     /// `agentPane.display.font.size`.
     nonisolated static let fontSizePath = ["agentPane", "display", "font", "size"]
     nonisolated static let fontSizeDefault: Double = 14

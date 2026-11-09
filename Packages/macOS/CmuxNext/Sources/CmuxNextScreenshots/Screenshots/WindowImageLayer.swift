@@ -67,9 +67,40 @@ package nonisolated enum WindowImageLayer: Sendable {
     /// pixels and one more on each side, so no pixel of what it covers shows at its edge
     /// (an agent's capture of a browser page or chat, `ScreenshotMask`).
     case mask(NSRect)
+    /// Docked DevTools Chromium gave no image of (a rectangle in window coordinates): diagonal
+    /// stripes, so the image says the area was not captured instead of showing it blank, as if
+    /// DevTools drew nothing there.
+    case notCaptured(NSRect)
 
     /// What a mask paints: an opaque mid gray, the same in light and dark windows.
     static var maskColor: CGColor { CGColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1) }
+    /// The two colors of ``notCaptured(_:)``'s stripes, the same in light and dark windows.
+    static var notCapturedColors: (CGColor, CGColor) {
+        (CGColor(srgbRed: 0.42, green: 0.42, blue: 0.42, alpha: 1), CGColor(srgbRed: 0.62, green: 0.62, blue: 0.62, alpha: 1))
+    }
+
+    /// A Chromium page's layers, bottom first: its docked DevTools (Chromium's image of them, or
+    /// ``notCaptured(_:)`` stripes without one), then the page's own image in its own area. DevTools
+    /// go first: in device mode they take the whole view and the page sits inside them.
+    ///
+    /// - Parameters:
+    ///   - image: Chromium's image of the page, the size of the page's own area.
+    ///   - rect: The page's own area in window coordinates (beside docked DevTools, only its part).
+    ///   - holes: Where the page window shows the window instead (window coordinates).
+    ///   - clip: The page window's shape (window coordinates), which DevTools share; nil for none.
+    ///   - devTools: The docked DevTools' area (window coordinates) and Chromium's image of them;
+    ///     nil with none docked.
+    /// - Returns: The layers to paint.
+    package static func chromiumPage(_ image: CGImage, _ rect: NSRect, holes: [NSRect] = [], clip: CGPath? = nil,
+                                     devTools: (area: NSRect, image: CGImage?)? = nil) -> [WindowImageLayer] {
+        let shape = WindowImageClip(clip)
+        var layers: [WindowImageLayer] = []
+        if let devTools {
+            layers.append(devTools.image.map { .page($0, devTools.area, clip: shape) } ?? .notCaptured(devTools.area))
+        }
+        layers.append(.page(image, rect, holes: holes, clip: shape))
+        return layers
+    }
 
     /// `base` (an image of `window`) with `layers` painted over it, bottom first; nil without layers.
     @MainActor
@@ -142,6 +173,26 @@ package nonisolated enum WindowImageLayer: Sendable {
                 context.setBlendMode(.copy)
                 context.setFillColor(maskColor)
                 context.fill(pixels)
+                context.restoreGState()
+            case .notCaptured(let rect):
+                let area = CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY)
+                    .intersection(whole)
+                guard !area.isNull, area.width > 0, area.height > 0 else { continue }
+                context.saveGState()
+                context.clip(to: area)
+                let (dark, light) = notCapturedColors
+                context.setFillColor(light)
+                context.fill(area)
+                // Stripes at 45 degrees, 12 px wide, one every 24 px along the edge.
+                context.setStrokeColor(dark)
+                context.setLineWidth(12)
+                var x = area.minX - area.height
+                while x < area.maxX {
+                    context.move(to: CGPoint(x: x, y: area.minY))
+                    context.addLine(to: CGPoint(x: x + area.height, y: area.maxY))
+                    x += 24
+                }
+                context.strokePath()
                 context.restoreGState()
             }
         }

@@ -289,6 +289,7 @@ fn wait_text<B: Backend>(
         stream: false,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     };
     let result = match backend.resource(session, plan, &[]) {
         Ok(result) => result,

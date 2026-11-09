@@ -1,4 +1,4 @@
-//! `cmux terminal <t> wait --until idle|prompt [--timeout D]` (cx-6so.14,
+//! `cmux terminal <t> wait --until idle|prompt|ready [--timeout D]` (cx-6so.14,
 //! plans/cmux-next/status-indicators.md section 5): blocks until the
 //! terminal's shell facts (`terminal-activity-v1`) hold, then prints its
 //! record as `terminal <t> show` does.
@@ -12,7 +12,12 @@
 //!   (`in_use`: vim, a REPL, an agent's own screen) is idle unless it
 //!   reports work itself.
 //!
-//! Nothing polls: the wait holds the session's `session.events` stream on a
+//! - `ready`: the terminal's agent can take a message: no startup dialog,
+//!   and its hooks say idle or its input box shows. A dialog (Claude's
+//!   folder-trust question, a login) ends the wait as `blocked` (exit 4).
+//!   It looks four times a second, like `agent start` (agent_start.rs).
+//!
+//! Nothing else polls: the wait holds the session's `session.events` stream on a
 //! second connection, opened before the first read, and reads the record
 //! again after each event. A passed `--timeout` exits 124 with
 //! `wait.timeout`; without one the wait lasts until the condition holds or
@@ -40,6 +45,8 @@ const DEADLINE_SLACK: Duration = Duration::from_millis(50);
 pub(super) enum Until {
     Idle,
     Prompt,
+    /// The terminal's agent can take a message (agent_start/readiness.rs).
+    Ready,
 }
 
 impl Until {
@@ -47,6 +54,7 @@ impl Until {
         match self {
             Self::Idle => "idle",
             Self::Prompt => "prompt",
+            Self::Ready => "ready",
         }
     }
 }
@@ -59,6 +67,9 @@ pub(super) fn run(global: &GlobalArgs, words: &[String]) -> Option<i32> {
         return None;
     }
     Some(match parse(flags) {
+        Ok((Until::Ready, timeout)) => {
+            super::super::agent_start::wait_ready_command(global, selector, timeout)
+        }
         Ok((until, timeout)) => wait(global, selector, until, timeout),
         Err(error) => {
             super::super::app::failure("usage.invalid", &format!("cmux: {error}"), global.output, 2)
@@ -91,9 +102,10 @@ pub(super) fn parse(words: &[String]) -> Result<(Until, Option<Duration>), Usage
                 until = Some(match value()?.as_str() {
                     "idle" => Until::Idle,
                     "prompt" => Until::Prompt,
+                    "ready" => Until::Ready,
                     other => {
                         return Err(UsageError::new(format!(
-                            "--until takes idle or prompt, not {other:?}"
+                            "--until takes idle, prompt or ready, not {other:?}"
                         )));
                     }
                 });
@@ -107,15 +119,15 @@ pub(super) fn parse(words: &[String]) -> Result<(Until, Option<Duration>), Usage
             }
             other => {
                 return Err(UsageError::new(format!(
-                    "terminal wait takes --until idle|prompt and --timeout, not {other}"
+                    "terminal wait takes --until idle|prompt|ready and --timeout, not {other}"
                 )));
             }
         }
     }
     let until = until.ok_or_else(|| {
         UsageError::new(
-            "terminal wait needs --until idle|prompt (screen wait and process wait wait for \
-             output and exit)",
+            "terminal wait needs --until idle|prompt|ready (screen wait and process wait wait \
+             for output and exit)",
         )
     })?;
     Ok((until, timeout))
@@ -186,7 +198,7 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
             let mut reader = BufReader::new(stream);
             let route = SocketRoute::new(&socket, derived, global);
             // `terminal current wait` waits on the caller's own terminal.
-            let caller_route = global.socket.is_none() && global.session.is_none();
+            let caller_route = wire::routes_to_caller_session(global);
             resolve::apply(&mut reader, &mut plan, caller_route, &route)?;
             let params = plan.params.as_object().cloned().ok_or_else(|| {
                 Failure::Transport("cmux: request params are not an object".into())
@@ -278,7 +290,7 @@ fn holds(record: &Value, until: Until) -> Result<bool, Failure> {
             }),
             exit: 1,
         }),
-        Until::Prompt => Ok(false),
+        Until::Prompt | Until::Ready => Ok(false),
         Until::Idle => {
             let command = extra["activity"]["state"] == "running";
             let progress =
@@ -311,6 +323,7 @@ fn timed_out(until: Until, timeout: Option<Duration>) -> Failure {
     let condition = match until {
         Until::Idle => "idle",
         Until::Prompt => "at its prompt",
+        Until::Ready => "ready for a message",
     };
     Failure::Local {
         error: json!({

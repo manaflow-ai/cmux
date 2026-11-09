@@ -402,6 +402,65 @@ fn the_alternate_screen_withholds_prediction() {
 }
 
 #[test]
+fn a_full_reset_out_of_the_alternate_screen_predicts_again() {
+    // A mirror leaves a full-screen program through a reset (`ESC c`) and
+    // replays a primary-screen snapshot that never says `?1049l`: the shell
+    // prompt is back, and typing at it predicts again.
+    let mut session = armed_session();
+    session.remote("\x1b[?1049h");
+    assert_eq!(session.status(), Status::AlternateScreen);
+
+    session.remote("\x1bc$ ");
+    assert_ne!(session.status(), Status::AlternateScreen);
+
+    // The person reads the prompt before typing.
+    session.advance(ms(2_000));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session.type_key("x");
+    assert_eq!(session.status(), Status::Predicting);
+    assert_eq!(session.drawn(), "x");
+}
+
+#[test]
+fn a_reset_with_glyphs_in_flight_withdraws_them() {
+    // Whatever the reset cleared, the cells the glyphs stood over are gone.
+    let mut session = armed_session();
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x");
+    session.remote("\x1bc");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn a_seed_after_missed_output_replaces_a_mode_seen_before_it() {
+    // The surface was replaced (a replay while detached): the full-screen
+    // program the engine saw open may have exited in the output it never saw,
+    // and the host's read of the new screen is the only truth left.
+    let mut session = armed_session();
+    session.remote("\x1b[?1049h");
+    assert_eq!(session.status(), Status::AlternateScreen);
+    session.engine.seed_alternate_screen(false);
+    assert_eq!(
+        session.status(),
+        Status::AlternateScreen,
+        "a seed older than seen output is ignored"
+    );
+
+    session.engine.missed_output(session.clock);
+    session.engine.seed_alternate_screen(false);
+    assert_ne!(session.status(), Status::AlternateScreen);
+
+    session.remote("\x1b[?1049h");
+    session.engine.missed_output(session.clock);
+    session.engine.seed_alternate_screen(true);
+    assert_eq!(session.status(), Status::AlternateScreen);
+}
+
+#[test]
 fn a_seeded_alternate_screen_withholds_prediction_until_it_exits() {
     // Prediction started with vim already open: no mode switch is ever
     // seen, and vim echoes typed characters in insert mode, which would
@@ -1023,5 +1082,567 @@ fn an_erase_the_remote_never_sends_is_withdrawn() {
 
     session.advance(ms(1501));
     session.engine.tick(session.clock);
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn steady_typing_after_a_paste_predicts_again_without_a_pause() {
+    // An unmodelled key (here a paste) withdraws, and output stays untracked
+    // for two round trips. Keys typed in that window used to push it out
+    // again, so typing faster than one key per two round trips never
+    // predicted until a pause. They are now tracked: while the paste's own
+    // output may still be printing their echoes are ambiguous, and after
+    // that the first one closes the window. Every echo comes 150 ms after
+    // its key, and keys are 100 ms apart, beyond the coalescing gap.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.advance(ms(100));
+    let _ = session.engine.sent_untracked_input(session.clock);
+    session.type_key_after("c", ms(100));
+    assert_eq!(session.drawn(), "");
+    session.remote_after("pasted", ms(50));
+    session.type_key_after("d", ms(50));
+    assert_eq!(session.drawn(), "");
+    session.remote_after("c", ms(50));
+    session.type_key_after("e", ms(50));
+    session.remote_after("d", ms(50));
+    session.engine.presented_frame(session.clock);
+    session.type_key_after("f", ms(50));
+    session.remote_after("e", ms(50));
+    session.type_key_after("g", ms(50));
+    session.remote_after("f", ms(50));
+    session.engine.presented_frame(session.clock);
+    // The old window would still be open: every key pushed it 350 ms out.
+    session.type_key_after("h", ms(0));
+    assert!(
+        session.drawn().ends_with('h'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn steady_typing_after_backspace_predicts_again_without_a_pause() {
+    // The same after Backspace over echoed text, whose echo may redraw the
+    // rest of the line.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("\x7f", ms(100));
+    session.type_key_after("c", ms(100));
+    session.remote_after("\x08\x1b[K", ms(50));
+    for (typed, echoed) in [("d", "c"), ("e", "d"), ("f", "e"), ("g", "f")] {
+        session.type_key_after(typed, ms(50));
+        session.remote_after(echoed, ms(50));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("h", ms(50));
+    assert!(
+        session.drawn().ends_with('h'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn a_frame_after_a_glyph_aged_out_asks_for_a_redraw() {
+    // The host redraws only when an engine call says something changed. A
+    // glyph whose echo never came is withdrawn at the first call after its
+    // lifetime; when that call is a presented frame, it must say so, or the
+    // stale glyph stays on screen until the next keystroke or output.
+    let mut session = armed_session();
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x");
+    session.advance(Duration::from_secs(5));
+    assert!(session.engine.presented_frame(session.clock));
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn output_after_a_contradicted_prediction_does_not_re_arm_by_matching_new_keys() {
+    // A wrong guess means the remote printed something nobody predicted, such
+    // as a prompt redraw, and more of it may follow. Until it settles, output
+    // that happens to match a key typed since proves nothing about echo, so it
+    // must not re-arm prediction for the key after it.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("Z", ms(20));
+    for key in ["y", "z"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(80));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("w", ms(50));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn an_echo_sooner_than_half_the_round_trip_does_not_misalign_the_queue() {
+    // Half the measured round trip is typical, not a floor. When the link
+    // speeds up, a tracked key's echo can come sooner; taking it for an older
+    // key's echo would match every later echo to the wrong key and draw the
+    // next glyph cells away from the cursor.
+    let mut session = Session::new();
+    for key in ["l", "s", "q", "r"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("\x7f", ms(100));
+    session.type_key_after("a", ms(100));
+    for (echoed, next) in [("a", "b"), ("b", "c"), ("c", "a"), ("a", "b")] {
+        session.remote_after(echoed, ms(40));
+        session.type_key_after(next, ms(60));
+    }
+    session.remote_after("b", ms(40));
+    session.type_key_after("z", ms(10));
+    assert!(
+        !session.drawn().contains('z'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn output_before_an_opaque_period_ends_is_not_taken_for_echo_when_the_window_would_close() {
+    // A contradicted guess keeps output opaque for a settle period from the
+    // contradiction, which can end after the untracked window from the key
+    // itself. Redraw text in between must not confirm keys typed since.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("Z", ms(120));
+    session.type_key_after("y", ms(80));
+    session.type_key_after("z", ms(100));
+    session.remote_after("yz", ms(60));
+    session.type_key_after("w", ms(20));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn a_contradicted_rewrite_does_not_re_arm_by_matching_new_keys() {
+    // The same as a contradicted guess, when the remote first moved back over
+    // text it echoed and then printed something other than that text.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("\x08Z", ms(20));
+    for key in ["y", "z"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(80));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("w", ms(50));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn retyping_the_character_a_backspace_erased_cannot_leave_a_key_unechoed() {
+    // Backspace and the same character again can reach the line editor in one
+    // read, however far apart they were sent: together they change nothing,
+    // so nothing comes back for either. Had the character been tracked, it
+    // would wait for an echo that never comes, and the next keys' echoes would
+    // confirm the wrong entries.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("\x7f", ms(100));
+    session.type_key_after("b", ms(100));
+    session.type_key_after("b", ms(300));
+    session.type_key_after("b", ms(100));
+    session.remote_after("b", ms(50));
+    session.remote_after("b", ms(100));
+    session.type_key_after("z", ms(50));
+    let glyphs = session.engine.glyphs();
+    let z = glyphs.iter().find(|glyph| glyph.character == b'z');
+    assert!(
+        z.is_none_or(|glyph| glyph.offset == 0),
+        "drawn {:?} at {:?}",
+        session.drawn(),
+        session.live_offsets()
+    );
+}
+
+#[test]
+fn a_rewind_past_the_echoed_text_does_not_re_arm_by_matching_new_keys() {
+    // A cursor move further back than anything echoed is a redraw too, and
+    // what it prints next is no more an echo than any other redraw's text.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("\x1b[5D", ms(20));
+    for key in ["y", "z"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(80));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("w", ms(50));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn a_redraw_with_only_held_confirmations_does_not_re_arm_by_matching_new_keys() {
+    // Output nobody typed while the queue holds only echoed glyphs waiting for
+    // their frame withdraws with no keys in flight. It is a redraw all the
+    // same, and its text must not confirm keys typed after it.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("q", ms(150));
+    session.remote_after("Z", ms(5));
+    for key in ["y", "z"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(80));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("w", ms(50));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn concealed_echo_never_draws_a_predicted_glyph() {
+    // `printf '\033[8m'; cat` on a slow link: the remote echoes every key
+    // concealed, and its echoes confirm the keys, but a predicted glyph would
+    // print in the clear what the remote hides.
+    let mut session = armed_session();
+    session.remote("\x1b[8m");
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        assert_eq!(session.drawn(), "", "status {:?}", session.status());
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+    assert_eq!(session.status(), Status::Listening);
+}
+
+#[test]
+fn turning_conceal_on_withdraws_what_is_drawn() {
+    let mut session = armed_session();
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x");
+    session.remote("\x1b[1;8m");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn revealing_text_predicts_again() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m");
+    session.type_key("q");
+    session.remote("q");
+    session.remote("\x1b[28m");
+    session.engine.presented_frame(session.clock);
+    session.type_key("w");
+    assert_eq!(session.drawn(), "w", "status {:?}", session.status());
+}
+
+#[test]
+fn colour_number_eight_is_not_conceal() {
+    // Colour index 8 and a truecolour prompt longer than the parameter cap.
+    let mut session = armed_session();
+    session.remote("\x1b[38;5;8m\x1b[48;2;8;28;8;38;2;255;255;255m\x1b[38:5:8m");
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x", "status {:?}", session.status());
+}
+
+#[test]
+fn concealment_survives_missed_output() {
+    // A resize or a replaced screen: the terminal still conceals what it
+    // prints, so echoes after it must not arm prediction.
+    let mut session = armed_session();
+    session.remote("\x1b[8m");
+    session.engine.missed_output(session.clock);
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+}
+
+#[test]
+fn a_replay_read_after_missed_output_sets_concealment() {
+    // The host passes the bytes that replaced the screen after missed output;
+    // with nothing in flight they only set modes.
+    let mut session = armed_session();
+    session.engine.missed_output(session.clock);
+    session.remote("$ secret: \x1b[8m");
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+    session.remote("\x1b[0m\r\n$ ");
+    session.advance(ms(2_000));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x", "status {:?}", session.status());
+}
+
+#[test]
+fn a_cursor_restore_after_missed_output_conceals_again() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b7\x1b[0m");
+    session.engine.missed_output(session.clock);
+    session.remote("\x1b8");
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+}
+
+#[test]
+fn a_csi_cursor_restore_conceals_again() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b[s\x1b[0m\x1b[u");
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+}
+
+#[test]
+fn a_full_screen_program_that_exits_into_a_concealing_pen_predicts_nothing() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b[?1049h\x1b[0m\x1b[H\x1b[2Jmenu\x1b[?1049l");
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+}
+
+fn conceals_after(output: &str) -> String {
+    let mut session = armed_session();
+    session.remote(output);
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    format!("drawn {:?}, status {:?}", session.drawn(), session.status())
+}
+
+#[test]
+fn a_save_on_the_alternate_screen_keeps_the_primary_screens_saved_conceal_state() {
+    let result = conceals_after("\x1b[8m\x1b[?1049h\x1b[0m\x1b7\x1b8\x1b[?1049l");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
+
+#[test]
+fn a_save_and_restore_inside_a_mode_list_conceal_again() {
+    let result = conceals_after("\x1b[8m\x1b[?1048;25h\x1b[0m\x1b[?1048;25l");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
+
+#[test]
+fn a_save_in_a_mode_list_past_the_parameter_cap_conceals_again() {
+    let result = conceals_after("\x1b[8m\x1b[?25;25;25;25;1048h\x1b[0m\x1b[?1048l");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
+
+#[test]
+fn an_sgr_pop_inside_a_cursor_detour_withdraws_what_is_drawn() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b[#{\x1b[0m");
+    session.advance(ms(2_000));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x", "status {:?}", session.status());
+    session.remote("\x1b7\x1b[#}");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn a_soft_reset_reveals_text() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b[!p");
+    session.advance(ms(2_000));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x", "status {:?}", session.status());
+}
+
+#[test]
+fn a_restore_after_missed_output_that_left_a_full_screen_program_conceals() {
+    // The lost output left the alternate screen, and may have saved any pen:
+    // the next restore cannot be taken as revealing.
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b7\x1b[0m\x1b[?1049h\x1b7");
+    session.engine.missed_output(session.clock);
+    session.engine.seed_alternate_screen(false);
+    let result = conceals_after_more(&mut session, "\x1b8");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
+
+#[test]
+fn a_save_seen_after_missed_output_restores_exactly() {
+    let mut session = armed_session();
+    session.engine.missed_output(session.clock);
+    session.engine.seed_alternate_screen(false);
+    session.remote("\x1b7\x1b8");
+    session.advance(ms(2_000));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x", "status {:?}", session.status());
+}
+
+fn conceals_after_more(session: &mut Session, output: &str) -> String {
+    session.remote(output);
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    format!("drawn {:?}, status {:?}", session.drawn(), session.status())
+}
+
+#[test]
+fn a_control_inside_an_sgr_does_not_hide_the_conceal() {
+    // `ESC [ 8 BEL m`: the terminal rings, then completes SGR 8.
+    let result = conceals_after("\x1b[8\x07m");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
+
+#[test]
+fn a_screen_switch_past_the_tracked_modes_still_counts() {
+    let mut list = String::from("\x1b[?");
+    for _ in 0..16 {
+        list.push_str("1048;");
+    }
+    list.push_str("47h");
+    let mut session = armed_session();
+    session.remote(&list);
+    assert_eq!(session.status(), Status::AlternateScreen);
+}
+
+#[test]
+fn a_resize_keeps_an_ordinary_cursor_restore_visible() {
+    // A resize loses no output, so a repaint's save and restore after it
+    // carries the visible pen it saved.
+    let mut session = armed_session();
+    session.engine.layout_changed(session.clock);
+    let result = conceals_after_more(&mut session, "\x1b7\x1b8");
+    assert!(result.starts_with("drawn \"e\""), "{result}");
+}
+
+#[test]
+fn a_resize_keeps_a_concealing_save() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b7\x1b[0m");
+    session.engine.layout_changed(session.clock);
+    let result = conceals_after_more(&mut session, "\x1b8");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
+
+#[test]
+fn a_resize_withdraws_what_is_drawn() {
+    let mut session = armed_session();
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "e");
+    session.engine.layout_changed(session.clock);
     assert_eq!(session.drawn(), "");
 }

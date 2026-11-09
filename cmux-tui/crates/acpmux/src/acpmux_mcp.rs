@@ -309,7 +309,20 @@ pub async fn run() -> Result<()> {
                         ),
                     };
                 }
+                // The Claude Code subagent whose tool call this is, by its tool use id
+                // (`subagent_call.rs`): a `send` names it, a `bg_start` or `run_wait` task runs as
+                // it and brings its end to it.
+                let sub = crate::subagent_call::of_call(&crate::config::home(), &session, &params);
                 if bg::TOOLS.contains(&name) {
+                    let mut args = args;
+                    if matches!(name, "bg_start" | "run_wait")
+                        && let Some(fields) = args.as_object_mut()
+                    {
+                        fields.remove("callerSubagent");
+                        if let Some(sub) = &sub {
+                            fields.insert("callerSubagent".to_owned(), sub.clone());
+                        }
+                    }
                     return bg::call(&daemon, &session, name, &args).await;
                 }
                 if name == pr::NAME {
@@ -341,7 +354,7 @@ pub async fn run() -> Result<()> {
                 if name == "machine_info" {
                     return machine_info(&daemon, &session).await;
                 }
-                call(&daemon, &params).await
+                call_as(&daemon, &params, sub.as_ref()).await
             }
         },
     )
@@ -369,13 +382,20 @@ fn arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty())
 }
 
+#[cfg(test)]
 pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
+    call_as(daemon, params, None).await
+}
+
+/// A tool call of the acpmux tools below; `sub` is the subagent that makes it
+/// (`subagent_call.rs`), which its `send` names.
+async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> Value {
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     if !args.is_object() {
         return error_result("arguments must be an object".to_owned());
     }
     match params["name"].as_str().unwrap_or_default() {
-        "send" => send::send(daemon, &args).await,
+        "send" => send::send(daemon, &args, sub).await,
         "team_send" => team_send(daemon, &args).await,
         "team_inbox" => team_inbox(daemon, &args).await,
         "team_ack" => team_ack(daemon, &args).await,

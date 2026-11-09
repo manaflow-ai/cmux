@@ -49,6 +49,6 @@ extension AgentPaneNavigation {
               scheme != AgentPaneSource.bundledScheme,
               url.user == nil, url.password == nil, url.port == nil,
               let host = url.host?.lowercased() else { return false }
-        return ["workspace", "pane", "tab", "session", "chief", "agent"].contains(host)
+        return ["workspace", "pane", "tab", "session", "chief", "agent", "group"].contains(host)
     }
 }
