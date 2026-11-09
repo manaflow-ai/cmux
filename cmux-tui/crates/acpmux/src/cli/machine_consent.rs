@@ -87,7 +87,10 @@ impl Authority {
         crate::config::private_state_file(&self.root.join("enrolled.json"))
             .ok()
             .and_then(|file| serde_json::from_reader::<_, Value>(file).ok())
-            .is_some_and(|marker| marker["by"] == super::cloud_join::JOINED_BY_SIGN_IN)
+            .is_some_and(|marker| {
+                marker.get("by").and_then(Value::as_str)
+                    == Some(super::cloud_join::JOINED_BY_SIGN_IN)
+            })
     }
 
     /// Whether the account's consent requirement comes only from joins signing in made, and the
