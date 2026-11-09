@@ -208,8 +208,9 @@ public final class SettingsStore {
         keyClicks = bool("keyClicks", true)
         predictiveEcho = bool("predictiveEcho", true)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
-        ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
+        let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
             ?? (bool("ultraOnCellular", false) ? .always : .auto)
+        self.ultra = ultra
         // Saved now: the dial reads this key, and the earlier switch is retired below.
         defaults.set(ultra.rawValue, forKey: "cmuxMobile.settings.ultra")
         // The earlier three switches: Finished off reads as "Only when I'm needed".
