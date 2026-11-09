@@ -39,19 +39,25 @@ final class HomeWidgetSymbols: @unchecked Sendable {
         let size = CGSize(width: image.size.width * 2, height: image.size.height * 2)
         guard size.width >= 1, size.height >= 1,
               let width = Int(exactly: size.width.rounded(.up)), let height = Int(exactly: size.height.rounded(.up)),
-              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
-        let graphics = NSGraphicsContext(cgContext: ctx, flipped: false)
+              let color = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let gray = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                   space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        let rect = CGRect(x: 0, y: 0, width: width, height: height)
+        // NSImage draws nothing into an alpha-only context: draw in color, turn the symbol white,
+        // then lay it on black in gray, which `clip(to:mask:)` reads as coverage (white paints).
         NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = graphics
-        image.draw(in: CGRect(origin: .zero, size: size))
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: color, flipped: false)
+        image.draw(in: rect)
         NSGraphicsContext.restoreGraphicsState()
-        guard let alpha = ctx.makeImage() else { return nil }
-        // An alpha-only image is not a mask: rebuild it as one (white where the symbol is).
-        guard let provider = alpha.dataProvider,
-              let mask = CGImage(maskWidth: alpha.width, height: alpha.height, bitsPerComponent: 8, bitsPerPixel: 8,
-                                 bytesPerRow: alpha.bytesPerRow, provider: provider, decode: [1, 0], shouldInterpolate: true)
-        else { return nil }
+        color.setBlendMode(.sourceIn)
+        color.setFillColor(CGColor(gray: 1, alpha: 1))
+        color.fill(rect)
+        guard let white = color.makeImage() else { return nil }
+        gray.setFillColor(CGColor(gray: 0, alpha: 1))
+        gray.fill(rect)
+        gray.draw(white, in: rect)
+        guard let mask = gray.makeImage() else { return nil }
         masks.withLock { $0[key] = mask }
         return mask
     }
