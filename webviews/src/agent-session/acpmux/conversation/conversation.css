@@ -7585,7 +7585,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 /* "Run on a bigger machine" (RunElsewhere.tsx): the chip at a running shell row's edge, in the
    preview chip's place and ink; the "what goes" panel and the streamed run under the row, as plain
    rows with a small machine icon and caption headers (design references
-   claude/live/panel-environment, cursor/web/run-on-machine-picker), no card chrome but a ring. */
+   claude/live/panel-environment and a run-on-machine picker reference), no card chrome but a ring. */
 .cv-run-elsewhere-chip {
   display: inline-flex;
   min-width: 0;

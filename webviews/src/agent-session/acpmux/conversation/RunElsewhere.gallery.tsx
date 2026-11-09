@@ -2,7 +2,7 @@
 // "Run on a bigger machine" (RunElsewhere.tsx) on the real CommandRow and ToolRow, over a stand-in
 // for acpmux's `_acpmux/run_elsewhere/*` and `_acpmux/bg/output`. Three chip looks, then the states
 // under the row: the panel that shows what goes, a refused command, no machine, the run streaming,
-// and runs that ended. References: claude/live/panel-environment and cursor/web/run-on-machine-picker
+// and runs that ended. References: claude/live/panel-environment
 // (plain rows with a small machine icon, a caption over each group, no card chrome).
 import { useMemo } from "react";
 import { componentEntry } from "../../../gallery/format";
