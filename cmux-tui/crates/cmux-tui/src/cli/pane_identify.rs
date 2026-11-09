@@ -291,7 +291,9 @@ fn with_build(
         Reach::Tunnel { socket } => super::skew::remote_skew(daemon, own, socket),
         Reach::Local { pane_cli } => {
             let cli = daemon.cli_path.display().to_string();
-            let run = match pane_cli.filter(|path| Path::new(path).is_absolute()) {
+            // A pane's `CMUX_TUI_CLI` is its own session's `cmux`; a `--socket`
+            // to another session's daemon needs that daemon's `cmux`.
+            let run = match pane_cli.filter(|path| same_file(Path::new(path), &daemon.cli_path)) {
                 Some(_) => format!("\"$CMUX_TUI_CLI\" ({cli})"),
                 None => cli,
             };
@@ -306,12 +308,25 @@ fn with_build(
     object.insert("warning".into(), json!(warning));
 }
 
+/// Whether absolute path `path` names the file `target` names (the same
+/// path, or a link to it).
+fn same_file(path: &Path, target: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    match (std::fs::canonicalize(path), std::fs::canonicalize(target)) {
+        (Ok(path), Ok(target)) => path == target,
+        _ => path == target,
+    }
+}
+
 /// How the CLI reached the daemon that answered, as [`with_build`] words its
 /// warning.
 #[derive(Clone, Copy, Debug)]
 enum Reach<'a> {
     /// The daemon itself answered on a local socket; `pane_cli` is the
-    /// `CMUX_TUI_CLI` this process has (set in a cmux pane), when absolute.
+    /// `CMUX_TUI_CLI` this process has (set in a cmux pane). The warning
+    /// names it only when it is the daemon's own `cmux` file.
     Local { pane_cli: Option<&'a str> },
     /// The socket tunnels to a daemon on another machine; its `cmux` is a
     /// path there.
@@ -560,6 +575,61 @@ mod tests {
         let warning = identity["warning"].as_str().unwrap_or_default();
         assert!(warning.contains("/remote/only/bin/cmux"), "{warning}");
         assert!(!warning.contains("CMUX_TUI_CLI"), "outside a pane: {warning}");
+    }
+
+    /// W5-Q follow-up (PR B review): the warning says `"$CMUX_TUI_CLI"` only
+    /// when that path is the target daemon's own `cmux` file (the same path,
+    /// or a link to it). A pane's `CMUX_TUI_CLI` names its own session's
+    /// `cmux`; a `--socket` to another session's daemon needs that daemon's
+    /// `cmux`, so the warning names its path.
+    #[test]
+    fn w5q_identify_names_cmux_tui_cli_only_for_the_daemons_own_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "w5q-identify-cli-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_nanos())
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let daemon_cli = dir.join("cmux");
+        std::fs::write(&daemon_cli, b"").expect("daemon cmux file");
+        let link = dir.join("cmux-link");
+        std::os::unix::fs::symlink(&daemon_cli, &link).expect("link to the daemon cmux");
+        let other_cli = dir.join("other-cmux");
+        std::fs::write(&other_cli, b"").expect("another cmux file");
+        let daemon = super::super::skew::DaemonBuild {
+            build_id: "cmux-tui 0.9 (def456)".into(),
+            cli_path: daemon_cli.clone(),
+            pid: 7,
+        };
+        let warning = |pane_cli: &Path| {
+            let mut identity = identity_value(
+                Path::new("/tmp/s.sock"),
+                &record(&[("id", "session_1"), ("name", "bench")]),
+                &record(&[("id", "machine_1"), ("name", "mac")]),
+                json!({"found": true, "terminal_id": "term_1"}),
+                Value::Null,
+            );
+            let pane_cli = pane_cli.to_str().unwrap_or_default();
+            let reach = Reach::Local { pane_cli: Some(pane_cli) };
+            with_build(&mut identity, "cmux-tui 0.1 (abc123)", Some(&daemon), reach);
+            identity["warning"].as_str().unwrap_or_default().to_owned()
+        };
+        let daemon_path = daemon_cli.display().to_string();
+
+        let other = warning(&other_cli);
+        assert!(!other.contains("CMUX_TUI_CLI"), "another session's cmux: {other}");
+        assert!(other.contains(&daemon_path), "{other}");
+        let missing = warning(Path::new("/opt/w5q-no-such/bin/cmux"));
+        assert!(!missing.contains("CMUX_TUI_CLI"), "a cmux that is not there: {missing}");
+        assert!(missing.contains(&daemon_path), "{missing}");
+
+        let same = warning(&daemon_cli);
+        assert!(same.contains("\"$CMUX_TUI_CLI\""), "the daemon's own cmux: {same}");
+        let linked = warning(&link);
+        assert!(linked.contains("\"$CMUX_TUI_CLI\""), "a link to the daemon's cmux: {linked}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// `machine.get` refuses a session parameter ("unknown parameters").

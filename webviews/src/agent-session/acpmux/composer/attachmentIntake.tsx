@@ -31,6 +31,7 @@ import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 
@@ -128,6 +129,9 @@ export function AttachmentStrip({
           key={attachment.id}
           className="acpmux-attachment-slot"
           data-attachment-index={index}
+          // Where its chip is when the prompt goes: sent from the latest row, it moves from there
+          // to its slot in the message (conversation/sendMorph.ts).
+          ref={chipRef(attachment.id)}
           data-dragging={reorder.dragging === attachment.id || undefined}
         >
           <AttachmentChip
@@ -518,9 +522,10 @@ export function AttachmentChip({
     );
   }
   // A video goes as its path too, with its poster and length once the host read them; a click plays it
-  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer). One the host
-  // could not read (or never asked: a chat on another machine) keeps the square with its play glyph
-  // and no poster; Quick Look still plays it from its path when the pane may not.
+  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer); in a chat on
+  // another machine, from its upload there. One the host could not read (or never asked: a chat on
+  // another machine) keeps the square with its play glyph and no poster; Quick Look plays it from its
+  // path when the pane may not, and one nothing can play says so on its tile.
   if (isVideoAttachment(attachment)) {
     const play = videoPlayer.play;
     return (
@@ -534,6 +539,7 @@ export function AttachmentChip({
             reading={!attachment.video && videoReading}
             remove={remove}
             onPlay={play}
+            unplayable={videoPlayer.unplayable}
           />,
           t("media.play"),
         )}

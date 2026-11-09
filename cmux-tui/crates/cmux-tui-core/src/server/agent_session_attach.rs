@@ -99,6 +99,13 @@ const MAX_KINDS: usize = 32;
 /// Worker calls (pages, prompts, permission answers) per attachment.
 const MAX_CALLS: usize = 8;
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a prompt waits for acpmux's `prompt_accepted`. acpmux accepts before it starts the
+/// agent, but the first prompt of a chat started a moment ago first waits for that chat's log and
+/// adoption on a daemon that just started, which took over 5 s on a fresh Cloud machine (HQ's
+/// cloud-start-matrix phone-start row, run 42617701877: `agent_session.timeout` 1.4 s after the
+/// start). The prompt was already sent then, so a refusal there was a turn that might still run
+/// while the phone said it failed. Bounded as the login start is.
+pub(super) const PROMPT_ACCEPT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Notifications held while the attach call waits for its reply.
 const MAX_EARLY: usize = 256;
 /// Largest attach or events page sent to the client (a control message);
@@ -593,6 +600,16 @@ fn is_setting_id(value: &str) -> bool {
 struct MediaParams {
     surface: SurfaceId,
     path: String,
+    /// A video's byte range (`agent_session_media.rs` `media_range`): its first byte; none for a
+    /// whole image.
+    #[serde(default)]
+    offset: Option<u64>,
+    /// The range's most bytes, at most `MAX_RANGE` (the default).
+    #[serde(default)]
+    length: Option<u64>,
+    /// The open file an earlier range answered, so the next range reads the same file.
+    #[serde(default)]
+    handle: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1152,7 +1169,7 @@ impl ReaderSlot {
 mod media;
 #[path = "agent_session_proxy.rs"]
 mod proxy;
-use media::media;
+use media::{media, media_range};
 pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
     close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
@@ -1410,7 +1427,21 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         // A side chat is a new chat on the owner's machine, as a fork is: the owner's only.
         AgentSessionCommand::Side(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
         AgentSessionCommand::Side(params) => side::call(attachment, params),
-        AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
+        AgentSessionCommand::Media(MediaParams {
+            path,
+            offset: None,
+            length: None,
+            handle: None,
+            ..
+        }) => media(attachment, path),
+        AgentSessionCommand::Media(MediaParams {
+            path,
+            offset: Some(offset),
+            length,
+            handle,
+            ..
+        }) => media_range(attachment, path, offset, length, handle),
+        AgentSessionCommand::Media(_) => Err(Refusal::BadRequest),
         // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
         // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
         // so again with its next keystroke.
@@ -1569,7 +1600,7 @@ fn submit_prompt(
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
         return Err(refusal);
     }
-    let accepted = receiver.recv_timeout(CALL_TIMEOUT);
+    let accepted = receiver.recv_timeout(PROMPT_ACCEPT_TIMEOUT);
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
     match accepted {
         Ok(accepted) => Ok(json!({
