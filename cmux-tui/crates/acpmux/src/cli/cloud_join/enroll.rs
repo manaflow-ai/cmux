@@ -318,7 +318,7 @@ pub(super) async fn enroll_at(
     let Some(_lock) = wait_for_lock(home).await else { return EnrollOutcome::Unavailable };
     // A sign-out whose local cleanup stopped part way left the record marked revoked: finished
     // first, so that mark is never read as a revoke at the hub.
-    if leave_removing(home) && leave::remove_local(home).is_err() {
+    if leave_removing(home) && leave::remove_local(home, false).is_err() {
         return EnrollOutcome::Unavailable;
     }
     // Signed in again: a sign-out's leave not finished yet is not finished at all. What it set
@@ -706,7 +706,7 @@ where
     if record.revoked {
         // This leave's own cleanup marked it revoked and stopped: finished now.
         if leave_removing(home) {
-            if leave::remove_local(home).is_err() {
+            if leave::remove_local(home, false).is_err() {
                 return kept("busy");
             }
             finish();
@@ -715,7 +715,8 @@ where
         // A revoked machine stays so: its record keeps the next sign-in from enrolling it again.
         return done("revoked");
     }
-    let answer = if copied_here(home, &record, current) {
+    let copy = copied_here(home, &record, current);
+    let answer = if copy {
         None
     } else if retired.as_ref().is_ok_and(|done| done.as_deref() == Some(record.credential.as_str()))
     {
@@ -739,7 +740,7 @@ where
             return kept("busy");
         }
     }
-    if mark_leave_removing(home).is_err() || leave::remove_local(home).is_err() {
+    if mark_leave_removing(home).is_err() || leave::remove_local(home, copy).is_err() {
         return kept("busy");
     }
     finish();
