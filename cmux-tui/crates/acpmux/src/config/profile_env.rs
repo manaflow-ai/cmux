@@ -140,11 +140,10 @@ pub fn env_ref_names(env: &BTreeMap<String, String>) -> Vec<String> {
     let mut names = Vec::new();
     for value in env.values() {
         let mut rest = value.as_str();
-        while let Some(start) = rest.find("${env:") {
-            let after = &rest[start + 6..];
-            let Some(end) = after.find('}') else { break };
-            names.push(after[..end].to_owned());
-            rest = &after[end + 1..];
+        while let Some((_, after)) = rest.split_once("${env:") {
+            let Some((name, tail)) = after.split_once('}') else { break };
+            names.push(name.to_owned());
+            rest = tail;
         }
     }
     names
