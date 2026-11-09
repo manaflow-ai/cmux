@@ -1665,6 +1665,32 @@ mod tests {
         assert_eq!(verify_made(repo.as_path().into(), &made, at), Ok(()));
     }
 
+    /// A revive's worktree add waits while this process changes the same repository (a model
+    /// race's add holds its lock), so two worktree changes never run at once in one repository.
+    #[test]
+    fn a_revive_add_waits_for_the_repository_lock() {
+        let (_scratch, repo, home) = repo();
+        let root = home.join("revived");
+        let at = sh(&repo, &["rev-parse", "HEAD"]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        with_repo_lock(repo.as_path().into(), || {
+            let (common, target, at) = (repo.join(".git"), root.clone(), at.clone());
+            std::thread::spawn(move || {
+                let by = Instant::now() + std::time::Duration::from_secs(60);
+                let place = target.to_string_lossy().into_owned();
+                let args = ["--detach", place.as_str(), at.as_str()];
+                let _ = tx.send(add_without_config(&common, &args, &target, &at, by));
+            });
+            // Waits for what must not happen: the add finishing while the lock is held.
+            let early = rx.recv_timeout(std::time::Duration::from_secs(5));
+            assert!(early.is_err(), "the revive changed the repository under its lock: {early:?}");
+            assert!(!root.exists());
+        });
+        let added = rx.recv_timeout(std::time::Duration::from_secs(60)).expect("the revive ran");
+        assert_eq!(added, Ok(()));
+        assert!(root.join(".git").is_file());
+    }
+
     #[test]
     fn recovery_does_not_nest_a_worktree_in_a_reappeared_destination() {
         let (_scratch, repo, home) = repo();
