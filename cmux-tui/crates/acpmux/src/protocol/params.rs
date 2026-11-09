@@ -217,7 +217,7 @@ keyed! {
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.
-    ModelsParams: ["refresh", "probe"];
+    ModelsParams: ["refresh", "probe", "localOnly"];
     /// `_acpmux/native_history`.
     NativeHistoryParams: ["sessionId", "before", "mark"];
     /// `_acpmux/offer_respond`.
