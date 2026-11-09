@@ -64,22 +64,18 @@ pub fn run(cmd: DesktopCmd, json_out: bool) -> Result<()> {
             println!("{}", line(row));
         }
     }
-    // A link that wrote nothing where it was asked to, by name, is a failure the caller sees.
-    let failed = rows.iter().any(|r| {
-        verb == "link"
-            && r.state != State::Linked
-            && r.state != State::NotInstalled
-            && r.state != State::Foreign
-            && !r.note.as_deref().is_some_and(|n| n.starts_with("would "))
-    });
-    if failed {
-        let why = rows
-            .iter()
-            .filter(|r| r.state != State::Linked)
-            .filter_map(|r| r.note.as_deref())
-            .next_back()
-            .unwrap_or("not linked");
-        anyhow::bail!("{why}");
+    // A link or unlink that could not write is a failure the caller sees, with that app's own
+    // reason (not another app's "not on this machine"). A foreign entry is left alone on purpose.
+    let failed = |r: &&Row| {
+        !r.note.as_deref().is_some_and(|n| n.starts_with("would "))
+            && match verb {
+                "link" => matches!(r.state, State::NotLinked | State::Stale),
+                "unlink" => matches!(r.state, State::Linked | State::Stale),
+                _ => false,
+            }
+    };
+    if let Some(row) = rows.iter().find(failed) {
+        anyhow::bail!("{}: {}", row.app.label(), row.note.as_deref().unwrap_or("not linked"));
     }
     Ok(())
 }

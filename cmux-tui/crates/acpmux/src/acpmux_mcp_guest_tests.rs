@@ -81,9 +81,9 @@ fn new_refuses_no_prompt_and_a_value_that_is_a_flag() {
 #[test]
 fn new_answers_with_the_sessions_link() {
     let record = json!({
-        "sessionId": "big-red/s-1",
+        "sessionId": "mac-mini/s-1",
         "name": "flaky-test-fix",
-        "peer": "big-red",
+        "peer": "mac-mini",
         "harness": "claude-opus",
         "agentSessionId": "0f1e2d3c-0000-4000-8000-000000000001",
     });
@@ -91,10 +91,10 @@ fn new_answers_with_the_sessions_link() {
     let link = result["structuredContent"]["link"].as_str().unwrap();
     assert_eq!(
         link,
-        "https://cmux.com/deeplink/agent?harness=claude&session=0f1e2d3c-0000-4000-8000-000000000001&host=big-red&name=flaky-test-fix"
+        "https://cmux.com/deeplink/agent?harness=claude&session=0f1e2d3c-0000-4000-8000-000000000001&host=mac-mini&name=flaky-test-fix"
     );
-    assert!(text_of(&result).contains("Started flaky-test-fix on big-red"));
-    assert_eq!(result["structuredContent"]["machine"], "big-red");
+    assert!(text_of(&result).contains("Started flaky-test-fix on mac-mini"));
+    assert_eq!(result["structuredContent"]["machine"], "mac-mini");
 
     let starting = new_result("x", &json!({"sessionId": "s-2", "name": "x"}));
     assert!(text_of(&starting).contains("cmux NEXT's chat list"));
@@ -104,17 +104,17 @@ fn new_answers_with_the_sessions_link() {
 #[test]
 fn machines_reads_one_line_each_this_machine_first() {
     let list = json!({"peers": [
-        {"name": "air-blue", "connected": true, "link": "connected", "health": {"os": "macos", "liveSessions": 23, "load": [1.0]}, "paths": []},
+        {"name": "laptop", "connected": true, "link": "connected", "health": {"os": "macos", "liveSessions": 23, "load": [1.0]}, "paths": []},
         {"name": "cloud-1", "connected": false, "link": "down", "health": null},
     ]});
     let rows = machine_rows(&list);
     assert_eq!(
         rows[0],
-        json!({"name": "air-blue", "connected": true, "link": "connected", "os": "macos", "liveSessions": 23})
+        json!({"name": "laptop", "connected": true, "link": "connected", "os": "macos", "liveSessions": 23})
     );
     assert_eq!(
         machines_text(&rows),
-        "this machine  [local]\nair-blue  [connected]  23 live sessions\ncloud-1  [down]"
+        "this machine  [local]\nlaptop  [connected]  23 live sessions\ncloud-1  [down]"
     );
     assert_eq!(machines_text(&machine_rows(&json!({"peers": []}))), "this machine  [local]");
 }
