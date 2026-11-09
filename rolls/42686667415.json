@@ -70,7 +70,7 @@
     "superseded": false
   },
   "rollback": {
-    "result": "retrying",
+    "result": "rollback_failed",
     "commit": "d93abdf52fdad834d3c09f1d6b217c29380c9fa4",
     "at": "2026-11-09T20:08:57Z",
     "deploys": {
@@ -89,8 +89,16 @@
         "product_smoke": "not-run",
         "boot_image": "",
         "at": "2026-11-09T20:24:25Z"
+      },
+      "3": {
+        "commit": "62bb24c0ac704f40173c4d4adf52d203789cedb3",
+        "run": "https://github.com/manaflow-ai/cmux/actions/runs/42692647536",
+        "deploy": "skipped",
+        "product_smoke": "not-run",
+        "boot_image": "",
+        "at": "2026-11-09T20:35:28Z"
       }
     }
   },
-  "rollback_failed": false
+  "rollback_failed": true
 }
