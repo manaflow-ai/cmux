@@ -851,6 +851,11 @@ mod tests {
             super::super::foreign_login::foreign_login_keys("opencode").any(|k| k == key)
         };
         assert!(!opencode_loses("ANTHROPIC_API_KEY") && !opencode_loses("OPENAI_API_KEY"));
+        // A provider key in the daemon's own env reaches OpenCode, never Claude Code or Codex.
+        for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY"] {
+            assert!(removed(&claude, key) && removed(&codex, key), "{key} reaches Claude or Codex");
+            assert!(!removed(&opencode, key), "OpenCode loses {key}");
+        }
         // A value the profile sets is the person's choice and passes.
         let chosen =
             profile(HarnessKind::Acp, "codex-acp", serde_json::json!({"ANTHROPIC_API_KEY": "own"}));

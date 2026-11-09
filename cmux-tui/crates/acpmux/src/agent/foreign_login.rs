@@ -334,6 +334,31 @@ mod tests {
         assert!(muse.contains(&"GEMINI_CLI_HOME") && !muse.contains(&"META_API_KEY"));
     }
 
+    /// The provider keys a multi-provider harness reads (`login_env::PROVIDER_KEYS`) reach only
+    /// those harnesses and the one family that signs in with each, whatever env set them (the
+    /// daemon's own, from a shell holding OPENROUTER_API_KEY): Claude Code, Codex and every other
+    /// agent lose them. An unknown command keeps them, as it keeps the shared provider keys.
+    #[test]
+    fn provider_keys_reach_only_multi_provider_harnesses_and_their_own_family() {
+        let loses = |family: &str, key: &str| foreign_login_keys(family).any(|k| k == key);
+        for family in ["claude", "codex", "gemini", "muse", "cursor", "grok", "deepseek"] {
+            for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY", "HF_TOKEN", "TOGETHER_API_KEY"] {
+                assert!(loses(family, key), "{key} reaches {family}");
+            }
+        }
+        for family in ["opencode", "pi", "omp", "prime", "hermes", ""] {
+            for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY", "XAI_API_KEY", "OPENAI_BASE_URL"] {
+                assert!(!loses(family, key), "{family:?} loses {key}");
+            }
+        }
+        // Each family keeps the ones it signs in with.
+        assert!(!loses("claude", "ANTHROPIC_BASE_URL") && loses("claude", "OPENAI_BASE_URL"));
+        assert!(!loses("codex", "OPENAI_BASE_URL") && loses("codex", "ANTHROPIC_BASE_URL"));
+        assert!(!loses("gemini", "GOOGLE_API_KEY") && loses("claude", "GOOGLE_API_KEY"));
+        assert!(!loses("grok", "XAI_API_KEY") && loses("claude", "XAI_API_KEY"));
+        assert!(!loses("deepseek", "DEEPSEEK_API_KEY") && loses("codex", "DEEPSEEK_API_KEY"));
+    }
+
     #[test]
     fn a_multi_provider_harness_keeps_provider_keys_but_not_other_sign_ins() {
         let opencode: Vec<_> = foreign_login_keys("opencode").collect();
