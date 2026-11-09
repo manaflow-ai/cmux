@@ -5,7 +5,7 @@ extension AgentGuidanceSettings {
     /// `agents.guidance.claude`: On: a new Claude Code chat gets cmux's chat guidance (agent_guidance.rs CLAUDE_GUIDANCE) in its system prompt (--append-system-prompt). The cmux:cmux-chat skill stays listed either way.
     public nonisolated static let guidanceClaudePath = ["agents", "guidance", "claude"]
     public nonisolated static let guidanceClaudeDefault = true
-    /// `agents.guidance.codex`: On: a new Codex chat gets cmux's chat guidance (agent_guidance.rs AGENT_GUIDANCE) as its developer instructions, after any developer_instructions its own Codex config sets.
+    /// `agents.guidance.codex`: On: a new Codex chat gets cmux's chat guidance (agent_guidance.rs AGENT_GUIDANCE) as its developer instructions, or as first-turn context when its Codex config sets developer_instructions itself.
     public nonisolated static let guidanceCodexPath = ["agents", "guidance", "codex"]
     public nonisolated static let guidanceCodexDefault = true
     /// `agents.guidance.otherAgents`: On: every other harness (Gemini, OpenCode, pi, your own) gets the same first-turn guidance as Codex.

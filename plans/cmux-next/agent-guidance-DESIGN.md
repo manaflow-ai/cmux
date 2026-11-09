@@ -65,12 +65,16 @@ person's prompt instead of trailing it:
   keeps it, and the rules stay in the first message.
 - **Codex** (`codex app-server`): `-c developer_instructions=...` (channel
   `developer-instructions`), the developer message Codex puts ahead of a thread's first user
-  message. Codex takes one value, so a Codex whose command line, profile or config
-  (`config.toml`, the project's) sets `developer_instructions` gets theirs first and cmux's
-  after them, read at each spawn from the `CODEX_HOME` that start really uses (presets, routes,
-  `${cwd}` expansion applied).
+  message. Codex takes one value, so a Codex whose command line or any config it may read
+  (`config.toml`, its profile, a project's, trusted or not) sets `developer_instructions`
+  keeps theirs, and the rules stay in the first message. cmux never reads their value into its
+  own: that would promote a project config Codex may not trust.
 - **Rules longer than 32 KiB** (a long saved override): the first message. Linux refuses one
   launch argument over 128 KiB (`E2BIG`), and the first message has no such bound.
+- **A start that did not carry them** (the check again at each spawn, with the profile as it
+  really starts: presets, route, expanded `CODEX_HOME`; a chat moved under a guard, which starts
+  with no cmux words): its next message carries them once, as hidden blocks after the person's
+  words, and `cmux_rules_in_transcript` records it, so later starts leave them out.
 - **Every other harness**, folder instructions, and a chat made before this: the first message
   (`user-context`, `<cmux-…-context>` blocks after the person's words; a client's display parts
   name those words' blocks by index, so nothing goes before them). `cmuxContextDelivered`

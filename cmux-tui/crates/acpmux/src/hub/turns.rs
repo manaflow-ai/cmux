@@ -1002,6 +1002,19 @@ impl Hub {
                 return Err(e);
             }
         };
+        // cmux's rules on a system-level channel that this agent's start did not carry (its own
+        // value, rules too long for one argument, a chat moved under a guard): once, in this
+        // message, like the first message's context. Read after the start, which records the
+        // command line it ran (`spawn_argv`).
+        let rules_owed = control != Control::Web && {
+            let m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            !m.cmux_rules_in_transcript
+                && crate::context_inventory::append_owed_rules(
+                    m.cmux_context.as_deref(),
+                    m.spawn_argv.as_deref(),
+                    &mut blocks,
+                )
+        };
         // Add information after digest reconstruction and the person's display record. Slash
         // commands keep their prompt intact and leave these notices for a normal turn.
         let team_enabled =
@@ -1133,11 +1146,11 @@ impl Hub {
             None,
             || {
                 if delivers_context {
-                    session
-                        .meta
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .cmux_context_delivered = true;
+                    let mut m =
+                        session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    m.cmux_context_delivered = true;
+                    m.cmux_rules_in_transcript |= rules_owed;
+                    drop(m);
                     self.save_meta(session);
                 }
                 self.mark_team_messages(session, &team_messages);

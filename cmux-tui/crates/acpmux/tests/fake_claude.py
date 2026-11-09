@@ -19,7 +19,8 @@ prompts the conversation holds (a resumed or forked transcript's included).
 "tool-hold: PATH" does so inside a running Bash call, after "partial words"
 (history-probe's "unresolved" lists tool calls stored with no result).
 A prompt ending in "settings-probe" replies with the prompt text as Claude
-read it, every `apply_flag_settings` it got, and its argv.
+read it, every `apply_flag_settings` it got, its argv, and how many hidden cmux
+guidance blocks the prompt carried.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
 reads before the stopped turn's result (a Stop Claude Code answers late).
 "/compact" compacts (with FAKE_CLAUDE_COMPACT_FAIL_IF=<path>, while that file exists, it fails
@@ -1043,7 +1044,8 @@ while True:
             names = [name.strip() for name in asked[5:].split(",") if name.strip()]
             text = json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True)
         if said.endswith("settings-probe"):
-            text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
+            text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:],
+                               "guidance": sum(1 for b in content if is_cmux_guidance(b))})
         if said.strip() == "history-probe" and STORE and LAYOUT:
             with open(stored(SESSION)) as f:
                 records = [json.loads(line) for line in f if line.strip()]
