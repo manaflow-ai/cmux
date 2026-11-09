@@ -118,14 +118,15 @@ extension DaemonLauncher {
         }
         let decision = Self.versionDecision(running: DaemonBuildStamp(identity: identity), bundled: bundled)
         guard case .restart(let running, let target) = decision else { return decision }
+        let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
+        // The bundled build folds what its first start would (a new agent roster version) while
+        // this daemon still serves. Before the handoff is recorded, so a reconnect meanwhile goes
+        // to this daemon as usual instead of waiting for it to exit.
+        await premigrateRegistry(logger: logger)
         guard handoff.begin(bundled: target, pid: identity.pid) else {
             return .keep("already handed off to \(target)")
         }
-        let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
         logger.info("daemon \(identity.pid) runs build \(running, privacy: .public); handing off to \(target, privacy: .public)")
-        // The bundled build folds what its first start would (a new agent roster version) while
-        // this daemon still serves, so that start does not.
-        await premigrateRegistry(logger: logger)
         // Quiet (DaemonConnection.quietHandoff): no request of this connection is cut.
         let handoff = handoff
         return await connection.quietHandoff({ () async -> DaemonVersionDecision in
