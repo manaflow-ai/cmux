@@ -27,8 +27,12 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "ResizeObserver",
+  "InputEvent",
+  "StorageEvent",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+const added: string[] = [];
 let dom: JSDOM;
 let root: Root | undefined;
 let host: HTMLElement;
@@ -61,7 +65,20 @@ beforeAll(() => {
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    InputEvent: dom.window.InputEvent,
+    StorageEvent: dom.window.StorageEvent,
   });
+  // The DOM constructors the composer's menus read at import time.
+  for (const key of Object.getOwnPropertyNames(dom.window))
+    if (/^(HTML|SVG|CSS|Shadow|Document)/.test(key) && !(key in scope)) {
+      added.push(key);
+      scope[key] = (dom.window as unknown as Record<string, unknown>)[key];
+    }
   host = dom.window.document.getElementById("root")!;
 });
 
@@ -70,13 +87,15 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
-  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu")) popup.remove();
+  for (const popup of dom.window.document.querySelectorAll(".acpmux-cols, .acpmux-quick-menu, .ui-context-menu-backdrop"))
+    popup.remove();
 });
 
 afterAll(async () => {
   // A checkbox indicator's last update lands a task after the final test: let it run on this window.
   await settle();
   dom.window.close();
+  for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -203,5 +222,144 @@ describe("the model chip's right-click menu", () => {
     await act(async () => item("Show Provider Logo")!.click());
     await settle();
     expect(chip().getAttribute("data-chip-logo")).toBeNull();
+  });
+});
+
+const menuItem = (label: string) =>
+  [...dom.window.document.querySelectorAll<HTMLElement>("[role^='menuitem']")].find(
+    (row) => row.querySelector(".ui-menu-label")?.textContent?.trim() === label,
+  );
+
+const contextMenuOn = async (element: Element) => {
+  await act(async () =>
+    element.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 4, clientY: 4 }),
+    ),
+  );
+  await settle();
+};
+
+// Review F1 on 2b76c61e: with no chip on the page the look stayed cached while storage events went
+// unheard, so another page's change was lost on remount and a toggle wrote back a stale other flag.
+describe("the model chip look across pages", () => {
+  const KEY = "cmux.acpmux.modelChipLook";
+
+  test("a change made while no chip listens shows when a chip mounts again", async () => {
+    const look = await import("../src/agent-session/acpmux/modelChipLook");
+    look.resetModelChipLookForTests();
+    const { createRoot } = await import("react-dom/client");
+    const seen: boolean[] = [];
+    function Probe() {
+      seen.push(look.useModelChipLook().providerLogo);
+      return null;
+    }
+    root = createRoot(host);
+    await act(async () => root!.render(<Probe />));
+    expect(seen.at(-1)).toBe(true);
+    act(() => root!.unmount());
+    // Another page turns the logo off while this page draws no chip.
+    dom.window.localStorage.setItem(KEY, JSON.stringify({ providerLogo: false, effort: true }));
+    root = createRoot(host);
+    await act(async () => root!.render(<Probe />));
+    await settle();
+    expect(seen.at(-1)).toBe(false);
+  });
+
+  test("a toggle keeps the other flag another page set", async () => {
+    const look = await import("../src/agent-session/acpmux/modelChipLook");
+    look.resetModelChipLookForTests();
+    const { createRoot } = await import("react-dom/client");
+    function Probe() {
+      look.useModelChipLook();
+      return null;
+    }
+    root = createRoot(host);
+    await act(async () => root!.render(<Probe />));
+    act(() => root!.unmount());
+    root = undefined;
+    dom.window.localStorage.setItem(KEY, JSON.stringify({ providerLogo: true, effort: false }));
+    look.setModelChipLook({ providerLogo: false });
+    expect(JSON.parse(dom.window.localStorage.getItem(KEY)!)).toEqual({ providerLogo: false, effort: false });
+  });
+});
+
+// Coordinator ask on #39080: the daemon is down (acpmux never answered with its harnesses) and a
+// started Claude chat's model menu still lists Claude Code's bundled models. A regression guard for
+// #39080's fix: red on feat-cmux-next d48c603d (the menu drew no models), green on e09d48cb.
+describe("the model menu with the daemon down", () => {
+  const mount = async (harnessesListed: boolean) => {
+    const { createRoot } = await import("react-dom/client");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
+    const { ChatAccountsContext } = await import("../src/agent-session/acpmux/chatAccounts");
+    const { BUNDLED_MODEL_CATALOG, buildPickerCatalog } = await import(
+      "../src/agent-session/acpmux/modelCatalogData"
+    );
+    const { user } = await import("../src/gallery/fixtures/acpmux");
+    const snapshot = {
+      type: "snapshot",
+      protocolVersion: 1,
+      sessionId: "down",
+      rows: [user("Add retries", 1)],
+      sessions: [],
+      connection: "test",
+      isWorking: false,
+      queue: [],
+      canLoadOlder: false,
+      catalog: [],
+      summary: { sessionId: "down", harness: "claude", model: "claude-opus-5-5", turnCount: 3 },
+    } as unknown as import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
+    const pickerCatalog = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux: [], provisional: true });
+    const accounts = { list: async () => ({ accounts: [] }), set: async () => undefined };
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <ChatAccountsContext.Provider value={accounts}>
+            <ComposerPickers
+              snapshot={snapshot}
+              pickerCatalog={pickerCatalog}
+              harnessesListed={harnessesListed}
+              onModel={() => undefined}
+              onMode={() => undefined}
+              onEffort={() => undefined}
+              onHarness={() => undefined}
+              showPlan={false}
+            />
+          </ChatAccountsContext.Provider>
+        </QueryClientProvider>,
+      ),
+    );
+    await settle();
+
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
+    await settle();
+  };
+  // A started chat that cannot fork opens the list menu (QuickModelMenu); one with a rail, the columns.
+  const menu = () =>
+    dom.window.document.querySelector<HTMLElement>(".acpmux-cols, .acpmux-quick-menu:not(.acpmux-quick-submenu)");
+  const modelNames = () =>
+    [...(menu()?.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="listbox"] [role="option"]') ?? [])].map(
+      (row) => row.querySelector(".acpmux-quick-label, .acpmux-cols-name")?.textContent?.trim() ?? "",
+    );
+  const updatingNote = () => menu()?.querySelector<HTMLElement>("[data-models-updating]") ?? null;
+
+  test("a started Claude chat lists Claude Code's models", async () => {
+    await mount(false);
+    expect(menu()).not.toBeNull();
+    expect(modelNames()).toContain("Opus 5.5");
+  });
+
+  // Coordinator ask: while acpmux has not listed its harnesses (or the fetch failed), the menu says
+  // quietly that models are updating, beside the bundled models, never in place of them.
+  test("says quietly that models are updating, beside the models, until acpmux answers", async () => {
+    await mount(false);
+    expect(modelNames()).toContain("Opus 5.5");
+    expect(updatingNote()?.textContent?.trim()).toBe("Refreshing models");
+    act(() => root!.unmount());
+    root = undefined;
+    for (const popup of dom.window.document.querySelectorAll(".acpmux-cols, .acpmux-quick-menu")) popup.remove();
+    await mount(true);
+    expect(updatingNote()).toBeNull();
   });
 });

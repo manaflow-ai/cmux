@@ -451,9 +451,34 @@ mod tests {
         let next = hub(&["acme-acp"]);
         let mut changes = next.subscribe_harness_changes();
         next.load_acp_cache_from(dir.path().to_path_buf()).await;
+        // The disk list served at start is announced once (below); the confirming probe is not.
+        assert!(changes.try_recv().is_ok());
         assert!(!probed(&next, dir.path(), &["m-one"]).await);
         assert!(changes.try_recv().is_err());
         assert!(probed(&next, dir.path(), &["m-two"]).await);
         assert!(changes.try_recv().is_ok());
+    }
+
+    /// Review F2 on #39080: serving the disk list at start was silent, so a pane that read
+    /// `_acpmux/models` before it ("default" only) heard nothing until the probe ended. A start
+    /// that served some harness its disk list announces `_acpmux/harnesses_changed` once; one
+    /// that served none announces nothing.
+    #[tokio::test]
+    async fn serving_the_disk_list_at_start_announces_it_once() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(probed(&hub(&["acme-acp"]), dir.path(), &["m-one"]).await);
+
+        let next = hub(&["acme-acp"]);
+        let mut changes = next.subscribe_harness_changes();
+        next.load_acp_cache_from(dir.path().to_path_buf()).await;
+        let note = changes.try_recv().expect("a served disk list is announced");
+        assert_eq!(note["harnesses"], json!(["acme"]), "{note}");
+        assert!(changes.try_recv().is_err(), "announced once");
+
+        // Another profile is served nothing, so nothing is announced.
+        let other = hub(&["acme-acp", "--other"]);
+        let mut changes = other.subscribe_harness_changes();
+        other.load_acp_cache_from(dir.path().to_path_buf()).await;
+        assert!(changes.try_recv().is_err());
     }
 }
