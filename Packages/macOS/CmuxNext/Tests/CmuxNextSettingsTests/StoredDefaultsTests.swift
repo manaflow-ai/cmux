@@ -181,14 +181,16 @@ import Testing
     /// shared file and the running NIGHTLY's updater flipped from on to deferred two seconds after
     /// that build launched (NIGHTLY updater log, 2026-11-08T08:05:19.567Z DEV launch, 08:05:21.615Z
     /// "automatic downloads deferred (setting false ...)").
+    /// `updates.downloadAutomatically` is on by default again, so a pick of on stores nothing; the
+    /// test uses `updates.installOnQuit`, whose former default (on) still differs from its default.
     @Test func thePassRunsOncePerFileNotOncePerBuild() async throws {
         defer { try? FileManager.default.removeItem(at: home) }
         let nightly = try await controller(#"{ "diff": { "layout": "auto" } }"#)
         #expect(try await nightly.forgetStoredDefaults(marker: try marker()) != nil)
 
-        // The person turns Automatic Updates on (it was the default once) after the pass.
-        try await nightly.setSetting(at: UpdatesSettings.downloadAutomaticallyPath, to: .bool(true), by: .user)
-        #expect(try await nightly.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        // The person turns Install Updates When Quitting on (it was the default once) after the pass.
+        try await nightly.setSetting(at: UpdatesSettings.installOnQuitPath, to: .bool(true), by: .user)
+        #expect(try await nightly.file.value(at: UpdatesSettings.installOnQuitPath) == .bool(true))
 
         // A DEV build launches on the same file with its own UserDefaults.
         let dev = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
@@ -197,7 +199,7 @@ import Testing
         let devMarker = try marker()
         #expect(try await dev.forgetStoredDefaults(marker: devMarker) == nil)
         #expect(devMarker.bool(forKey: SettingsController.storedDefaultsForgottenKey), "the build records it too")
-        #expect(try await dev.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(try await dev.file.value(at: UpdatesSettings.installOnQuitPath) == .bool(true))
     }
 
     /// A pass that found nothing to drop still counts as run for the file.
@@ -207,9 +209,9 @@ import Testing
         let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
         #expect(report.dropped.isEmpty)
 
-        try await settings.file.set(.bool(true), at: UpdatesSettings.downloadAutomaticallyPath)
+        try await settings.file.set(.bool(true), at: UpdatesSettings.installOnQuitPath)
         #expect(try await settings.forgetStoredDefaults(marker: try marker()) == nil)
-        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(try await settings.file.value(at: UpdatesSettings.installOnQuitPath) == .bool(true))
     }
 
     /// A null the first builds of this change stored for a default write goes once; a set value stays.

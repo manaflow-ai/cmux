@@ -39,10 +39,12 @@ import Testing
         }
     }
 
-    @Test func stableStaysOptIn() async throws {
+    /// Automatic download is the schema's default (Leo 2026-11-07: "Yeah, let's do that, man"), so a
+    /// build with no channel default downloads by itself too.
+    @Test func theSchemaDefaultDownloadsAutomatically() async throws {
         let (settings, home) = try await Self.settings("{}", .channel(downloadsAutomatically: false))
         defer { try? FileManager.default.removeItem(at: home) }
-        #expect(!settings.snapshot.updates.downloadAutomatically)
+        #expect(settings.snapshot.updates.downloadAutomatically)
     }
 
     @Test func aValueSomeoneWroteWins() async throws {
