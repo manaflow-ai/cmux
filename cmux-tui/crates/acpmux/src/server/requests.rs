@@ -3382,7 +3382,11 @@ fn stamp_bound_sender(
     if person_message {
         return Some(provenance);
     }
-    let bound = match conn.caller() {
+    // The session this connection proved, else the bridged chat a Claude desktop session's send
+    // was bound to by its process tree (`hub/desktop_bridge.rs`).
+    let bridged = crate::hub::desktop_bridge::bridged_sender(params);
+    let caller = conn.caller().or(bridged);
+    let bound = match caller {
         Some(caller) if !conn.is_person() && caller != to => hub
             .resolve(caller)
             .ok()
@@ -3395,7 +3399,7 @@ fn stamp_bound_sender(
         }
         _ => None,
     };
-    let caller_bound = conn.caller().is_some_and(|caller| !conn.is_person() && caller != to)
+    let caller_bound = caller.is_some_and(|caller| !conn.is_person() && caller != to)
         && bound.as_ref().is_some_and(|b| b.session_id.is_some());
     let mut provenance = crate::prompt_provenance::stamp_sender(provenance, bound.as_ref());
     // A caller token proved the sending session: the daemon bound who sent it, whatever name it
