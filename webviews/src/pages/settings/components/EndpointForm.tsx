@@ -13,7 +13,6 @@ import { ChiefHost } from "../../home-channels/chiefEditing";
 import { EndpointFields } from "../../shared/EndpointFields";
 import {
   ENDPOINT_PRESETS,
-  addedTarget,
   bringEndpoint,
   canFetchModels,
   endpointBackend,
@@ -22,14 +21,15 @@ import {
   endpointProblemAt,
   failureText,
   fetchEndpointModels,
-  newTarget,
+  ownedAfter,
   type AddTarget,
+  type EndpointBackend,
   type EndpointDraft,
   type EndpointPresetId,
   type EndpointService,
   type EndpointStatus,
 } from "../../shared/byoEndpoint";
-import { useOwnedEndpoint } from "../../shared/useOwnedEndpoint";
+import { useNextTarget, useOwnedEndpoint } from "../../shared/useOwnedEndpoint";
 import { useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -93,10 +93,12 @@ export function EndpointForm({ done }: { done: () => void }) {
   const preset = endpointPreset(presetId);
   const busy = endpointBusy(status);
   const problem = endpointProblemAt(draft, preset.key, target);
-  // A remove the form asked for (a preset or URL change) answers before the next add's id is picked.
-  const targetFor = async () => {
-    await owned.settled();
-    return target ?? (await newTarget(service, draft, preset.idBase));
+  // The next add's id, picked ahead of the click (no read between the click and the add).
+  const targetFor = useNextTarget(service, draft.name, preset.idBase, target);
+  // The form owns what an add wrote as soon as it answers (or what a failed add may have written).
+  const addedAt = (at: AddTarget, backend: EndpointBackend) => (harness: string, answered: boolean) => {
+    owned.claim(harness);
+    setTarget(ownedAfter(at, backend, harness, answered));
   };
   // Another endpoint: the earlier add (another preset's, or another URL's) is removed, and the next
   // add is a new id that asks for this one's key.
@@ -125,7 +127,8 @@ export function EndpointForm({ done }: { done: () => void }) {
     setStatus({ state: "fetching" });
     setFetched(null);
     try {
-      const answer = await fetchEndpointModels(service, draft, await targetFor(), owned.claim);
+      const at = targetFor();
+      const answer = await fetchEndpointModels(service, draft, at, addedAt(at, endpointBackend(draft, at)));
       setTarget(answer.target);
       // The key is stored now: the field empties, and a save keeps what was stored.
       change({ apiKey: "" });
@@ -139,18 +142,11 @@ export function EndpointForm({ done }: { done: () => void }) {
   };
   const submit = async () => {
     if (busy || problem) return;
-    setStatus({ state: "adding" });
-    let at: AddTarget;
-    try {
-      at = await targetFor();
-    } catch (failure) {
-      return setStatus({ state: "failed", step: { name: "add", ok: false, detail: failureText(failure) } });
-    }
+    const at = targetFor();
     const backend = endpointBackend(draft, at);
     // The key leaves the page's state now: only the host's add call carries it.
     change({ apiKey: "" });
-    const result = await bringEndpoint(service, backend, setStatus, owned.claim);
-    if (result.state !== "failed" || result.harness) setTarget(addedTarget(at, backend));
+    const result = await bringEndpoint(service, backend, setStatus, addedAt(at, backend));
     if (result.state === "passed" && !owned.closed) {
       owned.keep();
       done();

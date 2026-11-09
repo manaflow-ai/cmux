@@ -299,6 +299,10 @@ test("Endpoint: a name that is another harness's id is refused before its key is
   expect(failed.textContent).toContain("acme-agent already has a profile");
   expect(page.provider.agents.keys.has("acme-agent")).toBe(false);
   expect(ops(page.provider, "cmux.chief.backend.doctor")).toEqual([]);
+  // The refusal was over another harness: the form never owns it, so Cancel removes nothing.
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).not.toContainEqual({ action: "remove", id: "acme-agent" });
   page.unmount();
 });
 
@@ -400,7 +404,7 @@ test("Endpoint: a URL change after a failed check removes that add before the ne
   page.unmount();
 });
 
-test("Endpoint: after a start-over the next add waits for the remove to answer, so the two never race", async () => {
+test("Endpoint: after a start-over the next add takes a new id at once, so it never races the held remove", async () => {
   const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
   const form = () => endpointForm(page.container);
   await act(async () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!.click());
@@ -410,20 +414,74 @@ test("Endpoint: after a start-over the next add waits for the remove to answer, 
   // Another URL: the fetched endpoint's remove is asked for and held.
   await changeValue(endpointInput(form(), "baseUrl")!, "http://127.0.0.1:8080/v1");
   await settle();
-  const adds = () => ops(page.provider, "cmux.chief.backend.add").length;
-  const before = adds();
   await changeValue(endpointInput(form(), "models")!, "m");
   await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
   await settle();
-  // No add while the remove is out.
-  expect(adds()).toBe(before);
+  // The add goes while the remove is out, at an id past the one being removed: a new add.
+  const add = ops(page.provider, "cmux.chief.backend.add").at(-1) as Record<string, unknown>;
+  expect(add).toMatchObject({ id: "local-models-2", baseUrl: "http://127.0.0.1:8080/v1" });
+  expect("replace" in add).toBe(false);
   await act(async () => release());
   await settle();
-  // Then the add, at the id the remove freed: a new add, not a replace.
-  const add = ops(page.provider, "cmux.chief.backend.add").at(-1) as Record<string, unknown>;
-  expect(adds()).toBe(before + 1);
-  expect(add).toMatchObject({ id: "local-models", baseUrl: "http://127.0.0.1:8080/v1" });
-  expect("replace" in add).toBe(false);
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(page.provider.agents.endpointHarnesses()["local-models-2"]).toBeDefined();
+  page.unmount();
+});
+
+test("Endpoint: Add sends the add with no harness list read between the click and the add", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await settle();
+  // A list that never answers (a peer's models can take seconds): the add must not wait on it.
+  page.provider.agents.endpoint.holdList = new Promise<void>(() => {});
+  const lists = ops(page.provider, "cmux.chief.backend.list").length;
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toMatchObject({ id: "local-models" });
+  expect(ops(page.provider, "cmux.chief.backend.list").length).toBe(lists);
+  page.unmount();
+});
+
+test("Endpoint: an add that fails after writing (a timeout) is still the form's: Cancel removes the id it asked for", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  page.provider.agents.endpoint.addThenFail = "cmux.agents.timeout";
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(form().querySelector('[data-endpoint-status="failed"]')).not.toBeNull();
   expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  page.unmount();
+});
+
+test("Endpoint: a Fetch Models whose list read fails after the add still owns the add", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await settle();
+  const refused = Promise.reject(new Error("list failed"));
+  refused.catch(() => {});
+  page.provider.agents.endpoint.holdList = refused;
+  await act(async () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!.click());
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  page.provider.agents.endpoint.holdList = undefined;
+  // The next add writes over the form's own add (replace), and Cancel removes it.
+  await changeValue(endpointInput(form(), "models")!, "m");
+  page.provider.agents.endpoint.holdDoctor = new Promise<void>(() => {});
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toMatchObject({
+    id: "local-models",
+    replace: "local-models",
+  });
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
   page.unmount();
 });

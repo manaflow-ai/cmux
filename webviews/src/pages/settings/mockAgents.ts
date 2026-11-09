@@ -66,6 +66,9 @@ export type MockEndpoint = {
   holdAdd?: Promise<void>;
   holdDoctor?: Promise<void>;
   holdRemove?: Promise<void>;
+  holdList?: Promise<void>;
+  /** The add writes the endpoint, then answers this error (an add that timed out after writing). */
+  addThenFail?: string;
 };
 
 export class MockAgents {

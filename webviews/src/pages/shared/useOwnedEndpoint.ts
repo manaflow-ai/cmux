@@ -3,8 +3,10 @@
 // own share this. The form owns a harness the moment its add answers, before the check. A form
 // closed without a passing check removes it, an add that answers after the form closed is removed
 // when it answers, and `discard` removes it at once (a change of preset, kind or URL starts over).
-// The form awaits `settled()` before its next add, so a remove never races an add of the same id.
-import { useEffect, useMemo, useRef } from "react";
+// Removes run one after another. The next add's id is picked ahead of the click (`useNextTarget`),
+// from a list that still shows a harness being removed, so a new add never takes a removed id.
+import { useEffect, useMemo, useRef, useState } from "react";
+import { endpointId, newTarget, type AddTarget, type EndpointService } from "./byoEndpoint";
 
 export interface OwnedEndpoint {
   /** An add answered with `id`: owned from now on (removed now if the form already closed). */
@@ -13,8 +15,6 @@ export interface OwnedEndpoint {
   discard(): void;
   /** The check passed: the harness stays when the form closes. */
   keep(): void;
-  /** Resolves once every remove this form asked for has answered. */
-  settled(): Promise<void>;
   /** Whether the form has closed (unmounted). */
   readonly closed: boolean;
 }
@@ -57,13 +57,37 @@ export function useOwnedEndpoint(remove: (id: string) => unknown): OwnedEndpoint
       keep() {
         own.current.saved = true;
       },
-      settled() {
-        return pending.current;
-      },
       get closed() {
         return own.current.closed;
       },
     }),
     [],
   );
+}
+
+/** The id the form's next new add takes, picked ahead of the click: the host's add must run in
+ * the click's short gesture window, and reading the harness list (`backends()`) can take seconds.
+ * Re-read whenever the name or fallback changes, or the form owns no target (a start-over); until
+ * the read answers, the plain id from the name. */
+export function useNextTarget(
+  service: Pick<EndpointService, "backends">,
+  name: string,
+  fallback: string,
+  target: AddTarget | null,
+): () => AddTarget {
+  const [next, setNext] = useState<{ key: string; target: AddTarget } | null>(null);
+  const key = `${fallback}\u0000${name}`;
+  useEffect(() => {
+    if (target) return;
+    let live = true;
+    newTarget(service, name, fallback).then(
+      (picked) => live && setNext({ key, target: picked }),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [service, name, fallback, target, key]);
+  return () =>
+    target ?? (next?.key === key ? next.target : { id: endpointId(name, fallback, []), own: false, typedKey: false });
 }

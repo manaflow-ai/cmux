@@ -9,19 +9,18 @@ import { useEffect, useId, useState, type InputHTMLAttributes } from "react";
 import type { Strings } from "../shared/i18n";
 import { EndpointFields } from "../shared/EndpointFields";
 import {
-  addedTarget,
   bringEndpoint,
   checkEndpoint,
   endpointBackend,
   endpointBusy,
   modelList,
-  newTarget,
+  ownedAfter,
   type AddTarget,
   type EndpointDraft,
   type EndpointKind,
   type EndpointStatus,
 } from "../shared/byoEndpoint";
-import { useOwnedEndpoint } from "../shared/useOwnedEndpoint";
+import { useNextTarget, useOwnedEndpoint } from "../shared/useOwnedEndpoint";
 import type { ChiefEditorService } from "./chiefEditing";
 import { chiefEffortName, chiefModelName } from "./chiefNames";
 import {
@@ -290,6 +289,8 @@ function BringYourOwn({
     setStatus({ state: "editing" });
   };
   const endpoint = kind !== "command";
+  // The next add's id, picked ahead of the click (no read between the click and the add).
+  const targetFor = useNextTarget(service, name, kind, target);
   const busy = endpointBusy(status);
   const complete =
     name.trim() !== "" &&
@@ -311,25 +312,22 @@ function BringYourOwn({
     if (!complete || busy) return;
     const model = endpoint ? (modelList(draft.models)[0] ?? "") : "";
     const full = { ...draft, kind: kind as EndpointKind, name };
-    let at: AddTarget | undefined;
-    if (endpoint) {
-      try {
-        // A remove this form asked for (a kind or URL change) answers before the next id is picked.
-        await owned.settled();
-        at = target ?? (await newTarget(service, full, kind));
-      } catch {
-        // No list: the host makes the id from the name and refuses one it has.
-      }
-    }
+    const at = endpoint ? targetFor() : undefined;
     const backend: HomeChiefByoBackend = endpoint
       ? endpointBackend(full, at)
       : { kind: "command", name: name.trim(), command: command.trim(), args: words(args) };
+    // The form owns what an add wrote as soon as it answers (or what a failed add may have written).
+    const added =
+      at && backend.kind !== "command"
+        ? (harness: string, answered: boolean) => {
+            owned.claim(harness);
+            setTarget(ownedAfter(at, backend, harness, answered));
+          }
+        : undefined;
     // The key leaves the page's state now: only the host's add call carries it.
     setDraft((before) => ({ ...before, apiKey: "" }));
     setPicked(model);
-    const done = await bringEndpoint(service, backend, setStatus, endpoint ? owned.claim : undefined);
-    if (at && backend.kind !== "command" && (done.state !== "failed" || done.harness))
-      setTarget(addedTarget(at, backend));
+    const done = await bringEndpoint(service, backend, setStatus, added);
     if (done.state === "passed" && !owned.closed) {
       owned.keep();
       onPassed(done.harness, model);

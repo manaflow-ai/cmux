@@ -250,10 +250,11 @@ cmux harness doctor acme                              # one real hello turn
 - The base URL is https; plain http only to `localhost`, `127.0.0.1` or `::1`. A URL with a user,
   password or key, a Keychain item name that looks like a key, and a key passed as a parameter are
   refused: the key goes only into the Keychain.
-- Without `--keychain-item` the profile names no key at all, so a keyless server's env always
-  resolves, and a new endpoint never picks up a key an earlier profile of the same id left.
-  `cmux harness secret set ID KEY` stores the key in `cmux-harness/<id>/<KEY>` and points the
-  profile at it. Removing an endpoint deletes the keys in its own `cmux-harness/<id>/...` items
+- Without `--keychain-item` the profile's env names no key, so a keyless server's env always
+  resolves, and a new endpoint never picks up a key an earlier profile of the same id left. The
+  OpenCode config's `apiKey` is always the `{env:CMUX_BYO_API_KEY}` reference, never a value, so
+  `cmux harness secret set ID CMUX_BYO_API_KEY` (which stores the key in
+  `cmux-harness/<id>/<KEY>` and points the profile's env at it) works with no config rewrite. Removing an endpoint deletes the keys in its own `cmux-harness/<id>/...` items
   (Undo then brings the profile back without its key: store it again). With
   `--keychain-item`, the profile reads the item you name (`service` or `service/account`).
 - A family or global route binding never rewrites an endpoint harness; a chat's or
@@ -275,7 +276,11 @@ the key cannot be stored, the profile is put back as it was. Without `apiKey`, a
 the item the old profile named, and a new endpoint names none. `*` is read with the key given, or
 on `replace` the one stored; a new endpoint without a key asks for the list with none. `_acpmux/harness/secret/set {id, key, value}` stores a key for a harness on its own.
 The app's `cmux.chief.backend.add {id?, replace?, apiKey?, ...}` passes these on: the page sends
-`replace` only for its own earlier add. Then `_acpmux/harness/doctor {id, prompt: true}`. The
+`replace` only for its own earlier add. The add can take up to 70 s (10 s for `*`, 60 s for
+the Keychain), and the app waits 90 s for it. The page picks the next id before the click (no
+list read between the click and the add), and owns the id it asked for as soon as the add answers,
+or fails for any reason but `exists` (a timed-out add may still have written it), so Cancel
+removes it. Then `_acpmux/harness/doctor {id, prompt: true}`. The
 Settings form and the Chief editor reach these through the app's `cmux.chief.backend.add|doctor`.
 
 ## Terminal harnesses (no ACP)

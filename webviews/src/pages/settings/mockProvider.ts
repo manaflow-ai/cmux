@@ -390,31 +390,37 @@ export class MockSettingsProvider {
         this.chiefs.push(made);
         return { value: made };
       },
-      "cmux.chief.backend.list": () => ({
-        harnesses: {
-          defaultHarness: "claude",
+      "cmux.chief.backend.list": async () => {
+        await this.agents.endpoint.holdList;
+        return {
           harnesses: {
-            claude: { displayName: "Claude Code" },
-            codex: { displayName: "Codex" },
-            ...this.agents.endpointHarnesses(),
-          },
-        },
-        // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
-        models: {
-          harnesses: [
-            {
-              harness: "codex",
-              models: [
-                { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
-                { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
-              ],
+            defaultHarness: "claude",
+            harnesses: {
+              claude: { displayName: "Claude Code" },
+              codex: { displayName: "Codex" },
+              ...this.agents.endpointHarnesses(),
             },
-          ],
-        },
-      }),
+          },
+          // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
+          models: {
+            harnesses: [
+              {
+                harness: "codex",
+                models: [
+                  { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
+                  { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
+                ],
+              },
+            ],
+          },
+        };
+      },
       "cmux.chief.backend.add": async (params) => {
         await this.agents.endpoint.holdAdd;
-        return this.agents.addEndpoint(params);
+        const added = this.agents.addEndpoint(params);
+        const fail = this.agents.endpoint.addThenFail;
+        if (fail) throw new ProtocolError(fail, "the add did not answer in time");
+        return added;
       },
       "cmux.chief.backend.doctor": async () => {
         await this.agents.endpoint.holdDoctor;

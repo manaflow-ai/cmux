@@ -3,6 +3,7 @@
 import { expect, test } from "bun:test";
 import {
   ENDPOINT_PRESETS,
+  askedId,
   bringEndpoint,
   addedTarget,
   canFetchModels,
@@ -13,6 +14,7 @@ import {
   endpointProblem,
   endpointUrlProblem,
   fetchEndpointModels,
+  ownedAfter,
   modelList,
   type EndpointBackend,
   type EndpointDraft,
@@ -138,6 +140,51 @@ test("fetch adds the endpoint with * at the form's id and reads its models back"
     model: "*",
     id: "local",
   });
+});
+
+test("a failed add claims the id it asked for, before any read; never another harness's or a retry's", async () => {
+  const claimed: [string, boolean][] = [];
+  const timedOut = {
+    addBackend: async () => {
+      throw { code: "cmux.agents.timeout", message: "no answer" };
+    },
+    checkBackend: async () => ({ ok: true, steps: [] }),
+  };
+  const backend = { kind: "openai-endpoint", name: "Local", id: "local" };
+  await bringEndpoint(
+    timedOut,
+    backend,
+    () => {},
+    (id, answered) => claimed.push([id, answered]),
+  );
+  expect(claimed).toEqual([["local", false]]);
+  expect(askedId(backend, { code: "cmux.agents.exists" })).toBeNull();
+  expect(askedId({ ...backend, replace: "local" }, { code: "cmux.agents.timeout" })).toBeNull();
+  expect(
+    ownedAfter(
+      { id: "local", own: false, typedKey: true },
+      endpointBackend(draft(), { id: "local", own: false, typedKey: true }),
+      "local",
+      false,
+    ),
+  ).toEqual({ id: "local", own: true, typedKey: true });
+  // Fetch claims the answered add before its list read, which here fails.
+  const listFails = {
+    addBackend: async () => "local",
+    backends: async () => {
+      throw new Error("list failed");
+    },
+  };
+  const fetched: [string, boolean][] = [];
+  await expect(
+    fetchEndpointModels(
+      listFails,
+      draft({ models: "" }),
+      { id: "local", own: false, typedKey: false },
+      (id, answered) => fetched.push([id, answered]),
+    ),
+  ).rejects.toThrow("list failed");
+  expect(fetched).toEqual([["local", true]]);
 });
 
 test("a new id is an ASCII slug numbered past every harness, never a localized name's my-backend", () => {

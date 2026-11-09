@@ -257,7 +257,8 @@ fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
     // resolves); `cmux harness secret set` points it at one later.
     let file = std::fs::read_to_string(dir.join("local-oai.toml")).unwrap();
     assert!(!file.contains("CMUX_BYO_API_KEY = {"), "{file}");
-    assert!(!file.contains("\"apiKey\""), "{file}");
+    // OpenCode reads the key from the env variable a later `secret set` fills: no config rewrite.
+    assert!(file.contains("{env:CMUX_BYO_API_KEY}"), "{file}");
 
     // Plain http to another host is refused, and nothing is written.
     let out = user.run(&[

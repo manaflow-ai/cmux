@@ -336,15 +336,13 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
             for m in e.models {
                 models.insert(m.clone(), serde_json::json!({"name": m}));
             }
-            // A keyless endpoint gets no apiKey: the client then sends no Authorization header.
-            let mut options = serde_json::Map::new();
-            options.insert("baseURL".into(), serde_json::json!(e.base_url));
-            if e.keychain_item.is_some() {
-                options.insert(
-                    "apiKey".into(),
-                    serde_json::json!(format!("{{env:{OPENAI_KEY_ENV}}}")),
-                );
-            }
+            // apiKey is always the env reference (never a value): a key `cmux harness secret set`
+            // stores later reaches OpenCode with no rewrite of this config; a keyless endpoint's
+            // env has no such variable.
+            let options = serde_json::json!({
+                "baseURL": e.base_url,
+                "apiKey": format!("{{env:{OPENAI_KEY_ENV}}}"),
+            });
             let config = serde_json::json!({
                 "$schema": "https://opencode.ai/config.json",
                 "provider": {OPENCODE_PROVIDER: {

@@ -984,7 +984,9 @@ async fn byo_endpoint_a_keyless_endpoint_names_no_key_and_its_env_resolves() {
     // Any program that is there: the env step comes after the command step.
     profile.argv[0] = fake_claude(&root).to_string_lossy().into_owned();
     let inline: Value = serde_json::from_str(&profile.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
-    assert!(inline["provider"]["byo"]["options"].get("apiKey").is_none(), "{inline}");
+    // apiKey names the env variable, never a value: a key stored later needs no config rewrite.
+    let api_key = format!("{{env:{OPENAI_KEY_ENV}}}");
+    assert_eq!(inline["provider"]["byo"]["options"]["apiKey"], json!(api_key), "{inline}");
     // The doctor's env step (what startup resolves) passes with no Keychain at all.
     let cfg = config("local", profile, meta);
     let mut opts = options(GOOD_KEY, false);
@@ -1159,4 +1161,42 @@ fn byo_endpoint_an_add_never_writes_over_another_sources_id_even_with_replace() 
     assert!(e.message().contains("another source"), "{e}");
     assert!(log.lock().unwrap().is_empty());
     assert!(!root.join("harnesses").join("corp.toml").exists());
+}
+
+#[test]
+fn byo_endpoint_a_cli_add_then_secret_set_sends_the_key_with_no_config_rewrite() {
+    // `cmux harness add ID --example openai-endpoint` (no key), then `cmux harness secret set ID
+    // CMUX_BYO_API_KEY`: the profile gains the Keychain reference, and the OpenCode config, which
+    // already reads the key from that env variable, sends it.
+    let root = scratch("later");
+    let p = params("openai-endpoint", "later", "https://api.example.com/v1", "m", None);
+    let added = add(&p, &sources(&root)).unwrap();
+    let (profile, meta) = load(&added.path, "later");
+    let config_before = profile.env.get("OPENCODE_CONFIG_CONTENT").cloned();
+    let cfg = config("later", profile, meta);
+    let store = |_: &StoreCommand| -> anyhow::Result<()> { Ok(()) };
+    let done = admin::secret_set("later", OPENAI_KEY_ENV, GOOD_KEY, &cfg, &store).unwrap();
+    assert_eq!(serde_json::to_value(&done).unwrap()["profile"], "written");
+    let (profile, _) = load(&added.path, "later");
+    assert_eq!(
+        profile.env.get("OPENCODE_CONFIG_CONTENT").cloned(),
+        config_before,
+        "the config was rewritten"
+    );
+    // What the harness starts with: the env resolved (the Keychain answering), and the config's
+    // apiKey naming that variable.
+    let mut env = profile.env.clone();
+    profiles::resolve_env_refs(&mut env, &|_| None, &|service, account| match (service, account) {
+        ("cmux-harness", Some("later/CMUX_BYO_API_KEY")) => Ok(GOOD_KEY.to_owned()),
+        _ => Err("not found".into()),
+    })
+    .unwrap();
+    assert_eq!(env.get(OPENAI_KEY_ENV).map(String::as_str), Some(GOOD_KEY));
+    let inline: Value =
+        serde_json::from_str(env.get("OPENCODE_CONFIG_CONTENT").map_or("{}", String::as_str))
+            .unwrap();
+    assert_eq!(
+        inline["provider"]["byo"]["options"]["apiKey"],
+        json!(format!("{{env:{OPENAI_KEY_ENV}}}"))
+    );
 }
