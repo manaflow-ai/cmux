@@ -569,6 +569,37 @@ jobs:
               --release --locked --target "$AGENT_PLUGIN_TARGET"
           fi
 
+      # The macOS legs built on Linux get the same warm start as the Linux musl
+      # legs: their own cache per target, saved only by feat-cmux-next pushes. Its
+      # key adds the cross toolchain (clang, lld, Zig, the SDK version label, and
+      # macos-cross.sh with its stubs), so a toolchain change starts cold instead of
+      # reusing objects built by the old one. A miss is a cold build, as before.
+      - name: Install the macOS cross toolchain
+        id: darwin-cross
+        if: matrix.darwin_on_linux
+        env:
+          # The SDK version recorded in LC_BUILD_VERSION. The Mac legs record
+          # their runner's Xcode SDK (15.5 or 26.5 in October 2026); no SDK
+          # file is read.
+          XC_SDK_VERSION: "26.5"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y clang-19 lld-19 llvm-19
+          key="$({ clang-19 --version | head -1; ld.lld-19 --version; zig version; echo "sdk $XC_SDK_VERSION"; } | sha256sum | cut -c1-16)"
+          { echo "sdk=$XC_SDK_VERSION"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
+
+      - name: Restore the macOS-on-Linux cargo cache
+        if: matrix.darwin_on_linux
+        continue-on-error: true
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-darwin-on-linux-${{ matrix.target }}
+          key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**', 'first-party-apps/cloud/server/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock') }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
       - name: Build the macOS binaries on Linux (no Apple SDK)
         # Every binary the macOS legs below build (cmux-tui, cmux-tui-hook, cmux-tui-host,
         # cmux-holder, cmux-app-host, cmux-relay, chatmux-relay, acpmux, cmux-cloud,
@@ -580,14 +611,10 @@ jobs:
           CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
           XC_TARGETS: ${{ matrix.build_target }}
           XC_CARGO_TARGET_DIR: ${{ github.workspace }}/cmux-tui/target
-          # The SDK version recorded in LC_BUILD_VERSION. The Mac legs record
-          # their runner's Xcode SDK (15.5 or 26.5 in October 2026); no SDK
-          # file is read.
-          XC_SDK_VERSION: "26.5"
+          XC_SDK_VERSION: ${{ steps.darwin-cross.outputs.sdk }}
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get install -y clang-19 lld-19 llvm-19
           unset CMUX_GHOSTTY_SRC
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
