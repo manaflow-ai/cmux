@@ -4,7 +4,7 @@
  * and the expiry.
  */
 import { PGlite } from "@electric-sql/pglite";
-import { Effect, Option } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
 import s2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw";
@@ -14,8 +14,8 @@ import meshM2 from "../../migrations/0005_cmux_vm_mesh_m2.sql?raw";
 import meshM3 from "../../migrations/0006_cmux_vm_mesh_m3.sql?raw";
 import deviceIntents from "../../migrations/0018_cmux_vm_mesh_device_intents.sql?raw";
 import { INTENT_STALE_CLAIM_MS, INTENT_TOMBSTONE_MS, absenceIsFinal, intentState, sqlDeviceIntents, type DeviceIntentStore } from "../../src/db/mesh-intents.ts";
-import type { MeshDeviceRow } from "../../src/db/mesh.ts";
-import { StoreError } from "../../src/db/sql.ts";
+import { MeshStore, sqlMeshStoreLayer, type MeshDeviceRow } from "../../src/db/mesh.ts";
+import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { newDeviceId, newMeshId, newTunnelId, TenantId } from "../../src/lib/ids.ts";
 
 const A = TenantId.make("team_alpha");
@@ -216,6 +216,26 @@ describe("mesh device intents", () => {
     // The provider answered with an error: final at once.
     await run(store.recordAttemptAnswer(keyOf(meshId, "i-11", device), null, later(2)));
     expect(absenceIsFinal(Option.getOrThrow(await run(store.findAttempt(keyOf(meshId, "i-11", device)))), later(3))).toBe(true);
+  });
+
+  it("binds a signed enroll message to its intent: the same message is accepted again only with that intent", async () => {
+    const sql = Layer.succeed(SqlClient, {
+      query: (operation, text, params) =>
+        Effect.tryPromise({ try: async () => (await pg.query(text, [...params])).rows, catch: (cause) => new StoreError({ operation, cause }) }),
+    });
+    const meshId = newMeshId();
+    const sha = "a".repeat(64);
+    const expires = later(120_000);
+    const claimFor = (intentId: string, now = at) =>
+      Effect.runPromise(Effect.provide(Effect.flatMap(MeshStore, (mesh) => mesh.claimSignedRequestForIntent(A, sha, "enroll", expires, now, { meshId, intentId })), sqlMeshStoreLayer.pipe(Layer.provide(sql))));
+    const plain = () =>
+      Effect.runPromise(Effect.provide(Effect.flatMap(MeshStore, (mesh) => mesh.claimSignedRequest(A, sha, "enroll", expires, at)), sqlMeshStoreLayer.pipe(Layer.provide(sql))));
+    expect(await claimFor("i-12")).toBe("fresh");
+    expect(await claimFor("i-12", later(1))).toBe("same_intent");
+    expect(await claimFor("i-13", later(1))).toBe("replayed");
+    expect(await plain()).toBe(false);
+    // Past the message's window the binding is gone with it.
+    expect(await claimFor("i-12", later(120_001))).toBe("replayed");
   });
 
   it("0018 is idempotent and refuses a malformed intent id", async () => {

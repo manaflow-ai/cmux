@@ -24,6 +24,8 @@ export function makeMemoryMeshStore() {
   const acls: Array<MeshAclVersion & { readonly tenantId: string; readonly meshId: string }> = [];
   const rules: Array<MeshRuleRow & { readonly tenantId: string; deletedAt: Date | null }> = [];
   const signed = new Map<string, Date>();
+  /** Signed enroll message -> the intent it was first accepted for. */
+  const nonceIntents = new Map<string, { readonly tenantId: string; readonly meshId: string; readonly intentId: string }>();
   const codes: Array<MemoryEnrollmentCode> = [];
   const serverCodes: Array<OverlayServerCodeRow> = [];
   const intents = memoryDeviceIntents((tenantId, device) => void devices.push({ ...device, tenantId, deletedAt: null }));
@@ -157,6 +159,19 @@ export function makeMemoryMeshStore() {
         if (signed.has(messageSha256)) return false;
         signed.set(messageSha256, expiresAt);
         return true;
+      }),
+    claimSignedRequestForIntent: (tenantId, messageSha256, _purpose, expiresAt, now, intent) =>
+      Effect.sync(() => {
+        for (const [hash, expiry] of signed) if (expiry < now) { signed.delete(hash); nonceIntents.delete(hash); }
+        if (!signed.has(messageSha256)) {
+          signed.set(messageSha256, expiresAt);
+          nonceIntents.set(messageSha256, { tenantId, ...intent });
+          return "fresh" as const;
+        }
+        const bound = nonceIntents.get(messageSha256);
+        return bound !== undefined && bound.tenantId === tenantId && bound.meshId === intent.meshId && bound.intentId === intent.intentId
+          ? ("same_intent" as const)
+          : ("replayed" as const);
       }),
     insertEnrollmentCode: (code) => Effect.sync(() => void codes.push({ ...code, usedAt: null, deviceId: null })),
     enrollmentCodesSince: (tenantId, meshId, since) =>

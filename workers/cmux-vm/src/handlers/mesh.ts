@@ -738,14 +738,19 @@ interface EnrollPayload {
   readonly signature: string;
 }
 
-/** Checks the enroll's install-key signature (fresh, never seen) and claims the signed message. */
-const verifyEnroll = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, payload: EnrollPayload) =>
+/**
+ * Checks the enroll's install-key signature (within its 120 s window) and claims the signed message. With an intent the
+ * message is bound to it: the exact same message with the same intent is accepted again (a caller retrying the device's
+ * signed body), never with another intent or none.
+ */
+const verifyEnroll = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, payload: EnrollPayload, intentId?: string) =>
   deviceHoldsKey(
     caller,
     mesh,
     { purpose: "enroll", wgPublicKey: payload.wgPublicKey, installPublicKey: payload.installPublicKey, name: payload.name, signedAt: payload.signedAt, nonce: payload.nonce },
     payload.signature,
     null,
+    intentId === undefined ? undefined : { meshId: mesh.value, intentId },
   ).pipe(Effect.catchAll(dependencyDown("mesh.claimSignedRequest")));
 
 /**
@@ -1095,8 +1100,10 @@ const enrollInto = <C, M>(
         return yield* replayIntent(caller, proofs.scope, found.value.deviceId, payload);
       }
     }
-    // The signature before anything that changes an intent: an enroll that may not create a device settles nothing.
-    const held = yield* verifyEnroll(caller, mesh, payload);
+    // The signature before anything that changes an intent: an enroll that may not create a device settles nothing. A
+    // resend of the same signed body with the same intent passes; whether it may create anything is then decided by the
+    // intent's compare-and-set and claim (an earlier attempt must be resolved first).
+    const held = yield* verifyEnroll(caller, mesh, payload, intentId);
     if (held._tag !== "held") return yield* Effect.fail(signatureRefused(held._tag));
     if (intentId !== undefined) {
       // A claim still held, or open attempts of earlier creates: reconcile them, or refuse while any may be live.

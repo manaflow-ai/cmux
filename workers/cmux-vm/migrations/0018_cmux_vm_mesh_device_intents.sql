@@ -19,7 +19,8 @@
 -- its final 200 only when every attempt of the intent is resolved.
 --
 -- Apply through the versioned migration runner before deploying code; grant the Worker SELECT, INSERT and UPDATE on
--- both tables through the operator role workflow. Roll back code first.
+-- the first two tables and SELECT, INSERT and DELETE on mesh_device_intent_nonces through the operator role
+-- workflow. Roll back code first.
 CREATE TABLE IF NOT EXISTS cmux_vm.mesh_device_intents (
   tenant_id      text        NOT NULL CHECK (char_length(tenant_id) BETWEEN 1 AND 128),
   mesh_cmux_id   text        NOT NULL CHECK (mesh_cmux_id ~ '^mesh_[0-9a-hjkmnp-tv-z]{26}$'),
@@ -54,6 +55,17 @@ CREATE TABLE IF NOT EXISTS cmux_vm.mesh_device_intent_attempts (
   finished_at    timestamptz NULL,
   resolved_at    timestamptz NULL,
   PRIMARY KEY (tenant_id, mesh_cmux_id, intent_id, device_cmux_id)
+);
+
+-- The intent a signed enroll message (mesh_signed_requests, 0005) was first accepted for. A repeat of that exact
+-- message with the same intent id is accepted again (the caller resends the device's signed body; only the device can
+-- sign a new one), and with any other intent it stays a replay. Rows expire with the signed message (120 s window).
+CREATE TABLE IF NOT EXISTS cmux_vm.mesh_device_intent_nonces (
+  message_sha256 text        PRIMARY KEY CHECK (message_sha256 ~ '^[0-9a-f]{64}$'),
+  tenant_id      text        NOT NULL CHECK (char_length(tenant_id) BETWEEN 1 AND 128),
+  mesh_cmux_id   text        NOT NULL CHECK (mesh_cmux_id ~ '^mesh_[0-9a-hjkmnp-tv-z]{26}$'),
+  intent_id      text        NOT NULL CHECK (intent_id ~ '^[A-Za-z0-9._:~-]{1,128}$'),
+  expires_at     timestamptz NOT NULL
 );
 
 -- The index a device's delete uses to revoke its intent is 0019 (built concurrently).

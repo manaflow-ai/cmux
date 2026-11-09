@@ -344,6 +344,31 @@ it("revokes a deleted device's intent before hiding the device, so a failed revo
   expect(await codeOf(await enroll(admin, mesh, "delete-intent"))).toBe("mesh.device.intent_revoked");
 });
 
+it("accepts the platform's resend of the same signed body and intent after the provider answered a 500, and nowhere else", async () => {
+  const { admin, mesh } = await setup();
+  // The platform stores the device's signed body once and resends it unchanged: same signedAt, nonce and signature.
+  const signed = await enrollBody(install, mesh, { name: "mac", wgPublicKey: KEY_1 });
+  const send = (intentId: string) => h.request(`/v1/meshes/${mesh}/devices`, bearer(admin), { method: "POST", body: { ...signed, intentId } });
+  h.mesh.failTunnelCreates(500);
+  expect((await send("platform-intent")).status).toBe(503);
+  h.mesh.failTunnelCreates(null);
+  // The same nonce under another intent stays a replay, and creates nothing.
+  const creates = h.upstream.callsTo("POST", /^\/v5\/tunnels$/u).length;
+  expect((await send("other-intent")).status).toBe(409);
+  expect(h.upstream.callsTo("POST", /^\/v5\/tunnels$/u)).toHaveLength(creates);
+  expect(h.mesh.store.deviceIntents().find((row) => row.intentId === "other-intent")).toBeUndefined();
+  // And without an intent.
+  expect((await h.request(`/v1/meshes/${mesh}/devices`, bearer(admin), { method: "POST", body: signed })).status).toBe(409);
+  // The resend with the same intent settles the answered attempt and enrolls.
+  const retried = await send("platform-intent");
+  expect(retried.status).toBe(201);
+  expect(liveTunnels()).toBe(1);
+  // A further resend answers the committed device.
+  const again = await send("platform-intent");
+  expect(again.status).toBe(201);
+  expect(Schema.decodeUnknownSync(Enrolled)(await again.json()).device).toEqual(Schema.decodeUnknownSync(Enrolled)(await retried.json()).device);
+});
+
 it("refuses a malformed intentId", async () => {
   const { admin, mesh } = await setup();
   expect((await enroll(admin, mesh, "has space")).status).toBe(400);

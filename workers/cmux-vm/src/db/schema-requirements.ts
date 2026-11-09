@@ -62,6 +62,7 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   // Enroll intents and their revocation tombstones (a late enroll after a revoke leaves nothing live).
   { table: "cmux_vm.mesh_device_intents", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0018" },
   { table: "cmux_vm.mesh_device_intent_attempts", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0018" },
+  { table: "cmux_vm.mesh_device_intent_nonces", privileges: ["SELECT", "INSERT", "DELETE"], migration: "0018" },
   { table: "cmux_vm.mesh_device_intents_device_idx", migration: "0019" },
 ];
 

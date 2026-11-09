@@ -100,6 +100,18 @@ export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeS
 
   /** Stores an accepted signed message (and prunes expired ones); false when it was stored before (a replay). */
   readonly claimSignedRequest: (tenantId: TenantId, messageSha256: string, purpose: string, expiresAt: Date, now: Date) => Effect.Effect<boolean, StoreError>;
+  /**
+   * The same claim for an enroll with an intent (migration 0018): a first use binds the message to the intent and is
+   * "fresh"; a repeat of a message first accepted for this same intent is "same_intent"; anything else is "replayed".
+   */
+  readonly claimSignedRequestForIntent: (
+    tenantId: TenantId,
+    messageSha256: string,
+    purpose: string,
+    expiresAt: Date,
+    now: Date,
+    intent: { readonly meshId: string; readonly intentId: string },
+  ) => Effect.Effect<"fresh" | "same_intent" | "replayed", StoreError>;
 
   readonly insertEnrollmentCode: (code: Omit<MeshEnrollmentCodeRow, "usedAt">) => Effect.Effect<void, StoreError>;
   /** Codes created for this mesh since `since` (the hourly budget). */
@@ -193,6 +205,7 @@ const CidrRow = Schema.Struct({ cidr: Schema.String });
 const TenantRow = Schema.Struct({ tenant_id: Schema.String });
 const WhenRow = Schema.Struct({ created_at: When });
 const ClaimedRow = Schema.Struct({ claimed: Count });
+const IntentClaimRow = Schema.Struct({ fresh: Count, same_intent: Count });
 const DeviceAddressRow = Schema.Struct({ device_cmux_id: Schema.String, public_ipv6: Schema.String });
 const DeviceAddressAtRow = Schema.Struct({
   public_ipv6: Schema.NullOr(Schema.String),
@@ -410,6 +423,35 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [messageSha256, tenantId, purpose, expiresAt.toISOString(), now.toISOString()],
           )
           .pipe(Effect.flatMap(decode(ClaimedRow, "mesh.claimSignedRequest")), Effect.map((rows) => (rows[0]?.claimed ?? 0) > 0)),
+      claimSignedRequestForIntent: (tenantId, messageSha256, purpose, expiresAt, now, intent) =>
+        sql
+          .query(
+            "mesh.claimSignedRequestForIntent",
+            // One statement: the message is claimed and bound to the intent together, so a message is never accepted
+            // without its intent recorded. A repeat reads the binding that statement wrote earlier.
+            `WITH pruned AS (
+               DELETE FROM cmux_vm.mesh_signed_requests
+                WHERE message_sha256 IN (SELECT message_sha256 FROM cmux_vm.mesh_signed_requests WHERE expires_at < $5::timestamptz LIMIT 100)),
+             pruned_bindings AS (
+               DELETE FROM cmux_vm.mesh_device_intent_nonces
+                WHERE message_sha256 IN (SELECT message_sha256 FROM cmux_vm.mesh_device_intent_nonces WHERE expires_at < $5::timestamptz LIMIT 100)),
+             claimed AS (
+               INSERT INTO cmux_vm.mesh_signed_requests (message_sha256, tenant_id, purpose, expires_at)
+               VALUES ($1, $2, $3, $4::timestamptz)
+               ON CONFLICT DO NOTHING RETURNING 1),
+             bound AS (
+               INSERT INTO cmux_vm.mesh_device_intent_nonces (message_sha256, tenant_id, mesh_cmux_id, intent_id, expires_at)
+               SELECT $1, $2, $6, $7, $4::timestamptz FROM claimed
+               RETURNING 1)
+             SELECT (SELECT count(*)::int FROM bound) AS fresh,
+                    (SELECT count(*)::int FROM cmux_vm.mesh_device_intent_nonces
+                      WHERE message_sha256 = $1 AND tenant_id = $2 AND mesh_cmux_id = $6 AND intent_id = $7 AND expires_at >= $5::timestamptz) AS same_intent`,
+            [messageSha256, tenantId, purpose, expiresAt.toISOString(), now.toISOString(), intent.meshId, intent.intentId],
+          )
+          .pipe(
+            Effect.flatMap(decode(IntentClaimRow, "mesh.claimSignedRequestForIntent")),
+            Effect.map((rows) => ((rows[0]?.fresh ?? 0) > 0 ? "fresh" : (rows[0]?.same_intent ?? 0) > 0 ? "same_intent" : "replayed")),
+          ),
       insertEnrollmentCode: (code) =>
         sql
           .query(
