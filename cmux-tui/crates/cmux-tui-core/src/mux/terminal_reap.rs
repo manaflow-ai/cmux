@@ -495,13 +495,13 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
         }
         // Stopped: `identify` no longer advertises a running reaper.
         if let Some(mux) = weak.upgrade() {
-            mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
+            mux.end_terminal_reaper();
         }
     });
     let thread = match thread {
         Ok(thread) => thread,
         Err(error) => {
-            mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
+            mux.end_terminal_reaper();
             return Err(error);
         }
     };
@@ -520,12 +520,20 @@ impl Mux {
     /// bound, so a client that identifies before the reaper thread runs must
     /// already see `terminal-reaper-active-v1`. The announcement ends when
     /// the reaper stops or its start fails.
-    pub fn announce_terminal_reaper(&self) {}
+    pub fn announce_terminal_reaper(&self) {
+        self.terminal_reaper_announced.store(true, Ordering::Release);
+    }
 
     /// Whether `identify` lists `terminal-reaper-active-v1`: the reaper runs,
     /// or this owner announced that it starts it.
     pub fn terminal_reaper_advertised(&self) -> bool {
-        self.terminal_reaper_running()
+        self.terminal_reaper_announced.load(Ordering::Acquire) || self.terminal_reaper_running()
+    }
+
+    /// The reaper stopped or did not start: `identify` no longer lists it.
+    fn end_terminal_reaper(&self) {
+        self.terminal_reaper_announced.store(false, Ordering::Release);
+        self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
     }
 
     /// Subscribe the reaper to the events that can change the reapable set,
