@@ -19,7 +19,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PNG } from "pngjs";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -30,6 +30,7 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
+  let safari: Browser | undefined;
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
@@ -39,9 +40,11 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
     await vite.listen();
     await warmViteServer(vite, "/?mock");
     browser = await chromium.launch({ headless: true });
+    safari = await webkit.launch({ headless: true }).catch(() => undefined);
   });
   afterAll(async () => {
     await browser?.close();
+    await safari?.close();
     await vite?.close();
   });
 
@@ -122,6 +125,9 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
     );
 
   type Seen = {
+    looks: string[];
+    lookChanges: number;
+    underWrites: number;
     frames: number;
     replaced: number;
     slotsReplaced: number;
@@ -134,8 +140,13 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
     scrolledPx: number;
   };
 
-  async function openPanel(width: number, height: number): Promise<{ page: Page; target: string }> {
-    const page = await browser!.newPage({ viewport: { width, height } });
+  async function openPanel(
+    engine: Browser,
+    width: number,
+    height: number,
+    seeThrough: boolean,
+  ): Promise<{ page: Page; target: string }> {
+    const page = await engine.newPage({ viewport: { width, height } });
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/?mock`);
@@ -176,6 +187,22 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
         .getAnimations({ subtree: true })
         .every((animation) => animation.effect?.getComputedTiming().endTime === Infinity),
     );
+    if (seeThrough) {
+      // A see-through page whose host glass a stand-in App draws a frame after each report, as the App's.
+      const hostGlass = `/@fs${path.join(webviews, "src/ui/glass/hostGlass.ts")}`;
+      await page.evaluate(async (hostGlass) => {
+        document.documentElement.setAttribute("data-cmux-see-through", "");
+        const { reportHostGlass } = await import(/* @vite-ignore */ hostGlass);
+        reportHostGlass(
+          document,
+          () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+      }, hostGlass);
+      await page.waitForFunction(() => {
+        const panel = document.querySelector("aside.acpmux-session-info");
+        return !panel?.hasAttribute("data-host-glass") || panel.hasAttribute("data-host-glass-drawn");
+      });
+    }
     return { page, target: String(seeded.session) };
   }
 
@@ -200,8 +227,21 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
         fadeFlips: 0,
         boxMoves: 0,
         scrolledPx: 0,
+        looks: [] as string[],
+        lookChanges: 0,
+        underWrites: 0,
       };
       w.__seen = seen;
+      let look = "";
+      // The in-place blur under the glass (ui/glass/seeThroughBlur.ts): each write of a covered
+      // element's filter repaints that part of the chat.
+      const under = new MutationObserver((records) => {
+        for (const record of records)
+          if (record.attributeName === "data-glass-under" || (record.target as HTMLElement).closest?.(".acpmux-stage"))
+            seen.underWrites += 1;
+      });
+      const stage = document.querySelector(".acpmux-stage");
+      if (stage) under.observe(stage, { subtree: true, attributes: true, attributeFilter: ["data-glass-under", "style"] });
       let removedThisFrame = 0;
       const mutations = new MutationObserver((records) => {
         for (const record of records) {
@@ -248,6 +288,18 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
             slots.set(id, now);
           }
         }
+        const style = getComputedStyle(node);
+        const now = [
+          node.className,
+          node.getAttribute("data-host-glass-drawn"),
+          node.hasAttribute("data-glass-keeps-underlay") ? "keeps-underlay" : "",
+          node.hasAttribute("data-glass-over") ? "over" : "",
+          style.opacity,
+          style.backgroundColor,
+        ].join("|");
+        if (look && now !== look) seen.lookChanges += 1;
+        if (!seen.looks.includes(now)) seen.looks.push(now);
+        look = now;
         const box = node.getBoundingClientRect();
         if (Math.abs(box.left - box0.left) > 0.5 || Math.abs(box.top - box0.top) > 0.5) seen.boxMoves += 1;
         const view = body.getBoundingClientRect();
@@ -265,6 +317,7 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
       w.__stopSeen = () => {
         stop();
         mutations.disconnect();
+        under.disconnect();
         return w.__seen;
       };
     });
@@ -331,11 +384,21 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
     return { delivered: frames.length, median, blank: blank.length, flashes: flashes.length };
   }
 
-  // 1000: the panel lies over the chat, on glass, above the composer; 1400: it floats in the gutter.
-  for (const width of [1000, 1400])
+  // 1000: the panel lies over the chat, on glass, above the composer; 1400: it floats in the gutter. The
+  // App's page is see-through (its glass under the page) or opaque; WebKit draws its own backdrop.
+  const CASES = [
+    { engine: "chromium", width: 1000, glass: "see-through" },
+    { engine: "chromium", width: 1000, glass: "opaque" },
+    { engine: "chromium", width: 1400, glass: "opaque" },
+    { engine: "webkit", width: 1000, glass: "opaque" },
+  ] as const;
+  for (const { engine, width, glass } of CASES)
     for (const over of ["panel", "transcript"] as const)
-      test(`at ${width} px, scrolling the ${over} while a turn streams never blanks or redraws Session Info`, async () => {
-        const { page, target } = await openPanel(width, 760);
+      test(`${engine} ${glass} at ${width} px: scrolling the ${over} while a turn streams never blanks or redraws Session Info`, async () => {
+        const which = engine === "webkit" ? safari : browser;
+        if (!which) return;
+        const { page, target } = await openPanel(which, width, 760, glass === "see-through");
+        const chromiumPage = engine === "chromium";
         try {
           const panelBox = (await page.locator("aside.acpmux-session-info").boundingBox())!;
           const scrollable = await page.evaluate(() => {
@@ -350,7 +413,7 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
             await page.mouse.move(panelBox.x + panelBox.width / 2, panelBox.y + panelBox.height / 2);
           }
           await sample(page);
-          const stopCast = await screencast(page);
+          const stopCast = chromiumPage ? await screencast(page) : async () => [];
           await page.evaluate((target) => {
             void import(/* @vite-ignore */ "/mock.ts").then(({ MockAcpmuxSocket }) => {
               const mock = MockAcpmuxSocket.live as any;
@@ -373,7 +436,7 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
           const frames = await stopCast();
           const seen = (await page.evaluate(() => (window as any).__stopSeen())) as Seen;
           const out = process.env.FAST_CHECKS_OUT
-            ? path.join(process.env.FAST_CHECKS_OUT, `session-info-flicker-${width}-${over}`)
+            ? path.join(process.env.FAST_CHECKS_OUT, `session-info-flicker-${engine}-${glass}-${width}-${over}`)
             : undefined;
           if (out) await mkdir(out, { recursive: true });
           const pixels = pixelStats(
@@ -388,7 +451,7 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
           );
           if (out) await page.screenshot({ path: path.join(out, "end.png") });
           console.log(
-            `SESSION-INFO-SCROLL-FLICKER ${JSON.stringify({ width, over, scrollable, ...seen, pixels })}`,
+            `SESSION-INFO-SCROLL-FLICKER ${JSON.stringify({ engine, glass, width, over, scrollable, ...seen, pixels })}`,
           );
           expect(seen.frames).toBeGreaterThan(60);
           if (over === "panel") expect(seen.scrolledPx, "the panel's body scrolled").toBeGreaterThan(40);
@@ -397,6 +460,7 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
           expect(seen.restShown, "frames a held-back rows box showed in the body's window").toBe(0);
           expect(pixels.blank, "delivered frames with the panel blank").toBe(0);
           expect(pixels.flashes, "delivered frames the panel flashed").toBe(0);
+          expect(seen.lookChanges, "frames the panel's look changed").toBe(0);
         } finally {
           await page.close();
         }

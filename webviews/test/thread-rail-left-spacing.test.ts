@@ -7,7 +7,7 @@ import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { papercutPane } from "./support/papercutChat";
+import { papercutPane, sessionInfoPushAlways } from "./support/papercutChat";
 
 await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -80,6 +80,7 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
         railTop: r(rail.top - box.top),
         railWidth: r(rail.width),
         pitches,
+        occluded: nav.hasAttribute("data-occluded"),
         scrollbar: scroller.offsetWidth - scroller.clientWidth - scroller.clientLeft,
         bars: bars.length,
       };
@@ -112,4 +113,39 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
         await page.close();
       }
     });
+
+  const openSessionInfo = async (page: Page, push: boolean) => {
+    await sessionInfoPushAlways(page, push);
+    const toggle = page.locator("button.acpmux-session-info-toggle");
+    if ((await page.locator("aside.acpmux-session-info").count()) === 0) await toggle.click({ force: true });
+    await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+    await settle(page);
+  };
+  for (const width of [1600, 1400, 1200, 1100, 1000])
+    for (const push of [false, true])
+      test(`in a ${width}px pane with Session Info ${push ? "pushing" : "open"} the left rail keeps its spacing`, async () => {
+        const page = await pane!.open({ width, height: 760, colorScheme: "dark" });
+        try {
+          await closeSessionInfo(page);
+          const sides: Record<string, unknown> = {};
+          for (const side of ["left", "right"] as const) {
+            await railSide(page, side);
+            await page.locator(`.acpmux-minimap__rail[data-side="${side}"]:not(.acpmux-scrollmap)`).waitFor();
+            await openSessionInfo(page, push);
+            sides[side] = {
+              ...(await spacing(page)),
+              placement: await page.locator("aside.acpmux-session-info").getAttribute("data-placement"),
+            };
+            if (process.env.FAST_CHECKS_OUT) {
+              const out = path.join(process.env.FAST_CHECKS_OUT, "rail-spacing");
+              await mkdir(out, { recursive: true });
+              await page.screenshot({ path: path.join(out, `${width}-${push ? "push" : "open"}-${side}.png`) });
+            }
+            await closeSessionInfo(page);
+          }
+          console.log(`SESSION-RAIL-SPACING-INFO ${width} ${push ? "push" : "open"} ${JSON.stringify(sides)}`);
+        } finally {
+          await page.close();
+        }
+      });
 });
