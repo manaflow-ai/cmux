@@ -29,7 +29,9 @@
 //! rekeyed here: a team refuses a key any of its machines has used
 //! (cmux-platform#1037), and adoption only ever moves to the registered node
 //! key. The retired key only answers peers that still name it; the link never
-//! serves it as its own key again.
+//! serves it as its own key again. A start that finds the record but not the
+//! node key refuses to serve ([`node_key_kept`]): it never makes a fresh key
+//! no peer was told.
 
 use std::collections::BTreeSet;
 use std::io;
@@ -42,7 +44,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use cmux_link::LINK_PORT;
 use cmux_link::dial::{RekeyReply, RekeyRequest, Service, ServiceHello, line};
-use cmux_link::key_holder::KeyHolder;
+use cmux_link::key_holder::{KeyFile, KeyHolder};
 use cmux_link::pairing::{PairingRecord, Pairings};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt as _;
@@ -212,12 +214,15 @@ fn canonical(path: &Path) -> PathBuf {
 }
 
 fn adopt(state: &LinkState, holder: &KeyHolder, pairings: &Pairings) -> anyhow::Result<ServeKey> {
+    let earlier = adopted(state)?;
+    if earlier.is_some() {
+        node_key_kept(holder.dir())?;
+    }
     let (_, node) = acpmux::cli::mesh_node_key::load_or_create_held(holder.dir(), holder)
         .context("the node key this link adopts")?;
     finished(Step::NodeKey);
     let node_public = state::public_key(&node);
     let old = if state.has_link_key() { Some(state.private_key(holder)?) } else { None };
-    let earlier = adopted(state)?;
     let Some(old) = old.filter(|old| state::public_key(old) != node_public) else {
         let record = Adopted {
             key_dir: holder.dir().to_path_buf(),
@@ -267,6 +272,26 @@ fn adopt(state: &LinkState, holder: &KeyHolder, pairings: &Pairings) -> anyhow::
     }
     let pending = record.pending;
     Ok(ServeKey { key: node, retiring: Some(Retiring { key: old, pending }) })
+}
+
+/// Refuse to serve when the node key a committed adoption serves is gone from
+/// `key_dir`. Every peer that was told knows this link by that key, and the
+/// commit names no other key to tell them over: a fresh key would reach none
+/// of them and tell none of them, so none is made. (`acpmux machine leave`
+/// never removes an adopted node key, and only under the key lock.)
+fn node_key_kept(key_dir: &Path) -> anyhow::Result<()> {
+    let path = KeyFile::Node.path_in(key_dir);
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => anyhow::bail!(
+            "key_adoption.node_key_missing: this link serves this machine's node key, and {} is \
+             gone; its paired peers know this link by that key only, so no new one is made. Put \
+             the key back, or remove {} and pair this link's peers again",
+            path.display(),
+            MARKER
+        ),
+        Err(error) => Err(anyhow::Error::from(error).context("the adopted node key")),
+    }
 }
 
 /// How often [`finish_retiring`] tries the peers left (`first`, doubling to

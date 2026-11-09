@@ -580,6 +580,37 @@ async fn init_after_the_adoption_makes_no_new_link_key() {
     assert_eq!(state::public_key(&served.key), node_public(&machine.home));
 }
 
+/// Once adopted, a node key that is gone (a leave of an older acpmux, a hand
+/// removal) is never made again: every told peer knows the link by it, and a
+/// fresh one would reach nobody. The link refuses until the key is back, and
+/// then serves it again, with the record and pairings untouched.
+#[tokio::test]
+async fn an_adopted_link_whose_node_key_is_gone_refuses_and_makes_none() {
+    let machine = machine();
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    let paired = Pairings { peers: vec![record("inst_b", [7; 32])] };
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    let served = serve_key(&state, &holder, &paired).await.unwrap();
+    assert!(served.retiring.is_some(), "the paired peer is still to tell");
+    let node = KeyFile::Node.path_in(&machine.home);
+    let aside = machine.home.join("node.wg.key.aside");
+    let before = adopted(&state).unwrap().unwrap();
+    std::fs::rename(&node, &aside).unwrap();
+    for _ in 0..2 {
+        let Err(refused) = serve_key(&state, &holder, &paired).await else {
+            panic!("an adopted link served without its node key");
+        };
+        assert!(refused.to_string().starts_with("key_adoption.node_key_missing:"), "{refused}");
+        assert!(!node.exists(), "a fresh node key was made");
+        assert_eq!(adopted(&state).unwrap().unwrap(), before, "the record changed");
+        assert!(state.has_link_key(), "the retired key went while peers were left to tell");
+    }
+    std::fs::rename(&aside, &node).unwrap();
+    let again = serve_key(&state, &holder, &paired).await.unwrap();
+    assert_eq!(state::public_key(&again.key), node_public(&machine.home));
+    assert_eq!(again.retiring.map(|retiring| retiring.pending), Some(before.pending));
+}
+
 /// F5: an adopted link started with another external lock dir refuses, and
 /// makes no node key there.
 #[tokio::test]

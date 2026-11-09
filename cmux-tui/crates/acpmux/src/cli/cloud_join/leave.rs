@@ -2,7 +2,9 @@
 //! logout` is ("expire the current log in"). It asks the hub to revoke this machine's credential
 //! with that credential (`POST /v1/machines/credentials/self/revoke`; the hub drops the machine's
 //! mesh address-book rows with it), then removes the join here: the record is marked revoked,
-//! `meshRelay` leaves config.json, and the credential file and `node.wg.key` are deleted.
+//! `meshRelay` leaves config.json, and the credential file is deleted, with `node.wg.key` only
+//! under the WireGuard key lock and never one the cmux link adopted as its own
+//! (`key-adopted.json`): its paired peers know the link by that key alone.
 //!
 //! A running daemon's relay reads the credential from its file at every hub call
 //! (`mesh_http.rs` `token`): with the record revoked and then gone, its next heartbeat or inbox
@@ -12,6 +14,7 @@
 //! machine's credential on that route) leaves everything here as it was and says to revoke it
 //! from the Mac (`cmux machine revoke NAME`); `--local-only` then removes the local state anyway.
 use super::*;
+use std::path::Path;
 
 /// What the hub said to the revoke.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,9 +73,39 @@ async fn revoke_at_hub(record: &MachineCredential) -> HubAnswer {
     }
 }
 
+/// Whether the cmux link in `link_dir` adopted the node key as its only key (`key-adopted.json`,
+/// the link's `key_adoption.rs`): a leave never deletes it then.
+fn link_adopted(link_dir: Option<&Path>) -> bool {
+    link_dir.is_some_and(|dir| std::fs::symlink_metadata(dir.join("key-adopted.json")).is_ok())
+}
+
+/// This machine's link state directory; a test's is beside its home.
+fn link_dir_for(home: &Path) -> Option<std::path::PathBuf> {
+    if cfg!(test) { Some(home.join("link")) } else { crate::wireguard::link_state_dir() }
+}
+
+/// The WireGuard key lock in `home` when the node key there may be deleted: the key is there,
+/// no process holds the lock (the cmux link and the WireGuard transport hold it while they use
+/// the key), and, checked under it, the link did not adopt the key.
+fn node_key_removable(home: &Path) -> Result<Option<cmux_link::key_holder::KeyHolder>> {
+    use cmux_link::key_holder::{KeyFile, KeyHolder, KeyHolderError};
+    if std::fs::symlink_metadata(KeyFile::Node.path_in(home)).is_err() {
+        return Ok(None);
+    }
+    let holder = match KeyHolder::acquire(home) {
+        Ok(holder) => holder,
+        Err(KeyHolderError::KeyHeld { .. }) => return Ok(None),
+        Err(KeyHolderError::Io(e)) => {
+            return Err(anyhow::Error::from(e).context("take the WireGuard key lock"));
+        }
+    };
+    Ok((!link_adopted(link_dir_for(home).as_deref())).then_some(holder))
+}
+
 /// Removes the join from `home`: the record marked revoked first (so nothing reads it as
 /// live if this stops part way), then `meshRelay` (only a joined one), then the credential and
-/// the node key. Returns what it removed. The caller holds the join lock.
+/// the node key, unless the link adopted it or a running process holds it
+/// ([`node_key_removable`]). Returns what it removed. The caller holds the join lock.
 pub(super) fn remove_local(home: &std::path::Path) -> Result<Vec<&'static str>> {
     let mut removed = Vec::new();
     if let Some(mut record) = load_at(home)?
@@ -99,10 +132,11 @@ pub(super) fn remove_local(home: &std::path::Path) -> Result<Vec<&'static str>> 
             removed.push("meshRelay");
         }
     }
-    for (file, label) in [
-        (CREDENTIAL_FILE, "credential"),
-        (cmux_link::key_holder::KeyFile::Node.file_name(), "nodeKey"),
-    ] {
+    // Held until the removal is synced.
+    let key_lock = node_key_removable(home)?;
+    let node_key =
+        key_lock.as_ref().map(|_| (cmux_link::key_holder::KeyFile::Node.file_name(), "nodeKey"));
+    for (file, label) in [Some((CREDENTIAL_FILE, "credential")), node_key].into_iter().flatten() {
         match std::fs::remove_file(home.join(file)) {
             Ok(()) => removed.push(label),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -110,6 +144,7 @@ pub(super) fn remove_local(home: &std::path::Path) -> Result<Vec<&'static str>> 
         }
     }
     recovery::sync_ancestors(home)?;
+    drop(key_lock);
     Ok(removed)
 }
 
@@ -177,10 +212,18 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         "removed": removed,
         "daemonRunning": running,
     });
+    let node_key_kept = !removed.contains(&"nodeKey")
+        && std::fs::symlink_metadata(cmux_link::key_holder::KeyFile::Node.path_in(&home)).is_ok();
     if running {
         out["relay"] = json!("stops at its next hub call: its credential is gone");
+    }
+    if running && !node_key_kept {
         out["nodeKeyNote"] =
             json!("the running daemon makes a new, unjoined node key at its next use");
+    }
+    if node_key_kept {
+        out["nodeKeyKept"] =
+            json!("the cmux link serves this node key, or a running process holds it");
     }
     if copy {
         out["hint"] = json!(
@@ -210,6 +253,9 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         );
         if running {
             println!("the daemon's mesh relay stops at its next hub call");
+        }
+        if node_key_kept {
+            println!("kept the node key: the cmux link serves it, or a running process holds it");
         }
     }
     Ok(())
@@ -289,5 +335,48 @@ mod tests {
             serde_json::from_slice(&std::fs::read(home.path().join("config.json")).unwrap())
                 .unwrap();
         assert_eq!(config["meshRelay"]["tokenCommand"][0], "mint");
+    }
+
+    /// The node key a cmux link adopted stays, and so does one a running process holds under
+    /// the key lock; once neither is so, a leave takes it.
+    #[test]
+    fn a_leave_never_deletes_an_adopted_or_held_node_key() {
+        use cmux_link::key_holder::KeyHolder;
+        let record = |home: &Path| {
+            let record = MachineCredential {
+                credential: "cmm_x".into(),
+                machine_id: "machine_1".into(),
+                hub_origin: "https://example.com".into(),
+                ..Default::default()
+            };
+            recovery::write_durable(
+                &home.join(CREDENTIAL_FILE),
+                &serde_json::to_vec(&record).unwrap(),
+                true,
+            )
+            .unwrap();
+        };
+        let key = |home: &Path| std::fs::read(home.join("node.wg.key")).ok();
+        let home = tempfile::tempdir().unwrap();
+        crate::cli::mesh_node_key::load_or_create_at(home.path()).unwrap();
+        let made = key(home.path());
+        assert!(made.is_some());
+        // Adopted by the link: kept.
+        std::fs::create_dir_all(home.path().join("link")).unwrap();
+        std::fs::write(home.path().join("link/key-adopted.json"), b"{}").unwrap();
+        record(home.path());
+        assert_eq!(remove_local(home.path()).unwrap(), vec!["credential"]);
+        assert_eq!(key(home.path()), made);
+        std::fs::remove_file(home.path().join("link/key-adopted.json")).unwrap();
+        // Held under the key lock (a running link or transport): kept.
+        let held = KeyHolder::acquire(home.path()).unwrap();
+        record(home.path());
+        assert_eq!(remove_local(home.path()).unwrap(), vec!["credential"]);
+        assert_eq!(key(home.path()), made);
+        drop(held);
+        // Neither: it goes.
+        record(home.path());
+        assert_eq!(remove_local(home.path()).unwrap(), vec!["credential", "nodeKey"]);
+        assert_eq!(key(home.path()), None);
     }
 }

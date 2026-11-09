@@ -4,9 +4,12 @@
 mod mesh_support;
 
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::Duration;
 
-use boringtun::noise::{Tunn, TunnResult};
+use boringtun::noise::handshake::parse_handshake_anon;
+use boringtun::noise::rate_limiter::RateLimiter;
+use boringtun::noise::{Packet, Tunn, TunnResult};
 use cmux_wg::testing::random_keypair;
 use cmux_wg::{InterfaceAddress, WgMesh, WgMeshConfig, WgPeer};
 use mesh_support::*;
@@ -328,4 +331,127 @@ async fn a_cookie_challenge_to_a_forged_response_never_moves_the_peer() {
         !matches!(probed, Ok(Ok(true))),
         "a cookie challenge moved the peer to the current key"
     );
+}
+
+/// A peer with no mesh of its own: a socket and a key, answering by hand.
+struct Bare {
+    socket: UdpSocket,
+    private: [u8; 32],
+    public: [u8; 32],
+}
+
+impl Bare {
+    async fn bind() -> Self {
+        let (private, public) = random_keypair();
+        let socket = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
+        Self { socket, private, public }
+    }
+
+    /// It, as a peer at overlay address 2, at its socket.
+    fn peer(&self) -> WgPeer {
+        WgPeer {
+            public_key: self.public,
+            preshared_key: None,
+            allowed_ips: vec![host(overlay(2))],
+            route: Some(self.socket.local_addr().expect("local addr").into()),
+            candidates: Vec::new(),
+            persistent_keepalive: None,
+        }
+    }
+
+    /// The next handshake initiation from the key `from`, and where it came
+    /// from. Initiations from another key (the mesh's retired one) are skipped.
+    async fn initiation_from(&self, from: [u8; 32]) -> (Vec<u8>, SocketAddr) {
+        let private = x25519_dalek::StaticSecret::from(self.private);
+        let public = x25519_dalek::PublicKey::from(self.public);
+        let mut buffer = [0u8; 256];
+        loop {
+            let (length, source) = self.socket.recv_from(&mut buffer).await.expect("recv");
+            let datagram = buffer.get(..length).expect("datagram");
+            if let Ok(Packet::HandshakeInit(initiation)) = Tunn::parse_incoming_packet(datagram)
+                && parse_handshake_anon(&private, &public, &initiation)
+                    .is_ok_and(|half| half.peer_static_public == from)
+            {
+                return (datagram.to_vec(), source);
+            }
+        }
+    }
+
+    /// A session with `responder`, its handshakes checked by `limiter` when given.
+    fn session(&self, responder: [u8; 32], limiter: Option<Arc<RateLimiter>>) -> Tunn {
+        Tunn::new(
+            x25519_dalek::StaticSecret::from(self.private),
+            x25519_dalek::PublicKey::from(responder),
+            None,
+            None,
+            9,
+            limiter,
+        )
+    }
+}
+
+/// A probe of the current key whose initiation is lost is sent again by the
+/// current session's own timers, and the peer's answer to that one moves the
+/// peer there: one probe, and the peer never starts a handshake of its own.
+#[tokio::test]
+async fn a_probe_whose_initiation_was_lost_is_sent_again_until_answered() {
+    let (old_private, _) = random_keypair();
+    let a = retiring(overlay(1), old_private).await;
+    let b = Bare::bind().await;
+    within(a.mesh.add_peer_on_retired_key(b.peer())).await.unwrap();
+    let peer = async {
+        let (lost, _) = b.initiation_from(a.public).await;
+        let (again, from) = b.initiation_from(a.public).await;
+        assert_ne!(lost, again, "the same initiation twice");
+        let mut session = b.session(a.public, None);
+        let mut scratch = [0u8; 256];
+        let TunnResult::WriteToNetwork(response) =
+            session.decapsulate(Some(from.ip()), &again, &mut scratch)
+        else {
+            panic!("the initiation sent again was not answered");
+        };
+        b.socket.send_to(response, from).await.expect("send");
+    };
+    let probe = async { tokio::join!(a.mesh.probe_current(b.public), peer).0 };
+    let probed =
+        timeout(Duration::from_secs(20), probe).await.expect("the lost probe was never sent again");
+    assert!(probed.unwrap(), "the answered probe did not move the peer");
+}
+
+/// A peer under load challenges a probe of the current key with a cookie:
+/// the current session takes the cookie (not the peer's session on the
+/// retired key), and its next initiation, which carries it, is answered.
+#[tokio::test]
+async fn a_cookie_challenge_to_a_probe_reaches_the_current_session() {
+    let (old_private, _) = random_keypair();
+    let a = retiring(overlay(1), old_private).await;
+    let b = Bare::bind().await;
+    within(a.mesh.add_peer_on_retired_key(b.peer())).await.unwrap();
+    let peer = async {
+        // Always under load: an initiation without this side's cookie is challenged.
+        let limiter = Arc::new(RateLimiter::new(&x25519_dalek::PublicKey::from(b.public), 0));
+        let mut session = b.session(a.public, Some(limiter));
+        let mut scratch = [0u8; 256];
+        let mut challenged = 0;
+        loop {
+            let (initiation, from) = b.initiation_from(a.public).await;
+            match session.decapsulate(Some(from.ip()), &initiation, &mut scratch) {
+                TunnResult::WriteToNetwork(reply) if reply.first() == Some(&3) => {
+                    challenged += 1;
+                    b.socket.send_to(reply, from).await.expect("send");
+                }
+                TunnResult::WriteToNetwork(response) => {
+                    b.socket.send_to(response, from).await.expect("send");
+                    return challenged;
+                }
+                _ => {}
+            }
+        }
+    };
+    let probe = async { tokio::join!(a.mesh.probe_current(b.public), peer) };
+    let (probed, challenged) = timeout(Duration::from_secs(20), probe)
+        .await
+        .expect("the challenged probe never carried its cookie");
+    assert!(challenged >= 1, "the probe was never challenged");
+    assert!(probed.unwrap(), "the answered probe did not move the peer");
 }

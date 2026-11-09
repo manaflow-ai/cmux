@@ -59,7 +59,16 @@ impl MeshDriver {
                 }
                 key
             }
-            Ok(Packet::PacketCookieReply(cookie)) => self.table.by_receiver(cookie.receiver_idx),
+            Ok(Packet::PacketCookieReply(cookie)) => {
+                let key = self.table.by_receiver(cookie.receiver_idx);
+                // A challenge to a probe from the current key.
+                if let Some(key) = key
+                    && self.cookie_on_current(key, datagram, source)
+                {
+                    return;
+                }
+                key
+            }
             Ok(Packet::PacketData(data)) => self.table.by_receiver(data.receiver_idx),
             Err(_) => None,
         };
@@ -155,6 +164,25 @@ impl MeshDriver {
             }
             _ => false,
         }
+    }
+
+    /// A cookie reply that challenges the last initiation of the peer's
+    /// session on the current key (`WgMesh::probe_current`): that session
+    /// keeps the cookie, so its next initiation carries it. The peer's two
+    /// sessions hand out the same receiver indexes; the reply is sealed to
+    /// the MAC1 of the initiation it answers, so only that session opens it.
+    /// False when the current session does not (a challenge to the peer's
+    /// own session), which then takes it as usual. A cookie moves nobody.
+    fn cookie_on_current(
+        &mut self,
+        key: PeerKey,
+        datagram: &[u8],
+        source: Option<PeerRoute>,
+    ) -> bool {
+        let Some(peer) = self.table.get_mut(&key) else { return false };
+        let Some(current) = peer.current.as_mut() else { return false };
+        let from = source.map(|route| route.address().ip());
+        matches!(current.decapsulate(from, datagram, &mut self.scratch), TunnResult::Done)
     }
 
     /// A handshake initiation to the current key from a peer whose session is

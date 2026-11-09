@@ -451,6 +451,19 @@ impl MeshDriver {
                     peer.schedule.on_activity(now);
                 }
             }
+            // The peer's session on the current key (`probe_current`) runs
+            // its own timers: an unanswered probe is sent again every 5 s
+            // until boringtun gives up, and its handshake rate limit resets
+            // each second, as any session's.
+            if let Some(current) = peer.current.as_mut()
+                && let TunnResult::WriteToNetwork(packet) = current.update_timers(&mut self.scratch)
+            {
+                let retry = classify(packet) == DatagramClass::WireGuardInitiation;
+                deliver(&mut peer.paths, &mut self.out, now, packet);
+                if retry {
+                    peer.schedule.on_activity(now);
+                }
+            }
             // A dial waiting on the handshake gets an initiation every
             // HANDSHAKE_RESEND, not only boringtun's every 5 s or more.
             if peer.paths.has_target()
@@ -494,7 +507,9 @@ impl MeshDriver {
 
     /// [`crate::WgMesh::probe_current`]: an initiation from the peer's
     /// session on the current key; `reply` answers once that session is the
-    /// peer's ([`crate::mesh_peers::Peer::move_to_current`]).
+    /// peer's ([`crate::mesh_peers::Peer::move_to_current`]). Each probe
+    /// sends one, even while an earlier one is unanswered; the session's
+    /// timers ([`MeshDriver::run_timers`]) send it again until it is.
     fn probe_current(&mut self, key: [u8; 32], reply: oneshot::Sender<bool>) {
         let Some(peer) = self.table.get_mut(&key) else {
             let _ = reply.send(false);
@@ -505,10 +520,12 @@ impl MeshDriver {
             let _ = reply.send(!peer.on_retired);
             return;
         };
+        let now = Instant::now();
         if let TunnResult::WriteToNetwork(packet) =
-            current.format_handshake_initiation(&mut self.scratch, false)
+            current.format_handshake_initiation(&mut self.scratch, true)
         {
-            deliver(&mut peer.paths, &mut self.out, Instant::now(), packet);
+            deliver(&mut peer.paths, &mut self.out, now, packet);
+            peer.schedule.on_activity(now);
         }
         peer.probing = Some(reply);
     }
