@@ -27,6 +27,8 @@ fn friendly_verbs_map_to_the_cmux_vm_cli() {
         args(&["delete", "vm_1", "--yes"])
     );
     assert_eq!(planned(&["vm", "pause", "vm_1"]).unwrap(), args(&["pause", "vm_1"]));
+    // `shutdown` is `pause` (vm_short.rs); `stop` is the VM API's own verb.
+    assert_eq!(planned(&["vm", "shutdown", "vm_1"]).unwrap(), args(&["pause", "vm_1"]));
     assert_eq!(planned(&["vm", "resume", "vm_1"]).unwrap(), args(&["resume", "vm_1"]));
 }
 

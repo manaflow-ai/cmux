@@ -325,6 +325,29 @@ fn remote_views_reads_the_release_remote_view_state() {
     assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
 }
 
+/// `cmux app machines` and `cmux app join-line` call the app's every-build
+/// `machine.list` and `device.join_line`, never `app call` (debug builds only)
+/// and never an `action.run`.
+#[test]
+fn machines_and_join_line_call_the_every_build_methods() {
+    let (method, params) = call(parse(&args(&["app", "machines"])).unwrap().unwrap());
+    assert_eq!(method, MACHINES_METHOD);
+    assert_eq!(params, json!({}));
+    let (_, params) = call(parse(&args(&["app", "machines", "--no-refresh"])).unwrap().unwrap());
+    assert_eq!(params, json!({ "refresh": false }));
+    let (method, params) = call(parse(&args(&["app", "join-line"])).unwrap().unwrap());
+    assert_eq!(method, JOIN_LINE_METHOD);
+    assert_eq!(params, json!({}));
+    let (_, params) = call(
+        parse(&args(&["app", "join-line", "--mint", "--name", "e2e-runner", "--no-open"]))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(params, json!({ "mint": true, "name": "e2e-runner", "open": false }));
+    assert!(parse(&args(&["app", "machines", "list"])).is_err());
+    assert!(parse(&args(&["app", "join-line", "--token", "x"])).is_err());
+}
+
 #[test]
 fn action_describe_accepts_an_unquoted_cli_name() {
     let (_, params) =
@@ -1384,6 +1407,31 @@ fn open_dash_reads_urls_from_stdin_and_passes_the_callers_terminal() {
         assert_eq!(request.params["focus"], false);
         assert_eq!(request.timeout(), WAITING_RUN_TIMEOUT);
     }
+}
+
+#[test]
+fn open_dash_from_a_program_in_a_terminal_is_interactive() {
+    // gh's "Press Enter to open https://github.com/login/device in your browser" runs
+    // BROWSER (cmux-open-url) with its own stdout, the person's terminal; the shim runs
+    // `cmux --quiet open --link -` with the URL on stdin. Stdin is the URL, not the person:
+    // stdout alone tells, or the tab opens in the background and Enter seems to do nothing.
+    let link = args(&["--link", "--caller", "gh", "-"]);
+    assert!(open_is_interactive(&link, false, true));
+    assert!(!open_is_interactive(&link, false, false), "an agent's pipe stays in the background");
+    let mut stdin = "https://github.com/login/device\n".as_bytes();
+    let environment = std::collections::HashMap::new();
+    let AppCommand::Open { requests, .. } =
+        parse_open_with(&link, open_is_interactive(&link, false, true), &environment, &mut stdin)
+            .unwrap()
+    else {
+        panic!("expected open command")
+    };
+    assert_eq!(requests[0].method, "browser.open_link");
+    assert_eq!(requests[0].params["focus"], true);
+    // A typed `cmux open URL` still needs both; `-` after `--` is a path, not stdin.
+    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true));
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true));
+    assert!(!open_is_interactive(&args(&["--", "-"]), false, true));
 }
 
 #[test]

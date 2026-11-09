@@ -78,6 +78,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.agentHostMachine], targets: [],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
+            // New Cloud Chat: a new agent chat whose composer has Cloud picked, the Where menu's own
+            // Cloud row (the page runs the pick; Leo 2026-11-08 on teammates starting a Cloud chat:
+            // "how would they know?"). The CLI starts Cloud chats with `cmux cloud move` or a send.
+            ActionDescriptor(
+                id: "palette.newCloudChat",
+                title: String(localized: "action.palette.newCloudChat", defaultValue: "New Cloud Chat", bundle: .module),
+                keywords: ["agent", "chat", "new", "cloud", "vm", "remote", "machine", "sleep"],
+                category: .agents, symbol: "cloud", surfaces: [.palette], targets: [],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
             ActionDescriptor(
                 id: "agentPane.toggleSessionInfo",
                 title: String(localized: "action.agentPane.toggleSessionInfo", defaultValue: "Toggle Session Info", bundle: .module),

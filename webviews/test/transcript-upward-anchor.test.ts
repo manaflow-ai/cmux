@@ -195,7 +195,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         };
 
         for (let quantum = 0; quantum < 32; quantum += 1) await setHeightAndSample(quantum, "folded");
-        const toggle = lower().querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!;
+        const toggle = lower().querySelector<HTMLButtonElement>(".cv-agentmsg__toggle")!;
         if (!toggle) throw new Error("real received-card fold toggle missing");
         const beforeFold = toggle.getAttribute("aria-expanded");
         await window.cmuxPaintFrame(() => {
@@ -205,7 +205,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         await window.cmuxPaintFrame();
         await window.cmuxPaintFrame();
         const afterFold = lower()
-          .querySelector<HTMLButtonElement>(".cv-disclosure__toggle")
+          .querySelector<HTMLButtonElement>(".cv-agentmsg__toggle")
           ?.getAttribute("aria-expanded");
         for (let quantum = 31; quantum >= 0; quantum -= 1) await setHeightAndSample(quantum, "expanded-streaming");
         return { baseHeight, absoluteTop, beforeFold, afterFold, gapBlock, samples };

@@ -99,9 +99,7 @@ export function PullRequestCardBody({
   // The swap is a crossfade in place (Leo 2026-11-08: "a bit too discontinuous and jumpy"): each
   // placeholder, drawn in the shape its row takes, shares one grid cell with the row it held
   // (`Slot`), fades out as the row fades in, and goes on its own animation's end. No timer.
-  const [faded, setFaded] = useState(false);
-  const leaving = loadFade && !faded && fadePlays();
-  const done = () => setFaded(true);
+  const leaving = loadFade && fadePlays();
 
   const title = read?.title || known.title;
   const state = read?.state || known.state;
@@ -136,10 +134,10 @@ export function PullRequestCardBody({
       {head?.(title || reference, glyph)}
       <div className="acpmux-pr-card__body" data-load-fade={loadFade ? "" : undefined}>
         {!head && title && <div className="acpmux-pr-card__title">{title}</div>}
-        <Slot hold={waiting && !state} leaving={leaving && heldStatus} shown={shown.status} row="status" done={done}>
+        <Slot hold={waiting && !state} leaving={leaving && heldStatus} shown={shown.status} row="status">
           <Status state={state} read={read} t={t} issue={issue} badges={badges} />
         </Slot>
-        <Slot hold={waiting} leaving={leaving} shown={shown.who} row="who" done={done}>
+        <Slot hold={waiting} leaving={leaving} shown={shown.who} row="who">
           {read?.author && (
             <div className="acpmux-pr-card__who">
               {read.authorAvatar?.startsWith("data:image/") ? (
@@ -160,7 +158,7 @@ export function PullRequestCardBody({
           )}
         </Slot>
         {!issue && (
-          <Slot hold={waiting} leaving={leaving} shown={shown.changes} row="changes" done={done}>
+          <Slot hold={waiting} leaving={leaving} shown={shown.changes} row="changes">
             <Changes read={read} t={t} />
           </Slot>
         )}
@@ -178,10 +176,10 @@ export function PullRequestCardBody({
           )}
         </div>
         {/* A pull request's last held row is its branches; an issue's, its labels. */}
-        <Slot hold={waiting && !issue} leaving={leaving && !issue} shown={shown.branches} row="branches" done={done}>
+        <Slot hold={waiting && !issue} leaving={leaving && !issue} shown={shown.branches} row="branches">
           <Branches read={read} />
         </Slot>
-        <Slot hold={waiting && issue} leaving={leaving && issue} shown={shown.labels} row="labels" done={done}>
+        <Slot hold={waiting && issue} leaving={leaving && issue} shown={shown.labels} row="labels">
           <Review read={read} t={t} />
         </Slot>
         <Freshness answer={answer} now={now} t={t} language={language} held={waiting} />
@@ -305,12 +303,16 @@ function Status({
 /// cell, fading out as the row fades in (linkCard.css `__slot`): nothing moves, and the cell is
 /// already the row's size, so nothing moves when the placeholder goes either. A row the answer
 /// leaves empty drops its placeholder at once, in the frame the answer lands.
+///
+/// Each slot goes on its own placeholder's animation end, so a row that starts later keeps its
+/// whole crossfade (review of #38163, F1). The wrapper stays once the row shows: dropping it would
+/// remount the row and restart its fade from nothing. An empty wrapper takes no space
+/// (linkCard.css `__slot:empty`).
 function Slot({
   hold,
   leaving,
   shown,
   row,
-  done,
   children,
 }: {
   hold: boolean;
@@ -318,16 +320,15 @@ function Slot({
   /// The row draws something once the answer lands.
   shown: boolean;
   row: PlaceholderRow;
-  done: () => void;
   children: ReactNode;
 }) {
+  const [faded, setFaded] = useState(false);
   if (hold) return <Placeholder row={row} />;
-  if (!leaving || !shown) return <>{children}</>;
   return (
     // The row first, so the placeholder draws over it as it fades out.
     <div className="acpmux-pr-card__slot">
       {children}
-      <Placeholder row={row} onAnimationEnd={done} />
+      {leaving && shown && !faded && <Placeholder row={row} onAnimationEnd={() => setFaded(true)} />}
     </div>
   );
 }

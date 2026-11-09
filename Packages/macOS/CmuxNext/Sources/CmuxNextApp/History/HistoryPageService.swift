@@ -121,7 +121,7 @@ extension TabContentCache {
     }
 
     static func isAppPage(_ url: URL?) -> Bool {
-        url?.isHistoryPage == true || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+        url?.isHistoryPage == true || url?.isBookmarkPage == true || AgentActivityPageAddress.matches(url)
             || ScreenshotsPageAddress.matches(url) || VaultPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
     }
@@ -172,7 +172,6 @@ extension TabContentCache {
                     guard let self, let tab = tabModel(key) else { return }
                     showAppPage(confirmedURL, in: tab)
                 },
-                cloudTransport: { [weak services] machine in services?.cloudDesktopTransport(machine: machine) },
                 cloudRd: { [weak services] machine in services?.cloudDesktopRdTransport(machine: machine) },
                 displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil }, loginKeychain: services.loginKeychain)
             page.onNavigate = { [weak self] target in
@@ -186,9 +185,10 @@ extension TabContentCache {
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
-        if BookmarkPageAddress.matches(url) {
+        if url?.isBookmarkPage == true {
             let page = services.bookmarkPages.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            page.webPage?.onOpenExternal = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
         let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile,

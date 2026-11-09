@@ -22,6 +22,9 @@ pub mod endpoint;
 mod replay;
 
 pub use endpoint::{Endpoint, EndpointEvent, Route, Transmit};
+/// The datagram link next to a stream carrier (cmuxterm-hq#7976).
+#[cfg(feature = "net")]
+pub mod dlink;
 #[cfg(feature = "net")]
 pub mod net;
 pub mod turn;

@@ -451,6 +451,7 @@ def history():
 def keys():
     """4 terminals in a 2x2 grid, each with history, the bottom-left one focused: its Ctrl-Shift-L and Ctrl-Shift-H
     move the divider between the two columns, so all 4 resize."""
+    # newTab is New Workspace (Cmd-N, WorkspaceActionCatalog): each phase starts in its own one-terminal workspace.
     rpc("action.run", {"action": "newTab", "focus": True})
     wait(lambda: surfaces(), 30)
     history()

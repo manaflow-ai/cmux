@@ -26,7 +26,7 @@
  ],
  "crates": {
   "acpmux": {
-   "unwrap_used": 143,
+   "unwrap_used": 135,
    "expect_used": 18,
    "panic": 1,
    "unreachable": 2,
@@ -305,10 +305,10 @@
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 11,
+   "indexing_slicing": 3,
    "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 2,
+   "arithmetic_side_effects": 0,
    "cast_possible_truncation": 0
   },
   "cmux-git": {
@@ -656,7 +656,7 @@
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 58,
+   "indexing_slicing": 57,
    "string_slice": 2,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 41,
@@ -740,6 +740,19 @@
    "arithmetic_side_effects": 3,
    "cast_possible_truncation": 0
   },
+  "cmux-terminal-prediction": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 23,
+   "cast_possible_truncation": 0
+  },
   "cmux-terminal-sizing": {
    "unwrap_used": 0,
    "expect_used": 6,
@@ -781,7 +794,7 @@
   },
   "cmux-tui": {
    "unwrap_used": 354,
-   "expect_used": 70,
+   "expect_used": 69,
    "panic": 1,
    "unreachable": 30,
    "todo": 0,
@@ -819,14 +832,14 @@
    "cast_possible_truncation": 1
   },
   "cmux-tui-core": {
-   "unwrap_used": 1035,
-   "expect_used": 173,
+   "unwrap_used": 1021,
+   "expect_used": 172,
    "panic": 2,
-   "unreachable": 24,
+   "unreachable": 22,
    "todo": 0,
    "unimplemented": 0,
    "indexing_slicing": 853,
-   "string_slice": 52,
+   "string_slice": 50,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 875,
    "cast_possible_truncation": 92

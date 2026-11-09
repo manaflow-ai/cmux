@@ -40,31 +40,30 @@ enum BookmarkHandlers {
         registry.bind("bookmark.openInNewTab", run: { invocation in try open(invocation, resolver, services, .newTab) })
         registry.bind("bookmark.openInBackgroundTab", run: { invocation in try open(invocation, resolver, services, .backgroundTab) })
         registry.bind("bookmark.openAll", run: { invocation in
-            let profile = resolver.profile(invocation)
-            let node = try resolver.node(invocation, profile: profile)
-            BookmarkOpener(services: services).openAll(in: node.isFolder ? node.id : node.parent, profile: profile)
+            try resolver.withNode(invocation) { node, profile in
+                BookmarkOpener(services: services).openAll(in: node.isFolder ? node.id : node.parent, profile: profile)
+            }
         })
         registry.bind("bookmark.edit", run: { invocation in try edit(invocation, resolver, services) })
         registry.bind("bookmark.move", run: { invocation in
-            let profile = resolver.profile(invocation)
-            let node = try resolver.node(invocation, profile: profile)
-            let folder = try resolver.folder(invocation, profile: profile)
-            let index = invocation["index"]?.intValue ?? services.bookmarks.tree(profile).children(of: folder).count
-            try apply(services, .move(id: node.id, parent: folder, index: index), profile)
+            try resolver.withNode(invocation) { node, profile in
+                let folder = try resolver.folder(invocation, profile: profile)
+                let index = invocation["index"]?.intValue ?? services.bookmarks.tree(profile).children(of: folder).count
+                try apply(services, .move(id: node.id, parent: folder, index: index), profile)
+            }
         })
         registry.bind("bookmark.copyLink", run: { invocation in
-            let node = try resolver.node(invocation, profile: resolver.profile(invocation))
-            guard let url = node.url else { throw ActionFailure(message: BookmarkAppStrings.folderHasNoLink) }
-            context.copy(url.absoluteString)
+            try resolver.withNode(invocation) { node, _ in
+                guard let url = node.url else { throw ActionFailure(message: BookmarkAppStrings.folderHasNoLink) }
+                context.copy(url.absoluteString)
+            }
         })
         // A folder's menu leaves Copy Bookmark Link out (quiet: building a menu never refuses).
         ActionTargetVisibility.hide("bookmark.copyLink", in: registry) { invocation in
             (try? resolver.node(invocation, profile: resolver.profile(invocation)))?.isFolder == true
         }
         registry.bind("bookmark.remove", run: { invocation in
-            let profile = resolver.profile(invocation)
-            let node = try resolver.node(invocation, profile: profile)
-            try apply(services, .delete(id: node.id), profile)
+            try resolver.withNode(invocation) { node, profile in try apply(services, .delete(id: node.id), profile) }
         })
         registry.bind("bookmark.toggleBar", run: { _ in
             let shown = !services.bookmarks.isBarShown
@@ -80,7 +79,7 @@ enum BookmarkHandlers {
         registry.bind("bookmark.manager", run: { _ in services.bookmarkPages.open() })
         registry.bind("bookmark.import", run: { invocation in
             let profile = resolver.profile(invocation)
-            guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
+            guard let path = invocation.callerNamedSource("path") else {
                 return BookmarkFiles(services: services).chooseImport(profile: profile)
             }
             BookmarkFiles(services: services).importFile(URL(filePath: (path as NSString).expandingTildeInPath), profile: profile)
@@ -88,7 +87,7 @@ enum BookmarkHandlers {
         registry.bind("bookmark.importFromBrowser", run: { invocation in
             let profile = resolver.profile(invocation)
             let window = context.activeWindow?.window
-            guard let browser = invocation["browser"]?.stringValue, !browser.isEmpty else {
+            guard let browser = invocation.callerNamedSource("browser") else {
                 return BookmarkBrowserImport(services: services).choose(profile: profile, window: window)
             }
             // CLI and agents (bookmarks are not secrets, I5): name the browser, optionally the profile.
@@ -107,7 +106,7 @@ enum BookmarkHandlers {
         })
         registry.bind("bookmark.export", run: { invocation in
             let profile = resolver.profile(invocation)
-            guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
+            guard let path = invocation.callerNamedSource("path") else {
                 return BookmarkFiles(services: services).chooseExport(profile: profile)
             }
             BookmarkFiles(services: services).exportFile(URL(filePath: (path as NSString).expandingTildeInPath), profile: profile)
@@ -122,8 +121,11 @@ enum BookmarkHandlers {
 
     private static func open(_ invocation: ActionInvocation, _ resolver: BookmarkResolver, _ services: AppServices,
                              _ disposition: BookmarkOpenDisposition) throws {
-        let profile = resolver.profile(invocation)
-        let node = try resolver.node(invocation, profile: profile)
+        try resolver.withNode(invocation) { node, profile in try open(node, profile, invocation, services, disposition) }
+    }
+
+    private static func open(_ node: BookmarkNode, _ profile: String, _ invocation: ActionInvocation, _ services: AppServices,
+                             _ disposition: BookmarkOpenDisposition) throws {
         // Agents never open Chromium's own pages, also not through a bookmark (AgentURLPolicy).
         if invocation.origin != .user {
             let urls = node.isFolder ? services.bookmarks.tree(profile).children(of: node.id).compactMap(\.url) : [node.url].compactMap { $0 }
@@ -136,8 +138,10 @@ enum BookmarkHandlers {
     /// With a name or URL argument the edit applies at once (CLI); else the
     /// edit bubble opens on the focused tab's star, or the manager page.
     private static func edit(_ invocation: ActionInvocation, _ resolver: BookmarkResolver, _ services: AppServices) throws {
-        let profile = resolver.profile(invocation)
-        let node = try resolver.node(invocation, profile: profile)
+        try resolver.withNode(invocation) { node, profile in try edit(node, profile, invocation, services) }
+    }
+
+    private static func edit(_ node: BookmarkNode, _ profile: String, _ invocation: ActionInvocation, _ services: AppServices) throws {
         let title = invocation["title"]?.stringValue
         let url = try invocation["url"]?.stringValue.map { text in
             guard let url = BookmarkURL.parse(text) else { throw ActionFailure(message: BookmarkAppStrings.invalidURL) }

@@ -24,15 +24,19 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
     public var state: RemoteSessionState
     /// Upstream media (microphone, camera, screen share) of the session.
     public var upstream: RemoteUpstreamStatus
+    /// Why the session ended, in one short line from the transport (an rd carrier's close reason);
+    /// nil while live and when the transport gives none. Read by tools, never shown in the pane.
+    public var endReason: String?
 
     public init(
         path: RemotePath = .direct, rttMs: Int? = nil, lossPercent: Double = 0, state: RemoteSessionState,
-        upstream: RemoteUpstreamStatus = RemoteUpstreamStatus()
+        upstream: RemoteUpstreamStatus = RemoteUpstreamStatus(), endReason: String? = nil
     ) {
         self.path = path
         self.rttMs = rttMs
         self.lossPercent = lossPercent
         self.state = state
         self.upstream = upstream
+        self.endReason = endReason
     }
 }

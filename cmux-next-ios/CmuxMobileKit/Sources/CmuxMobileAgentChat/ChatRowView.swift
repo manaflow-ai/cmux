@@ -122,7 +122,7 @@ struct ChatRowView: View {
         case .permission(let record, let offersChoices):
             let surface = context.surface
             PermissionCard(record: record, agentName: store.summary.agentName,
-                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth) { surface.showPermissionChoices() } } : nil)
+                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() } } : nil)
         case .question(let question):
             VStack(alignment: .leading, spacing: 10) {
                 QuestionCard(question: question) { store.answer(question, with: $0) }
@@ -156,8 +156,9 @@ struct ChatRowView: View {
             }
         case .nextStep(let ask, let answer, let canAnswer):
             NextStepCard(ask: ask, answer: answer, canAnswer: canAnswer) { option in
-                // The answer goes as the next prompt (`session/prompt`), in the agent's own words.
-                store.send(prompt: option.label)
+                // The answer goes as the next prompt (`session/prompt`), in the agent's own words,
+                // quoting the ask it answers as the Mac's card does.
+                store.send(prompt: ask.answerPrompt(option.label, asker: store.summary.agentName))
             }
         case .whoElse(let id, let call):
             WhoElseCard(id: id, call: call, open: openWhoElse)

@@ -261,6 +261,11 @@ pub(crate) fn status_line(v: &Value) -> String {
     if v.pointer("/accepted/steer") == Some(&json!(true)) {
         line.push_str("  (steered)");
     }
+    if v.pointer(&format!("/accepted/{}", super::super::output::HELD_IN_INBOX))
+        == Some(&json!(true))
+    {
+        line.push_str(&format!("  ({})", super::super::output::HELD_LINE));
+    }
     if let Some(error) = v.get("error").and_then(Value::as_str) {
         line.push_str(&format!("  last error: {error}"));
     }
