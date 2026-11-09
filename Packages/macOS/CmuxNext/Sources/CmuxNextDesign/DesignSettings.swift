@@ -255,6 +255,10 @@ public final class DesignSettings {
     public var terminalConfigFontFamily: String? {
         didSet { repaintIfTerminalFaceChanged(from: terminalFontFamily ?? oldValue) }
     }
+    /// The full Ghostty `font-family` fallback chain, in config precedence order.
+    public var terminalConfigFontFamilies: [String] = [] {
+        didSet { if terminalConfigFontFamilies != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
     public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
