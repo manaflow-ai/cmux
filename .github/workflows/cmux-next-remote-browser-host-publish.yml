@@ -10,7 +10,7 @@ name: cmux NEXT remote browser host publish
 #
 # resolve  the branch's commit (a branch of this repository, so no fork code
 #          reaches a build Mac), its pinned CEF and the crate's tree. No secret.
-# build    on a macOS runner: fetches the pinned CEF archive from R2 with the
+# build    on an ephemeral macOS VM (it holds a token): fetches the pinned CEF archive from R2 with the
 #          read-only token (ensure-cef.sh checks it against the manifest
 #          sha256), then `cargo build --release --locked` with a job-local
 #          Rust toolchain (the one cmux-tui/rust-toolchain.toml names).
@@ -94,7 +94,9 @@ jobs:
   build:
     name: Build the host
     needs: resolve
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    # It holds the read-only R2 token, so it runs on one fixed ephemeral VM that no
+    # repository variable can move to an owned Mac (test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     permissions:
       contents: read
