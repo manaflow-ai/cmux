@@ -107,6 +107,11 @@ nonisolated enum AcpmuxPaneMethods {
         // chat's). Both only for a chat in scope; the save only on the Save click. Neither changes a
         // running chat.
         "_acpmux/context", "_acpmux/context_override",
+        // History's Waiting on you and Costs (queue/, ledger/): acpmux's cost ledger index, the asks
+        // waiting on the person across agents and machines, and the approvals audit trail, all
+        // reads acpmux answers to this Mac's app only. `_acpmux/review_verdict` records a pull
+        // request item's Accept or Request changes, only on the person's click or key (``gestureRules``).
+        "_acpmux/ledger", "_acpmux/review_queue", "_acpmux/review_verdict", "_acpmux/audit",
         // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
         // which a pending chat's access chip names. Read only.
         "_acpmux/start_mode",
@@ -321,9 +326,12 @@ nonisolated enum AcpmuxPaneMethods {
     /// card names that child chat, which the pane shows only as a card, so from outside the scope it
     /// takes the click's scope credit, as an attach of the child would; that attach would let the
     /// same click send it a prompt, which grants more than a Retry of its failed turn.
+    /// `_acpmux/review_verdict` (Waiting on you's Accept and Request changes, which can send the
+    /// chat a prompt) follows it too: History holds no chat, so the verdict's click is what brings
+    /// its chat in, and a click already spent bringing in another chat leaves it refused.
     public static let sourceScoped: Set<String> = [
         "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
-        "_acpmux/handoff_discard", "_acpmux/retry",
+        "_acpmux/handoff_discard", "_acpmux/retry", "_acpmux/review_verdict",
     ]
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
@@ -387,6 +395,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/app_reply": .always,
         // Approve sends a guest's held prompt to the agent; Decline drops it: no gesture.
         "_acpmux/queue_approve": .always,
+        // A verdict on a pull request may send its chat a prompt (Request changes).
+        "_acpmux/review_verdict": .always,
         // A Cloud sign-in changes the machine's provider identity, so it starts only on the person's
         // click (Sign in), and a key is saved only on theirs (Save). Finish completes only a login
         // such a click started (acpmux keeps the login by its id); its Continue keeps its gesture

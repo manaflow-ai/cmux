@@ -124,8 +124,9 @@ struct AgentPaneAttachDroppedTests {
     }
 
     /// What a new chat's first send may carry to Cloud (``AgentPaneModel/cloudCarriedFiles(_:)``):
-    /// a file the person's own drop handed the page, and a file this app saved under Chat Uploads;
-    /// never a folder, a path page script made up, or a `saved` chip outside Chat Uploads.
+    /// a file or folder the person's own drop handed the page, and a file this app saved under Chat
+    /// Uploads; never a path page script made up, a folder the drop didn't name, or a `saved` chip
+    /// outside Chat Uploads.
     @Test func aFirstCloudSendCarriesOnlyFilesThisPaneAuthorized() async throws {
         let (base, folder, file) = try Self.dropped()
         defer { try? FileManager.default.removeItem(at: base) }
@@ -145,12 +146,12 @@ struct AgentPaneAttachDroppedTests {
         #expect(await rig.model.cloudCarriedFiles([chip(file.path)]).files.isEmpty, "a path the page named before any drop")
         rig.model.droppedPaths.stash([folder, file], kind: .drop)
         _ = await rig.ask("drop", ["docs", "build.zip"])
-        #expect(rig.model.droppedPaths.linkedFiles == [file.path], "files only, never the folder")
+        #expect(rig.model.droppedPaths.linkedFiles == [folder.path, file.path], "the drop's folder and file")
         let carried = await rig.model.cloudCarriedFiles([
             chip(file.path), chip(folder.path), chip(outside.path), chip(saved.path, saved: true), chip(outside.path, saved: true),
-            chip(uploads.path + "/../outside.txt", saved: true),
+            chip(uploads.path + "/../outside.txt", saved: true), chip(base.path), chip(uploads.path, saved: true),
         ])
-        #expect(carried.files == [file.path, saved.path])
+        #expect(carried.files == [file.path, folder.path, saved.path], "a folder the drop never named, or a saved one, isn't carried")
         #expect(carried.saved == [saved.path], "a Chat Uploads file is staged first: the upload CLI never reads ~/Library")
         // A drop of more files than one batch held before still authorizes every one.
         let many = (0..<1500).map { "/tmp/many-\($0).bin" }

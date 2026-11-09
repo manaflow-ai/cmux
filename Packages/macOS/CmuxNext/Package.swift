@@ -1941,6 +1941,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (moved out of CmuxNextApp to keep it under its size cap).
         .target(
             name: "CmuxNextCLIInstall",
+            dependencies: ["CmuxNextCompat"],
+            resources: [.process("Resources")],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCLIInstallTests",
+            dependencies: ["CmuxNextCLIInstall"],
             swiftSettings: daemonSwiftSettings
         ),
         // The freeze gate for this process's environment writes (libghostty

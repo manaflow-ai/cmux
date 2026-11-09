@@ -156,6 +156,9 @@ pub struct Conn {
     /// The paired machine whose credential it presented (`ConnAuth::Device`
     /// or `ReadOnlyDevice`), from the handshake only, never from a request.
     device: Option<String>,
+    /// The person the Cloud carrier attested (`carrier.rs`), from the carrier socket's upgrade
+    /// header only, never from a request. Set exactly when `auth` is a carrier proof.
+    carrier: Option<carrier::Attested>,
     /// It reads session text raw (`peer_text.rs`): every origin but a peer.
     raw_text: bool,
     name: StdMutex<String>,
@@ -1143,6 +1146,10 @@ pub async fn serve_ws_until(
                 if let Err(refusal) = policy.check(&values("host"), &values("origin")) {
                     return Err(refuse(refusal));
                 }
+                // The Cloud carrier's header is read on the carrier socket only (`carrier.rs`).
+                if !values(carrier::HEADER).is_empty() {
+                    return Err(carrier::wrong_socket_response());
+                }
                 *record_origins.lock().unwrap_or_else(|e| e.into_inner()) =
                     values("origin").into_iter().map(str::to_owned).collect();
                 *record_peer.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -1330,7 +1337,7 @@ pub async fn serve_ws_until(
                 }
                 None => (origin, proof, None),
             };
-            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, SocketPeer::Unknown, device, Some(wire))
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, SocketPeer::Unknown, device, Some(wire), None)
                 .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
@@ -1515,6 +1522,7 @@ pub(super) async fn serve_outbox_connection(
         SocketPeer::Outbox,
         None,
         None,
+        None,
     )
     .await
 }
@@ -1540,30 +1548,6 @@ pub async fn serve_connection_authed(
         SocketPeer::Unknown,
         None,
         None,
-    )
-    .await
-}
-
-/// A paired machine's connection, served as its role says
-/// (`pairing::origin_of`): the WebSocket listener's, once the handshake
-/// proved `device`'s credential, or an in-process caller that vouches for it.
-pub async fn serve_connection_device(
-    hub: Arc<Hub>,
-    inbound: mpsc::Receiver<String>,
-    out: mpsc::Sender<String>,
-    device: crate::pairing::DeviceAuth,
-) {
-    let (origin, auth) = pairing::origin_of(&device);
-    serve_connection_from(
-        hub,
-        inbound,
-        out,
-        origin,
-        auth,
-        None,
-        false,
-        SocketPeer::Unknown,
-        Some(device.id),
         None,
     )
     .await
@@ -1581,7 +1565,11 @@ async fn serve_connection_from(
     socket_peer: SocketPeer,
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
+    carrier: Option<carrier::Attested>,
 ) {
+    // A carrier proof comes with the person the carrier socket read, and only with it.
+    let carried = matches!(auth, ConnAuth::CarrierOwner | ConnAuth::CarrierTeam);
+    let auth = if carried != carrier.is_some() { ConnAuth::None } else { auth };
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
@@ -1595,6 +1583,7 @@ async fn serve_connection_from(
         origin,
         auth,
         device,
+        carrier,
         raw_text,
         name: StdMutex::new(String::new()),
         presence: client.presence(),
@@ -1630,7 +1619,7 @@ async fn serve_connection_from(
         preparation_cancels: StdMutex::new(HashMap::new()),
         // A peer daemon's link carries all its clients' reads, which it caps one by one
         // (`media_forward.rs`).
-        media: if auth == ConnAuth::PeerToken {
+        media: if auth.peer_daemon() {
             crate::hub::media_handles::Handles::for_peer_link()
         } else {
             crate::hub::media_handles::Handles::default()
@@ -1764,6 +1753,9 @@ async fn serve_connection_from(
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
+            // A teammate through the carrier stops a turn, nothing else (`carrier.rs`).
+            Message::Notification { method: m, params }
+                if !carrier::takes_notification(&hub, &conn, &m, params.as_ref()) => {}
             Message::Notification { method: m, params: _ } if conn.is_trigger() => {
                 tracing::debug!(conn = %conn.id, method = %m, "ignoring notification on trigger connection");
             }
@@ -1803,7 +1795,7 @@ async fn serve_connection_from(
             }
             // An answer to a request this daemon sent the client (`client_request.rs`).
             Message::Response { id, result, error } => {
-                if !conn.is_trigger() {
+                if !conn.is_trigger() && conn.auth != ConnAuth::CarrierTeam {
                     conn.settle_client_request(&id, result, error);
                 }
             }
@@ -2082,6 +2074,7 @@ pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
+pub mod carrier;
 mod chats;
 pub mod conn_auth;
 mod durable_gate;
@@ -2120,6 +2113,7 @@ use outbound::{
 };
 pub(crate) mod outbox;
 mod pairing;
+pub use pairing::serve_connection_device;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;
