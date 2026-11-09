@@ -865,13 +865,13 @@ mod tests {
         seed_record, seeded, settle_fill,
     };
 
+    /// The ops a scripted machine was asked, in order.
+    type Asked = std::rc::Rc<std::cell::RefCell<Vec<String>>>;
+
     /// A machine that answers each op from `answers` in turn, keeping the ops it was asked.
     fn machine(
         answers: Vec<Result<Value, &'static str>>,
-    ) -> (
-        impl FnMut(&str, Value) -> Result<Value, SeedError>,
-        std::rc::Rc<std::cell::RefCell<Vec<String>>>,
-    ) {
+    ) -> (impl FnMut(&str, Value) -> Result<Value, SeedError>, Asked) {
         let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let seen = asked.clone();
         let mut answers = answers.into_iter();
