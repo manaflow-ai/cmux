@@ -7,7 +7,8 @@
 //! newest frame. Escapes are stripped, tabs become spaces, other control
 //! characters are dropped and runs of spaces fold to one. A line that is
 //! blank after that never replaces the tail. A line keeps at most its first
-//! `MAX_LINE_BYTES`; the shown tail is cut to `MAX_TAIL_CHARS`.
+//! `MAX_LINE_BYTES`; the shown tail is cut to `MAX_TAIL_CHARS` and
+//! `MAX_TAIL_BYTES`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -18,6 +19,9 @@ pub(crate) const MAX_LINE_BYTES: usize = 1024;
 /// The tail is cut to this many chars (a status entry takes 512 bytes; the
 /// sidebar row shows far fewer).
 pub(crate) const MAX_TAIL_CHARS: usize = 160;
+/// And to this many bytes, under the status store's 512-byte text limit
+/// (`MAX_STATUS_TEXT_BYTES`), so a wide line is cut, never refused.
+pub(crate) const MAX_TAIL_BYTES: usize = 480;
 /// A pinned terminal publishes its tail at most this often.
 pub(crate) const PUBLISH_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -138,7 +142,7 @@ pub(crate) fn clean_line(raw: &str) -> String {
         if ch.is_control() || (ch == ' ' && (out.is_empty() || out.ends_with(' '))) {
             continue;
         }
-        if chars == MAX_TAIL_CHARS {
+        if chars == MAX_TAIL_CHARS || out.len() + ch.len_utf8() > MAX_TAIL_BYTES {
             break;
         }
         out.push(ch);

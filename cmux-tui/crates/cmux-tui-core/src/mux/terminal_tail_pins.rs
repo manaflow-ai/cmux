@@ -32,6 +32,10 @@ const TAIL_ICON: &str = "terminal";
 pub(crate) struct TerminalTailPins {
     state: Mutex<PinsState>,
     wake: Condvar,
+    /// Held across one publication's take and commit, and by an unpin or an
+    /// exit across its removal and clear: a publication that took a line
+    /// before the unpin commits before the clear, never after it.
+    publishing: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -98,6 +102,7 @@ impl Mux {
                 self.queue_terminal_tail(id);
             }
         } else if slot.set_pinned(false, None) {
+            let _publishing = self.terminal_tail_pins.publishing();
             let pin = {
                 let mut state = self.terminal_tail_pins.lock();
                 state.due.remove(&id);
@@ -159,6 +164,7 @@ impl Mux {
         if !slot.set_pinned(false, None) {
             return;
         }
+        let _publishing = self.terminal_tail_pins.publishing();
         let pin = {
             let mut state = self.terminal_tail_pins.lock();
             state.due.remove(&id);
@@ -175,10 +181,20 @@ impl Mux {
     pub(crate) fn clear_stale_terminal_tails(&self) {
         let stale = self.read_registry_state(|connection| {
             let mut statement = connection.prepare(
-                "SELECT workspace_id, status_key FROM workspace_status_entries
-                 WHERE substr(status_key, 1, 5) = ?1",
+                // Only this feature's records: key `tail:<term id>`, icon
+                // `terminal`, owned by that same terminal. A person's or a
+                // script's own `tail:` key is never one of them.
+                "SELECT entry.workspace_id, entry.status_key
+                 FROM workspace_status_entries AS entry
+                 JOIN workspace_status_meta AS meta
+                   ON meta.workspace_id = entry.workspace_id
+                  AND meta.status_key = entry.status_key
+                 WHERE substr(entry.status_key, 1, 5) = ?1
+                   AND entry.icon = ?2
+                   AND meta.owner_terminal = substr(entry.status_key, 6)
+                   AND meta.target_terminal = meta.owner_terminal",
             )?;
-            let rows = statement.query_map([TAIL_KEY_PREFIX], |row| {
+            let rows = statement.query_map([TAIL_KEY_PREFIX, TAIL_ICON], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
             Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -199,6 +215,7 @@ impl Mux {
     /// Publish the tail of `runtime` now, if it changed. Returns false when
     /// the pin is gone (its terminal closed).
     fn publish_terminal_tail(self: &Arc<Self>, runtime: SurfaceId) -> bool {
+        let _publishing = self.terminal_tail_pins.publishing();
         let (view, surface, key, previous) = {
             let state = self.terminal_tail_pins.lock();
             let Some(pin) = state.pins.get(&runtime) else { return false };
@@ -279,6 +296,10 @@ impl Mux {
 impl TerminalTailPins {
     fn lock(&self) -> std::sync::MutexGuard<'_, PinsState> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn publishing(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.publishing.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     #[cfg(test)]

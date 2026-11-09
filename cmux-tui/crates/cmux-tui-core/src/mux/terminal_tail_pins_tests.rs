@@ -147,6 +147,57 @@ fn an_ended_terminal_drops_its_pin_and_its_line() {
 }
 
 #[test]
+fn a_restart_keeps_a_status_key_that_only_looks_like_a_tail() {
+    let f = fixture("tail-pin-foreign");
+    // A script's own entry under a `tail:` key, not made by a pin.
+    let selectors =
+        crate::ResourceSelectors { workspace: Some(f.workspace.clone()), ..Default::default() };
+    f.mux
+        .state_workspace_status(
+            &WorkspaceMutation::daemon_local("test"),
+            "workspace_status.set",
+            None,
+            &selectors,
+            WorkspaceStatusChange::Set {
+                key: "tail:deploy".into(),
+                text: "watching".into(),
+                icon: None,
+                color: None,
+                meta: Box::default(),
+            },
+        )
+        .unwrap();
+    f.mux.clear_stale_terminal_tails();
+    assert_eq!(f.tails(), vec![("tail:deploy".to_owned(), "watching".to_owned())]);
+}
+
+#[test]
+fn an_unpin_during_a_publication_is_never_undone() {
+    let f = fixture("tail-pin-race");
+    f.mux.set_terminal_tail_pin(f.surface.id, true).unwrap();
+    for round in 0..20 {
+        f.print(format!("round {round}\n").as_bytes());
+        // Unpin while the publisher may be committing this line.
+        f.mux.set_terminal_tail_pin(f.surface.id, false).unwrap();
+        std::thread::sleep(PUBLISH_INTERVAL / 10);
+        assert_eq!(f.tails(), Vec::new(), "round {round}: a publication outlived the unpin");
+        f.mux.set_terminal_tail_pin(f.surface.id, true).unwrap();
+    }
+    // A publication that took its line holds the lock, so the unpin waits for it.
+    let guard = f.mux.terminal_tail_pins.publishing();
+    let unpin = {
+        let mux = f.mux.clone();
+        let id = f.surface.id;
+        std::thread::spawn(move || mux.set_terminal_tail_pin(id, false).unwrap())
+    };
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(!unpin.is_finished(), "an unpin did not wait for the publication in flight");
+    drop(guard);
+    unpin.join().unwrap();
+    assert_eq!(f.tails(), Vec::new());
+}
+
+#[test]
 fn a_restart_clears_the_lines_an_earlier_run_left() {
     let f = fixture("tail-pin-stale");
     f.print(b"left over\n");

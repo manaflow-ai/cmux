@@ -62,6 +62,10 @@ fn a_long_line_is_bounded() {
     // Multibyte text is cut on a char, never mid-way.
     let wide = "é".repeat(MAX_TAIL_CHARS * 2);
     assert_eq!(clean_line(&wide).chars().count(), MAX_TAIL_CHARS);
+    // Four-byte chars hit the byte bound first, under the status store's limit.
+    let emoji = clean_line(&"🚀".repeat(MAX_TAIL_CHARS));
+    assert!(emoji.len() <= MAX_TAIL_BYTES && emoji.len() > MAX_TAIL_BYTES - 4, "{}", emoji.len());
+    assert!(MAX_TAIL_BYTES <= crate::state::workspace_status_store::MAX_STATUS_TEXT_BYTES);
 }
 
 #[test]
