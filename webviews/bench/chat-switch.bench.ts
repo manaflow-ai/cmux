@@ -579,7 +579,7 @@ try {
         target: 5,
         floor: 2,
         clock: "cpu",
-        version: 2,
+        version: 3,
       });
   }
 } finally {

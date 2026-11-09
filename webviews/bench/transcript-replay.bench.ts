@@ -56,6 +56,7 @@ import {
   slope,
   type ReplayLog,
 } from "./replayLogs";
+import { cpuSession } from "./stability";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -451,9 +452,13 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
     if (measureIdle) {
       // Two seconds more first: a chat's own settling (fold timers, deferred measurement) is not idle work.
       await page.waitForTimeout(2000);
-      const idleBefore = await metric(cdp, "TaskDuration");
+      // CPU time, not TaskDuration (wall time, which grows while a task waits on a busy host), from a session of its
+      // own so the per-token rows' session keeps its wall-clock domain.
+      const idleCdp = await cpuSession(page, true);
+      const idleBefore = await metric(idleCdp!, "ThreadTime");
       await page.waitForTimeout(3000);
-      idleMsPerS = (((await metric(cdp, "TaskDuration")) - idleBefore) * 1000) / 3;
+      idleMsPerS = (((await metric(idleCdp!, "ThreadTime")) - idleBefore) * 1000) / 3;
+      await idleCdp!.detach();
     }
     const heapAfter = await heapMb(cdp);
     const { shifts, long } = await page.evaluate((since) => {
@@ -610,7 +615,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
         p95: longLive.idleMsPerS,
         target: BUDGET.idleMsPerS,
         clock: "cpu",
-        version: 2,
+        version: 3,
         floor: 0.5,
       },
       `the pane keeps working (${longLive.idleMsPerS} ms each second) after the replay settled: idle CPU`,
