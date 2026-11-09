@@ -71,11 +71,22 @@ test("a reply draws each verdict's mark, and a run's mark is a button only with 
   expect(html).toContain('data-claim-verdict="backed"');
   expect(html).toContain('data-claim-verdict="failed"');
   expect(html).toContain('data-claim-verdict="none"');
-  expect(html.match(/<button[^>]*cv-claim/g)?.length).toBe(2);
+  // Inline links that wrap as text, never atomic <button> boxes.
+  expect(html).not.toContain("<button");
+  expect(html.match(/<a [^>]*cv-claim/g)?.length).toBe(2);
   // Without a transcript to jump in (a gallery, another surface), the marks are plain text.
   const bare = renderToStaticMarkup(<Markdown claims={[backed]}>{"All tests pass."}</Markdown>);
-  expect(bare).not.toContain("<button");
+  expect(bare).not.toContain("<a ");
   expect(bare).toContain("cv-claim--backed");
+});
+
+test("a claim inside a link's label draws no mark: a link holds no link", () => {
+  const html = renderToStaticMarkup(
+    <TurnActionsContext.Provider value={{ showCall: () => true }}>
+      <Markdown claims={[backed]}>{"See [All tests pass](https://example.com/ci)."}</Markdown>
+    </TurnActionsContext.Provider>,
+  );
+  expect(html).not.toContain("cv-claim");
 });
 
 test("a claim inside code or one the reply does not hold draws no mark", () => {

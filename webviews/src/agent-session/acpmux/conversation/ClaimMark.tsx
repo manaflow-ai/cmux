@@ -48,15 +48,20 @@ export function ClaimMark({ claim, children }: { claim: ClaimCheck; children: Re
       </span>
     );
   return (
-    <button
-      type="button"
+    // A link, not a <button>: a button is an atomic inline box, so a phrase that wrapped as text
+    // would jump onto one line when its turn's checks arrive. Going to the run is navigation.
+    <a
+      href={`#tool-${toolCallId}`}
       className={className}
       title={label}
       aria-label={label}
       data-claim-verdict={claim.verdict}
-      onClick={() => showCall(toolCallId)}
+      onClick={(event) => {
+        event.preventDefault();
+        showCall(toolCallId);
+      }}
     >
       {body}
-    </button>
+    </a>
   );
 }

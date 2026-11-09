@@ -241,3 +241,12 @@ fn pnpm_run_runs_a_package_script() {
     let runs = turn(&[("b1", "pnpm run build", 0)]);
     assert_eq!(check("The build succeeds.", &runs)[0].verdict, "backed");
 }
+
+#[test]
+fn a_background_step_or_a_build_only_test_run_backs_nothing() {
+    // Review of #39244 at 972cdc775d4: `&` mid-chain and `cargo test --no-run`.
+    for command in ["cargo test & echo queued", "cargo test --no-run", "cargo test -- --list"] {
+        let runs = turn(&[("t1", command, 0)]);
+        assert!(check("All tests pass.", &runs).iter().all(|c| c.verdict == "none"), "{command}");
+    }
+}

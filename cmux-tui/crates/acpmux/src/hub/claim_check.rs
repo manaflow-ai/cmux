@@ -309,7 +309,8 @@ fn steps(command: &str) -> Vec<(&str, bool)> {
             let speaks = !multi_line
                 && !bare.contains('|')
                 && !bare.contains(';')
-                && !bare.trim_end().ends_with('&');
+                // `cmd & other`: the chain's status is the later command's.
+                && !bare.contains('&');
             (step, speaks)
         })
         .collect()
@@ -383,6 +384,12 @@ fn classify_simple(part: &str) -> u8 {
     let sub = args.iter().find(|a| !a.starts_with('-')).copied().unwrap_or("");
     match program {
         "cargo" => match sub {
+            // `--no-run` and `--list` only build or list the tests.
+            "test" | "nextest" | "t"
+                if args.iter().any(|a| matches!(*a, "--no-run" | "--list")) =>
+            {
+                0
+            }
             "test" | "nextest" | "t" => TESTS,
             "build" | "b" => BUILD,
             "check" | "c" => BUILD | TYPECHECK,

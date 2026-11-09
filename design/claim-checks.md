@@ -22,8 +22,9 @@ runs in the background. A mark is never a guess.
 The shipped treatment colors the phrase's underline: success green when backed, danger red when
 failed, and a dashed danger underline when nothing ran. Hovering shows what backs the claim ("Backed:
 cargo test passed in this turn"). A click shows the run's row and opens the turn's "Worked for" fold
-if the row is inside it (`showCall`, the waterfall's jump). The mark adds no width and no height, so
-nothing on the reply's lines moves when a turn's checks arrive. It draws only on a finished reply,
+if the row is inside it (`showCall`, the waterfall's jump). The mark is an inline link, never a button
+(a button is an atomic box that would pull a wrapped phrase onto one line). It adds no width and no
+height, so nothing on the reply's lines moves when a turn's checks arrive. It draws only on a finished reply,
 never on text that is still revealing, and it has no animation, timer or observer, with or without
 Reduce Motion.
 

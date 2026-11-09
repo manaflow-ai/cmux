@@ -2,10 +2,7 @@
    colors the phrase's underline: no width or height changes, so a turn's checks arriving moves no line. */
 .cv-claim {
   --cv-claim-color: var(--ds-color-danger);
-  all: unset;
-  display: inline;
   color: inherit;
-  font: inherit;
   text-decoration-line: underline;
   text-decoration-style: solid;
   text-decoration-thickness: 1.5px;
@@ -19,11 +16,11 @@
 .cv-claim--none {
   text-decoration-style: dashed;
 }
-button.cv-claim:hover {
+a.cv-claim:hover {
   text-decoration-color: var(--cv-claim-color);
   background: color-mix(in srgb, var(--cv-claim-color) 10%, transparent);
 }
-button.cv-claim:focus-visible {
+a.cv-claim:focus-visible {
   outline: 2px solid var(--cv-claim-color);
   outline-offset: 1px;
 }
