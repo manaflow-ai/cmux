@@ -18,7 +18,8 @@ fn runs() -> (ShellRuns, Home) {
     let id = new_id().expect("random");
     let home = Home(std::env::temp_dir().join(format!("cmux-shell-runs-{id}")));
     std::fs::create_dir_all(home.path()).expect("home");
-    let runs = ShellRuns::new(Config { shell: PathBuf::from("/bin/sh"), home: home.path().to_path_buf() });
+    let runs =
+        ShellRuns::new(Config { shell: PathBuf::from("/bin/sh"), home: home.path().to_path_buf() });
     (runs, home)
 }
 
@@ -42,7 +43,9 @@ fn read_to_end(runs: &ShellRuns, id: &str) -> (String, Exit) {
 fn a_command_runs_in_its_folder_with_stdout_and_stderr_and_its_exit_code() {
     let (runs, home) = runs();
     std::fs::create_dir(home.path().join("chat")).expect("folder");
-    let id = runs.run("pane", 1, "pwd; echo out; echo err >&2; echo $TERM $PAGER; exit 3", Some("~/chat")).expect("run");
+    let id = runs
+        .run("pane", 1, "pwd; echo out; echo err >&2; echo $TERM $PAGER; exit 3", Some("~/chat"))
+        .expect("run");
     let (output, exit) = read_to_end(&runs, &id);
     let folder = home.path().join("chat").canonicalize().expect("canonical");
     assert!(output.contains(folder.to_str().expect("utf-8")), "{output}");
@@ -65,16 +68,23 @@ fn a_missing_folder_or_an_empty_command_is_refused() {
     let (runs, home) = runs();
     let missing = home.path().join("nope");
     assert_eq!(runs.run("pane", 1, "true", missing.to_str()).err(), Some(Refusal::FolderMissing));
-    assert_eq!(runs.run("pane", 1, "true", Some("relative/path")).err(), Some(Refusal::FolderMissing));
+    assert_eq!(
+        runs.run("pane", 1, "true", Some("relative/path")).err(),
+        Some(Refusal::FolderMissing)
+    );
     assert_eq!(runs.run("pane", 1, "   ", None).err(), Some(Refusal::Invalid));
-    assert_eq!(runs.run(&"s".repeat(MAX_SCOPE_BYTES + 1), 1, "true", None).err(), Some(Refusal::Invalid));
+    assert_eq!(
+        runs.run(&"s".repeat(MAX_SCOPE_BYTES + 1), 1, "true", None).err(),
+        Some(Refusal::Invalid)
+    );
     assert_eq!(runs.kept(), 0);
 }
 
 #[test]
 fn at_most_four_run_per_scope_and_a_finished_one_frees_its_place() {
     let (runs, _home) = runs();
-    let ids: Vec<_> = (0..MAX_RUNNING).map(|_| runs.run("pane", 1, "sleep 30", None).expect("run")).collect();
+    let ids: Vec<_> =
+        (0..MAX_RUNNING).map(|_| runs.run("pane", 1, "sleep 30", None).expect("run")).collect();
     assert_eq!(runs.run("pane", 1, "true", None).err(), Some(Refusal::TooMany));
     // Another pane has its own four.
     let other = runs.run("other", 1, "true", None).expect("other scope");
@@ -161,7 +171,8 @@ fn a_background_child_holding_the_pipe_does_not_hold_the_run_open() {
     assert_eq!(exit.code, Some(0));
     assert!(started.elapsed() < Duration::from_secs(5));
     // The leftover sleep is the user's; end it so the test leaves nothing running.
-    let pgid = runs.shared.state.lock().recover_poison().runs.get(&id).map(|run| run.pgid).expect("kept");
+    let pgid =
+        runs.shared.state.lock().recover_poison().runs.get(&id).map(|run| run.pgid).expect("kept");
     signal_group(pgid, libc::SIGKILL);
 }
 
@@ -169,7 +180,9 @@ fn a_background_child_holding_the_pipe_does_not_hold_the_run_open() {
 fn output_past_the_buffer_drops_its_start() {
     let (runs, _home) = runs();
     // 2 MiB of 'x' lines, then the end marker.
-    let id = runs.run("pane", 1, "head -c 2097152 /dev/zero | tr '\\0' x; echo; echo END", None).expect("run");
+    let id = runs
+        .run("pane", 1, "head -c 2097152 /dev/zero | tr '\\0' x; echo; echo END", None)
+        .expect("run");
     // Wait for the exit without reading, so the buffer overflows first.
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
@@ -189,7 +202,15 @@ fn output_past_the_buffer_drops_its_start() {
     let (rest, exit) = read_to_end(&runs, &id);
     assert!(rest.ends_with("END\n"));
     assert_eq!(exit.code, Some(0));
-    let kept = runs.shared.state.lock().recover_poison().runs.get(&id).map(|run| run.buffer.len()).expect("kept");
+    let kept = runs
+        .shared
+        .state
+        .lock()
+        .recover_poison()
+        .runs
+        .get(&id)
+        .map(|run| run.buffer.len())
+        .expect("kept");
     assert_eq!(kept, MAX_BUFFER);
 }
 

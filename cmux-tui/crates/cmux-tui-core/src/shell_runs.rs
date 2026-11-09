@@ -125,16 +125,23 @@ impl Config {
         let shell = std::env::var_os("SHELL")
             .map(PathBuf::from)
             .filter(|shell| shell.is_absolute() && is_executable(shell))
-            .or_else(|| ["/bin/bash", "/bin/sh"].map(PathBuf::from).into_iter().find(|shell| is_executable(shell)))
+            .or_else(|| {
+                ["/bin/bash", "/bin/sh"]
+                    .map(PathBuf::from)
+                    .into_iter()
+                    .find(|shell| is_executable(shell))
+            })
             .unwrap_or_else(|| PathBuf::from("/bin/sh"));
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"));
+        let home =
+            std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"));
         Self { shell, home }
     }
 }
 
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
 pub(crate) struct ShellRuns {
@@ -192,19 +199,35 @@ impl Run {
 
 impl ShellRuns {
     pub(crate) fn new(config: Config) -> Self {
-        Self { shared: Arc::new(Shared { state: Mutex::default(), changed: Condvar::new() }), config }
+        Self {
+            shared: Arc::new(Shared { state: Mutex::default(), changed: Condvar::new() }),
+            config,
+        }
     }
 
     /// Starts `command` in `cwd` (the home folder when `None`; `~` and `~/…` are in it) for
     /// `scope` (one chat pane) on connection `client`, and returns its id.
-    pub(crate) fn run(&self, scope: &str, client: u64, command: &str, cwd: Option<&str>) -> Result<String, Refusal> {
-        if command.trim().is_empty() || command.len() > MAX_COMMAND_BYTES || scope.len() > MAX_SCOPE_BYTES {
+    pub(crate) fn run(
+        &self,
+        scope: &str,
+        client: u64,
+        command: &str,
+        cwd: Option<&str>,
+    ) -> Result<String, Refusal> {
+        if command.trim().is_empty()
+            || command.len() > MAX_COMMAND_BYTES
+            || scope.len() > MAX_SCOPE_BYTES
+        {
             return Err(Refusal::Invalid);
         }
         let folder = self.folder(cwd).ok_or(Refusal::FolderMissing)?;
         let mut state = self.shared.state.lock().recover_poison();
         let running = |scoped: bool| {
-            state.runs.values().filter(|run| run.exit.is_none() && (!scoped || run.scope == scope)).count()
+            state
+                .runs
+                .values()
+                .filter(|run| run.exit.is_none() && (!scoped || run.scope == scope))
+                .count()
         };
         if running(true) >= MAX_RUNNING || running(false) >= MAX_RUNNING_TOTAL {
             return Err(Refusal::TooMany);
@@ -261,7 +284,13 @@ impl ShellRuns {
     }
 
     /// The pipe's reader and the exit's waiter, each on its own thread; false when one did not start.
-    fn watch(&self, id: &str, mut child: cmux_process::Child, output: OwnedFd, wake: OwnedFd) -> bool {
+    fn watch(
+        &self,
+        id: &str,
+        mut child: cmux_process::Child,
+        output: OwnedFd,
+        wake: OwnedFd,
+    ) -> bool {
         let reader_shared = self.shared.clone();
         let reader_id = id.to_owned();
         let reader = std::thread::Builder::new()
@@ -304,7 +333,13 @@ impl ShellRuns {
     }
 
     /// Output after `after`, waiting up to `wait` (at most [`READ_WAIT`]) for some.
-    pub(crate) fn wait_read(&self, _permit: &WaitPermit, id: &str, after: u64, wait: Duration) -> Result<Chunk, Refusal> {
+    pub(crate) fn wait_read(
+        &self,
+        _permit: &WaitPermit,
+        id: &str,
+        after: u64,
+        wait: Duration,
+    ) -> Result<Chunk, Refusal> {
         let deadline = Instant::now() + wait.min(READ_WAIT);
         let mut state = self.shared.state.lock().recover_poison();
         loop {
@@ -340,24 +375,26 @@ impl ShellRuns {
         drop(state);
         let shared = self.shared.clone();
         let id = id.to_owned();
-        let escalation = std::thread::Builder::new().name("shell-run-stop".into()).spawn(move || {
-            for signal in [libc::SIGTERM, libc::SIGKILL] {
-                let deadline = Instant::now() + STOP_ESCALATION;
-                let mut state = shared.state.lock().recover_poison();
-                loop {
-                    // Gone or ended: the group may no longer be this command's.
-                    if state.runs.get(&id).is_none_or(|run| run.exit.is_some()) {
-                        return;
+        let escalation =
+            std::thread::Builder::new().name("shell-run-stop".into()).spawn(move || {
+                for signal in [libc::SIGTERM, libc::SIGKILL] {
+                    let deadline = Instant::now() + STOP_ESCALATION;
+                    let mut state = shared.state.lock().recover_poison();
+                    loop {
+                        // Gone or ended: the group may no longer be this command's.
+                        if state.runs.get(&id).is_none_or(|run| run.exit.is_some()) {
+                            return;
+                        }
+                        let now = Instant::now();
+                        if now >= deadline {
+                            break;
+                        }
+                        state =
+                            shared.changed.wait_timeout(state, deadline - now).recover_poison().0;
                     }
-                    let now = Instant::now();
-                    if now >= deadline {
-                        break;
-                    }
-                    state = shared.changed.wait_timeout(state, deadline - now).recover_poison().0;
+                    signal_group(pgid, signal);
                 }
-                signal_group(pgid, signal);
-            }
-        });
+            });
         if escalation.is_err() {
             // No thread to escalate: kill it now rather than leave a command that ignores SIGINT.
             signal_group(pgid, libc::SIGKILL);
@@ -408,13 +445,20 @@ fn signal_group(pgid: i32, signal: i32) {
 /// (their count is capped at the start).
 fn evict(state: &mut State, scope: &str) {
     loop {
-        let in_scope = state.order.iter().filter(|id| state.runs.get(*id).is_some_and(|run| run.scope == scope)).count();
+        let in_scope = state
+            .order
+            .iter()
+            .filter(|id| state.runs.get(*id).is_some_and(|run| run.scope == scope))
+            .count();
         let over_scope = in_scope > MAX_KEPT;
         if !over_scope && state.order.len() <= MAX_KEPT_TOTAL {
             return;
         }
         let victim = state.order.iter().position(|id| {
-            state.runs.get(id).is_some_and(|run| run.exit.is_some() && (!over_scope || run.scope == scope))
+            state
+                .runs
+                .get(id)
+                .is_some_and(|run| run.exit.is_some() && (!over_scope || run.scope == scope))
         });
         let Some(index) = victim else { return };
         if let Some(id) = state.order.remove(index) {
