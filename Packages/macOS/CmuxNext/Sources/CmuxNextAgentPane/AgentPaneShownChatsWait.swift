@@ -60,10 +60,16 @@ public final class AgentPaneShownChatsWait {
         then()
     }
 
-    /// The chat pages among `views` that are in a window, not hidden and not drawn yet: what the person sees load.
-    /// A New Tab page draws no chat.
+    /// The chat pages among `views` that are not drawn yet and that the person sees load: not hidden, in a window
+    /// on screen (not minimized, ordered out or fully covered). A New Tab page draws no chat.
     public static func loading(_ views: some Sequence<AgentPaneView>) -> [WhenPainted] {
-        views.filter { $0.model.newTab == nil && !$0.model.hasPainted && $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
+        views.filter { $0.model.newTab == nil && !$0.model.hasPainted && !$0.isHiddenOrHasHiddenAncestor && shown($0.window) }
             .map { view in { view.model.whenPainted($0) } }
+    }
+
+    /// A window the person can see now; a page in any other holds no spare (review of #39700, F1).
+    static func shown(_ window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 }

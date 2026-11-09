@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextAgentPane
 import Testing
 
@@ -55,5 +56,16 @@ import Testing
         #expect(pages.ended == 1)
         pages.paint(0)
         #expect(pages.ended == 1, "the paint after the deadline ended it again")
+    }
+}
+
+/// Only a window the person can see counts (review of #39700, F1): a page in a window that is ordered out or has
+/// none holds no spare.
+@MainActor @Suite struct AgentPaneShownChatsWindowTests {
+    @Test func aWindowOrderedOutOrMissingIsNotShown() {
+        #expect(!AgentPaneShownChatsWait.shown(nil))
+        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        #expect(!AgentPaneShownChatsWait.shown(window), "a window never ordered in counted as shown")
     }
 }
