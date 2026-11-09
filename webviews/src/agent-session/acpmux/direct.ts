@@ -27,6 +27,7 @@ import type {
   AcpmuxBackgroundTask,
   AcpmuxBackgroundTurn,
   AcpmuxBackgroundReaction,
+  AcpmuxBackgroundSource,
   AcpmuxCompaction,
   AcpmuxContextBreakdown,
   AcpmuxPlanEntry,
@@ -2566,6 +2567,11 @@ export class AcpmuxDirectClient {
   /// each background turn's went onto.
   private reactions = new Map<string, { reaction: AcpmuxBackgroundReaction; row?: string }>();
   private reactionOrigins = new Map<string, string>();
+  /// Each background shell's command and helper, by its call (`background_task_update`), so a
+  /// background turn can cite one whose call is not in the chat's transcript (a helper's); and the
+  /// line of each background turn by the call that started its task (`backgroundSource`).
+  private backgroundSources = new Map<string, AcpmuxBackgroundSource>();
+  private sourceLines = new Map<string, string>();
   private freshReactions = new Set<string>();
   /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
   /// before it, so the call and its updates draw no tool row. Plumbing calls (hiddenTools.ts)
@@ -3420,6 +3426,8 @@ export class AcpmuxDirectClient {
     this.reactions.clear();
     this.reactionOrigins.clear();
     this.freshReactions.clear();
+    this.backgroundSources.clear();
+    this.sourceLines.clear();
     this.planCalls.clear();
     this.planRow = undefined;
     this.progressRow = undefined;
@@ -6381,6 +6389,8 @@ export class AcpmuxDirectClient {
     this.reactions.clear();
     this.reactionOrigins.clear();
     this.freshReactions.clear();
+    this.backgroundSources.clear();
+    this.sourceLines.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold(this.subagentStops);
     // Replay knows the native harness ids from the session summary, the earlier ones a restart
@@ -6705,6 +6715,7 @@ export class AcpmuxDirectClient {
       const { ended, hasRows } = this.rows.openBackground(turn.id, event.seq);
       if (existing) return;
       const attached = this.attachReaction(turn);
+      const source = this.backgroundSource(turn, id);
       this.rows.set(id, {
         id,
         version: 1,
@@ -6716,6 +6727,7 @@ export class AcpmuxDirectClient {
           ...ended,
           ...(hasRows && { hasRows: true as const }),
           ...(attached && { attached: true as const }),
+          ...(source && { source }),
         },
       });
       if (ended) this.settleReaction(turn.id);
@@ -6731,6 +6743,47 @@ export class AcpmuxDirectClient {
       background: { ...existing.background, ...turn, ...(hasRows && { hasRows }) },
     });
     this.settleReaction(turn.id);
+  }
+
+  /// What a background turn's line cites (Leo, 2026-11-05: "cite the helper/add atribution ... and
+  /// display the actual code in the raw"): the command and helper of the task acpmux named
+  /// (`cause.origin`), from the call that started it, else from that shell's own background update
+  /// (a helper's call is not in the chat's transcript). Found once per background turn; an update
+  /// heard later fills it in (`citeBackground`).
+  private backgroundSource(turn: AcpmuxBackgroundTurn, line: string): AcpmuxBackgroundSource | undefined {
+    const origin = turn.cause?.origin;
+    if (!origin) return undefined;
+    this.sourceLines.set(origin, line);
+    const id = this.toolRows.get(origin) ?? this.callRow(origin);
+    const tool =
+      id === undefined ? undefined : this.rows.get(id)?.items?.find((item) => item.tool?.id === origin)?.tool;
+    const known = this.backgroundSources.get(origin);
+    const command = tool?.command || known?.command;
+    const source: AcpmuxBackgroundSource = {
+      ...(command && { command }),
+      ...(known?.ownerId && { ownerId: known.ownerId }),
+      ...(known?.ownerTitle && { ownerTitle: known.ownerTitle }),
+    };
+    return Object.keys(source).length > 0 ? source : undefined;
+  }
+
+  /// A background shell's update: kept for the turn its end starts, and cited on that turn's line
+  /// when the line came first.
+  private citeBackground(task: BackgroundUpdate): void {
+    const heard: AcpmuxBackgroundSource = {
+      ...(task.command && { command: task.command }),
+      ...(task.ownerId && { ownerId: task.ownerId }),
+      ...(task.ownerTitle && { ownerTitle: task.ownerTitle }),
+    };
+    if (Object.keys(heard).length === 0) return;
+    const source = { ...this.backgroundSources.get(task.toolCallId), ...heard };
+    this.backgroundSources.set(task.toolCallId, source);
+    const id = this.sourceLines.get(task.toolCallId);
+    const row = id === undefined ? undefined : this.rows.get(id);
+    if (!row?.background) return;
+    const cited = { ...source, ...row.background.source };
+    if (row.background.source && Object.keys(cited).length === Object.keys(row.background.source).length) return;
+    this.rows.set(row.id, { ...row, version: row.version + 1, background: { ...row.background, source: cited } });
   }
 
   /// A background turn whose task acpmux weighed (Leo, 2026-11-03: "there's like... background
@@ -7170,6 +7223,12 @@ export class AcpmuxDirectClient {
     // Route child updates before session metadata's early returns too: a helper's init or
     // usage belongs to that helper, just like its text and tools.
     if (update) {
+      // A shell's command and helper are kept before a helper's update goes to its subagent, so the
+      // background turn its end starts can cite them (`citeBackground`).
+      if (update.sessionUpdate === "background_task_update") {
+        const task = backgroundTask(update, event.at);
+        if (task) this.citeBackground(task);
+      }
       this.subagents.cause = this.turnStopCause(event);
       this.subagents.chat = this.chatThread();
       this.subagents.session = this.selectedSessionId;
