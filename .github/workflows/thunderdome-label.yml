@@ -1,0 +1,77 @@
+name: thunderdome label
+
+# Labels every thunderdome pull request `thunderdome` (a title that names the thunderdome, any
+# case), so Leo and the team can pull them all up later, once their pictures are in, and compare
+# the variants. Leo, 2026-11-05: "give them, like, a label or something for me to, like, review
+# later on when the pictures all get there so that I can look at them, so that the team can look
+# at them."
+#
+# A convenience label, never a gate: nothing reads it to hold or land a pull request.
+# This copy must stay on main: GitHub runs a pull_request_target workflow from the default branch,
+# so the feat-cmux-next copy alone (#36469) never ran, even for pull requests into feat-cmux-next.
+# pull_request_target so fork pull requests can be labeled. It never checks out or runs the pull
+# request's code: it reads the title and labels from the event and makes one label call.
+# The push trigger fires once, when this file lands on main, and backfills the open thunderdome
+# pull requests no event has labeled yet (#36859, #36885 and #36930 when it was added).
+
+on:
+  pull_request_target:
+    branches: [feat-cmux-next, main]
+    types: [opened, reopened, edited, synchronize]
+  push:
+    branches: [main]
+    paths: [.github/workflows/thunderdome-label.yml]
+
+permissions: {}
+
+concurrency:
+  group: thunderdome-label-${{ github.event.pull_request.number || 'backfill' }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      contains(github.event.pull_request.title, 'thunderdome') &&
+      !contains(github.event.pull_request.labels.*.name, 'thunderdome')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Add the thunderdome label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # The label exists; it is created only when adding it fails (a deleted label).
+          gh pr edit "$NUMBER" --repo "$REPO" --add-label thunderdome ||
+            { gh label create thunderdome --repo "$REPO" --color D93F0B \
+                --description "A thunderdome variant: Leo and the team review these once their pictures are in" 2>/dev/null || true
+              gh pr edit "$NUMBER" --repo "$REPO" --add-label thunderdome; }
+
+  backfill:
+    if: github.event_name == 'push'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Label the open thunderdome pull requests that lack it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh pr list --repo "$REPO" --state open --limit 200 \
+              --search 'thunderdome in:title -label:thunderdome' --json number --jq '.[].number' |
+            while read -r number; do
+              echo "labeling #$number"
+              gh pr edit "$number" --repo "$REPO" --add-label thunderdome
+            done

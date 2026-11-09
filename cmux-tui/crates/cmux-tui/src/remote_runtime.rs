@@ -3167,6 +3167,46 @@ mod tests {
 
     use super::*;
 
+    /// Binds a stream socket at `path` that never listens, as a crashed
+    /// client leaves it. A connect to it is refused even while the returned
+    /// descriptor, or a copy that a concurrent fork inherited, is open.
+    /// (A dropped listener is not stale until every copy is closed.)
+    #[cfg(unix)]
+    fn bind_stale_client_socket(path: &Path) -> std::os::fd::OwnedFd {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::ffi::OsStrExt;
+
+        // SAFETY: socket(2) has no memory arguments; a valid result is a new
+        // descriptor that the OwnedFd takes.
+        let raw = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+        assert!(raw >= 0, "socket: {}", std::io::Error::last_os_error());
+        // SAFETY: `raw` is a new descriptor that nothing else owns.
+        let socket = unsafe { OwnedFd::from_raw_fd(raw) };
+        // SAFETY: F_SETFD with an int flag on a descriptor this test owns.
+        let cloexec = unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+        assert_eq!(cloexec, 0, "fcntl: {}", std::io::Error::last_os_error());
+
+        // SAFETY: sockaddr_un is plain data; all-zero bytes are a valid value.
+        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).unwrap();
+        let bytes = path.as_os_str().as_bytes();
+        assert!(bytes.len() < address.sun_path.len(), "socket path too long");
+        for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
+            *slot = libc::c_char::from_ne_bytes([*byte]);
+        }
+        let length = libc::socklen_t::try_from(size_of::<libc::sockaddr_un>()).unwrap();
+        // SAFETY: `address` is an initialized sockaddr_un of `length` bytes.
+        let bound = unsafe {
+            libc::bind(
+                socket.as_raw_fd(),
+                std::ptr::from_ref(&address).cast::<libc::sockaddr>(),
+                length,
+            )
+        };
+        assert_eq!(bound, 0, "bind {}: {}", path.display(), std::io::Error::last_os_error());
+        socket
+    }
+
     fn instrumented_test_timeout(timeout: Duration) -> Duration {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
             .ok()
@@ -6562,7 +6602,10 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = bind_stale_client_socket(&path);
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let lock_path = directory.path().join("mux.sock.lock");
@@ -6599,7 +6642,10 @@ mod tests {
     async fn concurrent_stale_client_socket_takeover_has_one_owner() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = bind_stale_client_socket(&path);
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let start = Arc::new(tokio::sync::Barrier::new(2));

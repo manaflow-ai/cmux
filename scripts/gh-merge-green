@@ -1169,15 +1169,20 @@ fast_gate() {
 # check path (the base's scripts/ci/check-paths.txt) changed after the PR's
 # cmux-next/fast-gates base, it dispatches the fast gates against the current tip and
 # waits for a fresh success. 2026-10-21: #22967, #22975 and #23094 merged after a
-# new check landed, never ran it, and turned it red on the base.
+# new check landed, never ran it, and turned it red on the base. When the tip changes
+# a check path again during that run, it dispatches again on the new tip, inside what
+# --wait left (2026-11-09: that race refused #39632, #39631 twice and #39705 with "retry").
 check_paths_gate() {
-  local out err status=0 why check_only=()
+  local out err status=0 why check_only=() budget
   [ "$dry_run" -eq 0 ] || check_only=(--check-only)
   err=$(mktemp)
   tmp_files+=("$err")
-  # Its wait (a rerun, up to 900s) adds to the fast gate's in the summary, and in a SIGTERM's.
+  # The reruns share --wait with the fast gate; the first run keeps its own 900s timeout.
+  budget=$(( wait_seconds - waited_seconds ))
+  [ "$budget" -ge 0 ] || budget=0
+  # Its wait adds to the fast gate's in the summary, and in a SIGTERM's.
   gate_waiting_since=$(( $(date +%s) - waited_seconds ))
-  out=$(python3 "$script_dir/ci/merge_check_paths.py" "$repo" "$num" "$sha" --base "$base" \
+  out=$(python3 "$script_dir/ci/merge_check_paths.py" "$repo" "$num" "$sha" --base "$base" --budget "$budget" \
       --interval "${GH_MERGE_GREEN_CHECK_PATHS_INTERVAL:-20}" "${check_only[@]+"${check_only[@]}"}" 2>"$err") || status=$?
   waited_seconds=$(( $(date +%s) - gate_waiting_since ))
   gate_waiting_since=''
