@@ -12,7 +12,7 @@
   text-decoration-thickness: 1.5px;
   text-underline-offset: 3px;
   text-decoration-color: color-mix(in srgb, var(--cv-claim-color) 70%, transparent);
-  border-radius: 2px;
+  border-radius: 4px;
 }
 .cv-claim--backed {
   --cv-claim-color: var(--ds-color-success);
@@ -38,15 +38,15 @@ button.cv-claim:focus-visible {
   text-decoration-line: none;
 }
 .cv-claim__glyph {
-  margin-inline-start: 2px;
+  margin-inline-start: 4px;
   color: var(--cv-claim-color);
   font-size: 0.8em;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   vertical-align: 0.15em;
 }
 .cv-claim__chip {
   margin-inline-start: 4px;
-  padding: 0 5px;
+  padding: 0 4px;
   border-radius: 999px;
   color: var(--cv-claim-color);
   background: color-mix(in srgb, var(--cv-claim-color) 12%, transparent);
