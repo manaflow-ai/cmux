@@ -1300,7 +1300,7 @@
             "key" : "settings.group.cmuxRemote",
             "rows" : [
               "remote.endSharingOnQuit",
-              "remote.ultraMode"
+              "remote.ultra"
             ],
             "title" : {
               "key" : "settings.group.cmuxRemote",
@@ -102844,28 +102844,53 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "off",
+        "auto",
+        "always"
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.cmuxRemote",
         "text" : "cmux Remote"
       },
       "help" : {
-        "key" : "settings.remote.ultraMode.help",
-        "text" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."
+        "key" : "settings.remote.ultra.help",
+        "text" : "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."
       },
       "kept_on_reset_all" : false,
-      "key" : "remote.ultraMode",
+      "key" : "remote.ultra",
       "keywords" : [
         "ultra",
+        "auto",
         "lossy",
         "packet loss",
         "bandwidth",
@@ -102875,21 +102900,21 @@
         "latency",
         "fec"
       ],
-      "kind" : "toggle",
+      "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "remote",
-        "ultraMode"
+        "ultra"
       ],
       "placeholder" : null,
       "refuses" : [
-        "true",
+        "__not_a_choice__",
         1,
-        null
+        true
       ],
       "section" : "general",
       "summary" : {
-        "key" : "settings.remote.ultraMode.summary",
+        "key" : "settings.remote.ultra.summary",
         "text" : "Uses more data to stay fast on lossy networks"
       },
       "surfaces" : {
@@ -102943,13 +102968,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
+          "editor" : "options",
           "offered" : true,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
           "reason" : null,
-          "row" : "setting:remote.ultraMode"
+          "row" : "setting:remote.ultra"
         },
         "socket" : {
           "aliases" : [
@@ -102976,7 +103001,7 @@
         }
       },
       "title" : {
-        "key" : "settings.remote.ultraMode",
+        "key" : "settings.remote.ultra",
         "text" : "Ultra Connection Mode"
       },
       "validation" : "portable"

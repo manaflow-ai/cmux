@@ -1185,12 +1185,17 @@
           "group": "cmux Remote"
         },
         {
-          "key": "remote.ultraMode",
+          "key": "remote.ultra",
           "title": "Ultra Connection Mode",
-          "help": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
+          "help": "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "cmux Remote",
+          "values": [
+            "off",
+            "auto",
+            "always"
+          ]
         },
         {
           "key": "screenshots.findTools",
