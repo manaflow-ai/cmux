@@ -6,6 +6,7 @@ import { DEFAULT_CHIEF_BACKFILL, DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_ENSURE, DEFAU
 import { personalTeamIdFor, userDomain, type UserState } from "../src/domains/user.ts"
 import { backfillDefaultChief, deliverSignupChief, ensureChiefMachine, rebindDefaultChief, type DefaultMachinePlatform } from "../src/user-chief-provision.ts"
 import type { TargetItem } from "../src/do-outbox.ts"
+import type { Env } from "../src/env.ts"
 import { fireAlarm, quiesce } from "./setup/alarm.ts"
 import { cloudTestUser } from "./setup/cloud-teams.ts"
 import { bindFile, cloudStub, frame, reply, SIZE, vmKey, WG_KEY, DAEMON } from "./cloud-bind-support.ts"
@@ -197,7 +198,7 @@ describe("signup default Chief", () => {
 })
 
 describe("default Chief backfill for accounts older than signup provisioning", () => {
-  const ON = { CHIEF_BRAIN_ENABLED: "1", HANDS_ENABLED: "1" }
+  const ON = { CHIEF_BRAIN_ENABLED: "1", HANDS_ENABLED: "1" } as unknown as Env
   const signupOutbox = [
     { kind: DEFAULT_CHIEF_ENSURE, entity: HOSTED_DEFAULT_KEY, payload: {}, target: { class: "UserDO", name: USER } },
     { kind: DEFAULT_CHIEF_PROVISION, entity: `chief-default-machine:${USER}`, payload: {}, target: { class: "UserDO", name: USER } }
@@ -355,10 +356,35 @@ describe("default Chief backfill for accounts older than signup provisioning", (
     }
   })
 
+  it("a Chief on a harness the machine does not run stays hosted; Claude and Codex Chiefs are due", () => {
+    const legacy = oldAccount(), id = Object.keys(legacy.chiefs ?? {})[0]!, chief = legacy.chiefs![id]!
+    const withHarness = (state: UserState, harness: string | null): UserState => ({ ...state, chiefs: { ...state.chiefs, [state.hosted_default ?? id]: { ...state.chiefs![state.hosted_default ?? id]!, harness } } })
+    for (const start of [legacy, ensured()]) {
+      for (const harness of ["opencode", "claude-sr", "pi", "gemini"]) {
+        const state = withHarness(start, harness)
+        const h = host(state)
+        expect(backfillDefaultChief(ON, state, h.submit), harness).toBe("not_due")
+        expect(h.keys).toEqual([])
+        expect(decided(userDomain.reduce(state, DEFAULT_CHIEF_BACKFILL, {}, context())).state).toBe(state)
+      }
+      for (const harness of [null, "claude", "codex"]) expect(backfillDefaultChief(ON, withHarness(start, harness), host(withHarness(start, harness)).submit), String(harness)).toBe("queued")
+    }
+    expect(chief.harness).toBeNull()
+  })
+
+  it("an owner on the Claude Code route keeps it: no machine would take its turns over", () => {
+    const cc = { ...ON, ENVIRONMENT: "staging", CHIEF_CC_ENABLED: "1", CHIEF_CC_FREESTYLE_API_KEY: "k", CHIEF_CC_TS_OAUTH: "o", CHIEF_CC_SNAPSHOT: "s", CHIEF_CC_OWNERS: TEAM, CHIEF_BRAIN_CLAUDE_OWNERS: USER } as unknown as Env
+    const h = host(oldAccount())
+    expect(backfillDefaultChief(cc, h.state(), h.submit)).toBe("not_due")
+    expect(h.keys).toEqual([])
+    // Named on the list but not a paid-model owner: not on the route, so due.
+    expect(backfillDefaultChief({ ...cc, CHIEF_BRAIN_CLAUDE_OWNERS: "" } as unknown as Env, h.state(), h.submit)).toBe("queued")
+  })
+
   it("is off unless both CHIEF_BRAIN_ENABLED and HANDS_ENABLED are 1, as production is today", () => {
     for (const env of [{}, { CHIEF_BRAIN_ENABLED: "1" }, { HANDS_ENABLED: "1" }, { CHIEF_BRAIN_ENABLED: "1", HANDS_ENABLED: "0" }]) {
       const h = host(oldAccount())
-      expect(backfillDefaultChief(env, h.state(), h.submit)).toBe("off")
+      expect(backfillDefaultChief(env as unknown as Env, h.state(), h.submit)).toBe("off")
       expect(h.keys).toEqual([])
     }
   })

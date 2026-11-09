@@ -1,6 +1,7 @@
 import type { OutboxItem, Principal, ReduceContext, ReduceResult } from "@cmux/ownership"
 import { HOSTED_DEFAULT_KEY, reduceChief, type ChiefCloudMachine, type ChiefRecord } from "./user-chief.ts"
 import { personalTeamIdFor, type UserState } from "./user.ts"
+import { machineHarness } from "../chief-brain/machine-harness.ts"
 
 /** Also used by the Mac's ensureHosted; the server selects it before any client is needed. */
 export { HOSTED_DEFAULT_KEY } from "./user-chief.ts"
@@ -31,20 +32,21 @@ export const signupChiefOutbox = (user: string): ReadonlyArray<OutboxItem> => [
  * on a paired server has a brain_place. Such an account is due only when its live default Chief is hosted and
  * unplaced (DEFAULT_CHIEF_ENSURE then adopts exactly that one), or when it never had a Chief at all (as at
  * signup). A placed default, a default the person moved to a placed Chief, or Chiefs they archived or deleted
- * with none left all keep that choice.
+ * with none left all keep that choice. So does a Chief whose harness the machine does not run (opencode, for
+ * one): once bound, admission refuses it with chief.machine.unsupported_harness, so it stays hosted.
  */
 export const defaultChiefBackfillDue = (state: UserState): boolean => {
   if (!state.user || state.migrations?.default_chief_machine) return false
   const chiefs = Object.values(state.chiefs ?? {})
   if (state.hosted_default) {
     const chief = state.chiefs?.[state.hosted_default]
-    return !!chief && chief.archived_at === null && !chief.brain_place && !chief.cloud_machine
+    return !!chief && chief.archived_at === null && !chief.brain_place && !chief.cloud_machine && machineHarness(chief.harness) !== null
   }
   if (chiefs.length === 0) return Object.keys(state.chief_tombstones ?? {}).length === 0
   const live = chiefs.filter((c) => c.archived_at === null)
   const defaults = live.filter((c) => c.is_default)
   const chief = defaults.length === 1 ? defaults[0]! : undefined
-  return !!chief && !chief.brain_place && !chief.cloud_machine
+  return !!chief && !chief.brain_place && !chief.cloud_machine && machineHarness(chief.harness) !== null
 }
 
 const reject = (code: string, message: string): ReduceResult<UserState> => ({ ok: false, code, message })

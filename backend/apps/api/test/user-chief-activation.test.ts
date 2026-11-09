@@ -41,6 +41,31 @@ const create = (o: Awaited<ReturnType<typeof owner>>, key = HOSTED_DEFAULT_KEY) 
 })
 
 describe("signup Chief activation and client adoption", () => {
+  it("an older account's working Chief on a harness the machine does not run stays hosted after ensure; admission still succeeds", async () => {
+    for (const [n, harness] of [[195, "opencode"], [196, "claude-sr"], [197, null]] as const) {
+      const o = await owner(n, false)
+      const made = resultOf(await create(o)).value as { id: string; rev: number }
+      resultOf(await o.stub.submit(o.user, o.principal, { t: "op", op: "chief.update", params: { chief: made.id, expected_rev: made.rev, harness }, idempotency_key: `harness-${n}`, origin: "user" }))
+      const brain = settings(made.id)
+      expect(await brain.configure(made.id, o.user, { enabled: true })).toMatchObject({ ok: true })
+      expect(await brain.admit(made.id, o.user, false)).toMatchObject({ ok: true })
+      // The shape of an account made before signup provisioning: no backfill flag, no hosted_default.
+      await inDO(o.stub, async (i) => { i.boundEngine.state = { ...i.boundEngine.currentState, migrations: {} } })
+      resultOf(await o.stub.submit(o.user, o.principal, { t: "op", op: "user.ensure", params: {}, idempotency_key: `again-${n}`, origin: "user" }))
+      const state = await inDO(o.stub, async (i) => i.boundEngine.currentState as UserState)
+      expect(state.chiefs?.[made.id]?.cloud_machine ?? null).toBeNull()
+      if (harness === null) {
+        // A Claude Chief in the same shape is the one the backfill selects.
+        expect(state.migrations?.default_chief_machine).toBe(true)
+        expect(state.hosted_default).toBe(made.id)
+      } else {
+        expect(state.migrations?.default_chief_machine).toBeUndefined()
+        expect(state.hosted_default).toBeUndefined()
+        expect(await brain.admit(made.id, o.user, false)).toMatchObject({ ok: true })
+      }
+    }
+  })
+
   it("a fresh Mac adopting the signup Chief does not turn an explicitly disabled brain back on", async () => {
     const o = await owner(191), brain = settings(o.agent)
     expect(await brain.configure(o.agent, o.user, { enabled: false })).toMatchObject({ ok: true })

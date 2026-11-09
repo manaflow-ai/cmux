@@ -3,6 +3,8 @@ import { DEFAULT_CHIEF_BACKFILL, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, 
 import { personalTeamIdFor, type UserState } from "./domains/user.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import type { SubmitResult } from "./owner-do.ts"
+import type { Env } from "./env.ts"
+import { ccRoute } from "./chief-brain-cc/vm.ts"
 
 /** Trusted RPC on the existing platform service binding; no HTTP route or user credential reaches it. */
 export interface DefaultMachinePlatform {
@@ -126,16 +128,13 @@ export type BackfillOutcome = "off" | "not_due" | "queued" | "failed"
  * Accounts made before signup provisioning (#33131) have no default Chief machine: their Chief runs hosted on
  * credits. After their user.ensure, UserDO queues the same signup outbox once (DEFAULT_CHIEF_BACKFILL decides it
  * in the reducer, so concurrent ensures queue one). Only where the machine Chief is on (CHIEF_BRAIN_ENABLED and
- * HANDS_ENABLED, the gate of activateDefault and the hand routes), so production stays as it is. Never throws:
- * the ensure has already committed, and the outbox's retries own every network step.
+ * HANDS_ENABLED, the gate of activateDefault and the hand routes), so production stays as it is. An owner on the
+ * Claude Code route (CHIEF_CC_OWNERS) keeps it: a bound machine would take their turns over. Never throws: the
+ * ensure has already committed, and the outbox's retries own every network step.
  */
-export const backfillDefaultChief = (
-  env: { readonly CHIEF_BRAIN_ENABLED?: string; readonly HANDS_ENABLED?: string },
-  state: UserState | undefined,
-  submit: (op: string, key: string) => SubmitResult
-): BackfillOutcome => {
+export const backfillDefaultChief = (env: Env, state: UserState | undefined, submit: (op: string, key: string) => SubmitResult): BackfillOutcome => {
   if (env.CHIEF_BRAIN_ENABLED !== "1" || env.HANDS_ENABLED !== "1") return "off"
-  if (!state?.user || !defaultChiefBackfillDue(state)) return "not_due"
+  if (!state?.user || !defaultChiefBackfillDue(state) || ccRoute(env, state.user.id)) return "not_due"
   try {
     const reply = submit(DEFAULT_CHIEF_BACKFILL, `chief-default-backfill:${state.user.id}`).frames.find((f) => f.t === "reject" || f.t === "result")
     return reply?.t === "result" ? "queued" : "failed"
