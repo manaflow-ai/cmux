@@ -156,7 +156,10 @@ async fn allowlisted_args_and_the_system_prompt_file_reach_the_claude_command() 
         ],
         "{got:?}"
     );
-    assert_eq!(got[6], "-p", "{got:?}");
+    // cmux's first-turn rules, in the system prompt of every local Claude Code start.
+    assert_eq!(got[6], "--append-system-prompt", "{got:?}");
+    assert!(got[7].contains(acpmux::agent_tools::CONCURRENT_WORK_RULE), "{got:?}");
+    assert_eq!(got[8], "-p", "{got:?}");
 }
 
 #[tokio::test]

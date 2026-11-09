@@ -327,6 +327,15 @@ impl Hub {
             p.argv.push("--system-prompt-file".into());
             p.argv.push(file.to_string_lossy().into_owned());
         }
+        // The first-turn rules of a local Claude Code chat, in its system prompt at every
+        // spawn (a resumed conversation keeps no system prompt of its own).
+        if profile.kind == crate::config::HarnessKind::ClaudeStdio
+            && !meta.remote_origin
+            && let Some(text) =
+                crate::context_inventory::system_prompt_append(meta.cmux_context.as_deref())
+        {
+            crate::context_inventory::push_system_prompt_append(&mut p.argv, &text);
+        }
         // Claude Code defers MCP tools behind its tool search, which it turns
         // off by itself behind a router; the cmux server lists every tool
         // for it (agent_tools::lists_all_tools). A profile's own value wins.

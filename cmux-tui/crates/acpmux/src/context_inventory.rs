@@ -288,6 +288,14 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     let mut parts = snapshot_for(cfg, &meta.cwd, &meta.harness, meta.remote_origin);
+    if !meta.remote_origin
+        && cfg
+            .harnesses
+            .get(&meta.harness)
+            .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+    {
+        parts.iter_mut().for_each(into_system_prompt);
+    }
     // A folder set up for another harness: its instructions, which this one does not read itself.
     let family = family_for_folder(cfg, &meta.harness);
     parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
@@ -342,9 +350,64 @@ pub fn record_preset_source(meta: &mut SessionMeta, part: Option<ContextPart>) {
     }
 }
 
-/// Append the captured default or override on the first written turn. All guidance
-/// uses this one user-context channel, including sessions with no cmux MCP server.
-/// Preset text is emitted separately by the harness's system-prompt argument.
+/// The channel of the first-turn rules (the default rule or its override, and cmux's chat
+/// guidance) in a local Claude Code chat: `--append-system-prompt`, passed at every spawn
+/// (`hub/spawn.rs`). Every chat's appended text is the same, so it sits in the cached prefix
+/// ahead of the first prompt instead of in it, and `/compact` never drops it (cmuxterm-hq#8104).
+pub const SYSTEM_PROMPT_APPEND: &str = "system-prompt-append";
+
+/// Moves one of the first-turn rules to [`SYSTEM_PROMPT_APPEND`]; any other part is left as is.
+fn into_system_prompt(part: &mut ContextPart) {
+    let rule = matches!(
+        part.source.as_str(),
+        "cmux-default" | "cmux-user" | "cmux-project" | GUIDANCE_SOURCE
+    );
+    if rule && part.channel.as_deref() == Some("user-context") {
+        part.channel = Some(SYSTEM_PROMPT_APPEND.into());
+        part.label = part.label.replace("(first-turn context)", "(system prompt)");
+    }
+}
+
+/// The text a Claude Code spawn appends to its system prompt, or `None` without any: each
+/// included [`SYSTEM_PROMPT_APPEND`] part in the tags [`override_block`] gives it.
+pub fn system_prompt_append(parts: Option<&[ContextPart]>) -> Option<String> {
+    let texts: Vec<String> = parts
+        .into_iter()
+        .flatten()
+        .filter(|p| p.included && p.channel.as_deref() == Some(SYSTEM_PROMPT_APPEND))
+        .filter_map(|p| {
+            let text = p.text.as_deref().filter(|t| !t.is_empty())?;
+            let scope = p.source.strip_prefix("cmux-").unwrap_or("user");
+            Some(format!("<cmux-{scope}-context>{text}</cmux-{scope}-context>"))
+        })
+        .collect();
+    (!texts.is_empty()).then(|| texts.join("\n\n"))
+}
+
+/// `argv` with `text` appended to Claude Code's system prompt: added to the profile's own
+/// `--append-system-prompt` when it has one (Claude Code keeps only the last), else a new pair.
+pub fn push_system_prompt_append(argv: &mut Vec<String>, text: &str) {
+    const FLAG: &str = "--append-system-prompt";
+    let inline = format!("{FLAG}=");
+    if let Some(i) = argv.iter().rposition(|a| a == FLAG || a.starts_with(&inline)) {
+        if argv[i] == FLAG {
+            if let Some(own) = argv.get_mut(i + 1) {
+                *own = format!("{own}\n\n{text}");
+                return;
+            }
+        } else {
+            argv[i] = format!("{}\n\n{text}", argv[i]);
+            return;
+        }
+    }
+    argv.push(FLAG.into());
+    argv.push(text.into());
+}
+
+/// Append the captured default or override on the first written turn: the user-context
+/// channel, for every harness but a local Claude Code chat, including sessions with no cmux
+/// MCP server. A local Claude Code chat's rules ([`SYSTEM_PROMPT_APPEND`]) and preset text
+/// are emitted separately by the harness's system-prompt arguments.
 pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
     for part in parts.into_iter().flatten().filter(|p| {
         p.included
@@ -585,6 +648,89 @@ mod tests {
         );
         assert_eq!(blocks[1]["_meta"]["acpmux"]["contextSource"], "cmux-guidance");
         assert!(blocks[0]["text"].as_str().unwrap().contains("my rule"));
+    }
+
+    fn with_claude_stdio() -> Config {
+        let mut cfg = Config::default();
+        cfg.harnesses.insert(
+            "claude".into(),
+            crate::config::HarnessProfile {
+                kind: crate::config::HarnessKind::ClaudeStdio,
+                argv: vec!["claude".into()],
+                env: Default::default(),
+                description: None,
+                fallback: None,
+                family: Some("claude".into()),
+                models: vec![],
+                model: None,
+                effort: None,
+                policy: None,
+            },
+        );
+        cfg
+    }
+
+    fn claude_meta(remote: bool) -> SessionMeta {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        meta.remote_origin = remote;
+        meta
+    }
+
+    #[test]
+    fn a_local_claude_chats_rules_go_to_its_system_prompt_not_its_first_turn() {
+        let parts = snapshot_session(&claude_meta(false), &with_claude_stdio());
+        let moved: Vec<_> =
+            parts.iter().filter(|p| p.channel.as_deref() == Some(SYSTEM_PROMPT_APPEND)).collect();
+        assert!(moved.iter().any(|p| p.source == "cmux-default"), "{parts:?}");
+        assert!(moved.iter().all(|p| p.label.ends_with("(system prompt)")), "{moved:?}");
+        // Nothing of them is sent again as first-turn context.
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&parts), &mut blocks);
+        assert!(blocks.is_empty(), "{blocks:?}");
+        let text = system_prompt_append(Some(&parts)).unwrap();
+        assert!(
+            text.starts_with("<cmux-default-context>")
+                && text.contains(crate::agent_tools::CONCURRENT_WORK_RULE),
+            "{text}"
+        );
+        // A person's emptied rule appends nothing.
+        let mut cfg = with_claude_stdio();
+        cfg.context_overrides.user = Some(String::new());
+        let parts: Vec<_> = snapshot_session(&claude_meta(false), &cfg)
+            .into_iter()
+            .filter(|p| p.source != GUIDANCE_SOURCE)
+            .collect();
+        assert_eq!(system_prompt_append(Some(&parts)), None);
+    }
+
+    #[test]
+    fn a_remote_or_codex_chat_keeps_its_rules_in_the_first_turn() {
+        let remote = snapshot_session(&claude_meta(true), &with_claude_stdio());
+        assert_eq!(system_prompt_append(Some(&remote)), None);
+        let mut codex = claude_meta(false);
+        codex.harness = "codex".into();
+        let parts = snapshot_session(&codex, &with_claude_stdio());
+        assert_eq!(system_prompt_append(Some(&parts)), None);
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&parts), &mut blocks);
+        assert!(
+            blocks[0]["text"].as_str().unwrap().contains(crate::agent_tools::CONCURRENT_WORK_RULE)
+        );
+    }
+
+    #[test]
+    fn the_appended_rules_join_a_profiles_own_append_system_prompt() {
+        let mut argv = vec!["claude".to_owned()];
+        push_system_prompt_append(&mut argv, "rules");
+        assert_eq!(argv, ["claude", "--append-system-prompt", "rules"]);
+        let mut argv: Vec<String> =
+            ["claude", "--append-system-prompt", "mine", "-p"].map(String::from).into();
+        push_system_prompt_append(&mut argv, "rules");
+        assert_eq!(argv, ["claude", "--append-system-prompt", "mine\n\nrules", "-p"]);
+        let mut argv: Vec<String> =
+            ["claude", "--append-system-prompt=mine"].map(String::from).into();
+        push_system_prompt_append(&mut argv, "rules");
+        assert_eq!(argv, ["claude", "--append-system-prompt=mine\n\nrules"]);
     }
 
     #[test]
