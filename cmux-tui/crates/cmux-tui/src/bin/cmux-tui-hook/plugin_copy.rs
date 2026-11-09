@@ -41,6 +41,9 @@ const OWNER_ENV: &str = "CMUX_TUI_CLAUDE_OWNER";
 const CLAUDE_ENV_FILE: &str = "CLAUDE_ENV_FILE";
 /// The cmux-tui terminal the hook runs in.
 const TERMINAL_ENV: &str = "CMUX_TUI_TERMINAL_ID";
+/// The process id of the Claude Code that runs this hook or tool command;
+/// Claude Code 2.1.319 sets it for both, and the same value in each.
+const CLAUDE_PID_ENV: &str = "CLAUDE_PID";
 /// Ends every hook command cmux-tui writes (cmux_tui_hooks COMMAND_MARKER).
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 /// `1` turns cmux-tui's Claude hooks off (claude_wrapper.rs).
@@ -78,11 +81,16 @@ pub(super) fn stands_down(
 /// Whether this run is a Claude hook whose environment claims its terminal
 /// for another session (the part of [`stands_down`] that also holds for the
 /// installed and the shim's copies).
+/// `terminal` is the hook's route when its environment names none (a tmux
+/// or ancestor route); `None` reads `CMUX_TUI_TERMINAL_ID`.
 pub(super) fn claimed_elsewhere(
     source: &str,
+    terminal: Option<&str>,
     session: Option<&str>,
     getenv: impl Fn(&str) -> Option<OsString>,
 ) -> bool {
+    // Red stub: the route terminal is not read yet.
+    let _ = terminal;
     source == "claude" && claimed_by_another(session, &getenv)
 }
 
@@ -102,9 +110,12 @@ fn claimed_by_another(session: Option<&str>, getenv: &impl Fn(&str) -> Option<Os
 pub(super) fn claim_terminal(
     source: &str,
     native_event: &str,
+    terminal: Option<&str>,
     session: Option<&str>,
     getenv: impl Fn(&str) -> Option<OsString>,
 ) {
+    // Red stub: the route terminal and the Claude process are not read yet.
+    let _ = (terminal, CLAUDE_PID_ENV);
     if source != "claude" || native_event != "SessionStart" {
         return;
     }
@@ -243,6 +254,71 @@ mod tests {
     }
 
     #[test]
+    fn any_launcher_w5n3_claim_follows_the_route_terminal() {
+        // A tmux or ancestor route: the environment names no terminal.
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("env.sh");
+        let envfile = (CLAUDE_ENV_FILE, file.to_str().unwrap());
+        claim_terminal("claude", "SessionStart", Some("term_r"), Some("outer-1"), env(&[envfile]));
+        assert_eq!(
+            fs::read_to_string(&file).unwrap_or_default(),
+            format!("export {OWNER_ENV}=term_r/outer-1\n")
+        );
+        let claimed = (OWNER_ENV, "term_r/outer-1");
+        assert!(claimed_elsewhere("claude", Some("term_r"), Some("nested-2"), env(&[claimed])));
+        assert!(!claimed_elsewhere("claude", Some("term_r"), Some("outer-1"), env(&[claimed])));
+        assert!(!claimed_elsewhere("claude", Some("term_s"), Some("nested-2"), env(&[claimed])));
+    }
+
+    #[test]
+    fn any_launcher_w5n3_claim_names_the_claude_process_so_clear_keeps_reporting() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("env.sh");
+        let envfile = (CLAUDE_ENV_FILE, file.to_str().unwrap());
+        let here = (TERMINAL_ENV, "term_a");
+        let outer = (CLAUDE_PID_ENV, "4242");
+        claim_terminal(
+            "claude",
+            "SessionStart",
+            None,
+            Some("outer-1"),
+            env(&[here, envfile, outer]),
+        );
+        assert_eq!(
+            fs::read_to_string(&file).unwrap_or_default(),
+            format!("export {OWNER_ENV}=term_a/outer-1/4242\n")
+        );
+        let claimed = (OWNER_ENV, "term_a/outer-1/4242");
+        // After `/clear` the same Claude runs a new session; were its hooks
+        // to see the claim, they must still report.
+        assert!(!stands_down(
+            "claude",
+            "SessionStart",
+            Some("outer-2"),
+            env(&[here, claimed, outer])
+        ));
+        // A Claude that its tool command started is another process.
+        let nested = (CLAUDE_PID_ENV, "5151");
+        assert!(stands_down(
+            "claude",
+            "SessionStart",
+            Some("nested-2"),
+            env(&[here, claimed, nested])
+        ));
+        // A claim without a process (an older build) keeps the session rule.
+        let old = (OWNER_ENV, "term_a/outer-1");
+        assert!(stands_down("claude", "Stop", Some("outer-2"), env(&[here, old, outer])));
+        // A process id that is not a number is not written.
+        fs::remove_file(&file).unwrap();
+        let odd = (CLAUDE_PID_ENV, "42;x");
+        claim_terminal("claude", "SessionStart", None, Some("outer-1"), env(&[here, envfile, odd]));
+        assert_eq!(
+            fs::read_to_string(&file).unwrap_or_default(),
+            format!("export {OWNER_ENV}=term_a/outer-1\n")
+        );
+    }
+
+    #[test]
     fn any_launcher_plugin_session_start_claims_the_terminal_in_the_env_file() {
         let dir = tempfile::tempdir().unwrap();
         // Claude Code names the file but does not create it.
@@ -251,7 +327,13 @@ mod tests {
         let plugin = (ORIGIN_ENV, PLUGIN_ORIGIN);
         let here = (TERMINAL_ENV, "term_a");
         let envfile = (CLAUDE_ENV_FILE, path);
-        claim_terminal("claude", "SessionStart", Some("outer-1"), env(&[plugin, here, envfile]));
+        claim_terminal(
+            "claude",
+            "SessionStart",
+            None,
+            Some("outer-1"),
+            env(&[plugin, here, envfile]),
+        );
         assert_eq!(
             fs::read_to_string(&file).unwrap_or_default(),
             format!("export {OWNER_ENV}=term_a/outer-1\n")
@@ -262,6 +344,7 @@ mod tests {
         claim_terminal(
             "claude",
             "SessionStart",
+            None,
             Some("outer-1"),
             env(&[here, (CLAUDE_ENV_FILE, installed_path)]),
         );
@@ -270,16 +353,35 @@ mod tests {
             format!("export {OWNER_ENV}=term_a/outer-1\n")
         );
         fs::write(&file, "export KEEP=1\n").unwrap();
-        claim_terminal("claude", "SessionStart", Some("outer-1"), env(&[plugin, here, envfile]));
-        // Not a SessionStart, not Claude, an id a shell would read as code, or
-        // no session: nothing is written.
-        claim_terminal("claude", "Stop", Some("outer-1"), env(&[plugin, here, envfile]));
-        claim_terminal("codex", "SessionStart", Some("outer-1"), env(&[plugin, here, envfile]));
-        claim_terminal("claude", "SessionStart", Some("x;rm -rf ~"), env(&[plugin, here, envfile]));
-        claim_terminal("claude", "SessionStart", None, env(&[plugin, here, envfile]));
         claim_terminal(
             "claude",
             "SessionStart",
+            None,
+            Some("outer-1"),
+            env(&[plugin, here, envfile]),
+        );
+        // Not a SessionStart, not Claude, an id a shell would read as code, or
+        // no session: nothing is written.
+        claim_terminal("claude", "Stop", None, Some("outer-1"), env(&[plugin, here, envfile]));
+        claim_terminal(
+            "codex",
+            "SessionStart",
+            None,
+            Some("outer-1"),
+            env(&[plugin, here, envfile]),
+        );
+        claim_terminal(
+            "claude",
+            "SessionStart",
+            None,
+            Some("x;rm -rf ~"),
+            env(&[plugin, here, envfile]),
+        );
+        claim_terminal("claude", "SessionStart", None, None, env(&[plugin, here, envfile]));
+        claim_terminal(
+            "claude",
+            "SessionStart",
+            None,
             Some("outer-1"),
             env(&[plugin, (TERMINAL_ENV, "term_a$(x)"), envfile]),
         );

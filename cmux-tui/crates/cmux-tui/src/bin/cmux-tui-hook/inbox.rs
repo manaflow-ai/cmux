@@ -118,6 +118,31 @@ pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>)
     );
 }
 
+/// Whether `terminal`'s agent is a live hook session other than `session`:
+/// this Claude is not the terminal's agent but one that it started (from a
+/// tool command, a hook, an MCP server or a teammate). One `agent.list` read;
+/// a read that fails or times out answers `false`, so the terminal's own
+/// agent keeps reporting when the daemon does not answer in time.
+pub(super) fn foreign_session(
+    socket: &Path,
+    terminal: Option<&str>,
+    session: Option<&str>,
+) -> bool {
+    let (Some(terminal), Some(session)) = (terminal, session) else { return false };
+    let read = || {
+        let deadline = Instant::now() + DEADLINE;
+        request(socket, "agent.list", json!({"terminal_id": terminal}), false, deadline)
+    };
+    foreign_in(read, terminal, session)
+}
+
+/// [`foreign_session`] over one `agent.list` read.
+fn foreign_in(read: impl FnOnce() -> anyhow::Result<Value>, terminal: &str, session: &str) -> bool {
+    // Red stub: the roster is not read yet.
+    let _ = (read, terminal, session);
+    false
+}
+
 /// claude `SessionStart` in a cmux terminal: the startup line for how this
 /// session compacts (`session_banner`), or the empty object.
 pub(super) fn session_banner(terminal: Option<&str>, source: &str) {
@@ -213,4 +238,31 @@ pub(super) fn request(
     }
     let result = response["result"].clone();
     Ok(if mutation { result["value"].clone() } else { result })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn any_launcher_w5n3_only_another_live_hook_session_is_foreign() {
+        let rows = |rows: Value| move || -> anyhow::Result<Value> { Ok(rows) };
+        let outer = json!([{"terminal_id": "term_a", "source": "hook", "state": "idle",
+            "extra": {"agent_session_id": "outer-1"}}]);
+        // A Claude the terminal's agent started: another live session.
+        assert!(foreign_in(rows(outer.clone()), "term_a", "nested-2"));
+        // The agent itself, and an agent row of another terminal.
+        assert!(!foreign_in(rows(outer.clone()), "term_a", "outer-1"));
+        assert!(!foreign_in(rows(outer), "term_b", "nested-2"));
+        // No agent yet, an ended one, or one that no hook reports: this Claude
+        // is the terminal's agent.
+        assert!(!foreign_in(rows(json!([])), "term_a", "nested-2"));
+        let ended = json!([{"terminal_id": "term_a", "source": "hook", "state": "done",
+            "extra": {"agent_session_id": "outer-1"}}]);
+        assert!(!foreign_in(rows(ended), "term_a", "nested-2"));
+        let screen = json!([{"terminal_id": "term_a", "source": "detected", "state": "idle"}]);
+        assert!(!foreign_in(rows(screen), "term_a", "nested-2"));
+        // A read that fails or times out keeps the hook reporting.
+        assert!(!foreign_in(|| Err(anyhow::anyhow!("timed out")), "term_a", "nested-2"));
+    }
 }

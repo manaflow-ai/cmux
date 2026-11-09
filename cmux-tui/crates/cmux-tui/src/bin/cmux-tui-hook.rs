@@ -117,7 +117,8 @@ fn run_reading(
     let session = session.as_deref();
     // A Claude that another Claude of this terminal started (plugin_copy.rs)
     // still waits for the repository below; it only reports nothing.
-    let nested = plugin_copy::claimed_elsewhere(&args.source, session, |name| env::var_os(name));
+    let nested =
+        plugin_copy::claimed_elsewhere(&args.source, None, session, |name| env::var_os(name));
     if !nested
         && plugin_copy::stands_down(&args.source, &args.native_event, session, |name| {
             env::var_os(name)
@@ -142,9 +143,6 @@ fn run_reading(
         inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
         return Ok(());
     }
-    plugin_copy::claim_terminal(&args.source, &args.native_event, session, |name| {
-        env::var_os(name)
-    });
     let result = run_after_ready(&args, exe_prefix, native);
     if result.is_err()
         && args.native_event == "PreToolUse"
@@ -159,6 +157,8 @@ fn run_reading(
 }
 
 fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::Result<()> {
+    let session = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
+    let session = session.as_deref();
     let inbox = inbox::Delivery::for_event(&args.source, &args.native_event).or_else(|| {
         session_context::applies(&args.source, &args.native_event, |name| env::var_os(name))
             .then_some(inbox::Delivery::SessionContext)
@@ -178,6 +178,21 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
             return Ok(());
         }
     };
+    // The route's terminal: also a tmux or ancestor route, whose environment
+    // names none (plugin_copy.rs).
+    if plugin_copy::claimed_elsewhere(&args.source, terminal.as_deref(), session, |name| {
+        env::var_os(name)
+    }) {
+        inbox::print_nothing(inbox);
+        return Ok(());
+    }
+    plugin_copy::claim_terminal(
+        &args.source,
+        &args.native_event,
+        terminal.as_deref(),
+        session,
+        |name| env::var_os(name),
+    );
     let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
     // Read before the journal event redacts it; it travels beside the event, never inside it.
     let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
@@ -201,6 +216,15 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     // Messages for this terminal's agent ride on the hook's own output. A
     // failed handoff means the daemon is not answering, so the helper fails
     // without output and the installed command prints the empty object.
+    // A Claude that is not the terminal's live agent (started by its hook,
+    // MCP server or teammate) gets no messages, banner or context.
+    if args.source == "claude"
+        && inbox.is_some()
+        && inbox::foreign_session(&socket, terminal.as_deref(), session)
+    {
+        inbox::print_nothing(inbox);
+        return Ok(());
+    }
     match inbox {
         Some(inbox::Delivery::SessionBanner) => {
             inbox::session_banner(terminal.as_deref(), &start_source);
