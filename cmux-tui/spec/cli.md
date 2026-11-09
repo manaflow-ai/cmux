@@ -482,7 +482,12 @@ An instance selector accepts:
 
 The daemon resolves every form (one resolver for the CLI, MCP, the SDKs and
 the app), so one selector selects one object in every command. JSON replies
-name objects by their full public ids.
+name objects by their full public ids. These forms are additions to
+`cmux.protocol/2`: a selector that resolved before selects the same object. A
+prefix is expanded first (the parser refused it before, and `name:` still
+selects a name that looks like one). A full id and a name are resolved next,
+as before; a bare id, a host id and `focused` apply only when no object has
+that name (a tab named `focused` is still that tab).
 
 `caller` is the object the command runs in: the caller's terminal
 (`CMUX_TUI_TERMINAL_ID`) and the tab, pane, screen and workspace that hold it,
@@ -512,12 +517,16 @@ the word after `terminal`, `tab` or `pane`, and the `--terminal`, `--tab` and
 looks a name under `current` parents up where it always did first (a screen
 name in the current workspace, a pane name in the current screen, a tab name in
 the current pane, the current tab's terminal title). A name it does not find
-there is looked up in the whole session: a screen or pane name, or a terminal
-title, then a tab name, a tab whose terminal runs (with an agent or not) before
-one whose terminal exited (so `terminal NAME resume` finds it). Two at the
-first step that has any return `selector.ambiguous` with their ids, also an
-agent tab and a shell tab with one name. Under an explicit parent (an id or a
-name) only that parent's scope is read. Before it parses a command, the CLI
+there is looked up further, with the rules every client had before. A tab name
+is looked up in the current screen, then the current workspace, then the
+session; the first level with a match decides. A screen or pane name, or a
+terminal title, is looked up in the whole session, and then (for a pane or a
+terminal) the tab name in the whole session. In each step a tab whose terminal
+runs (with an agent or not) wins over one whose terminal exited (so
+`terminal NAME resume` finds it), and two at one step return
+`selector.ambiguous` with their ids, also an agent tab and a shell tab with one
+name. Under an explicit parent (an id or a name) only that parent's scope is
+read. Before it parses a command, the CLI
 asks the daemon to resolve each such word (`<scope> <word> show`) and puts the
 id it answers in place of the word, so a flag that takes a full id
 (`notification create --terminal`, `agent report --terminal`) also takes a

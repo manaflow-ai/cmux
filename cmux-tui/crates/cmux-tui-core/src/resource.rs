@@ -937,21 +937,24 @@ pub enum Selector {
 }
 
 impl Selector {
-    /// Parses one selector word. `current` and `focused` are the session's
-    /// focused object (the daemon has no caller; the CLI puts the caller's
-    /// ids in place of `current` itself). A full public id, a unique id
-    /// prefix (`pane_3f`) and a bare id (the 32 hex digits without the
-    /// prefix, or a terminal's host id) are ids: the resolver expands a
-    /// prefix and a bare id to the full id ([`id_prefix_parts`],
-    /// [`is_bare_id`]). `name:` forces a name.
+    /// Parses one selector word. `current` is the session's focused object
+    /// (the daemon has no caller; the CLI puts the caller's ids in place of
+    /// `current` itself). A full public id and a unique id prefix
+    /// (`pane_3f`, which was never a name) are ids: the resolver expands a
+    /// prefix to the full id ([`id_prefix_parts`]). `focused`, a bare id
+    /// (the 32 hex digits without the prefix, [`is_bare_id`]) and a
+    /// terminal's host id stay names, as they were: the resolver takes them
+    /// as `current` or as ids only when no object has that name, so a
+    /// request that selected a named object still selects it. `name:`
+    /// forces a name.
     pub fn parse(value: &str) -> Result<Self, ResourceError> {
         if let Some(name) = value.strip_prefix("name:") {
             return Ok(Self::Name(name.to_string()));
         }
-        if value == "current" || value == "focused" {
+        if value == "current" {
             return Ok(Self::Current);
         }
-        if is_registered_public_id(value) || id_prefix_parts(value).is_some() || is_bare_id(value) {
+        if is_registered_public_id(value) || id_prefix_parts(value).is_some() {
             return Ok(Self::Id(value.to_string()));
         }
         if let Some(reason) = mistyped_id_reason(value) {
