@@ -196,3 +196,48 @@ fn with_input_frame_now_an_injected_input_lifts_the_frame_rate_cap() {
         assert_eq!(e.damage(0, r, 5_000).is_some(), on, "input_frame_now {on}");
     }
 }
+
+#[test]
+fn a_frame_lost_whole_is_resent_then_recovered_from_a_keyframe() {
+    use cmux_rd_engine::{TAIL_PROBE_US, TAIL_PROBES};
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 1_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    // A small P-frame of one datagram, which the path loses: the viewer sees nothing of it.
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let p = e.damage(0, small, 20_000).expect("second frame");
+    let lost = send(&mut e, &p, false, 100, 20_000);
+    assert_eq!(lost.len(), 1);
+    assert!(
+        e.tick(true, 20_000 + TAIL_PROBE_US - 1).datagrams.is_empty(),
+        "no probe before its time"
+    );
+    assert_eq!(e.next_deadline_us(), Some(20_000 + TAIL_PROBE_US));
+    let mut now = 20_000;
+    for _ in 0..TAIL_PROBES {
+        now += TAIL_PROBE_US;
+        let out = e.tick(true, now);
+        assert_eq!(out.datagrams, lost, "the unacknowledged frame is resent");
+        assert!(out.encode.is_none());
+    }
+    // Every probe lost too: the gate opens for a keyframe instead of waiting forever.
+    now += TAIL_PROBE_US;
+    let out = e.tick(true, now);
+    let idr = out.encode.expect("a recovery frame");
+    assert!(idr.force_idr);
+    send(&mut e, &idr, true, 1_000, now);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: idr.frame, ..Feedback::default() }),
+        true,
+        now + 10_000,
+    );
+    assert!(
+        e.tick(true, now + 10 * TAIL_PROBE_US).datagrams.is_empty(),
+        "an acknowledged stream never probes"
+    );
+}
