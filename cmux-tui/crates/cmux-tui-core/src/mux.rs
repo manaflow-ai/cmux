@@ -178,6 +178,7 @@ pub(crate) use spawn_options::{
     CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity,
 };
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
+pub(crate) use topology_ops::split_direction_field;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
@@ -349,7 +350,7 @@ use agent_hook_errors::{
 pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
     agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
-    is_agent_chat_top, release_agent_chat_role,
+    is_agent_chat_top, pane_is_agent_chat_top, release_agent_chat_role,
 };
 pub use column_move::{ColumnMoveDirection, ColumnMoveError};
 pub use dock_columns::PINNED_COLUMN_CODE;

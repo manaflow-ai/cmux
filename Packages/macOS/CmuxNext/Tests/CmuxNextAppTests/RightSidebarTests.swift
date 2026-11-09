@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextLayout
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -31,7 +32,7 @@ struct RightSidebarTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "cmux-right-sidebar-test-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         services.rightSidebarDefaults = defaults
         services.windows.ordersWindowsIn = false
         AppActions.bind(services)

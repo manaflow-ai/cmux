@@ -525,7 +525,7 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     let created =
         placement::open(daemon, &pane, &placement, Some(name), cwd.as_deref(), &launch.argv())?;
     if let Some((_, Some(shell))) = &fresh {
-        placement::close_tab(daemon, shell);
+        placement::end_placeholder(daemon, shell);
     }
     let mut report =
         report(Some(name), &launch, harness.as_deref(), cwd.as_deref(), &placement, &created);

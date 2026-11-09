@@ -449,8 +449,14 @@ fn w3h_start_splits_the_callers_pane_runs_a_named_tab_and_reports_the_trust_dial
     assert_eq!(run["pane"], "pane_33333333333333333333333333333333");
     assert_eq!(run["name"], "beta");
     assert_eq!(run["argv"], json!(["/bin/zsh", "-lc", "sr2 claude \"$@\"", "cmux-agent"]));
-    // The split's shell tab is closed; the agent's tab is focused.
-    assert_eq!(daemon.sent("tab.close")[0]["tab"], "tab_50505050505050505050505050505050");
+    // The split's shell ends (its terminal closes, taking its tab; a tab
+    // close alone left the shell running with no tab, W5-O); the agent's tab
+    // is focused.
+    assert_eq!(
+        daemon.sent("terminal.close")[0]["terminal"],
+        "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+    );
+    assert!(daemon.sent("tab.close").is_empty());
     assert_eq!(daemon.sent("tab.focus")[0]["tab"], "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0");
     // Nothing answered the dialog.
     assert!(daemon.sent("terminal.input.write").is_empty());
@@ -502,7 +508,9 @@ fn w3h_start_in_a_session_with_no_pane_opens_a_workspace_for_the_agent() {
     assert_eq!(workspace["name"], "alpha");
     assert!(daemon.sent("pane.split").is_empty());
     assert_eq!(daemon.sent("pane.run")[0]["pane"], "pane_44444444444444444444444444444444");
-    assert_eq!(daemon.sent("tab.close")[0]["tab"], "tab_5e115e115e115e115e115e115e115e11");
+    // The workspace's shell (its tab's terminal) ends with its tab.
+    assert_eq!(daemon.sent("terminal.close")[0]["terminal"], CALLER);
+    assert!(daemon.sent("tab.close").is_empty());
 }
 
 /// Review (lead's reviewer, #38436): two `agent start` runs at once on a
@@ -559,9 +567,10 @@ fn w3h_start_in_an_empty_session_uses_the_workspace_it_created_not_the_focused_o
             run_with_clock(|clock| start(&daemon, &env, clock, "beta", &options)).expect("start");
         assert_eq!(exit, 0, "{report}");
         assert_eq!(daemon.sent("pane.run")[0]["pane"], PANE_B, "receipt {receipt}");
-        let closed: Vec<Value> =
-            daemon.sent("tab.close").iter().map(|c| c["tab"].clone()).collect();
-        assert_eq!(closed, [json!(SHELL_B)], "only beta's shell tab closes; receipt {receipt}");
+        let ended: Vec<Value> =
+            daemon.sent("terminal.close").iter().map(|c| c["terminal"].clone()).collect();
+        assert_eq!(ended, [json!(TERM_B)], "only beta's shell ends; receipt {receipt}");
+        assert!(daemon.sent("tab.close").is_empty(), "receipt {receipt}");
     }
 }
 

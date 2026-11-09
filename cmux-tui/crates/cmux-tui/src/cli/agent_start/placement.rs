@@ -15,8 +15,8 @@
 //!
 //! The agent runs in a tab of its own (`pane run --on-exit keep --name
 //! NAME`), so its name, argv and harness session stay on record after it
-//! exits. A split first opens a shell tab in the new pane, which is closed
-//! once the agent's tab runs there.
+//! exits. A split (or a new workspace) first opens a shell tab, whose shell
+//! ends once the agent's tab runs there ([`end_placeholder`]).
 
 use serde_json::{Value, json};
 
@@ -80,6 +80,37 @@ impl Created {
     }
 }
 
+/// The shell tab a new pane or workspace opened with, which holds the pane
+/// until the agent's tab runs there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::cli) struct Placeholder {
+    pub tab: String,
+    /// Its terminal, when the session reported it.
+    pub terminal: Option<String>,
+}
+
+impl Placeholder {
+    fn of(created: &Created) -> Self {
+        Self { tab: created.tab.clone(), terminal: Some(created.terminal.clone()) }
+    }
+}
+
+/// Ends the placeholder's shell and so its tab (`terminal <t> close`). A
+/// `tab close` only took the tab away and left the shell running with no
+/// tab, out of sight, until the session ended (W5-O, bench round 4). Without
+/// a terminal id, or when the session refuses the terminal close, the tab
+/// closes and the session's reaper ends the shell. Any failure is ignored:
+/// the agent runs either way.
+pub(in crate::cli) fn end_placeholder<D: Daemon + ?Sized>(daemon: &D, placeholder: &Placeholder) {
+    let ended = placeholder.terminal.as_deref().is_some_and(|terminal| {
+        plan(&["terminal", terminal, "close"])
+            .is_ok_and(|close| daemon.request(None, close).is_ok())
+    });
+    if !ended && let Ok(close) = plan(&["tab", placeholder.tab.as_str(), "close"]) {
+        let _ = daemon.request(None, close);
+    }
+}
+
 fn list<'a>(snapshot: &'a Value, key: &str) -> &'a [Value] {
     snapshot[key].as_array().map(Vec::as_slice).unwrap_or_default()
 }
@@ -123,8 +154,9 @@ pub(in crate::cli) fn focused_pane(snapshot: &Value) -> Option<String> {
 }
 
 /// For a session with no pane: creates a workspace named `name` and returns
-/// its pane and the shell tab it opened with (close it once the agent's tab
-/// runs). `None` when the session has a pane.
+/// its pane and the shell tab it opened with (end it with
+/// [`end_placeholder`] once the agent's tab runs). `None` when the session
+/// has a pane.
 ///
 /// The ids come from the create receipt, else from the pane of the receipt's
 /// workspace, never from focus: another `agent start` may create (and focus)
@@ -134,7 +166,7 @@ pub(in crate::cli) fn empty_session_pane<D: Daemon + ?Sized>(
     snapshot: &Value,
     name: &str,
     cwd: Option<&str>,
-) -> Result<Option<(String, Option<String>)>, Failure> {
+) -> Result<Option<(String, Option<Placeholder>)>, Failure> {
     if !list(snapshot, "panes").is_empty() {
         return Ok(None);
     }
@@ -144,7 +176,8 @@ pub(in crate::cli) fn empty_session_pane<D: Daemon + ?Sized>(
     }
     let result = daemon.request(None, plan(&words)?)?;
     if let Ok(created) = Created::from_result(&result) {
-        return Ok(Some((created.pane, Some(created.tab))));
+        let shell = Placeholder::of(&created);
+        return Ok(Some((created.pane, Some(shell))));
     }
     let workspace = ["/value/workspace_id", "/path/workspace_id", "/workspace_id", "/id"]
         .into_iter()
@@ -166,8 +199,16 @@ pub(in crate::cli) fn empty_session_pane<D: Daemon + ?Sized>(
     let shell = list(&snapshot, "tabs")
         .iter()
         .find(|tab| tab["pane_id"] == pane.as_str())
-        .and_then(|tab| tab["id"].as_str())
-        .map(str::to_owned);
+        .and_then(|tab| {
+            Some(Placeholder {
+                tab: tab.get("id")?.as_str()?.to_owned(),
+                terminal: tab
+                    .get("content_id")
+                    .and_then(Value::as_str)
+                    .filter(|id| id.starts_with("term_"))
+                    .map(str::to_owned),
+            })
+        });
     Ok(Some((pane, shell)))
 }
 
@@ -188,13 +229,6 @@ fn pane_of_workspace(snapshot: &Value, workspace: &str) -> Option<String> {
         .or_else(|| panes.first())
         .and_then(|pane| pane["id"].as_str())
         .map(str::to_owned)
-}
-
-/// Closes `tab`; a tab that stays is harmless, so a failure is ignored.
-pub(in crate::cli) fn close_tab<D: Daemon + ?Sized>(daemon: &D, tab: &str) {
-    if let Ok(close) = plan(&["tab", tab, "close"]) {
-        let _ = daemon.request(None, close);
-    }
 }
 
 fn not_found(selector: &str, message: String) -> Failure {
@@ -266,7 +300,7 @@ pub(in crate::cli) fn target_pane(
 
 /// Opens the agent's tab: splits `pane` first for [`Placement::Split`],
 /// runs `argv` there as a named tab that keeps its terminal after exit,
-/// and closes the split's shell tab.
+/// and ends the split's shell ([`end_placeholder`]).
 pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     daemon: &D,
     pane: &str,
@@ -284,7 +318,7 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
             }
             let split = Created::from_result(&daemon.request(None, plan(&words)?)?)?;
             balance(daemon, split.screen.as_deref(), &split.pane);
-            (split.pane, Some(split.tab))
+            (split.pane.clone(), Some(Placeholder::of(&split)))
         }
         Placement::Tab => (pane.to_owned(), None),
     };
@@ -303,20 +337,19 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     let created = match ran {
         Ok(created) => created,
         Err(failure) => {
-            // Leave no empty shell pane behind a failed start.
-            if shell_tab.is_some()
-                && let Ok(close) = plan(&["pane", target.as_str(), "close"])
-            {
-                let _ = daemon.request(None, close);
+            // Leave no shell pane, and no shell, behind a failed start: the
+            // shell's end takes its tab, and the pane with its last tab.
+            if let Some(shell) = &shell_tab {
+                end_placeholder(daemon, shell);
+                if let Ok(close) = plan(&["pane", target.as_str(), "close"]) {
+                    let _ = daemon.request(None, close);
+                }
             }
             return Err(failure);
         }
     };
-    if let Some(tab) = shell_tab
-        && let Ok(close) = plan(&["tab", tab.as_str(), "close"])
-    {
-        // The agent runs either way; a shell tab that stays is harmless.
-        let _ = daemon.request(None, close);
+    if let Some(shell) = &shell_tab {
+        end_placeholder(daemon, shell);
     }
     Ok(created)
 }

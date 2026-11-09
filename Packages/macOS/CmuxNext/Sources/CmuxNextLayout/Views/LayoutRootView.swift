@@ -12,8 +12,10 @@ import Observation
 /// default a plain scroll goes to the pane under the pointer and Command +
 /// scroll moves the columns strip and rows; the first event of a gesture
 /// decides its owner.
-public final class LayoutRootView: NSView {
+public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     public let model: LayoutModel
+    /// Views in the panes whose frame notices are read, which a resize drag never holds (`FrameNoticeHold`).
+    public let frameNoticeReaders = FrameNoticeReaders()
     let context: LayoutViewContext
     var screenViews: [ScreenID: ScreenContentView] = [:]
     var screenFrames: [ScreenID: AnimatedFrame] = [:]

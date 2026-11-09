@@ -290,7 +290,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.chiefPanelSeesScreen", "Chief Sees Your Screen When It Opens"),
-                help: SettingsText.keyed("settings.home.chiefPanelSeesScreen.help", "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off."),
+                help: SettingsText.keyed("settings.home.chiefPanelSeesScreen.help", "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on."),
                 kind: .toggle,
                 default: .bool(ChiefDockSetting.seesScreenDefault),
                 keywords: ["chief", "screen", "see", "context", "screenshot", "eye", "floating", "privacy", "home"]

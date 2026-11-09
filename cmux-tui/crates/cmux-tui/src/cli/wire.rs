@@ -625,6 +625,7 @@ fn run_response(
                     #[cfg(unix)]
                     if let Some(listed) = super::cloud_workspaces::for_machine(global, plan, &error)
                     {
+                        let listed = listed.and_then(|rows| list_filter::apply_listed(plan, rows));
                         return match listed {
                             Ok(result) => {
                                 key_report.succeeded();
@@ -683,6 +684,10 @@ fn run_response(
                             cmux_tui_core::resource::ResourceOperation::WorkspaceList,
                         ) => super::cloud_workspaces::merge(global, result),
                         _ => result,
+                    };
+                    let result = match list_filter::apply(reader, plan, result) {
+                        Ok(result) => result,
+                        Err(error) => return print_operation_error(&error, global.output),
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
                     // The agent status words come from terminal_talk, which is unix
@@ -1199,6 +1204,7 @@ mod agent_roster;
 mod closed_view;
 mod hints;
 mod human;
+mod list_filter;
 mod list_order;
 mod notify_desktop;
 #[cfg(unix)]
