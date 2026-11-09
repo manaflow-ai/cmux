@@ -144,10 +144,13 @@ export default agentPaneEntry({
   title: "A notification row and the agent's reply after it",
   area: "Agent pane",
   height: 640,
+  // The narrow pane is where the time fell off the line (subagents.css `.cv-subagent-report-row`).
+  widths: { narrow: 380, normal: 760, wide: 1100 },
   covers: [
     "agent-session/acpmux/direct.ts#settleReaction",
     "agent-session/acpmux/subagents/SubagentDoneLine.tsx",
     "agent-session/acpmux/conversation/AgentMessageRow.tsx",
+    "agent-session/acpmux/subagents/subagents.css",
   ],
   variants: {
     collapsed: {
