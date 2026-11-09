@@ -403,7 +403,7 @@ def publish(rows: list[dict], results: Path, exists=published) -> list[str]:
                 pr_media.put_files(REPO, BRANCH, {row["path"]: local},
                                    f"What's New picture: {row['id']} ({row['role']}, {row['state']})",
                                    checked=True, expect={row["path"]: None})
-            except pr_media.MediaError as error:
+            except pr_media.MediaConflict as error:  # any other failure stops the run, its pictures not up
                 problems.append(f"{row['id']} {row['role']}: kept the copy already there ({error})")
                 continue
             print(row["url"])
