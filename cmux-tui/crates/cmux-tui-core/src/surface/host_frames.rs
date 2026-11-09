@@ -72,6 +72,9 @@ struct QueueState {
     /// The demultiplexer was dropped with replies still owed: the thread
     /// ends once no waiter it resolves is left, or at this deadline.
     draining: Option<std::time::Instant>,
+    /// Tests: how many reads the reader thread started.
+    #[cfg(test)]
+    reads_started: usize,
 }
 
 struct Queue {
@@ -259,7 +262,16 @@ fn read_stream(
     queue: &Queue,
 ) {
     loop {
-        let draining = queue.state.lock().unwrap().draining;
+        let draining = {
+            #[cfg_attr(not(test), allow(unused_mut))]
+            let mut state = queue.state.lock().unwrap();
+            #[cfg(test)]
+            {
+                state.reads_started += 1;
+                queue.changed.notify_all();
+            }
+            state.draining
+        };
         if draining.is_some_and(|deadline| {
             std::time::Instant::now() >= deadline
                 || !control_responses.has_waiter_where(|kind| early.resolves_after_abandon(kind))
@@ -704,6 +716,17 @@ mod tests {
         crate::terminal_host_protocol::write_frame(&mut host, &output).unwrap();
         assert!(
             matches!(frames.recv(), HostFrame::Frame(frame) if frame.kind == MessageKind::Output)
+        );
+        // Wait, asleep on the queue's condvar, until the thread starts its
+        // next read: it goes straight into the blocking read while this
+        // thread wakes, so the drop does not race the read's start (a read
+        // that starts after the drop would see the drop's read timeout).
+        drop(
+            frames
+                .queue
+                .changed
+                .wait_while(frames.queue.state.lock().unwrap(), |state| state.reads_started < 2)
+                .unwrap(),
         );
         let _kitty = responses.wait_for_test(9, MessageKind::KittyGraphicsLimitsAck);
         drop(frames);
