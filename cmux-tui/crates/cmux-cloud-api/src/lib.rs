@@ -13,7 +13,8 @@
 //!
 //! `machine.io` is a machine's exec or file operation (its `args` are [`machine_io::Request`]'s
 //! fields: `op`, `machine`, `path`, …): a Worker machine's runs [`machine_io`]'s logic, a classic
-//! one `/api/vm/{id}/exec` and `/fs/*`.
+//! one `/api/vm/{id}/exec` and `/fs/*`. `vm.scp_endpoint` is cmux-platform's
+//! `/v1/cloud/machines/{id}/ssh-endpoint` (a `stack` call is refused before any request).
 //!
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
@@ -100,6 +101,7 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
         "machine.io" if request.auth == Auth::Stack => machine::classic(&http, args).await,
         "machine.io" => machine::worker(request).await,
         "vm.networks" => network::networks(&http, request.auth).await,
+        "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
         call if call.starts_with("vm.") => classic::run(&http, call, args).await,
         "runs.create" => runs::create(&http, args).await,
         "runs.start" => runs::start(&http, args).await,
