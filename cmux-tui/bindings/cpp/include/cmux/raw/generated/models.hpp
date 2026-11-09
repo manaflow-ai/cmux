@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "24633df1125b80329f55d8fdc1d2f5b149acf3fc2094b3bbb8b25167049dde9a";
+inline constexpr std::string_view kProtocolIrSha256 = "3e959b0955161c2b278a7348db254e8884e6f49bd4f0c7e9c58f1d7458bd1003";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -5214,6 +5214,8 @@ struct ServerStatsWritePath {
     std::uint64_t effect_intent_batches{};
     std::uint64_t effect_intent_failures{};
     std::uint64_t effect_intents{};
+    std::optional<std::uint64_t> registry_wal_file_bytes{};
+    std::optional<std::uint64_t> registry_wal_file_high_water_bytes{};
     std::optional<std::uint64_t> registry_wal_frame_bytes{};
     std::uint64_t request_effect_commits{};
     std::optional<std::uint64_t> wal_commits{};

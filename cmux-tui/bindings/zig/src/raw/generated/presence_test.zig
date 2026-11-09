@@ -248,6 +248,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ServerStatsResult, "locks");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "resource_projection");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "write_path");
+    try expectExplicitNullRejected(protocol.ServerStatsWritePath, "registry_wal_file_bytes");
+    try expectExplicitNullRejected(protocol.ServerStatsWritePath, "registry_wal_file_high_water_bytes");
     try expectExplicitNullRejected(protocol.ServerStatsWritePath, "registry_wal_frame_bytes");
     try expectExplicitNullRejected(protocol.ServerStatsWritePath, "wal_commits");
     try expectExplicitNullRejected(protocol.ServerStatsWritePath, "wal_synced_commits");
