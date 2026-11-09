@@ -53,6 +53,12 @@ fn w4j_pane_move_parses_one_destination_and_refuses_the_rest() {
         fields(&["--to-pane", PANE_T, "--index", "2"]),
         json!({"destination_pane": PANE_T, "index": 2})
     );
+    // With --to-pane or --to-tab, --to-workspace and --to-screen are its parents.
+    assert_eq!(
+        fields(&["--to-tab", "build", "--to-workspace", "other", "--to-screen", "logs"]),
+        json!({"destination_tab": "build", "destination_workspace": "other",
+               "destination_screen": "logs"})
+    );
     for bad in [
         &[][..],
         &["--new-screen", "--to-pane", PANE_T],
@@ -63,6 +69,8 @@ fn w4j_pane_move_parses_one_destination_and_refuses_the_rest() {
         &["--new-screen", "--index", "2"],
         &["--to-pane", PANE_T, "--split", "left", "--index", "1"],
         &["--to-pane", PANE_T, "--index", "-1"],
+        &["--new-screen", "--to-screen", "logs"],
+        &["--to-workspace", "other", "--to-screen", "logs"],
     ] {
         let mut args = vec!["pane", PANE_S, "move"];
         args.extend_from_slice(bad);

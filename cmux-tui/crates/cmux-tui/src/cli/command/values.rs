@@ -404,6 +404,14 @@ pub(super) fn insert_viewport_width(
 pub(super) fn validate_selector(scope: &str, prefix: &str, value: &str) -> Result<(), UsageError> {
     let selector = Selector::parse(value).map_err(|error| UsageError::new(error.message))?;
     if matches!(selector, Selector::Id(_)) && !is_expanded_id_form(scope, prefix, value) {
+        // A prefix of another kind's ids (`ws_1` for a tab) names no object
+        // of this scope.
+        if let Some((given, _)) = id_prefix_parts(value) {
+            return Err(UsageError::new(format!(
+                "{value} is not an id of a {scope}: a {scope} id starts with {prefix}_ \
+                 ({given}_ is another kind); pass name:{value} for a name"
+            )));
+        }
         validate_prefixed_id(scope, prefix, value)?;
     }
     Ok(())
