@@ -154,9 +154,9 @@ final class FilePageService: InternalPageProvider {
     /// Cloud terminal or diff named); nil is this Mac, whatever machine `pane` shows.
     @discardableResult
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
-              recoveredText: String? = nil, at position: FilePosition? = nil, on machine: DaemonService? = nil,
+              recoveredText: String? = nil, at position: FilePosition? = nil, on machine: DaemonService? = nil, noFollow: Bool = false,
               placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String {
-        let files = machineFiles(on: machine)
+        let files = machineFiles(on: machine, noFollow: noFollow)
         let real = files.canonical(file)
         // The viewers' recents are files of this Mac.
         if userChose, files.isLocal { services.viewers.recents.record(real, as: kind.recents) }
@@ -165,7 +165,7 @@ final class FilePageService: InternalPageProvider {
         let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: files.isLocal ? recoveredText : nil,
                       reveal: reveal, files: files, machine: machineID)
         let key = show(in: pane, focus: focus, placed: placed, shownInPlace: shownInPlace, tab) { key in
-            self.file(key) == real && self.tabs[key]?.machine == machineID
+            self.file(key) == real && self.tabs[key]?.machine == machineID && (!noFollow || (self.tabs[key]?.files as? RemoteFilePageFiles)?.noFollow == true)
         }
         if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
@@ -181,12 +181,12 @@ final class FilePageService: InternalPageProvider {
         return key
     }
 
-    /// The files of `machine` (#25581): this Mac's disk (nil or the local daemon), or the
-    /// machine's daemon over its own read link, so a tab in a Cloud workspace shows the VM's file.
-    func machineFiles(on machine: DaemonService?) -> any FilePageFiles {
+    /// The files of `machine` (#25581): this Mac's disk (nil or the local daemon), or the machine's daemon over its own
+    /// read link (`noFollow`: through no symlink there, a Cloud chat's path chip, which a tab that follows links never shows).
+    func machineFiles(on machine: DaemonService?, noFollow: Bool = false) -> any FilePageFiles {
         guard let daemon = machine, !daemon.isLocal else { return LocalFilePageFiles() }
         return RemoteFilePageFiles(client: services.agentGit.link(for: daemon),
-                                   machine: services.machines.machineName(daemon.machineID) ?? daemon.machineID)
+                                   machine: services.machines.machineName(daemon.machineID) ?? daemon.machineID, noFollow: noFollow)
     }
 
     /// Puts tab `key`'s cursor at `position`: a tab whose page is up gets the `reveal` page command;

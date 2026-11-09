@@ -637,6 +637,19 @@ async fn forward_inner(
         }
         // The peer cannot see the session this connection runs in: it gets that session's name.
         if m == method::SESSION_PROMPT {
+            // The person's answer to the suggestion this daemon showed them for the chat, counted
+            // in their own tally before the turn can bring the next one (`suggestion_gate.rs`).
+            let person = super::requests::person_asks(conn)
+                && conn.caller().is_none()
+                && crate::prompt_provenance::relay_sender(params).is_none()
+                && params.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null);
+            crate::suggestion_gate::note_relayed_prompt(
+                &hub.suggestion_gate,
+                &peer.name,
+                &id,
+                params,
+                person,
+            );
             name_sender(hub, conn, &mut p);
         }
         if m == method::MUX_PERMISSION_RESPOND {

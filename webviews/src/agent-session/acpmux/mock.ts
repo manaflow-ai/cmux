@@ -423,12 +423,31 @@ export class MockAcpmuxSocket {
   /// No reply text streams, so whatever the transcript draws past the running turn is waste.
   async tickLoadTurn(
     target: string,
-    options: { seconds: number; tickMs: number; sidebarMs: number; lineSuffix?: string },
+    options: { seconds: number; tickMs: number; sidebarMs: number; lineSuffix?: string; backgroundCommands?: number },
   ): Promise<{ ticks: number; sidebar: number }> {
     const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
     this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: run the long check` } });
     this.emit(target, { mux: "turn_started" });
+    // Shells sent to the background first, as Claude's Bash `run_in_background` does: each call ends at
+    // once and its shell keeps running, so the composer's hat (SubagentTray.tsx) shows it with its
+    // time ticking for the whole run. They are left running when the turn ends.
+    for (let index = 0; index < (options.backgroundCommands ?? 0); index += 1) {
+      const shell = `load-tick-${turn}-background-${index}`;
+      const command = `bun run dev --port ${4300 + index}`;
+      this.emit(target, {
+        update: tool(shell, "execute", command, "in_progress", {
+          rawInput: { command, run_in_background: true },
+        }),
+      });
+      this.emit(target, {
+        update: done(shell, {
+          content: [
+            { type: "content", content: { type: "text", text: `Command running in background with ID: ${shell}` } },
+          ],
+        }),
+      });
+    }
     const call = `load-tick-${turn}`;
     this.emit(target, {
       update: tool(call, "execute", "Run bun test --watch", "in_progress", {

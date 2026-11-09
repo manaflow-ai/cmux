@@ -4,6 +4,7 @@
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
   "plan-ask: <plan>" -> a plan approval as Claude Code's ExitPlanMode asks it, then as "ask:"
+  "plan-ask-on: <plan>" -> the same; a rejected plan plans on until session/cancel
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
@@ -960,6 +961,11 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "plan-ask-on: <plan>": as "plan-ask:", but a rejected plan is a tool denial, as Claude
+    # Code's adapter takes it: the turn plans on ("kept planning") unless it is cancelled.
+    plan_on = text.startswith("plan-ask-on:")
+    if plan_on:
+        text = "plan-ask:" + text[len("plan-ask-on:"):]
     if text.startswith("plan-ask:"):
         plan = text[len("plan-ask:"):].strip()
         res = request(
@@ -977,6 +983,14 @@ def handle_prompt(rid, params):
         )
         chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        if plan_on and chosen == "no":
+            for _ in range(100):
+                if sid in cancelled:
+                    cancelled.discard(sid)
+                    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                    return
+                time.sleep(0.05)
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": " kept planning"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text.startswith("ask:"):
@@ -1192,6 +1206,11 @@ def handle_prompt(rid, params):
     # "harness-title: X" titles the session itself, as Codex does.
     if text.startswith("harness-title:"):
         update(sid, {"sessionUpdate": "session_info_update", "title": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "suggest: TEXT" ends the turn with TEXT as the predicted next prompt.
+    if text.startswith("suggest:"):
+        update(sid, {"sessionUpdate": "prompt_suggestion", "suggestion": text[8:].strip()})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text.startswith("meta:"):
