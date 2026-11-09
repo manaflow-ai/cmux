@@ -402,7 +402,8 @@ pub(crate) fn remove_previous_registry_when_started(db_path: &Path) {
 /// Removes the previous registry, then the sidecars SQLite left beside it
 /// (`-wal`, `-shm`, `-journal`: a read-only open of a WAL file makes them).
 /// The sidecars go after the main file, so a crash between the two never
-/// leaves a WAL beside a file it could be applied to.
+/// leaves a WAL beside a file it could be applied to. From Lawrence Chen's
+/// long-jobs branch (6825f3658ff, d66f49b98f6).
 fn remove_previous_with_sidecars(previous: &Path) -> anyhow::Result<()> {
     remove_if_present(previous)?;
     for suffix in ["-wal", "-shm", "-journal"] {
