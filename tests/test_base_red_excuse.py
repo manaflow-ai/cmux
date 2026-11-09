@@ -3482,8 +3482,11 @@ class CompileReceiptRead(unittest.TestCase):
     """The receipt read: one anonymous GET; a 404 is no receipt, every other failure refuses."""
 
     def answer(self, body=None, code=None):
-        def urlopen(url, timeout):
+        def urlopen(request, timeout):
+            url = request.full_url
             self.assertIn("?repo=manaflow-ai%2Fcmux&wait=0", url)
+            # The proxy refuses Python's default User-Agent with a 403: the read always names its client.
+            self.assertEqual(request.get_header("User-agent"), excuse.COMPILE_RECEIPT_USER_AGENT)
             if code is not None:
                 raise urllib.error.HTTPError(url, code, "x", {}, None)
             return contextlib.closing(io.BytesIO(json.dumps(body).encode()))

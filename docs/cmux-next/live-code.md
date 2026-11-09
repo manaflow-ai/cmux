@@ -128,6 +128,16 @@ Leo then: "For the swift bit why can't we simply apply after switching the build
   as `reload.sh`), renames the running bundle aside and the live one into its place, and starts it
   with the tag's own launchd job. Then every CmuxNextApp file that differs from what the live build
   compiled is patched in at once: your edits are in right away.
+- **A new commit, no build.** Leo (2026-11-05): "do you need it to be a build versus do you need
+  actually just to be able to test out that change on its own ... We can just reuse an existing copy
+  ... propagating from the previous change". After a pull or a commit, start reuses the tag's last
+  live code build when everything that differs from what it compiled patches in (only existing
+  CmuxNextApp files changed): it restarts into that build and patches the difference in, with no
+  build, as the watcher already does for a pull while live mode is on. Status and the start line say
+  `the live code build of OLD, patched up to NEW`. Any other change since that build (a new or
+  deleted file, another module or shared package, a resource, `webviews/`, a manifest, an untracked
+  file; git decides) builds HEAD as before; so does `--fresh` (`cmux live start --swift --fresh`). A difference the
+  app refuses (a type's layout changed) waits for the stop build, and the start line names `--fresh`.
 - **While on**, a watcher (`live-mode.py watch`, in the background) patches each saved CmuxNextApp
   file in, and once saves stop for 20 s it makes the optimized build of the edited checkout
   (`reload.sh --tag TAG --build-only`, the tag's own warm derived data, at background priority).
@@ -145,8 +155,8 @@ Leo then: "For the swift bit why can't we simply apply after switching the build
 - The cache is `~/Library/Caches/cmux-next/live-mode/<tag>/`: per commit, `build/` (its
   `xcodebuild.log` is what patches compile with), the Swift it compiled and `live.app` while it is
   not installed; `before.app`, the build that ran before live mode; `edited.app`, the optimized
-  build of the edited checkout. The next start of the same commit is a restart and a patch, no
-  build. A swap is two renames on one volume.
+  build of the edited checkout. The next start of the same commit, or of a later one whose
+  difference patches in, is a restart and a patch, no build. A swap is two renames on one volume.
 - The "Live mode" mark shows only in a live code build (its Info.plist has `CMUXLiveCodeBuild`): a
   normal build with Labs > Live Code on watches the folder but cannot be patched.
 

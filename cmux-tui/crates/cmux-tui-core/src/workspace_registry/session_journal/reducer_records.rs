@@ -35,6 +35,10 @@ pub(crate) const SEALED_REDUCER_KINDS: &[kind_read::JournalKinds] =
 /// The version of [`SEALED_REDUCER_KINDS`] the backfill cursor was made for.
 const SEALED_REDUCER_KINDS_VERSION: u32 = 1;
 
+/// In the backfill cursor: the cursor was written by a build that does not
+/// trust a partly filled kind map to pass a segment over.
+const KIND_MAP_RULE: u64 = 1;
+
 /// The backfill's position: the last segment it finished.
 const BACKFILL_META_KEY: &str = "journal_segment_reducer_records_backfill";
 
@@ -227,8 +231,28 @@ impl WorkspaceRegistry {
     }
 }
 
+/// Whether every segment's kind map names all of its kinds. A segment's
+/// map is written whole at its seal, but the legacy kind backfill (for
+/// segments sealed before kind maps) inserts a kind at a time; while its
+/// marker is `0` it stopped partway, and a map may lack some of the
+/// segment's kinds until the next read on the registry finishes it.
+fn kind_maps_complete(connection: &Connection) -> anyhow::Result<bool> {
+    let marker = connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(marker.as_deref() != Some("0"))
+}
+
 /// Whether `segment_id` has a kind a reducer folds with no kept rows. A
-/// segment with no kind map yet (sealed before kind maps) is decoded.
+/// segment with no kind map yet (sealed before kind maps) is decoded, and
+/// so is one with no kept rows while kind maps may be partly filled: its
+/// map could lack the folded kinds it holds. Kept rows come from a whole
+/// segment (its seal or a backfill decode), so a segment that has any has
+/// every folded kind's.
 fn segment_needs_reducer_records(
     connection: &Connection,
     segment_id: &str,
@@ -252,6 +276,9 @@ fn segment_needs_reducer_records(
             row.get::<_, String>(0)
         })?
         .collect::<Result<BTreeSet<_>, _>>()?;
+    if kept.is_empty() && !kind_maps_complete(connection)? {
+        return Ok(true);
+    }
     Ok(mapped.iter().any(|kind| kept_for_reducers(kind) && !kept.contains(kind)))
 }
 
@@ -271,7 +298,8 @@ fn cleanup_marker(connection: &Connection) -> anyhow::Result<Value> {
 
 /// The end sequence of the last segment the backfill finished. 0 (start
 /// over) when there is none, when it was made for another version of the
-/// reducer kinds, when an output cleanup swapped the registry since (its
+/// reducer kinds or by a build that trusted a partly filled kind map,
+/// when an output cleanup swapped the registry since (its
 /// marker changed), or when that segment is gone. A cleanup of this build
 /// deletes the cursor itself ([`forget_backfill`]); an older build's copies
 /// it across, and repacks the segments under new ids, but a repacked
@@ -290,6 +318,11 @@ fn backfill_cursor(connection: &Connection) -> anyhow::Result<u64> {
         return Ok(0);
     }
     if value.get("cleanup").unwrap_or(&Value::Null) != &cleanup_marker(connection)? {
+        return Ok(0);
+    }
+    // A cursor without it was written by a build that passed segments over
+    // on a partly filled kind map ([`segment_needs_reducer_records`]).
+    if value.get("kind_map").and_then(Value::as_u64) != Some(KIND_MAP_RULE) {
         return Ok(0);
     }
     let (Some(through), Some(segment_id)) = (
@@ -333,6 +366,7 @@ fn write_backfill_cursor(
         "through": through.to_string(),
         "segment_id": segment_id,
         "cleanup": cleanup_marker(connection)?,
+        "kind_map": KIND_MAP_RULE,
     });
     connection.execute(
         "INSERT INTO meta(key, value) VALUES(?1, ?2)
