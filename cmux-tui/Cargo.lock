@@ -8,6 +8,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux-build-id",
  "acpmux-hot",
+ "aho-corasick",
  "anyhow",
  "base64",
  "bytes",
@@ -34,6 +35,8 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-tailnet",
+ "cmux-transport",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-vault-egress",
  "cmux-wg",
@@ -1281,6 +1284,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-command-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-conductor-import"
 version = "0.1.0"
 dependencies = [
@@ -1965,6 +1972,7 @@ version = "0.1.0"
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "proptest",
 ]
 

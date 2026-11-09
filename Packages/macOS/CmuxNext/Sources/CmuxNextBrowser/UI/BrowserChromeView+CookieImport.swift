@@ -49,6 +49,8 @@ extension BrowserChromeView {
     public func showCookieImportOffer(_ offer: BrowserCookieImportOffer, aboveToast: Bool = false,
                                       onChoice: @escaping (BrowserCookieImportChoice) -> Void) {
         if let shown = currentCookieImportCard, shown.offer == offer, !shown.isHidden, shown.heldFor == nil {
+            // A window toast that shows now (or went) moves it, in place.
+            pageOverlays.setLift(aboveToast ? Self.toastClearance : 0, for: shown)
             shown.onChoice = { [weak self, weak shown] choice in
                 if let shown { self?.remove(shown) }
                 onChoice(choice)
