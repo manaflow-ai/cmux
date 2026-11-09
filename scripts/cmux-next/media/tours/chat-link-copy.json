@@ -1,0 +1,31 @@
+{
+  "title": "Agent chat: a right-click on a link in a reply opens the link rows with Copy Link (cmux#39133), and Copy Link puts the URL on the clipboard",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Links"], "wait": 1, "shot": false},
+    {"title": "Show it", "cmux": ["workspace", "name:Links", "focus"], "wait": 1.5, "shot": false},
+    {"title": "Open agent chat", "rpc": {"method": "action.run", "params": {"action": "palette.newAgentChat", "focus": true}}, "wait": 6, "shot": false},
+    {"title": "A reply that links a pull request (example.com/pull/4321)", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "link"}}, "wait": 2},
+    {"title": "Window geometry", "rpc": {"method": "debug.window_list", "params": {}}, "shot": false, "optional": "geometry probe"},
+    {"title": "Probe: element under the guessed point", "rpc": {"method": "debug.agent_pane", "params": {"action": "hover", "x": 420, "y": 200}}, "shot": false, "optional": "geometry probe"},
+    {"title": "Right-click the link (a right-button mouse event through the window, as a person's)", "rpc": {"method": "debug.mouse", "params": {"action": "click", "button": "right", "x": 420, "y": 200}}, "wait": 1.5},
+    {"title": "The menu (screen)", "wait": 0.5, "display": true, "optional": "the menu shot needs --whole-host"},
+    {"title": "Type-select Copy Link and press Return", "rpc": {"method": "debug.key", "params": {"sequence": [
+      {"key_code": 8, "down": true}, {"key_code": 8, "down": false, "after_ms": 30},
+      {"key_code": 31, "down": true, "after_ms": 30}, {"key_code": 31, "down": false, "after_ms": 30},
+      {"key_code": 35, "down": true, "after_ms": 30}, {"key_code": 35, "down": false, "after_ms": 30},
+      {"key_code": 16, "down": true, "after_ms": 30}, {"key_code": 16, "down": false, "after_ms": 30},
+      {"key_code": 49, "down": true, "after_ms": 30}, {"key_code": 49, "down": false, "after_ms": 30},
+      {"key_code": 37, "down": true, "after_ms": 30}, {"key_code": 37, "down": false, "after_ms": 30},
+      {"key_code": 34, "down": true, "after_ms": 30}, {"key_code": 34, "down": false, "after_ms": 30},
+      {"key_code": 45, "down": true, "after_ms": 30}, {"key_code": 45, "down": false, "after_ms": 30},
+      {"key_code": 40, "down": true, "after_ms": 30}, {"key_code": 40, "down": false, "after_ms": 30},
+      {"key_code": 36, "down": true, "after_ms": 300}, {"key_code": 36, "down": false, "after_ms": 30}
+    ]}}, "wait": 2.5, "shot": false},
+    {"title": "The menu closed after the choice", "wait": 0.5},
+    {"title": "Locate the link (a left click on it; the reply names its window point)", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": "a[href=\"https://example.com/pull/4321\"]"}}, "wait": 2, "optional": "geometry probe"},
+    {"title": "A terminal workspace to read the clipboard", "cmux": ["workspace", "new", "--name", "Clipboard"], "wait": 1, "shot": false},
+    {"title": "Show it", "cmux": ["workspace", "name:Clipboard", "focus"], "wait": 2, "shot": false},
+    {"title": "The clipboard after Copy Link (pbpaste)", "daemon": true, "cmux": ["workspace", "name:Clipboard", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text", "clear; printf 'clipboard: ['; pbpaste; printf ']\\n'\r"], "wait": 2}
+  ]
+}
