@@ -196,3 +196,28 @@ fn a_late_result_for_an_earlier_episode_never_lands_on_a_newer_attempt() {
     h.repair_result(ID, ReloadPage, Some(2), false, 20_300);
     assert_eq!(h.next_tick_ms(), Some(20_300));
 }
+
+#[test]
+fn a_result_for_a_reload_sent_before_the_click_never_lands_on_the_clicked_one() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    let first = h.tick(10_000);
+    assert_eq!(
+        first.iter().map(|a| (a.action, a.attempt, a.token)).collect::<Vec<_>>(),
+        vec![(ReloadPage, 1, 1)]
+    );
+    // The click starts the ladder again at step 1, with a new token.
+    let clicked = h.repair_now(ID, 10_500);
+    assert_eq!(
+        clicked.iter().map(|a| (a.action, a.attempt, a.token)).collect::<Vec<_>>(),
+        vec![(ReloadPage, 1, 2)]
+    );
+    assert_eq!(h.next_tick_ms(), Some(12_500));
+    // The first reload fails late: ignored.
+    h.repair_result(ID, ReloadPage, Some(1), false, 10_600);
+    assert_eq!(h.next_tick_ms(), Some(12_500));
+    assert_eq!(receipts(&h, ID).last(), Some(&(ReloadPage, Outcome::Started)));
+    // The clicked one's lands.
+    h.repair_result(ID, ReloadPage, Some(2), false, 10_700);
+    assert_eq!(h.next_tick_ms(), Some(10_700));
+}

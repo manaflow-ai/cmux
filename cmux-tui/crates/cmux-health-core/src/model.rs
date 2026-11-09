@@ -518,7 +518,10 @@ impl Health {
         let repairable = matches!(part.mode, Mode::Ladder(_))
             && matches!(part.state, State::Stuck | State::Repairing | State::Failed);
         if repairable {
-            part.repair = Repair { held: part.repair.held, ..Repair::default() };
+            // A fresh ladder, but the token count goes on: a late result for an
+            // action sent before the click must not match the new one.
+            let Repair { held, sent, .. } = part.repair;
+            part.repair = Repair { held, sent, ..Repair::default() };
             self.refresh(slot, now, Some(&mut actions));
         }
         actions
