@@ -36,7 +36,7 @@ PR_METADATA_QUERY = <<~GRAPHQL.freeze
     repository(owner: $owner, name: $name) {
       databaseId nameWithOwner
       pullRequest(number: $number) {
-        number state baseRefName baseRefOid headRefName headRefOid mergeable
+        number state mergedAt baseRefName baseRefOid headRefName headRefOid mergeable
         potentialMergeCommit { oid }
         author { ... on User { databaseId } ... on Bot { databaseId } }
         headRepository { databaseId nameWithOwner }
@@ -193,7 +193,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "1ec5172cd6cb234f739b3e56b4cdedd0cbe5271c33b4193cd06a12548222ab9f"
+EXPECTED_GUARD_SCRIPT_DIGEST = "ca0031b6c56f6ec183df8ca1f595570dd679ff149e4516c8635e8d1034b5607d"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -717,7 +717,7 @@ def api_pull_request(repository, number)
 
   head_repo = pr["headRepository"]
   {
-    "number" => pr["number"], "state" => pr["state"].to_s.downcase,
+    "number" => pr["number"], "state" => pr["state"].to_s.downcase, "merged_at" => pr["mergedAt"],
     "user" => pr["author"].is_a?(Hash) ? { "id" => pr["author"]["databaseId"] } : nil,
     "base" => { "ref" => pr["baseRefName"], "sha" => pr["baseRefOid"],
                 "repo" => { "id" => repo["databaseId"], "full_name" => repo["nameWithOwner"] } },
@@ -739,14 +739,32 @@ def api_json(repository, endpoint, allow_missing: false)
   api_request_json([endpoint], allow_missing: allow_missing)
 end
 
-# True when the live pull request merged with the head this run was started
-# for. A merged pull request cannot merge again or reopen, so a run on it
-# (a bot edit just after the merge) has nothing to gate. A closed pull request
-# that did not merge can reopen, so it stays fail-closed.
-def merged_at_head?(live_pr, pr_number, head_sha)
+# The bot-edit race this pass exists for lasts seconds after a merge.
+MERGED_RUN_WINDOW_SECONDS = 300
+
+# True when the live pull request merged into main with the head this run was
+# started for, at most MERGED_RUN_WINDOW_SECONDS ago. A merged pull request
+# cannot merge again or reopen, so a run on it (a bot edit just after the
+# merge) has nothing to gate. The window matters: a pass on the head counts
+# for that commit in any pull request, because the newest run of a required
+# check wins, so an edit long after the merge must not mint a new pass. A
+# closed pull request that did not merge can reopen, so it stays fail-closed.
+def merged_at_head?(live_pr, pr_number:, head_sha:, repository:, repository_id:, now:)
   head = live_pr["head"]
-  live_pr["number"].to_s == pr_number && live_pr["state"] == "merged" &&
-    head.is_a?(Hash) && head["sha"] == head_sha
+  base = live_pr["base"]
+  base_repo = base.is_a?(Hash) ? base["repo"] : nil
+  merged_at = live_pr["merged_at"]
+  return false unless live_pr["number"].to_s == pr_number && live_pr["state"] == "merged" &&
+    head.is_a?(Hash) && head["sha"] == head_sha &&
+    base.is_a?(Hash) && base["ref"] == "main" &&
+    base_repo.is_a?(Hash) && base_repo["full_name"].to_s.downcase == repository.downcase &&
+    base_repo["id"] == repository_id &&
+    merged_at.is_a?(String) && merged_at.match?(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
+
+  age = now - Time.iso8601(merged_at).to_f
+  age >= 0 && age <= MERGED_RUN_WINDOW_SECONDS
+rescue ArgumentError
+  false
 end
 
 def review_sort_key(review)
@@ -3643,7 +3661,10 @@ begin
   fail!("pull request metadata is malformed") unless live_pr.is_a?(Hash)
   # A bot edit a few seconds after a merge starts an `edited` run on the merged
   # pull request (cmux #39226, run 42566226142). Pass it with no file read.
-  if merged_at_head?(live_pr, pr_number, head_sha)
+  if merged_at_head?(
+    live_pr, pr_number: pr_number, head_sha: head_sha, repository: repository,
+    repository_id: repository_id, now: api_wall_time
+  )
     puts "PASS: pull request ##{pr_number} is already merged at #{head_sha}; nothing to gate"
     exit 0
   end
