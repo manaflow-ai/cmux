@@ -123,8 +123,8 @@ the host-glass menus around them. They are listed in `web_floating_pending`. The
 one, and it fails an entry once its surface is fixed, so the list only shrinks:
 
 - the feature tip (`W/ui/FeatureTip.tsx`);
-- the model picker's popup (`ModelPicker.tsx`): `modelPicker.css` already sets `--host-glass-fill`
-  for it, but the popup carries no mark;
+- the full model picker with its harness rail (`ModelPicker.tsx` `PickerDialog`). The quick model
+  menus are already on host glass with their 40% veil (`modelPicker.css`);
 - the slash, @ and emoji lists (`SlashMenu.tsx`, `Composer.tsx`, `MentionMenu.tsx`, `EmojiMenu.tsx`);
 - the in-pane palette menu (`PaletteMenu.tsx`);
 - New Tab's omni list (`NewTabPage.tsx`);
@@ -133,7 +133,7 @@ one, and it fails an entry once its surface is fixed, so the list only shrinks:
 
 The empty glass box before menus was the worst inconsistency, and cmux#39931 fixes it. The order
 for the rest:
-1. The feature tip and the model picker: one mark each, since the model picker already has its veil.
+1. The feature tip and the full model picker: one mark each, with the quick menus' 40% veil for the picker.
 2. The composer's lists. They sit next to the composer, which no filter may blur, and
    `data-glass-keeps-underlay` already handles that.
 3. The rest.
