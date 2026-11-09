@@ -91,7 +91,9 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   const steps: SetupStep[] = [];
   if (state.classic) {
     const { workspaces, app, savedAt, running, resumes, answered } = state.classic;
-    const saved = new Intl.DateTimeFormat(strings.language, { dateStyle: "medium", timeStyle: "short" }).format(savedAt);
+    const saved = new Intl.DateTimeFormat(strings.language, { dateStyle: "medium", timeStyle: "short" }).format(
+      savedAt,
+    );
     steps.push({
       id: "classic",
       done: answered !== undefined,
@@ -103,7 +105,12 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
             ? t("home.setup.classic.declined")
             : running
               ? format("home.setup.classic.open", app, saved)
-              : format("home.setup.classic.detail", new Intl.NumberFormat(strings.language).format(workspaces), app, saved),
+              : format(
+                  "home.setup.classic.detail",
+                  new Intl.NumberFormat(strings.language).format(workspaces),
+                  app,
+                  saved,
+                ),
       // Skip is a No the migration keeps (later launches don't ask; Settings › Import still brings them), so
       // the row says what Import also does before the person presses it, as the classic import dialog did.
       ...(answered === undefined && {

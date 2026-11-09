@@ -127,9 +127,9 @@ public final class FirstRunSetup {
     public func classicMigration<T>(seam: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)?,
                                     dialog: @escaping @MainActor (ClassicImportPlan) async -> ClassicImportAnswer,
                                     _ run: (@escaping @MainActor (ClassicImportPlan) async -> ClassicImportAnswer) async throws -> T) async rethrows -> T {
+        defer { awaitsClassic = false }
         if let seam { return try await run(seam) }
         if shows { awaitsClassic = true }
-        defer { awaitsClassic = false }
         return try await run { [weak self] plan in
             if let answer = await self?.askClassic(ClassicOffer(plan)) { return answer }
             return await dialog(plan)

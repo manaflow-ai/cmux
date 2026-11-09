@@ -101,13 +101,23 @@ describe("the Set Up cmux page", () => {
     const store = new SetupCardStore(client);
     await store.start();
     const words = text(renderToStaticMarkup(<SetupCardPage store={store} />));
-    for (const phrase of ["Set Up cmux", "cmux Classic", "27 workspaces from cmux", "Claude Code", "Codex", "cmux account", "Command line"])
+    for (const phrase of [
+      "Set Up cmux",
+      "cmux Classic",
+      "27 workspaces from cmux",
+      "Claude Code",
+      "Codex",
+      "cmux account",
+      "Command line",
+    ])
       expect(words).toContain(phrase);
     expect(words).not.toContain("Import these classic workspaces");
 
     const page = await mounted({ ...fresh, classic });
     await act(async () => page.button("Skip").click());
-    expect(page.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([[SETUP_OPS.run, { action: { kind: "declineClassic" } }]]);
+    expect(page.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
+      [SETUP_OPS.run, { action: { kind: "declineClassic" } }],
+    ]);
   });
 
   test("draws nothing before the host answers, then follows its stream", async () => {

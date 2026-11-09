@@ -45,8 +45,13 @@ describe("setupSteps", () => {
   });
 
   test("a classic app still open, and an import that reconnects or resumes, say so before Import", () => {
-    const open = setupSteps({ ...fresh, classic: { workspaces: 3, app: "cmux", savedAt, running: true, resumes: true } }, strings);
-    expect(open[0]?.detail).toBe(`cmux is still open: this is its autosave from ${saved}. Quit it first to bring its latest state.`);
+    const open = setupSteps(
+      { ...fresh, classic: { workspaces: 3, app: "cmux", savedAt, running: true, resumes: true } },
+      strings,
+    );
+    expect(open[0]?.detail).toBe(
+      `cmux is still open: this is its autosave from ${saved}. Quit it first to bring its latest state.`,
+    );
     expect(open[0]?.note).toContain("connects to saved SSH hosts");
     const answered = setupSteps(
       { ...fresh, classic: { workspaces: 3, app: "cmux", savedAt, resumes: true, answered: "imported" } },
