@@ -18,7 +18,7 @@
 //! A retry with the same idempotency key replays the stored result.
 
 use crate::mux::tab_drag::retarget_terminal_workspace;
-use crate::mux::tree_edit::{most_recent_pane, remove_pane_from_screen_layout};
+use crate::mux::tree_edit::{close_focus_successor, close_sibling, remove_pane_from_screen_layout};
 use crate::resource::Selector;
 
 use super::*;
@@ -114,18 +114,21 @@ fn detach_pane(
     pane: PaneId,
 ) -> anyhow::Result<Option<ScreenPublicId>> {
     let location = state.screen_of(pane).context("the moved pane has no screen")?;
-    let (remains, was_active, panes) = {
+    let (remains, was_active, panes, sibling) = {
         let screen = screen_at(state, location).context("the moved pane's screen disappeared")?;
         let was_active = screen.active_pane == pane;
         if screen.zoomed_pane == Some(pane) {
             screen.zoomed_pane = None;
         }
+        // The same successor as a pane close (#38194): the pane focused
+        // last, else the sibling that takes the moved pane's space.
+        let sibling = close_sibling(screen, pane);
         let remains = remove_pane_from_screen_layout(mux, screen, pane);
-        (remains, was_active, screen.root.pane_ids_vec())
+        (remains, was_active, screen.root.pane_ids_vec(), sibling)
     };
     if remains {
         if was_active
-            && let Some(next) = most_recent_pane(state, &panes)
+            && let Some(next) = close_focus_successor(state, &panes, sibling)
             && let Some(screen) = screen_at(state, location)
         {
             screen.active_pane = next;
