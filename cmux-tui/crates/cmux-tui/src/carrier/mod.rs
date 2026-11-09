@@ -324,6 +324,12 @@ fn runtime() -> Result<tokio::runtime::Runtime, i32> {
         .map_err(|_| fail(&Failure::fatal(contract::Step::Relay, "no async runtime")))
 }
 
+/// The full-jitter draw of the session's own reconnect policy (the
+/// tunnel's retry waits, [`tunnel_cli`]).
+fn jitter(ceiling: Duration) -> Duration {
+    cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
+}
+
 /// Opens the machine's desktop stream on the dialed session by `deadline`.
 /// The daemon's refusal is [`contract::Step::Service`] (exit 6); a session
 /// that drops or stalls before the daemon answers is the carrier's
