@@ -284,11 +284,9 @@ fn provision_and_the_api_key_routes_go_to_the_platforms_previews() {
     let provisioned = go_with_args("vm.provision_api", args).unwrap();
     assert_eq!(provisioned["token"], "k1.secret");
     assert_eq!(provisioned["cookie"], "__Host-cmux-preview=k1.secret");
-    let keys = go_with_args(
-        "vm.publication_api_keys",
-        json!({ "publication": "p3000-abc.preview.test" }),
-    )
-    .unwrap();
+    let keys =
+        go_with_args("vm.publication_api_keys", json!({ "publication": "p3000-abc.preview.test" }))
+            .unwrap();
     assert_eq!(keys[0]["hint"], "wxyz");
     let revoked = go_with_args(
         "vm.revoke_publication_api_key",
