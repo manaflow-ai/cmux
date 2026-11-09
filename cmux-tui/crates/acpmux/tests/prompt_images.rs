@@ -503,6 +503,40 @@ async fn a_queued_prompts_pasted_blocks_are_named_while_it_waits_and_once_it_run
     assert_eq!(sent["pasted"], range, "{sent}");
 }
 
+// Review of #38707 (F1): a queued record carries its provenance before its marks, so another
+// agent's message that reads as an agent's handoff gets no `agentText` while it waits: its
+// sender already names it (`agent_message`), as it does once it runs.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_queued_daemon_made_prompt_gets_no_agent_text_note() {
+    let name = "queued-agent-text";
+    let hub = hub(&store(name));
+    let mut c = client(&hub);
+    let session = new_session(&mut c).await;
+    let gate = root().join(format!("gate-{name}"));
+    gated_turn(&mut c, &session, &gate).await;
+    let mut q = client(&hub);
+    let handoff = "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.";
+    let sent = q
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": handoff}], "_meta": {"acpmux": {"promptId": "q-agent", "provenance": {"kind": "agent_message", "from": "acp:sender-1", "fromName": "builder", "to": format!("acp:{session}"), "msgId": "msg-1", "threadId": "thread-1"}}}}),
+        )
+        .await;
+    wait_event(&mut c, &session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-agent"
+    })
+    .await;
+    let page = c.call("_acpmux/events", json!({"sessionId": session, "kinds": ["queued"]})).await;
+    let events = page["result"]["events"].as_array().cloned().unwrap_or_default();
+    let queued = events.iter().find(|e| e["msg"]["promptId"] == "q-agent").expect("queued");
+    assert_eq!(queued["msg"]["_meta"]["provenance"]["kind"], "agent_message", "{queued}");
+    assert!(queued["msg"].get("agentText").is_none(), "{queued}");
+    open(&gate);
+    let answer = q.reply(sent).await;
+    assert_eq!(answer["result"]["stopReason"], "end_turn", "{answer}");
+}
+
 /// A store that counts the records it hands a reader (`scan`, `scan_back`, `scan_kinds`,
 /// `events`): a file store parses each of those, and passes a line `scan_back`'s skip names on its
 /// header. Every other call goes to the store it wraps.

@@ -8,6 +8,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextFloating
 import CmuxNextHomeEngine
+import CmuxNextTabs
 import enum CmuxNextLayout.ChatColumnPlacement
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
@@ -51,30 +52,31 @@ extension AgentTabStore {
         // One mutation id for every send: a tab the daemon made after the deadline replays.
         let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
         let key = response.tabKey
+        let scoped = AgentTabKey(machine: daemon.machineID, key: key)
         if chat != nil {
             // No view took the seed while the request ran: the tab's view takes it.
-            if let seed = firstChats.removeValue(forKey: workspace) { seeds[key] = seed }
-            track(key, in: daemon.store)
+            if let seed = firstChats.removeValue(forKey: workspace) { seeds[scoped] = seed }
+            track(key, in: daemon.store, machine: daemon.machineID)
             return response.surface
         }
-        seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
+        seeds[scoped] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
         let made = firstPage(cwd: cwd, token: firstPageTokens[workspace])
         // The tree listed the tab first and its view already shows the page (with this
         // workspace's token): it keeps that page, since a new one remounts the screen and drops
         // what was typed (cx-kql5h); only the actions take this folder.
-        if let shown = newTabPages[key], let made, views[key]?.model.newTab != nil {
-            newTabPages[key] = (page: shown.page, handler: made.handler)
-            track(key, in: daemon.store)
+        if let shown = newTabPages[scoped], let made, views[scoped]?.model.newTab != nil {
+            newTabPages[scoped] = (page: shown.page, handler: made.handler)
+            track(key, in: daemon.store, machine: daemon.machineID)
             return response.surface
         }
-        newTabPages[key] = made
+        newTabPages[scoped] = made
         // The tree can list the tab before this reply, and a pane showing it
         // then made a plain chat: it becomes the page now, unless it already has a session.
-        if let view = views[key], let page = newTabPages[key]?.page {
+        if let view = views[scoped], let page = newTabPages[scoped]?.page {
             view.becomeNewTab(page)
-            if view.model.newTab == nil { newTabPages[key] = nil }
+            if view.model.newTab == nil { newTabPages[scoped] = nil }
         }
-        track(key, in: daemon.store)
+        track(key, in: daemon.store, machine: daemon.machineID)
         return response.surface
     }
 
@@ -150,11 +152,11 @@ extension AgentTabStore {
         }
         tabs.moveAgentToMachine = { [weak tabs] tab, machine in
             guard let tabs, let registry = tabs.actionRegistry else { return false }
-            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab),
-                                               arguments: ["machine": .string(machine)], origin: .user)
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key),
+                                               arguments: ["machine": .string(machine)], origin: .user).onMachine(tab.machine)
             return registry.perform("cloudMove", invocation: invocation)
         }
-        tabs.launchImages = services.launchImages
+        tabs.launchImages = services.launchImages; services.launchImages.localMachine = { [weak services] in services?.daemon.machineID }
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         tabs.chiefFace = { [weak services, weak tabs] chief in
             guard let services, let avatars = tabs?.agentAvatars else { return [:] }
@@ -162,9 +164,10 @@ extension AgentTabStore {
         }
         tabs.mini = services.chiefPetMini
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
-        tabs.unsentDrafts.windowOfTab = { [weak services, weak tabs] key in
-            guard let services, let tabs, let workspace = tabs.lookup(tabs.resolve(key))?.store.workspace(holdingTab: tabs.resolve(key)) else { return nil }
+        tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles) { [weak services] in services?.daemon.machineID }
+        tabs.unsentDrafts.windowOfTab = { [weak services, weak tabs] key, machine in
+            let scoped = tabs?.tabKey(key, machine: machine)
+            guard let services, let tabs, let scoped, let workspace = tabs.record(for: scoped)?.store.workspace(holdingTab: scoped.key) else { return nil }
             return services.windows.windowID(ofWorkspace: workspace.id)
         }
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
@@ -172,7 +175,7 @@ extension AgentTabStore {
         tabs.cloudMachines.wire(services)
         services.cloud.portChanged = { [weak tabs] change in
             guard let tabs, change.isBrowserPreview else { return }
-            for (key, view) in tabs.views where tabs.remoteMachineID(of: key) == change.machineID {
+            for (key, view) in tabs.views where tabs.remoteMachineID(of: key.key, machine: key.machine) == change.machineID {
                 view.cloudPreviewPortOpened(port: change.port, process: change.process, machineID: change.machineID, state: change.state.rawValue, known: change.known)
             }
         }
@@ -180,8 +183,8 @@ extension AgentTabStore {
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
         // that is down runs its header's Reconnect, as `.page`: never a takeover (HQ #4877 G5).
         tabs.machineLink.state = { [weak tabs, weak services] view in
-            guard let tabs, let services, let key = tabs.views.first(where: { $0.value === view })?.key,
-                  let machine = tabs.remoteMachineID(of: key) else { return nil }
+            guard let tabs, let services, let scoped = tabs.views.entries.first(where: { $0.value === view })?.key,
+                  let machine = tabs.remoteMachineID(of: scoped.key, machine: scoped.machine) else { return nil }
             return SidebarBridge.paneLink(machine, in: services.machines)
         }
         tabs.machineLink.use = { [weak services] machine in
@@ -209,20 +212,20 @@ extension AgentTabStore {
         // A chat that home keeps opens on its own page, never the spare connected to this Mac's acpmux.
         tabs.chiefKeepsSession = { session in AcpmuxChiefSessionRouter.keeps(session: session, home: home.acpmuxHome) }
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
-        tabs.blankChatHandler = { [weak services] key in
-            guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) else { return nil }
+        tabs.blankChatHandler = { [weak services, weak tabs] key in
+            guard let services, let tabs, let (tab, pane) = services.locateTab(tabs.tabKey(key).key, onMachine: tabs.tabKey(key).machine), let controller = services.paneController(for: pane) else { return nil }
             // A chat tab has no daemon folder: its own exact folder (a shell block's Open in Terminal, cx-zld).
             let cwd = tab.cwd ?? NewTerminalStart.folder(of: tab, services: services)
             return NewTabPage.handler(services, cwd: cwd) { [weak controller, weak tabs] key, request in
                 guard let controller else { return }
-                NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: controller, keep: tabs?.sessions[key] != nil)
+                NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: controller, keep: tabs.map { $0.sessions[$0.tabKey(key, machine: controller.daemon.machineID)] != nil } ?? false)
             }
         }
         tabs.firstPageNewTab = { [weak services] cwd, beside in
             guard let services else { return nil }
             // A page beside a chat of another machine shows that machine's folders (cx-k21v).
             // (A chat of this Mac keeps the plain page, as before.)
-            let tab = beside.flatMap { services.locateTabOnAnyMachine($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
+            let tab = beside.flatMap { services.locateTab($0.key, onMachine: $0.machine)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
             // Without the palette's actions: they fill in after the page shows (``NewTabPage/fillPaletteActions(_:)``).
             var page = NewTabPage.page(services, selected: tab, paletteActions: false)
             page.cwd = cwd ?? page.cwd
@@ -231,7 +234,7 @@ extension AgentTabStore {
             // the token comes per workspace (``firstPage(cwd:token:)``).
             let input = services.keyRouter.newTabInputCoordinator
             var handler = NewTabPage.handler(services, cwd: cwd) { [weak services] key, request in
-                guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) else { return }
+                guard let services, let (tab, pane) = services.locateTab(key, onMachine: beside?.machine ?? services.machines.local.machineID), let controller = services.paneController(for: pane) else { return }
                 NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller)
             }
             handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
@@ -258,17 +261,17 @@ extension AgentTabStore {
         // A chat opens on the right as a link does (LinkOpener, RightColumnPlacement): a split right of
         // the chat, else one split below what is already there (a plain split's terminal included), else a tab in the lower pane.
         // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
-        tabs.openRight = { [weak services, weak tabs] chat, session, host in
-            guard let services, let tabs, let (_, pane) = services.locateTabOnAnyMachine(chat), let source = services.paneController(for: pane) else { return false }
+        tabs.openRightScoped = { [weak services] chat, session, host in
+            guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane) else { return false }
             return services.linkOpener.open(from: source) { target, placed in
                 guard target.daemon.isLocal else { return false }
                 return tabs.openTab(in: target, session: session, host: host, select: placed == nil) { [weak services, weak tabs] key in
                     // task-owner: one creation reply; ends after tree arrival, cancellation or the mirror deadline
                     Task { [weak services, weak tabs] in
                         guard let tabs else { return }
-                        await TabMirror.performWhenReached(key, in: tabs.locate) {
-                            if let placed { if let surface = services?.locateTabOnAnyMachine(key)?.0.surface { placed(surface) }; return }
-                            _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user))
+                        await TabMirror.performWhenReached(key, in: { tabs.locateScoped(AgentTabKey(machine: target.daemon.machineID, key: $0)) }) {
+                            if let placed { if let surface = services?.locateTab(key, onMachine: target.daemon.machineID)?.0.surface { placed(surface) }; return }
+                            _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user).onMachine(target.daemon.machineID))
                         }
                     }
                 }
@@ -276,8 +279,8 @@ extension AgentTabStore {
         }
         // The header's Terminal and Browser on the chat's right (Leo, 2026-10-31): a tab in the pane holding that kind,
         // else a split below, never a third column. A lone chat, Home's dock and an offline daemon keep their split's route (false).
-        tabs.openTool = { [weak services] chat, kind, cwd in
-            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let source = services.paneController(for: pane) else { return false }
+        tabs.openToolScoped = { [weak services] chat, kind, cwd in
+            guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane) else { return false }
             switch ChatColumnPlacement.resolve(from: source, services: services) { case .dockChat, .besideDock: return false; case .here, .tab: break }
             // As their splits did: a browser keeps its address bar focused through the move; with Ghostty's
             // `split-inherit-working-directory = false` (the header passes no folder) a terminal starts in the home folder.
@@ -287,51 +290,51 @@ extension AgentTabStore {
                 return target.newBrowserTab(placementOwner: placed != nil, then: placed)
             }
         }
-        tabs.lookup = { [weak services] key in
-            guard let services, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
+        tabs.lookupScoped = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
         }
-        tabs.locate = { [weak services] key in
-            guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return nil }
+        tabs.locateScoped = { [weak services] key in
+            guard let services, let (tab, pane) = services.locateTab(key.key, onMachine: key.machine) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
-        tabs.rightColumn = { [weak services] key in
-            guard let services, let (_, pane) = services.locateTab(key), let source = services.paneController(for: pane) else { return .init() }
+        tabs.rightColumnScoped = { [weak services] key in
+            guard let services, let (_, pane) = services.locateTab(key.key, onMachine: key.machine), let source = services.paneController(for: pane) else { return .init() }
             return LinkOpener.rightColumn(beside: source)
         }
-        tabs.serially = { [weak services] chat, turn in
-            guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane) else { turn({}); return true }
+        tabs.seriallyScoped = { [weak services] chat, turn in
+            guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane) else { turn({}); return true }
             return services.linkOpener.turns.serially(beside: source.layoutPaneID, turn)
         }
-        tabs.locatePane = { [weak services] chat, key in
+        tabs.locatePaneScoped = { [weak services] chat, key in
             // The chat's own workspace only (review of the #28044 carry at d495c86e: a first match across
             // every window could take a same-keyed pane of another daemon or workspace).
-            guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane),
+            guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane),
                   let found = source.workspace?.paneController(key: key) else { return nil }
             return (pane: found.pane.handle, daemon: found.daemon)
         }
         // Fork to New Column Right / Left / New Row (u18673): the fork's tab moves beside the chat.
-        tabs.placeFork = { [weak services] key, chat, left in
-            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let (tab, _) = services.locateTabOnAnyMachine(key) else { return }
+        tabs.placeForkScoped = { [weak services] key, chat, left in
+            guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let (tab, _) = services.locateTab(key.key, onMachine: key.machine) else { return }
             let height = services.paneController(for: pane).flatMap { $0.workspace?.layoutModel.newRowHeight(below: $0.layoutPaneID) } ?? 1000
             services.daemon(for: pane).placeFork(tab.surface, beside: pane, left: left, rowHeight: height) { TabMoves.toNewColumn(tab, anchor: pane, afterColumn: $0, services: services, completion: $1) }
         }
         tabs.moveToNewWorkspace = { [weak services] key, machine, newWindow in guard let services, let (tab, _) = services.locateTab(key, onMachine: machine), TabPromotion.refusal(tab: tab, services: services) == nil else { return false }; return await TabHandlers.newWorkspaceMove(of: tab, with: [tab], newWindow: newWindow, services: services)() == nil }
         tabs.holdOutbound = { [weak services] pane, daemon in daemon.store.pane(pane).flatMap { services?.paneController(for: $0) }.map { OutboundTab.begin(in: $0) } }
-        tabs.selectInPane = { [weak services] key in
-            guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return }
+        tabs.selectInPaneScoped = { [weak services] key in
+            guard let services, let (tab, pane) = services.locateTab(key.key, onMachine: key.machine) else { return }
             // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
             services.paneController(for: pane)?.selectWhenReportedKeepingFocus(surface: tab.surface)
         }
-        tabs.showSplit = { [weak services] chat, key, focus in // the chat's pane: the split's provisional one has no controller yet
-            guard let services, let (_, pane) = services.locateTab(chat), let content = services.paneController(for: pane)?.workspace else { return { _ in } }
+        tabs.showSplitScoped = { [weak services] chat, key, focus in // the chat's pane: the split's provisional one has no controller yet
+            guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let content = services.paneController(for: pane)?.workspace else { return { _ in } }
             let intent = focus ? content.beginFocusIntent() : nil
             if let intent { content.focus.expect(.tab(key), generation: intent) }
             BenchSpans.measure("split.layout") { content.applyCurrent() }
             return { [weak content] surface in if let intent { content?.expectFocus(on: surface, generation: intent) } }
         }
-        tabs.openInMainPane = { [weak services] chat, focus, open, created, finished in
-            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let controller = services.paneController(for: pane),
+        tabs.openInMainPaneScoped = { [weak services] chat, focus, open, created, finished in
+            guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let controller = services.paneController(for: pane),
                   let side = MainPaneLayout.side(from: controller, services: services) else { return nil }
             return MainPaneLayout.openAgentTab(from: controller, side: side, focus: focus, services: services, open: open,
                                          created: created, finished: finished)
@@ -341,9 +344,9 @@ extension AgentTabStore {
         // on this Mac, an SSH host or a paired server. The page's ids are not verified against the
         // Run API here, so this is the boundary. The tab's own daemon stores the remote-terminal
         // reference (RemoteTerminalService.openTerminal does the same).
-        tabs.runAttach = { [weak services] key, request in
+        tabs.runAttachScoped = { [weak services] key, request in
             let vm = request.providerVMID, tabsCapability = DaemonCapability.remoteTerminalTabs.rawValue
-            guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { throw DaemonError.notConnected }
+            guard let services, let (_, pane) = services.locateTab(key.key, onMachine: key.machine) else { throw DaemonError.notConnected }
             let home = services.machines.daemon(forPane: pane)
             guard let homeConnection = home.connection, services.machines.session(vm) != nil, let worker = services.machines.daemon(machine: vm), !worker.isLocal,
                   worker.connection != nil, let identity = worker.identity, let sessionID = identity.sessionID, identity.session == request.session else { throw DaemonError.notConnected }
@@ -354,9 +357,9 @@ extension AgentTabStore {
         }
         // A tab's git reads (Changes, file search) go to the machine whose acpmux runs its session
         // (AgentPaneHostKind): a Cloud or SSH machine's session reads its folder there (cx-d0tq).
-        tabs.gitLink = { [weak services, weak tabs] key in
+        tabs.gitLinkScoped = { [weak services, weak tabs] key in
             guard let services else { return nil }
-            guard let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession,
+            guard let tabs, let (tab, _) = services.locateTab(key.key, onMachine: key.machine), let record = tab.agentSession,
                   tabs.hostKind(record, listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else { return services.agentGit.local }
             // A tab naming another machine than the one listing it reads nothing (never this Mac's folder).
             guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
@@ -367,16 +370,16 @@ extension AgentTabStore {
         }
         // A new chat on another machine with no folder in its seed starts in a folder of its
         // workspace there (a terminal's), never a folder of this Mac.
-        tabs.remoteFolder = { [weak services] key in
-            guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { return nil }
+        tabs.remoteFolderScoped = { [weak services] key in
+            guard let services, let (_, pane) = services.locateTab(key.key, onMachine: key.machine) else { return nil }
             return services.machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.firstTabFolder
         }
-        tabs.remoteFolders = { [weak services] key in
-            guard let services, let (tab, _) = services.locateTabOnAnyMachine(key) else { return [] }
+        tabs.remoteFoldersScoped = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine) else { return [] }
             return services.machines.daemon(forTab: tab).store.tabFolders
         }
-        tabs.remoteMachineFolders = { [weak services] key in
-            guard let services, let (tab, _) = services.locateTabOnAnyMachine(key),
+        tabs.remoteMachineFoldersScoped = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine),
                   let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
                   daemon.supports(DaemonCapability.agentSessionFolders.rawValue) else { return [] }
             let client = AgentSessionAttachClient(surface: tab.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon))
@@ -384,15 +387,15 @@ extension AgentTabStore {
             await client.close()
             return folders
         }
-        tabs.shareMachineWithMe = { [weak services, weak tabs] key in
-            guard let services, let tabs, let machine = tabs.remoteMachineID(of: key), let session = services.machines.session(machine) else {
+        tabs.shareMachineWithMeScoped = { [weak services, weak tabs] key in
+            guard let services, let session = services.machines.session(key.machine) else {
                 return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)
             }
             return await CloudMachineShare.shareWithMe(session, cloud: services.cloud)
         }
         tabs.shareOp = { [weak services] key, op, session in guard let services else { return nil }; return await AgentShareActions.pane(op, session: session, tab: key, host: services) }
-        tabs.remoteHost = { [weak services, weak tabs] key in
-            guard let services, let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
+        tabs.remoteHostScoped = { [weak services, weak tabs] key in
+            guard let services, let tabs, let (tab, _) = services.locateTab(key.key, onMachine: key.machine), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)
             let daemon: DaemonService
             do {
@@ -401,7 +404,8 @@ extension AgentTabStore {
                 return AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: record.hostName ?? record.host))
             }
             let machine = record.hostName ?? services.machines.machineName(daemon.machineID) ?? daemon.machineID
-            let session = record.session ?? tabs.sessions[tabs.resolve(key)]
+            let machineID = daemon.machineID
+            let session = record.session ?? tabs.sessions[tabs.resolvedKey(key)]
             guard !daemon.isLocal, daemon.supports(DaemonCapability.agentSessionAttach.rawValue), daemon.remoteEndpoint != nil else {
                 // A chat this app started on that machine says what to do there; an older tab
                 // recorded for another Mac keeps the "runs on" notice.
@@ -441,7 +445,7 @@ extension AgentTabStore {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.existingRemoteChat(key)
+                    return try await tabs.existingRemoteChat(key.key, machine: key.machine)
                 }
             }
             if session == nil {
@@ -452,7 +456,7 @@ extension AgentTabStore {
                 guard daemon.supports(DaemonCapability.agentSessionStart.rawValue) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
                 host.start = { [weak tabs] cwd, harness, model, personKey in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
+                    return try await tabs.startRemoteChat(key.key, machine: machineID, machineName: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
                                                           ownerLink: links?.ownerLink, teammate: links?.teammate, reconnect: reconnect, endpoint: endpoint)
                 }
             }
@@ -471,12 +475,13 @@ extension AgentTabStore {
             }
             return host
         }
-        tabs.listTabs = { [weak services] in
+        tabs.listTabsScoped = { [weak services] in
             guard let services else { return [] }
             return services.machines.allWorkspaces.flatMap { workspace, _ in
-                workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in tab.agentSession.map { (key: tab.id, record: $0) } }
+                workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in tab.agentSession.map { (key: tab.id, record: $0, machine: services.machines.daemon(forTab: tab).machineID) } }
             }
         }
+        tabs.listTabs = { [weak tabs] in tabs?.listTabsScoped().map { (key: $0.key, record: $0.record) } ?? [] }
         tabs.create = { pane, daemon, record, key, transaction, split in
             guard let connection = daemon.connection else { throw DaemonError.notConnected }
             var request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,
@@ -487,8 +492,8 @@ extension AgentTabStore {
             // Every event the daemon sent before the reply: the provisional tab settles there.
             return (created, await connection.eventSequence())
         }
-        tabs.daemonForTab = { [weak services] key in
-            guard let services, let (tab, _) = services.locateTabOnAnyMachine(key) else { return nil }
+        tabs.daemonForTabScoped = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine) else { return nil }
             return services.machines.daemon(forTab: tab)
         }
         tabs.daemonListing = { [weak services] tab in services?.machines.daemon(forTab: tab) }
@@ -500,8 +505,8 @@ extension AgentTabStore {
                 }
             }
         }
-        tabs.bind = { [weak services] key, surface, expected, session, harness in
-            guard let services, let (tab, _) = services.locateTabOnAnyMachine(key), let connection = services.machines.daemon(forTab: tab).connection else { return (.failed, nil) }
+        tabs.bindScoped = { [weak services] key, surface, expected, session, harness in
+            guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine), let connection = services.machines.daemon(forTab: tab).connection else { return (.failed, nil) }
             let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected, harness: harness)
             let outcome: AgentSessionBindOutcome, sequence: UInt64? // one return: swiftlang/swift#92698 (cx-21wc5)
             do {
@@ -514,6 +519,55 @@ extension AgentTabStore {
             }
             return (outcome, sequence)
         }
+        tabs.lookup = { [weak tabs] key in tabs.flatMap { $0.lookupScoped($0.tabKey(key)) } }
+        tabs.locate = { [weak tabs] key in tabs.flatMap { $0.locateScoped($0.tabKey(key)) } }
+        tabs.rightColumn = { [weak tabs] key in
+            guard let tabs else { return .init() }
+            return tabs.rightColumnScoped(tabs.tabKey(key))
+        }
+        tabs.serially = { [weak tabs] chat, turn in
+            guard let tabs else { turn({}); return true }
+            return tabs.seriallyScoped(tabs.tabKey(chat), turn)
+        }
+        tabs.locatePane = { [weak tabs] chat, key in tabs.flatMap { $0.locatePaneScoped($0.tabKey(chat), key) } }
+        tabs.placeFork = { [weak tabs] key, chat, left in
+            guard let tabs else { return }
+            tabs.placeForkScoped(tabs.tabKey(key), tabs.tabKey(chat), left)
+        }
+        tabs.selectInPane = { [weak tabs] key in
+            guard let tabs else { return }
+            tabs.selectInPaneScoped(tabs.tabKey(key))
+        }
+        tabs.openInMainPane = { [weak tabs] chat, focus, open, created, finished in
+            guard let tabs else { return nil }
+            return tabs.openInMainPaneScoped(tabs.tabKey(chat), focus, open, created, finished)
+        }
+        tabs.showSplit = { [weak tabs] chat, key, focus in
+            guard let tabs else { return { _ in } }
+            return tabs.showSplitScoped(tabs.tabKey(chat), key, focus)
+        }
+        tabs.daemonForTab = { [weak tabs] key in tabs.flatMap { $0.daemonForTabScoped($0.tabKey(key)) } }
+        tabs.bind = { [weak tabs] key, surface, expected, session, harness in
+            guard let tabs else { return (.failed, nil) }
+            return await tabs.bindScoped(tabs.tabKey(key), surface, expected, session, harness)
+        }
+        // Legacy page callbacks still carry a bare id. Resolve that id through the store's
+        // unambiguous machine-qualified key, then use the scoped wiring above. New code should
+        // pass AgentTabKey directly so duplicate ids remain isolated.
+        tabs.openRight = { [weak tabs] chat, session, host in
+            guard let tabs else { return false }
+            return tabs.openRightScoped?(tabs.tabKey(chat), session, host) ?? false
+        }
+        tabs.openTool = { [weak tabs] chat, kind, cwd in
+            guard let tabs else { return false }
+            return tabs.openToolScoped?(tabs.tabKey(chat), kind, cwd) ?? false
+        }
+        tabs.runAttach = { [weak tabs] key, request in
+            guard let tabs, let runAttachScoped = tabs.runAttachScoped else { throw AgentPaneHostError.daemonStopped }
+            try await runAttachScoped(tabs.tabKey(key), request)
+        }
+        tabs.gitLink = { [weak tabs] key in tabs.flatMap { $0.gitLinkScoped?($0.tabKey(key)) } }
+        tabs.remoteFolder = { [weak tabs] key in tabs.flatMap { $0.remoteFolderScoped?($0.tabKey(key)) } }
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
         // A showcase run and a run under capture name the showcase Mac (AppEnvironment.namesShowcaseMac).
