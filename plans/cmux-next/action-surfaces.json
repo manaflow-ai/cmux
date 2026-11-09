@@ -33296,6 +33296,41 @@
     },
     {
       "args" : [
+        {
+          "kind" : "string",
+          "name" : "path",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud transfer-local",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudTransferLocal",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Transfer to This Mac",
+      "title_key" : "action.cloudTransferLocal",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
 
       ],
       "cli" : "offered",
@@ -36094,11 +36129,6 @@
         {
           "kind" : "string",
           "name" : "fromFolder",
-          "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "login",
           "required" : false
         }
       ],
@@ -50330,41 +50360,64 @@
           "order" : 8
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "cloudMove",
-          "kind" : "action",
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudMove",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudBringBack",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudTransferLocal",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "move",
+          "kind" : "folder",
           "order" : 9,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : "cloud",
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "cloudBringBack",
-          "kind" : "action",
-          "order" : 10,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : "cloud",
-            "requires" : [
-
-            ]
-          }
+          "title" : "Move",
+          "title_key" : "menu.folder.move",
+          "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 11
+          "order" : 10
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomIn",
           "kind" : "action",
           "label" : "Zoom In",
-          "order" : 12,
+          "order" : 11,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -50378,7 +50431,7 @@
           "id" : "agentPaneZoomOut",
           "kind" : "action",
           "label" : "Zoom Out",
-          "order" : 13,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -50392,7 +50445,7 @@
           "id" : "agentPaneZoomReset",
           "kind" : "action",
           "label" : "Actual Size",
-          "order" : 14,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -50403,14 +50456,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 15
+          "order" : 14
         },
         {
           "enabled_when" : "can_perform",
           "id" : "find",
           "kind" : "action",
           "label" : "Find in Chat…",
-          "order" : 16,
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -50421,13 +50474,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 17
+          "order" : 16
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentChat.copyIdentifier",
           "kind" : "action",
-          "order" : 18,
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -50468,7 +50521,7 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 19,
+          "order" : 18,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
