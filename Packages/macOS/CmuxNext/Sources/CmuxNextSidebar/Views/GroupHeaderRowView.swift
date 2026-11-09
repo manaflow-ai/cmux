@@ -328,7 +328,12 @@ final class GroupHeaderRowView: SidebarRowView {
             let tokens = themeTokens
             let look = look
             // Every group draws a visible bar (Lawrence 2026-11-05), a group nobody colored too. Glass (Leo 2026-11-05,
-            // `sidebar.groupGlass`) where `sidebar.groupHeader.background` asks for it, else the solid band.
+            // `sidebar.groupGlass`) where `sidebar.groupHeader.background` asks for it, else the solid band. Sections, the
+            // one opt-out (Leo 2026-11-05), draws a plain heading.
+            if !backgroundStyle.drawsBackground {
+                rim.isHidden = true
+                return paintSection(tokens)
+            }
             if look.style != .band {
                 rim.isHidden = true
                 return paintQuiet(tokens, look)
@@ -406,6 +411,33 @@ final class GroupHeaderRowView: SidebarRowView {
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()
+    }
+
+    /// `sidebar.groupHeader.background` Sections (Leo 2026-11-05, of chat apps' sidebars: "they have these sections ...
+    /// maybe we can also have an option to have that"): a plain section heading, the name and every glyph in the
+    /// theme's quiet ink, no fill, no rim and no dot (its members draw no line, `GroupLineView`). Hover and a drop take
+    /// the row's own fill, as a workspace row's do; the open editor lights its more button only.
+    private func paintSection(_ tokens: ThemeTokens) {
+        let quiet = tokens.textSecondary.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
+        name.textColor = quiet
+        count.textColor = quiet.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        glyph.symbolInk = quiet
+        pin.contentTintColor = quiet
+        chevron.contentTintColor = quiet
+        moreButton.tintOverride = quiet
+        addButton.tintOverride = quiet
+        pinButton.tintOverride = quiet
+        paintMachine(ink: quiet)
+        ChromeHover.paint(pill, nil, animated: false)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dot.isHidden = true
+        pill.borderWidth = 0
+        layer?.borderColor = tokens.focusRing.nsColor.cgColor
+        layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
+        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        CATransaction.commit()
+        paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered ? tokens.hoverFill.nsColor : nil)
     }
 
     /// The quieter headers (cx-7yywz): the name in primary ink (`tinted`: in the group's color) with

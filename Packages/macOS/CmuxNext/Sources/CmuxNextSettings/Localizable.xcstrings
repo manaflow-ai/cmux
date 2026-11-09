@@ -2104,127 +2104,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."
+            "value": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "طريقة رسم خلفية المجموعة في الشريط الجانبي. يُظهر الزجاج خلفية النافذة من خلاله، والصلب معتم. يستخدم الوضع التلقائي مظهر المجموعات الخاص بـ cmux، وهو الزجاج. للمجموعة دائمًا خلفية مرئية، حتى عندما لا يكون لها لون."
+            "value": "طريقة رسم خلفية المجموعة في الشريط الجانبي. يُظهر الزجاج خلفية النافذة من خلاله، والصلب معتم. يستخدم الوضع التلقائي مظهر المجموعات الخاص بـ cmux، وهو الزجاج. للمجموعة دائمًا خلفية مرئية، حتى عندما لا يكون لها لون. أما الأقسام فترسم كل مجموعة كعنوان قسم بسيط بدلًا من ذلك، بلا خلفية ولا خط بجانب مساحات عملها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kako se pozadina grupe crta u bočnoj traci. Staklo propušta pozadinu prozora; Puna je neprozirna. Automatski koristi cmuxov izgled grupa, a to je staklo. Grupa uvijek ima vidljivu pozadinu, i kada nema boju."
+            "value": "Kako se pozadina grupe crta u bočnoj traci. Staklo propušta pozadinu prozora; Puna je neprozirna. Automatski koristi cmuxov izgled grupa, a to je staklo. Grupa uvijek ima vidljivu pozadinu, i kada nema boju. Odjeljci umjesto toga crtaju svaku grupu kao običan naslov odjeljka, bez pozadine i bez linije pored njenih radnih prostora."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan en gruppes baggrund tegnes i sidepanelet. Glas lader vinduets baggrund skinne igennem; Ensfarvet er uigennemsigtig. Automatisk bruger cmux' eget gruppeudseende, som er glas. En gruppe har altid en synlig baggrund, også når den ikke har nogen farve."
+            "value": "Hvordan en gruppes baggrund tegnes i sidepanelet. Glas lader vinduets baggrund skinne igennem; Ensfarvet er uigennemsigtig. Automatisk bruger cmux' eget gruppeudseende, som er glas. En gruppe har altid en synlig baggrund, også når den ikke har nogen farve. Sektioner tegner i stedet hver gruppe som en enkel sektionsoverskrift, uden baggrund og uden streg ved dens arbejdsområder."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wie der Hintergrund einer Gruppe in der Seitenleiste gezeichnet wird. Glas lässt den Fensterhintergrund durchscheinen; Deckend ist undurchsichtig. Automatisch verwendet das Gruppenaussehen von cmux, also Glas. Eine Gruppe hat immer einen sichtbaren Hintergrund, auch ohne Farbe."
+            "value": "Wie der Hintergrund einer Gruppe in der Seitenleiste gezeichnet wird. Glas lässt den Fensterhintergrund durchscheinen; Deckend ist undurchsichtig. Automatisch verwendet das Gruppenaussehen von cmux, also Glas. Eine Gruppe hat immer einen sichtbaren Hintergrund, auch ohne Farbe. Abschnitte zeichnet jede Gruppe stattdessen als schlichte Abschnittsüberschrift, ohne Hintergrund und ohne Linie neben ihren Workspaces."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cómo se dibuja el fondo de un grupo en la barra lateral. Vidrio deja ver el fondo de la ventana; Sólido es opaco. Automático usa el aspecto de grupo propio de cmux, que es vidrio. Un grupo siempre tiene un fondo visible, también cuando no tiene color."
+            "value": "Cómo se dibuja el fondo de un grupo en la barra lateral. Vidrio deja ver el fondo de la ventana; Sólido es opaco. Automático usa el aspecto de grupo propio de cmux, que es vidrio. Un grupo siempre tiene un fondo visible, también cuando no tiene color. Secciones dibuja cada grupo como un simple encabezado de sección, sin fondo y sin línea junto a sus espacios de trabajo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Façon dont l’arrière-plan d’un groupe s’affiche dans la barre latérale. Verre laisse transparaître l’arrière-plan de la fenêtre ; Opaque est plein. Automatique utilise l’apparence de groupe de cmux, c’est-à-dire le verre. Un groupe a toujours un arrière-plan visible, même sans couleur."
+            "value": "Façon dont l’arrière-plan d’un groupe s’affiche dans la barre latérale. Verre laisse transparaître l’arrière-plan de la fenêtre ; Opaque est plein. Automatique utilise l’apparence de groupe de cmux, c’est-à-dire le verre. Un groupe a toujours un arrière-plan visible, même sans couleur. Sections affiche plutôt chaque groupe comme un simple titre de section, sans arrière-plan ni ligne à côté de ses espaces de travail."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Come viene disegnato lo sfondo di un gruppo nella barra laterale. Vetro lascia trasparire lo sfondo della finestra; Pieno è opaco. Automatico usa l’aspetto dei gruppi di cmux, cioè il vetro. Un gruppo ha sempre uno sfondo visibile, anche senza colore."
+            "value": "Come viene disegnato lo sfondo di un gruppo nella barra laterale. Vetro lascia trasparire lo sfondo della finestra; Pieno è opaco. Automatico usa l’aspetto dei gruppi di cmux, cioè il vetro. Un gruppo ha sempre uno sfondo visibile, anche senza colore. Sezioni disegna invece ogni gruppo come una semplice intestazione di sezione, senza sfondo e senza linea accanto ai suoi spazi di lavoro."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "サイドバーでのグループの背景の描き方です。ガラスはウインドウの背景を透かし、ソリッドは不透明です。自動は cmux 標準のグループの見た目（ガラス）を使います。色のないグループにも、常に見える背景があります。"
+            "value": "サイドバーでのグループの背景の描き方です。ガラスはウインドウの背景を透かし、ソリッドは不透明です。自動は cmux 標準のグループの見た目（ガラス）を使います。色のないグループにも、常に見える背景があります。セクションは、各グループを背景もワークスペース横の線もない、シンプルなセクション見出しとして描きます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "របៀបដែលផ្ទៃខាងក្រោយក្រុមត្រូវបានគូរក្នុងរបារចំហៀង។ កញ្ចក់អនុញ្ញាតឱ្យផ្ទៃខាងក្រោយបង្អួចមើលឃើញ ហើយរឹងគឺស្រអាប់។ ស្វ័យប្រវត្តិប្រើរូបរាងក្រុមរបស់ cmux ដែលជាកញ្ចក់។ ក្រុមតែងតែមានផ្ទៃខាងក្រោយដែលមើលឃើញ សូម្បីតែគ្មានពណ៌។"
+            "value": "របៀបដែលផ្ទៃខាងក្រោយក្រុមត្រូវបានគូរក្នុងរបារចំហៀង។ កញ្ចក់អនុញ្ញាតឱ្យផ្ទៃខាងក្រោយបង្អួចមើលឃើញ ហើយរឹងគឺស្រអាប់។ ស្វ័យប្រវត្តិប្រើរូបរាងក្រុមរបស់ cmux ដែលជាកញ្ចក់។ ក្រុមតែងតែមានផ្ទៃខាងក្រោយដែលមើលឃើញ សូម្បីតែគ្មានពណ៌។ ផ្នែកគូរក្រុមនីមួយៗជាចំណងជើងផ្នែកធម្មតាជំនួសវិញ ដោយគ្មានផ្ទៃខាងក្រោយ និងគ្មានបន្ទាត់ក្បែរកន្លែងធ្វើការរបស់វា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "사이드바에서 그룹 배경을 그리는 방식입니다. 유리는 윈도우 배경이 비쳐 보이고, 단색은 불투명합니다. 자동은 cmux 기본 그룹 모양인 유리를 사용합니다. 그룹에는 색상이 없어도 항상 보이는 배경이 있습니다."
+            "value": "사이드바에서 그룹 배경을 그리는 방식입니다. 유리는 윈도우 배경이 비쳐 보이고, 단색은 불투명합니다. 자동은 cmux 기본 그룹 모양인 유리를 사용합니다. 그룹에는 색상이 없어도 항상 보이는 배경이 있습니다. 섹션은 각 그룹을 배경도, 작업 공간 옆의 선도 없는 단순한 섹션 제목으로 그립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan bakgrunnen til en gruppe tegnes i sidepanelet. Glass lar vinduets bakgrunn skinne gjennom; Heldekkende er ugjennomsiktig. Automatisk bruker cmux sitt eget gruppeutseende, som er glass. En gruppe har alltid en synlig bakgrunn, også uten farge."
+            "value": "Hvordan bakgrunnen til en gruppe tegnes i sidepanelet. Glass lar vinduets bakgrunn skinne gjennom; Heldekkende er ugjennomsiktig. Automatisk bruker cmux sitt eget gruppeutseende, som er glass. En gruppe har alltid en synlig bakgrunn, også uten farge. Seksjoner tegner i stedet hver gruppe som en enkel seksjonsoverskrift, uten bakgrunn og uten strek ved arbeidsområdene."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sposób rysowania tła grupy na pasku bocznym. Szkło przepuszcza tło okna; Pełne jest nieprzezroczyste. Automatycznie używa wyglądu grup cmux, czyli szkła. Grupa zawsze ma widoczne tło, także bez koloru."
+            "value": "Sposób rysowania tła grupy na pasku bocznym. Szkło przepuszcza tło okna; Pełne jest nieprzezroczyste. Automatycznie używa wyglądu grup cmux, czyli szkła. Grupa zawsze ma widoczne tło, także bez koloru. Sekcje rysują zamiast tego każdą grupę jako zwykły nagłówek sekcji, bez tła i bez linii obok jej obszarów roboczych."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Como o fundo de um grupo é desenhado na barra lateral. Vidro deixa o fundo da janela aparecer; Sólido é opaco. Automático usa a aparência de grupo do próprio cmux, que é vidro. Um grupo sempre tem um fundo visível, mesmo sem cor."
+            "value": "Como o fundo de um grupo é desenhado na barra lateral. Vidro deixa o fundo da janela aparecer; Sólido é opaco. Automático usa a aparência de grupo do próprio cmux, que é vidro. Um grupo sempre tem um fundo visível, mesmo sem cor. Seções desenha cada grupo como um simples título de seção, sem fundo e sem linha ao lado dos seus espaços de trabalho."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Как рисуется фон группы на боковой панели. Стекло пропускает фон окна; Сплошной непрозрачен. Автоматически использует вид групп cmux, то есть стекло. У группы всегда есть видимый фон, даже без цвета."
+            "value": "Как рисуется фон группы на боковой панели. Стекло пропускает фон окна; Сплошной непрозрачен. Автоматически использует вид групп cmux, то есть стекло. У группы всегда есть видимый фон, даже без цвета. Разделы вместо этого рисуют каждую группу как простой заголовок раздела, без фона и без линии рядом с её рабочими пространствами."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "วิธีวาดพื้นหลังของกลุ่มในแถบด้านข้าง กระจกให้พื้นหลังของหน้าต่างมองทะลุได้ ทึบจะไม่โปร่งใส อัตโนมัติใช้รูปลักษณ์กลุ่มของ cmux ซึ่งเป็นกระจก กลุ่มมีพื้นหลังที่มองเห็นได้เสมอ แม้ไม่มีสี"
+            "value": "วิธีวาดพื้นหลังของกลุ่มในแถบด้านข้าง กระจกให้พื้นหลังของหน้าต่างมองทะลุได้ ทึบจะไม่โปร่งใส อัตโนมัติใช้รูปลักษณ์กลุ่มของ cmux ซึ่งเป็นกระจก กลุ่มมีพื้นหลังที่มองเห็นได้เสมอ แม้ไม่มีสี ส่วนจะวาดแต่ละกลุ่มเป็นหัวข้อส่วนแบบเรียบง่ายแทน โดยไม่มีพื้นหลังและไม่มีเส้นข้างพื้นที่ทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir grubun arka planının kenar çubuğunda nasıl çizildiği. Cam, pencerenin arka planını gösterir; Düz opaktır. Otomatik, cmux'un kendi grup görünümünü, yani camı kullanır. Bir grubun rengi olmasa da her zaman görünür bir arka planı vardır."
+            "value": "Bir grubun arka planının kenar çubuğunda nasıl çizildiği. Cam, pencerenin arka planını gösterir; Düz opaktır. Otomatik, cmux'un kendi grup görünümünü, yani camı kullanır. Bir grubun rengi olmasa da her zaman görünür bir arka planı vardır. Bölümler ise her grubu arka planı ve çalışma alanlarının yanında çizgisi olmayan sade bir bölüm başlığı olarak çizer."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Як малюється тло групи на бічній панелі. Скло пропускає тло вікна; Суцільне непрозоре. Автоматично використовує вигляд груп cmux, тобто скло. Група завжди має видиме тло, навіть без кольору."
+            "value": "Як малюється тло групи на бічній панелі. Скло пропускає тло вікна; Суцільне непрозоре. Автоматично використовує вигляд груп cmux, тобто скло. Група завжди має видиме тло, навіть без кольору. Розділи натомість малюють кожну групу як простий заголовок розділу, без тла й без лінії біля її робочих просторів."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cách vẽ nền của một nhóm trong thanh bên. Kính cho nền cửa sổ hiện qua; Đặc thì không trong suốt. Tự động dùng giao diện nhóm của cmux, tức là kính. Một nhóm luôn có nền nhìn thấy được, kể cả khi không có màu."
+            "value": "Cách vẽ nền của một nhóm trong thanh bên. Kính cho nền cửa sổ hiện qua; Đặc thì không trong suốt. Tự động dùng giao diện nhóm của cmux, tức là kính. Một nhóm luôn có nền nhìn thấy được, kể cả khi không có màu. Mục thay vào đó vẽ mỗi nhóm như một tiêu đề mục đơn giản, không có nền và không có đường kẻ bên cạnh các không gian làm việc."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "群组背景在边栏中的绘制方式。玻璃会透出窗口背景；实色为不透明。自动使用 cmux 自己的群组外观，即玻璃。群组始终有可见的背景，即使没有颜色。"
+            "value": "群组背景在边栏中的绘制方式。玻璃会透出窗口背景；实色为不透明。自动使用 cmux 自己的群组外观，即玻璃。群组始终有可见的背景，即使没有颜色。分区则把每个群组绘制为简单的分区标题，没有背景，工作区旁也没有线条。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "群組背景在側邊欄中的繪製方式。玻璃會透出視窗背景；實色為不透明。自動使用 cmux 自己的群組外觀，即玻璃。群組始終有可見的背景，即使沒有顏色。"
+            "value": "群組背景在側邊欄中的繪製方式。玻璃會透出視窗背景；實色為不透明。自動使用 cmux 自己的群組外觀，即玻璃。群組始終有可見的背景，即使沒有顏色。分區則把每個群組繪製為簡單的分區標題，沒有背景，工作區旁也沒有線條。"
           }
         }
       }
@@ -2621,6 +2621,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "實色"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundSections": {
+      "comment": "Group background choice: no background, each group a plain section heading.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sections"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقسام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odjeljci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sektioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abschnitte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Secciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sections"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sezioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セクション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្នែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "섹션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seksjoner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekcje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seções"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölümler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розділи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分區"
           }
         }
       }

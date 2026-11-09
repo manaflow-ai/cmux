@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: a group can draw as a plain section heading. Leo (2026-11-05, softened): "Like [chat apps] and Claude, they
+  don't deal with this problem because they don't have f***ing groups. They have these sections ... And, like, you
+  know, maybe we can also have an option to have that, right?" `sidebar.groupHeader.background` gains Sections
+  (`SidebarGroupBackgroundStyle.sections`, the one style with `drawsBackground` false): the header's name and glyphs
+  in the theme's quiet ink (`textSecondary`), no fill, rim or dot (`GroupHeaderRowView.paintSection`), and its
+  members' line or no-color block draws nothing (`GroupLineView.paintNothing`). Hover and a drop take the row's own
+  fill. An opt-out of Lawrence's visible-background invariant (2026-11-05 below) that only the person picks; Automatic
+  stays the default. Gallery: Sidebar States Playground > Group backgrounds (Sections, Sections hovered). Regression:
+  `GroupHeaderSectionsTests`.
 - 2026-11-08: a renamed workspace's name rolls as the agent chat's live line rolls a new tool call. Leo, verbatim: "i
   feel like when workspaces get renamed (esp by agents) it should have that same fade in animation that the tool call
   situation has...". `sidebar.workspaceTitleMotion` gains `roll`, its default: the old name rises 0.6 em, blurs and
