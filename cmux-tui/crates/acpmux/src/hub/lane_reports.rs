@@ -232,6 +232,11 @@ pub(super) struct Report {
 }
 
 impl Report {
+    /// This report, for its parent's chat: the subagent it was for has ended.
+    pub(super) fn subagent_gone(&self) -> Self {
+        Self { subagent_ended: true, ..self.clone() }
+    }
+
     /// What makes two reports the same: the state, the reply and every pull request it names.
     fn key(&self) -> String {
         format!("{}\n{}", self.content, self.prs.join(" "))
@@ -604,6 +609,29 @@ impl Hub {
     /// `started`: its agent ran it. A turn that failed before its agent started has no reply
     /// of its own, so none is read (the last one is the turn before's).
     fn lane_capture(&self, session: &Session, turn: u64, started: bool) -> Report {
+        let for_subagent = self.lane_turns().subagents.remove(&(session.id.clone(), turn));
+        self.capture_report(session, turn, started, for_subagent)
+    }
+
+    /// The report of `session`'s last turn, which just ended, for the session that asked it a
+    /// question without waiting (`question_replies.rs`), and the asking subagent, if any.
+    pub(super) fn lane_capture_reply(
+        &self,
+        session: &Session,
+        for_subagent: Option<Value>,
+    ) -> Report {
+        let turn = self.session_summary(session).get("turnCount").and_then(Value::as_u64);
+        self.capture_report(session, turn.unwrap_or(0), true, for_subagent)
+    }
+
+    /// [`Hub::lane_capture`] with the subagent the report is for.
+    fn capture_report(
+        &self,
+        session: &Session,
+        turn: u64,
+        started: bool,
+        for_subagent: Option<Value>,
+    ) -> Report {
         let summary = self.session_summary(session);
         let read = if started { self.lane_last_reply(&session.id, &summary) } else { Ok(None) };
         if let Err(e) = &read {
@@ -631,7 +659,7 @@ impl Hub {
             reply: if reply.is_empty() { "(no reply)".into() } else { reply },
             prs,
             shas,
-            for_subagent: self.lane_turns().subagents.remove(&(session.id.clone(), turn)),
+            for_subagent,
             subagent_ended: false,
         }
     }
@@ -708,10 +736,10 @@ impl Hub {
         }
         let ended;
         let report = if report.for_subagent.is_some() && !report.subagent_ended {
-            if self.lane_report_to_subagent(&p, report) {
+            if self.lane_report_to_subagent(&p, report, false) {
                 return Ok(());
             }
-            ended = Report { subagent_ended: true, ..report.clone() };
+            ended = report.subagent_gone();
             &ended
         } else {
             report
@@ -739,7 +767,7 @@ impl Hub {
     }
 
     /// Puts the report in parent `p`'s chat as a hub-set prompt; done once it is accepted.
-    async fn lane_report_to_parent(
+    pub(super) async fn lane_report_to_parent(
         self: &Arc<Self>,
         p: Arc<Session>,
         lane: &str,

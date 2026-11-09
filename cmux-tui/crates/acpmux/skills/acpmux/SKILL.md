@@ -158,6 +158,7 @@ the person's prompt. What the receiver gets depends on who you are to it:
 | the session that started it or first gave it work | a prompt, its own turn | yes | `send --wait` prints it |
 | another session, with `--wait` | a question in its inbox | yes | `send --wait` prints that turn's reply |
 | another session, with `--no-wait` | an action in its inbox | no: it goes with its next turn | it answers with `inbox_reply` or `acpmux send YOU` |
+| another session, `--no-wait --class question` | a question in its inbox | yes | that turn's report comes back to you (to your subagent, if one asked) |
 | the person, in a plain terminal | the person's prompt | yes | streamed |
 
 - `--class question` or `block` always wakes the receiver; `result` (an
