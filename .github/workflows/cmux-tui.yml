@@ -240,7 +240,10 @@ jobs:
         with:
           workspaces: cmux-tui -> target
 
+      # Formatting is host-independent: a focused run checks it on Linux only,
+      # so the macOS row is clippy alone.
       - name: cargo fmt
+        if: inputs.mode == 'full' || matrix.os != 'macos'
         id: rustfmt-check
         working-directory: cmux-tui
         run: cargo fmt --check
@@ -574,15 +577,20 @@ jobs:
             echo "- exact cache hit: \`$CACHE_HIT\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # In focused mode the macOS row runs only its setup and the filtered tests
+      # (cargo test, below); full mode runs every step. Before, every focused
+      # dispatch also ran these fixed steps and held a shared Mac runner for
+      # them while about 100 jobs queued for the pool (2026-11-09). The focused
+      # journal sentinels run on Linux; full mode runs their macOS tests in the
+      # workspace suite.
       - name: Test isolated TUI test-runner policy
+        if: inputs.mode == 'full' || matrix.os != 'macos'
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
 
-      - name: cargo fmt
-        id: rustfmt-check
-        working-directory: cmux-tui
-        run: cargo fmt --check
-
+      # No cargo fmt here: lint checks formatting once, so a format diff does
+      # not stop the tests (as on feat-cmux-next, #17095).
       - name: userland agent plugin package tests
+        if: inputs.mode == 'full' || matrix.os != 'macos'
         working-directory: cmux-tui
         # The reference plugin is an independent Cargo workspace, so the
         # daemon workspace test does not compile it. Keep this explicit check
@@ -598,13 +606,8 @@ jobs:
           journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session
           -- --exact
 
-      - name: focused macOS journal process-fence tests
-        if: inputs.mode == 'focused' && runner.os == 'macOS'
-        working-directory: cmux-tui
-        run: cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_
-
       - name: focused journal writer shutdown test
-        if: inputs.mode == 'focused'
+        if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
           cargo test -p cmux-tui-core --lib
@@ -612,7 +615,7 @@ jobs:
           -- --exact
 
       - name: focused final journal ownership tests
-        if: inputs.mode == 'focused'
+        if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: |
           cargo test -p cmux-tui-core --lib \

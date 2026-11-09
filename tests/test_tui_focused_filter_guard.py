@@ -13,7 +13,6 @@ WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui.yml"
 
 FOCUSED_SENTINEL_STEPS = (
     "focused Linux journal process-fence test",
-    "focused macOS journal process-fence tests",
     "focused journal writer shutdown test",
     "focused final journal ownership tests",
 )
@@ -77,20 +76,17 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
     job = _test_job()
     steps = {step.get("name"): step for step in job["steps"]}
 
-    linux_condition = str(steps[FOCUSED_SENTINEL_STEPS[0]]["if"])
-    assert "inputs.mode == 'focused'" in linux_condition
-    assert "runner.os == 'Linux'" in linux_condition
-
-    macos_condition = str(steps[FOCUSED_SENTINEL_STEPS[1]]["if"])
-    assert "inputs.mode == 'focused'" in macos_condition
-    assert "runner.os == 'macOS'" in macos_condition
-
-    for name in FOCUSED_SENTINEL_STEPS[2:]:
+    # The sentinels run in focused mode on Linux only: a focused run holds a Mac
+    # only for setup, clippy and the filtered tests (2026-11-09 Mac queue).
+    for name in FOCUSED_SENTINEL_STEPS:
         condition = str(steps[name]["if"])
         assert "inputs.mode == 'focused'" in condition
+        assert "runner.os == 'Linux'" in condition
         assert "full" not in condition
+    focused_only = [step.get("name") for step in job["steps"] if "inputs.mode == 'focused'" in str(step.get("if", ""))]
+    assert sorted(focused_only) == sorted(FOCUSED_SENTINEL_STEPS)
 
-    final_sentinels = steps[FOCUSED_SENTINEL_STEPS[3]]["run"]
+    final_sentinels = steps[FOCUSED_SENTINEL_STEPS[2]]["run"]
     assert "cargo test -p cmux-tui-core --test browser_runtime" in final_sentinels
     assert "socket_browser_attach_streams_frames_input_and_cell_pixels" in final_sentinels
 
@@ -122,16 +118,14 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["needs"] == "validate-inputs"
     assert lint["name"] == "lint (${{ matrix.os }})"
     assert lint["strategy"]["fail-fast"] is False
-    assert lint["strategy"]["matrix"]["include"] == [
-        {
-            "os": "macos",
-            "runner": "blacksmith-6vcpu-macos-15",
-        },
-        {
-            "os": "linux",
-            "runner": "blacksmith-4vcpu-ubuntu-2404",
-        },
-    ]
+    # The runners are expressions: the macOS row takes the owned side lane on
+    # attempt 1 and Blacksmith macOS 15 otherwise; the Linux row is Blacksmith Linux.
+    rows = lint["strategy"]["matrix"]["include"]
+    assert [row["os"] for row in rows] == ["macos", "linux"]
+    assert all(set(row) == {"os", "runner"} for row in rows), rows
+    assert "vars.CI_SIDE_LANE_RUNNER" in rows[0]["runner"], rows[0]
+    assert rows[0]["runner"].endswith("'blacksmith-6vcpu-macos-15' }}"), rows[0]
+    assert "ubuntu-2404" in rows[1]["runner"], rows[1]
     assert "cargo fmt --check" in lint_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
     assert "cargo fmt --check" not in test_commands
@@ -159,9 +153,9 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         assert len(linux_dependency_steps) == 1
         assert linux_dependency_steps[0]["if"] == "runner.os == 'Linux'"
         if runner_os == "Linux":
-            assert entry["runner"].endswith("ubuntu-2404")
+            assert "ubuntu-2404" in entry["runner"]
         else:
-            assert entry["runner"].endswith("macos-15")
+            assert "macos-15" in entry["runner"]
 
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1
