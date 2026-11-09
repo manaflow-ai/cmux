@@ -45,13 +45,13 @@ const RESPONSE_S = MOTION_MS.standard / 1000;
 /// at 60 Hz), a sixth of a line, within CATCH_UP_LINES of home.
 export const CHASE_MAX_SPEED = 450;
 /// A reply's streamed growth (`below` bounded, not an arrived row: the live line, text) runs on the
-/// quick step (80 ms) and up to 10 px a 120 Hz frame, under half a line: a line of growth moved the
-/// thread for 158-183 ms on the standard step, and a run of it kept the thread sliding (Leo,
+/// quick step (80 ms), at the chase's own near-home speed (CHASE_MAX_SPEED: the per-frame bounds
+/// streaming-text-frames and send-stream-motion hold): a line of growth moved the thread for
+/// 158-183 ms on the standard step, and a run of it kept the thread sliding (Leo,
 /// 2026-11-09: "the tool call shifting the chat animation and stuff is just too slow ... thinking,
 /// tool calls, etc... cannot lag nor can they take long"). A send's rise keeps the standard step,
 /// one motion with its bubble and room (MOTION_SEND_MS).
 const GROWTH_RESPONSE_S = MOTION_MS.quick / 1000;
-export const GROWTH_MAX_SPEED = 1200;
 /// The most the view trails the newest line, in the chat's lines (chatDisplay's line height, so it
 /// follows the reader's font settings). What lands past it (a block faster than the chase) is
 /// brought back within BURST_S, never in one jump: the chase moves at least the excess over
@@ -190,11 +190,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   };
   let last: number | undefined;
   let scale = 1;
-  /// The spring's response and near-home speed for the move in flight: a send's rise or a reply's
-  /// growth (GROWTH_RESPONSE_S), set by each `shift`. A send's rise keeps its step until it rests,
+  /// The spring's response for the move in flight: a send's rise or a reply's growth
+  /// (GROWTH_RESPONSE_S), set by each `shift`. A send's rise keeps its step until it rests,
   /// so the reply's first lines join the one motion instead of changing its speed partway.
   let response = RESPONSE_S;
-  let maxSpeed = CHASE_MAX_SPEED;
   let sendInFlight = false;
   /// While the trail is past its bound: the speed (px/s) that brings it back within BURST_S of the
   /// landing that put it there, 0 inside the bound.
@@ -261,7 +260,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     const fastest = (CHASE_MAX_FRAME_LINES * line) / (1 / 120);
     const limit = Math.min(
       fastest,
-      Math.max(burst, (maxSpeed + Math.max(0, Math.abs(x) - catchUp) / CATCH_UP_S) / Math.max(scale, 0.25)),
+      Math.max(burst, (CHASE_MAX_SPEED + Math.max(0, Math.abs(x) - catchUp) / CATCH_UP_S) / Math.max(scale, 0.25)),
     );
     if (arrival) {
       // The arrival step: its curve to its last frame, which draws the rows home (and stops).
@@ -412,7 +411,6 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A row that arrived has its own step (arrivalStepMs); the quick step is the reply's streamed growth.
       const growth = !sendInFlight && !arrived;
       response = growth ? GROWTH_RESPONSE_S : RESPONSE_S;
-      maxSpeed = growth ? GROWTH_MAX_SPEED : CHASE_MAX_SPEED;
       // Drawn back by the move: the rows stay where the reader saw them this frame (up to
       // CHASE_MAX_LAG of the view; only a whole screen landing moves at once).
       const most = CHASE_MAX_LAG * (node.parentElement?.parentElement?.clientHeight || 600);
