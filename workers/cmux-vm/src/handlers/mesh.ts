@@ -983,7 +983,10 @@ const reconcileAttempt = <C, M>(
     const store = yield* MeshStore;
     const tenantId = caller.value.tenantId;
     const key = { tenantId, meshId: attempt.meshId, intentId: attempt.intentId, deviceId: attempt.deviceId };
-    let current = attempt;
+    // Read again: another reconcile may have settled it since it was listed (nothing more to do then).
+    const latest = yield* store.findAttempt(key).pipe(Effect.catchAll(dependencyDown("mesh.findAttempt")));
+    if (Option.isNone(latest) || latest.value.resolvedAt !== null) return { _tag: "resolved", deleted: false } as const;
+    let current = latest.value;
     if (current.sentAt === null) {
       if (yield* store.resolveUnsentAttempt(key, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.resolveUnsentAttempt")))) {
         return { _tag: "resolved", deleted: false } as const;
@@ -1049,9 +1052,9 @@ const reconcileBeforeClaim = <C, M>(
       }
       return yield* Effect.fail(yield* intentRefusal(tenantId, mesh.value, intentId, who));
     }
-    // Read after the compare-and-set: no attempt listed here can still commit, and none unsent can still send.
-    const open = yield* store.listOpenAttempts(tenantId, mesh.value, intentId).pipe(Effect.catchAll(dependencyDown("mesh.listOpenAttempts")));
-    for (const attempt of open) {
+    // Only the attempts the compare-and-set fenced, read in its own statement: none of them can still commit, none unsent
+    // can still send, and a claim made after it (another retry's new attempt and device) is never among them.
+    for (const attempt of ended.value.fenced) {
       const outcome = yield* reconcileAttempt(caller, mesh, proofs, attempt);
       if (outcome._tag === "pending") return yield* Effect.fail(intentInProgress());
     }

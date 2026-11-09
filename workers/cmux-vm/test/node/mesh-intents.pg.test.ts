@@ -116,7 +116,11 @@ describe("mesh device intents", () => {
     await run(store.recordAttemptAnswer(keyOf(meshId, "i-4", first), "tun-upstream-1", later(2)));
     await run(store.finishAttempt(keyOf(meshId, "i-4", first), later(2)));
     // A reconcile ends its claim without resolving it (its tunnel delete failed): no new claim starts while it is open.
-    expect(Option.isSome(await run(store.beginReconcile(A, meshId, "i-4", owner, later(3))))).toBe(true);
+    // It returns, from its own statement, exactly the attempts open when it ended the claim.
+    const ended = await run(store.beginReconcile(A, meshId, "i-4", owner, later(3)));
+    expect(Option.map(ended, (value) => value.fenced.map((attempt) => [attempt.deviceId, attempt.upstreamId, attempt.sentAt?.getTime()]))).toEqual(
+      Option.some([[first, "tun-upstream-1", later(1).getTime()]]),
+    );
     expect(await run(store.commitDeviceIntent(A, "i-4", deviceRow(meshId, first), later(4)))).toBe(false);
     const second = newDeviceId();
     expect(await claim(meshId, "i-4", second, later(5))).toBe(false);

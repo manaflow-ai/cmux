@@ -5,7 +5,7 @@
  * the shared fake provider's call log, so "nothing reached upstream" checks
  * cover mesh calls too.
  */
-import { Effect, Layer, Redacted } from "effect";
+import { Effect, Layer, Option, Redacted } from "effect";
 import { MeshStore } from "../../src/db/mesh.ts";
 import { makeMemoryMeshStore } from "../../src/db/mesh-memory.ts";
 import { StoreError } from "../../src/db/sql.ts";
@@ -55,6 +55,8 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   let intentOfDeviceFailures = 0;
   /** While set, the next read of an intent's open attempts waits for this promise after it read them. */
   let attemptsReadHold: { readonly reached: () => void; readonly gate: Promise<void> } | null = null;
+  /** While set, the next successful reconcile compare-and-set waits for this promise after it wrote. */
+  let reconcileHold: { readonly reached: () => void; readonly gate: Promise<void> } | null = null;
   let inventoryRead: (() => void) | null = null;
   const failingLayer = Layer.effect(
     MeshStore,
@@ -79,6 +81,16 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
         }
         return inner.revokeIntentOfDevice(...args);
       },
+      beginReconcile: (...args: Parameters<typeof inner.beginReconcile>) =>
+        inner.beginReconcile(...args).pipe(
+          Effect.tap((ended) => {
+            const hold = reconcileHold;
+            if (hold === null || Option.isNone(ended)) return Effect.void;
+            reconcileHold = null;
+            hold.reached();
+            return Effect.promise(() => hold.gate);
+          }),
+        ),
       commitDeviceIntent: (...args: Parameters<typeof inner.commitDeviceIntent>) => {
         if (commitFailures > 0) {
           commitFailures -= 1;
@@ -432,6 +444,15 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       const reached = new Promise<void>((resolve) => { reachedResolve = resolve; });
       const gate = new Promise<void>((resolve) => { release = resolve; });
       attemptsReadHold = { reached: () => reachedResolve(), gate };
+      return { reached, release };
+    },
+    /** The next successful reconcile compare-and-set stalls after it wrote, until `release`; `reached` resolves then. */
+    holdNextReconcile(): { readonly reached: Promise<void>; readonly release: () => void } {
+      let release = () => {};
+      let reachedResolve = () => {};
+      const reached = new Promise<void>((resolve) => { reachedResolve = resolve; });
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      reconcileHold = { reached: () => reachedResolve(), gate };
       return { reached, release };
     },
     /** The next `times` intent revocations by a device's delete fail. */

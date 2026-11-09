@@ -133,9 +133,10 @@ export interface DeviceIntentStore {
   ) => Effect.Effect<boolean, StoreError>;
   /**
    * The compare-and-set that starts a reconcile: in one statement, for an authorized caller, ends the claim of an
-   * uncommitted intent whose create finished or is older than `staleBefore` (or that no create holds), so that create can
-   * neither send nor commit any more. None (nothing written) when the intent is committed, its claim is live, there is
-   * no row, or the caller may not.
+   * uncommitted intent whose create finished or is older than the stale window (or that no create holds), so that create
+   * can neither send nor commit any more, and returns the attempts open at that moment: the only ones this reconcile
+   * may act on. A claim made after it is a new attempt, never in that list. None (nothing written) when the intent is
+   * committed, its claim is live, there is no row, or the caller may not.
    */
   readonly beginReconcile: (
     tenantId: TenantId,
@@ -143,7 +144,7 @@ export interface DeviceIntentStore {
     intentId: string,
     caller: IntentCaller,
     now: Date,
-  ) => Effect.Effect<Option.Option<DeviceIntentRow>, StoreError>;
+  ) => Effect.Effect<Option.Option<{ readonly intent: DeviceIntentRow; readonly fenced: ReadonlyArray<IntentAttemptRow> }>, StoreError>;
   /** Sets sent_at just before the provider create, only while the attempt is unresolved and the intent's live, unrevoked claim. */
   readonly markAttemptSent: (key: AttemptKey, now: Date) => Effect.Effect<boolean, StoreError>;
   /** The provider answered the create: with its tunnel's id, or (null) with an error. */
@@ -204,6 +205,9 @@ const AttemptRow = Schema.Struct({
   resolved_at: Schema.NullOr(When),
 });
 const Claimed = Schema.Struct({ claimed: Count });
+const FencedAttempt = Schema.Struct({ ...AttemptRow.fields, created_at: Schema.Date, sent_at: Schema.NullOr(Schema.Date),
+  answered_at: Schema.NullOr(Schema.Date), finished_at: Schema.NullOr(Schema.Date), resolved_at: Schema.NullOr(Schema.Date) });
+const ReconcileRow = Schema.Struct({ ...Row.fields, fenced: Schema.parseJson(Schema.Array(FencedAttempt)) });
 const COLUMNS =
   "mesh_cmux_id, intent_id, device_cmux_id, array_to_json(attempt_device_ids)::text AS attempt_device_ids, created_by, labels::text AS labels, created_at, committed_at, revoked_at";
 const ATTEMPT_COLUMNS = "mesh_cmux_id, intent_id, device_cmux_id, tunnel_cmux_id, created_at, sent_at, upstream_id, answered_at, finished_at, resolved_at";
@@ -305,18 +309,33 @@ export const sqlDeviceIntents = (sql: SqlClientService): DeviceIntentStore => ({
     sql
       .query(
         "intent.beginReconcile",
-        `UPDATE cmux_vm.mesh_device_intents SET device_cmux_id = NULL
-          WHERE tenant_id = $1 AND mesh_cmux_id = $2 AND intent_id = $3 AND committed_at IS NULL
-            AND (revoked_at IS NULL OR revoked_at <= $4::timestamptz)
-            AND ${AUTHORIZED(6)}
-            AND (device_cmux_id IS NULL OR EXISTS (
-                  SELECT 1 FROM cmux_vm.mesh_device_intent_attempts a
-                   WHERE a.tenant_id = $1 AND a.mesh_cmux_id = $2 AND a.intent_id = $3 AND a.device_cmux_id = mesh_device_intents.device_cmux_id
-                     AND (a.finished_at IS NOT NULL OR a.created_at <= $5::timestamptz)))
-          RETURNING ${COLUMNS}`,
+        // The attempts are read in the same statement as the claim's end (under the intent's row lock), so the list
+        // holds exactly the attempts that existed when the claim ended; a later claim's attempt is never among them.
+        `WITH ended AS (
+           UPDATE cmux_vm.mesh_device_intents SET device_cmux_id = NULL
+            WHERE tenant_id = $1 AND mesh_cmux_id = $2 AND intent_id = $3 AND committed_at IS NULL
+              AND (revoked_at IS NULL OR revoked_at <= $4::timestamptz)
+              AND ${AUTHORIZED(6)}
+              AND (device_cmux_id IS NULL OR EXISTS (
+                    SELECT 1 FROM cmux_vm.mesh_device_intent_attempts a
+                     WHERE a.tenant_id = $1 AND a.mesh_cmux_id = $2 AND a.intent_id = $3 AND a.device_cmux_id = mesh_device_intents.device_cmux_id
+                       AND (a.finished_at IS NOT NULL OR a.created_at <= $5::timestamptz)))
+            RETURNING ${COLUMNS})
+         SELECT ended.*, (
+           SELECT COALESCE(json_agg(json_build_object(
+                    'mesh_cmux_id', a.mesh_cmux_id, 'intent_id', a.intent_id, 'device_cmux_id', a.device_cmux_id,
+                    'tunnel_cmux_id', a.tunnel_cmux_id, 'created_at', a.created_at, 'sent_at', a.sent_at,
+                    'upstream_id', a.upstream_id, 'answered_at', a.answered_at, 'finished_at', a.finished_at,
+                    'resolved_at', a.resolved_at) ORDER BY a.created_at, a.device_cmux_id), '[]'::json)::text
+             FROM cmux_vm.mesh_device_intent_attempts a
+            WHERE a.tenant_id = $1 AND a.mesh_cmux_id = $2 AND a.intent_id = $3 AND a.resolved_at IS NULL) AS fenced
+         FROM ended`,
         [tenantId, meshId, intentId, ago(now, INTENT_TOMBSTONE_MS), ago(now, INTENT_STALE_CLAIM_MS), ...callerParams(caller)],
       )
-      .pipe(Effect.flatMap(decode(Row, "intent.beginReconcile")), Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), toRow))),
+      .pipe(
+        Effect.flatMap(decode(ReconcileRow, "intent.beginReconcile")),
+        Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), (row) => ({ intent: toRow(row), fenced: row.fenced.map(toAttempt) }))),
+      ),
   markAttemptSent: (key, now) =>
     sql
       .query(
@@ -492,7 +511,10 @@ export const memoryDeviceIntents = (
           if (current === undefined || !claimIsReconcilable(current, now)) return Option.none();
         }
         row.deviceId = null;
-        return Option.some(copy(row));
+        const fenced = attempts
+          .filter((attempt) => attempt.tenantId === tenantId && attempt.meshId === meshId && attempt.intentId === intentId && attempt.resolvedAt === null)
+          .map((attempt) => ({ ...attempt }));
+        return Option.some({ intent: copy(row), fenced });
       }),
     markAttemptSent: (key, now) =>
       Effect.sync(() => {

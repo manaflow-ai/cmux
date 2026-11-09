@@ -51,9 +51,9 @@ export const DeviceIntentId = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9._:~
     "While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).",
 });
 
+/** The signed fields of every enroll (devices and overlay servers). Only the device route adds an intentId. */
 export class EnrollDeviceRequest extends Schema.Class<EnrollDeviceRequest>("EnrollDeviceRequest")(
   {
-    intentId: Schema.optional(DeviceIntentId),
     name: DeviceName,
     wgPublicKey: WgPublicKey,
     installPublicKey: InstallPublicKey,
@@ -63,6 +63,11 @@ export class EnrollDeviceRequest extends Schema.Class<EnrollDeviceRequest>("Enro
   },
   { description: SIGNED },
 ) {}
+
+/** `POST /v1/meshes/{meshId}/devices`: the signed enroll, optionally keyed by the caller's intentId (migration 0018). */
+export class EnrollMeshDeviceRequest extends EnrollDeviceRequest.extend<EnrollMeshDeviceRequest>("EnrollMeshDeviceRequest")({
+  intentId: Schema.optional(DeviceIntentId),
+}) {}
 
 /** A one-time enrollment code: `mec_` and 26 base32 characters (130 random bits). */
 export const EnrollmentCodeValue = Schema.String.pipe(Schema.pattern(/^mec_[0-9a-hjkmnp-tv-z]{26}$/u)).annotations({
@@ -465,7 +470,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
   .add(
     HttpApiEndpoint.post("enrollDevice", "/v1/meshes/:meshId/devices")
       .setPath(MeshPath)
-      .setPayload(EnrollDeviceRequest)
+      .setPayload(EnrollMeshDeviceRequest)
       .setHeaders(GroupCreateHeaders)
       .addSuccess(DeviceEnrollment, { status: 201 })
       .addError(BadRequest)

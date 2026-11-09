@@ -369,6 +369,31 @@ it("accepts the platform's resend of the same signed body and intent after the p
   expect(Schema.decodeUnknownSync(Enrolled)(await again.json()).device).toEqual(Schema.decodeUnknownSync(Enrolled)(await retried.json()).device);
 });
 
+it("never lets a paused reconcile touch the attempt a later retry claimed and committed", async () => {
+  const { admin, mesh } = await setup();
+  const owner = await h.addKey(A, ["mesh:read", "mesh:join"]);
+  h.mesh.loseTunnelReplies(1);
+  // The owner's first create made a tunnel and lost its reply: one open attempt, its claim held.
+  expect((await enroll(owner, mesh, "fenced-intent")).status).toBe(503);
+  expect(liveTunnels()).toBe(1);
+  // Retry A ends that claim (fencing the open attempt) and pauses right after.
+  const pause = h.mesh.holdNextReconcile();
+  const retryA = enroll(owner, mesh, "fenced-intent");
+  await pause.reached;
+  // Admin retry B settles the old attempt, claims the intent and commits its own device.
+  const retryB = await enroll(admin, mesh, "fenced-intent", KEY_2);
+  expect(retryB.status).toBe(201);
+  const made = Schema.decodeUnknownSync(Enrolled)(await retryB.json());
+  expect(liveTunnels()).toBe(1);
+  // A resumes: it may act only on the attempt it fenced, which B already settled. B's device and tunnel survive.
+  pause.release();
+  expect((await retryA).status).toBe(409);
+  expect(liveTunnels()).toBe(1);
+  expect(await listed(admin, mesh)).toEqual([{ id: made.device.id }]);
+  expect((await h.request(`/v1/devices/${made.device.id}`, bearer(admin))).status).toBe(200);
+  expect(h.isDeleted(made.device.id)).toBe(false);
+});
+
 it("refuses a malformed intentId", async () => {
   const { admin, mesh } = await setup();
   expect((await enroll(admin, mesh, "has space")).status).toBe(400);
