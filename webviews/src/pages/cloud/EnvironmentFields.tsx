@@ -1,7 +1,18 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { L } from "./strings";
-import type { EnvironmentDraft, EnvironmentVariable } from "./environmentModel";
+import {
+  DEFAULT_SECRET_HEADER,
+  headerIssue,
+  headerText,
+  secretNeedsValue,
+  secretRoutesSupported,
+  hostsValid,
+  secretHosts,
+  type EnvironmentDraft,
+  type EnvironmentSecret,
+  type SecretDraft,
+} from "./environmentModel";
 import type { EnvironmentState, EnvironmentStore } from "./environmentStore";
 
 export function EnvironmentNetwork({
@@ -73,46 +84,171 @@ export function EnvironmentValues({
   secrets: boolean;
 }) {
   const { t } = strings;
-  const rows = secrets ? draft.secrets : draft.variables;
-  const set = (next: EnvironmentVariable[]) => store.edit(secrets ? { secrets: next } : { variables: next });
-  const edit = (index: number, patch: Partial<EnvironmentVariable>) =>
+  const rows: SecretDraft[] = secrets ? draft.secrets : draft.variables;
+  const set = (next: SecretDraft[]) => store.edit(secrets ? { secrets: next } : { variables: next });
+  const edit = (index: number, patch: Partial<SecretDraft>) =>
     set(rows.map((row, at) => (at === index ? { ...row, ...patch } : row)));
-  const existing = store.getSnapshot().original?.secrets ?? [];
+  const original = store.getSnapshot().original;
+  const existing = original?.secrets ?? [];
+  // Delivery only where the service keeps it; otherwise a host-only secret would be saved as a plain variable.
+  const routes = secrets && original !== undefined && secretRoutesSupported(original);
   return (
     <div className="env-fields">
       {secrets && <p className="env-note">{t(L.envSecretNote)}</p>}
-      {rows.map((row, index) => (
-        <div className="env-value-row" key={index}>
-          <input
-            aria-label={t(secrets ? L.envSecretName : L.envVariableName)}
-            autoComplete="off"
-            spellCheck={false}
-            value={row.name}
-            readOnly={secrets && existing.some((item) => item.name === row.name)}
-            onChange={(event) => edit(index, { name: event.target.value })}
-          />
-          <input
-            aria-label={t(secrets ? L.envSecretValue : L.envValue)}
-            autoComplete="off"
-            type={secrets ? "password" : "text"}
-            spellCheck={false}
-            value={row.value}
-            onChange={(event) => edit(index, { value: event.target.value })}
-          />
-          <button
-            type="button"
-            className="env-icon"
-            aria-label={`${t(L.envRemove)} ${row.name}`}
-            onClick={() => set(rows.filter((_, at) => at !== index))}
-          >
-            ×
-          </button>
-        </div>
-      ))}
+      {routes && <p className="env-note">{t(L.envSecretHostsNote)}</p>}
+      {rows.map((row, index) => {
+        const stored = secrets ? existing.find((item) => item.name === row.name) : undefined;
+        const value = (
+          <div className="env-value-row" key={index}>
+            <input
+              aria-label={t(secrets ? L.envSecretName : L.envVariableName)}
+              autoComplete="off"
+              spellCheck={false}
+              value={row.name}
+              readOnly={stored !== undefined}
+              onChange={(event) => edit(index, { name: event.target.value })}
+            />
+            <input
+              aria-label={t(secrets ? L.envSecretValue : L.envValue)}
+              autoComplete="off"
+              type={secrets ? "password" : "text"}
+              spellCheck={false}
+              value={row.value}
+              aria-invalid={(routes && (!headerText(row.value) || secretNeedsValue(row, stored))) || undefined}
+              onChange={(event) => edit(index, { value: event.target.value })}
+            />
+            <button
+              type="button"
+              className="env-icon"
+              aria-label={`${t(L.envRemove)} ${row.name}`}
+              onClick={() => set(rows.filter((_, at) => at !== index))}
+            >
+              ×
+            </button>
+          </div>
+        );
+        if (!routes) return value;
+        return (
+          <div className="env-secret" key={index}>
+            {value}
+            <SecretDelivery row={row} stored={stored} strings={strings} onChange={(patch) => edit(index, patch)} />
+          </div>
+        );
+      })}
       <button type="button" className="env-button env-add" onClick={() => set([...rows, { name: "", value: "" }])}>
         {t(L.envAdd)}
       </button>
     </div>
+  );
+}
+
+/** One secret's "Sent to" hosts and its header (design/environment-sheet.md "Secret row"). Every secret has
+ *  hosts (its value goes only there, never to the machine), so the header line is always under them,
+ *  closed; its fields fold open under its disclosure by their own height, so the rows below move with
+ *  it and nothing pops in. */
+export function SecretDelivery({
+  row,
+  stored,
+  strings,
+  onChange,
+}: {
+  row: SecretDraft;
+  stored?: EnvironmentSecret;
+  strings: Strings;
+  onChange(patch: Partial<SecretDraft>): void;
+}) {
+  const { t } = strings;
+  const [editingHosts, setEditingHosts] = useState(false);
+  const [headerOpen, setHeaderOpen] = useState(false);
+  const header = row.header ?? DEFAULT_SECRET_HEADER;
+  const hostsBad = !editingHosts && !hostsValid(row.hosts);
+  // No host is invalid too, but not on a blank row just added (Save still refuses it) and not while typing.
+  const hostless =
+    !editingHosts && !secretHosts(row.hosts).length && (stored !== undefined || row.name !== "" || row.value !== "");
+  const headerProblem = headerIssue(row.header);
+  const headerBad = headerProblem !== undefined;
+  const valueBad = !headerText(row.value);
+  // A secret stored without hosts getting its first ones needs its value again (the platform can't move it
+  // without).
+  const retype = secretNeedsValue(row, stored);
+  const message = hostsBad
+    ? L.envInvalidHosts
+    : hostless
+      ? L.envSecretNoHosts
+      : valueBad
+        ? L.envInvalidValue
+        : headerProblem === "route"
+          ? L.envReservedHeader
+          : headerProblem
+            ? L.envInvalidHeader
+            : retype
+              ? L.envSecretRetype
+              : undefined;
+  const id = useId();
+  return (
+    <>
+      <label className="env-secret-hosts">
+        <span>{t(L.envSecretHosts)}</span>
+        <input
+          aria-label={t(L.envSecretHosts)}
+          aria-invalid={hostsBad || hostless || undefined}
+          aria-describedby={message ? `${id}-message` : undefined}
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          placeholder={t(L.envSecretHostsPlaceholder)}
+          value={row.hosts ?? ""}
+          onFocus={() => setEditingHosts(true)}
+          onBlur={() => setEditingHosts(false)}
+          onChange={(event) => onChange({ hosts: event.target.value })}
+        />
+      </label>
+      <button
+        type="button"
+        className="env-disclosure"
+        aria-expanded={headerOpen}
+        aria-controls={`${id}-header`}
+        onClick={() => setHeaderOpen(!headerOpen)}
+      >
+        <span aria-hidden="true" className="env-disclosure-mark">
+          ›
+        </span>
+        <span>{t(L.envSecretHeader)}</span>
+        <span className="env-row-detail env-header-summary">{`${header.name}: ${header.format}`}</span>
+      </button>
+      <div id={`${id}-header`} className="env-fold" data-open={headerOpen || undefined} inert={!headerOpen}>
+        <div className="env-fold-body">
+          <div className="env-header-fields">
+            <input
+              aria-label={t(L.envSecretHeaderName)}
+              aria-invalid={headerBad || undefined}
+              autoComplete="off"
+              spellCheck={false}
+              value={header.name}
+              onChange={(event) => onChange({ header: { ...header, name: event.target.value.toLowerCase() } })}
+            />
+            <input
+              aria-label={t(L.envSecretHeaderFormat)}
+              aria-invalid={headerBad || undefined}
+              autoComplete="off"
+              spellCheck={false}
+              value={header.format}
+              onChange={(event) => onChange({ header: { ...header, format: event.target.value } })}
+            />
+          </div>
+          <small className="env-note">{t(L.envSecretHeaderHint)}</small>
+        </div>
+      </div>
+      <div className="env-fold" data-open={message ? true : undefined}>
+        <div className="env-fold-body">
+          {message && (
+            <small id={`${id}-message`} className="env-error">
+              {t(message)}
+            </small>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
