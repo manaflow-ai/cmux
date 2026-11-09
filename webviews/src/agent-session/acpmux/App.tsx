@@ -9049,7 +9049,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it (no `sidePlace`).
     {
-      canFork: sidePlace === "machine" ? !snapshot.isWorking && sideChatRefusal(snapshot, sidePlace) === undefined : forkable,
+      canFork:
+        sidePlace === "machine" ? !snapshot.isWorking && sideChatRefusal(snapshot, sidePlace) === undefined : forkable,
       throughSeq: lastForkSeq,
       place: sidePlace,
     },
