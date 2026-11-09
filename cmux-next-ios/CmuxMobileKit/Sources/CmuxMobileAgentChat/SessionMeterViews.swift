@@ -69,7 +69,7 @@ private struct ContextUsagePie: View {
             PieWedge(fraction: fraction)
                 .fill(tint)
                 .padding(3)
-                .animation(.cmuxMobileSmooth, value: fraction)
+                .animation(.cmuxMobileSmooth.unlessReduceMotion, value: fraction)
         }
     }
 }
@@ -103,7 +103,7 @@ struct PlanProgressBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
-                withAnimation(.cmuxMobileSmooth) { expanded.toggle() }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expanded.toggle() }
             } label: {
                 HStack(spacing: 10) {
                     ZStack {
@@ -112,7 +112,7 @@ struct PlanProgressBar: View {
                             .trim(from: 0, to: Double(progress.completed) / Double(max(progress.total, 1)))
                             .stroke(Color.cmuxMobileSuccess, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                             .rotationEffect(.degrees(-90))
-                            .animation(.cmuxMobileSmooth, value: progress.completed)
+                            .animation(.cmuxMobileSmooth.unlessReduceMotion, value: progress.completed)
                     }
                     .frame(width: 16, height: 16)
                     Text(progress.current ?? "Plan complete")

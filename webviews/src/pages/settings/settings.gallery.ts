@@ -5,6 +5,7 @@ import type {
   AccountsRow,
   AccountsState,
   CloudEnvironmentsState,
+  HarnessesState,
   HostLists,
   ProviderAccount,
 } from "./ops";
@@ -347,6 +348,19 @@ const providerAccounts: ProviderAccount[] = [
   },
 ];
 
+/** The Codex harness row alone, for the account variants. */
+const codexHarness: HarnessesState["harnesses"] = [
+  {
+    id: "codex",
+    name: null,
+    kind: "acp",
+    source: "path",
+    problem: null,
+    version: "0.164.0",
+    checkedAt: minutesAgo(54),
+  },
+];
+
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
     note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch and, for Codex, its plan's 5-hour and weekly usage read at rest, and Codex offers Add account.",
@@ -426,6 +440,59 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Remove asks first, in the row. Three states of the one flow: the question open on an added
+  // Codex login (shadow home), on a Claude API-key account, and a signed-out account whose usage
+  // read before its sign-out is no longer shown.
+  "agents-harnesses-account-remove-confirm": variant("agents", {
+    note: "Remove on ChatGPT 2 asks first, in its row: only cmux's record goes; the login folder and the CLI's own sign-in stay.",
+    harnesses: { loading: false, problem: null, accounts: providerAccounts, harnesses: codexHarness },
+    steps: [
+      wait('[data-account="codex-2"] [data-account-action="remove"]'),
+      click('[data-account="codex-2"] [data-account-action="remove"]'),
+      wait('[data-account="codex-2"] [data-account-remove-confirm]'),
+    ],
+  }),
+  "agents-harnesses-account-remove-confirm-key": variant("agents", {
+    note: "Remove on a Claude API-key account asks the same question; says the API key stays where it is stored.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: [
+        ...providerAccounts,
+        {
+          id: "claude-key",
+          family: "claude",
+          name: "Work key",
+          home: null,
+          defaultHome: "~/.claude",
+          shadowOf: null,
+          signedIn: true,
+          plan: null,
+          email: null,
+          enabled: true,
+          builtin: false,
+          key: true,
+        },
+      ],
+      harnesses: [{ id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null, version: "2.0.9" }],
+    },
+    steps: [
+      wait('[data-account="claude-key"] [data-account-action="remove"]'),
+      click('[data-account="claude-key"] [data-account-action="remove"]'),
+      wait('[data-account="claude-key"] [data-account-remove-confirm]'),
+    ],
+  }),
+  "agents-harnesses-account-signed-out": variant("agents", {
+    note: "ChatGPT 2 after its sign-out: Sign In comes back and the usage read before it is no longer shown.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: providerAccounts.map((account) =>
+        account.id === "codex-2" ? { ...account, signedIn: false, email: null, plan: null } : account,
+      ),
+      harnesses: codexHarness,
+    },
+  }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",
     harnesses: { loading: false, problem: "unreachable", harnesses: [] },
@@ -453,6 +520,35 @@ Object.assign(variants, {
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
+  }),
+  // Leo, 11-07: the profile menu's Personalization…, every visual choice on one page under a jump bar.
+  "personalization-background": variant("personalization", {
+    focus: "personalization.background",
+    workspace: "ws-1",
+    options: {
+      values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [wait('[data-part="background"] [data-card="backdrop"]')],
+    note: "Change Background… opens Personalization on its Background part: the same art picker, Material and Opacity as Appearance.",
+  }),
+  "personalization-chief": variant("personalization", {
+    focus: "personalization.chief",
+    options: { values: { "home.chiefPetEnabled": true, "home.chiefPetMascot": "fox" } },
+    note: "Personalization on the Chief's look: the Chief Pet card, shown, with the Fox picked.",
+  }),
+  "personalization-text": variant("personalization", {
+    focus: "personalization.text",
+    options: { values: { "appearance.density": "cozy", "agentPane.display.transcriptView": "thinking" } },
+    note: "Personalization on Text and Density: the density tiles, the chat fonts and the transcript view.",
+  }),
+  "personalization-sounds": variant("personalization", {
+    focus: "personalization.sounds",
+    note: "Personalization on Sounds: the notification sound, its volume and when it plays.",
   }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
   "appearance-undo-bar": variant("appearance", {

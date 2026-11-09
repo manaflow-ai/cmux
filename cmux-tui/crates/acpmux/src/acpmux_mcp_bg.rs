@@ -59,7 +59,11 @@ pub(super) fn tools() -> Vec<Value> {
     ]
 }
 
+/// What a Claude Code subagent's start (`callerSubagent`) adds to its answer: when its end comes.
+const SUBAGENT_END: &str = "You get its end after your next Bash or acpmux tool call; if you end first, it goes to your lead. bg_output reads it now.";
+
 pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
+    let by_subagent = args.get("callerSubagent").is_some_and(Value::is_object);
     let mut params = match args {
         Value::Object(_) => args.clone(),
         Value::Null => json!({}),
@@ -76,8 +80,10 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
                 "run_wait needs the gh CLI, and none is on this machine's PATH; install gh (https://cli.github.com) or wait another way".to_owned(),
             );
         }
+        let sub = params.get("callerSubagent").cloned().unwrap_or(Value::Null);
         params = json!({"sessionId": session, "command": wait.script(),
-            "description": wait.description, "notify": true, "resultLine": true});
+            "description": wait.description, "notify": true, "resultLine": true,
+            "callerSubagent": sub});
         return match daemon.request(method::MUX_BG_START, params).await {
             Ok(r) => {
                 let (line, status) = outcome("bg_start", &r);
@@ -85,9 +91,16 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
                 structured.set("summary", json!(line));
                 structured.set("status", json!(status));
                 let id = structured.get("id").and_then(Value::as_str).unwrap_or_default();
-                let text = format!(
-                    "{line}\nBackground task {id}; this chat gets one message when it is done."
-                );
+                let text = if by_subagent {
+                    format!("{line}\nBackground task {id}. {SUBAGENT_END}")
+                } else {
+                    format!(
+                        "{line}\nBackground task {id}; this chat gets one message when it is done."
+                    )
+                };
+                if by_subagent {
+                    structured.set("endMessage", json!(SUBAGENT_END));
+                }
                 ok(text, structured)
             }
             Err(e) => refusal(e),
@@ -114,7 +127,13 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             let mut structured = r;
             structured.set("summary", json!(line));
             structured.set("status", json!(status));
-            ok(format!("{line}\n{}", summary(name, &structured)).trim_end().to_owned(), structured)
+            let mut text = format!("{line}\n{}", summary(name, &structured)).trim_end().to_owned();
+            if by_subagent && name == "bg_start" && structured.get("notify") == Some(&json!(true)) {
+                text.push_str(&format!("\n{SUBAGENT_END}"));
+                // Claude Code shows the structured result, not the text, when there is one.
+                structured.set("endMessage", json!(SUBAGENT_END));
+            }
+            ok(text, structured)
         }
         Err(e) => refusal(e),
     }

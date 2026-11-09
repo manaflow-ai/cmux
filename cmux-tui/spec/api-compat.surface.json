@@ -10778,6 +10778,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/filename": {
+        "ty": "string",
+        "nullable": true
+      },
       "/lease": {
         "ty": "string",
         "required": true
@@ -12085,6 +12089,9 @@
       }
     },
     "request:split": {
+      "/before": {
+        "ty": "boolean"
+      },
       "/cols": {
         "ty": "uint16",
         "nullable": true
@@ -20702,6 +20709,12 @@
       "/data/write_path/effect_intents": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/write_path/registry_wal_file_bytes": {
+        "ty": "uint64"
+      },
+      "/data/write_path/registry_wal_file_high_water_bytes": {
+        "ty": "uint64"
       },
       "/data/write_path/registry_wal_frame_bytes": {
         "ty": "uint64"

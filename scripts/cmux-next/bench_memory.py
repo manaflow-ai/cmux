@@ -305,6 +305,9 @@ class App:
 
 
 FAKE_AGENT_ID = "bench-memory-fake"
+# The first prompt of each --fake-agent chat (--chat-prompt); the fake agent echoes it back, so a
+# long one gives the chat a long history to hold.
+CHAT_PROMPT = ""
 
 
 class FakeChats:
@@ -321,8 +324,16 @@ class FakeChats:
         self.app = app
         # The app splits `args` into words like a shell: a fleet step's checkout is under
         # "/Library/Application Support/...", so the path is quoted or the agent never starts.
-        added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                        args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
+        for attempt in range(5):
+            added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
+                            args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
+            # The action answers "timeout" after 2 s while its work goes on (the harness is still added),
+            # most often just after launch: wait, then try again (it replaces the same id).
+            if "timeout" not in str(added.get("code") or added.get("error") or ""):
+                break
+            time.sleep(5)  # test script: the app is still starting; try again (5 tries)
+        else:
+            added = {}  # five timeouts: the work went on in the app; a missing harness fails `acp new` below
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
         self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
@@ -343,18 +354,43 @@ class FakeChats:
             time.sleep(1)  # test script: waiting for the app's acpmux to listen
         raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
 
+    def workspace_ids(self) -> set[str]:
+        """The ids of the app's workspaces (`snapshot.get`)."""
+        found: set[str] = set()
+
+        def walk(node):
+            if isinstance(node, dict):
+                value = node.get("id")
+                if isinstance(value, str) and value.startswith("ws_"):
+                    found.add(value)
+                for child in node.values():
+                    walk(child)
+            elif isinstance(node, list):
+                for child in node:
+                    walk(child)
+        walk(self.app.call("snapshot.get", timeout=30))
+        return found
+
     def open(self, index: int) -> str | None:
         """A new workspace on a new answered chat; returns the workspace id."""
         made = subprocess.run([self.app.cli_path, "acp", "new", "--json", "-d", "-m", FAKE_AGENT_ID,
-                               f"memory bench chat {index}"],
+                               f"memory bench chat {index}" + (f"\n\n{CHAT_PROMPT}" if CHAT_PROMPT else "")],
                               capture_output=True, text=True, timeout=120, env=self.env)
         try:
             session = json.loads(made.stdout)["sessionId"]
         except (ValueError, KeyError):
             print(f"   acp new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
             return None
+        before = self.workspace_ids()
         response = self.app.action("agent.openSessionWorkspace", session=session)
         created = [item for item in response.get("created", []) if str(item).startswith("ws_")]
+        if not created and "in_progress" in json.dumps(response):
+            # The action answers "timeout" at its deadline while the open goes on (its state
+            # "in_progress"): the workspace it makes is the one that was not there before.
+            deadline = time.monotonic() + 60
+            while not created and time.monotonic() < deadline:
+                time.sleep(1)  # test script: waiting for the open that went on to make its workspace
+                created = sorted(self.workspace_ids() - before)
         if not created:
             print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
             return None
@@ -443,6 +479,10 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
             "with_image": sum(1 for o in opens if o.get("first_image_ms") is not None)}
 
 
+# The panes a workspace's recipe asked for that the app refused (the report's `pane_failures`).
+PANE_FAILURES: list[str] = []
+
+
 def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats | None = None):
     """One workspace of `recipe` (kinds joined by +); returns its id or None."""
     kinds = recipe.split("+")
@@ -482,6 +522,7 @@ def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats
             raise SystemExit(f"bench-memory: unknown kind {kind!r} in --mix")
         if response.get("error") or response.get("code"):
             print(f"   {kind} in {workspace}: {response.get('message') or response.get('error')}", file=sys.stderr)
+            PANE_FAILURES.append(f"{kind} in {workspace}: {response.get('message') or response.get('error')}"[:200])
     return workspace
 
 
@@ -826,8 +867,12 @@ def main():
                         help="run with agents.hiddenChats.discard after MINUTES; sample released chats and time their restore")
     parser.add_argument("--restore-chats", type=int, default=10,
                         help="--release-hidden-chats: how many released chats to show again and time")
+    parser.add_argument("--chat-prompt", default="",
+                        help="--fake-agent: text added to each chat's first prompt (echoed back: a chat with history)")
     parser.add_argument("--out")
     args = parser.parse_args()
+    global CHAT_PROMPT
+    CHAT_PROMPT = args.chat_prompt
     if (args.purge_hidden or args.release_hidden_chats > 0) and len([n for n in args.workspaces.split(",") if n]) > 1:
         # A later count's idle sample would follow the earlier purge, not an unpurged app. Checked
         # before the launch, so a refused run leaves no app behind.
@@ -859,7 +904,9 @@ def main():
     def settle_and_sample(label):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
         result = sample(app_pid, bundle, label, len(opened) + 1, args.measure)
+        result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
+        report["pane_failures"] = PANE_FAILURES[:20]
         print_sample(result, args.top)
         return result
 

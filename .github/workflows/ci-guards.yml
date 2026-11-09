@@ -629,6 +629,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
 
+      # The deploy check's retries: a failed Cloud journey runs once more, and db-release waits out a
+      # full database (fake bun and fake connect; no network, no secret).
+      - name: Validate the Cloud journey and deploy gate retries
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/cloud-journey-retry.test.ts
+
       # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
       # fake CLIs; no network, no secret).
       - name: Validate the machine vault E2E harness
@@ -1066,6 +1072,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
+      - name: Validate the web performance gate keeps measurement and validation apart
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_web_perf_validation_boundary.py
+
       - name: Validate every workflow guard is wired
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
@@ -1161,6 +1171,10 @@ jobs:
       - name: Validate each shared-HOME runner gets its own CARGO_HOME
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: ./tests/test_setup_cmux_tui_rust_cargo_home.sh
+
+      - name: Validate every self-hosted rust-cache step cleans only its runner's CARGO_HOME
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_runner_cargo_home.py
 
       - name: Validate every job that can start acpmux gives it a home of the job's own
         if: ${{ !cancelled() && matrix.group == 'ci' }}

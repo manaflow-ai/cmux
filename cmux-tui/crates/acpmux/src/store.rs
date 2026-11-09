@@ -134,6 +134,14 @@ pub struct ForkRequest {
     pub child_id: String,
 }
 
+/// A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when
+/// they left, and how many turns ended while nobody showed it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+pub struct LastReturn {
+    pub since: u64,
+    pub turns: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -324,6 +332,19 @@ pub struct SessionMeta {
     /// A turn ended while no client was attached.
     #[serde(default)]
     pub unread: bool,
+    /// The log seq the person had seen when they last stopped showing the chat (`hub/seen.rs`):
+    /// where "New since you looked" goes when they come back. Set once per hide, never per
+    /// record; None until a person has shown and left it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_seq: Option<u64>,
+    /// Turns that ended unseen since the person last showed the chat (the sidebar's count).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unread_turns: u64,
+    /// The person's return to the chat after turns ended unseen, kept while they stay on it: a
+    /// client that opens it then draws "New since you looked" at `since`, however its attach and
+    /// its list read race. Cleared when the last client showing it stops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_return: Option<LastReturn>,
     /// The Claude conversation acpmux started with a fresh id has not
     /// finished a turn, so Claude may never have stored it (a launcher that
     /// died before the prompt reached Claude stores nothing). A respawn (a
@@ -369,6 +390,10 @@ pub struct SessionMeta {
     /// Classified harness attempts, projected from turn results; old stores default empty.
     #[serde(default)]
     pub harness_failures: crate::session_liveness::HarnessFailures,
+    /// Its harness's own command sandbox: first refusal and whether it refuses now
+    /// (`hub/harness_sandbox.rs`); old stores default to none.
+    #[serde(default, skip_serializing_if = "crate::session_liveness::HarnessSandbox::is_none")]
+    pub harness_sandbox: crate::session_liveness::HarnessSandbox,
     /// Created over a remote-origin connection (the WebSocket listener):
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -445,6 +470,11 @@ pub struct SessionMeta {
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pull_requests: Vec<String>,
+    /// When each of `pull_requests` was opened (Unix ms), by URL: the review queue's window
+    /// counts from it (`hub/review_queue.rs`). One without a time (a meta written before this
+    /// field) counts from the session's creation. A fork starts with none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pull_request_times: BTreeMap<String, u64>,
     /// The files this session's tool calls read and edited, by repository and path there
     /// (`touched_files.rs`, `hub/touched.rs`): at most `touched_files::MAX_FILES`, the least
     /// recently touched dropped first. A fork starts with none.
@@ -459,6 +489,13 @@ pub struct SessionMeta {
     /// or by an ancestor within its budget; unset fields inherit.
     #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
     pub subsession_limits: SubsessionLimits,
+    /// Model races owned by this parent. Shared so per-token metadata copies stay constant-time.
+    #[serde(default)]
+    pub races: std::sync::Arc<Vec<crate::hub::races::Race>>,
+    /// The plan builds started from this chat's plan approvals (`hub/plan_build.rs`): set by
+    /// acpmux alone, never from a request. Shared as `races` is.
+    #[serde(default, skip_serializing_if = "crate::hub::plan_build::no_records")]
+    pub plan_builds: std::sync::Arc<Vec<crate::hub::plan_build::PlanBuildRecord>>,
     /// The session whose agent started this one, recorded once at creation from
     /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
     /// shell, or its `start_session` tool. `None` for a session a person or
@@ -597,6 +634,12 @@ pub struct TurnUsage {
     pub cache_read_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<u64>,
+    /// Of `cache_write_tokens`, the hour-long writes (Claude Code's
+    /// `cache_creation.ephemeral_1h_input_tokens`), which bill at twice the input price where a
+    /// 5-minute write bills at 1.25 times. Absent in older records and for harnesses that do not
+    /// say: their writes price at the 5-minute rate.
+    #[serde(default, rename = "cacheWrite1hTokens", skip_serializing_if = "Option::is_none")]
+    pub cache_write_1h_tokens: Option<u64>,
 }
 
 impl TurnUsage {
@@ -619,6 +662,7 @@ impl TurnUsage {
         self.output_tokens = sum(self.output_tokens, turn.output_tokens);
         self.cache_read_tokens = sum(self.cache_read_tokens, turn.cache_read_tokens);
         self.cache_write_tokens = sum(self.cache_write_tokens, turn.cache_write_tokens);
+        self.cache_write_1h_tokens = sum(self.cache_write_1h_tokens, turn.cache_write_1h_tokens);
     }
 }
 
@@ -1071,95 +1115,23 @@ pub trait Store: Send + Sync {
     fn history_writer(&self, _id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         Ok(None)
     }
-}
-
-/// One record as [`Store::scan_heads`] passes it: the fields a log line holds before its `msg`,
-/// and the whole record on demand.
-pub struct RecordHead<'a> {
-    pub seq: u64,
-    pub at: u64,
-    pub dir: &'a str,
-    pub kind: &'a str,
-    pub host_seq: Option<u64>,
-    body: HeadBody<'a>,
-}
-
-enum HeadBody<'a> {
-    /// A log line, not parsed yet.
-    Line(&'a [u8]),
-    /// A record the store holds parsed, or a line whose head did not read.
-    Parsed(&'a EventRecord),
-}
-
-impl<'a> RecordHead<'a> {
-    fn parsed(rec: &'a EventRecord) -> Self {
-        Self {
-            seq: rec.seq,
-            at: rec.at,
-            dir: &rec.dir,
-            kind: &rec.kind,
-            host_seq: rec.host_seq,
-            body: HeadBody::Parsed(rec),
-        }
-    }
-
-    /// The head of a line the daemon wrote (`{"seq":N,"at":N,"dir":"..","kind":"..","msg":..}`,
-    /// then `"hostSeq":N` when it has one); None for any other shape, which the caller parses.
-    fn read(line: &'a [u8]) -> Option<Self> {
-        let body = line.trim_ascii_end();
-        if body.last() != Some(&b'}') {
-            return None;
-        }
-        let text = |field: &'a [u8]| {
-            std::str::from_utf8(field).ok().filter(|s| !s.contains('\\') && !s.is_empty())
-        };
-        let host_seq = record_host_seq(body);
-        // A `hostSeq` anywhere but last is not the daemon's field order.
-        let head = body.get(..160).unwrap_or(body);
-        let head = head.get(..memchr::memmem::find(head, b"\"msg\":")?).unwrap_or_default();
-        if host_seq.is_none() && memchr::memmem::find(head, b"\"hostSeq\"").is_some() {
-            return None;
-        }
-        Some(Self {
-            seq: record_seq(body)?,
-            at: record_at(body)?,
-            dir: text(record_dir(body)?)?,
-            kind: text(record_kind(body)?)?,
-            host_seq,
-            body: HeadBody::Line(body),
-        })
-    }
-
-    /// The whole record (None for a line that does not parse, which `scan` passes too).
-    pub fn record(&self) -> Option<EventRecord> {
-        match self.body {
-            HeadBody::Line(line) => parse_record(line).ok(),
-            HeadBody::Parsed(rec) => Some(rec.clone()),
-        }
-    }
-
-    /// Whether the record's line may hold `needle`: true for a record held parsed, so a reader
-    /// uses it only to pass a record it surely does not need.
-    pub fn may_contain(&self, needle: &[u8]) -> bool {
-        match self.body {
-            HeadBody::Line(line) => memchr::memmem::find(line, needle).is_some(),
-            HeadBody::Parsed(_) => true,
-        }
+    /// Where the approvals audit trail is kept (`hub/audit_log.rs`): `audit/` beside
+    /// `sessions/`, or none (in memory) for the memory store.
+    fn audit_dir(&self) -> Option<PathBuf> {
+        None
     }
 }
+
+mod log_line;
+pub use log_line::RecordHead;
 
 #[cfg(test)]
-thread_local! {
-    /// Log lines parsed on this thread by `scan` and `scan_heads` (tests count them).
-    pub(crate) static PARSED_LINES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
+pub(crate) use log_line::PARSED_LINES;
 
-/// Parses one log line into its record.
-fn parse_record(line: &[u8]) -> serde_json::Result<EventRecord> {
-    #[cfg(test)]
-    PARSED_LINES.with(|n| n.set(n.get() + 1));
-    serde_json::from_slice(line)
-}
+use log_line::{
+    first_seq, for_each_line_rev, for_each_line_rev_from, offset_of_seq, parse_record, record_dir,
+    record_kind, record_seq,
+};
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
     Ok(match config.mode {
@@ -1405,204 +1377,29 @@ struct StatusOnly {
     status: SessionStatus,
 }
 
-/// The seq of a segment's first readable record.
-/// The `kind` of one serialized record, read without parsing it: records are written
-/// `{"seq":..,"at":..,"dir":"..","kind":"..","msg":..}`, so the first `"kind":"` is the
-/// record's own (its fields before `msg` hold numbers and a fixed word). None for a line
-/// that does not start that way; the caller then parses it.
-fn record_kind(line: &[u8]) -> Option<&[u8]> {
-    record_head_field(line, b"\"kind\":\"")
-}
+/// The event logs' write budget per kind (`cmux_tui_platform::write_budget`): a kind past 8 MiB
+/// or 20,000 records an hour, or one whose records mostly repeat, is a writer to fix.
+static EVENT_LOG_BUDGET: std::sync::LazyLock<cmux_tui_platform::write_budget::WriteBudget> =
+    std::sync::LazyLock::new(|| {
+        cmux_tui_platform::write_budget::WriteBudget::new(
+            "acpmux event log",
+            cmux_tui_platform::write_budget::WriteLimits {
+                bytes: 8 << 20,
+                records: 20_000,
+                repeat_percent: 50,
+                repeat_floor: 200,
+            },
+        )
+    });
 
-/// The string value after `key` (`"name":"`) in the first 160 bytes of a record, before
-/// its `"msg":`; None when it is not there.
-fn record_head_field<'a>(line: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
-    let head = line.get(..160).unwrap_or(line);
-    let msg = head.windows(6).position(|w| w == b"\"msg\":").unwrap_or(head.len());
-    let start = head.get(..msg)?.windows(key.len()).position(|w| w == key)? + key.len();
-    let rest = line.get(start..)?;
-    let len = rest.iter().position(|&b| b == b'"')?;
-    rest.get(..len)
-}
-
-/// The `seq` of one serialized record, read without parsing it: records are written
-/// `{"seq":N,...}`. None for a line that does not start that way; the caller parses it.
-fn record_seq(line: &[u8]) -> Option<u64> {
-    let rest = line.strip_prefix(b"{\"seq\":")?;
-    let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
-    if digits == 0 || digits > 19 || rest.get(digits) != Some(&b',') {
-        return None;
+/// Counts `record`, `bytes` on disk, against [`EVENT_LOG_BUDGET`] where budgets count (debug
+/// builds, tests, `CMUX_WRITE_BUDGET=1`), and warns once a kind is over.
+fn note_write_budget(record: &EventRecord, bytes: usize) {
+    if !cmux_tui_platform::write_budget::WriteBudget::enabled() {
+        return;
     }
-    std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok()
-}
-
-/// The `at` of one serialized record, read without parsing it: `{"seq":N,"at":N,...`.
-fn record_at(line: &[u8]) -> Option<u64> {
-    let rest = line.strip_prefix(b"{\"seq\":")?;
-    let rest = rest.get(rest.iter().take_while(|b| b.is_ascii_digit()).count()..)?;
-    let rest = rest.strip_prefix(b",\"at\":")?;
-    let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
-    if digits == 0 || digits > 19 || rest.get(digits) != Some(&b',') {
-        return None;
-    }
-    std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok()
-}
-
-/// The `hostSeq` of one serialized record, read without parsing it: the daemon writes it last
-/// (`...,"hostSeq":N}`), so a nested one is followed by more than the record's closing brace.
-fn record_host_seq(line: &[u8]) -> Option<u64> {
-    let rest = line.strip_suffix(b"}")?;
-    let digits = rest.iter().rev().take_while(|b| b.is_ascii_digit()).count();
-    if digits == 0 || digits > 19 {
-        return None;
-    }
-    let (rest, number) = rest.split_at(rest.len() - digits);
-    rest.strip_suffix(b",\"hostSeq\":")?;
-    std::str::from_utf8(number).ok()?.parse().ok()
-}
-
-/// The `dir` of one serialized record, read without parsing it, as `record_kind` reads its kind.
-fn record_dir(line: &[u8]) -> Option<&[u8]> {
-    record_head_field(line, b"\"dir\":\"")
-}
-
-/// The byte offset in segment `path` where its first record with `seq >= before` starts (the
-/// file's length when it has none), found by a binary search on line headers: the records of a
-/// segment are appended in `seq` order. A line whose header does not read (an older field
-/// order) ends the search at the file's length, which reads the segment from its end as before.
-/// The caller reads back from the offset through the same `file`: log retention may rename a
-/// compacted segment over the path meanwhile (`store/compact.rs`).
-fn offset_of_seq(file: &mut File, before: u64) -> Result<u64> {
-    use std::io::{Seek, SeekFrom};
-    const PROBE: usize = 64 * 1024;
-    let len = file.seek(SeekFrom::End(0))?;
-    let mut buf = vec![0u8; PROBE];
-    // A segment whose last record is before `before` (every older segment of a page) needs no
-    // search: its end is the offset.
-    if len > PROBE as u64 {
-        file.seek(SeekFrom::Start(len - PROBE as u64))?;
-        file.read_exact(&mut buf)?;
-        let body = buf.strip_suffix(b"\n").unwrap_or(&buf);
-        if let Some(nl) = body.iter().rposition(|&b| b == b'\n')
-            && body.get(nl + 1..).and_then(record_seq).is_some_and(|seq| seq < before)
-        {
-            return Ok(len);
-        }
-    }
-    // The first line starting at or after `pos`: its offset and seq; None past the end, or when
-    // no line starts in the probe (a line over 64 KiB) or its header does not read.
-    let mut line_at = |pos: u64| -> Result<Option<(u64, Option<u64>)>> {
-        file.seek(SeekFrom::Start(pos))?;
-        let mut filled = 0;
-        while let Some(rest) = buf.get_mut(filled..).filter(|rest| !rest.is_empty()) {
-            let n = file.read(rest)?;
-            if n == 0 {
-                break;
-            }
-            filled += n;
-        }
-        let data = buf.get(..filled).unwrap_or_default();
-        let start = if pos == 0 {
-            0
-        } else {
-            match data.iter().position(|&b| b == b'\n') {
-                Some(nl) => nl + 1,
-                None => return Ok(None),
-            }
-        };
-        if start >= data.len() {
-            return Ok(None);
-        }
-        Ok(Some((pos + start as u64, data.get(start..).and_then(record_seq))))
-    };
-    let (mut lo, mut hi, mut end) = (0u64, len, len);
-    while hi - lo > PROBE as u64 {
-        let mid = lo + (hi - lo) / 2;
-        match line_at(mid)? {
-            Some((_, None)) | None => return Ok(len),
-            Some((start, Some(seq))) if seq >= before => {
-                hi = mid;
-                end = start;
-            }
-            Some(_) => lo = mid,
-        }
-    }
-    Ok(end)
-}
-
-/// Visits `path`'s lines newest first, reading 64 KiB blocks from the end, until `visit`
-/// returns false: a tail costs its own bytes, not the segment's.
-fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
-    for_each_line_rev_from(&mut crate::config::private_state_file(path)?, u64::MAX, visit)
-}
-
-/// `for_each_line_rev` over the bytes of `file` before offset `end` (a line start, or past the end).
-fn for_each_line_rev_from(
-    file: &mut File,
-    end: u64,
-    visit: &mut dyn FnMut(&[u8]) -> bool,
-) -> Result<()> {
-    use std::io::{Seek, SeekFrom};
-    const BLOCK: u64 = 64 * 1024;
-    let mut end = file.seek(SeekFrom::End(0))?.min(end);
-    // The blocks of a line whose start is in an earlier block, newest first: each block is read
-    // and scanned once, so a line of many megabytes costs its length, not its length squared.
-    let mut carry: Vec<Vec<u8>> = Vec::new();
-    let joined = |head: &[u8], carry: &mut Vec<Vec<u8>>| {
-        let mut line = head.to_vec();
-        for piece in carry.drain(..).rev() {
-            line.extend_from_slice(&piece);
-        }
-        line
-    };
-    while end > 0 {
-        let start = end.saturating_sub(BLOCK);
-        let mut block = vec![0u8; (end - start) as usize];
-        file.seek(SeekFrom::Start(start))?;
-        file.read_exact(&mut block)?;
-        let mut cut = block.len();
-        while let Some(newline) =
-            block.get(..cut).unwrap_or_default().iter().rposition(|&b| b == b'\n')
-        {
-            let head = block.get(newline + 1..cut).unwrap_or_default();
-            let whole;
-            let line = if carry.is_empty() {
-                head
-            } else {
-                whole = joined(head, &mut carry);
-                whole.as_slice()
-            };
-            if !line.iter().all(u8::is_ascii_whitespace) && !visit(line) {
-                return Ok(());
-            }
-            cut = newline;
-        }
-        block.truncate(cut);
-        carry.push(block);
-        end = start;
-    }
-    let line = joined(&[], &mut carry);
-    if !line.iter().all(u8::is_ascii_whitespace) {
-        visit(&line);
-    }
-    Ok(())
-}
-
-fn first_seq(path: &Path) -> Result<Option<u64>> {
-    let mut reader = BufReader::new(crate::config::private_state_file(path)?);
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        if reader.read_until(b'\n', &mut line)? == 0 {
-            return Ok(None);
-        }
-        // The header alone when the line has the daemon's field order; else a parse.
-        if let Some(seq) = record_seq(&line) {
-            return Ok(Some(seq));
-        }
-        if let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) {
-            return Ok(Some(rec.seq));
-        }
+    if let Some(warning) = EVENT_LOG_BUDGET.note(&record.kind, bytes, &record.msg, now_ms()) {
+        tracing::warn!("{warning}");
     }
 }
 
@@ -1779,6 +1576,7 @@ impl Store for LocalStore {
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
+        note_write_budget(record, line.len());
         self.append_line(id, line.as_bytes())
     }
 
@@ -2037,6 +1835,10 @@ impl Store for LocalStore {
     fn briefs_path(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("briefs.json"))
     }
+
+    fn audit_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("audit"))
+    }
 }
 
 /// Sync a directory entry after a file or subdirectory was created or replaced.
@@ -2087,264 +1889,13 @@ fn open_private_append(path: &Path) -> Result<File> {
 }
 
 #[cfg(all(test, unix))]
-mod permission_tests {
-    use super::*;
-    use std::os::unix::fs::PermissionsExt;
-
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new() -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "acpmux-store-permissions-{}-{}",
-                std::process::id(),
-                uuid::Uuid::now_v7()
-            ));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn mode(path: &Path) -> u32 {
-        std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
-    }
-
-    #[test]
-    fn local_store_makes_existing_state_private_and_writes_private_events() {
-        let temp = TempDir::new();
-        let root = temp.0.join("sessions");
-        let session = root.join("session-1");
-        let events = session.join("events");
-        std::fs::create_dir_all(&events).unwrap();
-        let metadata = session.join("session.json");
-        let first = events.join("000001.ndjson");
-        let second = events.join("000002.ndjson");
-        std::fs::write(&metadata, "{}").unwrap();
-        std::fs::write(&first, "").unwrap();
-        std::fs::write(&second, "").unwrap();
-        for directory in [&root, &session, &events] {
-            std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        for file in [&metadata, &first, &second] {
-            std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o644)).unwrap();
-        }
-
-        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
-        let _ = store.list().unwrap();
-        store
-            .append(
-                "session-1",
-                &EventRecord {
-                    seq: 1,
-                    at: 1,
-                    dir: "mux".into(),
-                    kind: "test".into(),
-                    msg: serde_json::json!({"text": "private"}),
-                    host_seq: None,
-                },
-            )
-            .unwrap();
-        // Old segments are authenticated and narrowed when a read reaches
-        // them. Merely finding their names stays lazy so a tail page never
-        // opens an older segment it does not need.
-        store.events("session-1", 0, usize::MAX).unwrap();
-
-        assert_eq!(mode(&root), 0o700, "the sessions root contains every chat");
-        assert_eq!(mode(&session), 0o700);
-        assert_eq!(mode(&events), 0o700);
-        assert_eq!(mode(&metadata), 0o600);
-        assert_eq!(mode(&first), 0o600);
-        assert_eq!(mode(&second), 0o600);
-    }
-
-    /// Review 2 of #26054: a strict read of a log whose segments cannot be listed fails; `scan`
-    /// reads no record of it.
-    #[test]
-    fn a_strict_read_fails_when_the_log_cannot_be_listed() {
-        let temp = TempDir::new();
-        let root = temp.0.join("sessions");
-        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
-        let record = EventRecord {
-            seq: 1,
-            at: 1,
-            dir: "mux".into(),
-            kind: "host_started".into(),
-            msg: serde_json::json!({}),
-            host_seq: None,
-        };
-        store.append("session-1", &record).unwrap();
-        let events = root.join("session-1").join("events");
-        std::fs::remove_dir_all(&events).unwrap();
-        std::fs::write(&events, "not a directory").unwrap();
-        assert!(store.scan("session-1", 0, &mut |_| true).is_ok());
-        assert!(
-            store.scan_strict("session-1", 0, &mut |_| true).is_err(),
-            "a strict read of a log it could not list read nothing and passed"
-        );
-    }
-
-    #[test]
-    fn local_store_refuses_a_symlinked_existing_session() {
-        let temp = TempDir::new();
-        let root = temp.0.join("sessions");
-        let outside = temp.0.join("outside");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::create_dir_all(&outside).unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("linked-session")).unwrap();
-        let store = LocalStore::new(root, 64 * 1024).unwrap();
-        assert!(store.list().is_err());
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn local_store_refuses_a_state_root_with_an_extended_acl() {
-        let temp = TempDir::new();
-        let root = temp.0.join("sessions");
-        std::fs::create_dir_all(&root).unwrap();
-        let status = std::process::Command::new("/bin/chmod")
-            .args(["+a", "group:staff allow read", root.to_str().unwrap()])
-            .status()
-            .unwrap();
-        assert!(status.success());
-        assert!(LocalStore::new(root, 64 * 1024).is_err());
-    }
-}
+mod permission_tests;
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;
 
 #[cfg(test)]
-mod agent_session_history_tests {
-    use super::{META_SCHEMA, RETIRED_AGENT_SESSION_IDS, SessionMeta};
-    use crate::goal::{GoalState, GoalStatus};
-    use serde_json::json;
-
-    fn meta() -> SessionMeta {
-        serde_json::from_value(json!({
-            "schema": META_SCHEMA,
-            "id": "chat",
-            "name": "chat",
-            "harness": "claude",
-            "family": "claude",
-            "cwd": "/tmp",
-            "status": "idle",
-            "createdAt": 1,
-            "updatedAt": 1,
-        }))
-        .unwrap()
-    }
-
-    #[test]
-    fn replacement_records_each_native_id_once_and_round_trips() {
-        let mut m = meta();
-        m.set_agent_session_id(Some("s1".into()), "claude");
-        m.set_agent_session_id(Some("s2".into()), "claude");
-        m.set_agent_session_id(None, "claude");
-        m.set_agent_session_id(Some("s2".into()), "claude");
-        m.set_agent_session_id(Some("s3".into()), "claude");
-        m.set_agent_session_id(Some("s1".into()), "claude");
-        assert_eq!(m.claude_session_ids().collect::<Vec<_>>(), ["s1", "s3", "s2"]);
-        let encoded = serde_json::to_value(&m).unwrap();
-        assert_eq!(encoded["previousAgentSessionIds"], json!(["s2", "s3"]));
-        let restored: SessionMeta = serde_json::from_value(encoded).unwrap();
-        assert_eq!(restored.claude_session_ids().collect::<Vec<_>>(), ["s1", "s3", "s2"]);
-    }
-
-    #[test]
-    fn switching_harnesses_never_authorizes_non_claude_history() {
-        let mut m = meta();
-        m.set_agent_session_id(Some("claude-old".into()), "claude");
-        m.set_agent_session_id(Some("codex-id".into()), "codex");
-        assert_eq!(m.claude_session_ids().collect::<Vec<_>>(), ["claude-old"]);
-        m.set_agent_session_id(Some("claude-new".into()), "claude");
-        assert_eq!(m.claude_session_ids().collect::<Vec<_>>(), ["claude-new", "claude-old"]);
-    }
-
-    #[test]
-    fn unknown_native_provenance_never_inherits_the_creation_family() {
-        for next_family in ["claude", "non-claude"] {
-            let mut m = meta();
-            m.agent_session_id = Some("unrelated-native-id".into());
-            m.agent_session_family = None;
-            m.set_agent_session_id(Some("new-id".into()), next_family);
-            m.set_agent_session_id(Some("confirmed-claude-id".into()), "claude");
-            assert!(!m.claude_session_ids().any(|id| id == "unrelated-native-id"));
-        }
-    }
-
-    /// Dropping the id (a fresh start) retires it once, but never makes a Claude id transcript
-    /// authority.
-    #[test]
-    fn retiring_the_native_id_keeps_it_out_of_claude_history() {
-        let mut m = meta();
-        m.set_agent_session_id(Some("claude-root".into()), "claude");
-        m.retire_agent_session_id();
-        m.retire_agent_session_id();
-        assert_eq!(m.agent_session_id, None);
-        assert_eq!(m.agent_session_family, None);
-        assert_eq!(m.retired_agent_session_ids, ["claude-root"]);
-        assert!(m.previous_agent_session_ids.is_empty());
-    }
-
-    #[test]
-    fn old_metadata_without_history_defaults_to_empty() {
-        let m = meta();
-        assert!(m.previous_agent_session_ids.is_empty());
-        assert!(m.retired_agent_session_ids.is_empty());
-    }
-
-    #[test]
-    fn goal_persistence_round_trip_keeps_quota_stop_reasons() {
-        for status in [GoalStatus::UsageLimited, GoalStatus::BudgetLimited] {
-            let mut m = meta();
-            m.goal = Some(GoalState {
-                objective: "Wait for quota".into(),
-                status: status.clone(),
-                provider: crate::goal::GoalProvider::Codex,
-                token_budget: None,
-                tokens_used: None,
-                elapsed_seconds: None,
-                created_at: None,
-                updated_at: None,
-                steps: None,
-                extra: Default::default(),
-            });
-            let encoded = serde_json::to_value(&m).unwrap();
-            assert_eq!(encoded["goal"]["status"], status.as_str());
-            let restored: SessionMeta = serde_json::from_value(encoded).unwrap();
-            assert_eq!(restored.goal.unwrap().status, status);
-        }
-    }
-
-    /// A Codex chat's earlier native roots stay known after a restart names a new one, so a
-    /// client folding its older records never reads one as a subagent; bounded, oldest first.
-    #[test]
-    fn every_earlier_native_id_is_kept_whatever_its_family() {
-        let mut m = meta();
-        m.set_agent_session_id(Some("root-1".into()), "non-claude");
-        m.set_agent_session_id(Some("root-1".into()), "non-claude");
-        m.set_agent_session_id(Some("root-2".into()), "non-claude");
-        m.set_agent_session_id(None, "non-claude");
-        m.set_agent_session_id(Some("root-3".into()), "non-claude");
-        assert_eq!(m.retired_agent_session_ids, ["root-1", "root-2"]);
-        // An id that comes back is current again, not retired.
-        m.set_agent_session_id(Some("root-1".into()), "non-claude");
-        assert_eq!(m.retired_agent_session_ids, ["root-2", "root-3"]);
-        let encoded = serde_json::to_value(&m).unwrap();
-        assert_eq!(encoded["retiredAgentSessionIds"], json!(["root-2", "root-3"]));
-        for n in 0..RETIRED_AGENT_SESSION_IDS + 4 {
-            m.set_agent_session_id(Some(format!("r{n}")), "non-claude");
-        }
-        assert_eq!(m.retired_agent_session_ids.len(), RETIRED_AGENT_SESSION_IDS);
-        assert_eq!(m.retired_agent_session_ids.last().map(String::as_str), Some("r34"));
-    }
-}
+mod agent_session_history_tests;
 
 fn is_zero(v: &u64) -> bool {
     *v == 0

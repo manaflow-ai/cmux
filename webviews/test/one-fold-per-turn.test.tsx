@@ -159,7 +159,7 @@ test("a plain turn's opened run line starts closed, as before", async () => {
 // coordination card (a message to another agent) and a change waiting for permission in sight draws,
 // with `runOpen`, each stretch's line over its steps (ToolRunSteps.tsx, a line per call), as a run of
 // plain work does. Every one of those rows is one 22px tool line (design/chat-transcript.md "One-line row pitch"), so the drawn
-// height is the count of `.cv-tool` lines and sent-message rows (`.cv-sent-msg`) times 22.
+// height is the count of `.cv-tool` lines and sent-message rows (`.cv-sent-msg`, one each) times 22.
 const LINE = 22;
 const read = (id: string): AcpmuxActivity => ({
   kind: "tool",
@@ -202,7 +202,11 @@ for (const [name, run, lines] of [
 ] as const)
   test(`an open run line's estimate is the rows it draws: ${name}`, async () => {
     await render(run);
-    const drawn = host.querySelectorAll(".cv-tool, .cv-sent-msg").length;
+    // A sent message is one row however it nests its line (AgentMessageRow.tsx: `.cv-tool` inside
+    // `.cv-sent-msg`), so it counts once.
+    const drawn = [...host.querySelectorAll(".cv-tool, .cv-sent-msg")].filter(
+      (node) => !node.parentElement?.closest(".cv-sent-msg"),
+    ).length;
     expect(drawn).toBe(lines);
     expect([...layoutConversation([run], 720).heights][0]).toBe(drawn * LINE);
   });

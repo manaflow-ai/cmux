@@ -31,7 +31,10 @@ fn public(run: &RunRecord) -> Value {
 fn owner(conn: &Conn, run: &RunRecord) -> Result<(), RpcError> {
     if conn.caller() == Some(run.owner_session_id.as_str())
         || conn.is_person()
-        || (run.local_principal && conn.origin == super::Origin::Local && conn.caller().is_none())
+        || (run.local_principal
+            && conn.origin == super::Origin::Local
+            && conn.caller().is_none()
+            && !conn.unproven_agent())
     {
         Ok(())
     } else {
@@ -47,6 +50,12 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     let internal = |e: anyhow::Error| RpcError::internal(format!("{e:#}"));
     if action == "start" {
         let local_principal = str_param(params, "sessionId").is_none() && conn.caller().is_none();
+        // A standalone run is the person's: an unproven agent starts none (review of #39020, N2).
+        if local_principal && conn.unproven_agent() {
+            let refused =
+                RpcError::invalid_params("a workflow needs its owning chat's caller proof");
+            return Err(conn.refusal("starting a standalone workflow", refused));
+        }
         let session = if let Some(session_id) =
             str_param(params, "sessionId").or_else(|| conn.caller())
         {
@@ -133,6 +142,8 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
             let mut caller_env = crate::hub::person::caller_env(&run.owner_session_id)
                 .into_iter()
                 .collect::<std::collections::BTreeMap<_, _>>();
+            // The runner may outlive this daemon run: the next one knows it by this token too.
+            hub.caller_issued(&run.owner_session_id);
             caller_env.insert("ACPMUX_SESSION_ID", run.owner_session_id.clone());
             caller_env.insert(crate::agent_tools::AGENT_SESSION_ENV, run.owner_session_id.clone());
             return Ok(json!({"runId":run.id,"generation":run.generation,"source":run.source,

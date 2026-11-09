@@ -5,7 +5,7 @@
  * the shared fake provider's call log, so "nothing reached upstream" checks
  * cover mesh calls too.
  */
-import { Effect, Layer, Redacted } from "effect";
+import { Effect, Layer, Option, Redacted } from "effect";
 import { MeshStore } from "../../src/db/mesh.ts";
 import { makeMemoryMeshStore } from "../../src/db/mesh-memory.ts";
 import { StoreError } from "../../src/db/sql.ts";
@@ -25,6 +25,10 @@ export interface FakeTunnel {
   readonly ipv4: string;
   /** Changes on every key rotation, as the provider's does. */
   readonly serverPublicKey?: string;
+  readonly slug?: string;
+  readonly displayName?: string;
+  /** The networks the provider reports the tunnel attached to; absent: the one it was created on (`vpc`). */
+  readonly attachedVpcs?: ReadonlyArray<string>;
 }
 
 export interface FakeRule {
@@ -47,6 +51,16 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const base = makeMemoryMeshStore();
   /** The next N rule records fail (the provider rule exists, its row does not). */
   let recordFailures = 0;
+  /** The next N intent commits fail (the tunnel and its ownership rows exist, the device row does not). */
+  let commitFailures = 0;
+  /** The next N intent revocations by a device's delete fail. */
+  let intentOfDeviceFailures = 0;
+  /** The next N releases of a deleted device's commit fail. */
+  let releaseCommitFailures = 0;
+  /** While set, the next read of an intent's open attempts waits for this promise after it read them. */
+  let attemptsReadHold: { readonly reached: () => void; readonly gate: Promise<void> } | null = null;
+  /** While set, the next successful reconcile compare-and-set waits for this promise after it wrote. */
+  let reconcileHold: { readonly reached: () => void; readonly gate: Promise<void> } | null = null;
   let inventoryRead: (() => void) | null = null;
   const failingLayer = Layer.effect(
     MeshStore,
@@ -54,6 +68,47 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       ...inner,
       listDevices: (tenantId: Parameters<typeof inner.listDevices>[0], meshId: string) =>
         inner.listDevices(tenantId, meshId).pipe(Effect.tap(() => Effect.sync(() => { inventoryRead?.(); }))),
+      listOpenAttempts: (...args: Parameters<typeof inner.listOpenAttempts>) =>
+        inner.listOpenAttempts(...args).pipe(
+          Effect.tap(() => {
+            const hold = attemptsReadHold;
+            if (hold === null) return Effect.void;
+            attemptsReadHold = null;
+            hold.reached();
+            return Effect.promise(() => hold.gate);
+          }),
+        ),
+      revokeIntentOfDevice: (...args: Parameters<typeof inner.revokeIntentOfDevice>) => {
+        if (intentOfDeviceFailures > 0) {
+          intentOfDeviceFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "intent.revokeOfDevice", cause: "injected" }));
+        }
+        return inner.revokeIntentOfDevice(...args);
+      },
+      releaseCommitOfDevice: (...args: Parameters<typeof inner.releaseCommitOfDevice>) => {
+        if (releaseCommitFailures > 0) {
+          releaseCommitFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "intent.releaseCommitOfDevice", cause: "injected" }));
+        }
+        return inner.releaseCommitOfDevice(...args);
+      },
+      beginReconcile: (...args: Parameters<typeof inner.beginReconcile>) =>
+        inner.beginReconcile(...args).pipe(
+          Effect.tap((ended) => {
+            const hold = reconcileHold;
+            if (hold === null || Option.isNone(ended)) return Effect.void;
+            reconcileHold = null;
+            hold.reached();
+            return Effect.promise(() => hold.gate);
+          }),
+        ),
+      commitDeviceIntent: (...args: Parameters<typeof inner.commitDeviceIntent>) => {
+        if (commitFailures > 0) {
+          commitFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "intent.commit", cause: "injected" }));
+        }
+        return inner.commitDeviceIntent(...args);
+      },
       recordRule: (tenantId: Parameters<typeof inner.recordRule>[0], rule: Parameters<typeof inner.recordRule>[1]) => {
         if (recordFailures > 0) {
           recordFailures -= 1;
@@ -93,6 +148,9 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   let networkCreateStatus: number | null = null, networkLostReplies = 0, hideNetworks = false;
   let networkHold: Promise<void> | null = null, networkHeld = false;
   const networkWaiters: Array<() => void> = [];
+  let tunnelHold: Promise<void> | null = null, tunnelHeld = false;
+  let tunnelLandHold: Promise<void> | null = null, tunnelLostReplies = 0;
+  const tunnelWaiters: Array<() => void> = [];
   const tunnels = new Map<string, FakeTunnel>();
   const rules = new Map<string, FakeRule>();
   /** VM provider id -> network id. */
@@ -130,9 +188,11 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     clientAddressV4: "100.64.0.1/32",
     clientAddressV6: "fd00::1/128",
     routes: tunnel.routes,
+    slug: tunnel.slug ?? null,
+    displayName: tunnel.displayName ?? null,
     clientConfig: `[Interface]\nPrivateKey = ${privateKey}\nAddress = 100.64.0.1/32\n`,
     clientPrivateKey: privateKey,
-    attachments: [{ vpcId: tunnel.vpc, address: tunnel.ipv4, ipv4: tunnel.ipv4, vpcCidr: "", allowedIps: [], createdAt: "2026-10-07T00:00:00Z" }],
+    attachments: (tunnel.attachedVpcs ?? [tunnel.vpc]).map((vpcId) => ({ vpcId, address: tunnel.ipv4, ipv4: tunnel.ipv4, vpcCidr: "", allowedIps: [], createdAt: "2026-10-07T00:00:00Z" })),
     createdAt: "2026-10-07T00:00:00Z",
     updatedAt: "2026-10-07T00:00:00Z",
   });
@@ -202,6 +262,14 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     }
     if (path === "/v5/tunnels" && method === "POST") {
       if (state.tunnelCreateStatus !== null) return json({ message: "injected failure" }, state.tunnelCreateStatus);
+      // A create held before it lands: the provider has not made the tunnel yet.
+      if (tunnelLandHold !== null) {
+        tunnelHeld = true;
+        for (const wake of tunnelWaiters.splice(0)) wake();
+        await tunnelLandHold;
+      }
+      const tunnelSlug = typeof fields["slug"] === "string" ? fields["slug"] : undefined;
+      if (tunnelSlug !== undefined && [...tunnels.values()].some((tunnel) => tunnel.slug === tunnelSlug)) return json({ message: "slug in use" }, 409);
       const attach = Array.isArray(fields["vpcs"]) ? fields["vpcs"][0] : undefined;
       const vpc = typeof attach === "object" && attach !== null && "vpc" in attach && typeof attach.vpc === "string" ? attach.vpc : "";
       if (!vpcs.has(vpc)) return json({ message: "no such network" }, 404);
@@ -214,11 +282,27 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
         routes,
         vpc,
         ipv4: `10.128.0.${hostCounter++}`,
+        ...(tunnelSlug === undefined ? {} : { slug: tunnelSlug }),
+        ...(typeof fields["displayName"] === "string" ? { displayName: fields["displayName"] } : {}),
       };
       tunnels.set(tunnel.id, tunnel);
+      // The tunnel exists, but its reply is lost (a timeout at the Worker).
+      if (tunnelLostReplies > 0) {
+        tunnelLostReplies -= 1;
+        return json({ message: "gateway timeout" }, 504);
+      }
+      // A held create has made the tunnel but not answered yet: the enroll's commit comes late.
+      if (tunnelHold !== null) {
+        tunnelHeld = true;
+        for (const wake of tunnelWaiters.splice(0)) wake();
+        await tunnelHold;
+      }
       // The provider mints a key when none is supplied; the test switch makes it mint one anyway.
       const minted = tunnel.clientPublicKey === null || state.mintKey ? "bWludGVkLXByaXZhdGUta2V5LTMyLWJ5dGVzLWxvbmch" : "";
       return json(tunnelBody(tunnel, minted));
+    }
+    if (path === "/v5/tunnels" && method === "GET") {
+      return json({ tunnels: [...tunnels.values()].reverse().map((tunnel) => tunnelBody(tunnel, "")), totalCount: tunnels.size });
     }
     const rotateMatch = /^\/v5\/tunnels\/([^/]+)\/rotate-key$/u.exec(path);
     if (rotateMatch !== null && method === "POST") {
@@ -234,9 +318,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     }
     const tunnelMatch = /^\/v5\/tunnels\/([^/]+)$/u.exec(path);
     if (tunnelMatch !== null) {
-      const id = decodeURIComponent(tunnelMatch[1] ?? "");
-      const tunnel = tunnels.get(id);
+      const idOrSlug = decodeURIComponent(tunnelMatch[1] ?? "");
+      const tunnel = tunnels.get(idOrSlug) ?? [...tunnels.values()].find((candidate) => candidate.slug === idOrSlug);
       if (tunnel === undefined) return json({ message: "not found" }, 404);
+      const id = tunnel.id;
       if (method === "GET") return json(tunnelBody(tunnel, ""));
       if (method === "DELETE") {
         if (state.tunnelDeleteStatus !== null) return json({ message: "injected failure" }, state.tunnelDeleteStatus);
@@ -339,12 +424,62 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       networkHold = new Promise<void>((resolve) => { release = () => { networkHold = null; resolve(); }; });
       return () => release();
     },
+    /** Tunnel creates make the tunnel, then stall their reply until the returned function is called. */
+    holdTunnelCreates(): () => void {
+      let release = () => {};
+      tunnelHeld = false;
+      tunnelHold = new Promise<void>((resolve) => { release = () => { tunnelHold = null; resolve(); }; });
+      return () => release();
+    },
+    /** Tunnel creates stall before the provider makes the tunnel, until the returned function is called. */
+    holdTunnelLanding(): () => void {
+      let release = () => {};
+      tunnelHeld = false;
+      tunnelLandHold = new Promise<void>((resolve) => { release = () => { tunnelLandHold = null; resolve(); }; });
+      return () => release();
+    },
+    /** The next `times` tunnel creates make the tunnel and then answer 504, as a lost reply. */
+    loseTunnelReplies(times: number) { tunnelLostReplies = times; },
+    /** Resolves once a tunnel create is stalled by holdTunnelCreates (the tunnel exists) or holdTunnelLanding (it does not yet). */
+    tunnelCreateHeld(): Promise<void> {
+      return tunnelHeld ? Promise.resolve() : new Promise<void>((resolve) => tunnelWaiters.push(resolve));
+    },
     networkCreateHeld(): Promise<void> {
       return networkHeld ? Promise.resolve() : new Promise<void>((resolve) => networkWaiters.push(resolve));
     },
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
       if (client === null || providerFetch === null) throw new Error("mesh client has not been composed");
       Object.assign(client, makeUpstreamMesh({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: providerFetch }));
+    },
+    /** The next read of an intent's open attempts stalls after reading, until `release`; `reached` resolves when it does. */
+    holdNextOpenAttemptsRead(): { readonly reached: Promise<void>; readonly release: () => void } {
+      let release = () => {};
+      let reachedResolve = () => {};
+      const reached = new Promise<void>((resolve) => { reachedResolve = resolve; });
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      attemptsReadHold = { reached: () => reachedResolve(), gate };
+      return { reached, release };
+    },
+    /** The next successful reconcile compare-and-set stalls after it wrote, until `release`; `reached` resolves then. */
+    holdNextReconcile(): { readonly reached: Promise<void>; readonly release: () => void } {
+      let release = () => {};
+      let reachedResolve = () => {};
+      const reached = new Promise<void>((resolve) => { reachedResolve = resolve; });
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      reconcileHold = { reached: () => reachedResolve(), gate };
+      return { reached, release };
+    },
+    /** The next `times` intent revocations by a device's delete fail. */
+    failIntentOfDeviceRevokes(times: number) {
+      intentOfDeviceFailures = times;
+    },
+    /** The next `times` releases of a deleted device's commit fail. */
+    failReleaseCommits(times: number) {
+      releaseCommitFailures = times;
+    },
+    /** The next `times` intent commits fail after the provider created the tunnel. */
+    failIntentCommits(times: number) {
+      commitFailures = times;
     },
     /** The next `times` rule records fail after the provider created the rule. */
     failRuleRecords(times: number) {

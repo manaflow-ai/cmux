@@ -189,6 +189,13 @@ def command_text(content):
                     if isinstance(b, dict) and not is_cmux_guidance(b))
 
 
+def without_sender_line(said):
+    """The person's command after acpmux's sender line (#37190): a prompt that is not the
+    person's (a remote caller, another agent) arrives as "From ..., not the person:" first."""
+    import re
+    return re.sub(r"^From [^\n]*?, not the person:\s*", "", said, count=1)
+
+
 def transcript_content(content, said):
     """Keep raw context blocks in Claude's own transcript, as the real harness does."""
     if not any(is_cmux_guidance(block) for block in content if isinstance(block, dict)):
@@ -1025,12 +1032,15 @@ while True:
             while not os.path.exists(said[len("hold: "):]):
                 time.sleep(0.02)
         text = json.dumps(sys.argv[1:])
+        # Spawn-time and sandbox probes also come from remote callers, whose prompt starts
+        # with acpmux's sender line: match the command after it.
+        asked = without_sender_line(said)
         # "env: NAME" replies with that environment variable, for spawn-time checks.
-        if said.startswith("env:"):
-            name = said[4:].strip()
+        if asked.startswith("env:"):
+            name = asked[4:].strip()
             text = f"{name}={os.environ.get(name, '')}"
-        if said.startswith("envs:"):
-            names = [name.strip() for name in said[5:].split(",") if name.strip()]
+        if asked.startswith("envs:"):
+            names = [name.strip() for name in asked[5:].split(",") if name.strip()]
             text = json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True)
         if said.endswith("settings-probe"):
             text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
@@ -1068,7 +1078,7 @@ while True:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
         # "keychain-probe": whether this process can retrieve a synthetic
         # generic-password item from the test's temporary keychain.
-        if said.strip() == "keychain-probe":
+        if asked.strip() == "keychain-probe":
             import subprocess
             rc = subprocess.run(
                 [
@@ -1081,11 +1091,11 @@ while True:
                 capture_output=True,
             ).returncode
             text = json.dumps({"keychain": "allowed" if rc == 0 else "denied"})
-        if said.startswith("sandbox-probe "):
+        if asked.startswith("sandbox-probe "):
             import os
             import socket
             # The path may hold spaces (a home under Application Support): the port is the last word.
-            outside, port = said[len("sandbox-probe "):].rstrip().rsplit(" ", 1)
+            outside, port = asked[len("sandbox-probe "):].rstrip().rsplit(" ", 1)
             port = int(port)
             result = {}
             try:
@@ -1107,10 +1117,10 @@ while True:
                 result["cwd"] = "denied"
             text = json.dumps(result)
         # G2: exercise the actual child boundary, including its HTTP proxy.
-        if said.startswith("linux-sandbox-probe "):
+        if asked.startswith("linux-sandbox-probe "):
             import socket
             import urllib.parse
-            outside, port = said[len("linux-sandbox-probe "):].rstrip().rsplit(" ", 1)
+            outside, port = asked[len("linux-sandbox-probe "):].rstrip().rsplit(" ", 1)
             result = {}
             for key, path in [("outside", outside), ("git", ".git/hooks/x"),
                               ("claude", "CLAUDE.md"), ("cwd", "ok")]:
@@ -1416,6 +1426,12 @@ while True:
             result["total_cost_usd"] = COST
             result["usage"] = {"input_tokens": 100, "output_tokens": 20,
                                "cache_read_input_tokens": 300, "cache_creation_input_tokens": 40}
+        # "cache-tier-probe": a turn whose writes were mostly hour-long, its result's usage naming
+        # the tiers (`cache_creation`) as Claude Code's does.
+        if said.strip() == "cache-tier-probe":
+            result["usage"] = {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 0,
+                               "cache_creation_input_tokens": 1000,
+                               "cache_creation": {"ephemeral_1h_input_tokens": 800, "ephemeral_5m_input_tokens": 200}}
         if said.strip() == "calls-probe":
             keys = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
             result["usage"] = {k: sum(u[k] for u in CALLS_PROBE) for k in keys}

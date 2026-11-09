@@ -1,6 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { until } from "./support/until";
 
 // VirtualTranscript reaches into browser layout and the Pierre web components while rendering. Keep
 // this focused test's DOM harness local so it can exercise the real transcript without restoring the
@@ -255,7 +256,7 @@ test("keyboard copy of a running command holds the output it took without the pa
         new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "c", ctrlKey: true }),
       );
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await until(() => copied.length > 0);
     expect(copied).toEqual(["Run bun test\npass 1\npass 2"]);
   } finally {
     liveToolOutput.settle(liveToolOutput.redraw());
@@ -307,7 +308,7 @@ test("transcript rows have no floating Copy; message actions own their copy", as
     expect(row("selection-4").querySelector(".acpmux-row__copy")).toBeNull();
     expect(copies("selection-4")).toHaveLength(0);
     expect(row("selection-4").querySelector(".cv-message-pin")).toBeNull();
-    await act(async () => row("selection-4").querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!.click());
+    await act(async () => row("selection-4").querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!.click());
     expect(copies("selection-4")).toHaveLength(1);
     expect(copies("selection-4")[0]!.closest(".cv-card-copy")).not.toBeNull();
     expect(copies("selection-4")[0]!.closest(".cv-received-actions")).toBeNull();

@@ -32,6 +32,15 @@ pub mod tag {
     pub const READY: u16 = 5;
     pub const FINISH: u16 = 6;
     pub const CONTINUATION: u16 = 7;
+    /// One screen's Kitty images and placements, before READY (ghostty-next
+    /// `kitty.zig`, upstream c7f68a7f4). Optional.
+    pub const KITTY_IMAGE_STORAGE: u16 = 8;
+    /// The pixels of one Kitty image or animation frame, after READY.
+    /// Optional.
+    pub const KITTY_IMAGE_PAYLOAD: u16 = 9;
+    /// The Kitty placements pinned to one history page, after its PAGE.
+    /// Optional.
+    pub const KITTY_IMAGE_PAGE_PLACEMENTS: u16 = 10;
     /// The prompt clear a resize put off until the shell's next byte
     /// (ghostty-next `prompt_redraw.zig`). Optional.
     pub const PROMPT_REDRAW: u16 = 11;

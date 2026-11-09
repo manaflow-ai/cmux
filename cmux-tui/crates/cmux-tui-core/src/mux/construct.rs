@@ -154,6 +154,7 @@ impl Mux {
         if let Some(database) = registry.session_journal_database_path() {
             crate::workspace_registry::terminal_end_prefetch::start_terminal_end_prefetch(database);
         }
+        test_restore_delay();
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let session_shutdown = crate::session_shutdown::SessionShutdownClock::open(
@@ -177,6 +178,7 @@ impl Mux {
         let agent_roster_restore::RestoredAgentRoster {
             host: agent_roster,
             diagnostic: agent_roster_diagnostic,
+            rebuild: agent_roster_rebuild,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
         let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
@@ -280,6 +282,8 @@ impl Mux {
             #[cfg(test)]
             viewport_split_after_spawn: Mutex::new(None),
             #[cfg(test)]
+            topology_effect_before_execute: Mutex::new(None),
+            #[cfg(test)]
             resource_mutation_metrics: Mutex::new(None),
             #[cfg(test)]
             resource_projection_before_commit: Mutex::new(None),
@@ -378,6 +382,7 @@ impl Mux {
             pending_diagnostics: Mutex::new(Vec::new()),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
+            journal_seal: Mutex::new(()),
             #[cfg(test)]
             screen_created_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -457,6 +462,11 @@ impl Mux {
         mux.exit_settles.bind(Arc::downgrade(&mux));
         // The agent roster's one owner: every fold and snapshot save runs there.
         mux.start_agent_roster_worker()?;
+        // A stale roster (a reducer version bump) is served now and rebuilt
+        // from the whole journal in the owner while the daemon serves.
+        if agent_roster_rebuild {
+            mux.start_agent_roster_rebuild();
+        }
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
@@ -595,4 +605,18 @@ fn copy_authority(
     authority: &ProviderWorkspaceAuthority,
 ) -> anyhow::Result<ProviderWorkspaceAuthority> {
     ProviderWorkspaceAuthority::new(String::from_utf8(authority.expose().to_vec())?)
+}
+
+/// Debug seam (`CMUX_TUI_TEST_RESTORE_DELAY_MS=N`, debug builds only): the
+/// restore waits N ms after the registry opened and before it reads the saved
+/// session, so a fault test can act on an owner that is still restoring.
+fn test_restore_delay() {
+    #[cfg(debug_assertions)]
+    if let Some(delay) = std::env::var("CMUX_TUI_TEST_RESTORE_DELAY_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+    {
+        std::thread::sleep(Duration::from_millis(delay));
+    }
 }

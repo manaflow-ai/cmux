@@ -30,6 +30,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case mobile
         case devices
         case chiefPet
+        /// Personalization, the profile menu's fast path to every visual choice: the theme studio, the background picker, the Chief's look, chat text and density, and sounds, each drawing the same keys as its home category.
+        case personalization
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
         /// What this Mac has that cmux can bring over (CmuxNextImportCards), every card found.

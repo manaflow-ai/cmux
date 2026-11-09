@@ -12,6 +12,7 @@ mod agent_hook_question;
 mod agent_hooks;
 pub mod agent_launch;
 pub mod agent_message_prompt;
+pub mod agent_start_launch;
 mod agent_status;
 pub mod agent_view;
 mod apps;
@@ -102,6 +103,7 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
+pub mod wait_pattern;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;
@@ -120,6 +122,8 @@ mod terminal_loss_log;
 mod terminal_metadata;
 pub use cmux_tui_util::terminal_respawn_text;
 mod workspace_registry;
+/// A synthetic registry of a long-lived owner's shape (startup measurements).
+pub use workspace_registry::synth as synth_registry;
 
 /// The executable terminal hosts run from (the cmux-tui-platform crate).
 #[cfg(unix)]

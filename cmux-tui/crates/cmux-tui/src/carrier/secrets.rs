@@ -215,12 +215,9 @@ pub(super) fn run(args: &[String]) -> i32 {
                 let _ = stderr.write_all(line.as_bytes());
             }),
             phases: Arc::new(|_| {}),
+            fresh_sessions: Default::default(),
         };
-        let dialed = match client::dial(&plan, |ceiling| {
-            cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
-        })
-        .await
-        {
+        let dialed = match client::dial(&plan).await {
             Ok(dialed) => dialed,
             Err(failure) => {
                 return self::failure(failure.step.error_code(), None, failure.retryable);

@@ -27,7 +27,7 @@ import type { SendGesture } from "./heldPrompt";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
-import { opensProcessTerminal } from "./processTerminal";
+import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
@@ -126,7 +126,7 @@ import {
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
-import { markPastes } from "./composer/pasteMarks";
+import { markPastes, unmarkPastes } from "./composer/pasteMarks";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -152,7 +152,6 @@ import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
-import { noteSendOrigins } from "./conversation/sendMorph";
 import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
@@ -721,8 +720,14 @@ function ComposerFrame({
     attach,
     attachLater,
   } = useAttachmentIntake({
+    // An attachment the person brings is their edit of the prompt, as a key is: a draft read that
+    // answers while it loads keeps the prompt that holds its placeholder, never replaces it (Leo,
+    // 2026-11-09: "the loading placeholder for attachments goes to the top... when it actually
+    // loads, it gets smashed in between text that you were typing"). In shell mode the box waits
+    // to place it until the mode ends (inlineAttachments.tsx `place`).
     place: (chips, kind) => {
-      if (!shell) box.current?.place(chips, kind);
+      typedAt.current = performance.now();
+      box.current?.place(chips, kind);
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
@@ -741,7 +746,7 @@ function ComposerFrame({
     // the prompt to its new session.
     scope: sessionId,
     // A chat on this Mac (Quick Chat too): its attached videos show their posters.
-    localChat: opensProcessTerminal(snapshot.summary),
+    localChat: chatProcessesHere(snapshot.summary),
     elsewhere: (chat, chips) => {
       if (keptAttachments) void keepElsewhere(keptAttachments, chat, chips);
     },
@@ -877,9 +882,14 @@ function ComposerFrame({
         const picks = pickedSkillsOf(restoredText, commandsNow.current);
         if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
         else for (const name of picks) pickedSkills.current.add(name);
-        const restored = bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments);
+        // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
+        // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
+        const restored = unmarkPastes(
+          bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
+        );
         restoredText = restored.text;
         restoredAttachments = restored.attachments;
+        box.current?.rememberPastes(restored.pastes);
         // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
         attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
         // Put back, not typed: the Enter that sent it says nothing about this change.
@@ -1408,7 +1418,7 @@ function ComposerFrame({
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
     // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
-    return send(false, steersAlways || returnSteers);
+    return send(false, steersAlways || returnSteers || steersUnseen);
   };
   /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
   /// the draft goes as `/side`'s prompt, to a side chat forked from this one (Send's menu).
@@ -1589,8 +1599,6 @@ function ComposerFrame({
     // (composer/pasteMarks.ts); a slash command's text stays the command.
     const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
     const sent = marked.attachments;
-    // Where each chip is as it goes: its sent preview moves from there to its slot (sendMorph.ts).
-    noteSendOrigins(sent);
     const taken = onSend(marked.text, sent, steer, kept);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
@@ -1931,7 +1939,7 @@ function ComposerFrame({
       event.preventDefault();
       const typed = typedWords().trim() !== "";
       const sendAndOpen = (gesture?: SendGesture) => {
-        const sent = submitNow.current(false, steersAlways, gesture);
+        const sent = submitNow.current(false, steersAlways || steersUnseen, gesture);
         // A prompt the host refused stays in the composer, and the chat stays here.
         if (typed && !sent) return;
         openInWindow.current?.(sent);
@@ -2048,6 +2056,15 @@ function ComposerFrame({
   // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
   // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
   const steersAlways = steers && !queueing;
+  // Before the pane hears that a turn runs (one another agent's message, a trigger or an automatic
+  // retry started a moment ago), what is sent still goes as a steer to an agent that steers: acpmux
+  // steers it into a turn that runs and starts a turn when none does, so a Return never waits behind
+  // a turn the pane had not shown yet (Leo, 2026-11-05: "hey what the is my thing auto queuing rn?").
+  const steersUnseen =
+    !shell &&
+    !snapshot.isWorking &&
+    snapshot.summary?.steering === true &&
+    !commandWaitsForTurn(text, snapshot.summary?.harness, commands);
   // Mid-turn an agent that steers keeps Claude desktop's "Type / for commands" (Leo 2026-11-03:
   // "well the enter/cmd enter used to be claude code's placeholder... now they have this"); the
   // Send button's tooltip names ↵ steer and ⌘↵ queue instead. The Quick Composer's ⌘Return opens
@@ -2381,7 +2398,7 @@ function ComposerFrame({
   const chooseSend = (choice: SendChoice) => {
     if (choice === "side") send(false, false, undefined, "side");
     // Queue for later is ⌘Return; Send is the button's own send.
-    else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers);
+    else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers || steersUnseen);
   };
   const sendOrStop =
     stop && !hasDraft && !listening ? (
@@ -2446,6 +2463,9 @@ function ComposerFrame({
       {...{ [WEB_SWAP_FOCUS]: "composer" }}
       data-cmux-component="Composer"
       data-cmux-source="webviews/src/agent-session/acpmux/Composer.tsx:1420"
+      // It holds still while the chat streams, ticks and scrolls: the dev budgets warn when anything
+      // but its own events changes its nodes (devkit/perfBudgets.ts `still-surface`).
+      data-perf-still="composer"
       data-shell={shell ? "" : undefined}
       // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
       data-composer-look={look === "codex" ? "codex" : undefined}
@@ -2515,6 +2535,9 @@ function ComposerFrame({
       )}
       <ComposerBox
         handle={box}
+        onPersonEdit={() => {
+          typedAt.current = performance.now();
+        }}
         boxRef={setComposerBox}
         inert={locked}
         fieldRef={fieldRef}

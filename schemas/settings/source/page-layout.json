@@ -21,6 +21,7 @@
     {"id": "mobile"},
     {"id": "devices"},
     {"id": "chiefPet"},
+    {"id": "personalization", "note": "Personalization, the profile menu's fast path to every visual choice: the theme studio, the background picker, the Chief's look, chat text and density, and sounds, each drawing the same keys as its home category."},
     {"id": "density", "note": "The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md)."},
     {"id": "importSuggestions", "note": "What this Mac has that cmux can bring over (CmuxNextImportCards), every card found."},
     {"id": "channels", "note": "Every release channel's recent builds, with the one this Mac runs (Settings > Updates)."},
@@ -125,6 +126,14 @@
       "title": {"key": "settings.sidebarSection.lookAndFeel", "text": "Look and Feel"},
       "categories": [
         {
+          "id": "personalization",
+          "title": {"key": "settings.category.personalization", "text": "Personalization"},
+          "symbol": "wand.and.stars",
+          "note": "Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key.",
+          "lead": ["personalization"],
+          "groups": []
+        },
+        {
           "id": "theme",
           "title": {"key": "settings.category.theme", "text": "Theme"},
           "symbol": "paintpalette",
@@ -142,8 +151,8 @@
           "groups": [
             {"group": "settings.group.terminalFont"},
             {"group": "settings.group.densityMotion"},
-            {"title": {"key": "settings.pageGroup.sizes", "text": "Sizes"}, "keys": [
-              "app.uiScale", "appearance.metrics.chromeFontSize", "appearance.metrics.sidebarWidth",
+            {"title": {"key": "settings.pageGroup.sizes", "text": "Sizes"}, "note": "Text Size (appearance.metrics.chromeFontSize) is in the Density card.", "keys": [
+              "app.uiScale", "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap", "appearance.metrics.dividerThickness",
               "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"
             ]},
@@ -159,8 +168,9 @@
               "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
             ]},
-            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card.", "keys": [
-              "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient"
+            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.", "keys": [
+              "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient",
+              "sidebar.floatOnHover"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarExtras", "text": "Sidebar Buttons and Spaces"}, "keys": [
               "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
@@ -449,7 +459,9 @@
           "id": "advanced",
           "title": {"section": "advanced"},
           "symbol": "curlybraces",
-          "groups": [],
+          "groups": [
+            {"group": "settings.group.developerTools", "note": "Inspect Element and developer tools for cmux's own pages."}
+          ],
           "lead": ["advancedInfo"],
           "trail": ["advancedActions"],
           "actions": ["advanced"],
