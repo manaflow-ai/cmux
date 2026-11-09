@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use super::{
     Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_wait,
-    here_words, in_environment, new_args, parse, parse_with, pick_target, route, setting_stream,
-    start_words,
+    here_words, in_environment, new_args, parse, parse_with, pick_target, route, route_start,
+    setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -209,11 +209,16 @@ fn a_cloud_chat_takes_an_environment_and_auto_is_none() {
     let picked = start(&["--on", "cloud", "--environment", "staging-db", "go"]);
     assert_eq!(picked.environment.as_deref(), Some("staging-db"));
     assert!(TAKES_VALUE.contains(&"--environment"));
-    // cmux Cloud's choice of place: a new machine in the environment, not the VM it would reuse.
-    assert_eq!(
-        in_environment(&picked, Route::Cloud(Machine::Target("vm-dev".into()))),
-        Ok(Route::Cloud(Machine::New))
-    );
+    // cmux Cloud's choice of place: a new machine in the environment, decided before any VM is
+    // read, so several VMs of yours (which `--on cloud` alone refuses as `which_vm`) never matter.
+    let reads = |signed_in: bool| Reads {
+        catalog: || -> Result<Value, Value> { panic!("no catalog read") },
+        signed_in: move || signed_in,
+        cloud_machines: || -> Result<Value, Value> { panic!("no VM is looked at") },
+    };
+    assert_eq!(route_start(&picked, reads(true)), Ok(Route::Cloud(Machine::New)));
+    let signed_out = route_start(&picked, reads(false)).unwrap_err();
+    assert_eq!(signed_out["code"], "chat_target.signed_out");
     assert_eq!(
         cloud_words(&picked, &Machine::New).unwrap(),
         words(&["--prompt", "go", "--environment", "staging-db"])

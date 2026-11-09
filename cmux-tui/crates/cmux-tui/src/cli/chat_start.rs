@@ -624,7 +624,7 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         signed_in: || cloud_start_chat::app_signed_in(global),
         cloud_machines: || cloud_start_chat::app_machines(global),
     };
-    let route = match route(start.on.as_deref(), reads) {
+    let route = match route_start(&start, reads) {
         Ok(route) => route,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
     };
@@ -664,17 +664,35 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     }
 }
 
-/// The route once `--environment` is read: an environment makes the chat's machine, so `--on cloud`
-/// (cmux Cloud's choice of place) takes a new machine in it instead of the VM it would reuse, and
-/// `--on vm:new` makes its machine there. A chat here or on a machine that exists has no
-/// environment to pick: refused, never dropped. Without `--environment` the route is unchanged.
+/// Where `start` runs. An environment makes the chat's machine, so `--on cloud --environment`
+/// (cmux Cloud's choice of place) is a new machine in it, decided before any VM of yours is
+/// looked at: the VMs `--on cloud` would otherwise pick from (or refuse as several) are not its
+/// choice then. Only the sign-in is checked first. Anything else is [`route`]'s.
+pub(super) fn route_start<C, S, L>(start: &Start, reads: Reads<C, S, L>) -> Result<Route, Value>
+where
+    C: FnOnce() -> Result<Value, Value>,
+    S: FnOnce() -> bool,
+    L: FnOnce() -> Result<Value, Value>,
+{
+    if start.environment.is_some() && start.on.as_deref() == Some("cloud") {
+        if let Err(refusal) = cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)())
+        {
+            return Err(refused(&refusal));
+        }
+        return Ok(Route::Cloud(Machine::New));
+    }
+    route(start.on.as_deref(), reads)
+}
+
+/// The route once `--environment` is read: `--on cloud` and `--on vm:new` make the chat's machine
+/// in it ([`route_start`]). A chat here or on a machine that exists has no environment to pick:
+/// refused, never dropped. Without `--environment` the route is unchanged.
 pub(super) fn in_environment(start: &Start, route: Route) -> Result<Route, UsageError> {
     if start.environment.is_none() {
         return Ok(route);
     }
     match route {
         Route::Cloud(Machine::New) => Ok(Route::Cloud(Machine::New)),
-        Route::Cloud(_) if start.on.as_deref() == Some("cloud") => Ok(Route::Cloud(Machine::New)),
         Route::Cloud(_) => Err(UsageError::new(
             "--environment makes a new machine; with --on cloud or --on vm:new, not a VM that \
              already has its environment",

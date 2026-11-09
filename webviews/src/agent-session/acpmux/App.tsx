@@ -645,15 +645,9 @@ import {
   resolveHarnessTarget,
   type CmuxCommand,
   type CmuxCommandResult,
+  PLACED_ACTIONS,
 } from "./cmuxCommands";
-import {
-  commandPlace,
-  handCloudStart,
-  handoffStore,
-  newTabCwd,
-  takeHandedCloudStart,
-  withHandedCloudStart,
-} from "./commandPlace";
+import { commandPlace } from "./commandPlace";
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
@@ -6590,9 +6584,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pickedProject = useRef<string | undefined>(undefined);
   /// Settles once the host answered the pick; `refused` hears a path the host says is no folder.
   const chooseProject = useCallback(
-    /// `beforeNewChat`: a started chat's pick opens a new chat in the folder; it hears the folder
-    /// first (`/cd --on cloud` hands that chat its Cloud start, commandPlace.ts).
-    (cwd: string, peer?: string, refused?: () => void, beforeNewChat?: (folder: string) => void): Promise<void> => {
+    (cwd: string, peer?: string, refused?: () => void): Promise<void> => {
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
@@ -6607,10 +6599,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         (folder) => {
           pickedProject.current = folder;
           if (freshRef.current) setProjectDraft(folder);
-          else {
-            beforeNewChat?.(folder);
-            void callNative("chat.new", { cwd: folder }).catch(() => undefined);
-          }
+          else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
         },
         // Only the host's refusal of the path is `refused`; a request a newer one replaced is not.
         (refusal) => {
@@ -7039,7 +7028,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpWire.lifecycle("handshake", { reconnect });
         setWaitingSince(Date.now());
         setRestartUnavailable(false);
-        const answered = await callNative<{
+        const host = await callNative<{
           protocolVersion: number;
           transport?: string;
           /// Only the browser dev slot (devHost.ts) sends these; the app never does.
@@ -7085,19 +7074,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // The host cleared its toast box for this handshake: it hears the mounted composer's again.
           .finally(resendToastAvoidance);
         if (cancelled) return;
-        // A new chat another chat's `/side --on cloud` or `/cd --on cloud` opened: it picks Cloud and
-        // starts with the handed prompt (commandPlace.ts). Any other page takes nothing.
-        const host =
-          reconnect || answered.sessionId
-            ? answered
-            : withHandedCloudStart(
-                answered,
-                takeHandedCloudStart(
-                  handoffStore(),
-                  { cwd: answered.cwd ?? newTabCwd(answered.newTab), pickCloud: answered.pickCloud },
-                  Date.now(),
-                ),
-              );
         // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
         if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
         acpmuxPerf.markAgent("handshakeReady");
@@ -8743,56 +8719,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cwd: snapshot.summary?.cwd,
     newTab: fresh,
     inCloud: snapshot.summary?.hostKind === "cloud",
-    cloudStart: !quick,
   });
-  /// `/cd --on cloud [folder]`: a new chat in the folder, in Cloud. A chat with no turn yet takes the
-  /// folder and picks Cloud in its own composer; a started one opens a new chat there (as `/cd`
-  /// does) and hands it the Cloud pick (commandPlace.ts). Bare, the folder browser picks it.
-  const cdInCloud = (typed: string | undefined): Promise<unknown> => {
-    if (!typed)
-      return callNative<{ cwd?: string }>("project.browse").then((result) => {
-        if (result?.cwd) return cdInCloud(result.cwd);
-      });
-    const folder = cdFolder(typed, snapshot.summary?.cwd);
-    if (!folder) return Promise.reject(new CmuxCommandRefused(t("composer.cmuxCdPath")));
-    const fresh = !snapshot.sessionId;
-    let refused = false;
-    return chooseProject(
-      folder,
-      undefined,
-      () => {
-        refused = true;
-      },
-      (picked) => handCloudStart(handoffStore(), { cwd: picked }, Date.now()),
-    ).then(() => {
-      if (refused) throw new CmuxCommandRefused(t("composer.cmuxCdNotFolder", { folder }));
-      if (fresh) composerModePick.current("cloud");
-    });
-  };
   /// Shared by the chat composer and New Tab: cmux-owned slash commands never fall through to a
   /// literal harness prompt. A string is an inline refusal; Composer/NewTab keep the draft intact.
   const handleCmuxCommand = (command: CmuxCommand, typedArgs?: string, fresh = false): CmuxCommandResult => {
     const state = commandState(fresh);
     const refusal = cmuxCommandRefusal(command, typedArgs, state);
     if (refusal) return t(refusal);
-    // `--on here|cloud` before a chat-starting command's arguments (commandPlace.ts). In Cloud from a
-    // chat that is not: New Cloud Chat, whose first Send is the composer's own Cloud start
+    // `--on here|cloud` before a chat-starting command's arguments (commandPlace.ts); the refusal
+    // above allowed only what runs. `/cd --on cloud` in a chat with no turn yet takes the folder and
+    // picks Cloud in this composer, so its first Send is the composer's own Cloud start
     // (cloud.startChat, the Environment chip's pick, Auto by default). Never by default.
-    const placed =
-      command.action === "side" || command.action === "cd" || command.action === "fork" || command.action === "continue"
-        ? commandPlace(typedArgs)
-        : undefined;
-    const args = placed && "rest" in placed ? placed.rest : typedArgs;
-    if (placed && "place" in placed && placed.place === "cloud" && !state.inCloud) {
-      if (command.action === "side") {
-        // A new Cloud chat in this chat's folder with the chat's agent (New Cloud Chat inherits
-        // both), the prompt waiting in its composer for the person's Send.
-        const prompt = args?.trim();
-        handCloudStart(handoffStore(), prompt ? { prompt } : {}, Date.now());
-        return callNative("action.run", { id: "palette.newCloudChat" });
-      }
-      if (command.action === "cd") return cdInCloud(args?.trim());
-    }
+    const placed = commandPlace(typedArgs);
+    const args = PLACED_ACTIONS.has(command.action) && "rest" in placed ? placed.rest : typedArgs;
+    const inCloudHere = command.action === "cd" && "place" in placed && placed.place === "cloud" && !state.inCloud;
     if (command.action === "status") {
       setStatusCardOpen(true);
       return true;
@@ -8827,9 +8767,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // `/cd` is the folder chip's pick, typed: a chat with no turn yet starts in the folder, a
     // started one opens a new chat there (chooseProject). Bare, it opens the folder browser.
     if (command.action === "cd") {
+      // `--on cloud` (a chat with no turn yet, cmuxCommandRefusal): the folder, then Cloud.
+      const thenCloud = () => {
+        if (inCloudHere) composerModePick.current("cloud");
+      };
       if (!argument)
         return callNative<{ cwd?: string }>("project.browse").then((result) => {
-          if (result?.cwd) return chooseProject(result.cwd);
+          if (result?.cwd) return chooseProject(result.cwd).then(thenCloud);
         });
       const folder = cdFolder(argument, snapshot.summary?.cwd);
       if (!folder) return t("composer.cmuxCdPath");
@@ -8840,6 +8784,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         refused = true;
       }).then(() => {
         if (refused) throw new CmuxCommandRefused(t("composer.cmuxCdNotFolder", { folder }));
+        thenCloud();
       });
     }
     // The composer sends the prompt as typed through onSend, attachments and steer included, the
