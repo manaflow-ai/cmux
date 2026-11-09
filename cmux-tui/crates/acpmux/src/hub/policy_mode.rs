@@ -676,20 +676,15 @@ fn claims_asks(meta: &SessionMeta) -> bool {
 /// - `not_a_config_entry`: the harness is no entry of the config (a folder profile, the
 ///   repository's `.cmux/harnesses`, or an entry removed since the start);
 /// - `entry_changed`: the entry launches something else now (changed since the start, such as an
-///   agent host adopted after a restart). A remote start's canonical program path
-///   (`resolve::fix_remote_executable`) is the entry's own program, not a change.
+///   agent host adopted after a restart).
+///
+/// A start records the entry's launch as the entry is written, a remote start too (before its
+/// admission resolves the program, `Resolved::launch_digest`), so this compares digests only and
+/// reads no file.
 pub(super) fn claim_distrust(meta: &SessionMeta, cfg: &Config) -> Option<&'static str> {
     let Some(started) = meta.launch_digest.as_deref() else { return Some("not_started_here") };
     let Some(entry) = cfg.profile(&meta.harness) else { return Some("not_a_config_entry") };
-    if entry.launch_digest() == started {
-        return None;
-    }
-    // A remote start runs the entry's own program by its canonical path
-    // (`resolve::fix_remote_executable`): still that entry.
-    let mut canonical = entry.clone();
-    let remote_start = super::resolve::fix_remote_executable(&mut canonical).is_ok()
-        && canonical.launch_digest() == started;
-    (!remote_start).then_some("entry_changed")
+    (entry.launch_digest() != started).then_some("entry_changed")
 }
 
 /// The `policy_refused` record of refusal `e` (`unenforceable`): its data and its message.
