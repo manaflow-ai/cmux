@@ -53,9 +53,11 @@ struct AgentPaneDebugClickPageHostTests {
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, testRoot: true,
                                               chromium: nil))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        // The page's own textarea, not `document.body`: the blank document before the load has a
+        // body too, and the load then replaces it with the block added below.
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
-            let ready = try? await view.callPageScript("return !!document.body;") as? Bool
+            let ready = try? await view.callPageScript("return !!document.querySelector('textarea');") as? Bool
             if ready == true { break }
             try await Task.sleep(for: .milliseconds(50))
         }
