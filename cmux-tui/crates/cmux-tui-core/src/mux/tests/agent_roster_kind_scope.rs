@@ -73,7 +73,12 @@ fn session_put(index: usize) -> TestJournalRecord {
 
 /// Each agent terminal starts a session and a turn.
 fn agent_lifecycles() -> Vec<TestJournalRecord> {
-    (0..AGENT_TERMINALS)
+    agent_lifecycles_of(AGENT_TERMINALS)
+}
+
+/// `terminals` agent terminals, each starting a session and a turn.
+fn agent_lifecycles_of(terminals: usize) -> Vec<TestJournalRecord> {
+    (0..terminals)
         .flat_map(|index| {
             let terminal = terminal_id(index);
             let session = format!("agent-{index}");
@@ -163,6 +168,52 @@ fn roster_replay_after_a_version_bump_skips_session_churn() {
     assert!(
         per_record < 1,
         "a roster replay costs {per_record} VM steps per session put it skips:\n{table}"
+    );
+}
+
+/// VM steps of a roster restore after a reducer version bump, on a journal of
+/// `terminals` agent lifecycles among 1000 session puts, with the previous
+/// version's snapshot at the head.
+fn restore_steps_after_a_version_bump(terminals: usize) -> u64 {
+    let registry = WorkspaceRegistry::in_memory("roster-bump-restore-cost").unwrap();
+    registry.append_journal_records_for_test(&interleave(agent_lifecycles_of(terminals), 1_000));
+    let head = registry.session_journal_head().unwrap();
+    registry
+        .put_journal_reducer_state(
+            AGENT_ROSTER_REDUCER_ID,
+            AGENT_ROSTER_REDUCER_VERSION - 1,
+            head,
+            &AgentRoster::default().snapshot().to_string(),
+        )
+        .unwrap();
+    let mut restored = None;
+    let steps = registry.vm_steps_for_test(|| {
+        restored = Some(restore_agent_roster(&registry));
+    });
+    assert_eq!(restored.unwrap().unwrap().host.cursor, head, "the start serves the head");
+    steps
+}
+
+/// The start after a roster reducer version bump does not fold the journal
+/// from its first record: 26 min on Leo's 59 GB registry (2026-11-08), 14 s
+/// on an 8.4 GB generated one. It serves the old snapshot and leaves the
+/// rebuild to the roster's owner, so its cost does not grow with the agent
+/// records: 10x of them adds less than one VM step each. Folding them cost
+/// tens of steps per record.
+#[test]
+fn restore_after_a_version_bump_does_not_fold_the_agent_history() {
+    let sizes = [20, 200];
+    let steps = sizes.map(restore_steps_after_a_version_bump);
+    let records = ((sizes[1] - sizes[0]) * 2) as u64;
+    let per_record = steps[1].saturating_sub(steps[0]) / records;
+    assert!(
+        per_record < 1,
+        "a restore after a bump costs {per_record} VM steps per agent record ({} terminals: {} \
+         steps, {} terminals: {} steps)",
+        sizes[0],
+        steps[0],
+        sizes[1],
+        steps[1]
     );
 }
 
