@@ -217,13 +217,18 @@ impl SshLinkGroup {
     /// ConnectTimeout on a redial (generation past the first connect's 0),
     /// unless the host was slow to send its banner or the caller already
     /// asked for a shorter one. OpenSSH keeps the first value it reads.
-    fn connect_timeout_args(&self, generation: u64) -> Vec<String> {
+    async fn connect_timeout_args(&self, generation: u64) -> Vec<String> {
         if generation == 0 {
             return Vec::new();
         }
         let previous = self.last_stderr.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        if previous.is_some_and(|tail| tail.said(SSH_BANNER_TIMEOUT)) {
-            self.slow_banner.store(true, Ordering::Release);
+        if let Some(tail) = previous {
+            // The run before may still be writing why it ended: its words
+            // are read once its stderr closed or STDERR_SETTLE passed.
+            let _ = tail.settled().await;
+            if tail.said(SSH_BANNER_TIMEOUT) {
+                self.slow_banner.store(true, Ordering::Release);
+            }
         }
         if self.slow_banner.load(Ordering::Acquire)
             || caller_connect_timeout(&self.config.extra_args)
@@ -288,7 +293,7 @@ impl LinkGroup for SshLinkGroup {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
-        let mut ssh_args = self.connect_timeout_args(request.generation);
+        let mut ssh_args = self.connect_timeout_args(request.generation).await;
         ssh_args.extend(self.config.extra_args.iter().cloned());
         let mut command = Command::new(&self.config.ssh_binary);
         // Forwarding stays as configured unless `extra_args` pin
@@ -689,7 +694,6 @@ mod tests {
         let group = group_with(ssh, &["-oConnectTimeout=15"]).await;
 
         open_and_end(&group, 1).await;
-        tokio::time::sleep(STDERR_SETTLE).await;
         open_and_end(&group, 2).await;
         open_and_end(&group, 3).await;
 
