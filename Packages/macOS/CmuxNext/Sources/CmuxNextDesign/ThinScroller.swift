@@ -98,8 +98,15 @@ public final class ThinScroller: NSScroller {
     override public class var isCompatibleWithOverlayScrollers: Bool { true }
 
     /// AppKit's arrow and page parts, named (``ScrollerPartNames``).
+    /// True while the parts are being named: a part answers its attributes through this scroller's
+    /// children, so a read while naming returns them unnamed instead of naming again (which recursed).
+    private var namingParts = false
+
     override public func accessibilityChildren() -> [Any]? {
         let children = super.accessibilityChildren()
+        guard !namingParts else { return children }
+        namingParts = true
+        defer { namingParts = false }
         ScrollerPartNames.name(children, vertical: bounds.height >= bounds.width)
         return children
     }
