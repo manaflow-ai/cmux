@@ -147,7 +147,14 @@ await requireBrowserLane("jump-latest-lens-frost.test.ts", async () => {
           return { backdrop: style.backdropFilter, fill: style.backgroundColor };
         });
         console.log(
-          JSON.stringify({ scheme, under, beside, ratio: under / beside, ratios: unders.map((u, i) => u / besides[i]!), ...info }),
+          JSON.stringify({
+            scheme,
+            under,
+            beside,
+            ratio: under / beside,
+            ratios: unders.map((u, i) => u / besides[i]!),
+            ...info,
+          }),
         );
         // The prose beside the button carries text (else the comparison says nothing).
         expect(beside).toBeGreaterThan(0.02);

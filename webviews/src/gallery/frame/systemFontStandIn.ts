@@ -19,8 +19,7 @@ const APPLE_NAMES = ["-apple-system", "BlinkMacSystemFont"];
 /** True where the browser can draw SF Pro for `-apple-system` itself. */
 function hasSystemFont(): boolean {
   const platform =
-    (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
-    navigator.platform;
+    (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform;
   return /mac|iphone|ipad/i.test(platform) || /Mac OS X|iPhone|iPad/.test(navigator.userAgent);
 }
 
