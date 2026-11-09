@@ -249,22 +249,50 @@ def _run_gate(**env_overrides: str) -> tuple[int, str]:
 
 
 def test_a_filter_that_one_host_runs_passes_and_one_that_no_host_runs_fails() -> None:
-    """The run fails only when both hosts selected 0 tests; an empty count is not 0.
+    """The run fails only when both hosts selected 0 tests.
 
     The two matrix legs run in parallel. Each sets only its own output key
     (selected_linux or selected_macos), so neither leg overwrites the other's
     count in the job's combined outputs; hosted verification gives the verdict.
     """
-    for linux, macos, want in (("0", "3", 0), ("2", "0", 0), ("1", "1", 0), ("", "0", 0), ("0", "", 0), ("0", "0", 1)):
+    for linux, macos, want in (("0", "3", 0), ("2", "0", 0), ("1", "1", 0), ("0", "0", 1)):
         code, output = _run_gate(LINUX_FOCUSED_SELECTED=linux, MACOS_FOCUSED_SELECTED=macos)
         assert code == want, (linux, macos, output)
+        # The gate prints both counts, so a run log shows what each host ran.
+        assert f"focused tests selected: linux={linux} macos={macos}" in output, output
         if want:
             assert "selected no Rust tests on Linux or macOS" in output, output
+        else:
+            for host, name, count in (("linux", "Linux", linux), ("macos", "macOS", macos)):
+                warned = f"::warning::test_filter 'some_test' selected no Rust test on {name}" in output
+                assert warned == (count == "0"), (host, output)
     code, output = _run_gate(MODE="full", TEST_FILTER="", LINUX_FOCUSED_SELECTED="0", MACOS_FOCUSED_SELECTED="0")
     assert code == 0, output
 
+
+def test_a_green_test_job_must_report_both_counts_unless_the_filter_is_reserved() -> None:
+    """Broken output wiring must not let a typo filter pass.
+
+    When the matrix outputs do not arrive (an overwritten or renamed key), both
+    counts are empty, and an empty count is never read as 0. So in focused mode a
+    successful test job must report a count for each host, unless the filter is a
+    reserved selector that runs a package instead of a listing (chatmux_relay).
+    """
+    for linux, macos in (("", "3"), ("2", ""), ("", "")):
+        code, output = _run_gate(LINUX_FOCUSED_SELECTED=linux, MACOS_FOCUSED_SELECTED=macos)
+        assert code == 1, (linux, macos, output)
+        assert "reported no focused test count" in output, output
+    for reserved in ("chatmux_relay", "chatmux-relay"):
+        code, output = _run_gate(TEST_FILTER=reserved, LINUX_FOCUSED_SELECTED="", MACOS_FOCUSED_SELECTED="")
+        assert code == 0, (reserved, output)
+
+
+def test_each_test_matrix_leg_owns_one_count_key() -> None:
+    """The test matrix keeps exactly one linux and one macos row, each with its own output key."""
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["test"]
+    rows = job["strategy"]["matrix"]["include"]
+    assert sorted(row["os"] for row in rows) == ["linux", "macos"], rows
     step = _cargo_test_step()
     assert step["env"]["HOST_OS"] == "${{ matrix.os }}"
     gate_env = workflow["jobs"]["hosted-verification"]["env"]
