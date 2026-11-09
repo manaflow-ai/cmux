@@ -106,6 +106,33 @@ pub fn pane<T: Eq + Hash + Clone>(
     entry(next, history).cloned()
 }
 
+/// [`pane`] with cmux classic's fallback (issue 38194): under `MostRecent`,
+/// when no surviving pane of `history` other than `focused` is left (a tree
+/// whose remaining panes were never focused, as after a relaunch), the
+/// closed pane's `sibling`, the first pane of the subtree that takes its
+/// space (Bonsplit's `closePaneRecursively`), when it survives. Otherwise
+/// exactly [`pane`].
+pub fn pane_or_sibling<T: Eq + Hash + Clone>(
+    focused: Option<&T>,
+    before: &[Vec<T>],
+    after: &[Vec<T>],
+    history: &[T],
+    sibling: Option<&T>,
+    policy: CloseFocusPolicy,
+) -> Option<T> {
+    if policy == CloseFocusPolicy::MostRecent
+        && let Some(focused) = focused
+        && let Some(sibling) = sibling
+    {
+        let surviving: HashSet<&T> = after.iter().flatten().collect();
+        let recent = history.iter().any(|id| id != focused && surviving.contains(id));
+        if !surviving.contains(focused) && !recent && surviving.contains(sibling) {
+            return Some(sibling.clone());
+        }
+    }
+    pane(focused, before, after, history, policy)
+}
+
 /// The tab a pane selects after `selected` closed: the shown tab before it
 /// in strip order (left in a strip, above in a vertical list), else the
 /// shown tab after it (Lawrence 2026-11-08: "it should always focus the tab
