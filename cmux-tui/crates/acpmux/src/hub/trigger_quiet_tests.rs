@@ -199,3 +199,30 @@ async fn trigger_quiet_restart_cut_fails_instead_of_resuming_as_human() {
     assert_eq!(session.meta().last_turn, meta.last_turn);
     assert_eq!(session.meta().preview, meta.preview);
 }
+
+/// `acp history` rows say why a turn ended with no answer: a restart-cut turn reads
+/// `failed` with `detail: outcome_unknown`, which the Cloud chaos leg (cloud-chaos.ts
+/// `turnOutcome`) tells apart from an agent error.
+#[tokio::test]
+async fn history_names_a_restart_cut_turn_outcome_unknown() {
+    let mut cfg = Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": META_SCHEMA, "id":"history-cut", "name":"cut", "harness":"fake",
+        "cwd":"/tmp", "status":"idle", "createdAt":1, "updatedAt":1
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let hub = Hub::new(cfg, store);
+    let session = hub.resolve("history-cut").unwrap();
+    hub.append(&session, "client", "user_message", json!({"text": "[chaos t agent daemon restart] hi"}));
+    hub.append(&session, "mux", "turn_started", json!({"turnId":"cut", "promptId":"p1", "control":"local"}));
+    *session.log_load.lock().unwrap() = false;
+    session.log_loaded.store(false, Ordering::SeqCst);
+    hub.load_session_log(&session);
+    let turns = hub.history(&session, 20);
+    let turn = turns.last().expect("the turn is in the history");
+    assert_eq!(turn["status"], "failed", "{turn}");
+    assert_eq!(turn["detail"], "outcome_unknown", "{turn}");
+}

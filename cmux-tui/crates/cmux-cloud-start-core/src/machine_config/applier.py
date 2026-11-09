@@ -260,7 +260,7 @@ def delivered():
         return set()
     with os.fdopen(fd) as f:
         st = os.fstat(f.fileno())
-        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_size > 4 << 20:
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
             return set()
         return {m.group(1) for m in re.finditer(r"^export ([A-Za-z_][A-Za-z0-9_]*)=", f.read(), re.M)}
 
@@ -304,8 +304,6 @@ def secret_values():
         st = os.fstat(f.fileno())
         if not stat.S_ISREG(st.st_mode):
             return []  # never sourced (machine.env takes a regular file only)
-        if st.st_size > 4 << 20:
-            raise Refused(f"{SECRETS_FILE} is over 4 MiB: deliver the secrets again (cmux cloud deliver-secrets)")
         # Bytes as they are (a CR stays a CR, any byte round-trips), so each value masks as setup prints it.
         text = f.read().decode("utf-8", "surrogateescape")
     if "\0" in text:  # bash drops a NUL when it sources the file, so the value it sets is not the one masked

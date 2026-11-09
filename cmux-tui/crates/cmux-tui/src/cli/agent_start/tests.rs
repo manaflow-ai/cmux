@@ -898,6 +898,10 @@ fn w5q_start_split_keeps_a_person_pane_with_an_agent_name() {
 /// --pane beta --split right` in the row caller 1/2 | (alpha 1/4 | (beta
 /// 1/8 | gamma 1/8)), alpha's terminal having the lifecycle word `alpha`
 /// and, with `agent_state`, an agent record in that state.
+/// [`three_agent_row_widths`]'s `alpha` for a terminal record with no
+/// `lifecycle` field at all.
+const NO_LIFECYCLE: &str = "<no lifecycle field>";
+
 fn three_agent_row_widths(alpha: &str, agent_state: Option<&str>) -> [f64; 4] {
     const GAMMA_PANE: &str = "pane_44444444444444444444444444444444";
     const BETA_SPLIT: &str = "split_000000000000000000000000000000a3";
@@ -920,7 +924,14 @@ fn three_agent_row_widths(alpha: &str, agent_state: Option<&str>) -> [f64; 4] {
     // terminal is `alpha` (running or exited, kept with --on-exit keep).
     if let Some(terminals) = snapshot["terminals"].as_array_mut() {
         for terminal in terminals.iter_mut().filter(|terminal| terminal["id"] == OLD) {
-            terminal["lifecycle"] = json!(alpha);
+            match alpha {
+                NO_LIFECYCLE => {
+                    if let Some(terminal) = terminal.as_object_mut() {
+                        terminal.remove("lifecycle");
+                    }
+                }
+                word => terminal["lifecycle"] = json!(word),
+            }
         }
     }
     mark_agent_start(&mut snapshot, &[OLD, "term_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"]);
@@ -1017,6 +1028,19 @@ fn w5q_start_split_keeps_a_pane_with_an_unknown_lifecycle() {
         for width in &widths[2..] {
             assert!((width - 0.125).abs() < 0.01, "{lifecycle}: beta, gamma {widths:?}");
         }
+    }
+}
+
+/// W5-Q follow-up (#39580 review): a marked agent terminal whose record has
+/// no `lifecycle` field at all is not live: its pane keeps its width, as a
+/// person's pane does.
+#[test]
+fn w5q_start_split_keeps_a_pane_without_a_lifecycle_field() {
+    let widths = three_agent_row_widths(NO_LIFECYCLE, Some("idle"));
+    assert!((widths[0] - 0.5).abs() < 0.001, "{widths:?}");
+    assert!((widths[1] - 0.25).abs() < 0.001, "alpha changed: {widths:?}");
+    for width in &widths[2..] {
+        assert!((width - 0.125).abs() < 0.01, "beta, gamma {widths:?}");
     }
 }
 

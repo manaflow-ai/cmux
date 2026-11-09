@@ -4,6 +4,9 @@
 //! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
+// A reply's checkable claims against the turn's runs (`claim_checks`).
+mod claim_check;
+
 mod activity;
 // A foreground shell still running after a minute goes to the background (Claude Code).
 mod auto_background;
@@ -225,8 +228,11 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+mod bridge;
+pub(crate) mod desktop_bridge;
 pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
 mod caller_registry;
+mod history_timing;
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
@@ -1616,6 +1622,7 @@ impl Hub {
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
+            claim_runs: StdMutex::new(Default::default()),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
@@ -2410,9 +2417,12 @@ impl Hub {
             "turn_end",
             "turn_error",
         ];
+        let kinds: Vec<&str> = KINDS.iter().chain(history_timing::KINDS).copied().collect();
+        let mut timing = history_timing::Timing::default();
         let mut turns: Vec<Value> = Vec::new();
         let mut cur: Option<serde_json::Map<String, Value>> = None;
-        let _ = self.store.scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
+        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+            let mut opened = false;
             match e.kind.as_str() {
                 "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {
                     if let Some(t) = cur.take() {
@@ -2432,6 +2442,7 @@ impl Hub {
                     t.insert("permissions".into(), json!(0));
                     t.insert("status".into(), json!("running"));
                     cur = Some(t);
+                    opened = true;
                 }
                 "tool_call" => {
                     if let Some(t) = cur.as_mut() {
@@ -2472,6 +2483,11 @@ impl Hub {
                         if let Some(err) = e.msg.get("error") {
                             t.insert("error".into(), err.clone());
                         }
+                        // Why a failed turn ended with no answer (`outcome_unknown`: a daemon
+                        // restart cut it short), so a reader tells that from an agent error.
+                        if let Some(detail) = e.msg.get("detail") {
+                            t.insert("detail".into(), detail.clone());
+                        }
                     }
                 }
                 "turn_end" | "turn_error" => {
@@ -2495,6 +2511,7 @@ impl Hub {
                 }
                 _ => {}
             }
+            timing.note(&e, cur.as_mut(), opened);
             true
         });
         if let Some(t) = cur.take() {

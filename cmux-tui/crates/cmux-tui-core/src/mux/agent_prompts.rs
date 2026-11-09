@@ -116,19 +116,42 @@ impl Mux {
         self.agent_prompts.lock().unwrap().prompts.remove(terminal);
     }
 
-    /// Keeps `reply` (cut to `LIVE_MESSAGE_CHARS`) for `terminal`'s next agent notification.
-    /// Returns whether it kept one, so the append can drop it again (`forget_agent_reply`).
-    pub(crate) fn note_agent_reply(&self, terminal: &TerminalPublicId, reply: &str) -> bool {
-        let Some(reply) = crate::agent_hooks::live_message_text(reply) else { return false };
-        if self.resource_surface_for_terminal(terminal).is_none() {
-            return false;
-        }
+    /// Keeps `reply` (cut to `LIVE_MESSAGE_CHARS`) for `terminal`'s next agent notification and
+    /// as its last reply. Kept before the commit, so the agent change the commit folds already
+    /// carries it. Returns what it kept and the last reply it replaced, so the append drops the
+    /// notification's copy (`forget_agent_reply`) and a failed or replayed append puts the last
+    /// reply back (`restore_agent_reply`); `None` when nothing was kept.
+    #[must_use]
+    pub(crate) fn note_agent_reply(
+        &self,
+        terminal: &TerminalPublicId,
+        reply: &str,
+    ) -> Option<NotedReply> {
+        let reply = crate::agent_hooks::live_message_text(reply)?;
+        self.resource_surface_for_terminal(terminal)?;
         let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
         let owner = std::thread::current().id();
         let reply: Arc<str> = Arc::from(reply);
-        texts.last_replies.insert(terminal.clone(), (Arc::clone(&reply), now_ms()));
-        texts.replies.insert(terminal.clone(), (owner, reply));
-        true
+        let previous = texts.last_replies.insert(terminal.clone(), (Arc::clone(&reply), now_ms()));
+        texts.replies.insert(terminal.clone(), (owner, Arc::clone(&reply)));
+        Some(NotedReply { kept: reply, previous })
+    }
+
+    /// Puts back the last reply `noted` replaced, after its append failed or replayed (a hook's
+    /// retry of an older turn), unless a newer append kept another reply since.
+    pub(crate) fn restore_agent_reply(&self, terminal: &TerminalPublicId, noted: NotedReply) {
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        let ours = texts
+            .last_replies
+            .get(terminal)
+            .is_some_and(|(reply, _)| Arc::ptr_eq(reply, &noted.kept));
+        if !ours {
+            return;
+        }
+        match noted.previous {
+            Some(previous) => texts.last_replies.insert(terminal.clone(), previous),
+            None => texts.last_replies.remove(terminal),
+        };
     }
 
     /// Every terminal's last reply, folded and cut to `LIVE_PROMPT_CHARS`, keyed by terminal
@@ -298,6 +321,13 @@ pub(crate) fn with_last_reply(mut agent: Value, replies: &HashMap<String, String
     agent
 }
 
+/// A reply [`Mux::note_agent_reply`] kept as a terminal's last reply, and the last reply (with
+/// when it was kept) that it replaced, for [`Mux::restore_agent_reply`].
+pub(crate) struct NotedReply {
+    kept: Arc<str>,
+    previous: Option<(Arc<str>, u64)>,
+}
+
 /// A terminal's last reply whole and when the daemon kept it ([`Mux::agent_last_reply_text`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LastReply {
@@ -380,14 +410,14 @@ mod w3h_last_reply_tests {
         let terminal = surface.terminal_public_id().cloned().unwrap();
         assert!(mux.agent_last_replies().is_empty());
 
-        assert!(mux.note_agent_reply(&terminal, "Done.\n\n  ALPHA_OK"));
+        assert!(mux.note_agent_reply(&terminal, "Done.\n\n  ALPHA_OK").is_some());
         // The append ends: whatever the banner did not take is dropped.
         mux.forget_agent_reply(&terminal);
         let replies = mux.agent_last_replies();
         assert_eq!(replies.get(terminal.as_str()).map(String::as_str), Some("Done. ALPHA_OK"));
 
         let long = "word ".repeat(200);
-        assert!(mux.note_agent_reply(&terminal, &long));
+        assert!(mux.note_agent_reply(&terminal, &long).is_some());
         let kept = mux.agent_last_replies().remove(terminal.as_str()).unwrap();
         assert!(kept.chars().count() <= crate::agent_hooks::LIVE_PROMPT_CHARS, "{kept}");
 
