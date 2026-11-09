@@ -22,7 +22,9 @@ Never point it at a live session folder: it starts and stops a daemon there.
 import argparse
 import json
 import os
+import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -42,6 +44,30 @@ def sizes(folder):
         elif entry.is_dir():
             result[entry.name + "/"] = sum(p.stat().st_size for p in entry.rglob("*") if p.is_file())
     return result
+
+
+def isolate_terminal_hosts(state_dir, work):
+    """Moves the copy's terminal-host records out of the daemon's reach.
+
+    A copy made on the same machine keeps the original hosts' socket
+    paths. Their `.live` files hold no lock in the copy, so the daemon would
+    take those hosts for dead and unlink the live sockets the real app's
+    terminals reconnect through. The records are moved, not deleted, into
+    `work/terminal-hosts/`.
+    """
+    found = [
+        path for path in state_dir.rglob("*")
+        if path.is_dir() and (path.name.startswith("terminal-hosts-") or path.name.endswith(".terminal-hosts"))
+    ]
+    moved = []
+    for path in sorted(found, key=lambda path: len(path.parts)):
+        if not path.exists():
+            continue
+        target = work / "terminal-hosts" / path.relative_to(state_dir)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(path), str(target))
+        moved.append(str(path.relative_to(state_dir)))
+    return moved
 
 
 def timings(folder):
@@ -114,6 +140,8 @@ class Daemon:
 
     def stop(self):
         # SIGTERM to the process group this script started, then wait.
+        if self.process.poll() is not None:
+            return
         os.killpg(self.process.pid, signal.SIGTERM)
         try:
             self.process.wait(timeout=600)
@@ -151,36 +179,44 @@ def main():
     if digest(registry, args.work / "digest-before.json"):
         sys.exit("the digest of the copy failed")
     report["before"]["digest_s"] = round(time.monotonic() - started, 1)
-    known = len(timings(folder))
-    done = subprocess.run(
-        ["sqlite3", f"file:{registry}?mode=ro", "SELECT value FROM meta WHERE key = 'output_cleanup_v1'"],
-        capture_output=True, text=True,
-    ).stdout.strip()
+    pids = []
+    with sqlite3.connect(f"file:{registry}?mode=ro", uri=True) as connection:
+        row = connection.execute("SELECT value FROM meta WHERE key = 'output_cleanup_v1'").fetchone()
+    done = row[0] if row else None
     if done:
         sys.exit(f"this registry's cleanup already ran ({done}); nothing to migrate")
 
+    report["isolated_terminal_hosts"] = isolate_terminal_hosts(args.state_dir, args.work)
+
     # Start 1: the old registry; the cleanup stages in the background.
     first = Daemon(args, "start-1")
-    first.wait_for(["control socket at"], 6 * 3600)
-    line = first.wait_for(
-        ["output cleanup: phase A complete", "output cleanup: not enough free space",
-         "output cleanup: staging failed", "skipped; an earlier attempt failed"],
-        args.phase_a_timeout,
-    )
+    try:
+        pids.append(first.process.pid)
+        first.wait_for(["control socket at"], 6 * 3600)
+        line = first.wait_for(
+            ["output cleanup: phase A complete", "output cleanup: not enough free space",
+             "output cleanup: staging failed", "output cleanup: skipped"],
+            args.phase_a_timeout,
+        )
+    finally:
+        first.stop()
     report["phase_a"] = line
     report["during"] = {"files": sizes(folder)}
-    first.stop()
+    staged = "output cleanup: phase A complete" in line
 
     # Start 2: the swap at open, on the same build.
     second = Daemon(args, "start-2")
-    second.wait_for(["control socket at"], 6 * 3600)
+    try:
+        pids.append(second.process.pid)
+        second.wait_for(["control socket at"], 6 * 3600)
+    finally:
+        second.stop()
     swapped = [line for line in second.lines if line and "output cleanup" in line]
     report["swap"] = swapped
-    if not any("swapped the registry" in line for line in swapped):
-        report["swap_missing"] = True
-    second.stop()
+    report["migrated"] = staged and any("swapped the registry" in line for line in swapped)
 
-    starts = timings(folder)[known:]
+    # By pid: the file keeps only the latest 20 starts.
+    starts = [start for start in timings(folder) if start.get("pid") in pids]
     report["restore_snapshot_ms"] = [lap(start, "restore.snapshot") for start in starts]
     report["starts"] = starts
     report["after"] = {"files": sizes(folder)}
@@ -196,11 +232,15 @@ def main():
                 "after_bytes": total(report["after"]["files"]),
                 "registry_before": report["before"]["files"].get(REGISTRY),
                 "registry_after": report["after"]["files"].get(REGISTRY),
+                "migrated": report["migrated"],
                 "restore_snapshot_ms": report["restore_snapshot_ms"],
                 "digest": report["digest"],
             }
         )
     )
+    if not report["migrated"]:
+        print(f"the migration did not complete: {report['phase_a']}; see {args.work}", file=sys.stderr)
+        return 1
     return report["digest_compare"]
 
 
