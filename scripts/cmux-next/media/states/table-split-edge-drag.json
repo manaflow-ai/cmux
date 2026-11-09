@@ -1,5 +1,8 @@
 {
- "title": "A table opened from an agent chat shows in the side panel on the right, and the panel's left edge drags like a split divider (cmux#39090). The chat runs on the fake harness (no showcase mock: the mock chat opens no panel), which echoes the prompt, so the reply is a synthetic Markdown table. Steps: the reply, Open table (the panel at its default width), a held drag of the edge to the left (the edge's hover line), then the drop (the panel wider, the chat narrower).",
+ "title": "A table opened from an agent chat shows in the side panel on the right, and the panel's left edge drags like a split divider (cmux#39090). The chat runs on the fake harness, which echoes the prompt, so the reply is a synthetic Markdown table. Steps: the reply, Open table (the panel at its default width), a held drag of the edge to the left (the edge's hover line), then the drop (the panel wider, the chat narrower).",
+ "launch_args": [
+  "--showcase"
+ ],
  "fakeHarness": {
   "id": "fake",
   "name": "Fake"
@@ -86,16 +89,46 @@
    "wait": 4
   },
   {
-   "title": "Open table",
+   "title": "The pointer comes onto the reply's table (a native move: CSS :hover shows Open and Copy)",
    "rpc": {
-    "method": "debug.agent_pane",
+    "method": "debug.mouse",
     "params": {
-     "action": "click",
-     "selector": ".cv-table-block:not(.cv-user .cv-table-block) button[aria-label=\"Open table\"]"
+     "action": "move",
+     "x": 500,
+     "y": 400
     }
    },
    "record": true,
-   "wait": 2
+   "wait": 0.3,
+   "shot": false
+  },
+  {
+   "title": "On to Open table, at the table's top-right corner",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "move",
+     "x": 970,
+     "y": 330
+    }
+   },
+   "record": true,
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Open table (a native click: a person's click)",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "click",
+     "x": 970,
+     "y": 330
+    }
+   },
+   "record": true,
+   "wait": 2,
+   "shot": true
   },
   {
    "title": "Where the panel's edge is (a press that never moves changes nothing)",
