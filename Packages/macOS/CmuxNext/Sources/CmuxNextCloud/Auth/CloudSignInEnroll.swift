@@ -11,10 +11,12 @@ import os
 /// - Signed in (a sign-in, or the session restored at launch): `_acpmux/machine_enroll`, in the
 ///   background, with one retry after a failure. Sign-in never waits on it; a failure leaves this
 ///   Mac as it was.
-/// - Signed out: `_acpmux/machine_leave_if_auto`, which leaves only a join signing in made. A Mac
-///   joined with a pair code or a join line stays joined. acpmux marks the leave before it acts and
-///   finishes one cut short at its next start, before its relay. Signed out at launch asks again,
-///   for a sign-out whose request never reached acpmux before the app quit.
+/// - Signed out: `_acpmux/machine_leave_if_auto` with the account signing out (`userId`), which
+///   leaves only a join signing in made for that account. A Mac joined with a pair code or a join
+///   line, or for another account, stays joined. acpmux marks the leave, with its account, before
+///   it acts and finishes one cut short at its next start, before its relay. Signed out at launch
+///   asks again with no account (none is known then): acpmux finishes a leave it marked, and
+///   leaves nothing else.
 /// - A leave or an enroll acpmux did not answer (it was restarting) is sent again, for whoever is
 ///   signed in then, when the app's acpmux connection comes back (``acpmuxReturned()``): signed out,
 ///   the leave; signed in, the enroll.
@@ -46,6 +48,8 @@ public final class CloudSignInEnroll {
     private let extraParams: [String: String]
     /// The person the last change was for; nil signed out.
     private var current: String?
+    /// The account the last sign-out was for, which a resent leave names; nil when none is known.
+    private var signedOut: String?
     /// Whether the session has been read once since launch.
     private var decided = false
     /// A leave or an enroll acpmux did not answer: the current person's is sent when acpmux is back.
@@ -104,7 +108,7 @@ public final class CloudSignInEnroll {
         work = Task { [weak self] in
             await before?.value
             guard let self else { return }
-            if let current { await enroll(userId: current) } else { await leaveIfAuto() }
+            if let current { await enroll(userId: current) } else { await leaveIfAuto(userId: signedOut) }
         }
     }
 
@@ -121,6 +125,8 @@ public final class CloudSignInEnroll {
         guard !decided || next != current else { return }
         // At launch, signed out: a sign-out whose leave never reached acpmux is asked again.
         let leave = decided ? current != nil : next == nil
+        let leaving = decided ? current : nil
+        if leave { signedOut = leaving }
         decided = true
         // This change sends its own requests: a resend still pending is not wanted any more.
         resendPending = false
@@ -130,7 +136,7 @@ public final class CloudSignInEnroll {
         work = Task { [weak self] in
             await before?.value
             guard let self else { return }
-            if leave { await leaveIfAuto() }
+            if leave { await leaveIfAuto(userId: leaving) }
             if let next { await enroll(userId: next) }
         }
     }
@@ -152,9 +158,12 @@ public final class CloudSignInEnroll {
         return reply
     }
 
-    private func leaveIfAuto() async {
+    private func leaveIfAuto(userId: String?) async {
         // A leave acpmux took and did not finish (`kept: busy`) it finishes at its next start.
-        let reply = await send("_acpmux/machine_leave_if_auto", [:])
+        // Only the account signing out's own join is left: acpmux keeps one of another account's.
+        var params: [String: Any] = [:]
+        if let userId { params["userId"] = userId }
+        let reply = await send("_acpmux/machine_leave_if_auto", params)
         let kept = (reply?["kept"] as? String) ?? (reply == nil ? "no answer" : "")
         Self.log.info("sign-out leave: left=\((reply?["left"] as? Bool) ?? false, privacy: .public) kept=\(kept, privacy: .public)")
     }

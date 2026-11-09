@@ -11,8 +11,11 @@ struct CloudSignInEnrollLeaveRetryTests {
         /// Down for this many more calls, then up again.
         var downFor = 0
         var calls: [String] = []
-        func call(_ method: String, _: [String: Any]) -> [String: Any]? {
+        /// The account each leave named (nil: none).
+        var leaveAccounts: [String?] = []
+        func call(_ method: String, _ params: [String: Any]) -> [String: Any]? {
             calls.append(method)
+            if method == "_acpmux/machine_leave_if_auto" { leaveAccounts.append(params["userId"] as? String) }
             if downFor > 0 {
                 downFor -= 1
                 return nil
@@ -89,6 +92,31 @@ struct CloudSignInEnrollLeaveRetryTests {
         await enroll.settled()
         #expect(acpmux.leaves == 1)
         #expect(acpmux.enrolls == 2)
+    }
+
+    @Test func eachLeaveNamesTheAccountSigningOutAndOnlyThatOne() async {
+        let acpmux = FakeAcpmux()
+        let enroll = enroll(over: acpmux)
+        // Signed out at launch: no account is known, so the leave names none.
+        enroll.changed(to: .signedOut)
+        await enroll.settled()
+        enroll.changed(to: .signedIn("user_a"))
+        await enroll.settled()
+        // A's sign-out goes unanswered, then is sent again, still as A's.
+        acpmux.up = false
+        enroll.changed(to: .signedOut)
+        await enroll.settled()
+        acpmux.up = true
+        enroll.acpmuxReturned()
+        await enroll.settled()
+        // A switch to B leaves as A; B's sign-out leaves as B.
+        enroll.changed(to: .signedIn("user_a"))
+        await enroll.settled()
+        enroll.changed(to: .signedIn("user_b"))
+        await enroll.settled()
+        enroll.changed(to: .signedOut)
+        await enroll.settled()
+        #expect(acpmux.leaveAccounts == [nil, "user_a", "user_a", "user_a", "user_b"])
     }
 
     @Test func aReturnWithNoLeavePendingSendsNothing() async {

@@ -113,8 +113,10 @@ pub enum PeerCmd {
     },
     /// Enroll this machine on the hub as the signed-in person, the way signing in to the cmux
     /// app does: mints a single-use join token with the person's cmux access token, read from
-    /// stdin (never argv), and redeems it here. A joined, revoked or other person's machine is
-    /// left as it is. For scripts; a box with no sign-in still uses a pair code or join line.
+    /// stdin (never argv), and redeems it here, recorded under `--user-id`. A joined, revoked or
+    /// other person's machine, or one joined under no account, is left as it is, and with no
+    /// `--user-id` nothing is enrolled. For scripts; a box with no sign-in still uses a pair code
+    /// or join line.
     EnrollSelf {
         /// Read the cmux access token from stdin (required).
         #[arg(long, required = true)]
@@ -125,6 +127,9 @@ pub enum PeerCmd {
         /// A DEV build's tag, added to this machine's name.
         #[arg(long)]
         build_tag: Option<String>,
+        /// The signed-in person's platform user id, the account the join is recorded under.
+        #[arg(long)]
+        user_id: Option<String>,
     },
     /// Request screen/control consent through the daemon. Changing it requires
     /// the local app's person proof; a shell or agent cannot grant consent.
