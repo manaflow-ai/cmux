@@ -511,7 +511,6 @@ pub struct LastMessage {
     pub text: String,
 }
 
-/// The running turn.
 /// What a daemon start holds for a person (`SessionSummary::person_hold`): the chat's folder and
 /// why an agent does not start there unasked.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -522,6 +521,7 @@ pub struct PersonHold {
     pub reason: String,
 }
 
+/// The running turn.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]

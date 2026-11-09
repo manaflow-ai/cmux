@@ -284,5 +284,10 @@ async fn session_resume_names_a_hold_for_a_person_and_open_releases_it() {
     assert_eq!(v["opened"], true, "{out}");
     assert_eq!(v["resumed"], true, "{out}");
     assert!(v["personHold"].is_null(), "{out}");
-    rpc.wait_for("session/update", |p| p["update"]["content"]["text"] == "echo: queued").await;
+    // This connection never attached the chat, so it hears no session/update: read its info.
+    let ran = info_until(&mut rpc, &id, |i| {
+        i["lastTurn"]["promptId"] == "p-q" && i["lastTurn"]["status"] == "completed"
+    })
+    .await;
+    assert_eq!(ran["queued"], 0, "{ran}");
 }
