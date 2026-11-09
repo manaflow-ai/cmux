@@ -16,7 +16,7 @@ import {
   mcpToolName,
 } from "../scripts/export-next-docs";
 import { docsChannelUrl, docsPathAvailableInChannel } from "../app/lib/docs-channel";
-import { flatNavItems, navItemsForLocale } from "../app/[locale]/components/docs-nav-items";
+import { docsContentLang, flatNavItems, navItemsForLocale } from "../app/[locale]/components/docs-nav-items";
 
 // The cmux-next docs reference pages are generated from the action catalog and
 // the settings schema (plans/cmux-next/docs-DESIGN.md). web/ never reads those
@@ -147,6 +147,58 @@ describe("cmux-next docs", () => {
       expect(resolveAgentPageVariant(path)).not.toBeNull();
     }
     expect(resolveAgentPageVariant("/docs/next/no-such-page.md")).toBeNull();
+  });
+
+  // The pages are English only. A NEXT_LOCALE=ja cookie or Accept-Language: ja sent a reader to
+  // /ja/docs/next/..., which the route answered with 404.
+  test("every locale serves the English page, with the English URL as canonical", async () => {
+    const saved = process.env.CMUX_DOCS_CHANNEL;
+    process.env.CMUX_DOCS_CHANNEL = "nightly";
+    try {
+      const slugRoute = await import("../app/[locale]/(landing)/docs/next/[slug]/page");
+      const indexRoute = await import("../app/[locale]/(landing)/docs/next/page");
+      for (const locale of ["ja", "de", "en"]) {
+        const params = Promise.resolve({ locale, slug: "own-keys" });
+        const element = await slugRoute.default({ params });
+        expect(element.props.page.slug).toBe("own-keys");
+        const metadata = await slugRoute.generateMetadata({ params: Promise.resolve({ locale, slug: "own-keys" }) });
+        expect(metadata.alternates.canonical).toBe("https://cmux.com/docs/nightly/next/own-keys");
+        expect(indexRoute.default().props.page.slug).toBe("getting-started");
+        const index = await indexRoute.generateMetadata({ params: Promise.resolve({ locale }) });
+        expect(index.alternates.canonical).toBe("https://cmux.com/docs/nightly/next");
+      }
+      await expect(slugRoute.default({ params: Promise.resolve({ locale: "ja", slug: "no-such-page" }) })).rejects.toThrow();
+    } finally {
+      if (saved === undefined) delete process.env.CMUX_DOCS_CHANNEL;
+      else process.env.CMUX_DOCS_CHANNEL = saved;
+    }
+  });
+
+  // A lang="en" wrapper around the page put an element between .docs-content and the page's
+  // h1 and p, which globals.css styles as its direct children (`.docs-content > p`,
+  // `.docs-content > h1 + p`, `.docs-content > h1:first-of-type`).
+  test("a page's blocks are direct children of .docs-content, which carries its language", async () => {
+    const { NextDocView } = await import("../app/[locale]/(landing)/docs/next/next-doc-view");
+    const { DocsHeading } = await import("../app/[locale]/components/docs-heading");
+    const { Fragment } = await import("react");
+    const page = nextDocPage("own-keys")!;
+    const tree = NextDocView({ page }) as { type: unknown; props: { children: unknown[] } };
+    expect(tree.type).toBe(Fragment);
+    const children = tree.props.children.flat().filter(Boolean) as { type: unknown }[];
+    const headingAt = children.findIndex((child) => child.type === DocsHeading);
+    expect(headingAt).toBeGreaterThanOrEqual(0);
+    expect(children[headingAt + 1]?.type).toBe("p");
+    // One child per body block (each renders one h2, p, ul, code block or callout), none wrapped.
+    expect(children.length).toBeGreaterThanOrEqual(page.body.length + 3);
+    expect(children.some((child) => child.type === "div" || child.type === "section")).toBe(false);
+
+    for (const path of ["/docs/next", "/docs/next/own-keys", "/docs/base"]) {
+      expect(docsContentLang(path, "ja")).toBe("en");
+      expect(docsContentLang(path, "en")).toBe("en");
+    }
+    expect(docsContentLang("/docs/getting-started", "ja")).toBe("ja");
+    const layout = readFileSync(join(repo, "web/app/[locale]/(landing)/docs/docs-nav.tsx"), "utf8");
+    expect(layout).toMatch(/className="docs-content[^"]*"\s+lang=\{/);
   });
 
   test("release docs fall back to Getting Started for a next page", () => {
