@@ -6,8 +6,9 @@
 //! On Leo's registry (2026-11-08) that was about 12M rows, 96.6% of them
 //! `personal.session.put`, which the roster discards, and the daemon took
 //! 26 min to start. This read seeks the `(kind, sequence)` index once per
-//! kind the reducer folds, and inflates a sealed segment only when its kind
-//! map names one of them.
+//! kind the reducer folds, and reads a sealed segment only when its kind
+//! map names one of them: the records sealing kept for those kinds
+//! (`reducer_records`), or the segment itself when it kept none.
 
 use super::*;
 
@@ -193,8 +194,10 @@ fn active_kinds_after(
 /// `None` when a segment in the range has no kind map (an older segment:
 /// the caller takes the validating legacy path). A segment whose kind map
 /// names no accepted kind is skipped without loading its content; one that
-/// does is decoded whole and consumed whole, so the next page never decodes
-/// it again. The page ends after the segment that brings it to `limit`.
+/// does is read from its kept reducer records when they cover those kinds,
+/// and decoded whole otherwise. Either way it is consumed whole, so the next
+/// page never reads it again. The page ends after the segment that brings it
+/// to `limit`.
 fn archived_kinds_after(
     connection: &Connection,
     sequence: u64,
@@ -232,21 +235,40 @@ fn archived_kinds_after(
         connection.prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1")?;
     let mut reached = sequence;
     let mut records = Vec::new();
-    for (segment_id, _, end) in segments {
+    for (segment_id, start, end) in segments {
         let mapped = segment_kinds
             .query_map([&segment_id], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
         if mapped.is_empty() {
             return Ok(None);
         }
-        let end = u64::try_from(end)?.min(through);
-        if mapped.iter().any(|kind| kinds(kind)) {
-            let segment = load_journal_segment(connection, &segment_id)?;
-            let decoded = decode_journal_segment(connection, segment)?;
-            records.extend(decoded.records.into_iter().filter(|record| {
+        let (start, end) = (u64::try_from(start)?, u64::try_from(end)?);
+        let accepted =
+            mapped.iter().map(String::as_str).filter(|kind| kinds(kind)).collect::<Vec<_>>();
+        if !accepted.is_empty() {
+            // The segment's records of these kinds as sealing kept them, or
+            // the segment itself when they were not kept (sealed by an older
+            // build, not yet backfilled).
+            let kept = reducer_records::sealed_reducer_records(
+                connection,
+                &segment_id,
+                start,
+                end,
+                &accepted,
+                kinds,
+            )?;
+            let segment_records = match kept {
+                Some(kept) => kept,
+                None => {
+                    let segment = load_journal_segment(connection, &segment_id)?;
+                    decode_journal_segment(connection, segment)?.records
+                }
+            };
+            records.extend(segment_records.into_iter().filter(|record| {
                 record.sequence > sequence && record.sequence <= through && kinds(&record.kind)
             }));
         }
+        let end = end.min(through);
         reached = reached.max(end);
         if records.len() >= limit {
             break;

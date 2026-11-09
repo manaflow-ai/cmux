@@ -188,8 +188,7 @@ fn read_agent_records(registry: &WorkspaceRegistry) -> Vec<SessionJournalRecord>
 /// Replace the content of every sealed segment: a read that decodes one
 /// fails, so a read that succeeds decoded none.
 fn destroy_sealed_segments(registry: &WorkspaceRegistry) {
-    let connection =
-        Connection::open(registry.session_journal_database_path().unwrap()).unwrap();
+    let connection = Connection::open(registry.session_journal_database_path().unwrap()).unwrap();
     connection.execute_batch("DROP TRIGGER IF EXISTS journal_segments_reject_update;").unwrap();
     connection.execute("UPDATE journal_segments SET content = x'00112233'", []).unwrap();
 }

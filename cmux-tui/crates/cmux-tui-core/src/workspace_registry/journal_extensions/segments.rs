@@ -215,6 +215,11 @@ impl WorkspaceRegistry {
                     params![segment.metadata.segment_id, kind],
                 )?;
             }
+            session_journal::reducer_records::insert_reducer_records(
+                &tx,
+                &segment.metadata.segment_id,
+                &segment.reducer_records,
+            )?;
         }
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
         let deleted = tx.execute(
@@ -301,6 +306,7 @@ impl JournalSegmentSealPlan {
             let mut start_sequence = None;
             let mut record_count = 0_u64;
             let mut kinds = BTreeSet::new();
+            let mut reducer_records = Vec::new();
             'segment: while cursor < self.through_sequence
                 && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
             {
@@ -334,6 +340,13 @@ impl JournalSegmentSealPlan {
                         > MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES
                     {
                         break 'segment;
+                    }
+                    if session_journal::reducer_records::kept_for_reducers(&kind) {
+                        reducer_records.push((
+                            sequence,
+                            kind.clone(),
+                            std::str::from_utf8(&record_bytes)?.to_owned(),
+                        ));
                     }
                     kinds.insert(kind);
                     if separator != 0 {
@@ -374,6 +387,7 @@ impl JournalSegmentSealPlan {
                 compressed,
                 digest,
                 kinds: kinds.into_iter().collect(),
+                reducer_records,
             });
         }
         validate_prepared_journal_segments(&self, &segments)?;

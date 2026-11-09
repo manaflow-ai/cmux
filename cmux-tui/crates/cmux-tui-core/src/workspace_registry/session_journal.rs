@@ -616,6 +616,9 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
     ensure_session_journal_content_schema(transaction)?;
     ensure_journal_event_index_schema(transaction)?;
     transaction.execute_batch(output_cleanup::PRUNED_RANGES_SCHEMA)?;
+    // Additive: an older build ignores the table and its sealed segments
+    // stay complete without it (`reducer_records`).
+    transaction.execute_batch(reducer_records::REDUCER_RECORDS_SCHEMA)?;
     Ok(())
 }
 
@@ -2600,6 +2603,7 @@ mod digest_reader;
 pub(crate) mod kind_read;
 #[cfg(test)]
 pub(crate) mod kind_read_tests;
+pub(crate) mod reducer_records;
 use digest_reader::DigestReader;
 #[cfg(test)]
 mod actor_tests;
