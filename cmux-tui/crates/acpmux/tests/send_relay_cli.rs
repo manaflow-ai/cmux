@@ -282,8 +282,9 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
     let long = "x".repeat(100);
     let long_sent = as_agent_from(mark, Some(&long));
     assert!(long_sent.status.success(), "{}", text(&long_sent));
-    // Unicode line and paragraph separators and bidi controls are no plain line either.
-    let hidden = "a\u{2028}b\u{2029}c\u{202A}d\u{202E}e\u{2066}f\u{2069}g";
+    // Unicode line and paragraph separators and bidi controls and marks are no plain line either.
+    let hidden =
+        "a\u{2028}b\u{2029}c\u{202A}d\u{202E}e\u{2066}f\u{2069}g\u{200E}h\u{200F}i\u{061C}j";
     let hidden_sent = as_agent_from(mark, Some(hidden));
     assert!(hidden_sent.status.success(), "{}", text(&hidden_sent));
     let labels = fs::read_to_string(dir.join("labels")).unwrap_or_default();
@@ -297,7 +298,7 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
                 "general-purpose:a0a68e7af3df5967e|{}'s general-purpose subagent a0a68e7a",
                 "x".repeat(64)
             ),
-            "general-purpose:a0a68e7af3df5967e|abcdefg's general-purpose subagent a0a68e7a"
+            "general-purpose:a0a68e7af3df5967e|abcdefghij's general-purpose subagent a0a68e7a"
                 .to_owned(),
         ],
         "the label's name is one line of at most 64 bytes"
