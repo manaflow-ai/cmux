@@ -115,6 +115,18 @@ fn a_recovered_harness_sandbox_says_nothing() {
     assert!(!out.lines().next().unwrap().ends_with("STUCK"), "{out}");
 }
 
+/// An older daemon or a peer sends only `harnessSandboxFailed`, which then meant it fails: the
+/// row still warns. An explicit `harnessSandboxFailing: false` is a recovery and says nothing.
+#[test]
+fn an_older_row_with_only_the_first_refusal_still_warns() {
+    let old = json!({"harnessSandboxFailed": NOW - 60_000});
+    let out = compact(&[with(lane("x"), old)]);
+    assert!(out.lines().nth(1).unwrap().ends_with("harness sandbox"), "{out}");
+    let recovered = json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": false});
+    let out = compact(&[with(lane("x"), recovered)]);
+    assert!(!out.contains("harness sandbox"), "{out}");
+}
+
 /// The STUCK cell of a lane whose harness refuses every command, compact and wide (printed for
 /// review with `--nocapture`), beside a recovered one and a healthy one.
 #[test]
