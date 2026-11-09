@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "build": "4257892282901",
+  "notes": "notes/4257892282901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 39231,
+      "title": "composer: right-click the model chip to show or hide its provider icon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39300,
+      "title": "cmux-api: the default Chief follows its Cloud machine to a new VM",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39243,
+      "title": "cmux NEXT browser: the Import Cookies card waits hidden in place while its page is off screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39237,
+      "title": "fix(webviews): a hat subagent keeps the end it was seen at after its own grace, while its group stays",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39330,
+      "title": "cmux-tui: wake_on_event gets a stream and clock seam and behavior tests; PROMPT_WAIT gets its timeout reason",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39137,
+      "title": "Composer hat: centre the + on its count, steady clock widths, glide '+N more' and the time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39307,
+      "title": "acpmux: list the Claude plugin manifest read bound as safe (send-path caps guard)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39322,
+      "title": "rails: image staleness guard follows a constant set to another constant's path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39288,
+      "title": "acpmux: one repository-config write at a time (model race candidates failed on config.lock)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39246,
+      "title": "Agent chat: a running Scheduled check shimmers its words like a running tool row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39245,
+      "title": "cmux-next browser: the startup profile counts as opened before a pane uses it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36487,
+      "title": "Cloud: cmux cloud start-chat --from-folder copies a Mac folder the composer's way",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39268,
+      "title": "cmux-tui: output cleanup measures the staging database's logical size, WAL pages included",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39133,
+      "title": "Copy Link next to Open Link on every link right-click in NEXT",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39279,
+      "title": "cmux mcp: say each rule once, list only cmux_exec, name the folded side-session tools",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39261,
+      "title": "Agent chat: every transcript line that opens something lights its words on hover, as tool rows do",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39289,
+      "title": "cmux-tui: restore_bound declares mach_timebase_info itself (macOS clippy red on tip)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39280,
+      "title": "Agent chat: focusing the composer no longer moves the queue and composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39241,
+      "title": "What's New clip specs: terminal-option-drag-select and sidebar-allow-deny",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39135,
+      "title": "ci(cmux-next checks): run the slow steps concurrently inside the checks job",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39249,
+      "title": "fix(webviews): the composer hat's header holds still as its time grows wider",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39222,
+      "title": "Agent chat: the Thinking line takes the bottom buttons' slot, so a turn's end never jolts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39228,
+      "title": "acpmux: gate a peer chat's prompt suggestions by the person's own tally and switch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39282,
+      "title": "fix(webviews): less room under the worked-for rule",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39269,
+      "title": "cmux-tui: say how the registry WAL shrinks: a full PASSIVE checkpoint, then a commit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39252,
+      "title": "Agent chat: a reply time's input line reads Input",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39259,
+      "title": "cmux live: a file the dev server lacks is a 404 for cmux, not the diff viewer's HTML",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39236,
+      "title": "cmux-rd-link: the TURN test waits for its relay to resolve, and the credential bound is tested",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39100,
+      "title": "Agent chat: a subagent's report card shows the whole message or Show more, never a cut span",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
