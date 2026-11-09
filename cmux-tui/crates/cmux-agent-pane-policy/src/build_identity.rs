@@ -425,7 +425,11 @@ pub fn path_identity(path: &Path) -> std::borrow::Cow<'_, Path> {
     let Some(at) = moved else { return std::borrow::Cow::Borrowed(path) };
     let mut before = PathBuf::new();
     for (index, part) in parts.iter().enumerate() {
-        before.push(if Some(index) == at.checked_add(1) { std::ffi::OsStr::new("cmux") } else { part.as_os_str() });
+        before.push(if Some(index) == at.checked_add(1) {
+            std::ffi::OsStr::new("cmux")
+        } else {
+            part.as_os_str()
+        });
     }
     std::borrow::Cow::Owned(before)
 }
