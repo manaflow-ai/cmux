@@ -389,6 +389,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "personalization",
+        "lead" : [
+          "personalization"
+        ],
+        "symbol" : "wand.and.stars",
+        "title" : {
+          "key" : "settings.category.personalization",
+          "text" : "Personalization"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.appTheme",
             "rows" : [
@@ -2078,6 +2101,7 @@
       },
       {
         "categories" : [
+          "personalization",
           "theme",
           "appearance"
         ],
@@ -89510,7 +89534,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefPanelSeesScreen.help",
-        "text" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off."
+        "text" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefPanel.seesScreen",
