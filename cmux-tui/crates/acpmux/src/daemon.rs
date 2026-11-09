@@ -478,6 +478,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Err(e) => {
             // The copied node key could not be replaced: keep this box off WireGuard for this
             // run rather than answer with the original's identity.
+            // Includes a node key recorded as copied (a leave removed the record).
             let copied = crate::cli::cloud_join::copied_from_another_box();
             tracing::warn!(copied, "machine clone check failed: {e:#}");
             copied

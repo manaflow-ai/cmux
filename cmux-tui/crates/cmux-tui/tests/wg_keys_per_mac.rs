@@ -271,26 +271,15 @@ async fn a_launchd_serve_without_acpmux_home_adopts_the_recorded_custom_home() {
     drop(serving);
 }
 
-/// Review F2 at 9e91bcea: once the home turns out copied from another machine (its machine
-/// record marked `cloned`), the real `serve` refuses `key_adoption.cloned_home` before it binds
-/// anything, so the original's peers are never answered from the copy. The same home served
-/// while it was the original's.
-#[tokio::test]
-async fn a_copied_home_with_an_adopted_link_never_serves() {
+/// A machine record joined on another box, not settled yet (`cloned` unset), in `home`: a
+/// copy as it looks before acpmux's daemon first starts on the new machine.
+fn joined_on_another_box(home: &Path) {
     use std::os::unix::fs::OpenOptionsExt as _;
-    let root = tempfile::tempdir().unwrap();
-    let home = root.path().join("acpmux");
-    let link = root.path().join("state/link");
-    acpmux::cli::mesh_node_key::load_or_create_at(&home).unwrap();
-    init(root.path(), &link);
-    drop(serve_until_ready(root.path(), &link, &home).await);
-    assert!(link.join("key-adopted.json").is_file(), "the original did not adopt");
-
     let record = serde_json::json!({
         "credential": "cmm_original", "machine_id": "machine_original", "team_id": "team",
         "name": "original", "hub_origin": "https://example.com", "last_heartbeat": null,
         "revoked": false, "wgPublicKey": "original-key", "credential_generation": 1,
-        "host_fingerprint": "another-box", "cloned": true,
+        "host_fingerprint": "another-box",
     });
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -299,13 +288,77 @@ async fn a_copied_home_with_an_adopted_link_never_serves() {
         .open(home.join("machine-credential.json"))
         .unwrap();
     std::io::Write::write_all(&mut file, record.to_string().as_bytes()).unwrap();
-    drop(file);
+}
 
-    let refused = serve_command(root.path(), &link, &home).output().unwrap();
+/// Whether this box names a machine; without it no copy can be told apart.
+fn box_named() -> bool {
+    let named = acpmux::cli::mesh_node_key::box_stamp().is_some();
+    if !named {
+        eprintln!("skipped: this box names no machine");
+    }
+    named
+}
+
+/// The real `serve` of `link` refuses `key_adoption.cloned_home` before it binds anything.
+fn assert_refuses_cloned(root: &Path, link: &Path, home: &Path) {
+    let refused = serve_command(root, link, home).output().unwrap();
     let stdout = String::from_utf8_lossy(&refused.stdout);
     let stderr = String::from_utf8_lossy(&refused.stderr);
     assert!(!refused.status.success(), "a copied home served: {stdout}");
     assert!(!stdout.contains("link-ready"), "{stdout}");
     assert!(stderr.contains("key_adoption.cloned_home"), "{stderr}");
-    assert!(!acpmux::cli::mesh_node_key::link_serves_node_key(Some(&link), &home));
+    assert!(!acpmux::cli::mesh_node_key::link_serves_node_key(Some(link), home));
+}
+
+/// Review F2 at 9e91bcea: a home copied with an adopted link (its machine record joined on
+/// another box) never serves: the real `serve` refuses before it binds anything, so the
+/// original's peers are never answered from the copy. The same home served while it was the
+/// original's.
+#[tokio::test]
+async fn a_copied_home_with_an_adopted_link_never_serves() {
+    if !box_named() {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("acpmux");
+    let link = root.path().join("state/link");
+    acpmux::cli::mesh_node_key::load_or_create_at(&home).unwrap();
+    init(root.path(), &link);
+    drop(serve_until_ready(root.path(), &link, &home).await);
+    assert!(link.join("key-adopted.json").is_file(), "the original did not adopt");
+    joined_on_another_box(&home);
+    assert_refuses_cloned(root.path(), &link, &home);
+}
+
+/// Review F1 at d1e8f0ed: on a copied home with an adopted link, `machine leave` runs before
+/// the link first starts there. It keeps the adopted node key and deletes the machine record,
+/// the evidence of the copy; what it found is recorded first, so the link still refuses.
+#[tokio::test]
+async fn a_leave_on_a_copy_before_the_link_starts_leaves_the_link_refusing() {
+    if !box_named() {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("acpmux");
+    let link = root.path().join("state/link");
+    let node_bytes = {
+        acpmux::cli::mesh_node_key::load_or_create_at(&home).unwrap();
+        std::fs::read(KeyFile::Node.path_in(&home)).unwrap()
+    };
+    init(root.path(), &link);
+    drop(serve_until_ready(root.path(), &link, &home).await);
+    assert!(link.join("key-adopted.json").is_file(), "the original did not adopt");
+    // The copy, before anything ran on the new machine.
+    joined_on_another_box(&home);
+    let leave = cmux(root.path(), &["acp", "machine", "leave", "--local-only", "--json"])
+        .env("ACPMUX_HOME", &home)
+        .output()
+        .unwrap();
+    assert!(leave.status.success(), "{}", String::from_utf8_lossy(&leave.stderr));
+    let left: serde_json::Value = serde_json::from_slice(&leave.stdout).unwrap();
+    assert_eq!(left["hub"], "not_asked_copy", "{left}");
+    assert!(!home.join("machine-credential.json").exists(), "{left}");
+    assert_eq!(std::fs::read(KeyFile::Node.path_in(&home)).unwrap(), node_bytes, "{left}");
+    assert!(!link.join("copied-from-another-machine.json").exists());
+    assert_refuses_cloned(root.path(), &link, &home);
 }

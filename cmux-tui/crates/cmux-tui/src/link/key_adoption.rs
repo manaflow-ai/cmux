@@ -240,11 +240,16 @@ pub(super) async fn serve_key(
     adopt(state, holder)
 }
 
-/// Refuse to serve `key_adoption.cloned_home` when the acpmux home this link
-/// adopts from (`acpmux_home`, the recorded one, or the one its adoption
-/// record names) was copied here from another machine, by acpmux's own clone
-/// check (`mesh_node_key::home_copied`: the machine record's `cloned` mark or
-/// its host fingerprint). The link's state directory came with it: its key,
+/// Refuse to serve `key_adoption.cloned_home` when this link's identity, or
+/// the node key it would serve, was copied here from another machine. Three
+/// kinds of evidence, each kept where a later start reads it: the link's own
+/// stamp ([`STAMP`], the box its state directory was set up on, compared by
+/// acpmux's `mesh_node_key::stamped_here`); a node key recorded as copied in
+/// the acpmux home (`mesh_node_key::serves_copied_key`, recorded by whoever
+/// found the copy first, a `machine leave` included, before it removed the
+/// machine record); and acpmux's own clone check of that home
+/// (`mesh_node_key::home_copied`), which records what it finds. An adopted
+/// link with no stamp fails closed (`key_adoption.unstamped`). The link's state directory came with it: its key,
 /// its paired peers and its adoption are that machine's, and so may the node
 /// key be (acpmux cannot replace a key an adoption names). Serving any of them
 /// would answer that machine's peers from here, and an adoption would even
@@ -252,32 +257,104 @@ pub(super) async fn serve_key(
 /// ([`LINK_COPIED`]): a new join of the home does not make the link's copied
 /// pairings this machine's.
 fn refuse_copied(state: &LinkState, acpmux_home: Option<&Path>) -> anyhow::Result<()> {
+    use acpmux::cli::mesh_node_key as node_key;
     if state.config()?.server_identity.is_some() {
         return Ok(());
     }
     let kept = state.dir().join(LINK_COPIED);
-    let copied = if kept.symlink_metadata().is_ok() {
+    if kept.symlink_metadata().is_ok() {
         let named = std::fs::read(&kept)
             .ok()
             .and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok())
             .and_then(|record| record.get("acpmux_home")?.as_str().map(PathBuf::from));
-        Some(named.unwrap_or_else(|| state.dir().to_path_buf()))
-    } else {
-        let adopted_dir = adopted(state)?.map(|adopted| adopted.key_dir);
-        acpmux_home
-            .map(Path::to_path_buf)
-            .into_iter()
-            .chain(adopted_dir)
-            .find(|home| acpmux::cli::mesh_node_key::home_copied(home))
-    };
-    let Some(home) = copied else { return Ok(()) };
-    if kept.symlink_metadata().is_err() {
-        let record = serde_json::json!({ "acpmux_home": home });
-        if let Err(error) = state::write_private_synced(&kept, record.to_string().as_bytes()) {
-            eprintln!("cmux link: could not keep the copied-home refusal: {error}");
-        }
+        return Err(copied_identity(state, &named.unwrap_or_else(|| state.dir().to_path_buf())));
     }
-    anyhow::bail!(
+    let adopted_dir = adopted(state)?.map(|adopted| adopted.key_dir);
+    // The link's own stamp: the box it was set up on travels with its state directory.
+    let stamp_home = adopted_dir.as_deref().or(acpmux_home).unwrap_or(state.dir()).to_path_buf();
+    match read_stamp(state) {
+        Some(Some(stamp)) if !node_key::stamped_here(&stamp_home, &stamp) => {
+            return Err(keep_copied(state, &stamp_home));
+        }
+        Some(_) => {}
+        // No evidence left that this box is the one that adopted: fail closed (only builds
+        // before the stamp adopted without one).
+        None if adopted_dir.is_some() => anyhow::bail!(
+            "key_adoption.unstamped: this link serves the node key in {home}, and nothing records \
+             that this machine is the one it was adopted on: its state directory {dir} may have \
+             been copied from another machine, so it does not serve. On the machine that set \
+             it up, or to pair this one as a machine of its own: move {dir} aside, restart \
+             cmux, and pair this machine with its peers again",
+            home = stamp_home.display(),
+            dir = state.dir().display(),
+        ),
+        None => write_stamp(state)?,
+    }
+    for home in acpmux_home.map(Path::to_path_buf).into_iter().chain(adopted_dir.clone()) {
+        // Records a copy it finds (`record_copied_key`) before it answers.
+        let _ = node_key::home_copied(&home);
+        if !node_key::serves_copied_key(&home) {
+            continue;
+        }
+        if adopted_dir.as_deref().is_some_and(|dir| canonical(dir) == canonical(&home)) {
+            return Err(keep_copied(state, &home));
+        }
+        // A link of this box's own that would adopt the copied key: refused, not kept.
+        anyhow::bail!(
+            "key_adoption.cloned_home: the node key in {home} was copied here from another \
+             machine, so this link does not adopt or serve it. Restart cmux: acpmux then gives \
+             this machine its own node key, which this link adopts",
+            home = home.display(),
+        );
+    }
+    Ok(())
+}
+
+/// The link's stamp file: the box it was set up on (`mesh_node_key::box_stamp`).
+pub(super) const STAMP: &str = "host-stamp.json";
+
+/// The stamp in `state`'s directory: `None` when there is none, `Some(None)` for a box that
+/// names no machine. A stamp that cannot be read is no stamp.
+fn read_stamp(state: &LinkState) -> Option<Option<String>> {
+    let text = std::fs::read(state.dir().join(STAMP)).ok()?;
+    let record = serde_json::from_slice::<serde_json::Value>(&text).ok()?;
+    Some(record.get("fingerprint")?.as_str().map(str::to_owned))
+}
+
+fn write_stamp(state: &LinkState) -> anyhow::Result<()> {
+    stamp_once(state).context("stamp the link with this machine")
+}
+
+/// Stamp `state`'s link with this box when it has no stamp yet (`link init`, and a link set
+/// up before stamps at its first start). An existing stamp is never rewritten.
+pub(super) fn stamp_once(state: &LinkState) -> io::Result<()> {
+    let path = state.dir().join(STAMP);
+    if path.symlink_metadata().is_ok() {
+        return Ok(());
+    }
+    let record = serde_json::json!({ "fingerprint": acpmux::cli::mesh_node_key::box_stamp() });
+    state::write_private_synced(&path, record.to_string().as_bytes())
+}
+
+/// Keep the refusal ([`LINK_COPIED`]) and record the home's node key as copied, then the
+/// refusal itself.
+fn keep_copied(state: &LinkState, home: &Path) -> anyhow::Error {
+    let record = serde_json::json!({ "acpmux_home": home });
+    if let Err(error) =
+        state::write_private_synced(&state.dir().join(LINK_COPIED), record.to_string().as_bytes())
+    {
+        eprintln!("cmux link: could not keep the copied-home refusal: {error}");
+    }
+    if home.join(KeyFile::Node.file_name()).exists()
+        && let Err(error) = acpmux::cli::mesh_node_key::record_copied_key(home)
+    {
+        eprintln!("cmux link: could not record the copied node key: {error:#}");
+    }
+    copied_identity(state, home)
+}
+
+fn copied_identity(state: &LinkState, home: &Path) -> anyhow::Error {
+    anyhow::anyhow!(
         "key_adoption.cloned_home: the acpmux home {home} was copied here from another machine, \
          and with it this link's WireGuard identity in {dir} (its key, its paired peers and the \
          node key it serves): that machine's. This copy never serves it, so that machine's \

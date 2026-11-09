@@ -134,7 +134,13 @@ impl LinkState {
         }
         let text = serde_json::to_vec_pretty(config)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        write_private(&self.config_path(), &text)
+        write_private(&self.config_path(), &text)?;
+        // The box this link is set up on, kept beside its key: a copy of this directory on
+        // another machine never serves it (`key_adoption::refuse_copied`).
+        if config.server_identity.is_none() {
+            super::key_adoption::stamp_once(self)?;
+        }
+        Ok(())
     }
 
     /// Moves this install's WireGuard key, paired peers and adoption record

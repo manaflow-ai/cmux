@@ -908,9 +908,10 @@ async fn an_explicit_lock_dir_that_is_not_the_acpmux_home_never_adopts() {
     assert!(adopts(&state, &machine.home, Some(&machine.home)).unwrap());
 }
 
-/// Marks the acpmux home `home` as copied here from another machine, the way
-/// acpmux's clone check reads it: its machine record is marked `cloned`.
-fn copied_from_another_machine(home: &Path) {
+/// Puts in acpmux home `home` a machine record joined on another box and not
+/// settled yet (`cloned` unset: its node key not replaced), the way a copy
+/// looks before acpmux's daemon first starts on the new machine.
+fn joined_on_another_box(home: &Path) {
     use std::os::unix::fs::OpenOptionsExt as _;
     use std::os::unix::fs::PermissionsExt as _;
     std::fs::create_dir_all(home).unwrap();
@@ -919,7 +920,7 @@ fn copied_from_another_machine(home: &Path) {
         "credential": "cmm_original", "machine_id": "machine_original", "team_id": "team",
         "name": "original", "hub_origin": "https://example.com", "last_heartbeat": null,
         "revoked": false, "wgPublicKey": "original-key", "credential_generation": 1,
-        "host_fingerprint": "another-box", "cloned": true,
+        "host_fingerprint": "another-box",
     });
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -930,44 +931,57 @@ fn copied_from_another_machine(home: &Path) {
     std::io::Write::write_all(&mut file, record.to_string().as_bytes()).unwrap();
 }
 
-/// Review F2 at 9e91bcea: a home copied from another machine, with a link
-/// that adopted its node key, never serves that key (nor the link's own) and
-/// so never answers the original machine's peers; the refusal stays after a
-/// new join. The original machine, on its own home, still serves.
+/// Whether this box has an OS machine identity: without one acpmux's clone
+/// check compares nothing, and neither do these tests.
+fn box_named() -> bool {
+    let named = acpmux::cli::mesh_node_key::box_stamp().is_some();
+    if !named {
+        eprintln!("skipped: this box names no machine, so no copy can be told apart");
+    }
+    named
+}
+
+async fn adopted_machine() -> Machine {
+    let machine = machine();
+    pair(&machine, &[record("inst_b", [2; 32])]);
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
+    machine
+}
+
+async fn refused(machine: &Machine, home: Option<&Path>) -> String {
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    match serve_key(&state, &holder, home).await {
+        Ok(served) => panic!("served {:?}", state::public_key(&served.key)),
+        Err(refused) => format!("{refused:#}"),
+    }
+}
+
+/// Review F2 at 9e91bcea: a copied home, not settled, with an adopted link
+/// never serves the original's node key (with the recorded home, and with
+/// none); the refusal is kept, also after a new join. The original serves.
 #[tokio::test]
 async fn a_copied_home_with_an_adopted_link_refuses_to_serve_and_the_original_still_does() {
-    let original = machine();
-    let copy = machine();
-    for machine in [&original, &copy] {
-        pair(machine, &[record("inst_b", [2; 32])]);
-        let state = LinkState::open(Some(machine.link.clone())).unwrap();
-        let holder = KeyHolder::acquire(&machine.home).unwrap();
-        serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
+    if !box_named() {
+        return;
     }
-    copied_from_another_machine(&copy.home);
-    let state = LinkState::open(Some(copy.link.clone())).unwrap();
-    let holder = KeyHolder::acquire(&copy.home).unwrap();
-    // With the recorded home, and with none (the adoption record names it).
+    let original = adopted_machine().await;
+    let copy = adopted_machine().await;
+    joined_on_another_box(&copy.home);
     for home in [Some(copy.home.as_path()), None] {
-        let Err(refused) = serve_key(&state, &holder, home).await else {
-            panic!("a copied home's node key was served ({home:?})");
-        };
-        let refused = format!("{refused:#}");
+        let refused = refused(&copy, home).await;
         assert!(refused.starts_with("key_adoption.cloned_home:"), "{refused}");
         assert!(refused.contains("cmux host join") && refused.contains("aside"), "{refused}");
     }
     assert!(copy.link.join(LINK_COPIED).is_file(), "the refusal was not kept");
-    assert!(
-        !acpmux::cli::mesh_node_key::link_serves_node_key(Some(&copy.link), &copy.home),
-        "acpmux would keep its transport off for a link that refuses"
-    );
-    // A new join of the copy (its record no longer marked) leaves the copied link refused.
+    assert!(acpmux::cli::mesh_node_key::serves_copied_key(&copy.home));
+    assert!(!acpmux::cli::mesh_node_key::link_serves_node_key(Some(&copy.link), &copy.home));
+    // A new join of the copy leaves the copied link refused.
     std::fs::remove_file(copy.home.join("machine-credential.json")).unwrap();
-    let Err(refused) = serve_key(&state, &holder, Some(&copy.home)).await else {
-        panic!("a new join made the copied link's identity this machine's");
-    };
-    assert!(refused.to_string().starts_with("key_adoption.cloned_home:"), "{refused}");
-    // The original serves its node key.
+    let refused = refused(&copy, Some(&copy.home)).await;
+    assert!(refused.starts_with("key_adoption.cloned_home:"), "{refused}");
     let state = LinkState::open(Some(original.link.clone())).unwrap();
     let holder = KeyHolder::acquire(&original.home).unwrap();
     let served = serve_key(&state, &holder, Some(&original.home)).await.unwrap();
@@ -976,28 +990,87 @@ async fn a_copied_home_with_an_adopted_link_refuses_to_serve_and_the_original_st
     assert!(acpmux::cli::mesh_node_key::link_serves_node_key(Some(&original.link), &original.home));
 }
 
-/// A copied home whose link has not adopted yet: the link neither adopts
-/// (which would move the original's peers to this copy's key) nor serves its
-/// copied `private.key`, and makes no node key or record.
+/// Review F1 at d1e8f0ed: a leave on the copy finds it and removes the machine
+/// record before the link ever starts there. What it found is recorded first
+/// (the node key, `node-key-copied.json`), so the link's next start still
+/// refuses, with no record left to compare.
 #[tokio::test]
-async fn a_copied_home_is_never_adopted_nor_its_link_key_served() {
-    let copy = machine();
-    pair(&copy, &[record("inst_b", [2; 32])]);
-    copied_from_another_machine(&copy.home);
-    let state = LinkState::open(Some(copy.link.clone())).unwrap();
-    let holder = KeyHolder::acquire(&copy.home).unwrap();
-    let Err(refused) = serve_key(&state, &holder, Some(&copy.home)).await else {
-        panic!("a copied home was adopted");
+async fn a_copy_found_then_left_before_the_link_starts_still_refuses() {
+    if !box_named() {
+        return;
+    }
+    let copy = adopted_machine().await;
+    joined_on_another_box(&copy.home);
+    // What `machine leave` does on a copy: the clone check, then the record goes.
+    assert!(acpmux::cli::mesh_node_key::home_copied(&copy.home));
+    std::fs::remove_file(copy.home.join("machine-credential.json")).unwrap();
+    assert!(!copy.link.join(LINK_COPIED).exists(), "the link has not started yet");
+    let refused = refused(&copy, Some(&copy.home)).await;
+    assert!(refused.starts_with("key_adoption.cloned_home:"), "{refused}");
+    assert!(copy.link.join(LINK_COPIED).is_file());
+}
+
+/// The link's own state directory copied to another box (its stamp names
+/// that box): it serves neither the adopted node key nor, never adopted, its
+/// own key and pairings, with no machine record anywhere; and it records the
+/// node key as copied, so acpmux never serves it either.
+#[tokio::test]
+async fn a_link_state_dir_stamped_on_another_box_never_serves() {
+    if !box_named() {
+        return;
+    }
+    let stamped_elsewhere = |machine: &Machine| {
+        std::fs::write(machine.link.join(STAMP), r#"{"fingerprint":"another-box"}"#).unwrap();
     };
-    assert!(refused.to_string().starts_with("key_adoption.cloned_home:"), "{refused}");
-    assert!(!copy.home.join(KeyFile::Node.file_name()).exists(), "a node key was made");
-    assert!(adopted(&state).unwrap().is_none());
-    assert!(state.has_link_key(), "the copied link key is kept, unserved");
-    // Under its own lock too: the link key came with the copy.
-    drop(holder);
-    let own = KeyHolder::acquire(&copy.link).unwrap();
-    let Err(refused) = serve_key(&state, &own, Some(&copy.home)).await else {
+    let copy = adopted_machine().await;
+    stamped_elsewhere(&copy);
+    let refused_now = refused(&copy, Some(&copy.home)).await;
+    assert!(refused_now.starts_with("key_adoption.cloned_home:"), "{refused_now}");
+    assert!(acpmux::cli::mesh_node_key::serves_copied_key(&copy.home));
+    // Never adopted: its own copied key is not served either, under any lock.
+    let fresh = machine();
+    stamped_elsewhere(&fresh);
+    let state = LinkState::open(Some(fresh.link.clone())).unwrap();
+    let own = KeyHolder::acquire(&fresh.link).unwrap();
+    let Err(refused_own) = serve_key(&state, &own, Some(&fresh.home)).await else {
         panic!("a copied link key was served");
     };
-    assert!(refused.to_string().starts_with("key_adoption.cloned_home:"), "{refused}");
+    assert!(refused_own.to_string().starts_with("key_adoption.cloned_home:"), "{refused_own}");
+    assert!(adopted(&state).unwrap().is_none());
+}
+
+/// Review F1 at d1e8f0ed, the case with no evidence left: an adopted link with
+/// no stamp of the box it was adopted on fails closed.
+#[tokio::test]
+async fn an_adopted_link_with_no_stamp_fails_closed() {
+    let machine = adopted_machine().await;
+    std::fs::remove_file(machine.link.join(STAMP)).unwrap();
+    let refused = refused(&machine, Some(&machine.home)).await;
+    assert!(refused.starts_with("key_adoption.unstamped:"), "{refused}");
+    // A link never adopted and set up before stamps is stamped at its start.
+    let fresh = machine_named("inst_c");
+    std::fs::remove_file(fresh.link.join(STAMP)).unwrap();
+    let state = LinkState::open(Some(fresh.link.clone())).unwrap();
+    let own = KeyHolder::acquire(&fresh.link).unwrap();
+    serve_key(&state, &own, Some(&fresh.home)).await.unwrap();
+    assert!(fresh.link.join(STAMP).is_file());
+}
+
+/// A link of this box's own never adopts a node key recorded as copied; once
+/// acpmux replaces it (nothing adopted it), the link adopts the new one.
+#[tokio::test]
+async fn a_fresh_link_never_adopts_a_copied_node_key() {
+    let machine = machine();
+    let copied = acpmux::cli::mesh_node_key::load_or_create_at(&machine.home).unwrap();
+    acpmux::cli::mesh_node_key::record_copied_key(&machine.home).unwrap();
+    let refused = refused(&machine, Some(&machine.home)).await;
+    assert!(refused.starts_with("key_adoption.cloned_home:"), "{refused}");
+    assert!(!machine.link.join(LINK_COPIED).exists(), "the link's own identity is not copied");
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    assert!(adopted(&state).unwrap().is_none());
+    let fresh = acpmux::cli::mesh_node_key::replace_at(&machine.home).unwrap();
+    assert_ne!(fresh.public_key, copied.public_key);
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
+    assert_eq!(state::public_key(&served.key), fresh.public_key);
 }

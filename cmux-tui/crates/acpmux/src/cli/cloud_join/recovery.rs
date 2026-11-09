@@ -35,6 +35,9 @@ fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
     let Some(p) = read()? else { return Ok(false) };
     let copied = matches!((p.host_fingerprint.as_deref(), current), (Some(made), Some(here)) if made != here);
     if copied {
+        // The node key beside it is the original box's too: recorded before anything here
+        // could join with it or replace the record that would show the copy.
+        crate::cli::mesh_node_key::record_copied_key(&state_dir()).map_err(|_| store_error())?;
         std::fs::rename(state_dir().join(FILE), state_dir().join(COPIED))
             .map_err(|_| store_error())?;
         sync_ancestors(&state_dir()).map_err(|_| store_error())?;
@@ -238,6 +241,11 @@ async fn probe(p: &Pending) -> Result<Probe> {
 }
 
 fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<()> {
+    // The record replaced here may be the only evidence that this home is a copy whose node
+    // key is the original's: a copy it shows is recorded (`copied_here`) before it goes.
+    if let Some(old) = load().map_err(|_| store_error())? {
+        let _ = copied_here(&state_dir(), &old, host_fingerprint::current().as_deref());
+    }
     authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
     let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(|_| store_error())?);
     write_durable(&credential_path(), &bytes, true).map_err(|_| store_error())?;

@@ -232,9 +232,67 @@ pub(crate) fn recorded_link_dir(home: &Path) -> Option<std::path::PathBuf> {
 }
 
 /// Whether acpmux home `home` was copied here from another machine: the one clone check
-/// (`cloud_join::copied_from_another_box_at`), for the daemon and the cmux link alike.
+/// (`cloud_join::copied_from_another_box_at`), for the daemon and the cmux link alike. A copy
+/// it finds is recorded ([`record_copied_key`]) before it answers.
 pub fn home_copied(home: &Path) -> bool {
     crate::cli::cloud_join::copied_from_another_box_at(home)
+}
+
+/// In an acpmux home: the public half of a node key found copied from another machine
+/// ([`record_copied_key`]). Never removed; it stops naming the key in use once the key is
+/// replaced.
+pub const COPIED_KEY: &str = "node-key-copied.json";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CopiedKey {
+    /// Standard base64; none when the home had no node key yet.
+    #[serde(default)]
+    public_key: Option<String>,
+}
+
+/// Record, synced, that the node key now in `home` was copied from another machine, before
+/// anything removes the evidence (a leave deletes the machine record) or keeps the key (the
+/// link adopted it). Only the first record counts: a later one would name the fresh key this
+/// box was given.
+pub fn record_copied_key(home: &Path) -> Result<()> {
+    let path = home.join(COPIED_KEY);
+    if std::fs::symlink_metadata(&path).is_ok() {
+        return Ok(());
+    }
+    let public_key =
+        public_key_at(home).map(|key| base64::engine::general_purpose::STANDARD.encode(key));
+    write_record(&path, &serde_json::to_vec(&CopiedKey { public_key })?)
+}
+
+/// Whether the node key now in `home` is one recorded as copied from another machine
+/// ([`record_copied_key`]): nobody serves it here, not the WireGuard transport, the hub
+/// carrier nor the cmux link. A record that cannot be read counts as naming it (fail closed).
+pub fn serves_copied_key(home: &Path) -> bool {
+    let path = home.join(COPIED_KEY);
+    let text = match std::fs::read(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(_) => return true,
+    };
+    let Ok(record) = serde_json::from_slice::<CopiedKey>(&text) else { return true };
+    let Some(named) = record.public_key else { return false };
+    public_key_at(home)
+        .map(|key| base64::engine::general_purpose::STANDARD.encode(key))
+        .is_some_and(|now| now == named)
+}
+
+/// This box's stamp: the fingerprint acpmux's clone check compares (`cloud_join`
+/// `host_fingerprint`), or none when the OS names no machine.
+pub fn box_stamp() -> Option<String> {
+    crate::cli::cloud_join::host_fingerprint::current()
+}
+
+/// Whether `stamp`, recorded on the box that wrote it, is this box, by acpmux's clone check
+/// (`host_fingerprint::same_box`, with `home`'s copy markers). A box with no fingerprint now
+/// compares nothing, as acpmux does.
+pub fn stamped_here(home: &Path, stamp: &str) -> bool {
+    box_stamp()
+        .is_none_or(|here| crate::cli::cloud_join::host_fingerprint::same_box(home, stamp, &here))
 }
 
 /// Whether the cmux link in `link_dir` serves the node key in `home` (or will, at its next
