@@ -211,10 +211,9 @@ pub async fn platform(
 /// ([`cmux_link::carrier_role`]), which the session host writes first on
 /// every grant-admitted mux-control stream: `None` for any other line.
 pub fn role_taken(line: &str) -> Option<String> {
-    let request: serde_json::Value = serde_json::from_str(line).ok()?;
-    (request["cmd"] == cmux_link::carrier_role::COMMAND).then(|| {
-        format!("{}\n", serde_json::json!({"id": cmux_link::carrier_role::REQUEST_ID, "ok": true}))
-    })
+    let request: Value = serde_json::from_str(line).ok()?;
+    (request["cmd"] == cmux_link::carrier_role::COMMAND)
+        .then(|| format!("{}\n", json!({"id": cmux_link::carrier_role::REQUEST_ID, "ok": true})))
 }
 
 pub async fn fake_mux(path: &Path) {
