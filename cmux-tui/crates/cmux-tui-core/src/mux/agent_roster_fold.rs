@@ -397,6 +397,21 @@ impl Mux {
                 self.agent_roster_worker.replay.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(replay) = slot.as_mut() {
                 #[cfg(test)]
+                {
+                    let mut gate = self
+                        .agent_roster_worker
+                        .replay_gate
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner);
+                    if let Some((entered, release)) = gate.as_ref() {
+                        if entered.send(()).is_ok() && release.recv().is_ok() {
+                            replay.stop_after_next_page();
+                        } else {
+                            *gate = None;
+                        }
+                    }
+                }
+                #[cfg(test)]
                 fold.note_io_for_test();
                 let reader = fold.reader(&self.journal_kernel);
                 let journal = BackgroundRosterJournal { mux: self, reader };
@@ -405,6 +420,9 @@ impl Mux {
                     Ok(agent_roster_restore::ReplayProgress::Paused) => {
                         drop(slot);
                         drop(fold);
+                        // The slice moved the roster: a subscriber's live
+                        // count is read again from it.
+                        self.activity.note_roster_changed();
                         self.continue_agent_roster_replay_later();
                         return pass.retire;
                     }
@@ -533,6 +551,7 @@ impl Mux {
             }
         }
         drop(fold);
+        let replay_finished = replayed.is_some();
         if let Some(diagnostic) = replayed {
             eprintln!("cmux-tui: the background agent roster replay finished");
             // The reconcile the start skipped while the roster was behind.
@@ -545,8 +564,13 @@ impl Mux {
             self.apply_roster_delta(delta, &kind);
         }
         // The live agent count reads the roster; an activity event sent
-        // between the request and this pass read the old count.
-        if changed || retired {
+        // between the request and this pass read the old count. The end of a
+        // background replay counts as a change whatever it folded: a
+        // subscriber that came during the replay got a count from a roster
+        // still behind the journal (its own snapshot or an event), and its
+        // replayed records apply no deltas, so only a fresh full snapshot
+        // brings that view to the current state.
+        if changed || retired || replay_finished {
             self.activity.note_roster_changed();
         }
         left

@@ -23,7 +23,7 @@ const LISTED_SKIPPED_RANGES: usize = 4;
 
 /// How the restore fold reads and checkpoints the journal tail.
 #[derive(Clone, Copy)]
-pub(super) struct RosterFoldLimits {
+pub(crate) struct RosterFoldLimits {
     /// Records per journal page.
     pub(super) page: usize,
     /// Pages between saves of the roster and its cursor. A replay from zero
@@ -170,14 +170,29 @@ pub(super) fn restore_agent_roster(
     let budget = STARTUP_BUDGET_FOR_TEST.with(std::cell::Cell::get).unwrap_or(STARTUP_BUDGET);
     #[cfg(not(test))]
     let budget = STARTUP_BUDGET;
-    restore_agent_roster_within(registry, RosterFoldLimits::STARTUP, Some(budget))
+    #[allow(unused_mut)]
+    let mut limits = RosterFoldLimits::STARTUP;
+    #[cfg(test)]
+    if let Some(page) = PAGE_FOR_TEST.with(std::cell::Cell::get) {
+        limits.page = page;
+    }
+    restore_agent_roster_within(registry, limits, Some(budget))
 }
 
 #[cfg(test)]
 thread_local! {
     /// Test seam: the start's roster budget on this thread.
-    pub(super) static STARTUP_BUDGET_FOR_TEST: std::cell::Cell<Option<Duration>> =
+    pub(crate) static STARTUP_BUDGET_FOR_TEST: std::cell::Cell<Option<Duration>> =
         const { std::cell::Cell::new(None) };
+    /// Test seam: the start's roster page size on this thread.
+    pub(crate) static PAGE_FOR_TEST: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+    /// Test seam: a mux opened on this thread hands its background replay a
+    /// gate. Before each slice the owner signals the first end and waits on
+    /// the second, and each slice folds one page. A dropped end opens it.
+    pub(crate) static REPLAY_GATE_FOR_TEST: std::cell::RefCell<
+        Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
+    > = const { std::cell::RefCell::new(None) };
 }
 
 /// `restore_agent_roster` with no time budget: the whole tail is folded.
@@ -250,6 +265,12 @@ pub(super) fn restore_agent_roster_within(
 }
 
 impl AgentRosterReplay {
+    /// Test seam: the next fold stops after one more page.
+    #[cfg(test)]
+    pub(super) fn stop_after_next_page(&mut self) {
+        self.limits.stop_after_pages = Some(self.pages + 1);
+    }
+
     /// Folds the journal from the roster's cursor through the start's head,
     /// until `deadline`. Saves the roster and its cursor every
     /// `save_every_pages` pages, and once at the end when anything changed.
