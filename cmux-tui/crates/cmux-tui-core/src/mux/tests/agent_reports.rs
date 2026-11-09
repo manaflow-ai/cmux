@@ -642,3 +642,62 @@ fn agent_session_id_survives_restart() {
     drop(reopened);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// An agent's last reply is memory only (`mux/agent_prompts.rs`): `session.snapshot` shows it as
+/// `extra.last_reply`, but the journal checkpoint, which is written to the registry database,
+/// leaves it out. The durable `extra.agent_session_id` of the hook roster stays in both.
+#[test]
+fn a_checkpoint_keeps_no_last_reply_of_an_agent() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-checkpoint-last-reply-{}", WorkspacePublicId::random().unwrap()));
+    let session = "checkpoint-last-reply";
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let mux = Mux::from_workspace_registry(
+        session.into(),
+        SurfaceOptions::default(),
+        registry,
+        ProviderWorkspaceState::default(),
+        true,
+    )
+    .unwrap();
+    let created = public_request(
+        &mux,
+        "checkpoint-last-reply-create",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "initial_content":"terminal",
+        }),
+        Some("checkpoint-last-reply-create"),
+    );
+    let terminal_id =
+        TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+            .unwrap();
+    mux.append_journal_ingress(
+        &claude_hook(
+            &terminal_id,
+            "SessionStart",
+            serde_json::json!({"session_id":"claude-checkpoint"}),
+        ),
+        "test",
+        "checkpoint-last-reply-hook",
+    )
+    .unwrap();
+    assert!(mux.note_agent_reply(&terminal_id, "CHECKPOINT_REPLY_SENTINEL"));
+    mux.forget_agent_reply(&terminal_id);
+
+    let live = crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"].clone();
+    assert_eq!(live[0]["extra"]["last_reply"], "CHECKPOINT_REPLY_SENTINEL");
+
+    let captured = crate::journal_checkpoint::capture(&mux).unwrap();
+    let agents = &captured.state["session_snapshot"]["agents"];
+    assert_eq!(agents.as_array().map(Vec::len), Some(1), "{agents}");
+    assert_eq!(agents[0]["extra"].get("last_reply"), None, "{agents}");
+    assert_eq!(agents[0]["extra"]["agent_session_id"], "claude-checkpoint");
+    assert!(!captured.state.to_string().contains("CHECKPOINT_REPLY_SENTINEL"));
+
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -491,6 +491,7 @@ impl Hub {
                     opts.provenance.as_ref(),
                     opts.human_authenticated,
                     opts.wake_or_fail,
+                    opts.reply_reader.clone(),
                     &mut accept,
                 ))
                 .await;
@@ -581,6 +582,21 @@ impl Hub {
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // What it asks of this chat: another agent's only, `result` when it named none.
         let class = crate::prompt_class::of_message(opts.class, agent.is_some());
+        // A question no caller reads the reply of, from a session that did not start this chat
+        // and that the inbox did not take: its reply goes back when the turn that answers it ends
+        // (`question_replies.rs`). It is due under this prompt until its turn is known: its steer
+        // is written into the running turn (`steer_end.rs`), or its own turn starts (below).
+        // Dropped with this request when neither happened.
+        let _reply_due = {
+            let provenance = opts.provenance.as_ref();
+            let subagent = provenance
+                .and_then(|p| p.get(crate::prompt_provenance::FROM_SUBAGENT))
+                .filter(|s| s.is_object())
+                .cloned();
+            let reads = opts.reply_reader.is_some() || opts.wake_or_fail;
+            let asker = super::question_replies::asker_of(provenance);
+            self.question_reply_pending(session, &prompt_id, asker, subagent, class, reads)
+        };
         if steer_now {
             if cloud_turn.is_some() {
                 return Err(RpcError::invalid_params(
@@ -588,11 +604,18 @@ impl Hub {
                 ));
             }
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
+            let steer_id = prompt_id.clone();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             // Boxed: the steer's future stays out of this one, which every prompt's caller holds
             // on its stack (a debug build's test thread has little room).
-            return Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
-                .await;
+            let steered =
+                Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
+                    .await;
+            // A steer refused or taken back unread answers no question in that turn.
+            if steered.is_err() {
+                self.question_replies_settled(session, &steer_id, false);
+            }
+            return steered;
         }
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
@@ -822,6 +845,11 @@ impl Hub {
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        // This turn answers the questions its prompt and the joined ones carry
+        // (`question_replies.rs`).
+        for id in std::iter::once(&prompt_id).chain(parts.iter().map(|part| &part.prompt_id)) {
+            self.question_reply_in_turn(session, id, &turn_id);
+        }
         let team_prompt_ids: Vec<_> = std::iter::once(prompt_id.clone())
             .chain(parts.iter().map(|part| part.prompt_id.clone()))
             .collect();
@@ -1769,7 +1797,7 @@ impl Hub {
         self.save_meta(session);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
-        self.inbox_turn_ended(session);
+        self.inbox_turn_ended(session, turn_id, turn, true);
         match stopped_early {
             Some(e) => Err(e),
             None => result,
@@ -1858,7 +1886,7 @@ impl Hub {
             }
             self.save_meta(session);
             self.lane_turn_ended(session, false, turn);
-            self.inbox_turn_ended(session);
+            self.inbox_turn_ended(session, turn_id, turn, false);
             return;
         }
         let mut e = e.clone();
@@ -1886,7 +1914,7 @@ impl Hub {
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);
-        self.inbox_turn_ended(session);
+        self.inbox_turn_ended(session, turn_id, turn, false);
     }
 
     /// Waits until the inbound loop handled every agent message queued before

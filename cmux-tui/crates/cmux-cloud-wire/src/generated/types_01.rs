@@ -492,6 +492,8 @@ pub struct CloudPlanUsage {
     pub active: i64,
     pub saved: i64,
     pub vm_hours_used: Option<WireNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub vm_hours_used_by_you: Option<Option<WireNumber>>,
     pub period_end: i64,
 }
 

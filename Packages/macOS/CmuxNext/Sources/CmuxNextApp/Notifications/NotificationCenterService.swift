@@ -444,8 +444,8 @@ final class NotificationCenterService {
     /// terminal input did in the old app; focus, selection, and typing in
     /// a page or find bar keep it.
     private func clearUnreadMark(ofTab tab: String) {
-        // Runs per keystroke: no tab walk unless some workspace is marked.
-        guard let services, services.daemon.store.workspaces.contains(where: \.markedUnread),
+        // Runs per keystroke: no workspace or tab walk unless some workspace is marked (a kept count).
+        guard let services, services.daemon.store.unreadTotals.markedWorkspaces > 0,
               let workspace = WorkspaceUnreadMark.workspace(ofTab: tab, in: services.daemon.store),
               workspace.markedUnread else { return }
         // One clear per echo window, however fast the keys come.
