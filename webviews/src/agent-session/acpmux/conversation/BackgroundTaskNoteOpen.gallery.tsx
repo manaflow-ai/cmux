@@ -142,7 +142,7 @@ export default componentEntry<Props>({
       play: openWithOutput,
     },
     "hold-named": {
-      note: "An agent's Monitor timer it named \"hold\" (`sleep 840; echo t`), closed: it reads as the tray reads it, \"Waiting 14m · hold\", never the bare name (Leo, 2026-11-05: \"what are you even holding for?\"). The command as typed is its tooltip.",
+      note: 'An agent\'s Monitor timer it named "hold" (`sleep 840; echo t`), closed: it reads as the tray reads it, "Waiting 14m · hold", never the bare name (Leo, 2026-11-05: "what are you even holding for?"). The command as typed is its tooltip.',
       props: {
         task: {
           toolCallId: "bg-hold",
@@ -169,7 +169,7 @@ export default componentEntry<Props>({
       play: openWithOutput,
     },
     "wait-for-file-named": {
-      note: "A wait for a review's output file an agent named \"review result\": \"Waiting for b0luhqojj.output · review result\".",
+      note: 'A wait for a review\'s output file an agent named "review result": "Waiting for b0luhqojj.output · review result".',
       props: {
         task: {
           toolCallId: "bg-review",
