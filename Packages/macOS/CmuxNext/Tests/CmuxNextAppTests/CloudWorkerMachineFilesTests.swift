@@ -129,6 +129,12 @@ struct CloudWorkerMachineFilesTests {
         await #expect(throws: CloudAPIError.http(status: 501, code: "machine.unsupported", message: nil)) {
             _ = try await api.prepareSCP("m1", publicKey: "ssh-ed25519 AAAA")
         }
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
+            _ = try await api.createPreviewShareLink("m1", port: 3000)
+        }
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
+            _ = try await api.revokePreviewShareLink("m1", port: 3000, linkID: "link_1")
+        }
         #expect(WorkerAPI.seen.isEmpty)
     }
 

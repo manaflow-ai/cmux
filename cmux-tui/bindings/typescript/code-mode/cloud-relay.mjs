@@ -77,6 +77,11 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
     let value;
     try { value = await response.json(); } catch { value = null; }
     if (!response.ok) throw new Error(typeof value?.message === "string" ? value.message : typeof value?.error === "string" ? value.error : `Cloud API request failed (${response.status})`);
+    // A protocol op's refusal (quota, plan, validation) is a 200 whose body says `ok: false`.
+    if (value?.ok === false) {
+      const error = value.error;
+      throw new Error(typeof error?.message === "string" ? error.message : typeof error?.code === "string" ? error.code : typeof error === "string" ? error : "Cloud operation refused");
+    }
     return value?.value ?? value;
   }
   return { request };

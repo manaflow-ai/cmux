@@ -94,6 +94,16 @@ test("a machine's exec and file ops go to cmux-platform's machine routes", async
   await assert.rejects(broker.request("vm.fs.read", { vm_id: "vm_fixture", path: "/a/../b" }), /without '\.\.'/);
 });
 
+test("a protocol op's ok:false answer is a refusal, not a result", async () => {
+  const vectors = JSON.parse(readFileSync(fileURLToPath(new URL("../../../../backend/catalog/cloud-vectors.json", import.meta.url)), "utf8"));
+  const vector = Object.values(vectors).flatMap((v) => Array.isArray(v) ? v : []).find((v) => v?.name === "machine.create.quota");
+  assert.ok(vector, "the quota vector exists");
+  const body = vector.responses[0].body;
+  const broker = createCloudBroker({ catalog: relayCatalog, apiUrl: "https://cloud.test", bearerToken: "fixture-secret",
+    fetchImpl: async () => new Response(JSON.stringify(body), { status: 200 }) });
+  await assert.rejects(broker.request("vm.create", { name: "sixth box" }, "key-create-quota"), /this plan allows 5 active machines/);
+});
+
 test("classic publication, domain and API key ops are gone from the relay", async () => {
   const broker = createCloudBroker({ catalog: relayCatalog, apiUrl: "https://cloud.test", bearerToken: "fixture-secret", fetchImpl: async () => { throw new Error("no request"); } });
   for (const operation of ["vm.domain.list", "vm.publication.create", "vm.api.provision", "vm.publication.api-key.revoke"]) {
