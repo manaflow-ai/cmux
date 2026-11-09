@@ -21,6 +21,14 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
+Inside a session, run the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute
+path that runs it, also inside cmux. Use it in place of `acpmux` in every
+command, as in `"$ACPMUX_BIN" send NAME "text"`. The `acpmux` on your PATH can
+be another, older build (a login profile puts `~/.local/bin` first). A CLI
+older than the daemon does not say who runs it: the daemon records its sends as
+an unverified program, not as you or the person, and refuses it what only the
+person's terminal may do (`caller.old_client`).
+
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
 fork of your own chat that keeps its history),
@@ -182,9 +190,10 @@ the person's prompt. What the receiver gets depends on who you are to it:
   next Bash command or one of those MCP calls: a subagent that makes no such
   call any more does not get it. Once it has ended, the report goes to the
   lead, saying `This report is for your TYPE subagent ID`. If it ended with no
-  `SubagentStop` hook, its reports wait until no subagent of the lead runs. A
-  background task a subagent starts (`bg_start`) still sends its end message
-  to the lead's chat: a subagent passes `notify: false` and reads the task
+  `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
+  end message of a background task it started (`bg_start`, `run_wait`) takes
+  the same rule. On a path that names no subagent (a cmux workflow script), a
+  subagent passes `notify: false` and reads the task
   with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
   subagent ID)` and ends its turn with its answer; it does not send it to the
   lead.
