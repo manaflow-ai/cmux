@@ -61,9 +61,30 @@ pub(super) enum ResponseView {
     /// `terminal <t> screen read` without `--details`: the screen's `text`
     /// alone, as it shows (W3-H).
     ScreenText,
+    /// `agent report`: the reported record says `ended` where the daemon
+    /// says `done` (a session that ended), as `agent list` does (W5-Q).
+    AgentReport,
+}
+
+impl ResponseView {
+    /// The `result` this view prints.
+    pub(super) fn project(&self, result: Value) -> Value {
+        result
+    }
 }
 
 impl CommandPlan {
+    /// `agent report`: the reported record with the CLI's `ended` word.
+    fn agent_report(self) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::AgentReport;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
+
     /// `terminal <t> screen read`: human output prints the screen text only.
     fn screen_text(self) -> Self {
         match self {
@@ -1822,19 +1843,19 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             let terminal = flags.required("terminal")?;
             validate_prefixed_id("terminal", "term", &terminal)?;
             let state = flags.required("state")?;
-            validate_one_of("--state", &state, &["working", "blocked", "idle", "done", "unknown"])?;
+            validate_one_of(
+                "--state",
+                &state,
+                &["working", "blocked", "idle", "ended", "done", "unknown"],
+            )?;
             let source = flags.required("source")?;
             validate_one_of("--source", &source, &["hook", "socket"])?;
-            let mut params = json!({
-                "terminal_id": terminal,
-                "state": state,
-                "source": source,
-            })
-            .as_object()
-            .cloned()
-            .expect("literal object");
+            let mut params = Map::new();
+            params.insert("terminal_id".into(), json!(terminal));
+            params.insert("state".into(), json!(state));
+            params.insert("source".into(), json!(source));
             insert_optional_string(&mut params, flags, "source-session", "source_session");
-            request(ResourceOperation::AgentReport, &selectors, flags, params)
+            Ok(request(ResourceOperation::AgentReport, &selectors, flags, params)?.agent_report())
         }
         _ => usage("agent action"),
     }
@@ -3100,7 +3121,15 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
 }
 
 pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
-    let result = crate::agent_hook_install::run(&plan);
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut result = crate::agent_hook_install::run(&plan);
+    #[cfg(unix)]
+    if plan.action == crate::agent_hook_install::Action::Status {
+        result.value = super::agent_hook_status::with_pane_helper(
+            result.value,
+            super::agent_hook_status::pane_helper(),
+        );
+    }
     if result.failed {
         let error = json!({
             "code": "local.agent_hooks",
@@ -4505,6 +4534,32 @@ mod tests {
             assert_eq!(list.status, Some(status));
         }
         assert!(parse(&strings(&["agent", "list", "--state", "busy"])).is_err());
+    }
+
+    /// W5-Q (A2): `done` is only a finished turn nobody viewed. A session
+    /// that ended is `ended` on the CLI: `agent report --state ended`
+    /// reports the daemon's `done`, and the report's record says `ended`.
+    /// The wire keeps its word.
+    #[test]
+    fn w5q_agent_report_says_ended_for_an_ended_session() {
+        const TERMINAL: &str = "term_55555555555555555555555555555555";
+        let report = protocol(&[
+            "agent",
+            "report",
+            "--terminal",
+            TERMINAL,
+            "--state",
+            "ended",
+            "--source",
+            "socket",
+        ]);
+        assert_eq!(report.params["state"], "done");
+        let shown = report.view.project(json!({
+            "value": {"terminal_id": TERMINAL, "state": "done", "source": "socket"},
+        }));
+        assert_eq!(shown["value"]["state"], "ended", "{shown}");
+        let working = report.view.project(json!({"value": {"state": "working"}}));
+        assert_eq!(working["value"]["state"], "working");
     }
 
     #[test]

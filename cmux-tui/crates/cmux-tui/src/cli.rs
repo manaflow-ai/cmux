@@ -4,6 +4,8 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
+#[cfg(unix)]
+mod agent_hook_status;
 mod agent_list;
 mod agent_names;
 mod agent_start;
@@ -597,6 +599,16 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
+    scope_help_with_keys(scope, catalog, || crate::config::load().keys)
+}
+
+/// [`scope_help_for`] with the key bindings `help keys` lists read from
+/// `keys` (the person's config in the CLI; fixed bindings in a test).
+fn scope_help_with_keys(
+    scope: &str,
+    catalog: &'static crate::localization::Catalog,
+    _keys: impl FnOnce() -> crate::config::Keys,
+) -> Cow<'static, str> {
     if let Some(path) = scope.strip_prefix(ACTION_TOPIC)
         && let Some(help) = command::action_help(path, "cmux")
     {
@@ -1114,6 +1126,35 @@ mod tests {
         };
         assert_eq!(topic, "server stats");
         assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
+    }
+
+    /// W5-Q (bench r4 #10): `cmux help keys` was an unknown scope. It now
+    /// prints the TUI's key bindings (the prefix and each bound action, in
+    /// the person's language).
+    #[test]
+    fn w5q_help_keys_lists_the_tui_key_bindings() {
+        let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(&["help", "keys"])) else {
+            panic!("help keys must be a help topic");
+        };
+        assert_eq!(topic, "keys");
+        // Fixed bindings, not the person's config: a changed `split-right`
+        // on the machine must not change this result.
+        let keys = crate::config::Keys::default;
+        let split = keys().shortcut_label(crate::config::Action::SplitRight).unwrap_or_default();
+        assert!(!split.is_empty(), "split-right has a default binding");
+        let english = scope_help_with_keys(
+            "keys",
+            crate::localization::catalog_for_locale("en_US.UTF-8"),
+            keys,
+        );
+        assert!(english.contains("Split right"), "{english}");
+        assert!(english.contains(&split), "{split}: {english}");
+        let japanese = scope_help_with_keys(
+            "keys",
+            crate::localization::catalog_for_locale("ja_JP.UTF-8"),
+            keys,
+        );
+        assert!(japanese.contains("右に分割"), "{japanese}");
     }
 
     #[test]
