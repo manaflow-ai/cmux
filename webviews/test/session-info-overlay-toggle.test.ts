@@ -344,22 +344,17 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
               await page.evaluate(
                 () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
               );
-              // Only running, finite animations: a paused one never finishes. Capped, so a stuck one
-              // fails the measurement below instead of the whole file's time limit.
+              // Every running, finite animation in the card done (a paused one never finishes).
               await panel.evaluate((node) =>
-                Promise.race([
-                  Promise.all(
-                    node
-                      .getAnimations({ subtree: true })
-                      .filter(
-                        (animation) =>
-                          animation.playState === "running" &&
-                          animation.effect?.getComputedTiming().endTime !== Infinity,
-                      )
-                      .map((animation) => animation.finished.catch(() => {})),
-                  ),
-                  new Promise((done) => setTimeout(done, 2_000)),
-                ]),
+                Promise.all(
+                  node
+                    .getAnimations({ subtree: true })
+                    .filter(
+                      (animation) =>
+                        animation.playState === "running" && animation.effect?.getComputedTiming().endTime !== Infinity,
+                    )
+                    .map((animation) => animation.finished.catch(() => {})),
+                ),
               );
             };
             const rows = context.locator(".ui-disclosure-panel");
