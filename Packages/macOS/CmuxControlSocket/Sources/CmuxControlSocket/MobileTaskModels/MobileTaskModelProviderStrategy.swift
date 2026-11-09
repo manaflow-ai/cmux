@@ -154,10 +154,14 @@ public struct MobileTaskModelProviderStrategy: Sendable {
         return models.first { $0.id == configuredID }
     }
 
+    // `env` sets the entrypoint without shell-specific prefix-assignment
+    // syntax (fish before 3.1 has none), and the `/bin/sh` trampoline takes the
+    // executable as `$0`, so `env` never reads a path containing `=` as another
+    // assignment.
     private static func claudeModelListCommand(executable: String) -> String {
         #"""
         set -o pipefail
-        /usr/bin/printf '%s\n' '{"type":"control_request","request_id":"cmux-list-options","request":{"subtype":"list_models"}}' | CLAUDE_CODE_ENTRYPOINT=cmux-task-models \#(executable) -p --input-format stream-json --output-format stream-json --include-partial-messages --verbose
+        /usr/bin/printf '%s\n' '{"type":"control_request","request_id":"cmux-list-options","request":{"subtype":"list_models"}}' | /usr/bin/env CLAUDE_CODE_ENTRYPOINT=cmux-task-models /bin/sh -c 'exec "$0" "$@"' \#(executable) -p --input-format stream-json --output-format stream-json --include-partial-messages --verbose
         """#
     }
 }

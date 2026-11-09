@@ -84,11 +84,17 @@ public actor MobileTaskModelDiscovery {
         for provider: MobileTaskModelProvider
     ) async -> MobileTaskModelListResult {
         let configuredPath = provider == .claude ? await customClaudePath() : nil
-        // File checks on a user-chosen path can block on a stalled volume, so
-        // they run off this actor and never hold up other providers' requests.
-        let claudeExecutable = await Task.detached(priority: .utility) {
-            Self.resolvedClaudeExecutable(configuredPath: configuredPath)
-        }.value
+        // File checks on a user-chosen path can block on a stalled volume. They
+        // run on a GCD queue, off this actor and off the cooperative pool, so a
+        // stalled check neither holds other providers' requests nor ties up a
+        // Swift concurrency thread.
+        let claudeExecutable = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(
+                    returning: Self.resolvedClaudeExecutable(configuredPath: configuredPath)
+                )
+            }
+        }
         let key = CacheKey(provider: provider, claudeExecutable: claudeExecutable)
         let currentTime = await now()
         if let cached = cache[key],
@@ -118,10 +124,10 @@ public actor MobileTaskModelDiscovery {
     /// Returns the configured Claude path when it is an absolute, existing,
     /// executable regular file, otherwise `claude` for login-shell lookup.
     ///
-    /// Matches `AgentExecutableResolver` and the terminal wrapper's
-    /// `find_real_claude`. A relative path has no terminal working directory
+    /// Mirrors the validity checks of `AgentExecutableResolver` and the
+    /// terminal wrapper's `find_real_claude`. A relative path has no terminal working directory
     /// to resolve against for a phone request, so it falls back as well.
-    nonisolated static func resolvedClaudeExecutable(configuredPath: String?) -> String {
+    static func resolvedClaudeExecutable(configuredPath: String?) -> String {
         guard let path = configuredPath?.trimmingCharacters(in: .whitespacesAndNewlines),
               path.hasPrefix("/") else {
             return "claude"
