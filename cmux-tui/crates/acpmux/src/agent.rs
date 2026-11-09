@@ -89,6 +89,26 @@ pub enum Inbound {
     LinkBroken { agent: u64 },
 }
 
+#[cfg(all(test, unix))]
+#[path = "agent_idle_tests.rs"]
+mod idle_tests;
+
+/// Tests only: how often the readers on this thread's runtime woke to check their agent's
+/// process while its output was quiet (`agent_idle_tests.rs`).
+#[cfg(test)]
+pub(crate) mod leader_wakeups {
+    thread_local! {
+        static WAKEUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+    pub(crate) fn count() {
+        WAKEUPS.with(|w| w.set(w.get() + 1));
+    }
+    /// The wakeups since the last take.
+    pub(crate) fn take() -> u64 {
+        WAKEUPS.with(|w| w.replace(0))
+    }
+}
+
 /// Tests only: the agent generation `ChildAgent::replay_pending` reports as replaying.
 #[cfg(test)]
 pub(crate) static TEST_REPLAYING: std::sync::atomic::AtomicU64 =
@@ -963,6 +983,8 @@ impl ChildAgent {
                     let next = tokio::select! {
                         next = lines.next_line() => next,
                         _ = leader_check.tick() => {
+                            #[cfg(test)]
+                            leader_wakeups::count();
                             if let Some(at) = leader_gone {
                                 // Give buffered output a moment, then stop reading.
                                 if at.elapsed() >= LEADER_DRAIN {

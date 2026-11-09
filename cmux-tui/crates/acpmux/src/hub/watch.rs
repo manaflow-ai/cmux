@@ -36,6 +36,29 @@ use std::time::Duration;
 #[path = "watch_seed_tests.rs"]
 mod seed_tests;
 
+#[cfg(test)]
+#[path = "watch_idle_tests.rs"]
+mod idle_tests;
+
+/// Tests only: what the watches of this thread's runtime cost while transcripts are quiet: timer
+/// wakeups, and hops to a blocking thread (`watch_idle_tests.rs`).
+#[cfg(test)]
+pub(super) mod idle_cost {
+    thread_local! {
+        static COST: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+    }
+    pub(crate) fn wakeup() {
+        COST.with(|c| c.set((c.get().0 + 1, c.get().1)));
+    }
+    pub(crate) fn blocking() {
+        COST.with(|c| c.set((c.get().0, c.get().1 + 1)));
+    }
+    /// (wakeups, blocking hops) since the last take.
+    pub(crate) fn take() -> (u64, u64) {
+        COST.with(|c| c.replace((0, 0)))
+    }
+}
+
 /// How often a watched transcript is checked for new lines.
 const POLL: Duration = Duration::from_millis(400);
 
@@ -166,6 +189,8 @@ impl Hub {
                     return;
                 }
                 let file = watching.file.clone();
+                #[cfg(test)]
+                idle_cost::blocking();
                 let read =
                     tokio::task::spawn_blocking(move || read_lines(&file, watching.offset)).await;
                 let (lines, offset) = match read {
@@ -180,6 +205,8 @@ impl Hub {
                 }
                 if !more {
                     tokio::time::sleep(POLL).await;
+                    #[cfg(test)]
+                    idle_cost::wakeup();
                 }
             }
         });
