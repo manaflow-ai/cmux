@@ -290,7 +290,9 @@ test("a list cut at the read limit says how many there were", async () => {
   root = undefined;
   // An acpmux that does not send `total` reads as the rows it sent.
   await render();
-  expect(host.querySelector(".wq-status")?.textContent).not.toContain(translate("waiting.more", { shown: 3, total: 3 }));
+  expect(host.querySelector(".wq-status")?.textContent).not.toContain(
+    translate("waiting.more", { shown: 3, total: 3 }),
+  );
 });
 
 test("leaving the tab while an answer's refresh is under way reads again on the return", async () => {
@@ -311,8 +313,9 @@ test("leaving the tab while an answer's refresh is under way reads again on the 
   expect(reads).toBe(3);
 });
 
-test("a comment that reached neither the chat nor the clipboard stays on the page to copy", async () => {
+test("a comment that reached neither the chat nor the clipboard stays on the page until dismissed", async () => {
   const pr = items[2]!;
+  const cache = createQueueCache();
   root = createRoot(host);
   await act(async () =>
     root!.render(
@@ -322,6 +325,7 @@ test("a comment that reached neither the chat nor the clipboard stays on the pag
         verdict={async () => ({ recorded: true, commentCopied: false })}
         open={() => {}}
         exportAudit={async () => 0}
+        cache={cache}
       />,
     ),
   );
@@ -335,6 +339,39 @@ test("a comment that reached neither the chat nor the clipboard stays on the pag
   await act(async () => {
     host.querySelector<HTMLButtonElement>('.wq-comment-actions button[data-tone="allow"]')!.click();
   });
-  expect(host.querySelector(".wq-notice")?.textContent).toContain(translate("waiting.commentNotCopied"));
-  expect(host.querySelector(".wq-notice-detail")?.textContent).toBe("Split the commit");
+  expect(host.querySelector(".wq-unsent")?.textContent).toContain(translate("waiting.commentNotCopied"));
+  expect(host.querySelector(".wq-unsent .wq-notice-detail")?.textContent).toBe("Split the commit");
+  // Another notice (an export) leaves it.
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('button[aria-keyshortcuts="x"]')!.click();
+  });
+  expect(host.querySelector(".wq-unsent .wq-notice-detail")?.textContent).toBe("Split the commit");
+  // So does a tab switch: History's cache keeps it.
+  act(() => root?.unmount());
+  await render(async () => ({ items: [pr], now: 10 }), false, { cache });
+  expect(host.querySelector(".wq-unsent .wq-notice-detail")?.textContent).toBe("Split the commit");
+  // Dismissed, it goes.
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>(".wq-unsent button")!.click();
+  });
+  expect(host.querySelector(".wq-unsent")).toBeNull();
+  expect(cache.unsent()).toBeUndefined();
+});
+
+test("a key that moved while another tab showed reads on the return, even once it came back", async () => {
+  const cache = createQueueCache();
+  let reads = 0;
+  const load = async () => {
+    reads++;
+    return { items, now: 10 };
+  };
+  cache.note("a");
+  await render(load, false, { cache, refreshKey: "a" });
+  expect(reads).toBe(1);
+  act(() => root?.unmount());
+  // History saw the key move and come back while Costs showed.
+  cache.note("b");
+  cache.note("a");
+  await render(load, false, { cache, refreshKey: "a" });
+  expect(reads).toBe(2);
 });

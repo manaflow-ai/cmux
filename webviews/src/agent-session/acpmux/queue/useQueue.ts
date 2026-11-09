@@ -4,7 +4,9 @@
 // machine's included), and after an answer. Never on a timer, and never again only because
 // the person switched away and back (shared-projections.md): History keeps the last answer and
 // the key it was read at (`QueueCache`) while another tab shows, and a return with the same key
-// shows it at once without a read. A read that answers after a newer one started, or after the
+// shows it at once without a read. History tells the cache every key it sees meanwhile
+// (`QueueCache.note`): a key that moved and came back (a peer chat's ask A, then running, then ask
+// B, which the snapshot keys alike) still reads on the return. A read that answers after a newer one started, or after the
 // page unmounted, is dropped.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOlderDaemon, readQueue, type QueueReply } from "./queueModel";
@@ -28,11 +30,20 @@ export type QueueCache = {
   /// The key a finished read was asked at; `undefined` while one is under way, so a page that
   /// leaves before it lands (an answer's refresh) reads again on its return.
   readAt(key: string | undefined): void;
+  /// A key History saw, the page shown or not: one that differs from the last seen forgets the
+  /// read's key, so a return reads again even if the key came back to it meanwhile.
+  note(key: string): void;
+  /// A Request changes comment neither the chat nor the clipboard took: kept until dismissed,
+  /// across tab switches, as its only copy.
+  unsent(): string | undefined;
+  keepUnsent(text: string | undefined): void;
 };
 
 export function createQueueCache(): QueueCache {
   let state: QueueState | undefined;
   let key: string | undefined;
+  let seen: string | undefined;
+  let unsent: string | undefined;
   return {
     state: () => state,
     key: () => key,
@@ -41,6 +52,14 @@ export function createQueueCache(): QueueCache {
     },
     readAt: (next) => {
       key = next;
+    },
+    note: (next) => {
+      if (seen !== undefined && next !== seen) key = undefined;
+      seen = next;
+    },
+    unsent: () => unsent,
+    keepUnsent: (text) => {
+      unsent = text;
     },
   };
 }

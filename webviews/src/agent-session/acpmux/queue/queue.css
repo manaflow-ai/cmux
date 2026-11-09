@@ -54,3 +54,4 @@
 .wq-notice[data-tone="error"]{color:var(--danger)}
 /* A comment that reached neither the chat nor the clipboard: whole, selectable, never taller than a few lines. */
 .wq-notice-detail{display:block;max-height:calc(var(--text-body--line-height) * 4);overflow:auto;white-space:pre-wrap;color:var(--agent-text);user-select:text}
+.wq-unsent{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-space-1);font-size:var(--text-detail);color:var(--danger)}

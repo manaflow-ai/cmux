@@ -8,7 +8,7 @@
 // every ask across agents and machines) and Costs (ledger/LedgerScreen.tsx, what agents spent).
 // They live here because this page is one the app already opens; they need no host of their own.
 import type { ComponentProps } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import { useT } from "../i18n";
 import { LedgerScreen } from "../ledger/LedgerScreen";
@@ -52,6 +52,11 @@ export function HistoryScreen({
   // at once, and Waiting on you reads again only when what it lists changed meanwhile.
   const [queueCache] = useState(createQueueCache);
   const [ledgerCache] = useState(createLedgerCache);
+  // Every key the queue would read at, while it shows or not: a change while hidden reads on return.
+  const queueKey = queue?.refreshKey;
+  useEffect(() => {
+    if (queueKey !== undefined) queueCache.note(queueKey);
+  }, [queueCache, queueKey]);
   const tabbed = Boolean(queue || ledger);
   const shown: HistoryTab = (tab === "queue" && !queue) || (tab === "ledger" && !ledger) ? "history" : tab;
   return (

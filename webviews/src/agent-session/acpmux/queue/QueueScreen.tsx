@@ -50,7 +50,7 @@ type Props = QueueActions & {
 };
 
 /// `detail`: words the person wrote that reached nowhere, shown whole so they can copy them.
-type Notice = { tone: "ok" | "error"; text: string; detail?: string };
+type Notice = { tone: "ok" | "error"; text: string };
 
 const NO_ITEMS: QueueItem[] = [];
 const rowId = (id: string) => `wq-row-${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
@@ -75,6 +75,16 @@ export function QueueScreen({
   const [selected, setSelected] = useState<string | undefined>();
   const [comment, setComment] = useState<{ id: string; text: string } | undefined>();
   const [notice, setNotice] = useState<Notice | undefined>();
+  /// A comment neither the chat nor the clipboard took: its only copy, kept (in History's cache
+  /// too) until the person dismisses it, whatever notice comes after.
+  const [unsent, setUnsentState] = useState<string | undefined>(() => cache?.unsent());
+  const setUnsent = useCallback(
+    (next: string | undefined) => {
+      cache?.keepUnsent(next);
+      setUnsentState(next);
+    },
+    [cache],
+  );
   const lastIndex = useRef(0);
   const list = useRef<HTMLDivElement>(null);
 
@@ -150,9 +160,12 @@ export function QueueScreen({
           // The chat did not get the words: say where they went (historyPages.ts `verdict`).
           const copied = (reply as { commentCopied?: unknown } | null)?.commentCopied;
           if (copied === true) setNotice({ tone: "ok", text: t("waiting.commentCopied") });
-          // Neither the chat nor the clipboard took it: the words stay on the page to copy by hand.
-          else if (copied === false && text)
-            setNotice({ tone: "error", text: t("waiting.commentNotCopied"), detail: text });
+          // Neither the chat nor the clipboard took it: the words stay on the page to copy by hand,
+          // after any earlier ones still kept.
+          else if (copied === false && text) {
+            const kept = cache?.unsent();
+            setUnsent(kept ? `${kept}\n\n${text}` : text);
+          }
           return reply;
         },
         t("waiting.answerFailed"),
@@ -160,7 +173,7 @@ export function QueueScreen({
       );
       list.current?.focus({ preventScroll: true });
     },
-    [settle, verdict, t],
+    [settle, verdict, t, cache, setUnsent],
   );
 
   const runExport = useCallback(() => {
@@ -208,7 +221,13 @@ export function QueueScreen({
     }
     // An ask with no single-use answer of that kind (only a lasting grant, or a question) is
     // answered in its chat: the shortcut opens it rather than doing nothing.
-    if (!give(current, queueAnswers(current).find((each) => each.tone === kind))) open(current);
+    if (
+      !give(
+        current,
+        queueAnswers(current).find((each) => each.tone === kind),
+      )
+    )
+      open(current);
   };
   useEffect(() => {
     const events = [
@@ -335,9 +354,17 @@ export function QueueScreen({
             {t("waiting.key.export")}
           </span>
         </div>
+        {unsent !== undefined && (
+          <div className="wq-unsent" role="alert">
+            <span className="wq-unsent-text">{t("waiting.commentNotCopied")}</span>
+            <span className="wq-notice-detail">{unsent}</span>
+            <button type="button" className="wq-link" onClick={() => setUnsent(undefined)}>
+              {t("waiting.dismissComment")}
+            </button>
+          </div>
+        )}
         <output className="wq-notice" data-tone={notice?.tone}>
           {notice?.text ?? ""}
-          {notice?.detail && <span className="wq-notice-detail">{notice.detail}</span>}
         </output>
       </div>
     </div>
