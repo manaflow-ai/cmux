@@ -333,7 +333,7 @@ pub(super) async fn enroll_at(
     // aside or could not revoke is still revoked: those are the last join's, never this one's.
     remove_mark(home, LEAVE_FILE);
     let revoke_own = |record: MachineCredential| port.revoke_own(record);
-    revoke_retired(home, &revoke_own).await;
+    let _ = revoke_retired(home, &revoke_own).await;
     revoke_stale_own(home, current, &revoke_own).await;
     // A home copied from another box: marked, and this box given its own node key, before the
     // key is compared with the hub's rows below.
