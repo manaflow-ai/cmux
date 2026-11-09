@@ -715,6 +715,52 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(late.took).toBeLessThanOrEqual(bound);
   });
 
+  test("no request or pause starts when less than one whole millisecond of its bound is left", async () => {
+    // A clock with fractions of a millisecond, whose reads move it on a little, as time passes between a check and the call.
+    const run = async (beforeMs: number) => {
+      let t = now;
+      const starts: Array<{ kind: string; timeoutMs: number; leftMs: number }> = [];
+      // The delete's own start: the clock read just before the read before the delete (each read adds 0.1 ms).
+      let retryEnd = Infinity;
+      let end = Infinity;
+      let reads = 0;
+      const scope: MachineScope = {
+        scope: "personal",
+        list: async () => [machine()],
+        get: async (_m, timeoutMs) => {
+          if (!reads) { retryEnd = t - 0.1 + 180_000; end = retryEnd + 120_000; }
+          starts.push({ kind: reads ? "read" : "before", timeoutMs, leftMs: (reads ? end : retryEnd) - t });
+          // The read before the delete takes beforeMs; each read back runs to its timeout.
+          t += reads++ ? timeoutMs - 0.3 : beforeMs;
+          return machine();
+        },
+        remove: async (_m, _k, timeoutMs) => {
+          starts.push({ kind: "delete", timeoutMs, leftMs: retryEnd - t });
+          t += timeoutMs - 0.3;
+          return { status: 409, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } };
+        },
+      };
+      const sleeps: number[] = [];
+      const r = await deleteJourneyMachines([id(1)], [scope], "t", { now: () => (t += 0.1), sleep: async (ms) => { sleeps.push(ms); t += ms; }, log: () => undefined });
+      return { r, starts, sleeps, t, end };
+    };
+    // The read before the delete leaves 0.5 ms of the retry window: no delete is sent at all.
+    const a = await run(180_000 - 0.5);
+    expect(a.starts.filter((x) => x.kind === "delete")).toEqual([]);
+    // Every run: each request starts with at least 1 whole ms left and a timeout of at least 1 ms within it;
+    // every pause is at least 1 ms; nothing ends past the bound.
+    for (const { starts, sleeps, t, end } of [a, await run(10), await run(29_999.7)]) {
+      for (const x of starts) {
+        expect(x.timeoutMs).toBeGreaterThanOrEqual(1);
+        expect(Number.isInteger(x.timeoutMs)).toBe(true);
+        // (0.01 ms of slack for float rounding at epoch-millisecond magnitudes)
+        expect(x.leftMs).toBeGreaterThanOrEqual(x.timeoutMs - 0.01);
+      }
+      for (const ms of sleeps) expect(ms).toBeGreaterThanOrEqual(1);
+      expect(t).toBeLessThanOrEqual(end + 1);
+    }
+  });
+
   test("a delete that never reads back gone fails", async () => {
     const f = fake([machine()]);
     const scope = { ...f.scope, get: async () => machine() };

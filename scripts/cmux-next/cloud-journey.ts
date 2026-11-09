@@ -1187,19 +1187,24 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
     const t0 = deps.now();
     const retryEnd = t0 + retryMs;
     const deadline = retryEnd + readBackMs;
-    const left = (until: number) => until - deps.now();
-    // A request gets at most its usual timeout, never past `until`.
-    const cut = (until: number, usual: number) => Math.max(1, Math.min(usual, left(until)));
+    // Whole milliseconds left before `until`: a request or a pause starts only when at least one is.
+    const left = (until: number) => Math.floor(until - deps.now());
+    // A request's timeout: its usual one, never past `until`; 0 when no whole millisecond is left (skip it).
+    const cut = (until: number, usual: number) => Math.max(0, Math.min(usual, left(until)));
     let m: any;
-    try { m = await s.get(id, cut(retryEnd, 30_000)); } catch (e) { fail(`read before delete: ${(e as Error).message}`); continue; }
+    const first = cut(retryEnd, 30_000);
+    if (first < 1) { fail("read before delete: no time left"); continue; }
+    try { m = await s.get(id, first); } catch (e) { fail(`read before delete: ${(e as Error).message}`); continue; }
     const e = m ? journeyMachineEligible(m, deps.now()) : { eligible: false, reason: "gone from the account" };
     if (!m || !e.eligible) { fail(`not eligible at delete time: ${e.reason}`); continue; }
     deps.log(JSON.stringify({ before_delete: id, scope: s.scope, name: m.name, status: m.status, created: iso(m.created_at), last_active: iso(m.last_active_at) }));
     const key = `${runTag}-delete-${id}`;
     const cutOff = (message: string): Answer => ({ status: 0, body: { ok: false, error: { code: "transport", message, retryable: true } } });
     let answer: Answer = cutOff("no delete sent: the read before it used the time");
-    for (let attempt = 1; left(retryEnd) > 0; attempt++) {
-      try { answer = await s.remove(id, key, cut(retryEnd, 60_000)); } catch (e) { answer = cutOff((e as Error).message); }
+    for (let attempt = 1; ; attempt++) {
+      const budget = cut(retryEnd, 60_000);
+      if (budget < 1) break;
+      try { answer = await s.remove(id, key, budget); } catch (e) { answer = cutOff((e as Error).message); }
       const again = opRetryable(answer.body) || answer.status === 0;
       const pause = Math.min(5_000 * attempt, 30_000, left(retryEnd));
       if (!again || pause <= 0) break;
@@ -1214,9 +1219,11 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
       continue;
     }
     let gone = "";
-    while (left(deadline) > 0) {
+    for (;;) {
+      const budget = cut(deadline, 30_000);
+      if (budget < 1) break;
       try {
-        const back = await s.get(id, cut(deadline, 30_000));
+        const back = await s.get(id, budget);
         if (!back || back.status === "deleting" || back.status === "deleted") { gone = back ? back.status : "gone"; break; }
       } catch { /* read again */ }
       const pause = Math.min(3_000, left(deadline));
