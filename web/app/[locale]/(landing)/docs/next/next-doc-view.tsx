@@ -24,12 +24,17 @@ function nextDocChannelPath(slug: string): string {
   return docsChannel() === "nightly" ? nextDocPublicPath(slug) : nextDocHref(slug);
 }
 
-/** Metadata of a cmux-next page: its nightly URL is canonical, the one place it is served. */
+/**
+ * Metadata of a cmux-next page. The nightly zone is noindex (docs/layout.tsx)
+ * because it repeats the release docs, but only it serves these pages, so
+ * they stay indexable and name their nightly URL as canonical.
+ */
 export function nextDocMetadata(page: NextDocPage, locale: string) {
   return {
     title: page.title,
     description: page.description,
     alternates: buildAlternates(locale, nextDocChannelPath(page.slug), baseDocsLocales),
+    robots: { index: true, follow: true },
   };
 }
 
