@@ -165,17 +165,12 @@ async fn a_rotation_that_would_strand_peers_is_refused_and_names_them() {
     let platform = platform(dir.path().into(), None, takes_the_key).await;
     let rekeys = tokio::sync::Mutex::new(());
     let stranded = vec!["lab-1 (WireGuard)".to_owned(), "hub peer AAAA".to_owned()];
-    let refused = rotate(
-        &rekeys,
-        &machine(&platform.origin),
-        dir.path(),
-        None,
-        TOKEN,
-        &stranded,
-        |_| panic!("nothing is recorded"),
-    )
-    .await
-    .unwrap_err();
+    let refused =
+        rotate(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, &stranded, |_| {
+            panic!("nothing is recorded")
+        })
+        .await
+        .unwrap_err();
     assert_eq!(reason(&refused), "machine.rotate_strands_peers", "{refused:?}");
     assert!(refused.message.contains("lab-1 (WireGuard)"), "{}", refused.message);
     assert!(refused.message.contains("hub peer AAAA"), "{}", refused.message);
@@ -214,17 +209,10 @@ async fn a_pending_rekey_is_finished_even_with_peers() {
     let platform = platform(dir.path().into(), None, takes_the_key).await;
     let rekeys = tokio::sync::Mutex::new(());
     let stranded = vec!["lab-1 (WireGuard)".to_owned()];
-    let answer = rotate(
-        &rekeys,
-        &machine(&platform.origin),
-        dir.path(),
-        None,
-        TOKEN,
-        &stranded,
-        |_| Ok(()),
-    )
-    .await
-    .unwrap();
+    let answer =
+        rotate(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, &stranded, |_| Ok(()))
+            .await
+            .unwrap();
     assert_eq!(answer["wgPublicKey"], candidate.as_str());
     assert_eq!(public_of(dir.path()), candidate);
 }
