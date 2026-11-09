@@ -194,7 +194,8 @@ pub enum State {
     NotLinked,
     /// Our entry, running this binary.
     Linked,
-    /// Our entry, running another acpmux (an older app's, a moved binary).
+    /// Our entry, running another acpmux (an older app's, a moved binary) or for another
+    /// acpmux home.
     Stale,
     /// An entry named [`SERVER_KEY`] this command did not write: left alone.
     Foreign,
@@ -245,7 +246,7 @@ pub fn status(env: &Env, app: App) -> Row {
         State::NotInstalled
     } else {
         match read_entry(env, app) {
-            Ok(entry) => classify(env, entry.as_ref()),
+            Ok(entry) => classify(env, app, entry.as_ref()),
             Err(e) => {
                 return Row { app, state: State::NotLinked, config, note: Some(format!("{e:#}")) };
             }
@@ -254,14 +255,16 @@ pub fn status(env: &Env, app: App) -> Row {
     Row { app, state, config, note: None }
 }
 
-fn classify(env: &Env, entry: Option<&Value>) -> State {
+fn classify(env: &Env, app: App, entry: Option<&Value>) -> State {
     let Some(entry) = entry else { return State::NotLinked };
     if entry.pointer(&format!("/env/{GUEST_ENV}")).and_then(Value::as_str).is_none() {
         return State::Foreign;
     }
     let ours = env.exe.to_string_lossy();
     let same_args = entry["args"] == json!(env.args);
-    if entry["command"].as_str() == Some(ours.as_ref()) && same_args {
+    // The env too: an entry for another acpmux home reaches another daemon.
+    let same_env = entry["env"] == env.entry_json(app)["env"];
+    if entry["command"].as_str() == Some(ours.as_ref()) && same_args && same_env {
         State::Linked
     } else {
         State::Stale

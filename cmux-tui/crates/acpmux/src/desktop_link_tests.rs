@@ -162,6 +162,24 @@ fn an_entry_of_ours_for_another_binary_is_stale_and_relinked() {
     assert_eq!(doc["mcpServers"]["cmux"]["command"], env.exe.to_string_lossy().as_ref());
 }
 
+/// Review F4 (#39320): an entry for another acpmux home reaches another daemon, so it is stale
+/// and link points it at this one.
+#[test]
+fn an_entry_for_another_acpmux_home_is_stale_and_relinked() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut env = env(dir.path(), None);
+    env.acpmux_home = Some(PathBuf::from("/tmp/acpmux-a"));
+    assert_eq!(link(&env, App::Codex, false).state, State::Linked);
+    env.acpmux_home = Some(PathBuf::from("/tmp/acpmux-b"));
+    assert_eq!(status(&env, App::Codex).state, State::Stale);
+    assert_eq!(link(&env, App::Codex, false).state, State::Linked);
+    let doc: toml::Table =
+        toml::from_str(&std::fs::read_to_string(env.config_path(App::Codex)).unwrap()).unwrap();
+    assert_eq!(doc["mcp_servers"]["cmux"]["env"]["ACPMUX_HOME"].as_str(), Some("/tmp/acpmux-b"));
+    env.acpmux_home = None;
+    assert_eq!(status(&env, App::Codex).state, State::Stale);
+}
+
 #[test]
 fn codex_gets_a_table_and_keeps_the_persons_comments_and_order() {
     let dir = tempfile::tempdir().unwrap();
