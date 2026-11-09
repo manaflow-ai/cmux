@@ -681,7 +681,8 @@ async fn a_stop_before_hub_ready_kills_a_hub_that_ignores_sigterm() {
     launcher.kill_after = Duration::from_millis(200);
     let config = Zeroizing::new(String::from("unused\n"));
     // The stop: the launch is dropped before the hub says it is ready.
-    let launch = launcher.launch(config, &dir.join("hub.sock"));
+    let socket = dir.join("hub.sock");
+    let launch = launcher.launch(config, &socket);
     assert!(tokio::time::timeout(Duration::from_millis(500), launch).await.is_err());
     let pid: libc::pid_t = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
