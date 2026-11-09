@@ -51,7 +51,11 @@ export function useWholeReport(agent: Source | undefined, open: boolean, fallbac
   // also outranks a `result` it extends: acpmux snapshots `result` at the end, and the reply's last
   // chunks may land after it (subagentFold.test.ts "late chunks ... across completion").
   const viewed = open && id ? lastReply(readView?.(id)) : undefined;
-  const reply = viewed && (!result || (viewed !== result && viewed.startsWith(result))) ? viewed : undefined;
+  // A page that starts mid-message holds only the reply's tail: it is whole only when it starts
+  // as the preview does.
+  const head = preview?.replace(/…$/u, "").trimEnd();
+  const starts = !!viewed && (!head || viewed.startsWith(head));
+  const reply = viewed && starts && (!result || (viewed !== result && viewed.startsWith(result))) ? viewed : undefined;
   const asks = !!(open && id && capped && !reply && mine?.wanted && mine.reply === undefined && readReply);
   useEffect(() => {
     if (!asks || !id || !readReply) return;

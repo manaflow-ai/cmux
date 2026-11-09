@@ -1116,6 +1116,8 @@ export class SubagentFold {
     // record says its reply (`reduceChild`) and is not overwritten.
     const said = text(change.result);
     if (said && change.state === "completed" && !this.recorded.has(agent.id)) agent.result = said;
+    // A resumed run's reply is a new one: the last run's result is not it.
+    else if (change.state === "running" && !this.recorded.has(agent.id)) delete agent.result;
     if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);

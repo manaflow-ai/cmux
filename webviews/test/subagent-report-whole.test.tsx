@@ -238,3 +238,17 @@ test("a reply's chunks after its end outrank the result acpmux snapshotted at th
   noRawMarks(report(host));
   expect(moreRow(host)).toBeNull();
 });
+
+test("a 4-backtick block holding a 3-backtick literal is whole, not a cut in code", () => {
+  const tail = "…intro.\n\n````md\n```\nliteral\n```\n````\n\nAfter.";
+  expect(wholeBlocksAfter(tail)).toBe("````md\n```\nliteral\n```\n````\n\nAfter.");
+});
+
+test("a loaded reply that starts mid-message is not whole: the card keeps Show more", async () => {
+  const view: AcpmuxRow[] = [{ id: "r", version: 1, at: 1, kind: "assistant", text: "finished worktrees** removed." }];
+  const host = render(agent({ lastMessage: capped(REPORT) }), { air: view }, async () => REPORT);
+  await open(host);
+  expect(report(host).textContent).not.toContain("removed.");
+  expect(moreRow(host)).not.toBeNull();
+  noRawMarks(report(host));
+});

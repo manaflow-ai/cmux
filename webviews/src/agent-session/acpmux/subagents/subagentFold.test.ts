@@ -1367,3 +1367,13 @@ test("a completed subagent's whole reply on its end is its result; its lastMessa
   feed(fold, update, { subagents: [{ id: "broke", parent: null, state: "failed", result: "partial" }] });
   expect(fold.all().find((one) => one.id === "broke")?.result).toBeUndefined();
 });
+
+test("a resumed subagent drops its last run's result", () => {
+  const fold = new SubagentFold();
+  const update = { sessionUpdate: "subagent_state_update" };
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "r", parent: null, state: "running" }] });
+  feed(fold, update, { subagents: [{ id: "r", parent: null, state: "completed", result: "First run." }] });
+  expect(fold.all().find((one) => one.id === "r")?.result).toBe("First run.");
+  feed(fold, update, { subagents: [{ id: "r", parent: null, state: "running" }] });
+  expect(fold.all().find((one) => one.id === "r")?.result).toBeUndefined();
+});

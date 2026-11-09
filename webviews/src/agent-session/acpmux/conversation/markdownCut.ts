@@ -65,15 +65,18 @@ export function wholeBlocksBefore(text: string): string {
 /// the one the cut went through.
 export function wholeBlocksAfter(text: string): string {
   const lines = text.trimStart().replace(/^…/u, "").split("\n");
-  // A tail that starts in code has an odd count of fence lines: its first one closes that code, so
-  // the cut block runs through it.
-  // That closing line is the cut block's end: what follows it is whole.
-  const fences = lines.filter((line) => FENCE.test(line)).length;
-  if (fences % 2 === 1)
-    return lines
-      .slice(lines.findIndex((line) => FENCE.test(line)) + 1)
-      .join("\n")
-      .trim();
+  // A tail that starts in code leaves a fence open when read from its top (a whole one never
+  // does): its first bare fence line closes that code and ends the cut block, so what follows is
+  // whole. A longer fence holding a shorter one's literal reads as closed and is kept.
+  if (fencedLines(lines).open !== undefined) {
+    const close = lines.findIndex((line) => FENCE.test(line) && !line.trim().replace(/^(`{3,}|~{3,})/, ""));
+    return close < 0
+      ? ""
+      : lines
+          .slice(close + 1)
+          .join("\n")
+          .trim();
+  }
   const { inside } = fencedLines(lines);
   // The first blank line outside a fence ends the cut block.
   for (let at = 0; at < lines.length; at += 1)
