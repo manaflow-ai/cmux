@@ -122,10 +122,10 @@ async fn send(me: App, args: &Value) -> Value {
 /// `acpmux send --no-wait --from APP -- TO TEXT`: the CLI names the sender, so the session reads
 /// the message as the app's, not as the person's own prompt (`cli/sender.rs`).
 async fn send_to_session(me: App, to: &str, text: &str) -> Result<String> {
-    let exe = std::env::current_exe()?;
     let message = format!("{text}{}", desktop_bridge::reply_hint(me));
-    let run = tokio::process::Command::new(exe)
-        .args(["send", "--no-wait", "--from", me.name, "--", to, &message])
+    // This binary under its prefix (`self_command.rs`): in the cmux app it is `cmux acp send`.
+    let run = crate::self_command::SelfCommand::current()?
+        .tokio_command(&["send", "--no-wait", "--from", me.name, "--", to, &message])
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)
         .output();

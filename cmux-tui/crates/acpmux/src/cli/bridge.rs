@@ -2,10 +2,11 @@
 //! Desktop to cmux, and message them from a shell or a cmux session.
 //!
 //! `connect` registers the `cmux-bridge` MCP server (`acpmux bridge mcp --as APP`,
-//! `acpmux_mcp_bridge.rs`) through each harness's own CLI (`codex mcp add`, `claude mcp add
+//! `acpmux_mcp_bridge.rs`) through each harness's own CLI (`codex mcp add`, `claude mcp add-json
 //! --scope user`), which Codex Desktop and Claude Code desktop read, and in the Claude Desktop
 //! app's `claude_desktop_config.json` when that app is installed. acpmux never edits Codex's
-//! `config.toml` or Claude Code's `.claude.json` itself (`trust.rs`).
+//! `config.toml` or Claude Code's `.claude.json` itself (`trust.rs`). A server already named
+//! `cmux-bridge` that does not run `bridge mcp --as` is someone else's and is never replaced.
 
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
@@ -131,24 +132,61 @@ async fn sender() -> String {
         .unwrap_or_else(|| format!("a terminal on {}", crate::host_pressure::host_name()))
 }
 
-/// The server's command line: this binary, `bridge mcp --as APP`.
+/// The server's command line: this acpmux binary and its prefix (`self_command.rs`: in the cmux
+/// app's multicall binary, which an `acpmux` link resolves to, it is `cmux acp …`), then
+/// `bridge mcp --as APP`.
 fn server_argv(app: App) -> Result<Vec<String>> {
-    let exe = std::env::current_exe().context("finding the acpmux binary")?;
-    Ok(vec![
-        exe.to_string_lossy().into_owned(),
-        "bridge".into(),
-        "mcp".into(),
-        "--as".into(),
-        app.address.into(),
-    ])
+    let me = crate::self_command::SelfCommand::current().context("finding the acpmux binary")?;
+    let mut argv = vec![me.exe.to_string_lossy().into_owned()];
+    argv.extend(me.args_lossy(&["bridge", "mcp", "--as", app.address]));
+    Ok(argv)
 }
 
-/// `ACPMUX_HOME` when this process has one, so the apps read the same mailboxes (Codex starts
-/// its MCP servers with a short env). Absolute: an app starts its server in another folder.
-fn home_env() -> Option<String> {
-    let home = std::env::var_os("ACPMUX_HOME").filter(|v| !v.is_empty())?;
-    let home = std::path::absolute(&home).unwrap_or_else(|_| PathBuf::from(home));
-    Some(format!("ACPMUX_HOME={}", home.display()))
+/// `ACPMUX_HOME=<this process's home>`, absolute, so the apps read the same mailboxes as this
+/// CLI: Codex starts its MCP servers with a short env, an app starts them in another folder, and
+/// a tagged build's home is not the default one (`config::set_home_override`).
+fn home_env() -> String {
+    let home = crate::config::home();
+    let home = std::path::absolute(&home).unwrap_or(home);
+    format!("ACPMUX_HOME={}", home.display())
+}
+
+/// A server entry is ours when it runs `bridge mcp --as`: one `connect` wrote, maybe for an
+/// older install. Any other server with our name is left alone.
+fn ours(args_text: &str) -> bool {
+    args_text.contains("bridge mcp --as")
+}
+
+/// Who holds the `cmux-bridge` name in a harness's own config.
+#[derive(Debug, PartialEq)]
+enum Holder {
+    Nobody,
+    Us,
+    Other,
+}
+
+async fn holder(harness: &str) -> Result<Holder> {
+    let get = run(&[harness, "mcp", "get", SERVER_NAME]).await?;
+    Ok(match get {
+        Err(_) => Holder::Nobody,
+        Ok(out) if ours(&out) => Holder::Us,
+        Ok(_) => Holder::Other,
+    })
+}
+
+/// Claude Code's user config, which `claude mcp add --scope user` writes; read only.
+fn claude_code_config() -> Option<PathBuf> {
+    match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()) {
+        Some(dir) => Some(PathBuf::from(dir).join(".claude.json")),
+        None => Some(dirs::home_dir()?.join(".claude.json")),
+    }
+}
+
+/// Our old entry in Claude Code's user config, to put back if the replacement fails.
+fn claude_code_entry() -> Option<Value> {
+    let bytes = std::fs::read(claude_code_config()?).ok()?;
+    let config: Value = serde_json::from_slice(&bytes).ok()?;
+    config.get("mcpServers")?.get(SERVER_NAME).cloned()
 }
 
 async fn connect(app: App, dry_run: bool) -> Vec<Value> {
@@ -157,44 +195,28 @@ async fn connect(app: App, dry_run: bool) -> Vec<Value> {
         Err(e) => return vec![step(false, format!("{}: {e:#}", app.name))],
     };
     let env = home_env();
-    let mut steps = Vec::new();
-    let mut add: Vec<String> = match app.harness {
-        "codex" => vec!["codex".into(), "mcp".into(), "add".into(), SERVER_NAME.into()],
-        _ => vec![
-            "claude".into(),
-            "mcp".into(),
-            "add".into(),
-            "--scope".into(),
-            "user".into(),
-            SERVER_NAME.into(),
-        ],
-    };
-    if let Some(env) = &env {
-        add.extend([if app.harness == "codex" { "--env" } else { "-e" }.into(), env.clone()]);
-    }
-    add.push("--".into());
-    add.extend(argv.iter().cloned());
-    if dry_run {
-        steps.push(step(true, format!("would run: {}", shell_line(&add))));
-    } else {
-        if app.harness == "claude" {
-            // `claude mcp add` refuses a name it has; a reconnect replaces it.
-            let _ = run_quiet(&["claude", "mcp", "remove", "--scope", "user", SERVER_NAME]).await;
-        }
-        steps.push(match run_quiet(&add.iter().map(String::as_str).collect::<Vec<_>>()).await {
-            Ok(()) => step(
-                true,
-                format!("{}: added {SERVER_NAME} with `{} mcp add`.", app.name, app.harness),
+    let entry = server_entry(&argv, &env);
+    let mut steps = vec![if dry_run {
+        step(
+            true,
+            format!(
+                "would add {SERVER_NAME} to {} with `{} mcp`: {}",
+                app.name,
+                app.harness,
+                shell_line(&argv)
             ),
-            Err(e) => step(false, format!("{}: `{}` failed: {e:#}", app.name, shell_line(&add))),
-        });
-    }
+        )
+    } else {
+        match register(app, &argv, &env, &entry).await {
+            Ok(text) => step(true, format!("{}: {text}", app.name)),
+            Err(e) => step(false, format!("{}: {e:#}", app.name)),
+        }
+    }];
     if app.harness == "claude" {
         let Some(path) = claude_app_config() else {
             steps.push(json!({"ok": true, "skipped": true, "text": "Claude Desktop app: not installed on this machine; skipped."}));
             return steps;
         };
-        let entry = server_entry(&argv, env.as_deref());
         steps.push(if dry_run {
             step(true, format!("would add {SERVER_NAME} to {}", path.display()))
         } else {
@@ -210,6 +232,57 @@ async fn connect(app: App, dry_run: bool) -> Vec<Value> {
     steps
 }
 
+/// Adds the server through the harness's own CLI. A `cmux-bridge` that is not ours is never
+/// touched; ours is replaced, and for Claude Code (whose `mcp add` refuses a name it has) put back
+/// when the replacement fails.
+async fn register(app: App, argv: &[String], env: &str, entry: &Value) -> Result<String> {
+    let held = holder(app.harness).await?;
+    if held == Holder::Other {
+        bail!(
+            "its `{SERVER_NAME}` server is not cmux's; not changed (`{} mcp remove {SERVER_NAME}` frees the name)",
+            app.harness
+        );
+    }
+    if app.harness == "codex" {
+        // `codex mcp add` replaces a server of the same name in one write.
+        let mut add = vec!["codex", "mcp", "add", SERVER_NAME, "--env", env, "--"];
+        add.extend(argv.iter().map(String::as_str));
+        run(&add).await?.map_err(anyhow::Error::msg)?;
+        return Ok(format!("added {SERVER_NAME} with `codex mcp add`."));
+    }
+    let old = if held == Holder::Us { claude_code_entry() } else { None };
+    if held == Holder::Us {
+        run(&["claude", "mcp", "remove", "--scope", "user", SERVER_NAME])
+            .await?
+            .map_err(anyhow::Error::msg)?;
+    }
+    let json = serde_json::to_string(
+        &json!({"type": "stdio", "command": entry["command"], "args": entry["args"], "env": entry["env"]}),
+    )?;
+    let added = run(&["claude", "mcp", "add-json", "--scope", "user", SERVER_NAME, &json]).await?;
+    if let Err(e) = added {
+        let restored = match &old {
+            Some(old) => run(&[
+                "claude",
+                "mcp",
+                "add-json",
+                "--scope",
+                "user",
+                SERVER_NAME,
+                &old.to_string(),
+            ])
+            .await?
+            .is_ok(),
+            None => false,
+        };
+        bail!(
+            "`claude mcp add-json` failed: {e}{}",
+            if restored { "; the earlier entry is back" } else { "" }
+        );
+    }
+    Ok(format!("added {SERVER_NAME} with `claude mcp add-json --scope user`."))
+}
+
 fn step(ok: bool, text: String) -> Value {
     json!({"ok": ok, "text": text})
 }
@@ -221,7 +294,8 @@ fn shell_line(argv: &[String]) -> String {
         .join(" ")
 }
 
-async fn run_quiet(argv: &[&str]) -> Result<()> {
+/// Runs a harness CLI: `Err` when it cannot start, `Ok(Err(stderr))` when it fails.
+async fn run(argv: &[&str]) -> Result<Result<String, String>> {
     let (program, args) = argv.split_first().context("empty command")?;
     let out = tokio::process::Command::new(program)
         .args(args)
@@ -229,10 +303,11 @@ async fn run_quiet(argv: &[&str]) -> Result<()> {
         .output()
         .await
         .with_context(|| format!("running {program}"))?;
-    if !out.status.success() {
-        bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
-    }
-    Ok(())
+    Ok(if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
+    })
 }
 
 /// The Claude Desktop app's config, when the app is installed: its config folder exists, or (a
@@ -245,12 +320,9 @@ fn claude_app_config() -> Option<PathBuf> {
         .then(|| dir.join("claude_desktop_config.json"))
 }
 
-fn server_entry(argv: &[String], env: Option<&str>) -> Value {
-    let mut entry = json!({"command": argv[0], "args": argv[1..]});
-    if let Some((key, value)) = env.and_then(|e| e.split_once('=')) {
-        entry["env"] = json!({key: value});
-    }
-    entry
+fn server_entry(argv: &[String], env: &str) -> Value {
+    let (key, value) = env.split_once('=').unwrap_or((env, ""));
+    json!({"command": argv.first(), "args": argv.get(1..).unwrap_or_default(), "env": {key: value}})
 }
 
 /// Sets `mcpServers.cmux-bridge` in the Claude Desktop app's config, keeping everything else.
@@ -268,6 +340,16 @@ fn add_to_claude_app_config(path: &Path, entry: &Value) -> Result<()> {
     let Some(servers) = servers.as_object_mut() else {
         bail!("mcpServers in {} is not an object; not changed", path.display());
     };
+    if let Some(held) = servers.get(SERVER_NAME)
+        && !ours(
+            &held["args"]
+                .as_array()
+                .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
+                .unwrap_or_default(),
+        )
+    {
+        bail!("its `{SERVER_NAME}` server in {} is not cmux's; not changed", path.display());
+    }
     servers.insert(SERVER_NAME.to_owned(), entry.clone());
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
@@ -298,7 +380,7 @@ mod tests {
                 "--as".into(),
                 "claude-desktop".into(),
             ],
-            Some("ACPMUX_HOME=/h"),
+            "ACPMUX_HOME=/h",
         );
         add_to_claude_app_config(&path, &entry).unwrap();
         let config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -317,6 +399,37 @@ mod tests {
         add_to_claude_app_config(&path, &json!({"command": "/opt/acpmux"})).unwrap();
         let config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(config["mcpServers"][SERVER_NAME]["command"], "/opt/acpmux");
+    }
+
+    #[test]
+    fn a_cmux_bridge_entry_that_is_not_ours_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claude_desktop_config.json");
+        let theirs =
+            r#"{"mcpServers": {"cmux-bridge": {"command": "/opt/other", "args": ["serve"]}}}"#;
+        std::fs::write(&path, theirs).unwrap();
+        assert!(add_to_claude_app_config(&path, &json!({"command": "/opt/acpmux"})).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), theirs);
+        // Ours, from an older install, is replaced.
+        let older = r#"{"mcpServers": {"cmux-bridge": {"command": "/old/acpmux", "args": ["bridge", "mcp", "--as", "claude-desktop"]}}}"#;
+        std::fs::write(&path, older).unwrap();
+        add_to_claude_app_config(&path, &json!({"command": "/new/acpmux"})).unwrap();
+        let config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(config["mcpServers"][SERVER_NAME]["command"], "/new/acpmux");
+    }
+
+    #[test]
+    fn the_server_runs_this_binary_under_its_prefix() {
+        let argv = server_argv(desktop_bridge::APPS[1]).unwrap();
+        assert!(argv.ends_with(&[
+            "bridge".into(),
+            "mcp".into(),
+            "--as".into(),
+            "codex-desktop".into()
+        ]));
+        let me = crate::self_command::SelfCommand::current().unwrap();
+        assert_eq!(argv[1..argv.len() - 4], me.args_lossy::<&str>(&[])[..]);
+        assert!(ours(&argv[1..].join(" ")));
     }
 
     #[test]
