@@ -114,52 +114,34 @@
    "shot": false
   },
   {
-   "title": "What lies under the drag's start point",
+   "title": "Drag the panel's edge 300px left, then drop (a trusted DevTools drag: the chat shows in Chromium's own child window, which posted AppKit events never reach)",
    "rpc": {
-    "method": "debug.agent_pane",
+    "method": "debug.page",
     "params": {
-     "action": "hover",
-     "x": 864,
-     "y": 450
+     "page": "cmux.agent",
+     "action": "drag",
+     "x1": 863,
+     "y1": 450,
+     "x2": 563,
+     "y2": 450,
+     "steps": 20
     }
    },
    "record": true,
-   "wait": 0.2,
-   "shot": false
-  },
-  {
-   "title": "Drag the panel's edge left, held",
-   "drag": {
-    "from": [
-     864,
-     450
-    ],
-    "to": [
-     714,
-     450
-    ],
-    "steps": 10,
-    "duration": 0.5,
-    "release": false
-   },
-   "wait": 0.5
-  },
-  {
-   "title": "On to the left, then drop",
-   "drag": {
-    "from": [
-     714,
-     450
-    ],
-    "to": [
-     564,
-     450
-    ],
-    "steps": 10,
-    "duration": 0.5,
-    "press": false
-   },
    "wait": 1.5
+  },
+  {
+   "title": "Where the panel's edge is after the drop",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-artifact > .ui-split-edge"
+    }
+   },
+   "record": true,
+   "wait": 0.5,
+   "shot": false
   },
   {
    "title": "The page after the drop",
