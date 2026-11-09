@@ -901,7 +901,8 @@ export async function syncTeamPlanMetadata(
 
 /**
  * The team metadata after mirroring the subscription, or null when it already
- * matches (so callers can skip the write and its lease).
+ * matches and the write can be skipped. Decide from a team read under the
+ * team lease; an unleased read can be stale.
  */
 export function nextTeamPlanMetadata(
   raw: unknown,

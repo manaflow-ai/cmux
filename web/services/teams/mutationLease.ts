@@ -6,9 +6,10 @@ import {
 
 /**
  * Lease key for a Stack team's metadata. Every read-modify-write of a team's
- * `clientReadOnlyMetadata` (admin Team grants, admin VM deals, the Stripe Team
- * subscription sync) runs under this key in the account-mutation lease table,
- * so one writer cannot store a stale copy over another's change.
+ * `clientReadOnlyMetadata` or `serverMetadata` (admin Team grants, admin VM
+ * deals, the Stripe Team subscription sync, the legacy coderouter vault) runs
+ * under this key in the account-mutation lease table, so one writer cannot
+ * store a stale copy over another's change.
  */
 export function teamMutationKey(teamId: string): string {
   return `team:${teamId}`;
