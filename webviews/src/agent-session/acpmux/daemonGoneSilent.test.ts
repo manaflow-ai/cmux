@@ -232,3 +232,51 @@ test("the bridge's own answers every 4 s do not put off the probe of a silent da
     client.close();
   }
 });
+
+// A chat switch after acpmux restarted: the pane sent its attach, detach and transcript reads with
+// no deadline, so none of them ever counted as waiting and the probe above never ran. The click
+// did nothing and the pane kept the dead socket until the app restarted (ask-fdfc5d8abb).
+for (const method of ["_acpmux/attach", "_acpmux/detach", "_acpmux/events", "_acpmux/view", "_acpmux/watch"]) {
+  test(`a chat switch's ${method} with no deadline of its own still gives up a silent daemon within 30 s`, async () => {
+    const { client, socket, request, lost, mockHost } = await connected([]);
+    try {
+      jest.useFakeTimers();
+      socket.silence();
+      const asked = (request as (method: string, params: Record<string, unknown>) => Promise<unknown>)(method, {
+        sessionId: mockHost.sessionId,
+      });
+      asked.catch(() => undefined);
+      for (let second = 0; second < 30 && lost() === 0; second++) {
+        jest.advanceTimersByTime(1_000);
+        await settle();
+      }
+      expect(lost()).toBe(1);
+      await expect(asked).rejects.toMatchObject({ interrupted: true });
+    } finally {
+      client.close();
+    }
+  });
+}
+
+test("a turn's session/prompt, which stays open while the agent works, never counts as waiting", async () => {
+  const { client, socket, request, lost, mockHost } = await connected(["session/prompt"]);
+  try {
+    jest.useFakeTimers();
+    let waited = false;
+    const asked = (request as (method: string, params: Record<string, unknown>) => Promise<unknown>)("session/prompt", {
+      sessionId: mockHost.sessionId,
+      prompt: [{ type: "text", text: "hi" }],
+    });
+    asked.catch(() => undefined);
+    for (let second = 0; second < 60; second++) {
+      jest.advanceTimersByTime(1_000);
+      await settle();
+      if ((client as unknown as { daemonWaitingSince?: number }).daemonWaitingSince !== undefined) waited = true;
+    }
+    expect(waited).toBe(false);
+    expect(lost()).toBe(0);
+    expect(socket.readyState).toBe(1);
+  } finally {
+    client.close();
+  }
+});

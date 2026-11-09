@@ -167,17 +167,11 @@ mod followups {
     #[test]
     fn phase_a_does_not_complete_with_a_staging_file_over_its_size_bound() {
         // Fewer segments than one periodic check: only the check at the end
-        // sees the file. A sparse tail past the bound stands in for staged
-        // records (SQLite reads the size in the file's header).
+        // sees the file. The bound is lowered under the new staging file's
+        // own pages, which stand in for staged records.
         let dir = temp_dir("staged-bytes");
         let db_path = registry(&dir, 100, 1);
-        drop(open_staging(&db_path, "registry-guard").unwrap());
-        fs::OpenOptions::new()
-            .write(true)
-            .open(staging_path(&db_path))
-            .unwrap()
-            .set_len((2 << 30) + 4096)
-            .unwrap();
+        STAGED_BYTES_LIMIT.with(|limit| limit.set(4096));
         // SAFETY: nextest runs each test in its own process. Under a shared
         // process the value only lowers the cleanup's free-space margin.
         unsafe { std::env::set_var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES", "0") };
@@ -211,6 +205,28 @@ mod followups {
         assert!(!failed_path(&db_path).exists(), "the open staged the tail and failed");
         assert!(!staging_path(&db_path).exists(), "the staging file stays");
         assert_eq!(fs::read(&db_path).unwrap(), before, "the registry changed");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+/// The staged size counts the pages a staging transaction left in the WAL.
+mod staged_size {
+    use super::*;
+
+    #[test]
+    fn the_staged_size_counts_pages_still_in_the_staging_wal() {
+        let dir = temp_dir("staged-wal");
+        let db_path = registry(&dir, 1, 0);
+        let staging = open_staging(&db_path, "registry-guard").unwrap();
+        // The pages stay in the WAL (no checkpoint), as a staging
+        // transaction's do until the next one.
+        staging.execute_batch("PRAGMA wal_autocheckpoint=0; CREATE TABLE pad(b);").unwrap();
+        staging.execute("INSERT INTO pad VALUES (zeroblob(1048576))", []).unwrap();
+        let limit = 512 * 1024;
+        assert!(file_len(&staging_path(&db_path)) < limit, "the pages reached the file");
+        let refusal = staged_bytes_over(&staging, limit).unwrap();
+        assert!(refusal.is_some(), "1 MiB staged in the WAL passed a 512 KiB bound");
+        drop(staging);
         fs::remove_dir_all(&dir).unwrap();
     }
 }
