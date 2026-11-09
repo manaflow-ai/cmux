@@ -140,6 +140,9 @@ test("an unverified sender gets the marker only: no 'self-declared' words anywhe
   expect(container.innerHTML).not.toContain("unauthenticated");
   expect(container.textContent).toContain("gcp-codex-swarm-05/cloud-start-matrix");
   expect(container.textContent).not.toContain("Received message from");
+  // Review of #37653: the marker is the one sign; the chip carries no "Unverified" word beside it.
+  expect(container.textContent).not.toMatch(/unverified/i);
+  expect(container.querySelectorAll(".cv-unverified").length).toBe(1);
 });
 
 test("an older acpmux's sender with only the suffix (no record) is marked unverified, the name bare", async () => {
@@ -295,7 +298,7 @@ test("a send and a subagent's report draw through the same row as a received mes
 });
 
 test("a group's hover lists its messages newest first, short names, two lines each, then +N more", async () => {
-  const { MessageGroupHover, hoverMessages } =
+  const { GroupHoverLookContext, MessageGroupHover, hoverMessages } =
     await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
   const list: IncomingMessage[] = Array.from({ length: 7 }, (_, index) => ({
     name: `gcp-agent-lane-3/lane-${index} ${SUFFIX}`,
@@ -303,7 +306,12 @@ test("a group's hover lists its messages newest first, short names, two lines ea
     raw: "",
     ...(index === 6 && { unverified: true as const }),
   }));
-  const container = await render(<MessageGroupHover list={hoverMessages(list)} />);
+  // The `messages` look (a gallery version; the digest is group-hover-digest.test.tsx).
+  const container = await render(
+    <GroupHoverLookContext.Provider value="messages">
+      <MessageGroupHover list={hoverMessages(list)} />
+    </GroupHoverLookContext.Provider>,
+  );
   const text = container.textContent ?? "";
   expect(text).not.toContain("self-declared");
   expect(text).not.toContain("[message");
@@ -318,7 +326,8 @@ test("a group's hover lists its messages newest first, short names, two lines ea
 });
 
 test("an inbox notice's hover lists every message of every thread, newest first, and counts the rest", async () => {
-  const { MessageGroupHover, inboxHover } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { GroupHoverLookContext, MessageGroupHover, inboxHover } =
+    await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
   const notice: InboxNotice = {
     threads: [
       {
@@ -367,7 +376,11 @@ test("an inbox notice's hover lists every message of every thread, newest first,
   ]);
   // 3 + 4 + 1 messages in all.
   expect(list.total).toBe(8);
-  const container = await render(<MessageGroupHover list={list} />);
+  const container = await render(
+    <GroupHoverLookContext.Provider value="messages">
+      <MessageGroupHover list={list} />
+    </GroupHoverLookContext.Provider>,
+  );
   const items = [...container.querySelectorAll(".cv-group-hover__item")];
   expect(items).toHaveLength(5);
   expect(items[0]?.textContent).toContain("third from a");
@@ -380,6 +393,108 @@ test("a lane batch's hover counts a preview-only delivery as its thread's whole 
   const list = hoverMessages([one("a", "older"), one("b", "newer")], [undefined, 6]);
   expect(list.messages.map((m) => m.text)).toEqual(["newer", "older"]);
   expect(list.total).toBe(7);
+});
+
+// Review of #37653: the "Received N messages" hover is newest first by when each message came
+// (an inbox message's `at`, else its row's), not by the rows' order reversed: a notice lists its
+// threads in its own order, which is not the messages' age.
+test("a lane batch's hover lists its messages newest first by their time, not their order", async () => {
+  const { hoverMessages } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const notice: InboxNotice = {
+    threads: [
+      {
+        threadId: "pr:1",
+        label: "#1",
+        from: ["vm/lane-a"],
+        count: 1,
+        preview: "",
+        blocker: false,
+        promptIds: ["a1"],
+        messages: [{ promptId: "a1", from: "vm/lane-a", text: "newest, listed first", at: 50 }],
+      },
+      {
+        threadId: "pr:2",
+        label: "#2",
+        from: ["vm/lane-b"],
+        count: 1,
+        preview: "",
+        blocker: false,
+        promptIds: ["b1"],
+        messages: [{ promptId: "b1", from: "vm/lane-b", text: "oldest, listed last", at: 10 }],
+      },
+    ],
+  };
+  const row: AcpmuxRow = { id: "inbox-time", version: 1, at: 99, kind: "user", incoming: { kind: "inbox", notice } };
+  const children = flattenInboxRows([row]).filter((r) => r.incoming?.kind === "message");
+  const messages = children.map((r) => (r.incoming?.kind === "message" ? r.incoming.message : undefined));
+  const list = hoverMessages(
+    messages,
+    children.map(() => undefined),
+    children.map((r) => r.at),
+  );
+  expect(list.messages.map((m) => m.text)).toEqual(["newest, listed first", "oldest, listed last"]);
+  // Rows with no message time sort by their own: the later row first, a tie by order.
+  const one = (name: string, text: string): IncomingMessage => ({ name, text, raw: "" });
+  expect(
+    hoverMessages([one("a", "late"), one("b", "early"), one("c", "tie")], [], [30, 10, 30]).messages.map((m) => m.text),
+  ).toEqual(["tie", "late", "early"]);
+});
+
+// Review of #37653: acpmux may say a thread's newest sender is unverified only on the thread (its
+// sender record, or an older acpmux's suffix on its `from`), not on each message. That message's
+// row and the group's hover still show "Sender not verified".
+test("a thread's unverified sender marks its newest message's row and hover", async () => {
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const { GroupHoverLookContext, MessageGroupHover, hoverMessages, inboxHover } =
+    await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const notice = inboxNotice("[inbox] New messages from other agents in 1 thread.", {
+    threads: [
+      {
+        threadId: "pr:9",
+        label: "#9",
+        from: ["vm-1/lane-a", "vm-1/lane-b"],
+        promptIds: ["a1", "b1"],
+        sender: { label: "vm-1/lane-b", labelDeclared: true, verification: "declared" },
+        messages: [
+          { promptId: "a1", from: "vm-1/lane-a", text: "first", at: 10 },
+          { promptId: "b1", from: "vm-1/lane-b", text: "second", at: 20 },
+        ],
+      },
+    ],
+  })!;
+  expect(notice.threads[0]?.unverified).toBe(true);
+  const row: AcpmuxRow = {
+    id: "inbox-unverified",
+    version: 1,
+    at: 1,
+    kind: "user",
+    incoming: { kind: "inbox", notice },
+  };
+  const children = flattenInboxRows([row]).filter((r) => r.incoming?.kind === "message");
+  const messages = children.map((r) => (r.incoming?.kind === "message" ? r.incoming.message : undefined));
+  // Only the newest sender's message: the thread's flag names that sender, not the one before.
+  expect(messages.map((m) => m?.unverified === true)).toEqual([false, true]);
+  const container = await render(
+    <GroupHoverLookContext.Provider value="messages">
+      <MessageGroupHover
+        list={hoverMessages(
+          messages,
+          [],
+          children.map((r) => r.at),
+        )}
+      />
+    </GroupHoverLookContext.Provider>,
+  );
+  const items = [...container.querySelectorAll(".cv-group-hover__item")];
+  expect(items[0]?.textContent).toContain("second");
+  expect(items[0]?.querySelector(".cv-unverified")?.getAttribute("title")).toBe("Sender not verified");
+  expect(items[1]?.querySelector(".cv-unverified")).toBeNull();
+  // The notice card's own hover reads the same.
+  expect(inboxHover(notice.threads).messages.map((m) => [m.text, m.unverified === true])).toEqual([
+    ["second", true],
+    ["first", false],
+  ]);
 });
 
 test("a sender named only by its record's session still opens its chat", async () => {
@@ -484,6 +599,114 @@ test("a thread whose preview was cut inside the broker's head stays an expandabl
   expect(container.textContent).not.toContain("[message");
   await openAll(container);
   expect(container.querySelector(".cv-received__text")?.textContent).toBe("The whole message.");
+});
+
+// Review of #37653: a preview-only inbox row (one with no messages) still asks for its sender by
+// acpmux's record (its label, never cut), not by the bare name its line shows: a label-only sender
+// whose bare name another chat shares must not open that other chat.
+test("a preview-only inbox row opens its sender by the record's label, not the bare name", async () => {
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const { MessageRow } = await import("../src/agent-session/acpmux/rows/MessageRow");
+  const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+  const prompt = incomingPrompt("[inbox] New messages from other agents in 1 thread.", {
+    client: "acpmux",
+    _meta: {
+      provenance: {
+        kind: "inbox_notice",
+        threads: [
+          {
+            threadId: "declared:vm-1/lane-a",
+            from: ["lane-a"],
+            new: 1,
+            preview: "done",
+            promptIds: ["p1"],
+            sender: { label: "vm-1/lane-a", labelDeclared: true, verification: "declared" },
+          },
+        ],
+      },
+    },
+  });
+  if (prompt?.kind !== "inbox") throw new Error("not an inbox notice");
+  const row: AcpmuxRow = { id: "inbox-label", version: 1, at: 1, kind: "user", incoming: prompt };
+  const child = flattenInboxRows([row]).find((r) => r.inboxThread)!;
+  const opened: string[] = [];
+  refs.resetSessionRefs();
+  // acpmux has not answered yet: the click opens by what the chip asks for.
+  refs.setSessionRefResolver(() => new Promise(() => undefined));
+  try {
+    const container = await render(
+      <MessageRow row={child} onToggleActivity={() => undefined} expanded={false} />,
+      (window) => {
+        (window as unknown as Record<string, unknown>).cmuxAcpmuxActions = {
+          "chat.offer.open": async ({ sessionId }: { sessionId: string }) => void opened.push(sessionId),
+          "chat.inbox.thread": async () => [],
+        };
+      },
+    );
+    const chip = container.querySelector<HTMLElement>(".cv-received__from--open");
+    expect(chip).not.toBeNull();
+    await act(async () => chip!.click());
+    expect(opened).toEqual(["vm-1/lane-a"]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+    refs.resetSessionRefs();
+  }
+});
+
+// A relayed message (`--from coord --relay lane-gh --relayed-from vm-1/lane-a`): its record's label is
+// the name the sender declared, shown only; the chip asks for the chat by the relay's address
+// (cmux#38642 review).
+test("a relayed preview-only inbox row opens its sender by the relay address, not the declared label", async () => {
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const { MessageRow } = await import("../src/agent-session/acpmux/rows/MessageRow");
+  const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+  const prompt = incomingPrompt("[inbox] New messages from other agents in 1 thread.", {
+    client: "acpmux",
+    _meta: {
+      provenance: {
+        kind: "inbox_notice",
+        threads: [
+          {
+            threadId: "from:vm-1/lane-a",
+            from: ["coord"],
+            new: 1,
+            preview: "done",
+            promptIds: ["p1"],
+            sender: {
+              label: "coord",
+              verification: "verified",
+              relay: { by: "lane-gh", machine: "vm-1", session: "lane-a" },
+            },
+          },
+        ],
+      },
+    },
+  });
+  if (prompt?.kind !== "inbox") throw new Error("not an inbox notice");
+  const row: AcpmuxRow = { id: "inbox-relay", version: 1, at: 1, kind: "user", incoming: prompt };
+  const child = flattenInboxRows([row]).find((r) => r.inboxThread)!;
+  const opened: string[] = [];
+  refs.resetSessionRefs();
+  // acpmux has not answered yet: the click opens by what the chip asks for.
+  refs.setSessionRefResolver(() => new Promise(() => undefined));
+  try {
+    const container = await render(
+      <MessageRow row={child} onToggleActivity={() => undefined} expanded={false} />,
+      (window) => {
+        (window as unknown as Record<string, unknown>).cmuxAcpmuxActions = {
+          "chat.offer.open": async ({ sessionId }: { sessionId: string }) => void opened.push(sessionId),
+          "chat.inbox.thread": async () => [],
+        };
+      },
+    );
+    const chip = container.querySelector<HTMLElement>(".cv-received__from--open");
+    expect(chip).not.toBeNull();
+    await act(async () => chip!.click());
+    expect(opened).toEqual(["vm-1/lane-a"]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+    refs.resetSessionRefs();
+  }
 });
 
 test("two preview-only notices from one sender whose previews clean to nothing both keep their row", async () => {

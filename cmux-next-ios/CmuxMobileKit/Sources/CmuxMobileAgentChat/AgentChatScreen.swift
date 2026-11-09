@@ -231,7 +231,7 @@ public final class AgentChatSurface {
         if let scroller {
             scroller.scrollTranscript(toTop: false, animated: animated)
         } else if animated, !UIAccessibility.isReduceMotionEnabled {
-            withAnimation(.smooth(duration: 0.35)) { position.scrollTo(edge: .bottom) }
+            withAnimation(.smooth(duration: 0.35).unlessReduceMotion) { position.scrollTo(edge: .bottom) }
         } else {
             position.scrollTo(edge: .bottom)
         }
@@ -272,12 +272,12 @@ public final class AgentChatSurface {
             if let scroller {
                 scroller.scrollTranscript(toTop: toTop, animated: true)
             } else {
-                withAnimation(.smooth(duration: 0.9)) { position.scrollTo(edge: toTop ? .top : .bottom) }
+                withAnimation(.smooth(duration: 0.9).unlessReduceMotion) { position.scrollTo(edge: toTop ? .top : .bottom) }
             }
         case .chatPermission(let kind):
             if let permission = store.pendingPermission,
                let option = permission.request.options.first(where: { $0.kind.rawValue == kind }) {
-                withAnimation(.cmuxMobileSmooth) { store.respond(to: permission.request, option: option) }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.respond(to: permission.request, option: option) }
             }
         case .chatOpenChanges, .chatOpenFirstFile:
             // The diff is awaited (cached, computing, or computed off the main thread), never run here.
@@ -298,7 +298,7 @@ public final class AgentChatSurface {
             artifacts.path = []
             showArtifacts = true
         case .artifactsFilter(let name):
-            if let filter = ArtifactFilter(rawValue: name) { withAnimation(.snappy) { artifacts.filter = filter } }
+            if let filter = ArtifactFilter(rawValue: name) { withAnimation(.snappy.unlessReduceMotion) { artifacts.filter = filter } }
         case .artifactsLayout(let grid):
             artifacts.grid = grid
         case .artifactsOpen(let reference):
@@ -665,7 +665,7 @@ public struct AgentChatBottomStack: View {
                     if store.canRetryPrompt {
                         HStack(spacing: 8) {
                             Button {
-                                withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
+                                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
                             } label: {
                                 Label(error, systemImage: "exclamationmark.circle")
                                     .font(.footnote.weight(.semibold))
@@ -686,7 +686,7 @@ public struct AgentChatBottomStack: View {
                         .transition(.opacity.combined(with: .offset(y: 8)))
                     } else {
                         Button {
-                            withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
+                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
                         } label: {
                             Label(error, systemImage: "exclamationmark.circle")
                                 .font(.footnote.weight(.semibold))
@@ -712,7 +712,7 @@ public struct AgentChatBottomStack: View {
                 if let ask = store.pendingElevation {
                     // The sudo card (acpmux hub/elevation.rs) takes the composer's place until answered.
                     ElevationCard(ask: ask, agentName: store.summary.agentName, sending: store.sendingElevation) { password in
-                        withAnimation(.cmuxMobileSmooth) { store.answerElevation(ask, password: password) }
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.answerElevation(ask, password: password) }
                     }
                     // A new card is a new view: a password typed for one command never stays for the next.
                     .id(ask.id)
@@ -722,9 +722,9 @@ public struct AgentChatBottomStack: View {
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else if let permission = store.pendingPermission, !surface.permissionBarHidden {
                     PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
-                        withAnimation(.cmuxMobileSmooth) { store.respond(to: permission.request, option: option) }
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.respond(to: permission.request, option: option) }
                     } replyInstead: {
-                        withAnimation(.cmuxMobileSmooth) { surface.replyInsteadOfPermission = true }
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.replyInsteadOfPermission = true }
 
                     }
                     .padding(12)
@@ -765,7 +765,7 @@ public struct AgentChatBottomStack: View {
                         store.placeBottomStackInstantly = false
                         reportedHeight = frame.height
                     } else {
-                        withAnimation(.cmuxMobileSmooth) { reportedHeight = frame.height }
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { reportedHeight = frame.height }
                     }
                 }
             }
@@ -783,8 +783,8 @@ public struct AgentChatBottomStack: View {
         }
         .padding(.bottom, bottomPadding)
         // History (the chat opening, a reattach) brings its open ask and queue in place.
-        .animation(store.lastChangeWasReplay ? nil : .cmuxMobileSmooth, value: store.pendingPermission?.request.id)
-        .animation(store.lastChangeWasReplay ? nil : .cmuxMobileSmooth, value: store.queue)
+        .animation(store.lastChangeWasReplay ? nil : Animation.cmuxMobileSmooth.unlessReduceMotion, value: store.pendingPermission?.request.id)
+        .animation(store.lastChangeWasReplay ? nil : Animation.cmuxMobileSmooth.unlessReduceMotion, value: store.queue)
         .onChange(of: store.pendingPermission?.request.id) { _, new in
             surface.replyInsteadOfPermission = false
             // Never pull the composer out from under someone typing.
@@ -800,7 +800,7 @@ public struct AgentChatBottomStack: View {
             if surface.composerFocused != focused { surface.composerFocused = focused }
             // Leaving "Reply instead" without typing brings the permission choices back.
             if !focused, surface.permissionBarHidden, surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, surface.attachments.isEmpty {
-                withAnimation(.cmuxMobileSmooth) { surface.showPermissionChoices() }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() }
             }
         }
     }
@@ -912,9 +912,7 @@ struct UserBubble: View {
             if !attachments.isEmpty {
                 SentAttachments(attachments: attachments)
             }
-            Text(prompt)
-                .font(.body)
-                .lineSpacing(4)
+            bubbleText
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
@@ -945,6 +943,23 @@ struct UserBubble: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { selecting = false } } }
             }
             .presentationDetents([.medium, .large])
+        }
+    }
+}
+
+extension UserBubble {
+    /// The prompt, its leading quote drawn as the Mac draws one: muted, behind a bar.
+    @ViewBuilder var bubbleText: some View {
+        if let split = NextStepAsk.replyQuote(prompt) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(split.quote)
+                    .font(.body).lineSpacing(4).foregroundStyle(.secondary)
+                    .padding(.leading, 10)
+                    .overlay(alignment: .leading) { Capsule().fill(.tertiary).frame(width: 2) }
+                Text(split.body).font(.body).lineSpacing(4)
+            }
+        } else {
+            Text(prompt).font(.body).lineSpacing(4)
         }
     }
 }
@@ -1142,10 +1157,10 @@ struct AnswerActionRow: View {
         HStack(spacing: 0) {
             IconAction(copied ? "checkmark" : "doc.on.doc", label: "Copy") {
                 UIPasteboard.general.string = turn.answerMarkdown
-                withAnimation(.cmuxMobileSnap) { copied = true }
+                withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = true }
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))
-                    withAnimation(.cmuxMobileSnap) { copied = false }
+                    withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = false }
                 }
             }
             .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in

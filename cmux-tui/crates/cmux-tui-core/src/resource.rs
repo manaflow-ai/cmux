@@ -556,22 +556,14 @@ pub enum ResourceOperation {
     StashDelete,
     #[serde(rename = "stash.import")]
     StashImport,
+    #[serde(rename = "classic_import.plan")]
+    ClassicImportPlan,
+    #[serde(rename = "classic_import.record")]
+    ClassicImportRecord,
     #[serde(rename = "conductor_import.plan")]
     ConductorImportPlan,
     #[serde(rename = "conductor_import.record")]
     ConductorImportRecord,
-    #[serde(rename = "cloud.vm.resize")]
-    CloudVmResize,
-    #[serde(rename = "cloud.vm.snapshot")]
-    CloudVmSnapshot,
-    #[serde(rename = "cloud.vm.snapshots")]
-    CloudVmSnapshots,
-    #[serde(rename = "cloud.vm.delete_snapshot")]
-    CloudVmDeleteSnapshot,
-    #[serde(rename = "cloud.vm.restore")]
-    CloudVmRestore,
-    #[serde(rename = "cloud.vm.fork")]
-    CloudVmFork,
     #[serde(rename = "cloud.vm.scp_endpoint")]
     CloudVmScpEndpoint,
     #[serde(rename = "cloud.vm.tunnel_enroll")]

@@ -342,6 +342,8 @@ elif args[0] == "api":
         if state["ref_read"] == "fail":
             print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
         if ref not in state["refs"]:
+            # Real gh prints the error body on stdout, --jq or not (run 42536967661).
+            print(json.dumps({"message": "Not Found", "status": "404"}))
             print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
         emit({"object": {"sha": state["refs"][ref]}})
     elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
@@ -438,6 +440,8 @@ class RePinPublication(unittest.TestCase):
         # the push recreated it on GitHub, but `git ls-remote origin` went through
         # the runner's git cache, still saw the old head, and failed "the re-pin
         # head moved". The cache may also lag an existing head (wrong lease).
+        # Run 42536967661: gh printed the 404 body on stdout, and that JSON became
+        # the push lease ("cannot parse expected object name").
         cases = {
             "deleted, cache shows nothing": ({}, {}),
             "deleted, cache shows the merged head": ({}, {"app-ffi-repin": "c" * 40}),
@@ -594,11 +598,17 @@ class NewestPublishedRelease(unittest.TestCase):
 
 
 class BuildSpeedAndSupersede(unittest.TestCase):
-    """A newer FFI push supersedes an older build, and the build clones treeless.
+    """A newer FFI push queues behind a running build, never cancels it, and the build clones treeless.
 
     The run-level group (cancel-in-progress: false) made a newer push wait for
-    the whole older run, whose pin could no longer land (#36262). The full
-    clone of every ref was 5 to 10 minutes of each build.
+    the whole older run, publish and re-pin included (#36262). The build job's
+    group then cancelled the running build on each newer FFI push (#36346):
+    on 2026-11-08 FFI pushes at 18:19, 18:39, 19:01 and 19:04Z cancelled every
+    build, a dispatch (run 42511706663) too, so nothing newer than fcf8221e
+    published and the pin stayed red. A build is never cancelled: the group
+    keeps one running and only the newest pending, and the re-pin pins the
+    newest published release (latest wins). The full clone of every ref was 5
+    to 10 minutes of each build.
     """
 
     def setUp(self):
@@ -609,10 +619,10 @@ class BuildSpeedAndSupersede(unittest.TestCase):
     def test_no_run_level_group_queues_a_newer_push(self):
         self.assertNotIn("concurrency", self.workflow)
 
-    def test_a_newer_build_cancels_the_older_build(self):
+    def test_a_newer_push_never_cancels_a_running_build(self):
         concurrency = self.jobs["build"]["concurrency"]
         self.assertIn("${{ github.ref }}", concurrency["group"])
-        self.assertIs(concurrency["cancel-in-progress"], True)
+        self.assertIs(concurrency["cancel-in-progress"], False)
 
     def test_publish_is_never_cancelled_and_repins_run_one_at_a_time(self):
         publish = self.jobs["publish"]["concurrency"]

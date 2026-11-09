@@ -38,7 +38,7 @@ extension DaemonLauncher {
             arguments: arguments,
             environment: environment,
             stdin: configuration.installKey?.payload,
-            timeout: Self.ensureRestoreCap + Self.replaceSilence,
+            timeout: progress ? nil : Self.ensureRestoreCap + Self.replaceSilence,
             progressIdle: progress ? Self.replaceSilence : nil,
             clock: clock
         )

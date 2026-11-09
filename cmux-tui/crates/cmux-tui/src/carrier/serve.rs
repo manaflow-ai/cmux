@@ -293,19 +293,21 @@ async fn connection(
         prefetched: shared.prefetched.clone(),
         log: shared.log.clone(),
         phases: shared.log.clone(),
+        fresh_sessions: Default::default(),
     };
     let plan = &plan;
-    let opened = tokio::select! {
-        opened = shared.session.stream(deadline, move || client::dial(plan, super::jitter)) => opened,
+    let outcome = tokio::select! {
+        outcome = shared.session.stream(deadline, move || client::dial(plan)) => outcome,
         _ = stopped.wait_for(|stopped| *stopped) => return,
     };
-    let held::Stream { mux, vmk, lease, dialed } = match opened {
-        Ok(opened) => opened,
-        Err(held::Refused { failure, dialed }) => {
+    let held::Stream { mux, vmk, lease, dialed, opened } = match outcome {
+        Ok(stream) => stream,
+        Err(held::Refused { failure, dialed, opened }) => {
             if !dialed {
-                // No dial attempt logged this one: the held session's.
+                // No dial attempt logged this one: the held session's. Its
+                // mux time is the stream open alone; `ms` runs from accept.
                 let elapsed = accepted.elapsed();
-                let times = PhaseTimes { mux: elapsed, ..PhaseTimes::default() };
+                let times = PhaseTimes { mux: opened, ..PhaseTimes::default() };
                 (shared.log)(contract::phases_line(
                     &shared.machine,
                     PhasesOf::Stream,
@@ -322,7 +324,7 @@ async fn connection(
         // The dial's own attempts wrote theirs; a stream on the held
         // session writes one line of its own.
         let elapsed = accepted.elapsed();
-        let times = PhaseTimes { mux: elapsed, ..PhaseTimes::default() };
+        let times = PhaseTimes { mux: opened, ..PhaseTimes::default() };
         (shared.log)(contract::phases_line(
             &shared.machine,
             PhasesOf::Stream,

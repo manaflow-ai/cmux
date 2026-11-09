@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1768118a3f6c36eca9967eb1114909809bec1c337cc65d95be19e530da94a705. */
+/* cmux-tui mux protocol 12, IR 62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1195,6 +1195,8 @@ export type ServerStatsWritePath = {
   "effect_intent_batches": bigint;
   "effect_intent_failures": bigint;
   "effect_intents": bigint;
+  "registry_wal_file_bytes"?: bigint;
+  "registry_wal_file_high_water_bytes"?: bigint;
   "registry_wal_frame_bytes"?: bigint;
   "request_effect_commits": bigint;
   "wal_commits"?: bigint;

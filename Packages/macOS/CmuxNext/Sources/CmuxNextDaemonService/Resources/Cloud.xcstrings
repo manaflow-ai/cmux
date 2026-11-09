@@ -3817,127 +3817,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Snapshot %@ is ready. Restore it with Restore Cloud Machine."
+            "value": "Snapshot %@ is being taken. Once it is ready, restore it with Restore Cloud Machine."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スナップショット %@ の準備ができました。「Cloud マシンを復元」で復元できます。"
+            "value": "スナップショット %@ を作成しています。準備ができたら「Cloud マシンを復元」で復元できます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اللقطة %@ جاهزة. استعدها باستخدام \"استعادة جهاز Cloud\"."
+            "value": "جارٍ التقاط اللقطة %@. عندما تصبح جاهزة، استعدها باستخدام \"استعادة جهاز Cloud\"."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Snimak %@ je spreman. Vratite ga pomoću Vrati Cloud mašinu."
+            "value": "Snimak %@ se pravi. Kada bude spreman, vratite ga pomoću Vrati Cloud mašinu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Snapshot %@ er klar. Gendan det med Gendan Cloud-maskine."
+            "value": "Snapshot %@ bliver taget. Når det er klar, kan du gendanne det med Gendan Cloud-maskine."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Snapshot %@ ist bereit. Stellen Sie ihn mit „Cloud-Maschine wiederherstellen“ wieder her."
+            "value": "Snapshot %@ wird erstellt. Sobald er bereit ist, stellen Sie ihn mit „Cloud-Maschine wiederherstellen“ wieder her."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La instantánea %@ está lista. Restáurala con Restaurar máquina de Cloud."
+            "value": "Se está creando la instantánea %@. Cuando esté lista, restáurala con Restaurar máquina de Cloud."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’instantané %@ est prêt. Restaurez-le avec Restaurer la machine Cloud."
+            "value": "L’instantané %@ est en cours de création. Une fois prêt, restaurez-le avec Restaurer la machine Cloud."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’istantanea %@ è pronta. Ripristinala con Ripristina macchina Cloud."
+            "value": "L’istantanea %@ è in corso di creazione. Quando è pronta, ripristinala con Ripristina macchina Cloud."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រូបថតស្ថានភាព %@ រួចរាល់ហើយ។ ស្ដារវាដោយប្រើ ស្ដារម៉ាស៊ីន Cloud។"
+            "value": "កំពុងថតរូបថតស្ថានភាព %@។ ពេលវារួចរាល់ ស្ដារវាដោយប្រើ ស្ដារម៉ាស៊ីន Cloud។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "스냅샷 %@이(가) 준비되었습니다. 'Cloud 기기 복원'으로 복원할 수 있습니다."
+            "value": "스냅샷 %@을(를) 만드는 중입니다. 준비되면 'Cloud 기기 복원'으로 복원할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Øyeblikksbildet %@ er klart. Gjenopprett det med Gjenopprett Cloud-maskin."
+            "value": "Øyeblikksbildet %@ tas nå. Når det er klart, gjenoppretter du det med Gjenopprett Cloud-maskin."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Migawka %@ jest gotowa. Przywróć ją poleceniem Przywróć maszynę Cloud."
+            "value": "Trwa tworzenie migawki %@. Gdy będzie gotowa, przywróć ją poleceniem Przywróć maszynę Cloud."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O snapshot %@ está pronto. Restaure-o com Restaurar Máquina Cloud."
+            "value": "O snapshot %@ está sendo criado. Quando estiver pronto, restaure-o com Restaurar Máquina Cloud."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Снимок %@ готов. Восстановите его командой «Восстановить машину Cloud»."
+            "value": "Снимок %@ создаётся. Когда он будет готов, восстановите его командой «Восстановить машину Cloud»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สแนปช็อต %@ พร้อมแล้ว กู้คืนได้ด้วย “กู้คืนเครื่อง Cloud”"
+            "value": "กำลังสร้างสแนปช็อต %@ เมื่อพร้อมแล้ว กู้คืนได้ด้วย “กู้คืนเครื่อง Cloud”"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ anlık görüntüsü hazır. Cloud Makinesini Geri Yükle ile geri yükleyin."
+            "value": "%@ anlık görüntüsü alınıyor. Hazır olduğunda Cloud Makinesini Geri Yükle ile geri yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Знімок %@ готовий. Відновіть його командою «Відновити машину Cloud»."
+            "value": "Знімок %@ створюється. Коли він буде готовий, відновіть його командою «Відновити машину Cloud»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Snapshot %@ đã sẵn sàng. Khôi phục bằng Khôi phục máy Cloud."
+            "value": "Đang tạo snapshot %@. Khi sẵn sàng, hãy khôi phục bằng Khôi phục máy Cloud."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "快照 %@ 已就绪。可使用“恢复 Cloud 机器”来恢复。"
+            "value": "正在创建快照 %@。就绪后，可使用“恢复 Cloud 机器”来恢复。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "快照 %@ 已就緒。可使用「回復 Cloud 機器」加以回復。"
+            "value": "正在建立快照 %@。就緒後，可使用「回復 Cloud 機器」加以回復。"
           }
         }
       }
@@ -4210,127 +4210,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Template %@ is ready. Start a machine from it with Restore Cloud Machine."
+            "value": "Template %@ is being saved. Once it is ready, start a machine from it with Restore Cloud Machine."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テンプレート %@ の準備ができました。「Cloud マシンを復元」でこのテンプレートからマシンを起動できます。"
+            "value": "テンプレート %@ を保存しています。準備ができたら「Cloud マシンを復元」でこのテンプレートからマシンを起動できます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "القالب %@ جاهز. شغّل جهازًا منه باستخدام «استعادة جهاز Cloud»."
+            "value": "جارٍ حفظ القالب %@. عندما يصبح جاهزًا، شغّل جهازًا منه باستخدام «استعادة جهاز Cloud»."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Šablon %@ je spreman. Pokrenite mašinu iz njega pomoću Vrati Cloud mašinu."
+            "value": "Šablon %@ se sprema. Kada bude spreman, pokrenite mašinu iz njega pomoću Vrati Cloud mašinu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skabelonen %@ er klar. Start en maskine fra den med Gendan Cloud-maskine."
+            "value": "Skabelonen %@ bliver gemt. Når den er klar, kan du starte en maskine fra den med Gendan Cloud-maskine."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vorlage %@ ist bereit. Starte mit „Cloud-Maschine wiederherstellen“ eine Maschine daraus."
+            "value": "Vorlage %@ wird gespeichert. Sobald sie bereit ist, starte mit „Cloud-Maschine wiederherstellen“ eine Maschine daraus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La plantilla %@ está lista. Inicia una máquina a partir de ella con Restaurar máquina de Cloud."
+            "value": "Se está guardando la plantilla %@. Cuando esté lista, inicia una máquina a partir de ella con Restaurar máquina de Cloud."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le modèle %@ est prêt. Démarrez une machine à partir de celui-ci avec Restaurer la machine Cloud."
+            "value": "Le modèle %@ est en cours d’enregistrement. Une fois prêt, démarrez une machine à partir de celui-ci avec Restaurer la machine Cloud."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il modello %@ è pronto. Avvia una macchina da esso con Ripristina macchina Cloud."
+            "value": "Il modello %@ è in corso di salvataggio. Quando è pronto, avvia una macchina da esso con Ripristina macchina Cloud."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គំរូ %@ រួចរាល់ហើយ។ ចាប់ផ្ដើមម៉ាស៊ីនពីវាដោយប្រើ ស្ដារម៉ាស៊ីន Cloud។"
+            "value": "កំពុងរក្សាទុកគំរូ %@។ ពេលវារួចរាល់ ចាប់ផ្ដើមម៉ាស៊ីនពីវាដោយប្រើ ស្ដារម៉ាស៊ីន Cloud។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "템플릿 %@이(가) 준비되었습니다. Cloud 머신 복원으로 이 템플릿에서 머신을 시작하세요."
+            "value": "템플릿 %@을(를) 저장하는 중입니다. 준비되면 Cloud 머신 복원으로 이 템플릿에서 머신을 시작하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Malen %@ er klar. Start en maskin fra den med Gjenopprett Cloud-maskin."
+            "value": "Malen %@ lagres nå. Når den er klar, starter du en maskin fra den med Gjenopprett Cloud-maskin."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Szablon %@ jest gotowy. Uruchom z niego maszynę za pomocą Przywróć maszynę Cloud."
+            "value": "Trwa zapisywanie szablonu %@. Gdy będzie gotowy, uruchom z niego maszynę za pomocą Przywróć maszynę Cloud."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O modelo %@ está pronto. Inicie uma máquina a partir dele com Restaurar máquina do Cloud."
+            "value": "O modelo %@ está sendo salvo. Quando estiver pronto, inicie uma máquina a partir dele com Restaurar máquina do Cloud."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Шаблон %@ готов. Запустите из него машину командой «Восстановить машину Cloud»."
+            "value": "Шаблон %@ сохраняется. Когда он будет готов, запустите из него машину командой «Восстановить машину Cloud»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เทมเพลต %@ พร้อมแล้ว เริ่มเครื่องจากเทมเพลตนี้ด้วย กู้คืนเครื่อง Cloud"
+            "value": "กำลังบันทึกเทมเพลต %@ เมื่อพร้อมแล้ว เริ่มเครื่องจากเทมเพลตนี้ด้วย กู้คืนเครื่อง Cloud"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ şablonu hazır. Ondan bir makine başlatmak için Cloud Makinesini Geri Yükle komutunu kullanın."
+            "value": "%@ şablonu kaydediliyor. Hazır olduğunda, ondan bir makine başlatmak için Cloud Makinesini Geri Yükle komutunu kullanın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Шаблон %@ готовий. Запустіть із нього машину командою «Відновити машину Cloud»."
+            "value": "Шаблон %@ зберігається. Коли він буде готовий, запустіть із нього машину командою «Відновити машину Cloud»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mẫu %@ đã sẵn sàng. Khởi động máy từ mẫu này bằng Khôi phục máy Cloud."
+            "value": "Đang lưu mẫu %@. Khi sẵn sàng, hãy khởi động máy từ mẫu này bằng Khôi phục máy Cloud."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "模板 %@ 已就绪。使用“恢复 Cloud 机器”从它启动机器。"
+            "value": "正在保存模板 %@。就绪后，使用“恢复 Cloud 机器”从它启动机器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "範本 %@ 已就緒。使用「還原 Cloud 機器」從它啟動機器。"
+            "value": "正在儲存範本 %@。就緒後，使用「還原 Cloud 機器」從它啟動機器。"
           }
         }
       }
