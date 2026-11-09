@@ -41,7 +41,7 @@ public struct SetupCardEnvironment {
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
                 openAgents: @escaping @MainActor () -> Void,
                 screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled },
-                historySources: @escaping @MainActor () async -> Bool = { false }, importHistory: @escaping @MainActor () -> Bool = { false }) {
+                historySources: @escaping @MainActor () async -> Bool, importHistory: @escaping @MainActor () -> Bool) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState

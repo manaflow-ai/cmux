@@ -86,7 +86,7 @@ import Testing
         #expect(setup.shows, "the rest of the card stays")
 
         let none = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
-            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {}))
+            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {}, historySources: { false }, importHistory: { false }))
         defer { none.stop() }
         await until { none.history != nil }
         #expect(none.state["history"] == .null)
@@ -98,7 +98,7 @@ import Testing
         let setup = FirstRunSetup(defaults: try defaults())
         let mac = PressLog()
         let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
-            account: { (false, nil) }, signInAccount: {}, cliState: { "foreign" }, installCLI: { _ in mac.installs += 1 }, openAgents: {}))
+            account: { (false, nil) }, signInAccount: {}, cliState: { "foreign" }, installCLI: { _ in mac.installs += 1 }, openAgents: {}, historySources: { false }, importHistory: { false }))
         defer { provider.stop() }
         await until { provider.cli != nil }
         #expect(provider.state["cli"] == "foreign")
@@ -136,7 +136,7 @@ import Testing
             account: { (false, nil) }, signInAccount: {}, cliState: { mac.cliAfter }, installCLI: { _ in
                 mac.installs += 1
                 await withCheckedContinuation { mac.installRuns = $0 }
-            }, openAgents: {}))
+            }, openAgents: {}, historySources: { false }, importHistory: { false }))
         defer { provider.stop() }
         await until { provider.cli != nil }
         let install: JSONValue = ["action": ["kind": "installCLI"]]
@@ -159,7 +159,7 @@ import Testing
         let setup = FirstRunSetup(defaults: defaults)
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
-            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {}, historySources: { true }))
+            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {}, historySources: { true }, importHistory: { false }))
         defer { provider.stop() }
         _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "declineHistory"]],
                                     context: PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: 1))
@@ -190,7 +190,8 @@ import Testing
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         let mac = PressLog()
         let environment = SetupCardEnvironment(account: { (false, nil) }, signInAccount: { mac.signIns += 1 }, cliState: { "missing" },
-                                               installCLI: { _ in }, openAgents: { mac.opened += 1 }, screenReader: { mac.voiceOver })
+                                               installCLI: { _ in }, openAgents: { mac.opened += 1 }, screenReader: { mac.voiceOver },
+                                               historySources: { false }, importHistory: { false })
         let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: environment)
         defer { provider.stop() }
         let press = PageCallContext(page: PageDescriptor.setupCard.id)
