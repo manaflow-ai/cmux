@@ -1,6 +1,6 @@
-//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR] [--login L] [--environment E]
-//! [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes a Cloud chat from
-//! nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
+//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR | --from-folder PATH] [--login L]
+//! [--environment E] [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes
+//! a Cloud chat from nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
 //! the docs/instructions/commands and guidance and whatnot to make this all smoother faster more
 //! efficient more exposed / cuz chief will be using this kind of flow").
 //!
@@ -9,8 +9,11 @@
 //!
 //! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux.
 //!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
-//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D] [--login L]`: takes the machine (or
-//!    creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
+//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P] [--login L]`: takes
+//!    the machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
+//!    With `--from-folder` (an existing folder on this Mac) the app copies that folder to the machine the
+//!    way the agent pane composer's Cloud start copies one, and the chat starts in the copy; a retry on the
+//!    same machine reuses the finished copy.
 //!    Without `--name` or `--target` it creates a new small machine with a new name, so the chat
 //!    never lands on a machine another workspace uses (leo-workspace `design/cloud.md`, "One
 //!    workspace per small machine").
@@ -49,7 +52,7 @@ const NOT_STARTED_PAUSE: Duration = Duration::from_secs(2);
 const GUEST_CMUX: &str = "cmux-tui";
 /// An exec may run without a login profile: the work user's home holds the acpmux socket
 /// (`~/.acpmux/acpmux.sock`).
-const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
+pub(super) const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
     [ -x \"$HOME/.cmux/bin/cmux-tui\" ] && c=\"$HOME/.cmux/bin/cmux-tui\"; ";
 
 /// The most of a prompt that goes inside the send's own command, quoted. Longer prompts go to a
@@ -69,6 +72,7 @@ const TAKES_VALUE: &[&str] = &[
     "-p",
     "--agent",
     "--cwd",
+    "--from-folder",
     "--login",
     "--environment",
     "--name",
@@ -97,6 +101,8 @@ pub(super) struct Request {
     pub prompt: Option<String>,
     pub agent: String,
     pub cwd: Option<String>,
+    /// `--from-folder`: a folder on this Mac, canonical; the chat starts in its copy on the machine.
+    pub from_folder: Option<String>,
     /// `--login pass|machine|none`: the harness login the machine's agent gets, as `cloud start-session`
     /// takes it (`CloudHarnessLoginAsk`); `None` leaves the app's default.
     pub login: Option<String>,
@@ -170,6 +176,7 @@ pub(super) fn send_existing(
         prompt: Some(prompt),
         agent: String::new(),
         cwd: None,
+        from_folder: None,
         login: None,
         environment: None,
         machine: Machine::Target(machine_id.to_owned()),
@@ -284,6 +291,7 @@ pub(super) fn parse(
     let mut prompt = None;
     let mut agent = None;
     let mut cwd = None;
+    let mut from_folder = None;
     let mut login = None;
     let mut environment = None;
     let mut name = None;
@@ -314,6 +322,7 @@ pub(super) fn parse(
             "--prompt" | "-p" => prompt = Some(value()?),
             "--agent" => agent = Some(value()?),
             "--cwd" => cwd = Some(value()?),
+            "--from-folder" => from_folder = Some(value()?),
             "--login" => login = Some(value()?),
             "--environment" => environment = Some(value()?),
             "--name" => name = Some(value()?),
@@ -366,6 +375,7 @@ pub(super) fn parse(
     {
         return Err(UsageError::new(format!("--cwd {dir}: an absolute folder on the machine")));
     }
+    let from_folder = from_folder.map(|dir| local_folder(&dir, cwd.is_some())).transpose()?;
     let login = match login.map(|word| word.trim().to_lowercase()) {
         Some(word) if !LOGINS.contains(&word.as_str()) => {
             return Err(UsageError::new(format!("--login {word:?}: pass, machine or none")));
@@ -396,7 +406,17 @@ pub(super) fn parse(
         }
         (None, None) => Machine::New,
     };
-    Ok(Parsed::Run(Request { prompt, agent, cwd, login, environment, machine, wait, timeout }))
+    Ok(Parsed::Run(Request {
+        prompt,
+        agent,
+        cwd,
+        from_folder,
+        login,
+        environment,
+        machine,
+        wait,
+        timeout,
+    }))
 }
 
 /// One run of this binary: its exit code and what it printed.
@@ -419,6 +439,11 @@ pub(super) trait Runner {
 
 struct SelfRunner {
     globals: Vec<String>,
+}
+
+/// This binary as the runner of another command's steps (`cmux chat cd`, chat_cd.rs), reaching the same app.
+pub(super) fn self_runner(global: &GlobalArgs) -> impl Runner {
+    SelfRunner { globals: forwarded_globals(global) }
 }
 
 impl Runner for SelfRunner {
@@ -522,6 +547,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if let Some(cwd) = &request.cwd {
         words.push(format!("--cwd {}", shell_quote(cwd)));
+    }
+    if let Some(folder) = &request.from_folder {
+        words.push(format!("--from-folder {}", shell_quote(folder)));
     }
     if let Some(login) = &request.login {
         words.push(format!("--login {login}"));
@@ -979,6 +1007,9 @@ fn steps(
     if let Some(cwd) = &request.cwd {
         start.extend(["--cwd".to_owned(), cwd.clone()]);
     }
+    if let Some(folder) = &request.from_folder {
+        start.extend(["--from-folder".to_owned(), folder.clone()]);
+    }
     if let Some(login) = &request.login {
         start.extend(["--login".to_owned(), login.clone()]);
     }
@@ -1030,9 +1061,13 @@ fn steps(
         return failed(
             "cloud.start_pending",
             format!(
-                "the machine is still starting (stuck at: {}); the chat opens in its workspace when it is up. \
+                "the machine is still starting (stuck at: {}{}); the chat opens in its workspace when it is up. \
                  Run the same command again to keep waiting: {again}",
-                stage.describe()
+                stage.describe(),
+                request
+                    .from_folder
+                    .as_ref()
+                    .map_or_else(String::new, |dir| format!(", or copying {dir} to it"))
             ),
             json!({"again": again, "machine_name": at(&started, "machine_name"),
                    "machine_id": stage.machine_id.clone().map_or_else(|| at(&started, "machine_id").clone(), Value::String),
@@ -1536,7 +1571,7 @@ fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcom
 }
 
 /// The commands that go on with this chat.
-fn follow_ups(machine: &str, session: &str) -> Value {
+pub(super) fn follow_ups(machine: &str, session: &str) -> Value {
     let on = |command: String| {
         format!("cmux cloud exec --target machine:{machine} --command {}", shell_quote(&command))
     };
@@ -1559,7 +1594,7 @@ fn remove_prompt_file(runner: &mut dyn Runner, machine: &str, file: &str, deadli
     let _ = exec(runner, machine, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
 }
 
-fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, Value> {
+pub(super) fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, Value> {
     let args = vec![
         "cloud".to_owned(),
         "exec".to_owned(),
@@ -1746,62 +1781,6 @@ fn sent_failure(error: Value, answer: Value) -> Outcome {
     )
 }
 
-/// The `@@name` sections a step's script printed: `@@exit 0` is the section `exit` with `0`.
-pub(super) fn sections(stdout: &str) -> std::collections::HashMap<String, String> {
-    let mut out = std::collections::HashMap::new();
-    let mut current: Option<String> = None;
-    for line in stdout.lines() {
-        if let Some(header) = line.strip_prefix("@@") {
-            let (name, rest) = header.split_once(' ').unwrap_or((header, ""));
-            out.insert(name.to_owned(), rest.to_owned());
-            current = Some(name.to_owned());
-            continue;
-        }
-        if let Some(name) = &current {
-            let text: &mut String = out.entry(name.clone()).or_default();
-            if !text.is_empty() {
-                text.push('\n');
-            }
-            text.push_str(line);
-        }
-    }
-    out
-}
-
-/// The newest turn `acp history --json` lists.
-#[derive(Debug, PartialEq)]
-pub(super) struct Turn {
-    pub seq: u64,
-    pub ended: bool,
-    pub status: String,
-    pub value: Value,
-}
-
-impl Turn {
-    /// A turn that ended without its reply: failed, cancelled or of unknown outcome.
-    pub(super) fn failed(&self) -> bool {
-        matches!(self.status.as_str(), "failed" | "error" | "cancelled" | "outcome_unknown")
-            || self.value.get("error").is_some_and(|error| !error.is_null())
-    }
-}
-
-pub(super) fn last_turn(history: Option<&String>) -> Option<Turn> {
-    let value: Value = serde_json::from_str(history?.trim()).ok()?;
-    let turn = at(&value, "turns").as_array()?.last()?.clone();
-    Some(Turn {
-        seq: at(&turn, "seq").as_u64().unwrap_or(0),
-        ended: turn.get("endedAt").is_some_and(|at| !at.is_null()),
-        status: at(&turn, "status").as_str().unwrap_or("completed").to_owned(),
-        value: turn,
-    })
-}
-
-/// The newest reply `acp last --json` printed (`{"sessionId", "replies": [...]}`).
-pub(super) fn reply(last: Option<&String>) -> Option<String> {
-    let value: Value = serde_json::from_str(last?.trim()).ok()?;
-    at(&value, "replies").as_array()?.last()?.as_str().map(str::to_owned)
-}
-
 /// Prints the outcome and answers the exit code.
 fn report(outcome: &Outcome, output: OutputMode) -> i32 {
     match outcome {
@@ -1841,8 +1820,10 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
 
 mod cap;
 mod fault;
+mod folder;
+use folder::local_folder;
 mod support;
-use support::{at, words};
+use support::{at, last_turn, reply, sections, words};
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;
