@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42567643123",
+  "recorded_at": "2026-11-09T05:37:42Z",
+  "reason": "cmux-tui 83edad28363b changes the image's cmux-tui (pinned 1dea36a86007)",
+  "dry_run": false,
+  "cmux_tui": "83edad28363bbd6703e332138e336dec3e46067c",
+  "fixes": [],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T05:37:42Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
