@@ -102,11 +102,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ steps.receipt.outputs.head_sha || steps.review.outputs.head_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          REVIEW_STATE: ${{ github.event.review.state }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
         run: |
           error_file="$(mktemp)"
           trap 'rm -f "$error_file"' EXIT
           if ! run_info="$(gh api "repos/$REPO/actions/workflows/cmux-next-defaults-guard.yml/runs?event=pull_request_target&head_sha=$HEAD_SHA&per_page=20" \
-            --jq '.workflow_runs[0] | if . then [(.id|tostring), .status] | @tsv else empty end' 2>"$error_file")"; then
+            --jq '.workflow_runs[0] | if . then [(.id|tostring), .status, (.conclusion // "")] | @tsv else empty end' 2>"$error_file")"; then
             if grep -Eq 'HTTP 404|404 Not Found' "$error_file"; then
               echo "No defaults guard run on $HEAD_SHA yet; the runs endpoint returned 404."
               exit 0
@@ -118,10 +122,27 @@ jobs:
             echo "No defaults guard run on $HEAD_SHA yet; it reads the reviews when it runs."
             exit 0
           fi
-          IFS=$'\t' read -r run_id run_status <<< "$run_info"
+          IFS=$'\t' read -r run_id run_status run_conclusion <<< "$run_info"
           if [[ "$run_status" != completed ]]; then
             echo "Defaults guard run $run_id is still $run_status; a later receipt or push can retry it."
             exit 0
+          fi
+          # A green guard stays green on a SHIP receipt or an approving review: approvals only add up
+          # (defaults_guard.py approval()). Only a review that requests changes or is dismissed can take
+          # one back, and a feat-cmux-next head has no review workflow of its own to re-run the guard when
+          # that happens, so the next receipt must. A green guard is kept only while the pull request has
+          # no such review at all. A re-run of a green guard otherwise decides nothing and moves the head's
+          # last check suite later (pr-verdict-fast: the guard ended 132 heads' verdicts a day, a median
+          # 16 min after cmux-next).
+          if [[ "$run_conclusion" == success && ! ( "$EVENT_NAME" == pull_request_review \
+            && ( "$EVENT_ACTION" == dismissed || "$REVIEW_STATE" == changes_requested ) ) ]]; then
+            if withdrawn="$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" \
+              --jq '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED")] | length' 2>"$error_file")" \
+              && [[ "$withdrawn" == 0 ]]; then
+              echo "Defaults guard run $run_id already passed on $HEAD_SHA and no review took an approval back; a $EVENT_NAME cannot turn it red."
+              exit 0
+            fi
+            echo "A review may have taken an approval back (or the reviews could not be read); re-running the guard."
           fi
           gh api -X POST "repos/$REPO/actions/runs/$run_id/rerun" >/dev/null
           echo "Re-ran defaults guard run $run_id for $HEAD_SHA."
