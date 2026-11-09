@@ -740,6 +740,11 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// Building an approved plan here, in a new worktree, or on two agents to compare
+    /// (`server/plan_build.rs`, `hub/plan_build.rs`).
+    pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";
+    pub const MUX_PLAN_COMPARE: &str = "_acpmux/plan/compare";
+    pub const MUX_PLAN_KEEP: &str = "_acpmux/plan/keep";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";

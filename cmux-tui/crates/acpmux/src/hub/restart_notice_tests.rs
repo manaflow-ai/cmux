@@ -118,6 +118,25 @@ async fn a_link_with_its_own_key_leaves_a_wireguard_peer_on_acpmux_wireguard() {
     wireguard.shutdown(tokio::time::Instant::now()).await;
 }
 
+/// The hub path is listed only where the hub carrier may run: a joined daemon whose
+/// WireGuard transport holds the key lock (the carrier never takes the lock itself).
+#[cfg(feature = "hub-carrier")]
+#[tokio::test]
+async fn a_joined_daemon_with_the_transports_lock_lists_the_hub_path() {
+    let mut machine = link_serving(false, false);
+    machine.cfg.mesh_relay = Some(crate::mesh_http::MeshRelayConfig {
+        url: "http://127.0.0.1:9".into(),
+        token_command: Vec::new(),
+        team_messaging: true,
+        credential: Some("join".into()),
+        control_from: Vec::new(),
+    });
+    let (wireguard, vias, _machine) = machine.start().await;
+    let wireguard = wireguard.expect("acpmux's WireGuard stepped down for another key's link");
+    assert_eq!(vias, ["wireguard", "url", "hub"]);
+    wireguard.shutdown(tokio::time::Instant::now()).await;
+}
+
 /// Review of #38357 at 95620842: a link that serves this node's own key holds it, so acpmux
 /// opens no WireGuard of its own, and a peer with a link route dials through the link first.
 #[tokio::test]

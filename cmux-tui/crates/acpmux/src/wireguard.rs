@@ -60,7 +60,7 @@ pub struct Transport {
     bridge: Mutex<Option<JoinHandle<()>>>,
     local: SocketAddr,
     /// This machine's WireGuard key lock, released when the transport stops.
-    key: Mutex<Option<KeyHolder>>,
+    key: Mutex<Option<Arc<KeyHolder>>>,
     /// What [`Self::restart`] starts the mesh again with: the service address, the
     /// configured peers and the listener the bridge forwards to.
     service: SocketAddr,
@@ -245,7 +245,7 @@ impl Transport {
             stop,
             bridge: Mutex::new(Some(bridge)),
             local,
-            key: Mutex::new(Some(key)),
+            key: Mutex::new(Some(Arc::new(key))),
             service: settings.address,
             peers,
             websocket,
@@ -254,7 +254,7 @@ impl Transport {
 
     /// `f` with this transport's key lock, while it holds it (until [`Self::shutdown`]).
     pub(crate) fn with_key<R>(&self, f: impl FnOnce(&KeyHolder) -> R) -> Option<R> {
-        self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().map(f)
+        self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_deref().map(f)
     }
 
     /// Start the mesh again with `private_key` on the same UDP port, peers and service
@@ -282,6 +282,13 @@ impl Transport {
         *self.bridge.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(task);
         *mesh = Some(fresh);
         Ok(())
+    }
+
+    /// This machine's WireGuard key lock while the transport runs: the daemon's other user of
+    /// the node key (the hub carrier) shares it, since a second lock in one process is refused.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) fn key_holder(&self) -> Option<Arc<KeyHolder>> {
+        self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -371,7 +378,7 @@ fn public_key(text: &str) -> Result<[u8; 32]> {
     Ok(key)
 }
 
-fn local_websocket(mut address: SocketAddr) -> Result<SocketAddr> {
+pub(crate) fn local_websocket(mut address: SocketAddr) -> Result<SocketAddr> {
     if address.ip().is_unspecified() {
         address.set_ip(if address.is_ipv4() {
             IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
