@@ -34,7 +34,7 @@ export interface SetupState {
     savedAt: number;
     running?: boolean;
     resumes?: boolean;
-    answered?: "imported" | "declined";
+    answered?: "importing" | "imported" | "failed" | "declined";
   } | null;
 }
 
@@ -96,14 +96,20 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
     );
     steps.push({
       id: "classic",
-      done: answered !== undefined,
+      // Imported only once the import brought them: it reads Importing while it runs.
+      done: answered !== undefined && answered !== "importing",
       title: t("home.setup.classic"),
+      busy: answered === "importing",
       detail:
-        answered === "imported"
-          ? t("home.setup.classic.imported")
-          : answered === "declined"
-            ? t("home.setup.classic.declined")
-            : running
+        answered === "importing"
+          ? t("home.setup.classic.importing")
+          : answered === "imported"
+            ? t("home.setup.classic.imported")
+            : answered === "failed"
+              ? t("home.setup.classic.failed")
+              : answered === "declined"
+                ? t("home.setup.classic.declined")
+                : running
               ? format("home.setup.classic.open", app, saved)
               : format(
                   "home.setup.classic.detail",

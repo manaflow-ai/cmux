@@ -195,7 +195,7 @@ public final class SetupCardPageProvider: PageProvider {
             "running": .bool(offer.running), "resumes": .bool(offer.resumes),
         ]
         switch setup.classicAnswer {
-        case .accepted: wire["answered"] = .string("imported")
+        case .accepted: wire["answered"] = .string(setup.classicImported.map { $0 ? "imported" : "failed" } ?? "importing")
         case .declined: wire["answered"] = .string("declined")
         case .unanswered, nil: break
         }
@@ -213,6 +213,7 @@ public final class SetupCardPageProvider: PageProvider {
     var rowsBesideAgentsDone: Bool {
         (history == false || setup.historyDone) && environment.account().signedIn && cli == "installed"
             && !setup.awaitsClassic && (setup.classic == nil || setup.classicAnswer != nil)
+            && (setup.classicAnswer != .accepted || setup.classicImported != nil)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {

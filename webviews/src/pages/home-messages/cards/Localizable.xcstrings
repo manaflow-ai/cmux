@@ -10663,6 +10663,137 @@
         }
       }
     },
+    "home.setup.classic.failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم تُستورد: توقف الاستيراد. الإعدادات › الاستيراد يعيد المحاولة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije uvezeno: uvoz je zaustavljen. Postavke › Uvoz pokušava ponovo"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke importeret: importen stoppede. Indstillinger › Import prøver igen"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nicht importiert: Der Import wurde abgebrochen. Einstellungen › Import versucht es erneut"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not imported: the import stopped. Settings › Import tries again"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No importado: la importación se detuvo. Ajustes › Importar lo intenta de nuevo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non importé : l’importation s’est arrêtée. Réglages › Importer réessaie"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non importato: l’importazione si è interrotta. Impostazioni › Importa riprova"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未インポート：読み込みが停止しました。設定 › 読み込みから再試行できます"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនបាននាំចូល៖ ការនាំចូលបានឈប់។ ការកំណត់ › នាំចូល ព្យាយាមម្ដងទៀត"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "가져오지 않음: 가져오기가 중단됨. 설정 › 가져오기에서 다시 시도"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke importert: importen stoppet. Innstillinger › Import prøver igjen"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie zaimportowano: import został przerwany. Ustawienia › Import spróbuje ponownie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não importado: a importação parou. Ajustes › Importar tenta de novo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не импортировано: импорт остановлен. Настройки › Импорт попробует снова"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่ได้นำเข้า: การนำเข้าหยุดลง การตั้งค่า › นำเข้า ลองอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İçe aktarılmadı: içe aktarma durdu. Ayarlar › İçe Aktar yeniden dener"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не імпортовано: імпорт зупинився. Налаштування › Імпорт спробує знову"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chưa nhập: quá trình nhập đã dừng. Cài đặt › Nhập sẽ thử lại"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未导入：导入已停止。设置 › 导入可重试"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未匯入：匯入已停止。設定 › 匯入可重試"
+          }
+        }
+      }
+    },
     "home.setup.classic.imported" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10790,6 +10921,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "已匯入"
+          }
+        }
+      }
+    },
+    "home.setup.classic.importing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "جارٍ استيراد مساحات العمل الكلاسيكية…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uvoze se vaši klasični radni prostori…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importerer dine klassiske arbejdsområder…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deine klassischen Arbeitsbereiche werden importiert …"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importing your classic workspaces…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importando tus espacios de trabajo clásicos…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importation de vos espaces de travail classiques…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importazione degli spazi di lavoro classici…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "クラシックのワークスペースを読み込み中…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំពុងនាំចូលកន្លែងធ្វើការបុរាណរបស់អ្នក…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "클래식 워크스페이스를 가져오는 중…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importerer de klassiske arbeidsområdene dine …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importowanie klasycznych przestrzeni roboczych…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importando seus espaços de trabalho clássicos…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Импорт классических рабочих пространств…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำลังนำเข้าพื้นที่ทำงานแบบคลาสสิก…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Klasik çalışma alanlarınız içe aktarılıyor…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Імпорт класичних робочих просторів…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đang nhập không gian làm việc cổ điển…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在导入经典工作区…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在匯入經典工作區…"
           }
         }
       }

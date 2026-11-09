@@ -12,7 +12,7 @@ const strings = cardStrings();
 // A fixed save time, so the stills do not change from run to run.
 const savedAt = new Date(2026, 10, 5, 22, 26).getTime();
 
-type Fixture = "fresh" | "classic" | "classicOpen" | "classicDeclined" | "mostlyDone" | "installing" | "unverified";
+type Fixture = "fresh" | "classic" | "classicOpen" | "classicDeclined" | "classicImporting" | "mostlyDone" | "installing" | "unverified";
 
 const FIXTURES: Record<Fixture, SetupState> = {
   fresh: {
@@ -51,6 +51,15 @@ const FIXTURES: Record<Fixture, SetupState> = {
     account: { signedIn: false },
     cli: "other",
     classic: { workspaces: 27, app: "cmux", savedAt, resumes: true, answered: "declined" },
+  },
+  classicImporting: {
+    agents: [
+      { id: "claude", name: "Claude Code", state: "signedOut" },
+      { id: "codex", name: "Codex", state: "missing" },
+    ],
+    account: { signedIn: false },
+    cli: "other",
+    classic: { workspaces: 27, app: "cmux", savedAt, resumes: true, answered: "importing" },
   },
   mostlyDone: {
     agents: [
@@ -154,6 +163,10 @@ export default componentEntry<Props>({
     "rows-classic-declined": {
       note: "Skip is a No the migration keeps: the row says where to import later, and its slot swaps to the done mark in place.",
       props: { look: "rows", fixture: "classicDeclined" },
+    },
+    "rows-classic-importing": {
+      note: "After Import, the row reads Importing with its busy mark until the import finishes: Imported never shows before the workspaces exist.",
+      props: { look: "rows", fixture: "classicImporting" },
     },
     "checklist-classic-open": {
       note: "The checklist look with the still-open classic app's row, for comparison.",

@@ -291,18 +291,29 @@ import Testing
     private static let quiet = SetupCardEnvironment(account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in },
                                                     openAgents: {}, historySources: { false }, importHistory: { false })
 
-    /// The launch's migration through the card (``FirstRunSetup/classicMigration(seam:dialog:_:)``): it asks the plan
+    /// The launch's migration through the card (``FirstRunSetup/classicMigration(seam:dialog:screenReader:_:)``): it asks the plan
     /// once `ask` resumes, and returns the answer; `dialog` counts the dialog's asks.
+    /// `screenReader` is VoiceOver when it asks; with `holds`, the import waits after the answer until `finish()`
+    /// (failing when `fails`), as a real import's backup and workspaces take a moment.
     @MainActor private final class LaunchRun {
+        struct ImportFailed: Error {}
         var dialogs = 0
         var gate: CheckedContinuation<Void, Never>?
         var gated = false
+        var held: CheckedContinuation<Void, Never>?
+        var holds = false
+        var fails = false
 
-        func start(_ setup: FirstRunSetup, seam: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)? = nil) -> Task<ClassicImportAnswer, Never> {
+        func start(_ setup: FirstRunSetup, seam: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)? = nil,
+                   screenReader: Bool = false) -> Task<ClassicImportAnswer?, Never> {
             Task { @MainActor in
-                await setup.classicMigration(seam: seam, dialog: { [self] _ in dialogs += 1; return .declined }) { confirm in
+                try? await setup.classicMigration(seam: seam, dialog: { [self] _ in dialogs += 1; return .declined },
+                                                  screenReader: { screenReader }) { confirm in
                     await withCheckedContinuation { gate = $0; gated = true }
-                    return await confirm(FirstRunSetupTests.plan)
+                    let answer = await confirm(FirstRunSetupTests.plan)
+                    if holds { await withCheckedContinuation { held = $0 } }
+                    if fails { throw ImportFailed() }
+                    return answer
                 }
             }
         }
@@ -310,6 +321,11 @@ import Testing
         func ask() {
             gate?.resume()
             gate = nil
+        }
+
+        func finish() {
+            held?.resume()
+            held = nil
         }
     }
 
@@ -396,6 +412,50 @@ import Testing
         provider.stop()
         #expect(await second.value == .declined && closing.dialogs == 1, "the card closed mid-ask: the dialog")
         #expect(setup.classic == nil && setup.shows)
+    }
+
+    /// Import says Imported only once the migration brought the workspaces: Importing while it runs (the card does
+    /// not end), and Not imported when it failed, so a failed import never keeps a checkmark.
+    @Test func theClassicRowSaysImportedOnlyWhenTheImportFinished() async throws {
+        for (fails, wire) in [(false, "imported"), (true, "failed")] {
+            let setup = FirstRunSetup(defaults: try defaults())
+            #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+            setup.historyAnswered()
+            let agent = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)
+            let provider = SetupCardPageProvider(setup: setup, agents: MockAgentSignInSource(agents: [agent]), environment: Self.quiet)
+            defer { provider.stop() }
+            await until { provider.agents.loaded && provider.state["cli"] == .string("installed") }
+            let run = LaunchRun()
+            (run.holds, run.fails) = (true, fails)
+            let launch = run.start(setup)
+            await until { run.gated }
+            run.ask()
+            await until { setup.classic != nil }
+            _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string("importClassic")]], context: click(1))
+            await until { run.held != nil }
+            #expect(provider.state["classic"]?.objectValue?["answered"] == .string("importing"))
+            #expect(!provider.allDone, "the card stays while the import runs")
+            run.finish()
+            #expect(await launch.value == (fails ? nil : .accepted))
+            #expect(provider.state["classic"]?.objectValue?["answered"] == .string(wire))
+            #expect(provider.allDone, "answered and finished either way")
+        }
+    }
+
+    /// With VoiceOver on, the import asks with its dialog even on a card an earlier launch left pending: VoiceOver
+    /// cannot press the card's WebKit buttons.
+    @Test func withVoiceOverAPendingCardLeavesTheAskToTheDialog() async throws {
+        let store = try defaults()
+        #expect(FirstRunSetup(defaults: store).begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let relaunched = FirstRunSetup(defaults: store)
+        #expect(relaunched.route(isFirstRun: false, replacedKeys: Self.replaced, screenReader: true) == .cardOwns && relaunched.shows)
+        let provider = SetupCardPageProvider(setup: relaunched, agents: nil, environment: Self.quiet)
+        defer { provider.stop() }
+        let run = LaunchRun()
+        let launch = run.start(relaunched, screenReader: true)
+        await until { run.gated }
+        run.ask()
+        #expect(await launch.value == .declined && run.dialogs == 1 && relaunched.classic == nil)
     }
 
     /// A browser-only import still says what Import also does (it loads the saved pages).

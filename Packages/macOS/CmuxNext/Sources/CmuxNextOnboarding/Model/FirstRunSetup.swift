@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import AppKit
 
 /// Whether Home shows the Set Up cmux card (goal next-first-run-setup; Lawrence 2026-10-09: "i do not want new
 /// window ... just drop user into main screen asap"). A first run starts it in place of the first-run windows:
@@ -69,7 +70,7 @@ public final class FirstRunSetup {
 
     /// The launch's first-run route; starts the card when ``begin(isFirstRun:replacedKeys:screenReader:)`` does. Decided
     /// before the launch's classic migration: a card that shows waits for it (``awaitsClassic``) from here, before any
-    /// card is drawn, until ``classicMigration(seam:dialog:_:)`` ends or ``classicSettled()`` says it does not run.
+    /// card is drawn, until ``classicMigration(seam:dialog:screenReader:_:)`` ends or ``classicSettled()`` says it does not run.
     public func route(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Route {
         let route: Route = begin(isFirstRun: isFirstRun, replacedKeys: replacedKeys, screenReader: screenReader) ? .startCard
             : defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
@@ -113,6 +114,9 @@ public final class FirstRunSetup {
     public private(set) var classic: ClassicOffer?
     /// The row's answer: accepted or declined, nil while it asks (or before any ask).
     public private(set) var classicAnswer: ClassicImportAnswer?
+    /// After Import: nil while the migration still runs, true once it brought the workspaces, false when it failed.
+    /// The row says Imported only from this, never from the click alone.
+    public private(set) var classicImported: Bool?
     /// The launch's classic migration has not decided yet whether it asks: the card does not end before it has,
     /// so a migration that reads slowly cannot lose its row (as the chat history row waits for its read).
     public private(set) var awaitsClassic = false
@@ -123,18 +127,31 @@ public final class FirstRunSetup {
 
     /// Runs the launch's classic migration (`run`, given its confirmation): while the card shows, the card waits for
     /// it and its cmux Classic row asks (``askClassic(_:)``); otherwise `dialog` asks, as before. `seam` (a test's
-    /// answer) wins over both.
+    /// answer) wins over both. With VoiceOver on when it asks (`screenReader`, read then: a card left pending by an
+    /// earlier launch still shows) the dialog asks, since VoiceOver cannot press the card's WebKit buttons
+    /// (manaflow-ai/cmux#37809).
     public func classicMigration<T>(seam: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)?,
                                     dialog: @escaping @MainActor (ClassicImportPlan) async -> ClassicImportAnswer,
+                                    screenReader: @escaping @MainActor () -> Bool = FirstRunSetup.voiceOverOn,
                                     _ run: (@escaping @MainActor (ClassicImportPlan) async -> ClassicImportAnswer) async throws -> T) async rethrows -> T {
         defer { awaitsClassic = false }
         if let seam { return try await run(seam) }
         if shows { awaitsClassic = true }
-        return try await run { [weak self] plan in
-            if let answer = await self?.askClassic(ClassicOffer(plan)) { return answer }
-            return await dialog(plan)
+        do {
+            let result = try await run { [weak self] plan in
+                if !screenReader(), let answer = await self?.askClassic(ClassicOffer(plan)) { return answer }
+                return await dialog(plan)
+            }
+            if classicAnswer == .accepted { classicImported = true }
+            return result
+        } catch {
+            if classicAnswer == .accepted { classicImported = false }
+            throw error
         }
     }
+
+    /// Whether VoiceOver runs now (``classicMigration(seam:dialog:screenReader:_:)``'s default).
+    public static func voiceOverOn() -> Bool { NSWorkspace.shared.isVoiceOverEnabled }
 
     /// The launch's classic import asks on the cmux Classic row: the answer is the person's own click there (Import,
     /// or Skip, a No the migration keeps), or unanswered when the card leaves first (Hide: the next launch asks
@@ -143,7 +160,7 @@ public final class FirstRunSetup {
     public func askClassic(_ offer: ClassicOffer) async -> ClassicImportAnswer? {
         guard shows, cardsOpen > 0, classicReply == nil else { return nil }
         classic = offer
-        classicAnswer = nil
+        (classicAnswer, classicImported) = (nil, nil)
         let answer = await withCheckedContinuation { classicReply = $0 }
         if answer == nil { classic = nil }
         return answer
