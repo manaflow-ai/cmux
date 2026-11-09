@@ -27,7 +27,17 @@ export default componentEntry<ManagedBannerDesignsProps>({
   height: 120,
   covers: ["agent-session/acpmux/ManagedBannerDesigns.tsx#ManagedBannerDesigns"],
   styles: () => import("./styles.css"),
-  load: () => import("./ManagedBannerDesigns").then((module) => module.ManagedBannerDesigns),
+  // In the pane's shell, so the capsule's glass and pill tokens resolve as they do in the pane.
+  load: async () => {
+    const { ManagedBannerDesigns } = await import("./ManagedBannerDesigns");
+    return function GalleryManagedBannerDesigns(props: ManagedBannerDesignsProps) {
+      return (
+        <div className="acpmux-shell">
+          <ManagedBannerDesigns {...props} />
+        </div>
+      );
+    };
+  },
   variants: {
     sending: {
       note: "Picked, and the one that ships: who is sending messages here, that your typing still sends as you, and Hide.",

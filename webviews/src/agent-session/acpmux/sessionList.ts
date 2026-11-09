@@ -71,6 +71,9 @@ export type AcpmuxSessionEntry = {
   reportsTo?: string;
   /** Started by a Chief (its `mux.parent` tag, `optchat-chief:<home>`): the Chief manages it. */
   chiefChild?: true;
+  /** A Chief's own session (its turn or compactor, acpmux tag `cmux.chief` valued with the Chief's
+   *  home id, optchat-chief acpmux.rs `CHIEF_TAG`) or its subagent: a chat it starts is the Chief's. */
+  chief?: true;
   /** The Chief home that started it (its `mux.parent` tag's value), when a Chief did. */
   chiefHome?: string;
   /** A Chief's own turn session: the home whose chats it starts (`mux.children`) and that Chief's
@@ -218,6 +221,22 @@ function chiefParent(tags: unknown): boolean {
   return typeof value === "string" && /^optchat-chief(?::|$)/.test(value);
 }
 
+/** The tag a Chief puts on its own sessions, valued with its home id (optchat-chief acpmux.rs
+ *  `CHIEF_TAG`). */
+const CHIEF_TAG = "cmux.chief";
+
+/** A Chief's turn session name (optchat-chief host.rs `turn_prefix`): `optchat-<8 hex home id>`,
+ *  then the turn's suffix; or its subagent's, `optchat-sub-<home id>-<id>` (host.rs, which tags it
+ *  `mux.parent` but not `cmux.chief`). A turn's name is read only until its tag reaches the list. */
+const CHIEF_TURN_NAME = /^optchat-(?:sub-)?[0-9a-f]{8}(?:-|$)/;
+
+/** Whether the session is a Chief's own: its `cmux.chief` tag, the Chief's harness (as NeedsYou
+ *  reads it, needsYou/model.ts), or its turn or subagent session name. */
+function chiefSession(session: Record<string, any>): boolean {
+  if (tagValue(session.tags, CHIEF_TAG) || session.harness === "chief") return true;
+  return typeof session.name === "string" && CHIEF_TURN_NAME.test(session.name);
+}
+
 /** The tag acpmux sets on a chat while a sub-session of it waits for a folder's trust (hub/trust_wait.rs). */
 const TRUST_PENDING_TAG = "trust.pending:";
 
@@ -310,6 +329,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
       chiefHome: tagValue(session.tags, CHIEF_PARENT_TAG),
     }),
     ...(turn && { chiefTurn: turn }),
+    ...(chiefSession(session) && { chief: true as const }),
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,

@@ -29,6 +29,26 @@ test("a bare optchat-chief parent counts; another app's mux.parent does not", ()
   expect(managedBy("c", [entry("c", { tags: { "mux.parent": "lane-host" } })])).toBeUndefined();
 });
 
+test("a chat the Chief's own turn started is managed by the Chief, never by its raw session name", () => {
+  // #32745: the banner read "optchat-b902d10e-3669 is managing this chat".
+  const tagged = [
+    entry("turn", { name: "optchat-b902d10e-3669", tags: { "cmux.chief": "b902d10e" } }),
+    entry("kid", { startedBy: "turn" }),
+  ];
+  expect(tagged[0]!.chief).toBe(true);
+  expect(managedBy("kid", tagged)).toEqual({ kind: "chief", sessionId: "turn" });
+  // Before its tag reaches the list, the turn session's name still says it is the Chief's.
+  const named = [entry("turn", { name: "optchat-b902d10e-3669" }), entry("kid", { spawnedBy: "turn" })];
+  expect(managedBy("kid", named)).toEqual({ kind: "chief", sessionId: "turn" });
+  const harness = [entry("turn", { name: "x", harness: "chief" }), entry("kid", { startedBy: "turn" })];
+  expect(managedBy("kid", harness)).toEqual({ kind: "chief", sessionId: "turn" });
+  // A Chief subagent's raw name (optchat-sub-<home>-<id>) is the Chief's too.
+  const sub = [entry("sub", { name: "optchat-sub-b902d10e-a3" }), entry("kid", { startedBy: "sub" })];
+  expect(managedBy("kid", sub)).toEqual({ kind: "chief", sessionId: "sub" });
+  // Another agent's chat whose name only starts with optchat is not the Chief.
+  expect(entry("p", { name: "optchat-notes" }).chief).toBeUndefined();
+});
+
 test("a sub-session is managed by the chat that started it, by that chat's title", () => {
   const sessions = [entry("coord", { title: "claude-sr2-coord" }), entry("lane", { startedBy: "coord" })];
   expect(managedBy("lane", sessions)).toMatchObject({ kind: "agent", name: "claude-sr2-coord", sessionId: "coord" });
@@ -162,4 +182,25 @@ test("a Chief's chat names the Chief from its turn session's tags, else the defa
   expect(sessionEntry({ sessionId: "chat", tags: { "mux.parent": "optchat-chief:home" } }).chiefHome).toBe(
     "optchat-chief:home",
   );
+});
+
+test("a Chief turn's sub-session follow-up shows the line, though acpmux does not stamp it as the Chief's", () => {
+  // #32745 review: a Chief turn session starts a chat (startedBy) and sends a follow-up through its
+  // sub-session send, which names the turn's session and carries no chief stamp.
+  const sessions = [
+    entry("turn", { name: "optchat-b902d10e-3669", tags: { "cmux.chief": "b902d10e" } }),
+    entry("kid", { startedBy: "turn" }),
+  ];
+  const manager = managedBy("kid", sessions);
+  expect(manager).toEqual({ kind: "chief", sessionId: "turn" });
+  const fromTurn = {
+    kind: "message",
+    message: { name: "optchat-b902d10e-3669", sessionId: "turn", relation: "parent", text: "go", raw: "go" },
+  } as const;
+  const turnSays = (at: number): PromptRow => ({ kind: "user", at, incoming: fromTurn });
+  expect(shown(manager, [turnSays(ago(60)), reply(ago(59)), turnSays(ago(2))])).toBe(true);
+  expect(managerDrivingUntil(manager, [turnSays(ago(60))], [fromTurn.message])).toBe(Infinity);
+  // Another chat's message is still not the Chief's.
+  const other = { kind: "message", message: { name: "reviewer", sessionId: "rev", text: "", raw: "" } } as const;
+  expect(shown(manager, [turnSays(ago(60)), { kind: "user", at: ago(2), incoming: other }])).toBe(false);
 });
