@@ -59,8 +59,9 @@ export const EARN_WINDOW_MS = 150;
 /** How far the pointer may drift (a hand resting on the trackpad) before it takes the ring away. */
 export const POINTER_SLOP_PX = 6;
 
-/** Each installed document's own setter, so `earnFocusRing` goes through the same state change. */
-const installed = new WeakMap<Document, (next: FocusModality) => void>();
+/** Each installed document's own state changes, so `earnFocusRing` and `dismissFocusRing` go
+ * through them. */
+const installed = new WeakMap<Document, { set: (next: FocusModality) => void; clear: () => void }>();
 
 /** Whether `doc`'s rings are on now. */
 export function focusModality(doc: Document = document): FocusModality {
@@ -74,15 +75,19 @@ export function focusRingShown(element: Element | null | undefined): boolean {
   return element.ownerDocument.documentElement.getAttribute(FOCUS_MODALITY_ATTRIBUTE) !== "pointer";
 }
 
-/** Takes the ring away now (a dialog or menu closing by its own choice, for one). */
+/** Takes the ring away now and forgets the last navigation key, so the focus that follows earns
+ * none: a dialog or menu closing by its own choice, or the app running a command its own key router
+ * took (Cmd-F's `focusSearch`), whose key the page never sees. */
 export function dismissFocusRing(doc: Document = document): void {
-  doc.documentElement.setAttribute(FOCUS_MODALITY_ATTRIBUTE, "pointer");
+  const owner = installed.get(doc);
+  if (owner) owner.clear();
+  else doc.documentElement.setAttribute(FOCUS_MODALITY_ATTRIBUTE, "pointer");
 }
 
 /** Turns the ring on for what has focus now, as a navigation key would. Only for stagings that
  * stand in for a key (a gallery's focus step); product code lets the keyboard earn it. */
 export function earnFocusRing(doc: Document = document): void {
-  installed.get(doc)?.("keyboard");
+  installed.get(doc)?.set("keyboard");
 }
 
 function isNavigationKey(event: KeyboardEvent): boolean {
@@ -119,9 +124,20 @@ export function installFocusModality(doc: Document = document): () => void {
     navigationKeyAt = Number.NEGATIVE_INFINITY;
     set("pointer");
   };
+  // A navigation key's focus moves happen in its own task and the frame after (a focus guard, a
+  // handler, an effect, a list focusing its row once drawn). After the second frame the key is
+  // spent, so a later focus from code, or from a key the app's router took, cannot borrow it.
+  let keyToken = 0;
   const onKeyDown = (event: KeyboardEvent) => {
-    if (isNavigationKey(event)) navigationKeyAt = now();
-    else if (!MODIFIER_KEYS.has(event.key)) clear();
+    if (isNavigationKey(event)) {
+      navigationKeyAt = now();
+      const token = (keyToken += 1);
+      view.requestAnimationFrame?.(() =>
+        view.requestAnimationFrame(() => {
+          if (token === keyToken) navigationKeyAt = Number.NEGATIVE_INFINITY;
+        }),
+      );
+    } else if (!MODIFIER_KEYS.has(event.key)) clear();
   };
   // Every focus change decides afresh: a navigation key just before it earns the ring; anything
   // else (a click, a shortcut, code) clears it, even while the ring was on.
@@ -129,7 +145,7 @@ export function installFocusModality(doc: Document = document): () => void {
   // A navigation key that keeps focus where it is (an arrow in a list that only moves its
   // highlight) leaves the ring as it was; a later key that does move focus earns it then.
 
-  installed.set(doc, set);
+  installed.set(doc, { set, clear });
   set("pointer");
   // Capture on the window: ahead of every page handler, so a handler that reads focusRingShown in
   // its own focus or key handling sees this event's answer.

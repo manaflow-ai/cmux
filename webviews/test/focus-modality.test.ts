@@ -22,6 +22,7 @@ import {
   EARN_WINDOW_MS,
   FOCUS_MODALITY_ATTRIBUTE,
   FOCUS_RING_GATE,
+  dismissFocusRing,
   earnFocusRing,
   focusModality,
   installFocusModality,
@@ -113,6 +114,25 @@ describe("the focus-ring owner", () => {
       p.el("b").focus(); // a click's focus, or an Escape or Enter handler's, within EARN_WINDOW_MS
       expect(p.mode()).toBe("pointer");
     }
+  });
+
+  test("a command the app's key router ran forgets the key: its focus earns none, even right after a Tab", () => {
+    const p = page();
+    p.tabTo("a");
+    dismissFocusRing(p.doc); // pageStreams' onCommand and the pane's command() do this first
+    p.el("field").focus(); // Cmd-F's focusSearch
+    expect(p.mode()).toBe("pointer");
+  });
+
+  test("the key is spent two frames after it: a code focus then earns none, inside the time window too", async () => {
+    const p = page();
+    p.tabTo("a");
+    const frame = () => new Promise((resolve) => p.view.requestAnimationFrame(resolve));
+    await frame();
+    await frame();
+    await frame();
+    p.el("b").focus(); // the clock has not moved: only the frames ended the key
+    expect(p.mode()).toBe("pointer");
   });
 
   test("a focus guard's hand-off within the key's window keeps the ring", () => {
@@ -307,6 +327,12 @@ describe("detectors", () => {
   test("every page that boots the desktop layer installs the owner", () => {
     const desktop = readFileSync(path.join(webviews, "src/pages/shared/desktop.ts"), "utf8");
     expect(desktop).toMatch(/installFocusModality\(doc\)/);
+    // A command the app's key router took never reached the page as a key: it drops the ring first.
+    for (const [file, call] of [
+      ["src/pages/shared/pageStreams.ts", /\(data\) => \{(?:\s*\/\/.*)*\s*dismissFocusRing\(\);\s*onCommand\(data\);/],
+      ["src/agent-session/acpmux/App.tsx", /command\(name, sessionId\) \{(?:\s*\/\/.*)*\s*dismissFocusRing\(\);/],
+    ] as const)
+      expect([file, call.test(readFileSync(path.join(webviews, file), "utf8"))]).toEqual([file, true]);
     // The pages served to a browser outside the app boot without the desktop layer.
     for (const entry of ["src/agent-session/guest/main.tsx", "src/chief-web/main.tsx"])
       expect([entry, readFileSync(path.join(webviews, entry), "utf8").includes("installFocusModality()")]).toEqual([

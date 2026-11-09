@@ -89,6 +89,21 @@ await requireBrowserLane("focus-modality-browser.test.ts", async () => {
         await page.close();
       });
 
+      test("a code focus two frames after a Tab draws none (a key the app's router took, a late reply)", async () => {
+        const page = await open();
+        await focusByKey(page, "#a");
+        await page.evaluate(
+          () =>
+            new Promise((done) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(done))),
+            ),
+        );
+        await page.evaluate(() => document.getElementById("b")!.focus());
+        expect(await active(page)).toBe("b");
+        expect(await ringOf(page, "b")).toBe(false);
+        await page.close();
+      });
+
       for (const [how, cancel] of [
         ["Escape", (page: Page) => page.keyboard.press("Escape")],
         [
