@@ -28,6 +28,9 @@
     "steerQueue.act.reply": {"comment":"Steer queue row: what the person last did in this chat from the queue","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Replied"}},"ar":{"stringUnit":{"state":"needs_review","value":"تم الرد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgovoreno"}},"da":{"stringUnit":{"state":"needs_review","value":"Svaret"}},"de":{"stringUnit":{"state":"needs_review","value":"Geantwortet"}},"es":{"stringUnit":{"state":"needs_review","value":"Respondido"}},"fr":{"stringUnit":{"state":"needs_review","value":"Répondu"}},"it":{"stringUnit":{"state":"needs_review","value":"Risposto"}},"ja":{"stringUnit":{"state":"needs_review","value":"返信済み"}},"km":{"stringUnit":{"state":"needs_review","value":"បានឆ្លើយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"답장함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Svart"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odpowiedziano"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Respondido"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отвечено"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอบแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yanıtlandı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відповіли"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã trả lời"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已回复"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已回覆"}}}},
     "steerQueue.state.sending": {"comment":"Steer queue row: the step is on its way to acpmux","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sending…"}},"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ الإرسال…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Šalje se…"}},"da":{"stringUnit":{"state":"needs_review","value":"Sender…"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird gesendet…"}},"es":{"stringUnit":{"state":"needs_review","value":"Enviando…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoi…"}},"it":{"stringUnit":{"state":"needs_review","value":"Invio…"}},"ja":{"stringUnit":{"state":"needs_review","value":"送信中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងផ្ញើ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"보내는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sender…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysyłanie…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправка…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังส่ง…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderiliyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надсилання…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang gửi…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在发送…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在傳送…"}}}},
     "steerQueue.state.failed": {"comment":"Steer queue row: acpmux refused the step","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Didn't go through"}},"ar":{"stringUnit":{"state":"needs_review","value":"لم يتم"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije prošlo"}},"da":{"stringUnit":{"state":"needs_review","value":"Gik ikke igennem"}},"de":{"stringUnit":{"state":"needs_review","value":"Nicht angekommen"}},"es":{"stringUnit":{"state":"needs_review","value":"No se envió"}},"fr":{"stringUnit":{"state":"needs_review","value":"Non abouti"}},"it":{"stringUnit":{"state":"needs_review","value":"Non riuscito"}},"ja":{"stringUnit":{"state":"needs_review","value":"届きませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនបានសម្រេច"}},"ko":{"stringUnit":{"state":"needs_review","value":"전달되지 않음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gikk ikke gjennom"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie dotarło"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi enviado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не прошло"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่งไม่สำเร็จ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderilemedi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не пройшло"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thành công"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"未成功"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"未成功"}}}},
+    "newTabPage.openFailed.terminal": {"comment":"New Tab page: a terminal tab the host refused to open; Retry and the host's words under Details follow.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لم تُفتح الطرفية."}},"bs":{"stringUnit":{"state":"needs_review","value":"Terminal se nije otvorio."}},"da":{"stringUnit":{"state":"needs_review","value":"Terminalen blev ikke åbnet."}},"de":{"stringUnit":{"state":"needs_review","value":"Das Terminal wurde nicht geöffnet."}},"en":{"stringUnit":{"state":"translated","value":"The terminal didn't open."}},"es":{"stringUnit":{"state":"needs_review","value":"La terminal no se abrió."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le terminal ne s'est pas ouvert."}},"it":{"stringUnit":{"state":"needs_review","value":"Il terminale non si è aperto."}},"ja":{"stringUnit":{"state":"translated","value":"ターミナルを開けませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"Terminal មិនបានបើកទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"터미널이 열리지 않았습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Terminalen ble ikke åpnet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Terminal się nie otworzył."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O terminal não abriu."}},"ru":{"stringUnit":{"state":"needs_review","value":"Терминал не открылся."}},"th":{"stringUnit":{"state":"needs_review","value":"เทอร์มินัลไม่เปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Terminal açılmadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Термінал не відкрився."}},"vi":{"stringUnit":{"state":"needs_review","value":"Terminal không mở được."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"终端未能打开。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"終端機未能打開。"}}}},
+    "newTabPage.openFailed.browser": {"comment":"New Tab page: a browser tab the host refused to open; Retry and the host's words under Details follow.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لم تُفتح الصفحة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Stranica se nije otvorila."}},"da":{"stringUnit":{"state":"needs_review","value":"Siden blev ikke åbnet."}},"de":{"stringUnit":{"state":"needs_review","value":"Die Seite wurde nicht geöffnet."}},"en":{"stringUnit":{"state":"translated","value":"The page didn't open."}},"es":{"stringUnit":{"state":"needs_review","value":"La página no se abrió."}},"fr":{"stringUnit":{"state":"needs_review","value":"La page ne s'est pas ouverte."}},"it":{"stringUnit":{"state":"needs_review","value":"La pagina non si è aperta."}},"ja":{"stringUnit":{"state":"translated","value":"ページを開けませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"ទំព័រមិនបានបើកទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"페이지가 열리지 않았습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Siden ble ikke åpnet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Strona się nie otworzyła."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"A página não abriu."}},"ru":{"stringUnit":{"state":"needs_review","value":"Страница не открылась."}},"th":{"stringUnit":{"state":"needs_review","value":"หน้าเว็บไม่เปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sayfa açılmadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Сторінка не відкрилася."}},"vi":{"stringUnit":{"state":"needs_review","value":"Trang không mở được."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"页面未能打开。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"頁面未能打開。"}}}},
+    "newTabPage.openFailed.agent": {"comment":"New Tab page: a chat the host refused to open; Retry and the host's words under Details follow.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لم تُفتح الدردشة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Razgovor se nije otvorio."}},"da":{"stringUnit":{"state":"needs_review","value":"Chatten blev ikke åbnet."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Chat wurde nicht geöffnet."}},"en":{"stringUnit":{"state":"translated","value":"The chat didn't open."}},"es":{"stringUnit":{"state":"needs_review","value":"El chat no se abrió."}},"fr":{"stringUnit":{"state":"needs_review","value":"La conversation ne s'est pas ouverte."}},"it":{"stringUnit":{"state":"needs_review","value":"La chat non si è aperta."}},"ja":{"stringUnit":{"state":"translated","value":"チャットを開けませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកមិនបានបើកទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅이 열리지 않았습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Chatten ble ikke åpnet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Czat się nie otworzył."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O chat não abriu."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чат не открылся."}},"th":{"stringUnit":{"state":"needs_review","value":"แชทไม่เปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbet açılmadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Чат не відкрився."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện không mở được."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"聊天未能打开。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"聊天未能打開。"}}}},
     "waiting.title": {"comment":"Agent pane: History tab and page title listing every ask (approvals, plans, questions, pull requests) waiting on the person","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"بانتظارك"}},"bs":{"stringUnit":{"state":"translated","value":"Čeka vas"}},"da":{"stringUnit":{"state":"translated","value":"Venter på dig"}},"de":{"stringUnit":{"state":"translated","value":"Wartet auf dich"}},"en":{"stringUnit":{"state":"translated","value":"Waiting on you"}},"es":{"stringUnit":{"state":"translated","value":"Esperando por ti"}},"fr":{"stringUnit":{"state":"translated","value":"En attente de vous"}},"it":{"stringUnit":{"state":"translated","value":"In attesa di te"}},"ja":{"stringUnit":{"state":"translated","value":"対応待ち"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងរង់ចាំអ្នក"}},"ko":{"stringUnit":{"state":"translated","value":"내 응답 대기 중"}},"nb":{"stringUnit":{"state":"translated","value":"Venter på deg"}},"pl":{"stringUnit":{"state":"translated","value":"Czeka na Ciebie"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Aguardando você"}},"ru":{"stringUnit":{"state":"translated","value":"Ждёт вас"}},"th":{"stringUnit":{"state":"translated","value":"รอคุณอยู่"}},"tr":{"stringUnit":{"state":"translated","value":"Sizi bekliyor"}},"uk":{"stringUnit":{"state":"translated","value":"Чекає на вас"}},"vi":{"stringUnit":{"state":"translated","value":"Đang chờ bạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"等待你处理"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"等待你處理"}}}},
     "waiting.empty": {"comment":"Agent pane: Waiting on you, empty list","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"لا شيء بانتظارك."}},"bs":{"stringUnit":{"state":"translated","value":"Ništa ne čeka vas."}},"da":{"stringUnit":{"state":"translated","value":"Der venter intet på dig."}},"de":{"stringUnit":{"state":"translated","value":"Nichts wartet auf dich."}},"en":{"stringUnit":{"state":"translated","value":"Nothing is waiting on you."}},"es":{"stringUnit":{"state":"translated","value":"No hay nada esperándote."}},"fr":{"stringUnit":{"state":"translated","value":"Rien ne vous attend."}},"it":{"stringUnit":{"state":"translated","value":"Niente in attesa di te."}},"ja":{"stringUnit":{"state":"translated","value":"対応待ちの項目はありません。"}},"km":{"stringUnit":{"state":"translated","value":"គ្មានអ្វីកំពុងរង់ចាំអ្នកទេ។"}},"ko":{"stringUnit":{"state":"translated","value":"기다리는 항목이 없습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Ingenting venter på deg."}},"pl":{"stringUnit":{"state":"translated","value":"Nic na Ciebie nie czeka."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Nada aguardando você."}},"ru":{"stringUnit":{"state":"translated","value":"Вас ничего не ждёт."}},"th":{"stringUnit":{"state":"translated","value":"ไม่มีรายการที่รอคุณอยู่"}},"tr":{"stringUnit":{"state":"translated","value":"Sizi bekleyen bir şey yok."}},"uk":{"stringUnit":{"state":"translated","value":"Вас нічого не чекає."}},"vi":{"stringUnit":{"state":"translated","value":"Không có gì đang chờ bạn."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"没有等待你处理的内容。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"沒有等待你處理的項目。"}}}},
     "waiting.older": {"comment":"Agent pane: Waiting on you, the local agent service does not support the queue yet","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"خدمة الوكلاء على هذا الـ Mac أقدم ولا تحتفظ بقائمة انتظار بعد. حدّث cmux لعرض كل الطلبات هنا."}},"bs":{"stringUnit":{"state":"translated","value":"Usluga agenata na ovom Macu je starija i još ne vodi red čekanja. Ažurirajte cmux da vidite sve zahtjeve ovdje."}},"da":{"stringUnit":{"state":"translated","value":"Agenttjenesten på denne Mac er ældre og har ingen kø endnu. Opdater cmux for at se alle anmodninger her."}},"de":{"stringUnit":{"state":"translated","value":"Der Agent-Dienst dieses Macs ist älter und führt noch keine Warteschlange. Aktualisiere cmux, um hier alle Anfragen zu sehen."}},"en":{"stringUnit":{"state":"translated","value":"This Mac's agent service is older and keeps no queue yet. Update cmux to see every ask here."}},"es":{"stringUnit":{"state":"translated","value":"El servicio de agentes de este Mac es más antiguo y aún no mantiene una cola. Actualiza cmux para ver aquí todas las solicitudes."}},"fr":{"stringUnit":{"state":"translated","value":"Le service d'agents de ce Mac est plus ancien et ne gère pas encore de file. Mettez à jour cmux pour voir toutes les demandes ici."}},"it":{"stringUnit":{"state":"translated","value":"Il servizio agenti di questo Mac è più vecchio e non gestisce ancora una coda. Aggiorna cmux per vedere qui tutte le richieste."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac のエージェントサービスは古く、まだキューに対応していません。cmux を更新すると、すべての依頼がここに表示されます。"}},"km":{"stringUnit":{"state":"translated","value":"សេវាភ្នាក់ងារនៅលើ Mac នេះចាស់ជាង ហើយមិនទាន់មានជួររង់ចាំនៅឡើយទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីមើលសំណើទាំងអស់នៅទីនេះ។"}},"ko":{"stringUnit":{"state":"translated","value":"이 Mac의 에이전트 서비스가 오래되어 아직 대기열을 지원하지 않습니다. cmux를 업데이트하면 모든 요청을 여기서 볼 수 있습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Agenttjenesten på denne Macen er eldre og har ingen kø ennå. Oppdater cmux for å se alle forespørsler her."}},"pl":{"stringUnit":{"state":"translated","value":"Usługa agentów na tym Macu jest starsza i nie prowadzi jeszcze kolejki. Zaktualizuj cmux, aby widzieć tu wszystkie prośby."}},"pt-BR":{"stringUnit":{"state":"translated","value":"O serviço de agentes deste Mac é mais antigo e ainda não mantém uma fila. Atualize o cmux para ver todos os pedidos aqui."}},"ru":{"stringUnit":{"state":"translated","value":"Служба агентов на этом Mac устарела и пока не ведёт очередь. Обновите cmux, чтобы видеть здесь все запросы."}},"th":{"stringUnit":{"state":"translated","value":"บริการเอเจนต์บน Mac เครื่องนี้เป็นรุ่นเก่าและยังไม่มีคิว อัปเดต cmux เพื่อดูคำขอทั้งหมดที่นี่"}},"tr":{"stringUnit":{"state":"translated","value":"Bu Mac'in ajan hizmeti daha eski ve henüz kuyruk tutmuyor. Tüm istekleri burada görmek için cmux'u güncelleyin."}},"uk":{"stringUnit":{"state":"translated","value":"Служба агентів на цьому Mac застаріла й ще не веде чергу. Оновіть cmux, щоб бачити тут усі запити."}},"vi":{"stringUnit":{"state":"translated","value":"Dịch vụ tác tử trên máy Mac này cũ hơn và chưa có hàng đợi. Hãy cập nhật cmux để xem mọi yêu cầu tại đây."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"这台 Mac 的智能体服务版本较旧，尚不支持队列。请更新 cmux 以在此查看所有请求。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"這部 Mac 的代理程式服務版本較舊，尚未支援佇列。請更新 cmux 以在此查看所有請求。"}}}},
@@ -11554,138 +11557,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試一次"
-          }
-        }
-      }
-    },
-    "newTabPage.openFailed": {
-      "comment": "Agent pane: under the New Tab page's field when the terminal or browser tab it asked for did not open",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم تُفتح علامة التبويب. اضغط على Return للمحاولة مرة أخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kartica se nije otvorila. Pritisnite Return da pokušate ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fanen blev ikke åbnet. Tryk på Retur for at prøve igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Tab wurde nicht geöffnet. Drücke den Zeilenschalter, um es erneut zu versuchen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The tab didn't open. Press Return to try again."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La pestaña no se abrió. Pulsa Retorno para volver a intentarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L'onglet ne s'est pas ouvert. Appuyez sur Retour pour réessayer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La scheda non si è aperta. Premi A capo per riprovare."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "タブを開けませんでした。Return キーを押してもう一度お試しください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំងមិនបានបើកទេ។ ចុច Return ដើម្បីព្យាយាមម្ដងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "탭이 열리지 않았습니다. Return 키를 눌러 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fanen ble ikke åpnet. Trykk på Retur for å prøve igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Karta się nie otworzyła. Naciśnij Return, aby spróbować ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A aba não abriu. Pressione Return para tentar novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладка не открылась. Нажмите Return, чтобы повторить попытку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แท็บไม่เปิด กด Return เพื่อลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sekme açılmadı. Yeniden denemek için Return tuşuna basın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладка не відкрилася. Натисніть Return, щоб спробувати ще раз."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab không mở được. Nhấn Return để thử lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "标签页未能打开。按 Return 键重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "分頁未能打開。按下 Return 鍵再試一次。"
           }
         }
       }

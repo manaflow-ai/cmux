@@ -70,4 +70,58 @@ import Testing
         rig.frame()
         #expect(rig.bubbles().last?.contains("(turn failed: fetch failed)") == true)
     }
+
+    func payload(_ message: MessagesLabHome.Message) -> (HomeTurnFailureRowProvider.Payload, MessagesLabHome.PartRef)? {
+        for (index, part) in message.parts.enumerated() {
+            if case .custom(let custom) = part, let card = HomeTurnFailureRowProvider.payload(custom) {
+                return (card, MessagesLabHome.PartRef(messageId: message.id, partIndex: index))
+            }
+        }
+        return nil
+    }
+
+    @Test func retryAnswersThePersonsMessageAgainAndDetailsAndCopyShowTheRawLine() async throws {
+        let rig = try await HomeChatRig(history: 1)
+        defer { rig.stop() }
+        var retried: [MessageID] = []
+        rig.view.onChiefRetry = { retried.append($0) }
+        var copied: [String] = []
+        rig.view.projection.copyText = { copied.append($0) }
+        let asked = "\(HomeChatRig.tag) is the build green?"
+        #expect(await rig.send(asked) == nil)
+        let key = IdempotencyKey("turn-failure-\(UUID().uuidString)")
+        #expect(await rig.post("(turn failed on claude: fetch failed)", key: key))
+        rig.view.projection.refresh()
+        rig.frame()
+        let (card, ref) = try #require(payload(try shown(key, in: rig)))
+        #expect(card.local == .init(open: false, copied: false, retry: true))
+        #expect(HomeTurnFailureRowProvider.titles(card).map(\.1) == ["Retry", "Copy error", "Details"])
+        let closed = HomeTurnFailureRowProvider.layout(card, width: 400).size.height
+
+        rig.view.projection.turnFailureAction(ref, .details)
+        let (opened, _) = try #require(payload(try shown(key, in: rig)))
+        #expect(opened.local.open)
+        #expect(HomeTurnFailureRowProvider.layout(opened, width: 400).size.height > closed, "Details adds the raw line")
+        #expect(HomeTurnFailureRowProvider.layout(opened, width: 400).detail?.text == "turn failed on claude: fetch failed")
+
+        rig.view.projection.turnFailureAction(ref, .copy)
+        #expect(copied == ["turn failed on claude: fetch failed"])
+        #expect(try #require(payload(try shown(key, in: rig))).0.local.copied)
+
+        rig.view.projection.turnFailureAction(ref, .retry)
+        let person = try #require(rig.store.transcript(for: HomeChatRig.conversation).last { $0.plainText == asked })
+        #expect(retried == [try #require(person.messageID)])
+    }
+
+    @Test func withNoRetryWiredTheCardOffersNoRetry() async throws {
+        let rig = try await HomeChatRig(history: 1)
+        defer { rig.stop() }
+        let key = IdempotencyKey("turn-failure-\(UUID().uuidString)")
+        #expect(await rig.post("(turn failed: fetch failed)", key: key))
+        rig.view.projection.refresh()
+        rig.frame()
+        let (card, _) = try #require(payload(try shown(key, in: rig)))
+        #expect(!card.local.retry)
+        #expect(HomeTurnFailureRowProvider.titles(card).map(\.1) == ["Copy error", "Details"])
+    }
 }
