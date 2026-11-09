@@ -381,8 +381,9 @@ impl Hub {
         {
             let cfg = self.config.read().await;
             let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
-            let parts =
+            let mut parts =
                 crate::context_inventory::snapshot_for(&cfg, &cwd, &parent_meta.harness, false);
+            crate::context_inventory::place_rules(&mut parts, &cfg, &parent_meta.harness, false);
             // A native fork's agent keeps the parent's transcript, the old folder's
             // instructions in it: the new ones say those no longer apply.
             if moved && matches!(made, Made::Agent(..) | Made::ClaudeResume) {

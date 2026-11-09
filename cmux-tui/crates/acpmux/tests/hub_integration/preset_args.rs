@@ -157,8 +157,9 @@ async fn allowlisted_args_and_the_system_prompt_file_reach_the_claude_command() 
         "{got:?}"
     );
     // cmux's first-turn rules, in the system prompt of every local Claude Code start.
-    assert_eq!(got[6], "--append-system-prompt", "{got:?}");
-    assert!(got[7].contains(acpmux::agent_tools::CONCURRENT_WORK_RULE), "{got:?}");
+    assert_eq!(got[6], "--append-system-prompt-file", "{got:?}");
+    let appended = std::fs::read_to_string(&got[7]).unwrap();
+    assert!(appended.contains(acpmux::agent_tools::CONCURRENT_WORK_RULE), "{appended}");
     assert_eq!(got[8], "-p", "{got:?}");
 }
 

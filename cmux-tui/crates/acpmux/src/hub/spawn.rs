@@ -334,7 +334,10 @@ impl Hub {
             && let Some(text) =
                 crate::context_inventory::system_prompt_append(meta.cmux_context.as_deref())
         {
-            crate::context_inventory::push_system_prompt_append(&mut p.argv, &text);
+            let dir =
+                crate::context_inventory::system_prompt_append_dir(&*self.config.read().await);
+            crate::context_inventory::add_system_prompt_append(&mut p.argv, &text, dir.as_deref())
+                .map_err(RpcError::internal)?;
         }
         // Claude Code defers MCP tools behind its tool search, which it turns
         // off by itself behind a router; the cmux server lists every tool

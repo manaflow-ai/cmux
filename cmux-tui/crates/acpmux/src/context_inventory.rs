@@ -288,14 +288,7 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     let mut parts = snapshot_for(cfg, &meta.cwd, &meta.harness, meta.remote_origin);
-    if !meta.remote_origin
-        && cfg
-            .harnesses
-            .get(&meta.harness)
-            .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
-    {
-        parts.iter_mut().for_each(into_system_prompt);
-    }
+    place_rules(&mut parts, cfg, &meta.harness, meta.remote_origin);
     // A folder set up for another harness: its instructions, which this one does not read itself.
     let family = family_for_folder(cfg, &meta.harness);
     parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
@@ -356,6 +349,18 @@ pub fn record_preset_source(meta: &mut SessionMeta, part: Option<ContextPart>) {
 /// ahead of the first prompt instead of in it, and `/compact` never drops it (cmuxterm-hq#8104).
 pub const SYSTEM_PROMPT_APPEND: &str = "system-prompt-append";
 
+/// Puts the first-turn rules of a local Claude Code chat of profile `harness` on
+/// [`SYSTEM_PROMPT_APPEND`]; every other chat's parts are left as they are.
+pub fn place_rules(parts: &mut [ContextPart], cfg: &Config, harness: &str, remote_origin: bool) {
+    let claude = cfg
+        .harnesses
+        .get(harness)
+        .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio);
+    if claude && !remote_origin {
+        parts.iter_mut().for_each(into_system_prompt);
+    }
+}
+
 /// Moves one of the first-turn rules to [`SYSTEM_PROMPT_APPEND`]; any other part is left as is.
 fn into_system_prompt(part: &mut ContextPart) {
     let rule = matches!(
@@ -384,24 +389,72 @@ pub fn system_prompt_append(parts: Option<&[ContextPart]>) -> Option<String> {
     (!texts.is_empty()).then(|| texts.join("\n\n"))
 }
 
-/// `argv` with `text` appended to Claude Code's system prompt: added to the profile's own
-/// `--append-system-prompt` when it has one (Claude Code keeps only the last), else a new pair.
-pub fn push_system_prompt_append(argv: &mut Vec<String>, text: &str) {
-    const FLAG: &str = "--append-system-prompt";
-    let inline = format!("{FLAG}=");
-    if let Some(i) = argv.iter().rposition(|a| a == FLAG || a.starts_with(&inline)) {
-        if argv[i] == FLAG {
-            if let Some(own) = argv.get_mut(i + 1) {
-                *own = format!("{own}\n\n{text}");
-                return;
-            }
+/// Claude Code's flags for text appended to its system prompt; it takes one of them.
+const APPEND_FLAG: &str = "--append-system-prompt";
+const APPEND_FILE_FLAG: &str = "--append-system-prompt-file";
+
+/// Adds `text` to the system prompt of the Claude Code start `argv`, as a file in `dir`
+/// named by its hash: one argument is at most 128 KiB on Linux, and a person's override has no
+/// limit. A profile's own append flags are taken out and their text goes first. Without a
+/// `dir` (a config with no state directory) the text is the argument itself.
+pub fn add_system_prompt_append(
+    argv: &mut Vec<String>,
+    text: &str,
+    dir: Option<&Path>,
+) -> Result<(), String> {
+    let mut own = Vec::new();
+    let mut kept = Vec::with_capacity(argv.len());
+    let mut words = argv.iter();
+    while let Some(word) = words.next() {
+        let value = |flag: &str| word.strip_prefix(flag).and_then(|v| v.strip_prefix('='));
+        if word == APPEND_FLAG || word == APPEND_FILE_FLAG {
+            let Some(next) = words.next() else { break };
+            own.push((word == APPEND_FILE_FLAG, next.clone()));
+        } else if let Some(v) = value(APPEND_FILE_FLAG) {
+            own.push((true, v.to_owned()));
+        } else if let Some(v) = value(APPEND_FLAG) {
+            own.push((false, v.to_owned()));
         } else {
-            argv[i] = format!("{}\n\n{text}", argv[i]);
-            return;
+            kept.push(word.clone());
         }
     }
-    argv.push(FLAG.into());
-    argv.push(text.into());
+    let mut texts = Vec::with_capacity(own.len() + 1);
+    for (file, value) in own {
+        texts.push(if file {
+            std::fs::read_to_string(&value)
+                .map_err(|e| format!("the profile's {APPEND_FILE_FLAG} {value}: {e}"))?
+        } else {
+            value
+        });
+    }
+    texts.push(text.to_owned());
+    let full = texts.join("\n\n");
+    *argv = kept;
+    match dir {
+        Some(dir) => {
+            let key = crate::sha256::sha256_hex(full.as_bytes());
+            let path = match crate::config::checked_system_prompt(dir, &key, &key) {
+                Ok(path) => path,
+                Err(_) => {
+                    crate::config::write_system_prompt(dir, &key, &full)
+                        .map_err(|e| format!("save the appended system prompt: {e}"))?;
+                    crate::config::checked_system_prompt(dir, &key, &key)?
+                }
+            };
+            argv.push(APPEND_FILE_FLAG.into());
+            argv.push(path.to_string_lossy().into_owned());
+        }
+        None => {
+            argv.push(APPEND_FLAG.into());
+            argv.push(full);
+        }
+    }
+    Ok(())
+}
+
+/// Where [`add_system_prompt_append`] keeps its files: beside the presets' own.
+pub fn system_prompt_append_dir(cfg: &Config) -> Option<std::path::PathBuf> {
+    cfg.presets_dir().map(|presets| presets.join(".system-prompt-append"))
 }
 
 /// Append the captured default or override on the first written turn: the user-context
@@ -719,18 +772,46 @@ mod tests {
     }
 
     #[test]
-    fn the_appended_rules_join_a_profiles_own_append_system_prompt() {
+    fn the_appended_rules_go_in_a_file_after_a_profiles_own_append_text() {
         let mut argv = vec!["claude".to_owned()];
-        push_system_prompt_append(&mut argv, "rules");
+        add_system_prompt_append(&mut argv, "rules", None).unwrap();
         assert_eq!(argv, ["claude", "--append-system-prompt", "rules"]);
-        let mut argv: Vec<String> =
-            ["claude", "--append-system-prompt", "mine", "-p"].map(String::from).into();
-        push_system_prompt_append(&mut argv, "rules");
-        assert_eq!(argv, ["claude", "--append-system-prompt", "mine\n\nrules", "-p"]);
-        let mut argv: Vec<String> =
-            ["claude", "--append-system-prompt=mine"].map(String::from).into();
-        push_system_prompt_append(&mut argv, "rules");
-        assert_eq!(argv, ["claude", "--append-system-prompt=mine\n\nrules"]);
+        let dir = std::env::temp_dir().join(format!("append-{}", uuid::Uuid::now_v7()));
+        let own = dir.join("own.md");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&own, "from a file").unwrap();
+        let mut argv: Vec<String> = [
+            "claude",
+            "--append-system-prompt",
+            "mine",
+            "-p",
+            &format!("--append-system-prompt-file={}", own.display()),
+        ]
+        .map(String::from)
+        .into();
+        let store = dir.join("store");
+        add_system_prompt_append(&mut argv, "rules", Some(&store)).unwrap();
+        assert_eq!(argv[..3], ["claude", "-p", "--append-system-prompt-file"], "{argv:?}");
+        assert_eq!(std::fs::read_to_string(&argv[3]).unwrap(), "mine\n\nfrom a file\n\nrules");
+        // The same text names the same file, so a start's argv is the same every time (the pool
+        // key matches it).
+        let mut again: Vec<String> = argv[..2].to_vec();
+        again.extend(["--append-system-prompt".into(), "mine".into()]);
+        again.push(format!("--append-system-prompt-file={}", own.display()));
+        add_system_prompt_append(&mut again, "rules", Some(&store)).unwrap();
+        assert_eq!(again, argv);
+        // A text past one argument's 128 KiB limit still goes through the file.
+        let mut big = vec!["claude".to_owned()];
+        let long = "x".repeat(300 * 1024);
+        add_system_prompt_append(&mut big, &long, Some(&store)).unwrap();
+        assert_eq!(std::fs::read_to_string(&big[2]).unwrap(), long);
+        // An unreadable file of the profile's refuses the start and leaves its argv alone.
+        let mut missing: Vec<String> =
+            ["claude", "--append-system-prompt-file", "/nonexistent/x"].map(String::from).into();
+        let before = missing.clone();
+        assert!(add_system_prompt_append(&mut missing, "rules", Some(&store)).is_err());
+        assert_eq!(missing, before);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -232,3 +232,33 @@ async fn context_inventory_requeues_an_unstarted_request_once_from_its_log() {
     assert_eq!(queued[0].msg["restored"], "unstarted");
     assert_eq!(queued[0].msg["prompt"], json!([{"type":"text", "text":"original request"}]));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn context_inventory_a_claude_fork_into_another_folder_keeps_its_rules_in_the_system_prompt()
+{
+    use crate::config::{Config, StoreMode};
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let cfg = json!({"harnesses": {"fc": {"kind": "claude-stdio", "family": "claude", "argv": ["python3", fake]}},
+                     "defaultHarness": "fc", "titles": {"generate": false}});
+    let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let parent_dir = tempfile::tempdir().unwrap();
+    let child_dir = tempfile::tempdir().unwrap();
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(parent_dir.path().into()), ..Default::default() })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"first"})], "test", false).await.unwrap();
+    let on_system_prompt = |meta: &SessionMeta| {
+        crate::context_inventory::system_prompt_append(meta.cmux_context.as_deref())
+            .is_some_and(|t| t.contains(crate::agent_tools::CONCURRENT_WORK_RULE))
+    };
+    assert!(on_system_prompt(&parent.meta()), "{:?}", parent.meta().cmux_context);
+    let fork = hub
+        .fork(&parent, None, Some(child_dir.path().into()), Default::default(), None, None, true)
+        .await
+        .unwrap();
+    assert!(on_system_prompt(&fork.meta()), "{:?}", fork.meta().cmux_context);
+}

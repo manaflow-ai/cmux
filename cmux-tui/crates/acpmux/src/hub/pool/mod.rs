@@ -423,8 +423,13 @@ impl Hub {
             policy: r.defaults.policy,
             remote: false,
         });
-        draft.cmux_preset_prompt =
-            crate::context_inventory::preset_override(&draft, &*self.config.read().await);
+        {
+            let cfg = self.config.read().await;
+            draft.cmux_preset_prompt = crate::context_inventory::preset_override(&draft, &cfg);
+            // A new chat captures its context before it claims (`lifecycle.rs`), and a Claude
+            // Code start's argv carries its rules (`spawn.rs`): the draft's must match.
+            draft.cmux_context = Some(crate::context_inventory::snapshot_session(&draft, &cfg));
+        }
         self.pool_spec_for(&draft, &r.profile, &r.defaults.env).await
     }
 
