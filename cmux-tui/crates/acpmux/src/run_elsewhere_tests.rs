@@ -152,11 +152,15 @@ fn run_script(script: &str, home: &Path) -> std::process::Output {
     child.wait_with_output().unwrap()
 }
 
-/// Every file `ls-files` names on either side, with its bytes (None: absent).
-fn tracked_tree(dir: &Path) -> Vec<(String, Option<Vec<u8>>)> {
+/// Every file `ls-files` names that is in the working tree, with its bytes. A deletion the
+/// other side applied without `--index` is still in its index but not on disk, so only the files
+/// on disk are compared.
+fn tracked_tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
     let names = git_in(dir, &["ls-files", "-co", "--exclude-standard"]);
-    let mut v: Vec<_> =
-        names.lines().map(|n| (n.to_owned(), std::fs::read(dir.join(n)).ok())).collect();
+    let mut v: Vec<_> = names
+        .lines()
+        .filter_map(|n| Some((n.to_owned(), std::fs::read(dir.join(n)).ok()?)))
+        .collect();
     v.sort();
     v
 }
@@ -205,6 +209,7 @@ async fn a_dirty_tree_arrives_the_same_without_its_untracked_or_secret_files() {
     here.retain(|(p, _)| p != ".env" && p != "scratch.txt");
     let there = tracked_tree(&remote.canonicalize().unwrap());
     assert_eq!(there, here, "every tracked file arrives with the same bytes");
+    assert!(!remote.join("src/gone.rs").exists(), "a deletion arrives");
     assert!(!remote.join(".env").exists(), "the secret stays here");
     assert!(!remote.join("scratch.txt").exists(), "untracked files stay here");
 
