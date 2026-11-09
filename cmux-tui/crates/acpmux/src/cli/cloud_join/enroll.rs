@@ -126,6 +126,11 @@ pub(super) trait EnrollHub {
     fn resume(&self) -> impl Future<Output = Result<()>> + Send;
     /// Writes the joined `meshRelay` into config.json when it is missing.
     fn repair_relay(&self) -> Result<()>;
+    /// Revokes `record`'s credential with the credential itself (a leave's revoke).
+    fn revoke_own(
+        &self,
+        record: MachineCredential,
+    ) -> impl Future<Output = leave::HubAnswer> + Send;
     /// Starts, in the background, a joined record with no list stating this acpmux's
     /// capabilities with its own credential (`self_capabilities.rs`). It saves only after the
     /// enroll let go of the join lock.
@@ -753,6 +758,10 @@ mod tests {
         resumed: Mutex<Option<MachineCredential>>,
         /// How many capability statements a sign-in started.
         statements: AtomicUsize,
+        /// What the hub answers a revoke with the machine's own credential; Revoked when None.
+        own_answer: Mutex<Option<leave::HubAnswer>>,
+        /// The credentials each such revoke sent.
+        own_revokes: Mutex<Vec<String>>,
     }
 
     impl FakeHub {
