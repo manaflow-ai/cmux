@@ -23,7 +23,21 @@
 //! (`REMOTE/../.cmux-seed-<id>.bundle`, inside the machine's fs roots), then
 //! `git.seed.start` runs the seed as a job on the machine, and the job is
 //! read with one `git.seed.status` request every [`STATUS_EVERY`] until it
-//! ends or [`SEED_DEADLINE`] passes. That wait is inside this process.
+//! ends or [`SEED_DEADLINE`] passes. That wait is inside this process. A start
+//! the machine refuses with `seed.filling` (another seed of the folder still
+//! fills its checkout) is tried again on the same beat until that fill ends.
+//!
+//! A start-chat copy ([`push`] with the chat's subpath) asks for the head first
+//! (`head_first`, a whole seed without this Mac's sparse patterns): the machine
+//! checks out the root's files, the harness folders and the chat's folder, marks
+//! them on its sync barrier and says `head_ready: true`, then fills the rest
+//! under that barrier. The push answers at `head_ready` with `"filling":true`,
+//! so the chat opens while the machine fills; a machine that never says
+//! `head_ready` (an older build, or a head it will not mark) is waited for until
+//! `done` as before. The [`record`] of such a push keeps the job's id
+//! (`filling`): a later `--since-last` waits for that job to be done before it
+//! sends a delta, since the machine refuses a delta into a checkout that is not
+//! whole yet.
 //!
 //! `cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE`
 //! clones a GitHub repository on the machine with no folder of this Mac.
@@ -42,7 +56,7 @@
 //! a seed copied instead). One JSON line on
 //! stdout: `{"ok":true,"mode":"seed"|"delta"|"copy","unchanged":bool,
 //! "bundle_bytes":N,"head":SHA|null,"work":SHA|null,"skipped_files":[{"path",
-//! "kind","why"}]}`, a copy adding `"copy":{the sync summary}` and a fallback
+//! "kind","why"}],"filling"?:true}`, a copy adding `"copy":{the sync summary}` and a fallback
 //! `"fallback_code"`, `"fallback_why"` and `"install_url"` (needs_github);
 //! a clone `{"ok":true,"mode":"clone","head","head_ref"}`. Exit 0. A failure
 //! is `{"ok":false,"error","error_code","install_url"?}`, exit 1; bad usage
@@ -146,6 +160,8 @@ pub(super) struct Pushed {
     pub(super) copy: Option<Value>,
     /// Why a full push copied instead of seeding.
     pub(super) fallback: Option<SeedError>,
+    /// The machine answered at the seed's head and still fills the rest.
+    pub(super) filling: bool,
 }
 
 impl Pushed {
@@ -161,6 +177,9 @@ impl Pushed {
         });
         if let Some(copy) = &self.copy {
             line.set("copy", copy.clone());
+        }
+        if self.filling {
+            line.set("filling", json!(true));
         }
         if let Some(fallback) = &self.fallback {
             line.set("fallback_code", json!(fallback.code));
@@ -192,7 +211,7 @@ pub(super) fn run(args: &[String]) -> i32 {
             let pushed = if since_last {
                 push_since_last(&socket, &local, &remote)
             } else {
-                push(&socket, &local, &remote)
+                push(&socket, &local, &remote, None)
             };
             pushed.map(|pushed| pushed.json()).map_err(|error| SeedError::of(&error).line())
         }
@@ -326,13 +345,20 @@ impl<'a> Machine<'a> {
     }
 }
 
-/// A full push: the seed, else the copy (module docs).
-pub(super) fn push(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<Pushed> {
+/// A full push: the seed, else the copy (module docs). With `head_first` (the
+/// chat's folder below `local`, empty for `local` itself) a seed answers once
+/// the machine has the head in place, `filling` while it fills the rest.
+pub(super) fn push(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    head_first: Option<&str>,
+) -> anyhow::Result<Pushed> {
     let machine = Machine::read(socket)?;
     let local = std::fs::canonicalize(local).map_err(|error| {
         SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
     })?;
-    let fallback = match seed_full(&machine, &local, remote) {
+    let fallback = match seed_full(&machine, &local, remote, head_first) {
         Ok(pushed) => return Ok(pushed),
         Err(Attempt::Failed(error)) => return Err(error.into()),
         Err(Attempt::Fallback(why)) => why,
@@ -355,7 +381,7 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
         SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
     })?;
     let no_previous = |why: &str| SeedError::new("seed.no_previous", why);
-    let Some(record) = record::load(&local, remote)? else {
+    let Some(mut record) = record::load(&local, remote)? else {
         return Err(no_previous("this Mac never pushed this folder to that machine folder").into());
     };
     if let (Some(was), Some(now)) = (&record.machine, &machine.id)
@@ -372,12 +398,17 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
         )
         .into());
     }
-    let (Some(head), Some(index), Some(work)) = (record.head, record.index, record.work) else {
-        return Err(no_previous("the last seed's record is incomplete").into());
-    };
     if !machine.seeds {
         return Err(Machine::outdated().into());
     }
+    // The full seed answered at its head: its fill must be done before a delta builds on it.
+    if record.filling.is_some() {
+        settle_fill(&mut machine_calls(machine.socket), &mut pause, &mut record, deadline())?;
+        let _ = record::save(&local, remote, &record);
+    }
+    let (Some(head), Some(index), Some(work)) = (record.head, record.index, record.work) else {
+        return Err(no_previous("the last seed's record is incomplete").into());
+    };
     let bundle = LocalBundle::new()?;
     let previous = PreviousSeed { head, index, work, stash: record.stash };
     let planned = plan::plan_since(&local, &bundle.file, &previous).map_err(|fallback| {
@@ -390,9 +421,9 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     if planned.unchanged {
         return Ok(seeded("delta", &planned, None));
     }
-    let status = run_seed(machine.socket, remote, &planned, &bundle)?;
-    keep_seed(&machine, &local, remote, &planned);
-    Ok(seeded("delta", &planned, status.get("head").and_then(Value::as_str)))
+    let ended = run_seed(machine.socket, remote, &planned, &bundle, None)?;
+    keep_seed(&machine, &local, remote, &planned, ended.filling());
+    Ok(seeded("delta", &planned, &ended))
 }
 
 /// Why a full seed did not happen.
@@ -406,7 +437,12 @@ enum Attempt {
 const FALLBACK_CODES: [&str; 4] =
     ["seed.needs_github", "seed.base_missing", "seed.clone_failed", "seed.unavailable"];
 
-fn seed_full(machine: &Machine<'_>, local: &Path, remote: &str) -> Result<Pushed, Attempt> {
+fn seed_full(
+    machine: &Machine<'_>,
+    local: &Path,
+    remote: &str,
+    head_first: Option<&str>,
+) -> Result<Pushed, Attempt> {
     let from_plan = |fallback: Fallback| {
         Attempt::Fallback(SeedError::new(fallback.code.as_str(), fallback.why))
     };
@@ -418,7 +454,7 @@ fn seed_full(machine: &Machine<'_>, local: &Path, remote: &str) -> Result<Pushed
     let existed = sync_cli::remote_kind(machine.socket, remote)
         .map_err(|error| Attempt::Failed(SeedError::of(&error)))?
         .is_some();
-    let mut result = run_seed(machine.socket, remote, &planned, &bundle);
+    let mut result = run_seed(machine.socket, remote, &planned, &bundle, head_first);
     // The remote lacks the base (a force-push, a branch never pushed): once
     // more from the remote default branch's tip.
     if let Err(error) = &result
@@ -426,12 +462,12 @@ fn seed_full(machine: &Machine<'_>, local: &Path, remote: &str) -> Result<Pushed
         && let Some(tip) = planned.bases.last().filter(|tip| **tip != planned.params.base).cloned()
     {
         planned = plan::plan_with_base(local, &bundle.file, &tip).map_err(from_plan)?;
-        result = run_seed(machine.socket, remote, &planned, &bundle);
+        result = run_seed(machine.socket, remote, &planned, &bundle, head_first);
     }
     match result {
-        Ok(status) => {
-            keep_seed(machine, local, remote, &planned);
-            Ok(seeded("seed", &planned, status.get("head").and_then(Value::as_str)))
+        Ok(ended) => {
+            keep_seed(machine, local, remote, &planned, ended.filling());
+            Ok(seeded("seed", &planned, &ended))
         }
         Err(error) if FALLBACK_CODES.contains(&error.code.as_str()) => {
             // What the seed left is not the copy's to build on.
@@ -461,6 +497,7 @@ fn copy(
         work: None,
         stash: None,
         stash_known: false,
+        filling: None,
     };
     // A record that could not be kept only makes the next --since-last
     // answer seed.no_previous; the copy itself is done.
@@ -475,24 +512,41 @@ fn copy(
         skipped_files: line.get("skipped_files").cloned().unwrap_or_default(),
         copy: Some(line),
         fallback,
+        filling: false,
     })
 }
 
-fn keep_seed(machine: &Machine<'_>, local: &Path, remote: &str, planned: &Planned) {
-    let record = Record {
+fn keep_seed(
+    machine: &Machine<'_>,
+    local: &Path,
+    remote: &str,
+    planned: &Planned,
+    filling: Option<&str>,
+) {
+    let _ = record::save(local, remote, &seed_record(machine.id.clone(), planned, filling));
+}
+
+/// The record of a seed of `planned` on the machine `machine`; `filling` is the job
+/// that still fills its checkout past the head, which a delta waits for ([`settle_fill`]).
+fn seed_record(machine: Option<String>, planned: &Planned, filling: Option<&str>) -> Record {
+    Record {
         mode: Kept::Seed,
-        machine: machine.id.clone(),
+        machine,
         url: Some(planned.params.url.clone()),
         head: Some(planned.params.head.clone()),
         index: Some(planned.params.index.clone()),
         work: Some(planned.params.work.clone()),
         stash: planned.params.stash.clone(),
         stash_known: true,
-    };
-    let _ = record::save(local, remote, &record);
+        filling: filling.map(str::to_owned),
+    }
 }
 
-fn seeded(mode: &'static str, planned: &Planned, head: Option<&str>) -> Pushed {
+fn seeded(mode: &'static str, planned: &Planned, ended: &Ended) -> Pushed {
+    let head = match ended {
+        Ended::Done(status) => status.get("head").and_then(Value::as_str),
+        Ended::HeadReady { .. } => None,
+    };
     let skipped: Vec<Value> = planned
         .skipped
         .iter()
@@ -514,17 +568,21 @@ fn seeded(mode: &'static str, planned: &Planned, head: Option<&str>) -> Pushed {
         skipped_files: Value::Array(skipped),
         copy: None,
         fallback: None,
+        filling: ended.filling().is_some(),
     }
 }
 
-/// Uploads the bundle beside `remote`, runs the seed and waits for it; the
-/// job's last status.
+/// Uploads the bundle beside `remote`, runs the seed and waits for it: until
+/// it is done, or with `head_first` (the chat's subpath) until its head is in
+/// place when the seed is whole and has no sparse patterns of this Mac's (the
+/// machine opens no other seed at its head).
 fn run_seed(
     socket: &Path,
     remote: &str,
     planned: &Planned,
     bundle: &LocalBundle,
-) -> Result<Value, SeedError> {
+    head_first: Option<&str>,
+) -> Result<Ended, SeedError> {
     let (parent, name) = remote
         .rsplit_once('/')
         .filter(|(parent, name)| !parent.is_empty() && !name.is_empty())
@@ -545,7 +603,14 @@ fn run_seed(
             .map_err(|error| SeedError::new("seed.bad_request", error.to_string()))?;
         start.set("folder", json!(remote));
         start.set("bundle", json!(target));
-        start_and_wait(socket, start)
+        let head_first = head_first.filter(|_| asks_head_first(&planned.params));
+        if let Some(subpath) = head_first {
+            start.set("head_first", json!(true));
+            if !subpath.is_empty() {
+                start.set("subpath", json!(subpath));
+            }
+        }
+        start_and_wait(socket, start, head_first.is_some())
     });
     // The machine copied it when the job started; gone already after a seed.
     let _ = sync_cli::delete_remote(socket, &target);
@@ -553,29 +618,106 @@ fn run_seed(
     result
 }
 
-/// `git.seed.start` with `start`, then its job's status until it ends.
-fn start_and_wait(socket: &Path, start: Value) -> Result<Value, SeedError> {
-    let started = sync_cli::machine_call(socket, "git.seed.start", start).map_err(|error| {
-        let mut refused = SeedError::of(&error);
-        // A daemon that does not know the op (or a link gate that does not
-        // admit it) does not seed.
-        if !refused.code.starts_with("seed.") && sync_cli::is_refusal(&error) {
-            refused.code = "seed.unavailable".into();
+/// Whether a seed of `params` may open at its head: the machine's own rule
+/// (a whole seed, not a delta, without this Mac's sparse patterns).
+fn asks_head_first(params: &plan::SeedParams) -> bool {
+    params.since.is_none() && params.sparse.is_none()
+}
+
+/// How a seed job ended for this push.
+#[derive(Debug)]
+enum Ended {
+    /// The job is done: its last status.
+    Done(Value),
+    /// A head-first seed has its head in place, and the machine fills the rest as `job`.
+    HeadReady { job: String },
+}
+
+impl Ended {
+    /// The job that still fills the checkout.
+    fn filling(&self) -> Option<&str> {
+        match self {
+            Self::Done(_) => None,
+            Self::HeadReady { job } => Some(job),
         }
-        refused
-    })?;
+    }
+}
+
+/// One machine op with its params; its answer or the refusal, coded.
+type Call<'a> = dyn FnMut(&str, Value) -> Result<Value, SeedError> + 'a;
+
+/// The machine's `git.seed.*` ops over `socket`.
+fn machine_calls(socket: &Path) -> impl FnMut(&str, Value) -> Result<Value, SeedError> + '_ {
+    move |op, params| {
+        sync_cli::machine_call(socket, op, params).map_err(|error| {
+            let mut refused = SeedError::of(&error);
+            // A daemon that does not know the op (or a link gate that does not
+            // admit it) does not seed.
+            if op == "git.seed.start"
+                && !refused.code.starts_with("seed.")
+                && sync_cli::is_refusal(&error)
+            {
+                refused.code = "seed.unavailable".into();
+            }
+            refused
+        })
+    }
+}
+
+fn pause() {
+    std::thread::sleep(STATUS_EVERY);
+}
+
+fn deadline() -> Instant {
+    Instant::now() + SEED_DEADLINE
+}
+
+/// The machine refuses a start or a delta while a seed of the folder fills it.
+const FILLING: &str = "seed.filling";
+
+/// `git.seed.start` with `start`, then its job's status until it ends (or,
+/// with `head_ready`, until its head is in place).
+fn start_and_wait(socket: &Path, start: Value, head_ready: bool) -> Result<Ended, SeedError> {
+    seed_job(&mut machine_calls(socket), &mut pause, start, head_ready, deadline())
+}
+
+/// [`start_and_wait`] through `call`, `pause` between two requests.
+fn seed_job(
+    call: &mut Call<'_>,
+    pause: &mut dyn FnMut(),
+    start: Value,
+    head_ready: bool,
+    deadline: Instant,
+) -> Result<Ended, SeedError> {
+    let started = loop {
+        match call("git.seed.start", start.clone()) {
+            // Another seed of the folder still fills it past its head: this one
+            // starts once that fill is done (the machine refuses it until then).
+            Err(refused) if refused.code == FILLING && Instant::now() < deadline => pause(),
+            answer => break answer?,
+        }
+    };
     let job = started
         .get("job")
         .and_then(Value::as_str)
         .ok_or_else(|| SeedError::new("seed.bad_request", "git.seed.start answered no job"))?
         .to_owned();
-    let deadline = Instant::now() + SEED_DEADLINE;
+    wait_job(call, pause, &job, head_ready, deadline)
+}
+
+/// `job`'s status until it is done (or, with `head_ready`, says `head_ready`).
+fn wait_job(
+    call: &mut Call<'_>,
+    pause: &mut dyn FnMut(),
+    job: &str,
+    head_ready: bool,
+    deadline: Instant,
+) -> Result<Ended, SeedError> {
     let mut report = throttled();
     loop {
-        let status = sync_cli::machine_call(socket, "git.seed.status", json!({"job": job}))
-            .map_err(|error| SeedError::of(&error))?;
+        let status = call("git.seed.status", json!({"job": job}))?;
         match status.get("state").and_then(Value::as_str) {
-            Some("done") => return Ok(status),
+            Some("done") => return Ok(Ended::Done(status)),
             Some("failed") => {
                 return Err(SeedError {
                     install_url: status
@@ -590,6 +732,10 @@ fn start_and_wait(socket: &Path, start: Value) -> Result<Value, SeedError> {
                             .unwrap_or("the seed failed on the machine"),
                     )
                 });
+            }
+            // Older machines never say it, and are waited for until done.
+            _ if head_ready && status.get("head_ready").and_then(Value::as_bool) == Some(true) => {
+                return Ok(Ended::HeadReady { job: job.to_owned() });
             }
             _ => {}
         }
@@ -609,8 +755,31 @@ fn start_and_wait(socket: &Path, start: Value) -> Result<Value, SeedError> {
                 format!("the seed did not finish within {} minutes", SEED_DEADLINE.as_secs() / 60),
             ));
         }
-        std::thread::sleep(STATUS_EVERY);
+        pause();
     }
+}
+
+/// Waits for the fill of a seed that answered at its head ([`Record::filling`])
+/// and clears it from `record` once the job is done. A job the machine no longer
+/// knows (it restarted, or dropped the finished job) is cleared too: the
+/// machine itself refuses a delta into a checkout whose fill never finished
+/// (`seed.filling`), so a stale id never lets a delta run on a partial tree.
+fn settle_fill(
+    call: &mut Call<'_>,
+    pause: &mut dyn FnMut(),
+    record: &mut Record,
+    deadline: Instant,
+) -> Result<(), SeedError> {
+    let Some(job) = record.filling.clone() else {
+        return Ok(());
+    };
+    match wait_job(call, pause, &job, false, deadline) {
+        Ok(_) => {}
+        Err(error) if error.code == "seed.unknown_job" => {}
+        Err(error) => return Err(error),
+    }
+    record.filling = None;
+    Ok(())
 }
 
 /// `cmux link seed clone` (module docs).
@@ -629,7 +798,9 @@ fn clone(
     if let Some(git_ref) = git_ref {
         start.set("ref", json!(git_ref));
     }
-    let status = start_and_wait(socket, start)?;
+    let Ended::Done(status) = start_and_wait(socket, start, false)? else {
+        return Err(SeedError::new("seed.bad_request", "the clone answered before it was done"));
+    };
     let (head, head_ref) = (status.get("head"), status.get("head_ref"));
     Ok(json!({"ok": true, "mode": "clone", "head": head, "head_ref": head_ref}))
 }
@@ -684,7 +855,181 @@ impl Drop for LocalBundle {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, LocalBundle, parse, pull};
+    use std::time::{Duration, Instant};
+
+    use serde_json::{Value, json};
+
+    use super::plan::{Planned, SeedParams};
+    use super::{
+        Command, Ended, LocalBundle, Record, SeedError, asks_head_first, parse, pull, seed_job,
+        seed_record, seeded, settle_fill,
+    };
+
+    /// A machine that answers each op from `answers` in turn, keeping the ops it was asked.
+    fn machine(
+        answers: Vec<Result<Value, &'static str>>,
+    ) -> (impl FnMut(&str, Value) -> Result<Value, SeedError>, std::rc::Rc<std::cell::RefCell<Vec<String>>>)
+    {
+        let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = asked.clone();
+        let mut answers = answers.into_iter();
+        let call = move |op: &str, _: Value| {
+            seen.borrow_mut().push(op.to_owned());
+            answers
+                .next()
+                .unwrap_or_else(|| panic!("asked {op} past the script"))
+                .map_err(|code| SeedError::new(code, "refused"))
+        };
+        (call, asked)
+    }
+
+    fn later() -> Instant {
+        Instant::now() + Duration::from_secs(600)
+    }
+
+    fn planned() -> Planned {
+        let sha = "a".repeat(40);
+        Planned {
+            params: SeedParams {
+                url: "https://github.com/o/n.git".into(),
+                repo: "o/n".into(),
+                base: sha.clone(),
+                head_ref: Some("refs/heads/main".into()),
+                head: sha.clone(),
+                index: sha.clone(),
+                work: "w".repeat(40),
+                stash: None,
+                sparse: None,
+                lfs: false,
+                since: None,
+            },
+            skipped: Vec::new(),
+            submodules: Vec::new(),
+            bases: vec![sha],
+            bundle_bytes: 10,
+            unchanged: false,
+        }
+    }
+
+    #[test]
+    fn a_head_first_seed_answers_at_head_ready_with_filling() {
+        let (mut call, asked) = machine(vec![
+            Ok(json!({"job": "j"})),
+            Ok(json!({"state": "running", "phase": "clone"})),
+            Ok(json!({"state": "running", "phase": "checkout", "head_ready": true})),
+        ]);
+        let mut pauses = 0;
+        let ended =
+            seed_job(&mut call, &mut || pauses += 1, json!({}), true, later()).unwrap();
+        assert!(matches!(&ended, Ended::HeadReady { job } if job == "j"), "{ended:?}");
+        assert_eq!(*asked.borrow(), ["git.seed.start", "git.seed.status", "git.seed.status"]);
+        assert_eq!(pauses, 1);
+        let line = seeded("seed", &planned(), &ended).json();
+        assert_eq!((line["ok"].clone(), line["mode"].clone()), (json!(true), json!("seed")));
+        assert_eq!(line["filling"], json!(true), "{line}");
+    }
+
+    #[test]
+    fn a_status_without_head_ready_is_waited_for_until_done() {
+        // An older machine never says head_ready: the push waits for done as before.
+        let (mut call, asked) = machine(vec![
+            Ok(json!({"job": "j"})),
+            Ok(json!({"state": "running"})),
+            Ok(json!({"state": "running"})),
+            Ok(json!({"state": "done", "head": "h"})),
+        ]);
+        let ended = seed_job(&mut call, &mut || {}, json!({}), true, later()).unwrap();
+        assert!(matches!(&ended, Ended::Done(status) if status["head"] == "h"), "{ended:?}");
+        assert_eq!(asked.borrow().len(), 4);
+        let line = seeded("seed", &planned(), &ended).json();
+        assert_eq!(line["head"], json!("h"));
+        assert!(line.get("filling").is_none(), "{line}");
+        // A seed that did not ask for its head (a delta, a clone) waits for done even when
+        // the machine marks one.
+        let (mut call, _) = machine(vec![
+            Ok(json!({"job": "j"})),
+            Ok(json!({"state": "running", "head_ready": true})),
+            Ok(json!({"state": "done"})),
+        ]);
+        let ended = seed_job(&mut call, &mut || {}, json!({}), false, later()).unwrap();
+        assert!(matches!(ended, Ended::Done(_)));
+    }
+
+    #[test]
+    fn only_a_whole_seed_without_sparse_patterns_asks_for_its_head() {
+        let whole = planned().params;
+        assert!(asks_head_first(&whole));
+        assert!(!asks_head_first(&SeedParams { since: Some("w".into()), ..whole.clone() }));
+        assert!(!asks_head_first(&SeedParams { sparse: Some("/a\n".into()), ..whole }));
+    }
+
+    #[test]
+    fn the_record_kept_at_head_ready_is_not_a_finished_seed() {
+        let at_head = Ended::HeadReady { job: "j".into() };
+        let record = seed_record(Some("m".into()), &planned(), at_head.filling());
+        assert_eq!(record.filling.as_deref(), Some("j"), "a delta must wait for this job");
+        let saved: Record = serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
+        assert_eq!(saved, record);
+        let done = seed_record(Some("m".into()), &planned(), Ended::Done(json!({})).filling());
+        assert_eq!(done.filling, None);
+        assert!(serde_json::to_value(&done).unwrap().get("filling").is_none());
+        // A record from before heads reads as a finished seed.
+        let mut older = serde_json::to_value(&done).unwrap();
+        older.as_object_mut().unwrap().remove("filling");
+        assert_eq!(serde_json::from_value::<Record>(older).unwrap(), done);
+    }
+
+    #[test]
+    fn a_delta_after_an_unfinished_fill_waits_for_it_before_it_runs() {
+        let mut record = seed_record(Some("m".into()), &planned(), Some("j"));
+        let (mut call, asked) = machine(vec![
+            Ok(json!({"state": "running", "head_ready": true})),
+            Ok(json!({"state": "running", "head_ready": true})),
+            Ok(json!({"state": "done"})),
+        ]);
+        let mut pauses = 0;
+        settle_fill(&mut call, &mut || pauses += 1, &mut record, later()).unwrap();
+        assert_eq!(record.filling, None);
+        // Only the fill's status was read: no delta started while it filled.
+        assert_eq!(*asked.borrow(), ["git.seed.status"; 3]);
+        assert_eq!(pauses, 2);
+
+        // A fill that failed keeps the record unsettled, and the delta does not run.
+        let mut record = seed_record(Some("m".into()), &planned(), Some("j"));
+        let (mut call, _) = machine(vec![Ok(json!({
+            "state": "failed", "error_code": "seed.clone_failed", "error": "no"
+        }))]);
+        let error = settle_fill(&mut call, &mut || {}, &mut record, later()).unwrap_err();
+        assert_eq!(error.code, "seed.clone_failed");
+        assert_eq!(record.filling.as_deref(), Some("j"));
+
+        // A job the machine forgot: its own seed.filling guard decides the delta.
+        let mut record = seed_record(Some("m".into()), &planned(), Some("j"));
+        let (mut call, _) = machine(vec![Err("seed.unknown_job")]);
+        settle_fill(&mut call, &mut || {}, &mut record, later()).unwrap();
+        assert_eq!(record.filling, None);
+    }
+
+    #[test]
+    fn a_start_refused_while_the_folder_fills_starts_once_the_fill_is_done() {
+        let (mut call, asked) = machine(vec![
+            Err("seed.filling"),
+            Err("seed.filling"),
+            Ok(json!({"job": "k"})),
+            Ok(json!({"state": "done"})),
+        ]);
+        let mut pauses = 0;
+        let ended =
+            seed_job(&mut call, &mut || pauses += 1, json!({}), false, later()).unwrap();
+        assert!(matches!(ended, Ended::Done(_)));
+        assert_eq!(asked.borrow()[..3], ["git.seed.start"; 3]);
+        assert_eq!(pauses, 2);
+        // Past the deadline the refusal is the answer.
+        let (mut call, _) = machine(vec![Err("seed.filling")]);
+        let past = Instant::now();
+        let error = seed_job(&mut call, &mut || {}, json!({}), false, past).unwrap_err();
+        assert_eq!(error.code, "seed.filling");
+    }
 
     #[test]
     fn the_bundle_lives_in_a_folder_only_this_user_opens_and_goes_with_it() {
