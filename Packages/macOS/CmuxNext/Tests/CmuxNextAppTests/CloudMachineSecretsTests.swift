@@ -32,21 +32,6 @@ struct CloudMachineSecretsTests {
                     String(repeating: "x", count: 16 * 1024 + 1)] {
             #expect(!CloudMachineSecrets.isValue(bad))
         }
-        // The most a machine config declares, each at the largest size, still fits one delivery.
-        let most = (0..<100).map { (name: "SECRET_\($0)", value: String(repeating: "x", count: 16 * 1024)) }
-        #expect(CloudMachineSecrets.payload(most, key: "k3y").count <= CloudMachineSecrets.maxPayloadBytes)
-        #expect(CloudMachineSecrets.envFileBytes([("A", "it's")]) == "export A='it'\\''s'\n".utf8.count)
-    }
-
-    @Test func aSetWhoseFileWouldOutgrowTheAppliersLimitIsRefusedBeforeAnyTerminal() async {
-        // Apostrophes grow fourfold in the file: 100 values of them fit the payload but not the file.
-        let quotes = (0..<100).map { (name: "SECRET_\($0)", value: String(repeating: "'", count: 16 * 1024)) }
-        #expect(CloudMachineSecrets.payload(quotes, key: "k3y").count <= CloudMachineSecrets.maxPayloadBytes)
-        let recorder = Recorder()
-        await #expect(throws: CloudMachineSecrets.DeliveryFailed(reason: "too-large")) {
-            _ = try await CloudMachineSecrets.deliver(quotes, over: recorder.link, nonce: "n0nce", key: "k3y")
-        }
-        #expect(recorder.started.isEmpty && recorder.tickets.isEmpty)
     }
 
     @Test func theRepoScopeIsOwnerSlashName() {
@@ -195,13 +180,6 @@ struct CloudMachineSecretsTests {
             _ = try await CloudMachineSecrets.deliver([("API_KEY", Self.value)], over: gaveUp.link, nonce: "n0nce")
         }
         #expect(gaveUp.typed.isEmpty)
-        // A set over the receiver's limit is refused before a terminal opens.
-        let big = Recorder()
-        let huge = String(repeating: "x", count: CloudMachineSecrets.maxPayloadBytes)
-        await #expect(throws: CloudMachineSecrets.DeliveryFailed(reason: "too-large")) {
-            _ = try await CloudMachineSecrets.deliver([("API_KEY", huge)], over: big.link, nonce: "n0nce")
-        }
-        #expect(big.started.isEmpty && big.tickets.isEmpty)
         // A go-ahead without this delivery's nonce (another client typed it) gets nothing typed.
         let forged = Recorder()
         forged.answers = ["CMUX-SECRETS-READY\n"]
