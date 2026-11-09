@@ -621,7 +621,13 @@
     display: none;
   }
 }
-.acpmux-model[data-chip-effort="off"] .acpmux-picker-button [data-fit-part="effort"] { display: none; }
+/* Above the New Tab card's `.nt-pickers .acpmux-model .acpmux-model-detail[data-fit-part]` display. */
+:is(.acpmux-composer-bar, .nt-pickers)
+  .acpmux-model[data-chip-effort="off"]
+  .acpmux-picker-button
+  [data-fit-part="effort"] {
+  display: none;
+}
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
   background: var(--acpmux-row-hover);
