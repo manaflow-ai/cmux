@@ -7,7 +7,8 @@
 //
 // acpmux drops a slow connection's notifications when its outbound queue fills, and sends one
 // `_acpmux/lagged` (server/outbound.rs); the pane reads the missed records again from its cursor.
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
+import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
@@ -50,10 +51,24 @@ const chunks = PARTS.map((text, index) => chunk(3 + index, text));
 const ended = mux(3 + PARTS.length, "turn_result", { promptId: "p-1", turnId: "turn-1", status: "completed" });
 const all = [...opened, ...chunks, ended];
 
+type PaneOptions = {
+  /// Runs as acpmux sends the attach reply, before the pane reads it (`notify` sends a notice first).
+  beforeAttachReply?: (notify: (method: string, params: unknown) => void) => void;
+  /// The chat runs on this machine, whose link state acpmux pushes (`_acpmux/peer_state_changed`).
+  peer?: string;
+  /// Whether the next socket the pane opens fails to connect.
+  refuseOpen?: () => boolean;
+};
+
 /// A pane attached after `opened`, whose live events are `live` (`_acpmux/event`, in order);
 /// `events` answers each `_acpmux/events` read after a cursor, or throws to fail it.
-async function pane(events: (after: number, call: number) => Rec[], attached: Rec[] = opened) {
+async function pane(
+  events: (after: number, call: number) => Rec[],
+  attached: Rec[] = opened,
+  options: PaneOptions = {},
+) {
   const session = {
+    ...(options.peer ? { peer: options.peer } : {}),
     sessionId: CHAT,
     cwd: "/home/dev/x",
     title: "x",
@@ -68,7 +83,17 @@ async function pane(events: (after: number, call: number) => Rec[], attached: Re
   const answer = (method: string, params: any) => {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: {
+            acpmux: {
+              origin: "local",
+              extensions: [],
+              operations: [],
+              ...(options.peer ? { features: ["peerStateEvents"] } : {}),
+            },
+          },
+        };
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
@@ -82,7 +107,17 @@ async function pane(events: (after: number, call: number) => Rec[], attached: Re
     }
   };
   let socket: any;
+  let opens = 0;
+  const notify = (method: string, params: unknown) =>
+    socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
   const open = () => {
+    opens += 1;
+    if (options.refuseOpen?.()) {
+      const refused: any = { readyState: 3, send() {}, close() {} };
+      socket = refused;
+      queueMicrotask(() => refused.onclose?.({ code: 1006, wasClean: false }));
+      return refused as WebSocket;
+    }
     socket = {
       readyState: 1,
       send(raw: string) {
@@ -92,6 +127,7 @@ async function pane(events: (after: number, call: number) => Rec[], attached: Re
           let reply: Record<string, unknown>;
           try {
             reply = { result: answer(message.method, message.params) };
+            if (message.method === "_acpmux/attach") options.beforeAttachReply?.(notify);
           } catch (error) {
             reply = { error: { code: -32603, message: String(error) } };
           }
@@ -104,6 +140,7 @@ async function pane(events: (after: number, call: number) => Rec[], attached: Re
     return socket as WebSocket;
   };
   let rows: AcpmuxRow[] = [];
+  let connection = "";
   let waiters: { holds: () => boolean; done: () => void }[] = [];
   const check = () => {
     const due = waiters.filter((waiter) => waiter.holds());
@@ -120,15 +157,25 @@ async function pane(events: (after: number, call: number) => Rec[], attached: Re
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
     (snapshot: any) => {
       rows = snapshot.rows;
+      connection = snapshot.connection;
       check();
     },
     undefined,
     open,
   );
   await until(() => rows.length > 0);
-  const notify = (method: string, params: unknown) =>
-    socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
   return {
+    session,
+    notify,
+    reads: () => reads,
+    opens: () => opens,
+    connection: () => connection,
+    /// The connection drops under the pane (the laptop slept, the network went).
+    drop: () => {
+      const gone = socket;
+      gone.readyState = 3;
+      gone.onclose?.({ code: 1006, wasClean: false });
+    },
     live: (record: Rec) => notify("_acpmux/event", record),
     lagged: () => notify("_acpmux/lagged", { dropped: 1, reason: "output_queue_full" }),
     reply: () => rows.find((row) => row.kind === "assistant")?.text,
@@ -297,4 +344,120 @@ test("a turn whose opening is older than the records the pane holds is read from
   for (const record of [tail[3]!, end]) p.live(record);
   await p.until(() => p.reply() === "Shown first. Lost piece. Last piece.");
   expect(p.reply()).toBe("Shown first. Lost piece. Last piece.");
+});
+
+// Cloud chats after a reconnect (Leo, 2026-11-09: "keep on working on the stuff, especially cloud
+// stuff, and getting that reliable and ergonomic"): three ways a reply came back with output missing.
+
+/// Lets the pane's request round trips (each a microtask here) run while timers are fake.
+async function settle(): Promise<void> {
+  for (let turn = 0; turn < 200; turn++) await Promise.resolve();
+}
+
+test("a lag marker that comes before the attach reply still brings back what acpmux dropped", async () => {
+  // acpmux read the page (through the prompt and turn start), then dropped the reply's chunks while
+  // its queue was full, and sent its marker ahead of the attach reply (server/outbound.rs).
+  const p = await pane((after) => all.filter((record) => record.seq > after), opened, {
+    beforeAttachReply: (notify) => notify("_acpmux/lagged", { dropped: PARTS.length, reason: "output_queue_full" }),
+  });
+  await p.until(() => p.reply() === PARTS.join(""));
+  expect(p.reply()).toBe(PARTS.join(""));
+});
+
+/// A lag read that fails every try (its machine away) until `away` is false.
+async function gaveUp(peer?: string) {
+  let away = true;
+  const p = await pane(
+    (after) => {
+      if (away && after >= 3) throw new Error("peer unreachable");
+      return all.filter((record) => record.seq > after);
+    },
+    opened,
+    { peer },
+  );
+  jest.useFakeTimers();
+  try {
+    p.live(chunks[0]!);
+    p.lagged();
+    for (const record of [...chunks.slice(2), ended]) p.live(record);
+    // Every try of `LAG_RETRY_MS` fails; the pane gives up while its socket stays open.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await settle();
+      jest.advanceTimersByTime(10_000);
+    }
+    await settle();
+  } finally {
+    jest.useRealTimers();
+  }
+  expect(p.reply()).not.toBe(PARTS.join(""));
+  const tries = p.reads();
+  away = false;
+  return { p, tries };
+}
+
+test("a lag read that gave up is read again when the chat's row comes back, socket still open", async () => {
+  const { p, tries } = await gaveUp();
+  p.notify("_acpmux/session_changed", { kind: "updated", session: { ...p.session, updatedAt: START + 60_000 } });
+  await p.until(() => p.reply() === PARTS.join(""));
+  expect(p.reads()).toBeGreaterThan(tries);
+  expect(p.reply()).toBe(PARTS.join(""));
+});
+
+test("a lag read that gave up is read again when the chat's machine comes back", async () => {
+  const { p, tries } = await gaveUp("box");
+  p.notify("_acpmux/peer_state_changed", { peer: "box", state: "connected", at: START + 60_000 });
+  await p.until(() => p.reply() === PARTS.join(""));
+  expect(p.reads()).toBeGreaterThan(tries);
+  expect(p.reply()).toBe(PARTS.join(""));
+});
+
+test("reconnect waits stay within 10 s however long the pane was away, and online reconnects at once", async () => {
+  const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
+  const scope = globalThis as Record<string, unknown>;
+  const saved = { window: scope.window, document: scope.document, had: "window" in scope };
+  // Reconnect timers are recorded and fired by hand: each wait is read, none waits out.
+  const timers = new Map<number, { run: () => void; ms: number }>();
+  let nextTimer = 0;
+  Object.assign(dom.window, {
+    setTimeout: (run: () => void, ms = 0) => {
+      timers.set(++nextTimer, { run, ms });
+      return nextTimer;
+    },
+    clearTimeout: (id: number) => timers.delete(id),
+  });
+  scope.window = dom.window;
+  scope.document = dom.window.document;
+  try {
+    let refuse = false;
+    const p = await pane((after) => all.filter((record) => record.seq > after), opened, {
+      refuseOpen: () => refuse,
+    });
+    refuse = true;
+    p.drop();
+    const waits: number[] = [];
+    // A night asleep: try after try fails.
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await settle();
+      const [id, timer] = [...timers].at(-1)!;
+      timers.delete(id);
+      waits.push(timer.ms);
+      timer.run();
+    }
+    await settle();
+    expect(Math.max(...waits)).toBeLessThanOrEqual(10_000);
+    expect(waits.at(-1)).toBe(10_000);
+    // The laptop wakes: the network comes back, and the pane connects without waiting out its timer.
+    refuse = false;
+    const opens = p.opens();
+    expect(timers.size).toBeGreaterThan(0);
+    dom.window.dispatchEvent(new dom.window.Event("online"));
+    await p.until(() => p.connection() === "connected");
+    expect(p.opens()).toBe(opens + 1);
+  } finally {
+    if (saved.had) Object.assign(scope, { window: saved.window, document: saved.document });
+    else {
+      delete scope.window;
+      delete scope.document;
+    }
+  }
 });
