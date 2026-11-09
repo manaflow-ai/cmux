@@ -251,8 +251,10 @@ package nonisolated struct FeedDaemonView: Decodable, Sendable, Equatable {
     package var isLive: Bool { loaded == true && connection?.state == "connected" }
 
     /// The whole truth for the glue: live; or disconnected once loaded (the mirror keeps the cloud
-    /// items it had, the local owner's stay live) or signed out (no cloud items). A view still
-    /// connecting, or offline before it ever loaded, says nothing yet.
+    /// items it had, the local owner's stay live) or signed out (no cloud items). `loaded` is the
+    /// cloud part's hydration: the daemon sets it only on its owner's snapshot for this account, so
+    /// a view still connecting, or after a first connection that failed, says nothing yet; nothing
+    /// that replaces a whole set (the phone's Needs you, Home's notices) acts on it.
     package var isSettled: Bool {
         if isLive { return true }
         guard connection?.state == "disconnected" else { return false }

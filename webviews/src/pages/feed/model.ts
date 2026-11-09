@@ -271,6 +271,15 @@ export function restLines(
   }));
 }
 
+/** The view is hydrated, so an empty one means nothing waits: the cloud owner's snapshot came for this
+ * account (`loaded`; the daemon keeps it through a later reconnect), or there is no cloud part (signed
+ * out). Before that (connecting, or after a first connection that failed) an empty view is still
+ * loading, never "Nothing new". */
+export function isHydrated(view: FeedView | undefined): view is FeedView {
+  if (!view) return false;
+  return view.loaded || (view.connection.state === "disconnected" && view.connection.reason === "signed_out");
+}
+
 export function groupEntries(view: FeedView | undefined, id: FeedGroup["id"]): FeedEntry[] {
   return view?.groups.find((group) => group.id === id)?.entries ?? [];
 }

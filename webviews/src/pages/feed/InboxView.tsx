@@ -17,6 +17,7 @@ import {
   inboxLines,
   isArchived,
   isGitHub,
+  isHydrated,
   isOpenRequest,
   isRequest,
   isUnread,
@@ -57,7 +58,7 @@ export function InboxView(props: FeedProps) {
     <div className="feed-inbox" data-density={snap.route.density}>
       <div className="feed-inbox-column">
         <InboxHeader {...props} hasUnread={items.some(isUnread)} onListKeys={keys} />
-        {snap.view === undefined ? (
+        {lines.length === 0 && !isHydrated(snap.view) ? (
           <div className="feed-inbox-list" />
         ) : lines.length === 0 ? (
           <EmptyState text={t(filtered ? "feed.noMatches" : "feed.empty")} />

@@ -115,9 +115,12 @@ pub struct Mirror {
     ledger: Ledger,
     /// Bumps once per commit that changes anything shown.
     revision: u64,
-    /// True once the view is known (the integration owner is always known;
-    /// the cloud part arrives with its snapshot).
-    loaded: bool,
+    /// The cloud part is hydrated: its owner's snapshot came for this
+    /// account. Separate from the integration owner, which lives in this
+    /// process and is always current; a view is loaded only when both are, so
+    /// an empty view before the first snapshot (connecting, or a first
+    /// connection that failed) never reads as "nothing waits".
+    hydrated: bool,
     user: String,
     device: String,
     /// Ids the integration owner holds.
@@ -135,7 +138,7 @@ impl Mirror {
             pending: Vec::new(),
             ledger: Ledger::default(),
             revision: 0,
-            loaded: true,
+            hydrated: false,
             user: String::new(),
             device: device.to_owned(),
             local_ids: HashSet::new(),
@@ -149,8 +152,11 @@ impl Mirror {
         self.revision
     }
 
+    /// The view is the whole truth: the cloud owner's snapshot came (the
+    /// integration owner is always current). Signed out there is no cloud
+    /// part; readers tell that from the connection's `signed_out` reason.
     pub fn loaded(&self) -> bool {
-        self.loaded
+        self.hydrated
     }
 
     pub fn connection(&self) -> &Connection {
@@ -230,12 +236,13 @@ impl Mirror {
             touched.push(item.id.clone());
             self.confirmed.insert(item.id.clone(), item);
         }
-        self.loaded = true;
+        self.hydrated = true;
         self.commit(touched, &HashSet::new(), now, true)
     }
 
     /// The cloud owner is gone for this account (sign-out, another account):
-    /// its items leave; the integration owner's stay.
+    /// its items leave; the integration owner's stay. The view is unloaded
+    /// until the next account's snapshot.
     pub fn clear_cloud(&mut self, now: i64) -> Option<Commit> {
         let gone: Vec<String> =
             self.confirmed.keys().filter(|id| !self.local_ids.contains(*id)).cloned().collect();
@@ -243,7 +250,8 @@ impl Mirror {
             self.confirmed.remove(id);
         }
         self.user.clear();
-        self.commit(gone, &HashSet::new(), now, false)
+        let unloaded = std::mem::replace(&mut self.hydrated, false);
+        self.commit(gone, &HashSet::new(), now, unloaded)
     }
 
     /// One committed op of `owner`: the items it changed, the ids it

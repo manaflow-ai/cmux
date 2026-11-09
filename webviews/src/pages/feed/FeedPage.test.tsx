@@ -183,7 +183,8 @@ test("a feed whose cloud snapshot never came is loading, not empty", async () =>
   act(() => root?.unmount());
   root = undefined;
   await mount("#/inbox", offline, []);
-  expect(host.querySelector(".feed-empty")).toBeNull();
+  // Only the detail's "Select an inbox item"; the list is the loading placeholder.
+  expect(text(".feed-inbox-column .feed-empty")).toEqual([]);
   expect(host.querySelector(".feed-inbox-list")).not.toBeNull();
   act(() => root?.unmount());
   root = undefined;

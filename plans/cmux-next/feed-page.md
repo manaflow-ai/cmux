@@ -74,6 +74,12 @@ ViewItem = the item's wire JSON (FeedDO shape, snake_case: id, home, kind, title
   (the wire JSON also carries the derived `type`: "notice" or "request")
 ```
 
+`loaded` is true only once the cloud owner's snapshot came for this account (the integration owner,
+in the daemon, is always current). Before it, while connecting or after a first connection that
+failed, the view may be empty without meaning that nothing waits; an account change unloads it
+again. A reader that replaces a whole set from the view (the phone's Needs you, Home's notices) acts
+only on a settled view: loaded, or signed out (`connection.reason == "signed_out"`, no cloud part).
+
 `connection` is the cloud owner's: `disconnected` reasons are `signed_out`, `expired`,
 `unauthenticated` (the app hears `cloud-session-needed` and renews the lease), `forbidden`,
 `unavailable` and `offline`. Items of the integration owner stay writable while it is down.

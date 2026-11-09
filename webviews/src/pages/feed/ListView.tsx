@@ -5,7 +5,7 @@ import type { KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
 import { isPending, plain, type FeedProps } from "./context";
 import { FeedIcon } from "./icons";
-import { groupEntries, moveSelection, restLines } from "./model";
+import { groupEntries, isHydrated, moveSelection, restLines } from "./model";
 import { EmptyState, FeedLines, RequestCard } from "./parts";
 
 export function ListView({ store, snap, strings }: FeedProps) {
@@ -14,7 +14,7 @@ export function ListView({ store, snap, strings }: FeedProps) {
   const requests = groupEntries(view, "requests");
   const lines = restLines(view?.groups ?? [], snap.selection, (item) => isPending(snap, item));
   const badge = view?.counts.badge ?? 0;
-  const empty = view !== undefined && requests.length === 0 && lines.length === 0;
+  const empty = isHydrated(view) && requests.length === 0 && lines.length === 0;
   const keys = (event: KeyboardEvent) => {
     if (!plain(event)) return;
     if (event.key === "ArrowDown") store.select(moveSelection(lines, snap.selection, 1));
