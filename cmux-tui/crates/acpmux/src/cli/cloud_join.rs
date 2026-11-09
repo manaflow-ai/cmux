@@ -311,6 +311,29 @@ pub(crate) fn settle_clone_at(home: &std::path::Path, current: Option<&str>) -> 
     }
 }
 
+/// Whether config.json at `config_path` holds a `meshRelay` no join to `hub` wrote: one the
+/// person set up (a `tokenCommand`, a credential of its own) or a join's for another hub. A
+/// sign-in's join never replaces it (`enroll.rs`, `recovery::complete`), so the join's relay is
+/// only ever one the sign-in wrote, and a sign-out (`leave::remove_local`) removes only that.
+fn own_relay_at(config_path: &std::path::Path, hub: &str) -> Result<bool> {
+    let config = crate::config::Config::load_from(config_path)?;
+    Ok(config.mesh_relay.as_ref().is_some_and(|relay| {
+        relay.credential.as_deref() != Some("join")
+            || !relay.token_command.is_empty()
+            || origin(Some(relay.url.clone())).ok().as_deref() != Some(hub)
+    }))
+}
+
+/// Writes the join's `meshRelay` for a join to `hub` just committed: a sign-in's join
+/// (`sign_in`) leaves a relay the person set up as it is ([`own_relay_at`]); the record stays
+/// joined, and its sign-out never touches that relay. A join the person ran writes it, as always.
+fn relay_for_join_at(config_path: &std::path::Path, hub: &str, sign_in: bool) -> Result<()> {
+    if sign_in && own_relay_at(config_path, hub)? {
+        return Ok(());
+    }
+    configure_mesh_relay_at(config_path, hub)
+}
+
 fn configure_mesh_relay(hub: &str) -> Result<()> {
     configure_mesh_relay_at(&crate::config::Config::path(), hub)
 }
