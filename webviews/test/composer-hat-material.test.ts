@@ -17,9 +17,8 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-const HARNESS = "/test/browser/composer-hat-material.html";
-
 await requireBrowserLane("composer-hat-material.test.ts", async () => {
+  const HARNESS = "/test/browser/composer-hat-material.html";
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -53,9 +52,15 @@ await requireBrowserLane("composer-hat-material.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}${HARNESS}`);
     await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
-    await page.evaluate((attributes) => {
-      for (const [name, value] of Object.entries(attributes)) document.documentElement.setAttribute(name, value);
-    }, attributes);
+    // shared/styles.css sets `color-scheme: dark` on the root, which would keep a light case on the
+    // dark branch of every light-dark(): pin the case's own scheme (review F1 of #39400).
+    await page.evaluate(
+      ({ attributes, colorScheme }) => {
+        for (const [name, value] of Object.entries(attributes)) document.documentElement.setAttribute(name, value);
+        document.documentElement.style.colorScheme = colorScheme;
+      },
+      { attributes, colorScheme },
+    );
     return page;
   }
 
