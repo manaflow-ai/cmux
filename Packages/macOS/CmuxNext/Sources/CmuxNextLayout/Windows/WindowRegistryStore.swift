@@ -29,6 +29,15 @@ public final class WindowRegistryStore {
 
     public init() {}
 
+    /// Whether window `id` is one the launch brings back (the launch window, or one of the `saved` windows the
+    /// restore opens) while the launch runs. Only such a window stands in for its rows (saved rows, the connecting
+    /// machines' loading bars) and shows in place. A window this run opens, also while the launch runs or after a
+    /// restore that gave up (`isLaunching` stays set then), is new: it lists its own live rows from its first frame
+    /// and opens like a new window (https://github.com/manaflow-ai/cmux/issues/38128).
+    public func restoresSession(_ id: String, launchWindow: String?, saved: [String]?) -> Bool {
+        isLaunching && (id == launchWindow || saved?.contains(id) == true)
+    }
+
     /// Runs one transition; returns what it changed.
     @discardableResult
     public func apply(_ transition: (inout WindowRegistry) -> WindowRegistry.Changes) -> WindowRegistry.Changes {

@@ -62,6 +62,29 @@
           ]
         },
         {
+          "key": "sessions.keepAwakeForCommands",
+          "name": "keepAwakeForCommands",
+          "note": "On: a terminal command on this Mac that has run a minute and printed in the last ten minutes also keeps the Mac awake, under the same Off, While Plugged In or Always choice as sessions.keepAwake (KeepAwakeService; the rule is Rust keep_awake_plan). Off by default: Leo has not said whether it should be on.",
+          "title": {
+            "key": "settings.sessions.keepAwakeForCommands",
+            "text": "Also While Terminal Commands Run"
+          },
+          "help": {
+            "key": "settings.sessions.keepAwakeForCommands.help",
+            "text": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sleep",
+            "awake",
+            "caffeinate",
+            "terminal",
+            "command",
+            "build"
+          ]
+        },
+        {
           "key": "sessions.resumeAgents",
           "name": "resumeAgents",
           "note": "On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.",

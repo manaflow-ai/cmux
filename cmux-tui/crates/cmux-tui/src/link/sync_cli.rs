@@ -275,6 +275,24 @@ fn write_parallel(
     connections: usize,
     landed: &mut dyn FnMut(Job, anyhow::Result<String>) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
+    write_parallel_heard(socket, remote_root, jobs, connections, landed, None)
+}
+
+/// How long a folder upload's small writes may go without a word to the
+/// app: well under its 90 s idle deadline, so one slow file below
+/// [`ALONE_BYTES`] (which sends no part by part progress) does not hit it.
+const QUIET_AT_MOST: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// [`write_parallel`], and with `idle` `(every, heard)`, `heard` is called
+/// whenever `every` goes by with no write landing.
+fn write_parallel_heard(
+    socket: &Path,
+    remote_root: &str,
+    jobs: Vec<Job>,
+    connections: usize,
+    landed: &mut dyn FnMut(Job, anyhow::Result<String>) -> anyhow::Result<()>,
+    idle: Option<(std::time::Duration, &mut dyn FnMut())>,
+) -> anyhow::Result<()> {
     use std::sync::atomic::{AtomicBool, Ordering};
     let workers = connections.min(jobs.len());
     if workers == 0 {
@@ -303,14 +321,38 @@ fn write_parallel(
         }
         drop(sent);
         let mut failed = None;
-        for (job, written) in results {
+        drain_heard(&results, idle, &mut |(job, written)| {
             if let Err(error) = landed(job, written) {
                 stop.store(true, Ordering::Relaxed);
                 failed.get_or_insert(error);
             }
-        }
+        });
         failed.map_or(Ok(()), Err)
     })
+}
+
+/// Hands each item of `results` to `each` until every sender is gone; with
+/// `idle` `(every, heard)`, `heard` is called each time `every` goes by with
+/// no item.
+fn drain_heard<T>(
+    results: &std::sync::mpsc::Receiver<T>,
+    idle: Option<(std::time::Duration, &mut dyn FnMut())>,
+    each: &mut dyn FnMut(T),
+) {
+    use std::sync::mpsc::RecvTimeoutError;
+    let Some((every, heard)) = idle else {
+        for item in results {
+            each(item);
+        }
+        return;
+    };
+    loop {
+        match results.recv_timeout(every) {
+            Ok(item) => each(item),
+            Err(RecvTimeoutError::Timeout) => heard(),
+            Err(RecvTimeoutError::Disconnected) => return,
+        }
+    }
 }
 
 /// Writes `job` on `remote`, connecting it first when it is not yet.
@@ -570,13 +612,16 @@ pub(super) fn upload(
 /// working copy), never a symlink, small files several at once and big ones
 /// after them; `progress` hears each write and each part of a big file. No
 /// record is kept, since an upload is never synced again. A symlink the
-/// machine has on the way to a file leaves that file out. Answers the files
-/// written and the ones left out.
+/// machine has on the way to a file leaves that file out. A folder `enter`
+/// refuses (by its path relative to the folder) is never listed: none of
+/// its files could go, and it may be one this Mac's user cannot read. Answers
+/// the files written and the ones left out.
 pub(super) fn copy_folder_with_progress(
     socket: &Path,
     local: &Path,
     identity: (u64, u64),
     target: &str,
+    enter: &dyn Fn(&str) -> bool,
     keep: &dyn Fn(&str, bool) -> bool,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<(u64, u64)> {
@@ -592,7 +637,7 @@ pub(super) fn copy_folder_with_progress(
     if !unmoved() {
         anyhow::bail!("{} changed after it was checked; nothing of it was sent", local.display());
     }
-    let mut set = local::collect_files(local)?;
+    let mut set = local::collect_files(local, enter)?;
     if !unmoved() {
         anyhow::bail!("{} changed while it was listed; nothing of it was sent", local.display());
     }
@@ -600,8 +645,14 @@ pub(super) fn copy_folder_with_progress(
     let before = set.files.len();
     set.files.retain(|relative, _| keep(relative, git));
     let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+    // Every path left out counts: the ones listing named (a symlink that
+    // leads out, a socket, FIFO or device, a name the machine cannot hold),
+    // the ones counted without a name, the ones `keep` refused, and the
+    // symlinks a sync would have kept.
     let mut skipped = set
-        .skipped
+        .skips
+        .total()
+        .saturating_add(set.skipped)
         .saturating_add(count(before.saturating_sub(set.files.len())))
         .saturating_add(count(set.links.len()));
     let mut remote = Remote::connect_negotiated(socket)?;
@@ -663,15 +714,26 @@ pub(super) fn copy_folder_with_progress(
     if !unmoved() {
         return Err(changed());
     }
-    write_parallel(socket, target, small, connections(), &mut |_, result| {
-        let landed = landed(result);
-        progress();
-        // Each write landing checks the folder again, stopping the rest.
-        if landed.is_ok() && !unmoved() {
-            return Err(changed());
-        }
-        landed
-    })?;
+    // The landing writes and the quiet stretches between them both keep the
+    // app's idle deadline alive.
+    let beat = std::cell::RefCell::new(&mut *progress);
+    let mut quiet = || (*beat.borrow_mut())();
+    write_parallel_heard(
+        socket,
+        target,
+        small,
+        connections(),
+        &mut |_, result| {
+            let landed = landed(result);
+            (*beat.borrow_mut())();
+            // Each write landing checks the folder again, stopping the rest.
+            if landed.is_ok() && !unmoved() {
+                return Err(changed());
+            }
+            landed
+        },
+        Some((QUIET_AT_MOST, &mut quiet)),
+    )?;
     for job in alone {
         if !unmoved() {
             anyhow::bail!("{} changed while it was sent; the rest was not sent", local.display());
@@ -1640,5 +1702,44 @@ mod checked_source_tests {
         std::fs::rename(&inside, dir.path().join("moved")).unwrap();
         std::os::unix::fs::symlink(&outside, &inside).unwrap();
         assert!(open(&file).is_err(), "the swapped folder's file was read");
+    }
+}
+
+#[cfg(test)]
+mod drain_tests {
+    use std::time::Duration;
+
+    use super::drain_heard;
+
+    /// A slow write with nothing else landing still lets the app hear from
+    /// the upload: the quiet stretch is reported while the result waits.
+    #[test]
+    fn a_quiet_stretch_with_no_result_is_heard() {
+        let (send, results) = std::sync::mpsc::channel::<u32>();
+        let slow = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            send.send(7).unwrap();
+        });
+        let (mut heard, mut got) = (0, Vec::new());
+        let mut idle = || heard += 1;
+        drain_heard(&results, Some((Duration::from_millis(50), &mut idle)), &mut |item| {
+            got.push(item);
+        });
+        slow.join().unwrap();
+        assert_eq!(got, vec![7]);
+        assert!(heard >= 2, "the quiet stretch was heard {heard} times");
+    }
+
+    /// Without an idle beat every result is still handed on, then it ends.
+    #[test]
+    fn every_result_is_handed_on_without_a_beat() {
+        let (send, results) = std::sync::mpsc::channel::<u32>();
+        for item in 0..3 {
+            send.send(item).unwrap();
+        }
+        drop(send);
+        let mut got = Vec::new();
+        drain_heard(&results, None, &mut |item| got.push(item));
+        assert_eq!(got, vec![0, 1, 2]);
     }
 }

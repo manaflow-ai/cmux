@@ -704,7 +704,7 @@ agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
 agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
-agent report --terminal <selector> --state <state> --source <source>
+agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
 
@@ -1304,8 +1304,15 @@ rows, so the wire value is unchanged. `--state` and `--terminal` are the
 read's own filters. Every row has `status`, one of the words `terminal list
 --agents` and `agent wait` use: `blocked`, `done` (idle with an unread
 notification on its terminal), `working`, `idle` or `unknown`, and `null` for
-an agent whose session ended. The daemon's `state` field (`working`,
-`blocked`, `idle`, `done` = ended, `unknown`) stays as it was. `--state` takes
+an agent whose session ended. The CLI writes the row's `state` over with
+the same word (`ended` for an ended session), as a deprecated alias of
+`status`. The daemon's wire does not change: `agent.list` and
+`session.snapshot` still say `state: done` for an ended session, and the CLI
+maps that `done` to `ended` in every output (`agent list`, `agent report`,
+`terminal list --agents`, the `send` receipt). In the CLI, `done` means only a
+finished turn that nobody viewed yet. The CLI leaves out the ended agents of
+terminals that closed (the snapshot has no such terminal); `--state ended`
+shows them. `--state` takes
 the status words and `ended` and asks the daemon for its state: `done` and
 `idle` ask for `idle` (the CLI then keeps the rows with that status), `ended`
 asks for the daemon's `done`, the others for themselves. `--state done` used to

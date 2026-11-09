@@ -111,7 +111,7 @@ pub(super) const RECIPES: &[Recipe] = &[
                startup dialog waits on the person; never answer it yourself. The name works \
                wherever a terminal, tab or pane selector goes. send pastes the task, presses \
                Enter, waits until the agent is idle and prints its new `output`; `state` is \
-               `idle`, or `waiting-for-input` when it shows a dialog (send refuses to type \
+               `idle`, or `blocked` when it shows a dialog (send refuses to type \
                into a dialog unless --force). cmux adds its hooks to `claude` and `codex` \
                started in a cmux terminal; nothing is written to ~/.claude or ~/.codex.",
     },
@@ -124,8 +124,9 @@ pub(super) const RECIPES: &[Recipe] = &[
         ],
         read: "wait --until ready: `state` `ready`, or `blocked` with `dialog` and `reason` \
                (exit 4). terminal list --agents: one record per agent with `name`, `harness`, \
-               `state`, `tab_id`, `pane_id` and `last_reply` (the agent's last answer, one \
-               line, at most 200 characters). screen read prints the screen as text \
+               `status` (blocked, working, done, idle, unknown; null when the session \
+               ended; `state` is a deprecated alias), `tab_id`, `pane_id` and `last_reply` \
+               (the agent's last answer, one line, at most 200 characters). screen read prints the screen as text \
                (--details or --json for the whole record).",
     },
     Recipe {
@@ -148,8 +149,9 @@ pub(super) const RECIPES: &[Recipe] = &[
             "cmux terminal <term> status",
         ],
         read: "terminal list --agents: one record per agent terminal of this session \
-               (`harness`, `state`, `terminal`, `workspace`, `title`). agent list --needs-me: \
-               the agents that wait on the person. status: what the program reports \
+               (`name`, `harness`, `status`, `terminal`, `workspace`, `title`). agent list \
+               --needs-me: the agents that wait on the person, with the same `name` and \
+               `status` words (`state` is a deprecated alias of `status`). status: what the program reports \
                (for a dialog: kind permission, state blocked, msg).",
     },
     Recipe {
