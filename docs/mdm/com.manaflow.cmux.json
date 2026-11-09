@@ -4241,11 +4241,12 @@
     },
     "sidebar.groupHeader.background" : {
       "default" : "auto",
-      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces.",
       "enum" : [
         "auto",
         "glass",
-        "solid"
+        "solid",
+        "sections"
       ],
       "title" : "Group Background",
       "type" : "string"

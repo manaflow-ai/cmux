@@ -61297,7 +61297,8 @@
       "accepts" : [
         "auto",
         "glass",
-        "solid"
+        "solid",
+        "sections"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -61322,6 +61323,13 @@
             "text" : "Solid"
           },
           "value" : "solid"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundSections",
+            "text" : "Sections"
+          },
+          "value" : "sections"
         }
       ],
       "consumers" : [
@@ -61335,7 +61343,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupHeader.background.help",
-        "text" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."
+        "text" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupHeader.background",
@@ -61350,7 +61358,11 @@
         "opaque",
         "translucent",
         "fill",
-        "header"
+        "header",
+        "sections",
+        "section",
+        "heading",
+        "plain"
       ],
       "kind" : "choice",
       "page_hidden" : false,
