@@ -384,6 +384,7 @@ export function SessionInfo({
   onOpenChanges,
   onOpenOutputFile,
   onShowCall,
+  onShowTurn,
   allSessions,
   usageSessions = allSessions,
   alsoHere: shownAlsoHere,
@@ -503,6 +504,7 @@ export function SessionInfo({
   /// Shows the Bash call that started a background command in the transcript: what its row opens
   /// in a chat whose terminal cannot open here (TasksSection).
   onShowCall?: (toolCallId: string) => boolean;
+  onShowTurn?: (turnId: string) => void;
   /// The body's first line: whose panel it is (a subagent's, SubagentBanner).
   banner?: ReactNode;
   /// The subagent it lists: its Context is the tokens and tool uses the harness reports for it.
@@ -919,10 +921,11 @@ export function SessionInfo({
   );
   // Usage shows once acpmux reports what this chat or any listed chat spends.
   const ownUsage = summary?.usageStats;
+  const timeBreakdown = summary?.timeBreakdown;
   const usageValue = usageMeta(t, ownUsage, language);
   const planLimits = typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined;
   // acpmux reads a chat's spend from its harness records, so a new chat has none for a few minutes.
-  const hasUsage = Boolean(ownUsage || anyUsage || planLimits);
+  const hasUsage = Boolean(ownUsage || anyUsage || planLimits || timeBreakdown);
   // This Mac's Storage: read only while open (useStorage), hidden where acpmux cannot answer.
   const storageSource = agent ? undefined : storage;
   const storageState = useStorage(storageSource, state.storage ?? false);
@@ -958,6 +961,8 @@ export function SessionInfo({
         locale={language}
         ownRowLayout={usageOwnRowLayout}
         cacheLayout={usageCacheLayout}
+        timeBreakdown={timeBreakdown}
+        onShowTurn={onShowTurn}
       />
     </SessionInfoSection>
   );
