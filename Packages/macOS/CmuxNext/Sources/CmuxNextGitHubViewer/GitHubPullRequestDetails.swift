@@ -23,6 +23,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         /// GitHub's own rendering of `body` (``html(_:)``), empty when it is too long to send whole.
         public var html: String = ""
         public var url: String?
+        /// Whether its thread is resolved; nil when the read did not reach its thread.
+        public var resolved: Bool?
     }
 
     /// A comment or a review, by its author, in the conversation.
@@ -71,10 +73,17 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
     public var conversationTotal: Int
     public var reviewers: [Reviewer]
     public var linked: [Linked]
+    /// The signed-in person's GitHub login (the page's "Mine"), empty when the read did not say.
+    public var viewer: String = ""
+    /// How many comments and reviews the read got back, counted as ``conversationTotal`` counts them:
+    /// before the empty review wrappers are left out of `conversation`. Below the total, the read
+    /// has only part of the history (review of #38263, F1).
+    public var conversationRead: Int = 0
 
     static let maximumComments = 50
     static let maximumReviews = 30
     static let maximumReviewComments = 30
+    static let maximumThreads = 100
     static let maximumBody = 64_000
     static let maximumCommentBody = 20_000
     /// GitHub's HTML of a body is longer than its Markdown (its links, its image proxy's URLs); past
@@ -88,7 +97,7 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
     private static let required = "!"
     /// The read, with the pull request's owner, name and number as variables.
     static let query = """
-        query($owner: String\(required), $name: String\(required), $number: Int\(required)) { repository(owner: $owner, name: $name) {
+        query($owner: String\(required), $name: String\(required), $number: Int\(required)) { viewer { login } repository(owner: $owner, name: $name) {
           viewerDefaultMergeMethod
           pullRequest(number: $number) { body bodyHTML headRefOid mergeStateStatus
             labels(first: 20) { nodes { name color } }
@@ -97,6 +106,7 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
               comments(first: \(maximumReviewComments)) { nodes { path line originalLine body bodyHTML url } } } }
             reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } ... on Bot { login } } } }
             latestOpinionatedReviews(first: 20) { nodes { author { login } state } }
+            reviewThreads(last: \(maximumThreads)) { nodes { isResolved comments(first: \(maximumReviewComments)) { nodes { url } } } }
             closingIssuesReferences(first: 10) { nodes { number title url state } } } } }
         """
 
@@ -124,6 +134,14 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         let login = { (node: [String: Any]) in ((node["author"] as? [String: Any])?["login"] as? String) ?? "" }
         let text = { (value: Any?, limit: Int) in String((value as? String ?? "").prefix(limit)) }
         let html = { (node: [String: Any]) in Self.html(node["bodyHTML"]) }
+        // Each review comment's thread state, by the comment's link.
+        var resolved: [String: Bool] = [:]
+        for thread in nodes("reviewThreads", pull) {
+            let state = thread["isResolved"] as? Bool ?? false
+            for comment in nodes("comments", thread) {
+                if let url = link(comment["url"]) { resolved[url] = state }
+            }
+        }
         let comments = nodes("comments", pull).map { node in
             Entry(kind: "comment", author: login(node), body: text(node["body"], maximumCommentBody), html: html(node),
                   at: node["createdAt"] as? String ?? "", url: link(node["url"]))
@@ -132,7 +150,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
             let inline = nodes("comments", node).prefix(maximumReviewComments).compactMap { comment -> ReviewComment? in
                 guard let path = comment["path"] as? String, !path.isEmpty else { return nil }
                 return ReviewComment(path: path, line: (comment["line"] as? Int) ?? (comment["originalLine"] as? Int),
-                                     body: text(comment["body"], maximumCommentBody), html: html(comment), url: link(comment["url"]))
+                                     body: text(comment["body"], maximumCommentBody), html: html(comment), url: link(comment["url"]),
+                                     resolved: link(comment["url"]).flatMap { resolved[$0] })
             }
             let body = text(node["body"], maximumCommentBody)
             let state = (node["state"] as? String)?.lowercased() ?? "commented"
@@ -181,7 +200,9 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
             mergeState: (pull["mergeStateStatus"] as? String)?.lowercased() ?? "",
             mergeMethod: ["merge", "squash", "rebase"].contains(method) ? method : "merge",
             labels: labels, conversation: conversation, conversationTotal: total("comments") + total("reviews"),
-            reviewers: reviewers, linked: linked)
+            reviewers: reviewers, linked: linked,
+            viewer: ((object["data"] as? [String: Any])?["viewer"] as? [String: Any])?["login"] as? String ?? "",
+            conversationRead: nodes("comments", pull).count + nodes("reviews", pull).count)
     }
 
     /// GitHub's rendering of a body (`bodyHTML`: its Markdown and the HTML GitHub allows, sanitized,
@@ -211,7 +232,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         let optional = { (text: String?) in text.map(JSONValue.string) ?? .null }
         return .object([
             "body": .string(body), "html": .string(html), "headCommit": .string(headCommit), "mergeState": .string(mergeState),
-            "mergeMethod": .string(mergeMethod), "conversationTotal": JSONValue(conversationTotal),
+            "mergeMethod": .string(mergeMethod), "conversationTotal": JSONValue(conversationTotal), "viewer": .string(viewer),
+            "conversationRead": JSONValue(conversationRead),
             "labels": .array(labels.map { .object(["name": .string($0.name), "color": .string($0.color)]) }),
             "conversation": .array(conversation.map { entry in
                 .object(["kind": .string(entry.kind), "author": .string(entry.author), "body": .string(entry.body),
@@ -219,7 +241,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
                          "at": .string(entry.at), "url": optional(entry.url), "state": optional(entry.state),
                          "comments": .array(entry.comments.map { comment in
                              .object(["path": .string(comment.path), "line": comment.line.map { JSONValue($0) } ?? .null,
-                                      "body": .string(comment.body), "html": .string(comment.html), "url": optional(comment.url)])
+                                      "body": .string(comment.body), "html": .string(comment.html), "url": optional(comment.url),
+                                      "resolved": comment.resolved.map(JSONValue.bool) ?? .null])
                          })])
             }),
             "reviewers": .array(reviewers.map { .object(["name": .string($0.name), "state": .string($0.state)]) }),

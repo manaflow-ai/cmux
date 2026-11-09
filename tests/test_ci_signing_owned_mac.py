@@ -82,6 +82,8 @@ SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
     ("nightly.yml", "generate-nightly-deltas"),
     ("nightly.yml", "publish-nightly"), ("nightly.yml", "publish-nightly-next-github"),
+    # Short secret jobs that ran on GitHub-hosted Ubuntu until glaeda's SIGNING_JOBS admitted them.
+    ("nightly.yml", "keep-published-dsyms"), ("nightly.yml", "republish-nightly-deltas"),
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
@@ -91,7 +93,8 @@ SIGNING_JOBS = {
 # (glaeda scripts/glaeda-promotion-admit, PROMOTION_LEASE) and starts with the same claim gate.
 # GlaedaExclusiveClassTests holds the gate, the claim script and the secret order for the extra entry, and the
 # keychain guard's rule 7a reads this list: a job glaeda holds the whole mini for may fall back to an owned route.
-GLAEDA_EXCLUSIVE_JOBS = SIGNING_JOBS | {("nightly.yml", "promote-nightly-next")}
+# promote-nightly-next-acked (retired, if: false) takes promote-nightly-next's route and claim the same way.
+GLAEDA_EXCLUSIVE_JOBS = SIGNING_JOBS | {("nightly.yml", "promote-nightly-next"), ("nightly.yml", "promote-nightly-next-acked")}
 OWNED_PICKER = "scripts/ci/signing_runner.py"
 BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
 CLAIM = "scripts/ci/signing-runner-claim.sh"
@@ -1038,7 +1041,7 @@ class GlaedaExclusiveClassTests(unittest.TestCase):
     neither, so signing_job() skips it there; these cases hold its claim gate, its claim script before the
     release App key and its empty job env, which is what the keychain guard's rule 7a relies on."""
 
-    EXTRA = {("nightly.yml", "promote-nightly-next")}
+    EXTRA = {("nightly.yml", "promote-nightly-next"), ("nightly.yml", "promote-nightly-next-acked")}
 
     def test_the_list_is_the_picker_jobs_plus_the_promote_job(self) -> None:
         self.assertEqual(SIGNING_JOBS - GLAEDA_EXCLUSIVE_JOBS, set())

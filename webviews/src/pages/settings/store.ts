@@ -52,6 +52,7 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -741,6 +742,13 @@ export class SettingsStore {
    * no shares part or the read failed. */
   async shares(): Promise<SharesState | null> {
     const reply = await this.request("cmux.settings.shares.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Server > This Mac on Your Tailnet: one `_acpmux/tailnet/<verb>` the app relays; the node's
+   * snapshot, or null when acpmux has no tailnet, did not take the person's proof, or the host refused. */
+  async tailnet(verb: "state" | "start" | "login" | "logout"): Promise<TailnetState | null> {
+    const reply = await this.request(`cmux.settings.tailnet.${verb}`, {});
     return reply.ok ? reply.value : null;
   }
 

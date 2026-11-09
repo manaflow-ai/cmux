@@ -17,16 +17,15 @@ import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, InstantPreview, KeepFileButton, RetryButton, UploadProgress } from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
 import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
-import { TextAttachmentCard } from "./TextAttachmentCard";
+import { PastedTextChip } from "./PastedTextChip";
 import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
-import { chipRef } from "../conversation/sendMorph";
 
 type Options = {
   field: RefObject<MarkdownFieldHandle | null>;
@@ -67,7 +66,10 @@ export function useInlineAttachments(options: Options) {
   /// Placeholders whose node an edit took out while they loaded: an undo brings each back loading.
   const cancelled = useRef(new Set<string>());
   /// Attachments that stay in the strip (a chip with no place kept as a file, pastedChips.ts
-  /// `keepAsFile`): never placed in the text, so no undo there can take one out.
+  /// `keepAsFile`): never placed in the text, so no undo there can take one out. Kept across a
+  /// change of scope, as the attachment itself is (a chat's kept chips come back with its draft):
+  /// cleared there, the next `ready()` would put the file in the prompt (review of #37516). An id
+  /// leaves when it is sent.
   const stripOnly = useRef(new Set<string>());
   /// Attachments sent with a prompt: an undo of the send's clear brings their nodes back with no
   /// attachment to draw, so they leave the text again. One the host puts back (a refusal, Edit on a
@@ -81,7 +83,6 @@ export function useInlineAttachments(options: Options) {
     removed.current.clear();
     placed.current.clear();
     cancelled.current.clear();
-    stripOnly.current.clear();
     sentIds.current.clear();
   }, [options.scope]);
   const [views, setViews] = useState<ReadonlyMap<string, HTMLElement>>(() => new Map());
@@ -239,6 +240,7 @@ export function useInlineAttachments(options: Options) {
       for (const id of ids) {
         removed.current.delete(id);
         placed.current.delete(id);
+        stripOnly.current.delete(id);
         sentIds.current.add(id);
       }
       clearing.current = true;
@@ -418,8 +420,8 @@ const InlineChip = memo(function InlineChip({
         {remove}
       </span>
     );
-  // A huge paste: a small page of its first lines (TextAttachmentCard); a click puts its text back
-  // in the prompt at its place.
+  // A huge paste: the compact chip that opens its whole text (PastedTextChip.tsx), Edit in Prompt
+  // and Keep as .txt in the opened view.
   if (attachment.kind === "pasted") {
     const text = attachment.text ?? "";
     const label = `${t("composer.pastedText")} · ${pastedSize(t, language, text)}`;
@@ -437,25 +439,15 @@ const InlineChip = memo(function InlineChip({
     ];
     return (
       <ContextMenu className="acpmux-attachment-menu" items={items}>
-        <span
-          className="acpmux-md-inline-chip acpmux-text-card"
-          data-state="ready"
-          data-kind="file"
-          data-preview="text"
-          /* tooltip-allow: the card shows the paste's first lines; the tooltip says a click puts it back in the prompt */
-          title={t("composer.pastedText.edit")}
-        >
-          <button
-            type="button"
-            className="acpmux-md-inline-retry acpmux-text-card__open"
-            aria-label={`${attachment.name || pasteName(text)}, ${label}`}
-            onClick={() => onExpand(id)}
-          >
-            <TextAttachmentCard text={text} label={label} wrap />
-          </button>
-          {onKeepFile ? <KeepFileButton onKeep={() => onKeepFile(id)} /> : null}
-          {remove}
-        </span>
+        <PastedTextChip
+          host="inline"
+          text={text}
+          name={t("composer.pastedText")}
+          accessibleName={`${attachment.name || pasteName(text)}, ${label}`}
+          remove={remove}
+          onEdit={() => onExpand(id)}
+          {...(onKeepFile ? { onKeep: () => onKeepFile(id) } : {})}
+        />
       </ContextMenu>
     );
   }
@@ -466,7 +458,6 @@ const InlineChip = memo(function InlineChip({
       className="acpmux-md-inline-chip"
       data-state="ready"
       data-chip="strip"
-      ref={chipRef(id)}
       {...(loaded.current ? { "data-loaded": "" } : {})}
     >
       <AttachmentChip

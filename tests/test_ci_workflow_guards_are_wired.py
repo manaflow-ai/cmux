@@ -89,6 +89,10 @@ UNWIRED: set[str] = {
     # GitHub release, the rest of the tail dispatched, and the retry at the newest head; run it by hand after
     # changing decide, retry-nightly-next or dispatch-published-in.
     "tests/test_nightly_next_single_loop.py",
+    # lane = "manual" for the same rule. It checks the nightly-next build and sign stages (the push run builds,
+    # dispatch-nightly-next-sign hands the unsigned app to a sign run in its own group); run it by hand after
+    # changing decide, the sign-stage dispatch, retry-nightly-next or resume-unsigned-nightly.py.
+    "tests/test_nightly_next_pipeline.py",
     # lane = "manual" for the same rule. It checks that every nightly upload-artifact step has one retry that keeps
     # the first try's condition; run it by hand after adding or changing an upload in nightly.yml.
     "tests/test_nightly_artifact_uploads_retry.py",
@@ -107,6 +111,10 @@ UNWIRED: set[str] = {
     # scripts/ci/cloud_probe_rescue.py, run by the main controller's workflow_run adapter, not a PR job
     # (#30796): python3 -m unittest tests.test_ci_cloud_probe_rescue from the repository root.
     "tests/test_ci_cloud_probe_rescue.py",
+    # lane = "manual" for the same rule. It checks the weekly rollback drill (nightly-next-rollback-drill.yml) and
+    # its call into nightly-next-rollback.yml; run it by hand after changing either or
+    # scripts/ci/nightly_next_rollback_drill.py.
+    "tests/test_nightly_next_rollback_drill.py",
 }
 
 

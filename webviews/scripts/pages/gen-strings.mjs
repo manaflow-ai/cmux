@@ -207,6 +207,11 @@ export const PAGES = {
       },
     ],
   },
+  // The Bookmarks page shares its table with the Swift bar, bubble and manager.
+  bookmarks: {
+    out: "webviews/src/pages/bookmarks/generated/strings.json",
+    catalogs: [{ file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings` }],
+  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",
@@ -238,6 +243,25 @@ export const PAGES = {
       },
     ],
   },
+  // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced:
+  // Pair Another Machine's own, and the server surfaces' (which Pair Another Machine reuses).
+  "server-cards": {
+    out: "webviews/src/pages/server-cards/generated/strings.json",
+    catalogs: [
+      { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
+      // Add Machine's card shares its table with the Machines section (`addMachine.` keys only).
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("addMachine.")),
+      },
+      // The server surfaces' own table (the menu bar panel, Health, pairing, Add Server); the app's
+      // refusals (`refusal.*`) stay native.
+      {
+        file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
+        keys: (all) => all.filter((key) => !key.startsWith("refusal.")),
+      },
+    ],
+  },
   // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
   // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
   machines: {
@@ -253,6 +277,11 @@ export const PAGES = {
   artifacts: {
     out: "webviews/src/pages/artifacts/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/artifacts/Localizable.xcstrings" }],
+  },
+  // The overlay page's toast stack (cmux-page://cmux.overlay/, route /toasts); its table lives next to it.
+  "overlay-toasts": {
+    out: "webviews/src/pages/overlay/toasts/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/overlay/toasts/Localizable.xcstrings" }],
   },
   // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
   stats: {

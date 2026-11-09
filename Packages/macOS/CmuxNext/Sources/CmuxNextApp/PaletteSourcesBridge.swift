@@ -123,22 +123,24 @@ enum PaletteSourcesBridge {
             let ranks = services.windows.active?.sidebar.model.workspaceRanks() ?? [:]
             let subagents = ChiefSubagentIDs.live
             let closing = TabSearchFactsBuilder.closing(services), resolver = TabTitleResolver(services: services)
+            let lastActive = TabSearchFactsBuilder.lastActive(services)
             return services.machines.allWorkspaces.map { workspace, daemon in // another machine's rows name it
                 let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
                 // A lone tab is its workspace (Go to Workspace lists no row of its own): its words find this row.
                 let live = tabs.filter { !closing.contains($0.id) }, lone = live.count == 1 && !HomeRules.isHome(workspace) ? live.first : nil
+                let title = services.shownWorkspaceName(workspace)
+                // A tab that alone repeats the name is this row too (NavigationPaletteProvider.distinctTitles); an untitled chat reads as it.
+                let repeating = lone == nil ? PaletteWorkspace.loneRepeat(live, of: title) { var named = resolver; named.workspaceName = title; return named.title($0) } : nil
                 let cwd = tabs.first { $0.cwd != nil }?.cwd
                 // A Chief subagent's workspace is found by the id the Chief gave it (`a612`).
                 let agentID = subagents.id(name: workspace.displayName, chats: tabs.compactMap(\.agentSession))
-                // The local Chief runs on this Mac, as the sidebar's machine marks say.
-                let onThisMac = daemon.isLocal || MachineID(daemon.machineID).isLocalChief
                 // Named as its sidebar row is: a default-named workspace reads as its front tab.
-                return PaletteWorkspace(id: workspace.id, title: services.shownWorkspaceName(workspace), directory: cwd,
+                return PaletteWorkspace(id: workspace.id, title: title, directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
-                                        groupName: groupNames[workspace.id], machineName: onThisMac ? nil : services.machines.machineName(daemon.machineID),
+                                        groupName: groupNames[workspace.id], machineName: services.otherMachineName(daemon),
                                         agentID: agentID,
-                                        keywords: lone.map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
-                                        sidebarRank: ranks[workspace.id])
+                                        keywords: (lone ?? repeating).map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
+                                        sidebarRank: ranks[workspace.id], lastUsed: tabs.compactMap { lastActive[$0.id] }.max()) // latest tab focus
             }
         }
 

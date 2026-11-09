@@ -19,6 +19,11 @@ export const editQueued = (promptId: string, edit: QueueEdit) =>
 export const dismissRecap = (rowId: string, key: string) =>
   void window.cmuxAcpmuxActions?.["chat.recap.dismiss"]?.({ rowId, key });
 
+/// Accept or Dismiss on a memory offer's facts: the daemon writes the instructions file
+/// (`_acpmux/memory_resolve`, direct.ts resolveMemory); the row settles from its answer.
+export const resolveMemory = (offerId: string, accept: string[], dismiss: string[]) =>
+  void window.cmuxAcpmuxActions?.["chat.memory.resolve"]?.({ offerId, accept, dismiss });
+
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
 export const openOfferChat = (sessionId: string) =>
   void callNative("chat.offer.open", { sessionId }).catch(() => undefined);

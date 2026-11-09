@@ -143,6 +143,8 @@ final class PageWKWebView: WKWebView {
 
     /// Replaces the Copy-only menu when set (``PageWebView/contextMenuEditor``).
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
+    /// Ends every menu after its editor: the page's Inspect Element row (``PageDeveloperTools``).
+    var contextMenuTail: (@MainActor (NSMenu) -> Void)?
 
     /// Keeps macOS's AutoFill out of this view's context menu (``PageMenuAutoFill``).
     private let menuAutoFill = PageMenuAutoFill()
@@ -163,6 +165,7 @@ final class PageWKWebView: WKWebView {
         openedMenu = menu
         menuAutoFill.menuWillOpen()
         if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDesktopItems(in: menu) }
+        contextMenuTail?(menu)
         super.willOpenMenu(menu, with: event)
     }
 

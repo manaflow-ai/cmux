@@ -232,7 +232,7 @@ public final class MicrophoneActivity {
         levelMeter = meter
         openMeter(meter)
         levelForwarding = Task { @MainActor [weak self] in
-            for await level in meter.levels { self?.forward(level) }
+            for await level in meter.levels { self?.forward(level, from: meter) }
             self?.meterFinished(meter)
         }
     }
@@ -242,6 +242,7 @@ public final class MicrophoneActivity {
         levelMeter = nil
         // Ends the forwarding at once: a level the tap still makes goes nowhere.
         meter.finish()
+        levelForwarding?.cancel()
         levelForwarding = nil
         closeMeter()
     }
@@ -254,8 +255,10 @@ public final class MicrophoneActivity {
         refresh()
     }
 
-    private func forward(_ level: Float) {
-        guard levelMeter != nil else { return }
+    /// Only the running meter's levels reach the watchers: a level still queued from a closed
+    /// meter's stream is dropped, even once a new meter runs.
+    private func forward(_ level: Float, from meter: DictationAudioLevelMeter) {
+        guard levelMeter === meter else { return }
         for watcher in watchers.values { watcher.onLevel?(level) }
     }
 

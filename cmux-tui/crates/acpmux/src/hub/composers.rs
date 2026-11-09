@@ -86,6 +86,11 @@ pub struct Composers {
 }
 
 impl Composers {
+    /// Whether any surface holds unsent text (whitespace clears a surface's draft).
+    pub(in crate::hub) fn any_draft(&self) -> bool {
+        !self.drafts.is_empty()
+    }
+
     fn sent_by(&self, prompt_id: &str) -> Option<&Surface> {
         self.sent.iter().rev().find(|(id, _)| id == prompt_id).map(|(_, s)| s)
     }

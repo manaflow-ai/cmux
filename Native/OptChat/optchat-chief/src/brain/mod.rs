@@ -488,6 +488,13 @@ pub enum Input {
         name: String,
         reply: Sender<serde_json::Value>,
     },
+    /// chief.stop {start: name} (Start now on a queued agent in Home):
+    /// that queued subagent starts at once, past the live cap; answers
+    /// `{"started": bool, ...}`.
+    StartSubagent {
+        name: String,
+        reply: Sender<serde_json::Value>,
+    },
     /// chief.stop {all: true} ("Stop all agents"): the running turn and
     /// every subagent at work or queued; answers `{"stopped": bool,
     /// "subagents": [ids]}`.
@@ -1832,6 +1839,9 @@ impl Brain {
             }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
+            }
+            Input::StartSubagent { name, reply } => {
+                let _ = reply.send(self.start_subagent_now(&name));
             }
             Input::StopAll { reply } => {
                 let _ = reply.send(self.stop_all());

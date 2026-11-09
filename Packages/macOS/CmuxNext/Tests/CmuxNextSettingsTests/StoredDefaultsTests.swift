@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -23,7 +24,7 @@ import Testing
 
     func marker() throws -> UserDefaults {
         let suite = "cn-stored-defaults-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         return defaults
     }
@@ -111,6 +112,15 @@ import Testing
         #expect(try await writingTheDefault(LinkRouting.openPath, in: settings) == .bool(LinkRouting.openDefault))
     }
 
+    /// With no older key and no lower layer, the browser key and the editor import's own selector
+    /// follow their defaults like any other (#38167 F1, F2).
+    @Test func withNothingBelowTheDefaultIsRemoved() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        #expect(try await writingTheDefault(LinkRouting.openPath, in: settings) == nil)
+        #expect(try await writingTheDefault(EditorSettingsSchema.importFromPath, in: settings) == nil)
+    }
+
     /// The Debug tunable `agent.harnessPlacement` fills `agentPane.display.harnessPlacement`.
     @Test func aDebugTunableKeepsAnExplicitDefault() async throws {
         defer { try? FileManager.default.removeItem(at: home) }
@@ -162,6 +172,44 @@ import Testing
         try await settings.file.set(.string("flat-sidebar-line"), at: ChromeStyleSetting.configPath)
         #expect(try await settings.forgetStoredDefaults(marker: marker, formerDefaults: former) == nil)
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string("flat-sidebar-line"))
+    }
+
+    /// cmux-next.json is one file for every build on the Mac (NIGHTLY, RC, each tagged DEV build), and
+    /// each build has its own UserDefaults. The pass runs once per file: a build that launches later
+    /// on the same file leaves the person's pick of a former default alone. It ran once per build, so
+    /// every fresh DEV build dropped `updates.downloadAutomatically: true` (a former default) from the
+    /// shared file and the running NIGHTLY's updater flipped from on to deferred two seconds after
+    /// that build launched (NIGHTLY updater log, 2026-11-08T08:05:19.567Z DEV launch, 08:05:21.615Z
+    /// "automatic downloads deferred (setting false ...)").
+    @Test func thePassRunsOncePerFileNotOncePerBuild() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let nightly = try await controller(#"{ "diff": { "layout": "auto" } }"#)
+        #expect(try await nightly.forgetStoredDefaults(marker: try marker()) != nil)
+
+        // The person turns Automatic Updates on (it was the default once) after the pass.
+        try await nightly.setSetting(at: UpdatesSettings.downloadAutomaticallyPath, to: .bool(true), by: .user)
+        #expect(try await nightly.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+
+        // A DEV build launches on the same file with its own UserDefaults.
+        let dev = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                     managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await dev.reload()
+        let devMarker = try marker()
+        #expect(try await dev.forgetStoredDefaults(marker: devMarker) == nil)
+        #expect(devMarker.bool(forKey: SettingsController.storedDefaultsForgottenKey), "the build records it too")
+        #expect(try await dev.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+    }
+
+    /// A pass that found nothing to drop still counts as run for the file.
+    @Test func aPassThatDroppedNothingStillRunsOncePerFile() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "workspaces": { "newPlacement": "bottom" } }"#)
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
+        #expect(report.dropped.isEmpty)
+
+        try await settings.file.set(.bool(true), at: UpdatesSettings.downloadAutomaticallyPath)
+        #expect(try await settings.forgetStoredDefaults(marker: try marker()) == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
     }
 
     /// A null the first builds of this change stored for a default write goes once; a set value stays.

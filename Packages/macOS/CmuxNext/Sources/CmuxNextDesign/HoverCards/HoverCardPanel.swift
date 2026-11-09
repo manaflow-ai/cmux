@@ -158,7 +158,7 @@ final class HoverCardPanel: NSPanel {
     /// and at rest in this frame; the coordinator has already waited for the dwell.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
                  themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, cornerRadius: CGFloat? = nil,
-                 applyTheme: @escaping () -> Void) {
+                 entrance: HoverCardEntrance = .slide, applyTheme: @escaping () -> Void) {
         let wasDismissing = isDismissing
         let wasOnScreen = isVisible && parentWindowRef === parent
         // Where the card is on screen before this show: a visible card (shown, or fading out
@@ -255,8 +255,10 @@ final class HoverCardPanel: NSPanel {
             orderFront(nil)
         } else {
             // A first show: from clear, the card fades in while it moves the last few points
-            // away from its target (`HoverCardMotion`, shared with the update card).
-            Self.motion.enter(self, placement: restingPlacement, leading: isLeading)
+            // away from its target (`HoverCardMotion`, shared with the update card), fades in
+            // where it rests, or grows out of its target (`grow()`; a plain fade when motion is off).
+            Self.motion.enter(self, placement: restingPlacement, leading: isLeading, slides: entrance == .slide)
+            if entrance == .morph { grow() }
         }
     }
 
