@@ -140,9 +140,10 @@ Claude Code 2.1 reads under any config directory and beside any
   of the hooks that reports `SessionStart` (whichever it is) appends
   `export CMUX_TUI_CLAUDE_OWNER=<terminal>/<session>` to Claude Code's
   `CLAUDE_ENV_FILE` (creating it), which Claude Code sources before each Bash
-  tool command. Every copy of the Claude hooks does nothing in a Claude whose
-  environment names its terminal and another session, so the terminal's
-  session, state and journal stay the outer Claude's. A Claude started with
+  tool command. Every copy of the Claude hooks reports nothing in a Claude
+  whose environment names its terminal and another session, so the
+  terminal's session, state and journal stay the outer Claude's (the
+  session context still goes to that Claude's model). A Claude started with
   `cmux agent start` from a tool command runs in its own terminal and
   reports there. The shim's fallback when no hook helper is found
   (`cmux-tui agent hook emit`) records events only and does not read the

@@ -127,8 +127,10 @@ if go:
                   FAKE_EXIT="1", CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
                   CLAUDE_CODE_SESSION_ID=session)
     del nested["FAKE_NESTED_GO"]
+    # Under the shim the tool command finds `claude` on PATH (the shim again).
+    again = "claude" if os.environ["OB_TAG"].startswith("shim") else os.path.realpath(sys.argv[0])
     subprocess.run(["/bin/sh", "-c", '[ -f "$1" ] && . "$1"; exec "$2" -p hi', "sh", env_file,
-                    os.path.realpath(sys.argv[0])], env=nested, timeout=120)
+                    again], env=nested, timeout=120)
 if os.environ.get("FAKE_EXIT"):
     sys.exit(0)
 time.sleep(600)
@@ -611,6 +613,8 @@ fn any_launcher_claude_reports_to_the_pane_session() {
     );
     let record = launch_record(&root, &daemon, "no-user-settings");
     assert!(session_start_outputs_with(&record, "you run in a cmux terminal") <= 1, "{record}");
+    // Settle as above: a copy's records still in flight would be missed.
+    std::thread::sleep(Duration::from_millis(1500));
     let events = daemon.claude_hook_events(&[limited.as_str(), limited_host.as_str()]);
     for event in ["SessionStart", "UserPromptSubmit", "Stop"] {
         assert!(
@@ -664,7 +668,9 @@ fn any_launcher_nested_claude_leaves_the_pane_session_to_the_outer_claude() {
     // Each terminal runs a Claude; once told, a tool call of it starts another
     // Claude (`claude -p`), which inherits the pane's environment and sources
     // the outer Claude's env file. The plugin reports for the first; the
-    // installed hooks for the second; the shim's own hooks for the third.
+    // installed hooks for the second; the shim's own hooks for the third,
+    // whose nested Claude goes through the shim again (which passes it on
+    // without its hooks, so the installed ones run).
     let cases = [
         ("plain", format!("'{}'", claude.display()), &empty_config, 2),
         ("installed", format!("'{}'", claude.display()), &installed_config, 3),
