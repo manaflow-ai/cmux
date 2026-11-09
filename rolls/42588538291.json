@@ -1,0 +1,122 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42588538291",
+  "recorded_at": "2026-11-09T08:55:24Z",
+  "reason": "cmux-tui bb9a6d562edc changes the image's cmux-tui (pinned f6080ec85314)",
+  "dry_run": false,
+  "cmux_tui": "bb9a6d562edcee6dfbda7416f5d37a4d1be653ee",
+  "fixes": [
+    {
+      "sha": "bb9a6d562edcee6dfbda7416f5d37a4d1be653ee",
+      "mergedAt": "2026-11-09T00:31:25-08:00",
+      "subject": "cmux-tui: a terminal no cmux has served for a week ends itself, in every build (#39360)"
+    },
+    {
+      "sha": "5514afe4d49939943dd632ffae3bbf393e4c66b3",
+      "mergedAt": "2026-11-09T08:16:08Z",
+      "subject": "chore(next): base autofix at a70dac3ef9c0"
+    },
+    {
+      "sha": "a70dac3ef9c08e27495601b9071212feffe6fd4e",
+      "mergedAt": "2026-11-09T00:14:59-08:00",
+      "subject": "cmux-tui-core: the agent roster replay inflates sealed segments in parallel (#39342)"
+    },
+    {
+      "sha": "a8686d9f7905ed48ca6f80bbb0ad90b18730bfc5",
+      "mergedAt": "2026-11-09T08:11:40Z",
+      "subject": "cmux mcp: the .items hint names cmux's own tools; a folded server's tool keeps its shape (#39315)"
+    },
+    {
+      "sha": "fdac8467b1fb8df18d5c70ff124f9d911f9dfffb",
+      "mergedAt": "2026-11-09T08:11:28Z",
+      "subject": "remote: every permanent ssh refusal stops the redial; a cold open keeps the person's deadline (#39200)"
+    },
+    {
+      "sha": "f50edc9178855385bfc0bc910a9d8826056e8f89",
+      "mergedAt": "2026-11-09T00:08:56-08:00",
+      "subject": "cmux-terminal-prediction tests: neutral host name in the simulated prompt (#38923)"
+    },
+    {
+      "sha": "4338cf5066017f94dee9458f28e4963742e282c6",
+      "mergedAt": "2026-11-09T00:02:05-08:00",
+      "subject": "Composer hat: the chat's goal heads the hat, opens and edits in place, with a hover preview (#39151)"
+    },
+    {
+      "sha": "2ff005b8df2f259ab45f008341f693eb973fc407",
+      "mergedAt": "2026-11-08T23:59:09-08:00",
+      "subject": "cmux-tui: keep journal checkpoints bounded (#39217)"
+    },
+    {
+      "sha": "d24f3b10113410b29eeba5cf3583dc823c7277a3",
+      "mergedAt": "2026-11-08T23:54:25-08:00",
+      "subject": "Costs: cache savings, spend by account, and a CSV export for audits (#39326)"
+    },
+    {
+      "sha": "69a81c4867ff4950fc701f373cb1916d4b0d6b95",
+      "mergedAt": "2026-11-08T23:52:32-08:00",
+      "subject": "acpmux: multi-provider harnesses get provider keys exported in the login shell (#39316)"
+    },
+    {
+      "sha": "0053b266902cb72ba81f342f72d1a0b83a95fa86",
+      "mergedAt": "2026-11-08T23:47:32-08:00",
+      "subject": "cmux-tui: delete the unused cmux-mux2 research crate (#39284)"
+    },
+    {
+      "sha": "87aa689f5b702e73718e432f00d1c1aa3bc1729b",
+      "mergedAt": "2026-11-08T23:40:06-08:00",
+      "subject": "cmux NEXT: Keep Mac Awake is found under \"keep awake\" and \"prevent sleep\", and Keeping Mac awake opens it (#39111)"
+    },
+    {
+      "sha": "b1c9e09994cd145a2461f1efe565b8ff37af5a33",
+      "mergedAt": "2026-11-09T07:35:42Z",
+      "subject": "NEXT keeps its per-build folder under Application Support/cmux-next, moved once from classic's cmux (#39262)"
+    },
+    {
+      "sha": "ab332c2161ed5d496c7b5902694fa84b36a03d53",
+      "mergedAt": "2026-11-08T23:34:12-08:00",
+      "subject": "Agent context: a chat lists only the skills its tools need (#39122)"
+    },
+    {
+      "sha": "ec18a8f653744374f8e015be5efe586a8f78c510",
+      "mergedAt": "2026-11-08T23:33:06-08:00",
+      "subject": "cmux chat cd: point a running Cloud chat at another folder or repo (#39301)"
+    },
+    {
+      "sha": "495d6671edf62fea12e16bb911be7230d15291a6",
+      "mergedAt": "2026-11-08T23:29:47-08:00",
+      "subject": "cloud: a Mac folder seed opens the chat at its head (Mac side) (#39199)"
+    },
+    {
+      "sha": "67479c6b6cb7e3638c3e63d88448573f3edf4fb4",
+      "mergedAt": "2026-11-09T07:27:10Z",
+      "subject": "perf(terminal): key resizes and divider drags show a new size only with the program's redraw (RESIZE P0 12 hold) (#38206)"
+    },
+    {
+      "sha": "6f82eed7fac08cc975fa191bae05d29b52e35dab",
+      "mergedAt": "2026-11-08T23:26:03-08:00",
+      "subject": "cmux-host: update check --skip-resume-hold for the spare refresh (#39032)"
+    },
+    {
+      "sha": "ed292a365beabefdecad56c02fb1578690d3923a",
+      "mergedAt": "2026-11-08T23:19:52-08:00",
+      "subject": "cmux-tui: wake_on_event gets a stream and clock seam and behavior tests; PROMPT_WAIT gets its timeout reason (#39330)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T08:55:24Z",
+    "snapshot_id": "sh-718bb35b2d674103b2eed7a014adc3c3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42588538291): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e735492a961fa6a262afa9f560d9537f589db079",
+    "image": "cloud-native-auto-bb9a6d56-42588538291-1",
+    "revision": "ci-42588538291-1",
+    "at": "2026-11-09T08:55:24Z"
+  },
+  "rolled_back": false
+}
