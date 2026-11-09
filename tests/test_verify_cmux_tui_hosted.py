@@ -586,14 +586,14 @@ def validate_step_cases(failures: list[str]) -> None:
          commit=head, workflow_sha=head, ref="refs/heads/verify-test")
     case("another commit on a branch's own dispatch is refused", False,
          commit=red, workflow_sha=head, ref="refs/heads/verify-test", source_branch="verify-test",
-         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="ahead 1")
+         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="ahead 0")
     case("another commit on feat-cmux-next, contained in its source branch, passes", True,
          calls_have=f"repos/manaflow-ai/cmux/compare/{red}...{head}",
          commit=red, workflow_sha=feat, ref=trusted, source_branch="verify-test",
-         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="ahead 1")
+         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="ahead 0")
     case("another commit on main, contained in its source branch, passes", True,
          commit=red, workflow_sha=feat, ref="refs/heads/main", source_branch="task/verify-test",
-         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="ahead 1")
+         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="ahead 0")
     case("the source branch's head itself passes", True,
          commit=head, workflow_sha=feat, ref=trusted, source_branch="verify-test",
          FAKE_SOURCE_HEAD=head, FAKE_COMPARE="identical 0")
@@ -605,7 +605,7 @@ def validate_step_cases(failures: list[str]) -> None:
          FAKE_SOURCE_HEAD=head, FAKE_COMPARE="behind 3")
     case("a source branch that does not exist is refused", False,
          commit=red, workflow_sha=feat, ref=trusted, source_branch="gone",
-         FAKE_SOURCE_HEAD="", FAKE_COMPARE="ahead 1")
+         FAKE_SOURCE_HEAD="", FAKE_COMPARE="ahead 0")
     case("another commit with no source branch is refused before any API call", False, no_calls=True,
          commit=red, workflow_sha=feat, ref=trusted, source_branch="")
     case("an unsafe source branch name is refused before any API call", False, no_calls=True,
