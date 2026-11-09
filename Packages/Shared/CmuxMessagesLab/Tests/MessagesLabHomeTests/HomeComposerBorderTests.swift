@@ -52,13 +52,15 @@ import UniformTypeIdentifiers
     /// glass is flat there, with no lit rim); the key window's glass rim stays the edge.
     @Test func aDarkFieldKeepsItsRestingHairlineOutsideTheKeyWindow() throws {
         let chrome = FieldChrome(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
-        chrome.applyTheme(light: false, symbol: .white, edge: .black, restingEdge: .red)
+        chrome.applyTheme(light: false, symbol: .white, edge: .black, restingEdge: .red, windowIsKey: false)
         let layer = try #require(chrome.field.layer)
         #expect(layer.borderWidth == 1, "an unfocused dark field lost its outline")
         #expect(layer.borderColor == NSColor.red.cgColor)
-        chrome.updateRestingEdge(windowIsKey: true)
-        #expect(layer.borderWidth == 0)
-        chrome.updateRestingEdge(windowIsKey: false)
+        let theme = FieldEdgeTheme(light: false, edge: .black, restingEdge: .red)
+        chrome.applyEdge(theme, windowIsKey: true)
+        // System glass draws its own lit rim in the key window; the macOS 14/15 stand-in keeps the hairline.
+        #expect(layer.borderWidth == (chrome.hasSystemGlass ? 0 : 1))
+        chrome.applyEdge(theme, windowIsKey: false)
         #expect(layer.borderWidth == 1)
     }
 
@@ -68,12 +70,20 @@ import UniformTypeIdentifiers
         let layer = try #require(chrome.field.layer)
         #expect(layer.borderColor == NSColor.black.cgColor)
         for key in [true, false] {
-            chrome.updateRestingEdge(windowIsKey: key)
+            chrome.applyEdge(FieldEdgeTheme(light: true, edge: .black, restingEdge: .red), windowIsKey: key)
             #expect(layer.borderWidth == 1)
         }
-        #expect(FieldChrome.drawsHairline(light: true, windowIsKey: true))
-        #expect(FieldChrome.drawsHairline(light: false, windowIsKey: false))
-        #expect(!FieldChrome.drawsHairline(light: false, windowIsKey: true))
+    }
+
+    @Test func onlyDarkSystemGlassInAKeyWindowDropsTheHairline() {
+        for light in [false, true] {
+            for key in [false, true] {
+                for glass in [false, true] {
+                    #expect(FieldChrome.drawsHairline(light: light, windowIsKey: key, systemGlass: glass) == (light || !key || !glass))
+                }
+            }
+        }
+        #expect(!FieldChrome.drawsHairline(light: false, windowIsKey: true, systemGlass: true))
     }
 
     @Test func borderGallery() throws {

@@ -261,9 +261,8 @@ public final class MessagesLabHomeView: NSView {
         PaletteScope.with(box) {
             controller.host.headerBackdrop.setTint(Fixture.background)
             controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge,
-                                                     restingEdge: theme.active.fieldRestEdge)
-            controller.refreshFieldEdge()
+            controller.applyFieldTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge,
+                                       restingEdge: theme.active.fieldRestEdge)
             controller.host.paneHeader.light = theme.active.isLight
         }
         // This view draws again whenever its rows were made with another palette (its own applied generation).

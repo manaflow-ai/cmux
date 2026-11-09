@@ -37,14 +37,21 @@ extension ChatController {
     /// One key state of this pane's own window: the field's hairline, and the window view's inactive look when the
     /// pane follows key state.
     func keyStateChanged(windowIsKey: Bool, follows: Bool) {
-        host.fieldChrome.updateRestingEdge(windowIsKey: windowIsKey)
+        if let fieldEdgeTheme { host.fieldChrome.applyEdge(fieldEdgeTheme, windowIsKey: windowIsKey) }
         demo?.setInactive(Self.viewInactive(followsKeyWindow: follows, windowIsKey: windowIsKey))
     }
 
-    /// The field's hairline for its window's current key state (a test mode: the state its arguments name). After a
-    /// theme change, which sets the hairline's colour.
+    /// The window's key state the field draws for: a test mode's is the state its arguments name.
+    var fieldWindowIsKey: Bool { Self.noFocus ? Self.args.contains("--active") : (host.window?.isKeyWindow ?? false) }
+
+    /// A theme change: the field's glass, symbols and hairline, kept for the next key change.
+    func applyFieldTheme(light: Bool, symbol: NSColor, edge: NSColor?, restingEdge: NSColor?) {
+        fieldEdgeTheme = FieldEdgeTheme(light: light, edge: edge, restingEdge: restingEdge)
+        host.fieldChrome.applyTheme(light: light, symbol: symbol, edge: edge, restingEdge: restingEdge, windowIsKey: fieldWindowIsKey)
+    }
+
+    /// The field's hairline for the current key state (a theme already applied).
     func refreshFieldEdge() {
-        let key = Self.noFocus ? Self.args.contains("--active") : (host.window?.isKeyWindow ?? false)
-        host.fieldChrome.updateRestingEdge(windowIsKey: key)
+        if let fieldEdgeTheme { host.fieldChrome.applyEdge(fieldEdgeTheme, windowIsKey: fieldWindowIsKey) }
     }
 }

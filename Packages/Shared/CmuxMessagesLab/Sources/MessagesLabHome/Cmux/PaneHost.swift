@@ -319,40 +319,59 @@ final class HostView: NSView {
 
 }
 
+/// cmux: the colours of the field's hairline for one theme (cmux#39302), kept by the pane so a key change
+/// redraws the hairline without reading the layer back.
+struct FieldEdgeTheme: Equatable {
+    var light: Bool
+    /// A light theme's edge (palette `composeStroke`).
+    var edge: NSColor?
+    /// A dark theme's resting edge (palette `composeRestEdge`).
+    var restingEdge: NSColor?
+}
+
 extension FieldChrome {
     /// cmux: the field's Liquid Glass, "+" and emoji follow the theme: light
     /// glass on a light theme (the glass renders for its view's appearance),
     /// MessagesLab's dark glass and white symbols otherwise.
     ///
     /// A light theme's glass is as pale as the page, so the field gets a hairline edge of
-    /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11). Dark glass draws its
-    /// own lit rim in a key window only; in a window that is not key the system glass is flat, so
-    /// the field takes `restingEdge` there instead (cmux#39302: only the focus look goes).
-    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil, restingEdge: NSColor? = nil) {
+    /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11). Dark system glass
+    /// draws its own lit rim in a key window only; in a window that is not key it is flat, so the
+    /// field takes `restingEdge` there instead (cmux#39302: only the focus look goes).
+    /// `windowIsKey`: the key state to draw for (default: the field's window's).
+    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil, restingEdge: NSColor? = nil, windowIsKey: Bool? = nil) {
         field.wantsLayer = true
-        if let layer = field.layer {
-            // NSGlassEffectView rounds its glass internally, independently of its backing
-            // layer. Keep the added hairline on the same curve instead of boxing the glass.
-            if layer.cornerRadius != field.cornerRadius { layer.cornerRadius = field.cornerRadius }
-            let color = (light ? edge : restingEdge)?.cgColor
-            if layer.borderColor != color { layer.borderColor = color }
-        }
+        // NSGlassEffectView rounds its glass internally, independently of its backing
+        // layer. Keep the added hairline on the same curve instead of boxing the glass.
+        if let layer = field.layer, layer.cornerRadius != field.cornerRadius { layer.cornerRadius = field.cornerRadius }
         let appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         if self.appearance?.name != appearance?.name { self.appearance = appearance }
         let tint: NSColor = light ? symbol : .white
         for b in [plus, emoji] where b.contentTintColor != tint { b.contentTintColor = tint }
-        updateRestingEdge(windowIsKey: window?.isKeyWindow ?? false)
+        applyEdge(FieldEdgeTheme(light: light, edge: edge, restingEdge: restingEdge),
+                  windowIsKey: windowIsKey ?? (window?.isKeyWindow ?? false))
     }
 
-    /// Whether the field draws its hairline: always on a light theme, on a dark one only while
-    /// its window is not key (the key window's glass rim is the edge there, Messages' look).
-    static func drawsHairline(light: Bool, windowIsKey: Bool) -> Bool { light || !windowIsKey }
+    /// The field is the system's Liquid Glass (macOS 26 and newer), which draws a lit rim in a key window. The
+    /// macOS 14 and 15 stand-in draws none in either state.
+    var hasSystemGlass: Bool {
+        if #available(macOS 26.0, *) { return field is NSGlassEffectView }
+        return false
+    }
 
-    /// The hairline for one key state of the field's window (PaneHost+KeyState.swift observes it).
-    func updateRestingEdge(windowIsKey: Bool) {
+    /// Whether the field draws its hairline: always on a light theme and on glass without a rim of its own;
+    /// on dark system glass only while its window is not key (the key window's lit rim is the edge there).
+    static func drawsHairline(light: Bool, windowIsKey: Bool, systemGlass: Bool) -> Bool {
+        light || !systemGlass || !windowIsKey
+    }
+
+    /// The hairline for `theme` and one key state of the field's window (PaneHost+KeyState.swift observes it).
+    func applyEdge(_ theme: FieldEdgeTheme, windowIsKey: Bool) {
         guard let layer = field.layer else { return }
-        let light = appearance?.name == .aqua
-        let width: CGFloat = layer.borderColor != nil && Self.drawsHairline(light: light, windowIsKey: windowIsKey) ? 1 : 0
+        let color = (theme.light ? theme.edge : theme.restingEdge)?.cgColor
+        let shows = color != nil && Self.drawsHairline(light: theme.light, windowIsKey: windowIsKey, systemGlass: hasSystemGlass)
+        let width: CGFloat = shows ? 1 : 0
+        if let color, layer.borderColor != color { layer.borderColor = color }
         if layer.borderWidth != width { layer.borderWidth = width }
     }
 }
@@ -515,6 +534,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private var observers: [NSObjectProtocol] = []
     /// Its own window's key observers (PaneHost+KeyState.swift).
     var keyObservers: [NSObjectProtocol] = []
+    /// The theme's field hairline colours (cmux#39302), redrawn on each key change of its own window.
+    var fieldEdgeTheme: FieldEdgeTheme?
     /// Whether the view greys when its window is not key (MessagesLab's parity behavior). Off in cmux; the
     /// `--follow-key-state` argument turns it on for parity runs.
     var followsKeyWindow = ChatController.args.contains("--follow-key-state")

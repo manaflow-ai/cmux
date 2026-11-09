@@ -82,12 +82,13 @@ import Testing
         let (window, controller) = pane(followsKeyWindow: followsKeyWindow)
         defer { window.close() }
         let chrome = controller.host.fieldChrome
-        chrome.applyTheme(light: false, symbol: .white, edge: .black, restingEdge: .gray)
+        controller.applyFieldTheme(light: false, symbol: .white, edge: .black, restingEdge: .gray)
         controller.followKeyState()
         let layer = try #require(chrome.field.layer)
         #expect(layer.borderWidth == 1, "an unfocused dark Home field lost its outline")
+        #expect(layer.borderColor == NSColor.gray.cgColor)
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
-        #expect(layer.borderWidth == 0)
+        #expect(layer.borderWidth == (chrome.hasSystemGlass ? 0 : 1))
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
         #expect(layer.borderWidth == 1)
     }
