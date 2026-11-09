@@ -51,4 +51,21 @@ import Testing
             )
         )
     }
+
+    @Test func splitSidebarReopensTheWayItWasLeft() {
+        #expect(
+            MobileWorkspaceShellLayoutPolicy.restoredSplitColumnVisibility(sidebarWasHidden: true)
+                == .detailOnly
+        )
+        #expect(
+            MobileWorkspaceShellLayoutPolicy.restoredSplitColumnVisibility(sidebarWasHidden: false)
+                == .all
+        )
+    }
+
+    @Test func onlyTheSidebarColumnCountsAsShown() {
+        #expect(MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.detailOnly))
+        #expect(!MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.all))
+        #expect(!MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.doubleColumn))
+    }
 }

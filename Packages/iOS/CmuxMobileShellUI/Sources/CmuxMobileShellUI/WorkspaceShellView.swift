@@ -362,6 +362,10 @@ struct WorkspaceShellView: View {
     @State private var notificationFeedProjection = NotificationFeedProjection()
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
+    /// Whether the phone split sidebar was last hidden, so a relaunch opens it
+    /// the way the user left it.
+    @AppStorage(MobileWorkspaceShellLayoutPolicy.splitSidebarHiddenStorageKey)
+    private var splitSidebarHidden = false
     #if os(iOS)
     /// Measured width of the split sidebar column. Feeds the root toolbar's
     /// content-width environment so the computer picker budgets against the
@@ -1089,13 +1093,19 @@ struct WorkspaceShellView: View {
             hostsSplitDestinationsInSidebar ? .hidden : .automatic,
             for: .tabBar
         )
+        .onChange(of: splitColumnVisibility) { _, visibility in
+            guard hostsSplitDestinationsInSidebar else { return }
+            splitSidebarHidden = MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(visibility)
+        }
         .onAppear {
             hasPresentedSplitDetail = true
             // `.automatic` lets portrait collapse the sidebar while the binding
             // still reads `.automatic`, which hides the detail's show-sidebar
             // control. An explicit state keeps the toggle reachable.
             if hostsSplitDestinationsInSidebar, splitColumnVisibility == .automatic {
-                splitColumnVisibility = .all
+                splitColumnVisibility = MobileWorkspaceShellLayoutPolicy.restoredSplitColumnVisibility(
+                    sidebarWasHidden: splitSidebarHidden
+                )
             }
             #if os(iOS) && DEBUG
             if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {

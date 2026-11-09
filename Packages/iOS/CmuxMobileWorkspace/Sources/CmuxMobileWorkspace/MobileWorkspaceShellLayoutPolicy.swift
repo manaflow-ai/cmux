@@ -34,4 +34,33 @@ public struct MobileWorkspaceShellLayoutPolicy {
     ) -> Bool {
         !usesCompactStack && isPhoneIdiom
     }
+
+    /// The `UserDefaults` key holding whether the phone split sidebar was
+    /// last hidden.
+    public static let splitSidebarHiddenStorageKey = "cmux.workspaces.splitSidebarHidden"
+
+    /// The column visibility a phone split layout opens with, so a relaunch or
+    /// a resume after the system ended the app puts the sidebar back the way
+    /// the user left it.
+    /// - Parameter sidebarWasHidden: The remembered sidebar state.
+    /// - Returns: `.detailOnly` when the sidebar was hidden, else `.all`.
+    public static func restoredSplitColumnVisibility(
+        sidebarWasHidden: Bool
+    ) -> NavigationSplitViewVisibility {
+        sidebarWasHidden ? .detailOnly : .all
+    }
+
+    /// Whether a column visibility hides the phone split sidebar.
+    ///
+    /// The split opens on an explicit visibility (see
+    /// ``restoredSplitColumnVisibility(sidebarWasHidden:)``), so every later
+    /// change is a shown or hidden choice. `.automatic` is not ruled out here
+    /// because this type's equality reports it equal to `.detailOnly`.
+    /// - Parameter visibility: The split view's column visibility.
+    /// - Returns: `false` when the sidebar column is shown.
+    public static func splitSidebarIsHidden(
+        _ visibility: NavigationSplitViewVisibility
+    ) -> Bool {
+        !(visibility == .all || visibility == .doubleColumn)
+    }
 }
