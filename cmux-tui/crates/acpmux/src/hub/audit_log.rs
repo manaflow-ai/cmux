@@ -70,7 +70,7 @@ pub(crate) const MAX_PAGE: usize = 1000;
 /// A page's entries when the request names no limit.
 pub(crate) const DEFAULT_PAGE: usize = 200;
 /// How long a durable record waits for the writer.
-// timeout: a stuck writer fails the record (withdrawn, never written late), not its caller.
+// timeout: a record still queued past this is withdrawn and fails, not its caller; flush gives up.
 const DURABLE_WAIT: Duration = Duration::from_secs(10);
 
 /// A pull request with a verdict: the session that opened it and its URL.

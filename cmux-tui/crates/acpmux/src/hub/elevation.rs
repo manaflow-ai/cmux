@@ -45,7 +45,7 @@ pub const MAX_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 // timeout: a sudo that ignores SIGTERM gets SIGKILL after this grace.
 const TERM_GRACE: Duration = Duration::from_secs(5);
 /// How long the killed group may take to be reaped before it counts as still running.
-// timeout: a root-owned group sends no exit signal; past this it is reported still running.
+// timeout: bounds a 50 ms killpg check (not our children: no exit event); then still running.
 const KILL_SETTLE: Duration = Duration::from_secs(2);
 /// How long sudo may take to print its prompt before stdin closes with no password: past it,
 /// sudo asked for none (or is stuck), and an empty stdin is what the command gets.
