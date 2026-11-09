@@ -17,6 +17,29 @@ use super::search::Needle;
 use super::text::ChatText;
 use super::{ChatActivity, ChatQuery, chat_value, key_text, parse_key};
 
+#[cfg(test)]
+thread_local! {
+    /// How many row values this thread built: the cost a window's tests count.
+    static VALUES_BUILT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many row values this thread built so far (tests count a window's work with it).
+#[cfg(test)]
+pub(crate) fn values_built() -> usize {
+    VALUES_BUILT.with(std::cell::Cell::get)
+}
+
+/// A chat's row value as `_acpmux/chats` sends it, with its activity: the costly part of a row
+/// (the entry serialized, the activity fields cloned), so a window builds it only for a row it
+/// shows.
+fn row_value(chat: &IndexedChat, activity: &ChatActivity) -> Value {
+    #[cfg(test)]
+    VALUES_BUILT.with(|n| n.set(n.get() + 1));
+    let mut value = chat_value(chat);
+    activity.decorate(&mut value);
+    value
+}
+
 /// What a window shows: `{window, gen?, query?, harness?, folder?, account?, limit?, topLevel?,
 /// exclude?, keys?}`. `gen` is the client's generation of the window's spec: acpmux keeps the
 /// highest it saw and echoes it in every message, so requests that run out of order never leave a
@@ -237,11 +260,7 @@ pub fn rows(
     activity: &ChatActivity,
     text: Option<&ChatText>,
 ) -> WindowRows {
-    let decorated = |chat: &IndexedChat| {
-        let mut value = chat_value(chat);
-        activity.decorate(&mut value);
-        value
-    };
+    let decorated = |chat: &IndexedChat| row_value(chat, activity);
     if let Some(keys) = &spec.keys {
         let rows = keys
             .iter()
@@ -306,8 +325,7 @@ fn ranked_rows(
         if spec.exclude.contains(&key) {
             continue;
         }
-        let mut value = chat_value(chat);
-        activity.decorate(&mut value);
+        let value = row_value(chat, activity);
         if spec.top_level && !value.get("parent").is_none_or(Value::is_null) {
             continue;
         }
@@ -420,6 +438,10 @@ impl WindowState {
         Some(message)
     }
 }
+
+#[cfg(test)]
+#[path = "window_scale_tests.rs"]
+mod scale_tests;
 
 #[cfg(test)]
 mod tests {

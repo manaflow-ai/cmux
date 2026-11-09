@@ -239,6 +239,9 @@ struct Inner {
     /// Every chat was read once since the daemon started (a query before then may find more later).
     filled: bool,
     saved_at: Option<Instant>,
+    /// How many docs searches read (tests count a query's work with it).
+    #[cfg(test)]
+    scanned: usize,
 }
 
 /// The saved copy as it is written: the held docs, borrowed.
@@ -391,6 +394,10 @@ impl ChatText {
             return found.clone();
         }
         let matcher = Matcher::new(needle);
+        #[cfg(test)]
+        {
+            inner.scanned += inner.docs.len();
+        }
         let found: HashMap<String, Found> = inner
             .docs
             .iter()
@@ -426,6 +433,12 @@ impl ChatText {
     /// (before then, more may come as the chats are read).
     pub fn filled(&self) -> bool {
         lock(&self.inner).filled
+    }
+
+    /// How many docs searches have read so far.
+    #[cfg(test)]
+    pub(crate) fn scanned(&self) -> usize {
+        lock(&self.inner).scanned
     }
 
     /// How many chats and bytes of text are held.

@@ -22,6 +22,9 @@ export type LoadChatsPage = (params: {
 }) => Promise<AllChatsPage | undefined>;
 
 const PAGE = 100;
+/// How long the search field stays still before its query is read: one read per settled query,
+/// not one per key (each read ranks every chat).
+export const SEARCH_SETTLE_MS = 150;
 /// How long a first read may go unanswered before the list says it couldn't load and offers Try
 /// again: a read that never answers (a stuck daemon) otherwise keeps the skeleton up for good.
 export const CHATS_READ_CEILING_MS = 15_000;
