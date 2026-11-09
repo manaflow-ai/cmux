@@ -65,7 +65,8 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
           aria-controls={listId}
           onClick={() => setOpen(true)}
         >
-          {signed(t("whoElse.more", { count: String(hidden) }))}
+          {/* One flex item, so the button's gap never parts the sign from its number. */}
+          <span>{signed(t("whoElse.more", { count: String(hidden) }))}</span>
           <ChevronRight size={12} className="cv-tool__chevron cv-rotor" />
         </button>
       )}

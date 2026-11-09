@@ -22,12 +22,13 @@ export function Sign(): ReactNode {
   return <span className="ui-sign">+</span>;
 }
 
-/// The widest text a clock of `text`'s shape can show: every unit at two digits, and a minutes clock
-/// always with its seconds ("5m" ticks on to "5m 1s"), so the width changes only when a unit is added.
+/// The widest text a clock of `text`'s shape can show: every unit at two digits, and a clock always
+/// with its lower units ("5m" ticks on to "5m 1s", "1h 10m" to "1h 10m 9s"), so the width changes only
+/// when a unit is added.
 export function clockSizer(text: string): string {
   const units = /^(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?$/.exec(text.trim());
   if (!units || text.trim() === "") return text.replace(/\d/g, "0");
-  if (units[1] !== undefined) return "00h 00m";
+  if (units[1] !== undefined) return "00h 00m 00s";
   if (units[2] !== undefined) return "00m 00s";
   return "00s";
 }

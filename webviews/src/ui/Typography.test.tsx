@@ -17,7 +17,8 @@ test("every clock of one shape reserves the same width", () => {
   for (const text of ["0s", "9s", "41s"]) expect(clockSizer(text)).toBe("00s");
   // "5m" ticks on to "5m 1s": both hold the minutes-and-seconds width.
   for (const text of ["1m", "5m 1s", "5m 41s", "59m 59s"]) expect(clockSizer(text)).toBe("00m 00s");
-  for (const text of ["1h", "1h 3m", "12h 59m"]) expect(clockSizer(text)).toBe("00h 00m");
+  // An hour clock ticks its seconds too ("1h 10m 9s" to "1h 10m 10s").
+  for (const text of ["1h", "1h 3m", "1h 10m 9s", "12h 59m 59s"]) expect(clockSizer(text)).toBe("00h 00m 00s");
   expect(clockSizer("Running")).toBe("Running");
 });
 
