@@ -3434,6 +3434,9 @@ mod unix {
             fallback_key: Option<KeyInput>,
             response: SyncSender<Result<ParserClearHistoryResult, String>>,
         },
+        /// Answered once every command queued before it is applied
+        /// ([`HostShared::wait_for_parser_fifo`]).
+        Barrier(SyncSender<()>),
         Drain,
     }
 
@@ -4177,6 +4180,24 @@ mod unix {
             );
         }
 
+        /// Waits until the parser has applied every command queued before
+        /// this call. The caller holds `source_order_lock`, so no Output is
+        /// published meanwhile, and must not hold `term`, which the parser
+        /// takes. A stopped parser holds no queued command to wait for.
+        ///
+        /// A cell-metric or Kitty-limit commit changes the terminal outside
+        /// the PTY byte stream and marks its own transition applied. Without
+        /// this wait an Output published before it could still be queued:
+        /// the applied cursor then passed unparsed bytes, and a debug build
+        /// panicked the parser with the terminal locked when it caught up, so
+        /// the host never read Terminate or never published its exit.
+        fn wait_for_parser_fifo(&self) {
+            let (response, applied) = sync_channel(1);
+            if self.parser_commands.send(ParserCommand::Barrier(response)).is_ok() {
+                let _ = applied.recv();
+            }
+        }
+
         fn set_cell_pixel_size(
             &self,
             width_px: u16,
@@ -4185,6 +4206,7 @@ mod unix {
             target: &HostTap,
         ) -> anyhow::Result<bool> {
             let _source_order = self.source_order_lock.lock().unwrap();
+            self.wait_for_parser_fifo();
             let next = (width_px.max(1), height_px.max(1));
             let size = self.size.lock().unwrap();
             let mut cell_pixels = self.cell_pixels.lock().unwrap();
@@ -4302,6 +4324,7 @@ mod unix {
                 .validate()
                 .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
             let _source_order = self.source_order_lock.lock().unwrap();
+            self.wait_for_parser_fifo();
             let size = *self.size.lock().unwrap();
             let cell_pixels = *self.cell_pixels.lock().unwrap();
             let mut term = self.term.lock().unwrap();
@@ -5632,6 +5655,9 @@ mod unix {
                         }
                         flush_pending_responses();
                         let _ = response.send(result);
+                    }
+                    ParserCommand::Barrier(response) => {
+                        let _ = response.send(());
                     }
                     ParserCommand::Drain => {
                         // FIFO reception proves every source byte published by
