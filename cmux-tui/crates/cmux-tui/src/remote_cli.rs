@@ -51,6 +51,7 @@ use crate::remote_runtime::{
     acknowledge_legacy_shutdown_state, client_provider_registry, complete_verified_daemon_stop,
     daemon_paths, inactive_daemon_needs_legacy_acknowledgement, load_runtime_info,
     load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
+    start_recovering_client_runtime,
 };
 use crate::session::{RemoteSession, Session};
 mod acpmux_peer;
@@ -317,24 +318,16 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 flags.lanes_explicit = true;
             }
             "--reconnect-attempts" => {
+                // Accepted for old apps (they pass 5) and validated, but no longer a cap: the
+                // link redials in budgeted bursts and never exits while its owner holds it.
                 let attempts = value("--reconnect-attempts")?;
-                flags.reconnect.maximum_attempts = if attempts == "unlimited" {
-                    None
-                } else {
-                    let attempts = attempts.parse::<u32>().map_err(|_| {
-                        anyhow!(
-                            catalog()
-                                .remote_client
-                                .invalid_option_value("--reconnect-attempts", "N|unlimited")
-                        )
-                    })?;
-                    if attempts == 0 {
-                        return Err(anyhow!(
-                            catalog().remote_client.option_must_be_positive("--reconnect-attempts")
-                        ));
-                    }
-                    Some(attempts)
-                };
+                if attempts != "unlimited" && !attempts.parse::<u32>().is_ok_and(|n| n > 0) {
+                    return Err(anyhow!(
+                        catalog()
+                            .remote_client
+                            .invalid_option_value("--reconnect-attempts", "N|unlimited")
+                    ));
+                }
             }
             "--reconnect-initial-ms" => {
                 flags.reconnect.initial_delay = Duration::from_millis(
@@ -676,6 +669,7 @@ struct ConnectedRuntime {
 
 fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
+    let owner = flags.exit_with_parent.then(current_parent_process_id);
     let invitation = flags
         .invitation
         .take()
@@ -835,7 +829,11 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
     let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?;
     let ssh_bootstrap = initial_ssh_bootstrap_options(&flags, startup_timeout);
-    let runtime = start_client_runtime(ClientRuntimeOptions {
+    // A headless link (the app's machine link) outlives a failed first connect: it redials it
+    // like a later drop, and its PATH.admin answers meanwhile (cmuxterm-hq#7766). An enrollment
+    // keeps its approval window, and an upgrade its one bootstrap.
+    let recover_first_connect = flags.headless && invitation.is_none() && !flags.upgrade;
+    let options = ClientRuntimeOptions {
         routes,
         providers,
         identity: store.identity(),
@@ -850,7 +848,12 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         local_socket: flags.local_socket,
         ssh,
         ssh_bootstrap,
-    })?;
+    };
+    let runtime = if recover_first_connect {
+        start_recovering_client_runtime(options, move || owner.is_none_or(parent_process_is))?
+    } else {
+        start_client_runtime(options)?
+    };
 
     if let Some(invitation) = &invitation {
         async_runtime.block_on(store.pin_daemon(
@@ -1886,11 +1889,18 @@ fn start_wireguard(
     runtime: &tokio::runtime::Runtime,
     path: &Path,
 ) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
-    let config = read_wireguard_config(path)?;
+    let mut config = read_wireguard_config(path)?;
+    config.ultra = ultra_setting();
     let net = runtime.block_on(cmux_wg::WgNet::start_with_new_socket(config)).map_err(|error| {
         anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
     })?;
     Ok(Arc::new(net))
+}
+
+/// The ultra mode Settings asks for (`remote.ultraMode`, read at each tunnel
+/// start); `CMUX_WG_ULTRA` still wins over it ([`cmux_wg::UltraMode::resolve`]).
+fn ultra_setting() -> Option<cmux_wg::UltraMode> {
+    cmux_tui_core::user_settings::ultra_mode().then_some(cmux_wg::UltraMode::SETTING)
 }
 
 fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {
@@ -3852,7 +3862,8 @@ mod tests {
         ]
         .map(str::to_string);
         let parsed = parse_connect_flags(&args).unwrap();
-        assert_eq!(parsed.reconnect.maximum_attempts, Some(7));
+        // Accepted for old apps, but no cap: the link keeps redialing while it is held.
+        assert_eq!(parsed.reconnect.maximum_attempts, None);
         assert_eq!(parsed.reconnect.initial_delay, Duration::from_millis(25));
         assert_eq!(parsed.reconnect.maximum_delay, Duration::from_millis(400));
         assert_eq!(parsed.reconnect.attempt_timeout, Duration::from_secs(2));

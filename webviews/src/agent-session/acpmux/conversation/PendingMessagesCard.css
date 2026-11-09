@@ -10,7 +10,7 @@
   margin: 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
 .cv-pending__line {

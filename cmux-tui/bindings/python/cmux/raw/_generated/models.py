@@ -4236,6 +4236,7 @@ class PasteImageRequest:
     op: str
     upload_id: str
     data: Union[str, None, MissingType] = field(default=MISSING)
+    filename: Union[str, None, MissingType] = field(default=MISSING)
     mime: Union[str, None, MissingType] = field(default=MISSING)
     offset: Union[int, None, MissingType] = field(default=MISSING)
     size: Union[int, None, MissingType] = field(default=MISSING)
@@ -4897,6 +4898,7 @@ class SplitRequest:
     pane: Id
     dir: SplitDirection
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    before: Union[bool, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)

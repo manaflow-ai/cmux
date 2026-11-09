@@ -11,10 +11,12 @@ on every attempt, event and picker output, takes one of three labels that only t
     vars.CI_NIGHTLY_SIGN_RUNNER (`glaeda-trusted-next-signing`);
   - build-nightly-app: vars.CI_NIGHTLY_MINI_BUILDER (`glaeda-nightly-mini-builder`, the two warm builders);
   - every other job: vars.CI_NIGHTLY_MINI,
-except the Linux jobs that hold a release key (Sparkle, R2, a GitHub App key, Sentry, content signing) and that
-glaeda's hook does not admit on the trusted signing runner yet (test_nightly_owned_minis_only.PENDING_GLAEDA): the
-mini's nightly-only runners are shared and persistent, so these keep ephemeral GitHub-hosted Ubuntu (never Blacksmith)
-until glaeda's SIGNING_JOBS take them.
+except the tail jobs that hold a release key (Sentry, content signing, R2, a GitHub App key, the pr-media terms) and
+whose whole-Mac hold on the trusted signing runner would be long or wait-bound
+(test_nightly_owned_minis_only.HOSTED_TAIL_JOBS): the mini's nightly-only runners are shared and persistent, so these
+keep ephemeral GitHub-hosted Ubuntu (never Blacksmith), and they run only outside the push group.
+republish-nightly-deltas takes the signer only on nightly-next; classic and RC runs keep GitHub-hosted Ubuntu
+(test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED), as their release uploads may wait out the rate limit.
 Every Mac job (build, sign, notarize, verify, publish) runs on the mini.
 The nightly visual gate needs a GUI session runner, which the mini has not, so it skips in this mode.
 """
@@ -28,13 +30,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
-from test_nightly_owned_minis_only import PENDING_GLAEDA  # noqa: E402
+from test_nightly_owned_minis_only import HOSTED_TAIL_JOBS, NIGHTLY_NEXT_ONLY_OWNED  # noqa: E402
 
 MINI, BUILDER, SIGN = "glaeda-nightly-mini", "glaeda-nightly-mini-builder", "glaeda-trusted-next-signing"
 MODE = {"vars.CI_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_MINI_BUILDER": BUILDER, "vars.CI_NIGHTLY_SIGN_RUNNER": SIGN}
 # glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS, nightly.yml entries: the jobs that take the whole Mac.
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
-           "publish-nightly", "publish-nightly-next-github", "sign-nightly-identity-legacy", "generate-nightly-deltas"}
+           "publish-nightly", "publish-nightly-next-github", "sign-nightly-identity-legacy", "generate-nightly-deltas",
+           "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 
@@ -42,12 +45,14 @@ WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 HOSTED = "ubuntu-24.04"
 
 
-def want(name: str) -> str:
+def want(name: str, ref: str = "refs/heads/nightly-next") -> str:
+    if name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next":
+        return HOSTED  # classic and RC: their rate-limit waits must not hold the mini
     if name in SIGNING:
         return SIGN
     if name == "build-nightly-app":
         return BUILDER
-    return HOSTED if name in PENDING_GLAEDA else MINI
+    return HOSTED if name in HOSTED_TAIL_JOBS else MINI
 
 
 def resolve(source: str, rng: random.Random, extra: dict | None = None) -> tuple[object, dict]:
@@ -70,7 +75,7 @@ class NightlyOneMini(unittest.TestCase):
             for source in sources:
                 for _ in range(200):
                     value, context = resolve(source, rng)
-                    if value != want(name):
+                    if value != want(name, context.get("github.ref", "refs/heads/nightly-next")):
                         failures[name] = (value, {k: v for k, v in context.items() if v and k.startswith(("github", "vars"))})
                         break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))

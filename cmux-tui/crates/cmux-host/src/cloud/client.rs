@@ -59,6 +59,16 @@ pub trait Http {
     /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
     /// dead and nothing says so). A transport with no pool does nothing.
     fn reset(&self) {}
+
+    /// A transport like this one with a pool of its own, so a request on it
+    /// never waits for one in flight here (a request from before a pause).
+    /// `None` when the transport cannot make one.
+    fn fresh(&self) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        None
+    }
 }
 
 #[derive(Deserialize)]
@@ -221,6 +231,34 @@ impl BindResult {
 /// section. That section is kept as `carrier.json` (0600,
 /// `carrier_entry.rs`) before `bound.json`; a bind without one leaves any
 /// existing `carrier.json` as it is.
+/// The bind as the Cloud role makes it: the updater's connect hold first, so
+/// the machine's first link is never cut by an update's restart, then the
+/// request. A person's machine from this bind on, and the supervisor's
+/// `Bound` (an instance id change) does not cover a bind of the same machine.
+/// The hold is the state dir's restart gate (`updater/gate.rs`), which every
+/// flip and restart goes through in whichever process runs it: either the
+/// flip sees this hold, or a restart was queued first and this answers None
+/// with `bind.json` left for the restarted service.
+#[allow(clippy::too_many_arguments)]
+pub fn hold_then_bind(
+    paths: &crate::config::Paths,
+    store: &mut dyn Store,
+    http: &dyn Http,
+    key: &InstallKey,
+    wg_public_key: &str,
+    daemon: &DaemonInfo,
+    daemon_noise_key: Option<&str>,
+    now_wall_ms: u64,
+) -> Option<BindResult> {
+    #[cfg(unix)]
+    if !crate::updater::gate::hold_connects(paths, now_wall_ms) {
+        return None;
+    }
+    #[cfg(not(unix))]
+    let _ = paths;
+    Some(bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms))
+}
+
 pub fn bind_machine(
     store: &mut dyn Store,
     http: &dyn Http,
@@ -400,6 +438,17 @@ impl<H: Http> CloudClient<H> {
     /// The next request (a bearer mint included) goes on a fresh connection: see [`Http::reset`].
     pub fn reset_transport(&self) {
         self.http.reset();
+    }
+
+    /// A client for the same machine, key and bearer on a transport of its
+    /// own ([`Http::fresh`]), for a request that must not wait for one in
+    /// flight on this client.
+    pub fn fresh(&self) -> Option<CloudClient<H>> {
+        let http = self.http.fresh()?;
+        let key = InstallKey::from_pkcs8(self.key.pkcs8(), &self.rng).ok()?;
+        let mut client = CloudClient::new(http, self.bound.clone(), key);
+        client.cached = self.cached.clone();
+        Some(client)
     }
 
     pub(super) fn url(&self, path: &str) -> String {

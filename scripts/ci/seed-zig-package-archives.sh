@@ -41,7 +41,8 @@ if [[ "${1:-}" == --one ]]; then
   esac
   # A whole tar with entries, not only whole gzip: a host can answer 200 with a
   # gzipped error page (GNU tar lists a short non-tar as an empty archive, exit 0).
-  entries="$(tar -tzf "$part" 2>/dev/null)" && [[ -n "$entries" ]] \
+  # Counted, not kept: a listing can be long. pipefail keeps tar's own status.
+  entries="$(tar -tzf "$part" 2>/dev/null | wc -l)" && (( entries > 0 )) \
     || { echo "seed: $url is not a whole tar archive" >&2; exit 1; }
   mv -f "$part" "$final"
   exit 0
@@ -118,6 +119,8 @@ drain_pool() {
   local _ part pid
   for _ in 1 2 3 4 5; do kill -0 -- "-$1" 2>/dev/null || break; sleep 1; done
   kill -KILL -- "-$1" 2>/dev/null || true
+  # A KILLed worker can still show for a moment (not yet reaped): give it 2 s.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 -- "-$1" 2>/dev/null || break; sleep 0.2; done
   for part in "$cache"/p/.seed-*; do
     [[ -e "$part" ]] || continue
     pid="${part%.raw}"; pid="${pid##*-}"

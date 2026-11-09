@@ -119,11 +119,11 @@ fn go(request: &Request, key: &[u8]) -> Result<Value, Failure> {
 
 #[test]
 fn a_classic_vm_call_reaches_the_api_through_the_daemon() {
-    let (origin, seen) = fake(|_| (200, r#"{"snapshots":[{"id":"s1"}]}"#.into()));
-    let answer = go(&request(&origin, Auth::Stack, "vm.snapshots", json!({"id": "vm-1"})), &[]);
-    assert_eq!(answer.unwrap(), json!([{"id": "s1"}]));
+    let (origin, seen) = fake(|_| (200, r#"{"networks":[{"id":"n1"}]}"#.into()));
+    let answer = go(&request(&origin, Auth::Stack, "vm.networks", json!({})), &[]);
+    assert_eq!(answer.unwrap(), json!([{"id": "n1"}]));
     let seen = seen.lock().unwrap();
-    assert!(seen[0].line.starts_with("GET /api/vm/vm-1/snapshots "));
+    assert!(seen[0].line.starts_with("GET /api/vm/network "));
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_1"));

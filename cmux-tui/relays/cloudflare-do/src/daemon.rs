@@ -19,7 +19,7 @@
 
 use cmux_remote_protocol::RelayRole;
 
-use crate::abuse::websocket_counts_toward_capacity;
+use crate::abuse::{websocket_counts_toward_capacity, websocket_is_open};
 use crate::attachment::{SlotAttachment, SlotPhase};
 
 /// How recently a daemon's control socket must have spoken for a Connect to
@@ -41,25 +41,173 @@ pub(crate) fn accepts_connects(
         && attachment.relay.role == RelayRole::Daemon
         && attachment.relay.slot == slot
         && attachment.expires_at > now_ms / 1_000
-        && attachment.last_seen_ms.saturating_add(DAEMON_LIVENESS_WINDOW_MS) > now_ms
+        && heard_within_window(attachment, now_ms)
 }
 
-/// The first candidate a Connect on `slot` may be allocated to at `now_ms`.
-/// Each candidate is a handle, its socket's ready state and its attachment.
+/// Whether this daemon's control socket spoke within
+/// [`DAEMON_LIVENESS_WINDOW_MS`] before `now_ms`.
+pub(crate) fn heard_within_window(attachment: &SlotAttachment, now_ms: u64) -> bool {
+    attachment.last_seen_ms.saturating_add(DAEMON_LIVENESS_WINDOW_MS) > now_ms
+}
+
+/// The candidate a Connect on `slot` may be allocated to at `now_ms`. Each
+/// candidate is a handle, its socket's ready state and its attachment; the
+/// candidates are all the slot's control sockets.
+///
+/// The slot's current registration (`current_registration`) takes every
+/// Connect: while it is silent past the window the Connect parks, even if
+/// a replaced socket's daemon still speaks. When no registration is current,
+/// the only open registrations are legacy ones (number 0): two or more of
+/// them carry no order, so none is current (a numbered one, when open, is
+/// always the highest and so current). Their Connects go to the first that
+/// accepts Connects, as before registration numbers: parking them instead
+/// would leave every client waiting out its expiry until a numbered Register
+/// or a socket close. Only the Connect allocation falls back this way; a
+/// non-current registration's Ping still hands over nothing. A fallback
+/// allocation to a daemon that never joins leaves its circuit unjoined, so
+/// the slot's other open registrations are owed it
+/// (`owed_handover_after_fallback`).
 pub(crate) fn live_daemon<T>(
     candidates: impl IntoIterator<Item = (T, u16, SlotAttachment)>,
     slot: &str,
     now_ms: u64,
 ) -> Option<T> {
-    candidates.into_iter().find_map(|(handle, ready_state, attachment)| {
-        accepts_connects(&attachment, ready_state, slot, now_ms).then_some(handle)
+    let candidates: Vec<_> = candidates.into_iter().collect();
+    let sockets: Vec<_> = candidates
+        .iter()
+        .map(|(_, ready_state, attachment)| (*ready_state, attachment.clone()))
+        .collect();
+    let current: Vec<bool> = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, (_, ready_state, attachment))| {
+            let others = sockets
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .map(|(_, (ready_state, other))| (*ready_state, other.clone()));
+            current_registration(attachment, *ready_state, others)
+        })
+        .collect();
+    let any_current = current.iter().any(|current| *current);
+    candidates.into_iter().zip(current).find_map(|((handle, ready_state, attachment), current)| {
+        let eligible = if any_current { current } else { attachment.generation == 0 };
+        (eligible && accepts_connects(&attachment, ready_state, slot, now_ms)).then_some(handle)
     })
+}
+
+/// Whether a Connect allocation chosen as `chosen` (a handle and its
+/// registration number) before an await still goes to it after: the slot's
+/// choice now (`live_daemon` over `candidates`) is the same socket with the
+/// same registration number. A Register that replaced it, or a close,
+/// while the allocation waited makes this false, and the Connect parks.
+pub(crate) fn still_allocated_to<T: PartialEq>(
+    candidates: impl IntoIterator<Item = (T, u16, SlotAttachment)>,
+    slot: &str,
+    now_ms: u64,
+    chosen: &T,
+    registration: u64,
+) -> bool {
+    let candidates: Vec<_> = candidates
+        .into_iter()
+        .map(|(handle, ready_state, attachment)| {
+            let number = attachment.generation;
+            ((handle, number), ready_state, attachment)
+        })
+        .collect();
+    live_daemon(candidates, slot, now_ms)
+        .is_some_and(|(handle, number)| handle == *chosen && number == registration)
+}
+
+/// Whether `other`, another control socket on `slot` in `ready_state`, is
+/// owed the slot's unjoined circuits after a Connect went to a registration
+/// that isn't current (`live_daemon`'s legacy fallback): it is an open
+/// registration, so it may become current when the others close, and its
+/// next Ping would then be a heartbeat that hands over nothing, leaving the
+/// circuit of a fallback daemon that never joined to wait out its deadline.
+/// Its `pending_handover` is set, so its first current Ping hands them over.
+pub(crate) fn owed_handover_after_fallback(
+    other: &SlotAttachment,
+    ready_state: u16,
+    slot: &str,
+) -> bool {
+    websocket_is_open(ready_state) && replaced_by_register(other, slot)
 }
 
 /// Whether a new daemon `Register` on `slot` closes this existing control
 /// socket: one slot has one daemon registration at a time.
 pub(crate) fn replaced_by_register(attachment: &SlotAttachment, slot: &str) -> bool {
     attachment.phase == SlotPhase::Registered && attachment.relay.slot == slot
+}
+
+/// The registration number a daemon `Register` on `slot` gets: one more than
+/// the highest on the slot's control sockets (`existing`, including the one
+/// registering). Every registration it replaces is closed.
+pub(crate) fn next_registration_number(
+    existing: impl IntoIterator<Item = SlotAttachment>,
+    slot: &str,
+) -> u64 {
+    existing
+        .into_iter()
+        .filter(|attachment| replaced_by_register(attachment, slot))
+        .map(|attachment| attachment.generation)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1)
+}
+
+/// Whether `own`, a daemon registration whose socket is in `ready_state`,
+/// is still its slot's current one: open, registered, and not replaced by a
+/// newer Register on the slot (`others`: the slot's other control sockets,
+/// each with its ready state). A socket that is closing or closed is gone:
+/// it never makes another registration non-current.
+///
+/// A registration number of 0 is one written before numbers existed. Two of
+/// those carry no order, so a legacy registration is current only while it
+/// is the slot's only registration: with another one on the slot, its Ping
+/// takes over nothing until that socket closes or a numbered Register
+/// replaces both.
+pub(crate) fn current_registration(
+    own: &SlotAttachment,
+    ready_state: u16,
+    others: impl IntoIterator<Item = (u16, SlotAttachment)>,
+) -> bool {
+    websocket_is_open(ready_state)
+        && own.phase == SlotPhase::Registered
+        && !others.into_iter().any(|(ready_state, other)| {
+            websocket_is_open(ready_state)
+                && replaced_by_register(&other, &own.relay.slot)
+                && (other.generation > own.generation || own.generation == 0)
+        })
+}
+
+/// What a registered daemon's Ping hands it: the slot's unjoined circuits
+/// (`CircuitLedger::unjoined`) and its parked Connects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PingHandover {
+    pub unjoined: bool,
+    pub parked: bool,
+}
+
+/// Records on `attachment` a Ping its daemon sent at `now_ms`, and says what
+/// the Ping hands over. `current` is `current_registration` for the socket.
+/// A daemon silent past the window resumed: circuits sent to it meanwhile
+/// may never have arrived, so it is handed the unjoined ones. A Ping from a
+/// registration that isn't current hands over nothing, and a resumed one
+/// leaves `pending_handover` set, so the first Ping after it becomes current
+/// is handed them instead.
+pub(crate) fn record_ping(
+    attachment: &mut SlotAttachment,
+    current: bool,
+    now_ms: u64,
+) -> PingHandover {
+    let resumed = !heard_within_window(attachment, now_ms) || attachment.pending_handover;
+    attachment.last_seen_ms = now_ms;
+    attachment.pending_handover = resumed && !current;
+    if !current {
+        return PingHandover { unjoined: false, parked: false };
+    }
+    PingHandover { unjoined: resumed, parked: true }
 }
 
 #[cfg(test)]
@@ -73,6 +221,7 @@ mod tests {
     use crate::park::{ConnectDisposition, ParkedConnect, connect_disposition, parked_and_live};
 
     const OPEN: u16 = 1;
+    const CLOSING: u16 = 2;
     const CLOSED: u16 = 3;
     const SLOT: &str = "slot";
     /// The client's relay join timeout (`control_timeout`): what a Connect
@@ -91,6 +240,7 @@ mod tests {
             idle_deadline_ms: last_seen_ms + DAEMON_CONTROL_IDLE_TIMEOUT_MS,
             parked: None,
             last_seen_ms,
+            pending_handover: false,
         }
     }
 
@@ -112,6 +262,7 @@ mod tests {
                 parked_at_ms,
             }),
             last_seen_ms: 0,
+            pending_handover: false,
         }
     }
 
@@ -221,5 +372,186 @@ mod tests {
         assert_eq!(handed_over[0].circuit, "c1");
         assert_eq!(handed_over[0].route, route);
         assert!(register_ms - connect_ms < CLIENT_JOIN_TIMEOUT_MS);
+    }
+
+    /// A daemon that was silent past the window and pings again resumed:
+    /// circuits allocated to it while it was silent may never have reached
+    /// it, so its Ping is handed the unjoined ones, as a Register is. A
+    /// daemon pinging on its normal heartbeat is not.
+    #[test]
+    fn ping_after_silence_past_the_window_hands_over_unjoined_circuits() {
+        let resumed = daemon(T);
+        let ping_ms = T + DAEMON_LIVENESS_WINDOW_MS + 5_000;
+        assert!(!heard_within_window(&resumed, ping_ms), "resumed: hand over");
+
+        let heartbeat = daemon(T);
+        assert!(heard_within_window(&heartbeat, T + 10_000), "heartbeat: no hand-over");
+    }
+
+    fn registration(number: u64, last_seen_ms: u64) -> SlotAttachment {
+        SlotAttachment { generation: number, ..daemon(last_seen_ms) }
+    }
+
+    /// The old daemon's Ping was in flight when the new daemon's Register
+    /// ran: the old socket is closing and a newer registration holds the
+    /// slot, so its Ping must hand over and pair nothing.
+    #[test]
+    fn replaced_registration_is_not_current() {
+        let old = registration(1, T);
+        let new = registration(2, T + 1_000);
+        assert!(!current_registration(&old, CLOSING, [(OPEN, new.clone())]));
+        assert!(!current_registration(&old, OPEN, [(OPEN, new.clone())]), "a newer one exists");
+        assert!(current_registration(&new, OPEN, [(OPEN, old.clone())]));
+        assert!(current_registration(&new, OPEN, []));
+        let other_slot = SlotAttachment {
+            relay: RelaySocketAttachment::control("other-slot".into()),
+            ..registration(9, T)
+        };
+        assert!(current_registration(&old, OPEN, [(OPEN, other_slot)]));
+        // Written before registration numbers: current until replaced.
+        assert!(current_registration(&registration(0, T), OPEN, []));
+    }
+
+    /// Two daemons registered by the relay before registration numbers both
+    /// keep number 0, so the number cannot say which one is newer. After the
+    /// upgrade, a late Ping from the older socket must not make it current
+    /// (it would take over the slot's parked Connects and unjoined circuits).
+    #[test]
+    fn late_ping_from_the_older_of_two_legacy_registrations_is_not_current() {
+        let older = registration(0, T);
+        let newer = registration(0, T + 1_000);
+        let late_ping_ms = T + 2_000;
+        let older_after_ping = SlotAttachment { last_seen_ms: late_ping_ms, ..older };
+        assert!(
+            !current_registration(&older_after_ping, OPEN, [(OPEN, newer.clone())]),
+            "the older legacy registration's late Ping made it current"
+        );
+        // A numbered Register replaces every legacy registration.
+        assert!(current_registration(
+            &registration(1, T + 3_000),
+            OPEN,
+            [(OPEN, older_after_ping), (OPEN, newer)]
+        ));
+    }
+
+    /// Two legacy registrations are open on the slot, so neither is current
+    /// (`current_registration`), and both daemons are pinging. A Connect is
+    /// still allocated, to the first live one, instead of parking until a
+    /// numbered Register or a socket close and timing out.
+    #[test]
+    fn two_live_legacy_registrations_still_serve_a_connect() {
+        let first = registration(0, T);
+        let second = registration(0, T + 1_000);
+        let connect_ms = T + 2_000;
+        assert!(!current_registration(&first, OPEN, [(OPEN, second.clone())]));
+        assert!(!current_registration(&second, OPEN, [(OPEN, first.clone())]));
+        let candidates = [("first", OPEN, first.clone()), ("second", OPEN, second.clone())];
+        assert_eq!(
+            live_daemon(candidates, SLOT, connect_ms),
+            Some("first"),
+            "two live legacy registrations left the Connect parked"
+        );
+
+        // The first one went quiet past the window: the second one serves.
+        let later_ms = T + DAEMON_LIVENESS_WINDOW_MS + 500;
+        let second_pinged = SlotAttachment { last_seen_ms: later_ms - 1_000, ..second };
+        let candidates = [("first", OPEN, first.clone()), ("second", OPEN, second_pinged)];
+        assert_eq!(live_daemon(candidates, SLOT, later_ms), Some("second"));
+
+        // Neither is live: the Connect parks.
+        let candidates = [("first", OPEN, first), ("second", OPEN, registration(0, T))];
+        assert_eq!(live_daemon(candidates, SLOT, later_ms), None);
+    }
+
+    /// A numbered registration is current, so a Connect goes only to it:
+    /// while it is silent past the window the Connect parks, even if a
+    /// closing socket's daemon is still pinging.
+    #[test]
+    fn a_current_registration_takes_every_connect() {
+        let replaced = registration(0, T + 10_000);
+        let current = registration(1, T);
+        let connect_ms = T + DAEMON_LIVENESS_WINDOW_MS + 500;
+        let candidates = [("replaced", CLOSING, replaced), ("current", OPEN, current)];
+        assert_eq!(live_daemon(candidates, SLOT, connect_ms), None);
+    }
+
+    /// Two legacy registrations are open; the fallback gives a Connect to the
+    /// first, whose daemon is dead and never joins. When it closes, the
+    /// second becomes current, and its next heartbeat must hand it that
+    /// unjoined circuit, or the client waits out its join deadline.
+    #[test]
+    fn fallback_allocation_owes_the_other_legacy_registration_a_handover() {
+        let dead = registration(0, T);
+        let mut survivor = registration(0, T + 1_000);
+        let connect_ms = T + 2_000;
+        let candidates = [("dead", OPEN, dead.clone()), ("survivor", OPEN, survivor.clone())];
+        assert_eq!(live_daemon(candidates, SLOT, connect_ms), Some("dead"));
+        assert!(!current_registration(&dead, OPEN, [(OPEN, survivor.clone())]));
+        assert!(owed_handover_after_fallback(&survivor, OPEN, SLOT));
+        assert!(!owed_handover_after_fallback(&survivor, CLOSING, SLOT));
+        survivor.pending_handover = true;
+
+        // A heartbeat while the dead one is still open: not current.
+        let current = current_registration(&survivor, OPEN, [(OPEN, dead.clone())]);
+        let ping = record_ping(&mut survivor, current, connect_ms + 5_000);
+        assert_eq!(ping, PingHandover { unjoined: false, parked: false });
+
+        // The dead one closed: the next heartbeat is current and hands over.
+        let current = current_registration(&survivor, OPEN, [(CLOSED, dead)]);
+        let ping = record_ping(&mut survivor, current, connect_ms + 15_000);
+        assert_eq!(ping, PingHandover { unjoined: true, parked: true });
+    }
+
+    /// A Connect chose the current registration, then waited on storage. A
+    /// Register that replaced it meanwhile (the old socket closing, a new
+    /// number on the slot) or a close means the Incoming must not be sent
+    /// to the chosen socket; the same socket and number means it may.
+    #[test]
+    fn allocation_rechecks_its_daemon_after_the_await() {
+        let chosen = registration(1, T);
+        let connect_ms = T + 1_000;
+        assert_eq!(live_daemon([("old", OPEN, chosen.clone())], SLOT, connect_ms), Some("old"));
+        assert!(still_allocated_to([("old", OPEN, chosen.clone())], SLOT, connect_ms, &"old", 1));
+
+        let replaced =
+            [("old", CLOSING, chosen.clone()), ("new", OPEN, registration(2, T + 1_500))];
+        assert!(!still_allocated_to(replaced, SLOT, connect_ms + 1_000, &"old", 1));
+
+        assert!(!still_allocated_to([("old", CLOSED, chosen)], SLOT, connect_ms, &"old", 1));
+
+        // The same socket registered again: a different registration.
+        let again = [("old", OPEN, registration(2, T + 1_500))];
+        assert!(!still_allocated_to(again, SLOT, connect_ms + 1_000, &"old", 1));
+    }
+
+    /// A legacy registration that resumed while another one was on the slot
+    /// is not current, so its Ping hands over nothing. When the other one
+    /// closes before its next heartbeat, that heartbeat makes it current and
+    /// must still hand it the circuits it missed while silent: otherwise those
+    /// clients never get a replacement Incoming and time out.
+    #[test]
+    fn suppressed_resumed_ping_hands_over_on_the_first_current_ping() {
+        let mut survivor = registration(0, T);
+        let resumed_ms = T + DAEMON_LIVENESS_WINDOW_MS + 5_000;
+        let other = registration(0, T + 1_000);
+        let current = current_registration(&survivor, OPEN, [(OPEN, other)]);
+        assert!(!current, "another legacy registration is on the slot");
+        let suppressed = record_ping(&mut survivor, current, resumed_ms);
+        assert_eq!(suppressed, PingHandover { unjoined: false, parked: false });
+
+        // The other registration closed; the next heartbeat is current.
+        let heartbeat_ms = resumed_ms + 10_000;
+        let current = current_registration(&survivor, OPEN, []);
+        assert!(current);
+        let first = record_ping(&mut survivor, current, heartbeat_ms);
+        assert_eq!(
+            first,
+            PingHandover { unjoined: true, parked: true },
+            "the circuits missed while silent were never handed over"
+        );
+
+        // Handed over once: the heartbeat after that is a plain heartbeat.
+        let next = record_ping(&mut survivor, true, heartbeat_ms + 10_000);
+        assert_eq!(next, PingHandover { unjoined: false, parked: true });
     }
 }

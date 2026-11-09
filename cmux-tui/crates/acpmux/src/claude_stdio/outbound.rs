@@ -445,6 +445,10 @@ impl Translator {
                 }
             }
             Message::Response { id, result, error } => {
+                // The hub answered the policy gate about a tool call (`policy_gate.rs`).
+                if let Some(reply) = self.gate_answer(id, result.as_ref(), error.is_some()).await {
+                    return Outbound::Lines(vec![reply]);
+                }
                 // The hub answered a permission request we raised.
                 // The request and its form (an elicitation's) are taken under
                 // the request map's lock, as a withdrawal takes them
@@ -568,11 +572,16 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
         "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"],
         "perTaskStopAffordance": true,
     });
+    // The policy gate is its own matcher: its own timeout, and a failure blocks the call
+    // (`policy_gate.rs`).
     #[cfg(unix)]
     request.set(
         "hooks",
         json!({"PreToolUse": [{
             "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK], "timeout": 90
+        }, {
+            "matcher": "*", "hookCallbackIds": [super::policy_gate::GATE_CALLBACK],
+            "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"
         }]}),
     );
     if suggestions {

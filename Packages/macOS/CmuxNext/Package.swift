@@ -184,8 +184,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-9c8286e8777be41f4785426cc7a4765ba3eeb6fe/CCmuxAppFFI.xcframework.zip",
-    checksum: "e2fdf95a95a05f42949fbd63ec7c390701f3efa04ea3140a258b1491664f569e"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d66737e4daffe147f662c40764cb2a2874302323/CCmuxAppFFI.xcframework.zip",
+    checksum: "47fb5f5d48c02a973f86bf5cfd2f36bad4685c732494249c136fef1fe94e317e"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -720,8 +720,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: daemonSwiftSettings
         ),
         // The cards' center: the scan schedule, the job runner and the `import.*` actions, for
-        // Settings › Import (no Home or New Tab suggestion), and the sidebar's Conductor note
-        // (CmuxNextSidebar's notice card). The App supplies `ImportCardsHost`.
+        // Settings › Import (no Home or New Tab suggestion). The App supplies `ImportCardsHost`.
         .target(
             name: "CmuxNextImportCards",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -733,8 +732,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportSuggestions",
                 "CmuxNextOnboarding",
                 "CmuxNextSettings",
-                "CmuxNextSidebar",
-                "CmuxNextWakeups",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2106,6 +2103,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextTerminal",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the terminal selection rule (cmux-motion terminal_selection).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextCopyMode",
                 "CmuxNextDesign",

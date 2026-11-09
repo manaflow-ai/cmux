@@ -80,7 +80,7 @@ progress() {
 # archive, and Zig fails on it every attempt).
 archive_ok() {
   case "$1" in
-    *.tar.gz|*.tgz) local entries; entries="$(tar -tzf "$1" 2>/dev/null)" && [[ -n "$entries" ]] ;;
+    *.tar.gz|*.tgz) local entries; entries="$(tar -tzf "$1" 2>/dev/null | wc -l)" && (( entries > 0 )) ;;
     *.tar.xz) ! command -v xz >/dev/null 2>&1 || xz -t "$1" 2>/dev/null ;;
     *.tar.zst) ! command -v zstd >/dev/null 2>&1 || zstd -tq "$1" 2>/dev/null ;;
     *.zip) ! command -v unzip >/dev/null 2>&1 || unzip -tqq "$1" >/dev/null 2>&1 ;;

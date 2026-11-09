@@ -41,13 +41,24 @@ runs:
         fi
         # A commented-out dependency (`//     .hash = ...`) is no package: counting it made
         # `present` false on every owned mini, so each run restored and saved the cache it
-        # already had. A source with no hashed package has an empty list (grep exits 1), and
-        # any other grep failure still fails the step.
+        # already had. awk reads each manifest on its own and drops a // comment outside a
+        # quoted string (a URL's // is inside one), as the seed does. No hash is an empty list.
         hashes="$(find "$SOURCE" -name build.zig.zon -not -path '*/zig-pkg/*' -not -path '*/.zig-cache/*' -print0 \
-          | xargs -0 cat -- \
-          | { grep -v '^[[:space:]]*//' || [[ $? -eq 1 ]]; } \
-          | { grep -o '\.hash *= *"[^"]*"' || [[ $? -eq 1 ]]; } \
-          | sed 's/.*"\([^"]*\)"/\1/' | sort -u)"
+          | xargs -0 awk '{
+              line = $0; code = ""; quoted = 0
+              for (i = 1; i <= length(line); i++) {
+                c = substr(line, i, 1)
+                if (c == "\\" && quoted) { code = code c substr(line, i + 1, 1); i++; continue }
+                if (c == "\"") quoted = !quoted
+                if (!quoted && c == "/" && substr(line, i + 1, 1) == "/") break
+                code = code c
+              }
+              while (match(code, /\.hash[[:space:]]*=[[:space:]]*"[^"]*"/)) {
+                h = substr(code, RSTART, RLENGTH); code = substr(code, RSTART + RLENGTH)
+                sub(/^[^"]*"/, "", h); sub(/"$/, "", h); print h
+              }
+            }' \
+          | sort -u)"
         present=true missing=0
         for hash in $hashes; do
           if [[ ! -e "$SOURCE/zig-pkg/$hash" && ! -e "$dir/p/$hash" && ! -e "$dir/p/$hash.tar.gz" ]]; then

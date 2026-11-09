@@ -9,8 +9,10 @@
 //! every resume, and every minute. When the channel names another
 //! build than the current profile links, it:
 //!
-//! 1. waits until no acpmux session runs a turn or waits on a permission
-//!    (checked again right before the flip), never mid-turn;
+//! 1. waits until no acpmux session runs a turn or waits on a permission,
+//!    and no carrier session is attached to the session host (for at most
+//!    [`carrier::CARRIER_MAX_HOLD`]; checked again right before the flip),
+//!    never mid-turn;
 //! 2. downloads both binaries into the store, each checked against the
 //!    signed sha256 and size ([`store::add_entry`]);
 //! 3. builds the next profile and flips `/opt/cmux/current` to it with one
@@ -37,7 +39,10 @@
 //! in-place `cmux link machine update` replaced it).
 //! `cmux host update status|check|guard` are the operator verbs ([`role::verb`]).
 
+pub mod carrier;
 pub mod channel;
+#[cfg(unix)]
+pub mod gate;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod store;

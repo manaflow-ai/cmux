@@ -68,6 +68,10 @@ run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
   if [ "${PRE_CUT:-0}" = 1 ]; then
     head -c 4096 /dev/urandom | gzip | head -c 100 > "$TMP/cache/p/N-bad.tar.gz"
   fi
+  if [ "${PRE_PAGE:-0}" = 1 ]; then
+    # A whole gzip stream of an error page, over one 512-byte tar block: gzip -t passes it.
+    { echo '<html><body>502 Bad Gateway'; head -c 2048 /dev/zero | tr '\0' x; echo '</body></html>'; } | gzip > "$TMP/cache/p/N-bad.tar.gz"
+  fi
   status=0
   local start=$SECONDS
   env -u ZIG_GLOBAL_CACHE_DIR -u CMUX_ZIG CMUX_ZIG_SEED=0 PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS="$1" FAKE_ZIG_FAILURES="$2" \
@@ -102,6 +106,12 @@ PRE_CUT=1 run 0 0
 [ "$(cat "$TMP/count")" = 2 ] || fail "expected 2 attempts around a cut-short archive, got $(cat "$TMP/count")"
 [ ! -e "$TMP/cache/p/N-bad.tar.gz" ] || fail "the cut-short archive was left in the cache"
 [ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a cut-short archive removed a whole one"
+
+# So does a cached gzipped error page (whole gzip, no tar).
+PRE_PAGE=1 run 0 0
+[ "$status" = 0 ] || fail "a cached gzipped page was not cleared for the retry"
+[ ! -e "$TMP/cache/p/N-bad.tar.gz" ] || fail "the cached gzipped page was left in the cache"
+[ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a gzipped page removed a whole archive"
 
 # A hung first attempt is stopped once it makes no progress, with its child,
 # and the second attempt succeeds.
