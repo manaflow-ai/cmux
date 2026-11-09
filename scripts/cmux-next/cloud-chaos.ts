@@ -58,7 +58,7 @@ const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /** The faults the leg injects, in order, and the guest command for each. `secs` is how long its cause lasts. */
 export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
-  { name: "relay cut", secs: 0, command: "sudo -n ss -K state established '( dport = :443 )' >/dev/null 2>&1; echo @@ok" },
+  { name: "relay cut", secs: 0, command: relayCutCommand() },
   { name: "drop 5 s", secs: 5, command: dropCommand(5) },
   { name: "drop 60 s", secs: 60, command: dropCommand(60) },
   {
@@ -74,6 +74,17 @@ export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
     command: 'p=$("$c" acp --json daemon status 2>/dev/null | sed -n \'s/.*"pid": *\\([0-9]*\\).*/\\1/p\' | head -1); [ -n "$p" ] && kill -KILL "$p" && echo "@@ok $p"',
   },
 ];
+
+/**
+ * Reset every established 443 connection on the machine. `ss -K` lists each socket it closed, so `@@ok` needs both its
+ * exit status and at least one closed socket: a missing `sudo`, a missing `ss`, or a kernel without SOCK_DESTROY (where
+ * `ss -K` closes nothing) prints `@@failed` instead of passing as a cut that never happened.
+ */
+export function relayCutCommand(): string {
+  return "out=$(sudo -n ss -K -H state established '( dport = :443 )' 2>&1); rc=$?; " +
+    "n=$(printf '%s\\n' \"$out\" | grep -c ':443'); " +
+    "if [ \"$rc\" -eq 0 ] && [ \"$n\" -gt 0 ]; then echo \"@@ok $n\"; else echo \"@@failed rc=$rc closed=$n\"; fi";
+}
 
 /** Not injectable from the machine: recorded as not run, with whose lane can run them. */
 export const NOT_INJECTED: Array<{ name: string; why: string }> = [

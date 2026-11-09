@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { chaosProbeRow, dropCommand, FAULTS, NOT_INJECTED, type ChaosResult } from "./cloud-chaos.ts";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chaosProbeRow, dropCommand, FAULTS, NOT_INJECTED, relayCutCommand, type ChaosResult } from "./cloud-chaos.ts";
 
 const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", recover_ms: ms, carrier: "resumed the session", turn: "completed once", detail: "" });
 
@@ -44,6 +48,34 @@ describe("faults", () => {
   test("the session host is found without matching the shell that looks for it", () => {
     const restart = FAULTS.find((f) => f.name === "session host restart")!;
     expect(restart.command).toContain("'--relay-slo[t]'");
+  });
+
+  test("a relay cut says ok only when ss -K exits 0 and closed a socket", () => {
+    // Fake sudo and ss on PATH: ss prints what SSMODE says, as `ss -K -H` lists the sockets it closed.
+    const bin = mkdtempSync(join(tmpdir(), "chaos-ss-"));
+    try {
+      writeFileSync(join(bin, "sudo"), "#!/bin/sh\nshift\nexec \"$@\"\n");
+      writeFileSync(join(bin, "ss"), [
+        "#!/bin/sh",
+        'case "$SSMODE" in',
+        '  closed) echo "ESTAB 0 0 10.0.0.2:5555 1.2.3.4:443"; echo "ESTAB 0 0 10.0.0.2:5556 1.2.3.4:443";;',
+        "  nothing) ;;",
+        '  refused) echo "SOCK_DESTROY answers: Operation not supported" >&2; exit 1;;',
+        "esac",
+        "",
+      ].join("\n"));
+      chmodSync(join(bin, "sudo"), 0o755);
+      chmodSync(join(bin, "ss"), 0o755);
+      const run = (mode: string) =>
+        spawnSync("sh", ["-c", relayCutCommand()], { env: { ...process.env, SSMODE: mode, PATH: `${bin}:${process.env.PATH}` }, encoding: "utf8" }).stdout.trim();
+      expect(run("closed")).toBe("@@ok 2");
+      // A kernel without SOCK_DESTROY closes nothing and still exits 0: not a cut.
+      expect(run("nothing")).toBe("@@failed rc=0 closed=0");
+      expect(run("refused")).toBe("@@failed rc=1 closed=0");
+      expect(FAULTS.find((f) => f.name === "relay cut")!.command).toBe(relayCutCommand());
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
   });
 
   test("Leo's 5 s and 60 s drops are both in the leg", () => {
