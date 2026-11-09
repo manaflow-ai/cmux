@@ -3,6 +3,7 @@
 
     merge_check_paths.py OWNER/REPO NUMBER SHA [--base feat-cmux-next] [--timeout SECONDS] [--budget SECONDS]
         [--rerun] [--interval SECONDS] [--check-only]
+    merge_check_paths.py OWNER/REPO NUMBER SHA --conflicts-only [--interval SECONDS]
 
 A pull request's CI judges it against the base it ran on. When a check path changed on the base after that, the
 result is stale though no file of the pull request changed: on 2026-10-21 #22967, #22975 and #23094 merged after
@@ -28,6 +29,12 @@ completed with no status: a whole-run cancel skips the post job) is dispatched a
 again after each run, so a pattern that landed meanwhile counts. Not strict up-to-date protection or a merge
 queue: only a stale pull request gets cheap Linux runs, and nothing is rebased. gh-merge-green runs this gate again
 right before gh pr merge (the base may change a check path after the first pass).
+
+Before each dispatch it reads the pull request's mergeable state: a pull request GitHub reports as conflicting
+(mergeable false, or mergeable_state dirty) refuses with "conflicting: rebase" and dispatches nothing, since every
+run of it is red and gh pr merge refuses it. UNKNOWN (GitHub computes it lazily) is read again, up to
+MERGEABLE_READS reads in all, then the gate goes on. --conflicts-only does only that, for any base (gh-merge-green
+uses it when its first read of the pull request says UNKNOWN).
 
 --check-only (gh-merge-green --dry-run) says whether it would dispatch and dispatches nothing. Before the file
 is on the base (its read answers 404) the gate passes with a note. Each poll is one REST read of
@@ -62,6 +69,10 @@ MIN_RUN = 370
 # How long one dispatched run may take to post its result: successful runs took up to 826s on 2026-11-09.
 TIMEOUT = 1200
 NO_VERDICT = "no verdict"  # a pending fast-gates status whose gates job was cancelled or timed out
+# GitHub computes a pull request's mergeable state lazily, in the background: UNKNOWN is read again this many times
+# in all, MERGEABLE_INTERVAL seconds apart, before the gate goes on without it.
+MERGEABLE_READS = 3
+MERGEABLE_INTERVAL = 5
 
 
 class Refused(Exception):
@@ -149,6 +160,13 @@ class Api:
             run_id = None
         return run_id if isinstance(run_id, int) and run_id > 0 else None
 
+    def mergeable(self, number: str) -> str:
+        """CONFLICTING (mergeable false, or mergeable_state dirty), UNKNOWN (not computed yet) or MERGEABLE."""
+        data = self.json(f"repos/{self.repo}/pulls/{number}", "--jq", "{mergeable, mergeable_state}")
+        if data.get("mergeable") is False or data.get("mergeable_state") == "dirty":
+            return "CONFLICTING"
+        return "UNKNOWN" if data.get("mergeable") is None else "MERGEABLE"
+
     def run(self, run_id: int) -> dict:
         """The dispatched run's {status, conclusion}."""
         return self.json(f"repos/{self.repo}/actions/runs/{run_id}", "--jq", "{status, conclusion}")
@@ -188,6 +206,27 @@ def stale(api: Api, status: dict | None, tip: str, pats: list[str]) -> str:
     if changed:
         return f"{CONTEXT} ran at base {base[:12]}; {BRANCH} has changed the check path {changed[0]} since"
     return ""
+
+
+def conflicts(api: Api, number: str, interval: float, sleep: Callable[[float], None] = time.sleep) -> str:
+    """Refused when GitHub reports the pull request as conflicting; else MERGEABLE, or UNKNOWN after the reads.
+
+    2026-11-09: the #39027 try spent 4m39s and dispatched the fast gates, then gh pr merge refused ("the merge
+    commit cannot be cleanly created"). UNKNOWN is no evidence of a conflict, so after MERGEABLE_READS it goes on;
+    gh pr merge still refuses a real conflict.
+    """
+    for read in range(MERGEABLE_READS):
+        if read:
+            sleep(interval)
+        state = api.mergeable(number)
+        if state == "CONFLICTING":
+            raise Refused(f"conflicting: rebase #{number} onto its base (GitHub reports it cannot be merged cleanly); "
+                          "nothing was dispatched")
+        if state != "UNKNOWN":
+            return state
+    print(f"note: GitHub is still computing whether #{number} merges cleanly after {MERGEABLE_READS} reads; going on "
+          "(gh pr merge refuses a conflict)", file=sys.stderr)
+    return "UNKNOWN"
 
 
 def gate(api: Api, number: str, sha: str, branch: str, timeout: float, interval: float,
@@ -230,6 +269,8 @@ def gate(api: Api, number: str, sha: str, branch: str, timeout: float, interval:
             print(f"note: after dispatched run {runs}, {why}; dispatching {WORKFLOW} for #{number} again against "
                   f"the new tip {tip[:12]} ({int(left)}s of the {int(budget)}s wait budget left)",
                   file=sys.stderr)
+        # A conflict makes every run red and the merge impossible: check before each dispatch.
+        conflicts(api, number, min(interval, MERGEABLE_INTERVAL), sleep)
         runs += 1
         run_started = clock()
         # The first run keeps its own timeout (a slow fast gate may have spent the budget before it); any other
@@ -315,7 +356,19 @@ def main(argv: list[str] | None = None) -> int:
                         help="a run was dispatched earlier in this merge: no run gets a timeout past the budget")
     parser.add_argument("--interval", type=float, default=20)
     parser.add_argument("--check-only", action="store_true")
+    parser.add_argument("--conflicts-only", action="store_true",
+                        help="only read the mergeable state (any base): exit 1 when GitHub reports a conflict")
     args = parser.parse_args(argv)
+    if args.conflicts_only:
+        try:
+            print(f"mergeable={conflicts(Api(args.repo), args.number, min(args.interval, MERGEABLE_INTERVAL))}")
+        except RateLimited as error:
+            print(f"rate-limited: {error}", file=sys.stderr)
+            return 3
+        except Refused as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        return 0
     if args.base != BRANCH:
         print(f"checked=check paths (not {BRANCH})")
         return 0
