@@ -37,6 +37,8 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
+  // Reduce Motion: a step's scroll lands at once, with no glide.
+  matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
 };
 // Pierre's registered elements read their own DOM constructors at import time.
 for (const key of Object.getOwnPropertyNames(dom.window))
@@ -62,6 +64,11 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
     offsets.set(this, value);
   },
 });
+
+// A step's scroll (scrollTo) lands at once here.
+dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
+  this.scrollTop = typeof options === "number" ? 0 : (options?.top ?? 0);
+} as typeof HTMLElement.prototype.scrollTo;
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -137,6 +144,56 @@ test("right-clicking the rail filters its ticks to my prompts or to other agents
     await act(async () => document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })));
     await pick("Show All Messages");
     expect(ticks()).toHaveLength(12);
+  } finally {
+    await act(async () => root.unmount());
+    setChatDisplay({});
+  }
+});
+
+test("Next Turn from above every kept prompt lands on the first one the filter keeps", async () => {
+  // #39677 review F1: the first prompt Show Only Agent Messages keeps is the chat's third. With the
+  // view at the top, above it, Next Turn counted from the first kept prompt as the one being read
+  // and went on to the second.
+  setChatDisplay({ "agentPane.display.minimap": "compact" });
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(turns, new Set())}
+          sessionId="rail-filter-next"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const scrolled = async () => void scroller.dispatchEvent(new dom.window.Event("scroll"));
+    await pick("Show Only Agent Messages");
+    await act(async () => {
+      scroller.scrollTop = 0;
+      await scrolled();
+    });
+    const prompts = turns.filter((entry) => entry.kind === "user");
+    /// The prompt being read: the last whose bubble is at or above 35 px under the view's top.
+    const reading = () => {
+      let read = 0;
+      prompts.forEach((entry, index) => {
+        const node = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
+        const top =
+          Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
+        if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
+      });
+      return read;
+    };
+    expect(reading()).toBe(0);
+    await act(async () => {
+      dom.window.dispatchEvent(new dom.window.CustomEvent("cmux-acpmux-nextTurn"));
+      await scrolled();
+      await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+    });
+    // The third prompt, the first other agent's message.
+    expect(reading()).toBe(2);
   } finally {
     await act(async () => root.unmount());
     setChatDisplay({});

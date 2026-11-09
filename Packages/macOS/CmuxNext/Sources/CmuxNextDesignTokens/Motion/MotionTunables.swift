@@ -24,8 +24,10 @@ public nonisolated enum MotionTunables {
         // tail, overshoot under 0.1 pt on 700 pt. 0.28 ended visibly at 287 ms (half its travel at
         // 73 ms); 0.23 ended at 235 ms (Leo 2026-10-20). 0.11 ends at 113 ms, 8% of its travel in the
         // first 120 Hz frame and 80% at 50 ms (Leo 2026-11-08: "our animations should be so fast";
-        // the instant-splits target is a transition done in 120 ms).
-        .split: (SpringParameters(response: 0.11, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
+        // the instant-splits target is a transition done in 120 ms). 0.11 still moved a pixel at 141 ms
+        // on a 696 pt split (its last half point; split-scale bench 133-146 ms from the key), so 0.085:
+        // last pixel by about 100 ms at 1x and 108 ms at 2x on 1000 pt, 14% in the first frame, 90% at 50 ms.
+        .split: (SpringParameters(response: 0.085, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
         // Ends visibly at 235 ms, between standard and the ceiling on purpose: it carries the
