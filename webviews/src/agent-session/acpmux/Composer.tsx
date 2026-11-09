@@ -152,7 +152,6 @@ import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
-import { noteSendOrigins } from "./conversation/sendMorph";
 import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
@@ -721,8 +720,14 @@ function ComposerFrame({
     attach,
     attachLater,
   } = useAttachmentIntake({
+    // An attachment the person brings is their edit of the prompt, as a key is: a draft read that
+    // answers while it loads keeps the prompt that holds its placeholder, never replaces it (Leo,
+    // 2026-11-09: "the loading placeholder for attachments goes to the top... when it actually
+    // loads, it gets smashed in between text that you were typing"). In shell mode the box waits
+    // to place it until the mode ends (inlineAttachments.tsx `place`).
     place: (chips, kind) => {
-      if (!shell) box.current?.place(chips, kind);
+      typedAt.current = performance.now();
+      box.current?.place(chips, kind);
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
@@ -1594,8 +1599,6 @@ function ComposerFrame({
     // (composer/pasteMarks.ts); a slash command's text stays the command.
     const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
     const sent = marked.attachments;
-    // Where each chip is as it goes: its sent preview moves from there to its slot (sendMorph.ts).
-    noteSendOrigins(sent);
     const taken = onSend(marked.text, sent, steer, kept);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
@@ -2451,6 +2454,9 @@ function ComposerFrame({
       {...{ [WEB_SWAP_FOCUS]: "composer" }}
       data-cmux-component="Composer"
       data-cmux-source="webviews/src/agent-session/acpmux/Composer.tsx:1420"
+      // It holds still while the chat streams, ticks and scrolls: the dev budgets warn when anything
+      // but its own events changes its nodes (devkit/perfBudgets.ts `still-surface`).
+      data-perf-still="composer"
       data-shell={shell ? "" : undefined}
       // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
       data-composer-look={look === "codex" ? "codex" : undefined}
@@ -2520,6 +2526,9 @@ function ComposerFrame({
       )}
       <ComposerBox
         handle={box}
+        onPersonEdit={() => {
+          typedAt.current = performance.now();
+        }}
         boxRef={setComposerBox}
         inert={locked}
         fieldRef={fieldRef}

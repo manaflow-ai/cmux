@@ -938,37 +938,6 @@ async fn dial_first_connection(
     }
 }
 
-/// The route runner's caller: one round over its route list, and what to
-/// do after a round in which every route failed. The Cloud carrier dial
-/// (`carrier::client`) runs on it; `remote connect` runs its rounds in
-/// `LinkCell::dial`. Both pick routes with [`select_initial_route`].
-#[async_trait]
-pub(crate) trait RouteRounds<T: Send, E: Send = anyhow::Error>: Send {
-    /// One round: each candidate in order until one connects
-    /// ([`select_initial_route`]).
-    async fn round(&mut self) -> Result<T, InitialRouteSelectionError<E>>;
-
-    /// After a failed round: wait this long and run another (zero runs it
-    /// at once), or stop with this error.
-    fn after_failed_round(&mut self, error: InitialRouteSelectionError<E>) -> Result<Duration, E>;
-}
-
-/// Rounds until one connects or the caller stops.
-pub(crate) async fn run_route_rounds<T: Send, E: RouteFailure>(
-    rounds: &mut impl RouteRounds<T, E>,
-) -> Result<T, E> {
-    loop {
-        let error = match rounds.round().await {
-            Ok(connected) => return Ok(connected),
-            Err(error) => error,
-        };
-        let wait = rounds.after_failed_round(error)?;
-        if !wait.is_zero() {
-            tokio::time::sleep(wait).await;
-        }
-    }
-}
-
 /// A route attempt's error type, as the route runner needs it.
 pub(crate) trait RouteFailure: Sized + Send {
     /// A failure that ends the round before or outside any one route.
@@ -1414,7 +1383,7 @@ pub(crate) trait ReconnectRouteAttempt<T: Send>: Send + Sync {
     ) -> Result<T, ProviderError>;
 }
 
-pub(crate) async fn select_reconnect_route<T: Send>(
+async fn select_reconnect_route<T: Send>(
     routes: &[ResolvedRouteCandidate],
     start: usize,
     session: SessionId,
@@ -1543,28 +1512,42 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
     }
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        let count = self.options.routes.len();
-        if count == 0 {
-            return Err(ProviderError::Configuration("no reconnect routes configured".into()));
-        }
         let attempt = RuntimeReconnectRouteAttempt {
             options: &self.options,
             prepared_ssh: &self.prepared_ssh,
             shutdown: self.shutdown.clone(),
         };
-        let start = self.next.fetch_add(1, Ordering::Relaxed) % count;
-        let (index, group) = select_reconnect_route(
+        next_reconnect_route(
+            &self.next,
             &self.options.routes,
-            start,
             self.options.session,
             self.options.lane_policy,
             followup_auth_kind(&self.options.auth),
             &attempt,
         )
-        .await?;
-        self.next.store(index.saturating_add(1), Ordering::Relaxed);
-        Ok(group)
+        .await
     }
+}
+
+/// The next route of an established link after its current one failed:
+/// from `next` (one past the route that last connected) round the list,
+/// and `next` moves past the route that connects. `remote connect` and the
+/// Cloud carrier (`carrier::source`) both rotate this way.
+pub(crate) async fn next_reconnect_route<T: Send>(
+    next: &AtomicUsize,
+    routes: &[ResolvedRouteCandidate],
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    attempt: &impl ReconnectRouteAttempt<T>,
+) -> Result<T, ProviderError> {
+    let Some(start) = next.fetch_add(1, Ordering::Relaxed).checked_rem(routes.len()) else {
+        return Err(ProviderError::Configuration("no reconnect routes configured".into()));
+    };
+    let (index, group) =
+        select_reconnect_route(routes, start, session, lane_policy, auth, attempt).await?;
+    next.store(index.saturating_add(1), Ordering::Relaxed);
+    Ok(group)
 }
 
 struct RuntimeReconnectRouteAttempt<'a> {
@@ -1707,7 +1690,9 @@ fn daemon_runtime_socket_paths_in(
 ) -> anyhow::Result<(PathBuf, PathBuf)> {
     use std::os::unix::ffi::OsStrExt;
 
-    let digest = format!("{:x}", Sha256::digest(state.as_os_str().as_bytes()));
+    // The name from before NEXT's folder move, so a daemon from before it keeps its sockets' names.
+    let identity = cmux_agent_pane_policy::build_identity::path_identity(state);
+    let digest = format!("{:x}", Sha256::digest(identity.as_os_str().as_bytes()));
     let socket_names = |runtime: &Path| {
         (runtime.join(format!("{digest}-l.sock")), runtime.join(format!("{digest}-a.sock")))
     };

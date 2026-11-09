@@ -4,13 +4,16 @@
 // where each cost came from (reported by the agent, priced from the table, or no price).
 import { expect, test } from "bun:test";
 import {
+  cacheShare,
   costSource,
   formatCost,
   groupLabel,
   LEDGER_GROUPS,
+  ledgerCsv,
   ledgerLines,
   ledgerParams,
   readLedger,
+  tokensIn,
 } from "../src/agent-session/acpmux/ledger/ledgerModel";
 
 const HOUR = 3_600_000;
@@ -25,6 +28,7 @@ const totals = (over: Record<string, number> = {}) => ({
   outputTokens: 0,
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
+  cacheSavedUsd: 0,
   turns: 0,
   toolCalls: 0,
   wallMs: 0,
@@ -72,7 +76,7 @@ test("each range asks for its window and every rollup in one read", () => {
     since: NOW - 24 * HOUR,
     until: NOW,
     limit: 200,
-    groupBy: ["workspace", "repo", "pr", "day", "person", "vendor", "model"],
+    groupBy: ["workspace", "repo", "pr", "day", "person", "vendor", "model", "account"],
   });
   expect(ledgerParams("7d", NOW).since).toBe(NOW - 7 * 24 * HOUR);
   expect(ledgerParams("30d", NOW).since).toBe(NOW - 30 * 24 * HOUR);
@@ -153,4 +157,47 @@ test("ranking a long list stays one sort: 10,000 sessions group in one pass", ()
   expect(performance.now() - started).toBeLessThan(500);
   expect(lines[0]!.totals.costUsd).toBe(96);
   expect(lines.at(-1)!.totals.costUsd).toBe(0);
+});
+
+test("tokens in counts uncached input and cache writes, never cache reads", () => {
+  expect(tokensIn(totals({ inputTokens: 120, cacheWriteTokens: 30, cacheReadTokens: 90_000 }))).toBe(150);
+  expect(tokensIn(totals())).toBe(0);
+});
+
+test("cache reads: what they saved, and their share of all input", () => {
+  const read = readLedger({
+    totals: totals({ cacheSavedUsd: 3.8, inputTokens: 10, cacheReadTokens: 80, cacheWriteTokens: 10 }),
+  });
+  expect(read.totals.cacheSavedUsd).toBe(3.8);
+  expect(cacheShare(read.totals)).toBe(0.8);
+  // No input at all: no share, never 0% of nothing.
+  expect(cacheShare(totals())).toBeUndefined();
+  // An older acpmux sends no saving: it reads as zero.
+  expect(readLedger({ totals: totals() }).totals.cacheSavedUsd).toBe(0);
+});
+
+test("Copy CSV: the rows shown, ranked as shown, spreadsheet-safe", () => {
+  const sessions = ledgerCsv(reply, "session").split("\n");
+  expect(sessions[0]).toBe(
+    "session,label,harness,repo,branch,models,costUsd,harnessCostUsd,tableCostUsd,unpricedTurns,inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,cacheSavedUsd,turns,toolCalls,wallMs,sessions",
+  );
+  expect(sessions[1]!.startsWith("s2,Upload retry,,,,model-b,8,8,0,")).toBe(true);
+  expect(sessions[2]!.startsWith("s1,Docs pass,,acme/app,lane/docs,model-a,2,0,2,")).toBe(true);
+  expect(sessions.at(-1)).toBe("");
+  const repos = ledgerCsv(reply, "repo").split("\n");
+  expect(repos[0]!.startsWith("repo,label,costUsd,")).toBe(true);
+  expect(repos[1]!.startsWith("acme/app,App,5,4,1,")).toBe(true);
+  const tricky = readLedger({
+    totals: totals(),
+    rows: [],
+    rollups: { account: [{ ...totals({ costUsd: 1 }), key: '=cmd|"x", y' }] },
+  });
+  // A tab or line break would split the cell on paste and leave `=1+1` a cell of its own.
+  const tabbed = readLedger({
+    totals: totals(),
+    rows: [],
+    rollups: { account: [{ ...totals(), key: "audit\t=1+1\nend" }] },
+  });
+  expect(ledgerCsv(tabbed, "account").split("\n")[1]!.startsWith("audit =1+1 end,audit =1+1 end,")).toBe(true);
+  expect(ledgerCsv(tricky, "account").split("\n")[1]!.startsWith(`"'=cmd|""x"", y","'=cmd|""x"", y",1,`)).toBe(true);
 });

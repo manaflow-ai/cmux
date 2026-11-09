@@ -78,12 +78,18 @@ pub(crate) fn launch_hook_helper(
     executable: &Path,
     inherited: Option<OsString>,
 ) -> Option<PathBuf> {
+    inherited_hook_helper(inherited).or_else(|| hook_helper(executable))
+}
+
+/// The inherited `CMUX_TUI_HOOK` when it names an absolute executable file
+/// other than the shared per-user helper, else `None`. Reads only: it never
+/// writes a launcher.
+pub(crate) fn inherited_hook_helper(inherited: Option<OsString>) -> Option<PathBuf> {
     let shared = agent_hook_install::runtime_helper_path();
     inherited
         .map(PathBuf::from)
         .filter(|path| path.is_absolute() && agent_hook_install::is_executable_file(path))
         .filter(|path| shared.as_deref().is_none_or(|shared| !same_file(path, shared)))
-        .or_else(|| hook_helper(executable))
 }
 
 /// The pane's `CLAUDE_CODE_PLUGIN_DIRS` with this build's Claude Code plugin
@@ -102,7 +108,7 @@ fn claude_plugin_dirs(executable: &Path, helper: &Path) -> Option<String> {
     if crate::claude_plugin::sideloading_disabled(&policy) {
         return None;
     }
-    let dir = build_dir(executable)?.join("claude-plugin");
+    let dir = build_dir(executable)?.join(crate::claude_plugin::PLUGIN_FOLDER);
     crate::claude_plugin::install(&dir, executable, helper).ok()?;
     let inherited = std::env::var_os(crate::claude_plugin::PLUGIN_DIRS_ENV);
     crate::claude_plugin::pane_plugin_dirs(inherited.as_deref(), &dir)?.into_string().ok()

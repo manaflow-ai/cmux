@@ -285,18 +285,20 @@ fn a_hook_binary_that_does_not_know_the_hook_lets_the_call_run() {
         child.wait_with_output().unwrap()
     };
     let words = |exe: String| vec![exe, crate::bg_hook::HOOK_ARG.to_owned(), "/h".to_owned()];
+    // Whatever the patterns, a started binary never blocks: here every call starts it.
+    let every = ["*".to_owned()];
     let old =
         words(script("cmux", r#"echo 'cmux: unknown resource scope "__bg-hook".' >&2; exit 2"#));
     let bare: Vec<String> = old.iter().map(|w| format!("'{w}'")).collect();
     assert_eq!(run(&bare.join(" ")).status.code(), Some(2), "the skew this guards against");
-    let out = run(&super::hook_command(&old));
+    let out = run(&super::hook_command(&old, &every));
     assert!(out.status.success(), "a refusing hook binary blocked the call: {out:?}");
     // A binary that is gone does not block either.
     let gone = words(root.join("gone").to_string_lossy().into_owned());
-    assert!(run(&super::hook_command(&gone)).status.success());
+    assert!(run(&super::hook_command(&gone, &every)).status.success());
     // The hook's own answer still gets through.
     let deny = words(script("acpmux", r#"echo '{"deny":true}'"#));
-    let out = run(&super::hook_command(&deny));
+    let out = run(&super::hook_command(&deny, &every));
     assert!(out.status.success());
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), r#"{"deny":true}"#);
     let _ = std::fs::remove_dir_all(&root);
@@ -318,7 +320,7 @@ fn the_subagent_hook_starts_the_binary_only_for_a_subagents_call() {
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         let words = [path.to_string_lossy().into_owned(), crate::bg_hook::HOOK_ARG.to_owned()];
-        super::subagent_hook_command(&words)
+        super::hook_command(&words, &[crate::bg_hook::SUBAGENT_PATTERN.to_owned()])
     };
     let run = |command: &str, input: &str| {
         let mut child = std::process::Command::new("sh")
@@ -385,10 +387,52 @@ fn the_github_status_server_reaches_every_harness_kind() {
 #[test]
 fn the_claude_guidance_switch_also_leaves_the_chat_skill_out_of_the_plugin() {
     let state = tempfile::tempdir().unwrap();
-    let on = super::materialize(state.path(), true).unwrap();
-    let off = super::materialize(state.path(), false).unwrap();
+    let on = super::materialize(state.path(), |_| true).unwrap();
+    let off = super::materialize(state.path(), |skill| skill != "cmux-chat").unwrap();
     assert_ne!(on, off, "each set of skills gets its own folder");
     assert!(on.join("skills/cmux-chat/SKILL.md").is_file());
     assert!(!off.join("skills/cmux-chat").exists());
     assert!(off.join("skills/cmux-browser/SKILL.md").is_file(), "other skills stay");
+}
+
+/// A chat without computer use or the secrets server is not told about their skills: the
+/// fitted plugin leaves out `cmux-cua` and `cmux-sudo`, keeps the rest (the chat skill
+/// as the full plugin had it), and the tool rows and context sources say the same.
+#[test]
+fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
+    let state = tempfile::tempdir().unwrap();
+    let server = |name: &str| super::McpServer {
+        name: name.into(),
+        command: "/bin/true".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let full = super::materialize(state.path(), |_| true).unwrap();
+    let with = super::AgentTools {
+        servers: vec![server("cmux"), server("cmux-cua"), server(crate::secret_mcp::SERVER_NAME)],
+        plugin_dir: Some(full.clone()),
+        ..Default::default()
+    };
+    assert_eq!(with.clone().fit_skills().plugin_dir, Some(full.clone()), "nothing to leave out");
+    let without = super::AgentTools { servers: vec![server("cmux")], ..with }.fit_skills();
+    let fit = without.plugin_dir.clone().unwrap();
+    assert_ne!(fit, full);
+    assert_eq!(fit.parent(), full.parent());
+    for gone in ["cmux-cua", "cmux-sudo"] {
+        assert!(!fit.join("skills").join(gone).exists(), "{gone} is listed");
+    }
+    for kept in ["cmux-browser", "cmux-chat", "acpmux", "cmux-live"] {
+        assert!(fit.join("skills").join(kept).join("SKILL.md").is_file(), "{kept} is gone");
+    }
+    assert!(fit.join("hooks/hooks.json").is_file());
+    let rows: Vec<_> = without.tool_rows(true, true).into_iter().map(|r| r.id).collect();
+    assert!(rows.contains(&"skill:cmux:cmux-browser".to_owned()), "{rows:?}");
+    assert!(!rows.iter().any(|r| r.ends_with("cmux-cua") || r.ends_with("cmux-sudo")), "{rows:?}");
+    let parts: Vec<_> = without.context_parts(true).into_iter().map(|p| p.id).collect();
+    assert!(!parts.iter().any(|p| p == "cmux-source-skill-cmux-cmux-cua"), "{parts:?}");
+    // A plugin without the chat skill (`agents.guidance.claude` off) stays without it.
+    let no_chat = super::materialize(state.path(), |skill| skill != "cmux-chat").unwrap();
+    let fit = super::AgentTools { plugin_dir: Some(no_chat), ..without }.fit_skills();
+    let fit = fit.plugin_dir.unwrap();
+    assert!(!fit.join("skills/cmux-chat").exists() && !fit.join("skills/cmux-cua").exists());
 }

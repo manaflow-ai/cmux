@@ -260,6 +260,50 @@ impl Hub {
             .count()
     }
 
+    /// How many of the chat's tasks run that bring their end to the chat (`notify`,
+    /// `bg_notify.rs`): each is sure to give the chat another turn.
+    pub(super) fn bg_notifying_count(&self, session: &Session) -> usize {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .iter()
+            .filter(|r| r.notify && r.ended_at.is_none() && !bg_gone(&dir, &r.id))
+            .count()
+    }
+
+    /// Tests: a task of the chat that runs (its record, and its lock held while the returned
+    /// file lives), with no runner behind it.
+    #[cfg(all(test, unix))]
+    pub(super) fn bg_fake_running(
+        &self,
+        session: &Session,
+        notify: bool,
+    ) -> std::io::Result<std::fs::File> {
+        use std::os::fd::AsRawFd;
+        let dir = self.bg_dir(session);
+        std::fs::create_dir_all(&dir)?;
+        let generation = bg_generation(&dir, true)?;
+        let id = format!("t{}", uuid::Uuid::new_v4().simple());
+        let record = Record {
+            id: id.clone(),
+            session_id: session.id.clone(),
+            generation,
+            notify,
+            ..Record::default()
+        };
+        bg_run::write_record(&dir, &record)?;
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(bg_run::lock_path(&dir, &id))?;
+        // SAFETY: flock on a descriptor this function owns.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(lock)
+    }
+
     /// `_acpmux/bg/list`: the chat's tasks, oldest first, each with the tail of its output.
     pub fn bg_list(&self, session: &Session) -> Value {
         let dir = self.bg_dir(session);

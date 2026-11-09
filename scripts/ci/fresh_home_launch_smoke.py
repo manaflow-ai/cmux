@@ -389,8 +389,10 @@ def pids_under(root: Path) -> list[int]:
     return pids
 
 
-# Where a cmux NEXT terminal host records itself under the run's HOME: <id>.json names its host_pid.
-HOST_RECORDS = "h/Library/Application Support/cmux/tags/*/tui/terminal-hosts-*/*.json"
+# Where a cmux NEXT terminal host records itself under the run's HOME: <id>.json names its host_pid. A build from
+# before NEXT's own folder (cmux-next/) kept its tag state under classic's cmux/tags/.
+HOST_RECORDS = ("h/Library/Application Support/cmux-next/tags/*/tui/terminal-hosts-*/*.json",
+                "h/Library/Application Support/cmux/tags/*/tui/terminal-hosts-*/*.json")
 
 
 def terminal_host_pids(root: Path) -> list[int]:
@@ -399,7 +401,7 @@ def terminal_host_pids(root: Path) -> list[int]:
     the app on purpose (cmux#36625: 17 of them ran for days on a CI Mac). A recorded pid counts only while it
     still runs as a __terminal-host of this user, so a reused pid is never stopped."""
     pids = []
-    for record in sorted(root.glob(HOST_RECORDS)):
+    for record in sorted(r for pattern in HOST_RECORDS for r in root.glob(pattern)):
         try:
             pid = json.loads(record.read_text()).get("host_pid")
         except (OSError, ValueError, AttributeError):
