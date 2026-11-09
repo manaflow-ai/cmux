@@ -34,7 +34,7 @@ import Testing
         #expect(!WorkspaceHoverCardTitle.withDetails.showsTitle("Deploy", tabTitles: ["zsh", "logs"], expanded: false))
 
         let card = WorkspaceHoverCardView()
-        card.configure(.make(workspace("Deploy"), now: Date()))
+        card.configure(.make(workspace("Deploy"), machine: nil, now: Date()))
         card.configureTabs(title: "ws-fit", tabs: [SidebarTab(id: TabID("t1"), title: "Deploy")])
         #expect(card.drawnTitleHidden, "the card repeats its one tab's name above it")
         card.configureTabs(title: "ws-fit", tabs: [SidebarTab(id: TabID("t1"), title: "Deploy"), SidebarTab(id: TabID("t2"), title: "logs")])
