@@ -437,6 +437,16 @@ impl Mux {
                 self.clear_agent_presence(&agent.terminal_id, agent.surface);
             }
             if origin == AgentReportOrigin::Direct {
+                #[cfg(test)]
+                if let Some(seam) = self
+                    .agent_roster_worker
+                    .report_echo_seam
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take()
+                {
+                    seam();
+                }
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
                 // echo adapter and applies it roster-only.

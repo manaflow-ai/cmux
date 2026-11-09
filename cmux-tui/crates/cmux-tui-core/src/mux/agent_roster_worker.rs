@@ -219,6 +219,10 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// save the roster at this version, so a stop before the rebuild cannot
     /// leave it passing for the current reducer's fold.
     pub(in crate::mux) unmarked_from: std::sync::atomic::AtomicU32,
+    /// Test seam: runs once in a direct agent report, after its projection
+    /// commit and before its journal echo.
+    #[cfg(test)]
+    pub(in crate::mux) report_echo_seam: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Drop for AgentRosterWorker {
