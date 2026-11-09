@@ -21,6 +21,8 @@ import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
 import { BoltIcon } from "./BoltIcon";
+import { setModelChipIcon, useModelChipIcon } from "./modelChipIcon";
+import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
@@ -48,8 +50,6 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
-import { ContextMenu } from "../../ui/ContextMenu";
-import { setModelChipLook, useModelChipLook } from "./modelChipLook";
 import { quantizePickerRail } from "./pickerRailGeometry";
 import { type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
 import { pickerHeightBounds } from "./modelPickerLayout";
@@ -423,6 +423,7 @@ export function ModelPicker(props: ModelPickerProps) {
     return true;
   };
   const t = useT();
+  const showChipIcon = useModelChipIcon();
   // The Default row's name follows the pane language (`sectionsFor`), so the model rows do too.
   const lang = usePaneLanguage();
   const newTab = useContext(OnNewTab);
@@ -1230,39 +1231,15 @@ export function ModelPicker(props: ModelPickerProps) {
   // message runs.
   const fastOn = held ? held.fast === true : fastMode !== undefined && fastModeIsOn(fastMode);
   const fastModeText = t("picker.fastMode");
-  const chipLook = useModelChipLook();
-  // The chip's right-click customizes it (Leo 2026-11-08: "make right clicking the model picker let
-  // you customize"): what it draws besides the model's name, in every composer, then the menus.
-  const chipMenu = [
-    {
-      id: "providerLogo",
-      label: t("picker.showProviderLogo"),
-      checked: chipLook.providerLogo,
-      onSelect: () => setModelChipLook({ providerLogo: !chipLook.providerLogo }),
-    },
-    {
-      id: "effort",
-      label: t("picker.showEffort"),
-      checked: chipLook.effort,
-      onSelect: () => setModelChipLook({ effort: !chipLook.effort }),
-    },
-    { id: "moreModels", label: t("picker.moreModels"), separatorBefore: true, onSelect: () => more() },
-    ...(catalogRefresh
-      ? [
-          {
-            id: "refresh",
-            label: t("picker.refreshCatalog"),
-            disabled: refreshStatus === "fetching",
-            onSelect: refreshCatalog,
-          },
-        ]
-      : []),
-  ];
+  // With its logo hidden, the chip's shortest name also stands in for the row's icon step
+  // (composerRowFit.ts `modelMark`), so a narrow row keeps naming the model, never an empty chip.
+  const asIcon = showChipIcon ? "" : " icon";
   const chipFace = (
     <>
       {/* The provider's logo left of the model's name (cmux#38053): Claude for Claude models, OpenAI
-          for Codex and GPT, each harness's own mark, in its brand colors as the model menu draws it. */}
-      <AgentMark agent={chipHarness} size={16} />
+          for Codex and GPT, each harness's own mark, in its brand colors as the model menu draws it.
+          The chip's right-click hides it (modelChipIcon.ts). */}
+      {showChipIcon && <AgentMark agent={chipHarness} size={16} />}
       {sessionAuthChip && (
         <span className="acpmux-model-detail" aria-label={sessionAuthText}>
           {sessionAuthChip}
@@ -1272,7 +1249,7 @@ export function ModelPicker(props: ModelPickerProps) {
         className="acpmux-model-name"
         {...(chipShort
           ? { "data-short": "" }
-          : { "data-fit-part": "model", "data-fit-forms": chipFamily ? "full" : "full family" })}
+          : { "data-fit-part": "model", "data-fit-forms": chipFamily ? "full" : `full family${asIcon}` })}
       >
         {chipName}
       </span>
@@ -1281,7 +1258,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <span
           className="acpmux-model-short acpmux-fit-label"
           data-fit-part="model"
-          data-fit-forms={chipFamily ? "full" : "full family"}
+          data-fit-forms={chipFamily ? "full" : `full family${asIcon}`}
           data-label={chipShort}
         />
       )}
@@ -1289,7 +1266,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <span
           className="acpmux-model-short acpmux-fit-label"
           data-fit-part="model"
-          data-fit-forms="family"
+          data-fit-forms={`family${asIcon}`}
           data-label={chipFamily}
         />
       )}
@@ -1311,23 +1288,30 @@ export function ModelPicker(props: ModelPickerProps) {
       <span className="sr-only">{forkText}</span>
     </span>
   );
+  // The chip's right-click customizes it (Leo 2026-11-08: "make right clicking the model picker let
+  // you customize"). Its menu host wraps the chip's button inside the chip, drawn as display:
+  // contents, so the composer row's chips keep their siblings and fit (composerRowFit.ts). A
+  // right-click inside its open menu or picker keeps theirs.
+  const chipMenu = [
+    {
+      id: "model-chip-icon",
+      label: t("modelChip.menu.showIcon"),
+      checked: showChipIcon,
+      onSelect: () => setModelChipIcon(!showChipIcon),
+    },
+  ];
   return (
     <span
       ref={root}
       className="acpmux-picker acpmux-model"
+      // Its right-click is its own customize menu (above), not its picker (composerChipMenu.ts).
+      data-own-context-menu=""
+      data-chip-icon={showChipIcon ? undefined : "off"}
       style={{ position: "relative" }}
-      // A hidden logo or effort hides by CSS (composerLocation.css), so the row's fit steps still
-      // bring the logo back once the name is gone and the chip is never a bare chevron.
-      {...(chipLook.providerLogo ? {} : { "data-chip-logo": "off" })}
-      {...(chipLook.effort ? {} : { "data-chip-effort": "off" })}
       // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
       {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
     >
-      {/* The chip's right-click menu sits inside the chip, so the composer row keeps its own
-            children; its host draws no box (modelPicker.css). As the host of the chip's one menu
-            button, the composer's capture handler (composerChipMenu.ts) leaves the right-click to
-            it. The open picker's rows keep their own right-click (a model's star, the search). */}
-      <ContextMenu items={chipMenu} targets="own" ignore=".acpmux-mp" className="acpmux-model-menu-host">
+      <ContextMenu className="acpmux-model-chip-menu" targets="own" ignore=".acpmux-mp" items={chipMenu}>
         {quick ? (
           // The compact menu's chip is its Base UI menu button (submenus need one); a press while
           // the full picker is open only closes it.
@@ -1478,402 +1462,402 @@ export function ModelPicker(props: ModelPickerProps) {
             </PickerButton>
           </>
         )}
-        {open && (
-          <PickerDialog
-            ref={menu}
-            id={menuId}
-            className="ui-popup ui-glass ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
-            aria-label={modelText}
-            // The anchor's room above or below the chip, between the picker's minimum and maximum
-            // heights; a fixed height here collapsed a menu that opened before its models loaded.
-            style={{ ...menuStyle, ...pickerHeightBounds(menuStyle.maxHeight, openHeight) }}
-          >
-            {/* The rail: Starred, then one icon per harness; a click or arrow key shows its models. A
+      </ContextMenu>
+      {open && (
+        <PickerDialog
+          ref={menu}
+          id={menuId}
+          className="ui-popup ui-glass ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
+          aria-label={modelText}
+          // The anchor's room above or below the chip, between the picker's minimum and maximum
+          // heights; a fixed height here collapsed a menu that opened before its models loaded.
+          style={{ ...menuStyle, ...pickerHeightBounds(menuStyle.maxHeight, openHeight) }}
+        >
+          {/* The rail: Starred, then one icon per harness; a click or arrow key shows its models. A
               started chat's harness is fixed, so its menu has none. */}
-            {!harnessFixed && (
-              <ScrollArea
-                className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
-                viewportClassName="acpmux-mp-rail-viewport"
-                horizontal
+          {!harnessFixed && (
+            <ScrollArea
+              className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
+              viewportClassName="acpmux-mp-rail-viewport"
+              horizontal
+            >
+              <PickerOptionList
+                className="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5"
+                aria-label={harnessText}
               >
-                <PickerOptionList
-                  className="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5"
-                  aria-label={harnessText}
+                <PickerOption
+                  type="button"
+                  className={railTab}
+                  aria-label={starredText}
+                  title={starredText}
+                  aria-selected={starredView}
+                  selected={starredView}
+                  active={starredView}
+                  keyboard={(event) => {
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      moveRail(-1, 1);
+                    } else if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      moveRail(-1, -1);
+                    } else if (event.key === "ArrowRight" || event.key === "Enter") {
+                      event.preventDefault();
+                      search.current?.focus();
+                    }
+                  }}
+                  onClick={() => showTab(STARRED, -1, true)}
                 >
+                  <StarGlyph filled={false} size={16} />
+                </PickerOption>
+                {railHarnesses.map((entry, index) => [
                   <PickerOption
                     type="button"
-                    className={railTab}
-                    aria-label={starredText}
-                    title={starredText}
-                    aria-selected={starredView}
-                    selected={starredView}
-                    active={starredView}
+                    key={entry.folder ? `folder:${entry.id}` : entry.name}
+                    aria-selected={entry.ids.includes(selectedHarness ?? "")}
+                    aria-disabled={blockedProfile(entry) || needsSetup(entry) || undefined}
+                    data-signed-out={loginFor(entry) !== undefined || undefined}
+                    disabled={!entry.pickable}
+                    data-harness-index={index}
+                    className={`acpmux-mp-harness ${railTab}`}
+                    // A started chat's own harness: the "used here" mark (UsedMark), drawn by the tab.
+                    data-used={used && entry === current ? used : undefined}
+                    title={railTitle(entry)}
+                    selected={entry.ids.includes(selectedHarness ?? "")}
                     keyboard={(event) => {
-                      if (event.key === "ArrowDown") {
+                      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                         event.preventDefault();
-                        moveRail(-1, 1);
-                      } else if (event.key === "ArrowUp") {
+                        const step = event.key === "ArrowDown" ? 1 : -1;
+                        moveRail(index, step);
+                      } else if (event.key === "Enter" && enableProfile(entry)) {
                         event.preventDefault();
-                        moveRail(-1, -1);
                       } else if (event.key === "ArrowRight" || event.key === "Enter") {
                         event.preventDefault();
                         search.current?.focus();
                       }
                     }}
-                    onClick={() => showTab(STARRED, -1, true)}
+                    // Hover only warms the harness; its models show on a click or an arrow key
+                    // (Leo 2026-10-11: a list that swaps under the pointer picks the wrong row).
+                    onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
+                    onClick={() => {
+                      if (enableProfile(entry)) return;
+                      showTab(entry.id, index, true);
+                    }}
+                    active={index === activeHarness}
                   >
-                    <StarGlyph filled={false} size={16} />
-                  </PickerOption>
-                  {railHarnesses.map((entry, index) => [
-                    <PickerOption
-                      type="button"
-                      key={entry.folder ? `folder:${entry.id}` : entry.name}
-                      aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                      aria-disabled={blockedProfile(entry) || needsSetup(entry) || undefined}
-                      data-signed-out={loginFor(entry) !== undefined || undefined}
-                      disabled={!entry.pickable}
-                      data-harness-index={index}
-                      className={`acpmux-mp-harness ${railTab}`}
-                      // A started chat's own harness: the "used here" mark (UsedMark), drawn by the tab.
-                      data-used={used && entry === current ? used : undefined}
-                      title={railTitle(entry)}
-                      selected={entry.ids.includes(selectedHarness ?? "")}
-                      keyboard={(event) => {
-                        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                          event.preventDefault();
-                          const step = event.key === "ArrowDown" ? 1 : -1;
-                          moveRail(index, step);
-                        } else if (event.key === "Enter" && enableProfile(entry)) {
-                          event.preventDefault();
-                        } else if (event.key === "ArrowRight" || event.key === "Enter") {
-                          event.preventDefault();
-                          search.current?.focus();
-                        }
-                      }}
-                      // Hover only warms the harness; its models show on a click or an arrow key
-                      // (Leo 2026-10-11: a list that swaps under the pointer picks the wrong row).
-                      onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
-                      onClick={() => {
-                        if (enableProfile(entry)) return;
-                        showTab(entry.id, index, true);
-                      }}
-                      active={index === activeHarness}
-                    >
-                      {hasAgentMark(entry.mark ?? entry.id) ? (
-                        <AgentMark agent={entry.mark ?? entry.id} size={16} />
-                      ) : (
-                        // A harness without a mark: its initial, never an empty tab.
-                        <span aria-hidden="true" className="text-control font-semibold">
-                          {graphemePrefix(entry.name.trim(), 1).toUpperCase()}
-                        </span>
-                      )}
-                      <span className="sr-only">{entry.name}</span>
-                    </PickerOption>,
-                  ])}
-                  {onAddAgent && (
-                    <PickerOption
-                      type="button"
-                      className={`acpmux-mp-add-harness ${railTab}`}
-                      active={activeHarness === addRailIndex}
-                      selected={activeHarness === addRailIndex}
-                      aria-label={addHarnessText}
-                      title={addHarnessText}
-                      keyboard={(event) => {
-                        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                          event.preventDefault();
-                          moveRail(addRailIndex, event.key === "ArrowDown" ? 1 : -1);
-                        } else if (event.key === "ArrowRight") {
-                          event.preventDefault();
-                          search.current?.focus();
-                        }
-                      }}
-                      onClick={addHarness}
-                    >
-                      <span aria-hidden="true" className="text-control font-semibold">
-                        +
-                      </span>
-                      <span className="sr-only">{addHarnessText}</span>
-                    </PickerOption>
-                  )}
-                </PickerOptionList>
-              </ScrollArea>
-            )}
-            <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
-              {sessionAuthText && (
-                <output className="acpmux-mp-auth flex flex-none items-center gap-2 border-b-[0.5px] border-edge px-3 py-2 text-detail text-muted">
-                  <span className="min-w-0 flex-1">{sessionAuthText}</span>
-                  {canSessionLogin(props.sessionAuth) && props.onSessionLogin && (
-                    <button type="button" className="acpmux-mp-auth-action" onClick={() => props.onSessionLogin?.()}>
-                      {authLoginText(props.sessionAuth, t)}
-                    </button>
-                  )}
-                  {props.onSessionAuthRefresh && (
-                    <button type="button" className="acpmux-mp-auth-action" onClick={props.onSessionAuthRefresh}>
-                      {t("harnesses.checkAgain")}
-                    </button>
-                  )}
-                </output>
-              )}
-              <div className="acpmux-mp-search flex h-[var(--ui-row-height,28px)] flex-none items-center gap-2 border-b-[0.5px] border-edge px-2 text-muted focus-within:text-fg">
-                <SearchIcon size={16} />
-                <PickerComboboxInput
-                  ref={search}
-                  type="search"
-                  // The picker opens with focus here; its row shows the focus, not a ring inside it.
-                  data-focus-ring="none"
-                  className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-body text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
-                  aria-label={searchText}
-                  aria-autocomplete="list"
-                  aria-controls={`${menuId}-models`}
-                  aria-activedescendant={activeRowId}
-                  aria-expanded="true"
-                  value={query}
-                  placeholder={searchText}
-                  onFocus={() =>
-                    setActiveHarness(railHarnesses.findIndex((entry) => entry.ids.includes(selectedHarness ?? "")))
-                  }
-                  onChange={(event) => {
-                    setQuery(event.target.value);
-                    setActive(0);
-                  }}
-                  keyboard={keyDown}
-                />
-                {catalogRefresh && (
-                  <button
-                    type="button"
-                    className="grid size-7 flex-none cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
-                    data-refresh-status={refreshStatus}
-                    aria-label={t("picker.refreshCatalog")}
-                    title={refreshTitle}
-                    disabled={refreshStatus === "fetching"}
-                    onClick={refreshCatalog}
-                  >
-                    {refreshStatus === "fetching" ? (
-                      <Spinner size={14} loading />
+                    {hasAgentMark(entry.mark ?? entry.id) ? (
+                      <AgentMark agent={entry.mark ?? entry.id} size={16} />
                     ) : (
-                      <Icon name="action.reload" size={14} />
+                      // A harness without a mark: its initial, never an empty tab.
+                      <span aria-hidden="true" className="text-control font-semibold">
+                        {graphemePrefix(entry.name.trim(), 1).toUpperCase()}
+                      </span>
                     )}
+                    <span className="sr-only">{entry.name}</span>
+                  </PickerOption>,
+                ])}
+                {onAddAgent && (
+                  <PickerOption
+                    type="button"
+                    className={`acpmux-mp-add-harness ${railTab}`}
+                    active={activeHarness === addRailIndex}
+                    selected={activeHarness === addRailIndex}
+                    aria-label={addHarnessText}
+                    title={addHarnessText}
+                    keyboard={(event) => {
+                      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                        event.preventDefault();
+                        moveRail(addRailIndex, event.key === "ArrowDown" ? 1 : -1);
+                      } else if (event.key === "ArrowRight") {
+                        event.preventDefault();
+                        search.current?.focus();
+                      }
+                    }}
+                    onClick={addHarness}
+                  >
+                    <span aria-hidden="true" className="text-control font-semibold">
+                      +
+                    </span>
+                    <span className="sr-only">{addHarnessText}</span>
+                  </PickerOption>
+                )}
+              </PickerOptionList>
+            </ScrollArea>
+          )}
+          <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
+            {sessionAuthText && (
+              <output className="acpmux-mp-auth flex flex-none items-center gap-2 border-b-[0.5px] border-edge px-3 py-2 text-detail text-muted">
+                <span className="min-w-0 flex-1">{sessionAuthText}</span>
+                {canSessionLogin(props.sessionAuth) && props.onSessionLogin && (
+                  <button type="button" className="acpmux-mp-auth-action" onClick={() => props.onSessionLogin?.()}>
+                    {authLoginText(props.sessionAuth, t)}
                   </button>
                 )}
-              </div>
-              <ScrollArea fade className="min-h-0 flex-1">
-                <PickerOptionList
-                  id={`${menuId}-models`}
-                  className="acpmux-mp-models"
-                  aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
+                {props.onSessionAuthRefresh && (
+                  <button type="button" className="acpmux-mp-auth-action" onClick={props.onSessionAuthRefresh}>
+                    {t("harnesses.checkAgain")}
+                  </button>
+                )}
+              </output>
+            )}
+            <div className="acpmux-mp-search flex h-[var(--ui-row-height,28px)] flex-none items-center gap-2 border-b-[0.5px] border-edge px-2 text-muted focus-within:text-fg">
+              <SearchIcon size={16} />
+              <PickerComboboxInput
+                ref={search}
+                type="search"
+                // The picker opens with focus here; its row shows the focus, not a ring inside it.
+                data-focus-ring="none"
+                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-body text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
+                aria-label={searchText}
+                aria-autocomplete="list"
+                aria-controls={`${menuId}-models`}
+                aria-activedescendant={activeRowId}
+                aria-expanded="true"
+                value={query}
+                placeholder={searchText}
+                onFocus={() =>
+                  setActiveHarness(railHarnesses.findIndex((entry) => entry.ids.includes(selectedHarness ?? "")))
+                }
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setActive(0);
+                }}
+                keyboard={keyDown}
+              />
+              {catalogRefresh && (
+                <button
+                  type="button"
+                  className="grid size-7 flex-none cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
+                  data-refresh-status={refreshStatus}
+                  aria-label={t("picker.refreshCatalog")}
+                  title={refreshTitle}
+                  disabled={refreshStatus === "fetching"}
+                  onClick={refreshCatalog}
                 >
-                  {!searching && !starredView && folderProfiles.length > 0 && (
-                    <div className="acpmux-mp-folder-profiles mb-1 border-b-[0.5px] border-edge pb-1">
-                      <div className="px-2 py-1 text-detail text-muted">{t("picker.thisFolder")}</div>
-                      {folderProfiles.map((entry) => (
-                        <button
-                          type="button"
-                          key={`folder-profile:${entry.id}`}
-                          className={`acpmux-mp-row ${modelRow} ${rowFill(selectedHarness === entry.id)}`}
-                          onClick={() => {
-                            setSelectedHarness(entry.id);
-                            setOlderOpen(false);
-                            setActive(0);
-                          }}
-                        >
-                          <span className="acpmux-menu-label flex-1 truncate">{entry.name}</span>
-                          {folderNote(entry) && <span className="acpmux-quick-value">{folderNote(entry)}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {selected && !searching && !starredView && selected.notInstalled ? (
-                    <>
-                      <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
-                      {/* Catalog models remain discoverable before install, while every row is inert. */}
-                      {choicesFor(selected, lang).map((model) => (
-                        <PickerOption
-                          key={model.id}
-                          type="button"
-                          active={false}
-                          disabled
-                          aria-disabled="true"
-                          className={`acpmux-mp-row ${modelRow} ${rowFill(false)} text-muted`}
-                        >
-                          <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
-                        </PickerOption>
-                      ))}
-                      {onAddAgent && (
-                        <button
-                          type="button"
-                          className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
-                          onClick={addHarness}
-                        >
-                          <span className="acpmux-menu-label flex-1 truncate">{t("harnesses.install")}</span>
-                        </button>
-                      )}
-                    </>
-                  ) : selected && !searching && !starredView && loginFor(selected) !== undefined ? (
-                    <>
-                      <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>
-                      {loginFor(selected) && onLogIn && (
-                        <button
-                          type="button"
-                          className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
-                          onClick={() => {
-                            onLogIn(selected.acpmuxHarness ?? selected.id, loginFor(selected)!);
-                            close();
-                          }}
-                        >
-                          <span className="acpmux-menu-label flex-1 truncate">{t("harness.logIn")}</span>
-                        </button>
-                      )}
-                    </>
-                  ) : selectedOther && blockedProfile(selected) ? (
-                    <div className={emptyNote}>
-                      {selected.folder?.state === "needs-trust"
-                        ? t("picker.trustFirst")
-                        : (selected.folder?.diagnostic ?? unavailableText)}
-                    </div>
-                  ) : selectedOther && selected.folder?.state === "needs-enable" ? (
-                    <button
-                      type="button"
-                      className={`acpmux-mp-row ${modelRow} ${rowFill(false)}`}
-                      onClick={() => enableProfile(selected)}
-                    >
-                      <span className="acpmux-menu-label flex-1 truncate">{t("harness.enable")}</span>
-                    </button>
-                  ) : selectedOther && selected.folder && visible.length === 0 && !query ? (
-                    <button
-                      type="button"
-                      className={`acpmux-mp-row ${modelRow} ${rowFill(false)}`}
-                      onClick={() => {
-                        onHarness?.(selected.id);
-                        close();
-                      }}
-                    >
-                      <span className="acpmux-menu-label flex-1 truncate">{t("picker.newChat")}</span>
-                    </button>
-                  ) : visible.length === 0 ? (
-                    <div className={emptyNote}>
-                      {starredView && !query
-                        ? t("picker.starredEmpty")
-                        : !query && selected && selected.models.length === 0
-                          ? t("picker.noModels")
-                          : noMatchesText}
-                    </div>
+                  {refreshStatus === "fetching" ? (
+                    <Spinner size={14} loading />
                   ) : (
-                    visible.map((model, index) => {
-                      const ran = model.id === props.model && !!owners.get(model)?.ids.includes(harness ?? "");
-                      // The checked row is what the next message runs: a held pick, else the chat's model.
-                      const checked = held
-                        ? model.id === held.model && !!owners.get(model)?.ids.includes(held.harness)
-                        : ran;
-                      return (
-                        <div className="group relative flex items-center" key={`${owners.get(model)?.id}:${model.id}`}>
-                          <PickerOption
-                            type="button"
-                            id={modelRowId(model.id)}
-                            data-key={`model:${model.id}`}
-                            selected={index === active}
-                            aria-checked={checked}
-                            className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${checked ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
-                            onPointerEnter={() => setActive(index)}
-                            disabled={Boolean(model.unavailable || model.defaultChoice)}
-                            onClick={() => selectModel(model)}
-                            active={index === active}
-                          >
-                            {(starredView || searching) && (
-                              <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} reserve />
-                            )}
-                            <span className="acpmux-menu-label min-w-0 truncate">{model.name}</span>
-                            {ran && used && <UsedMark look={used} />}
-                            <span className="flex-1" />
-                            {searching && (parsed.effort || parsed.fast) && (
-                              <span className="acpmux-mp-combo flex-none text-detail text-dim">
-                                {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
-                                  .filter(Boolean)
-                                  .join(" · ")}
-                              </span>
-                            )}
-                            {model.unavailable && (
-                              <span className="flex-none text-detail text-dim">{unavailableText}</span>
-                            )}
-                          </PickerOption>
-                          <span className="pointer-events-none absolute right-1.5 flex items-center">
-                            <button
-                              type="button"
-                              className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
-                              aria-label={`${starredText}: ${model.name}`}
-                              aria-pressed={favorites.has(model.id)}
-                              title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
-                              onClick={() => toggleFavorite(model.id)}
-                            >
-                              <StarGlyph filled={favorites.has(model.id)} size={14} />
-                            </button>
-                            {checked && (
-                              <span className="grid size-6 place-items-center text-muted">
-                                <CheckIcon />
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                      );
-                    })
+                    <Icon name="action.reload" size={14} />
                   )}
-                  {olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0) && (
-                    <button
-                      type="button"
-                      className={`acpmux-mp-older ${modelRow} ${rowFill(false)} text-muted`}
-                      aria-expanded={olderOpen}
-                      onClick={() => setOlderOpen((value) => !value)}
-                    >
-                      <span className="acpmux-menu-label min-w-0 flex-1 truncate">{t("picker.moreModels")}</span>
-                      <span className="flex-none text-detail text-dim">{olderCount}</span>
-                      <span className={`flex-none ${olderOpen ? "rotate-180" : ""}`} aria-hidden="true">
-                        <ChevronIcon />
-                      </span>
-                    </button>
-                  )}
-                </PickerOptionList>
-              </ScrollArea>
-              {update && (
-                <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
-                  <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
+                </button>
+              )}
+            </div>
+            <ScrollArea fade className="min-h-0 flex-1">
+              <PickerOptionList
+                id={`${menuId}-models`}
+                className="acpmux-mp-models"
+                aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
+              >
+                {!searching && !starredView && folderProfiles.length > 0 && (
+                  <div className="acpmux-mp-folder-profiles mb-1 border-b-[0.5px] border-edge pb-1">
+                    <div className="px-2 py-1 text-detail text-muted">{t("picker.thisFolder")}</div>
+                    {folderProfiles.map((entry) => (
+                      <button
+                        type="button"
+                        key={`folder-profile:${entry.id}`}
+                        className={`acpmux-mp-row ${modelRow} ${rowFill(selectedHarness === entry.id)}`}
+                        onClick={() => {
+                          setSelectedHarness(entry.id);
+                          setOlderOpen(false);
+                          setActive(0);
+                        }}
+                      >
+                        <span className="acpmux-menu-label flex-1 truncate">{entry.name}</span>
+                        {folderNote(entry) && <span className="acpmux-quick-value">{folderNote(entry)}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {selected && !searching && !starredView && selected.notInstalled ? (
+                  <>
+                    <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
+                    {/* Catalog models remain discoverable before install, while every row is inert. */}
+                    {choicesFor(selected, lang).map((model) => (
+                      <PickerOption
+                        key={model.id}
+                        type="button"
+                        active={false}
+                        disabled
+                        aria-disabled="true"
+                        className={`acpmux-mp-row ${modelRow} ${rowFill(false)} text-muted`}
+                      >
+                        <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
+                      </PickerOption>
+                    ))}
+                    {onAddAgent && (
+                      <button
+                        type="button"
+                        className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
+                        onClick={addHarness}
+                      >
+                        <span className="acpmux-menu-label flex-1 truncate">{t("harnesses.install")}</span>
+                      </button>
+                    )}
+                  </>
+                ) : selected && !searching && !starredView && loginFor(selected) !== undefined ? (
+                  <>
+                    <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>
+                    {loginFor(selected) && onLogIn && (
+                      <button
+                        type="button"
+                        className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
+                        onClick={() => {
+                          onLogIn(selected.acpmuxHarness ?? selected.id, loginFor(selected)!);
+                          close();
+                        }}
+                      >
+                        <span className="acpmux-menu-label flex-1 truncate">{t("harness.logIn")}</span>
+                      </button>
+                    )}
+                  </>
+                ) : selectedOther && blockedProfile(selected) ? (
+                  <div className={emptyNote}>
+                    {selected.folder?.state === "needs-trust"
+                      ? t("picker.trustFirst")
+                      : (selected.folder?.diagnostic ?? unavailableText)}
+                  </div>
+                ) : selectedOther && selected.folder?.state === "needs-enable" ? (
                   <button
                     type="button"
-                    className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
+                    className={`acpmux-mp-row ${modelRow} ${rowFill(false)}`}
+                    onClick={() => enableProfile(selected)}
+                  >
+                    <span className="acpmux-menu-label flex-1 truncate">{t("harness.enable")}</span>
+                  </button>
+                ) : selectedOther && selected.folder && visible.length === 0 && !query ? (
+                  <button
+                    type="button"
+                    className={`acpmux-mp-row ${modelRow} ${rowFill(false)}`}
                     onClick={() => {
-                      update.update();
+                      onHarness?.(selected.id);
                       close();
                     }}
                   >
-                    {t("harness.update")}
+                    <span className="acpmux-menu-label flex-1 truncate">{t("picker.newChat")}</span>
                   </button>
+                ) : visible.length === 0 ? (
+                  <div className={emptyNote}>
+                    {starredView && !query
+                      ? t("picker.starredEmpty")
+                      : !query && selected && selected.models.length === 0
+                        ? t("picker.noModels")
+                        : noMatchesText}
+                  </div>
+                ) : (
+                  visible.map((model, index) => {
+                    const ran = model.id === props.model && !!owners.get(model)?.ids.includes(harness ?? "");
+                    // The checked row is what the next message runs: a held pick, else the chat's model.
+                    const checked = held
+                      ? model.id === held.model && !!owners.get(model)?.ids.includes(held.harness)
+                      : ran;
+                    return (
+                      <div className="group relative flex items-center" key={`${owners.get(model)?.id}:${model.id}`}>
+                        <PickerOption
+                          type="button"
+                          id={modelRowId(model.id)}
+                          data-key={`model:${model.id}`}
+                          selected={index === active}
+                          aria-checked={checked}
+                          className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${checked ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
+                          onPointerEnter={() => setActive(index)}
+                          disabled={Boolean(model.unavailable || model.defaultChoice)}
+                          onClick={() => selectModel(model)}
+                          active={index === active}
+                        >
+                          {(starredView || searching) && (
+                            <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} reserve />
+                          )}
+                          <span className="acpmux-menu-label min-w-0 truncate">{model.name}</span>
+                          {ran && used && <UsedMark look={used} />}
+                          <span className="flex-1" />
+                          {searching && (parsed.effort || parsed.fast) && (
+                            <span className="acpmux-mp-combo flex-none text-detail text-dim">
+                              {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          )}
+                          {model.unavailable && (
+                            <span className="flex-none text-detail text-dim">{unavailableText}</span>
+                          )}
+                        </PickerOption>
+                        <span className="pointer-events-none absolute right-1.5 flex items-center">
+                          <button
+                            type="button"
+                            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
+                            aria-label={`${starredText}: ${model.name}`}
+                            aria-pressed={favorites.has(model.id)}
+                            title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
+                            onClick={() => toggleFavorite(model.id)}
+                          >
+                            <StarGlyph filled={favorites.has(model.id)} size={14} />
+                          </button>
+                          {checked && (
+                            <span className="grid size-6 place-items-center text-muted">
+                              <CheckIcon />
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+                {olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0) && (
                   <button
                     type="button"
-                    className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
-                    onClick={update.skip}
+                    className={`acpmux-mp-older ${modelRow} ${rowFill(false)} text-muted`}
+                    aria-expanded={olderOpen}
+                    onClick={() => setOlderOpen((value) => !value)}
                   >
-                    {t("harness.skipVersion")}
-                  </button>
-                </div>
-              )}
-              {fastMode && (
-                <div className="flex-none border-t-[0.5px] border-edge p-1.5">
-                  <button
-                    type="button"
-                    className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
-                    aria-pressed={fastModeIsOn(fastMode)}
-                    onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
-                  >
-                    <span>{fastMode.name}</span>
-                    <span className="text-detail text-dim">
-                      {fastModeIsOn(fastMode) ? fastMode.onLabel : fastMode.offLabel}
+                    <span className="acpmux-menu-label min-w-0 flex-1 truncate">{t("picker.moreModels")}</span>
+                    <span className="flex-none text-detail text-dim">{olderCount}</span>
+                    <span className={`flex-none ${olderOpen ? "rotate-180" : ""}`} aria-hidden="true">
+                      <ChevronIcon />
                     </span>
                   </button>
-                </div>
-              )}
-            </div>
-          </PickerDialog>
-        )}
-      </ContextMenu>
+                )}
+              </PickerOptionList>
+            </ScrollArea>
+            {update && (
+              <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
+                <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
+                <button
+                  type="button"
+                  className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
+                  onClick={() => {
+                    update.update();
+                    close();
+                  }}
+                >
+                  {t("harness.update")}
+                </button>
+                <button
+                  type="button"
+                  className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
+                  onClick={update.skip}
+                >
+                  {t("harness.skipVersion")}
+                </button>
+              </div>
+            )}
+            {fastMode && (
+              <div className="flex-none border-t-[0.5px] border-edge p-1.5">
+                <button
+                  type="button"
+                  className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
+                  aria-pressed={fastModeIsOn(fastMode)}
+                  onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
+                >
+                  <span>{fastMode.name}</span>
+                  <span className="text-detail text-dim">
+                    {fastModeIsOn(fastMode) ? fastMode.onLabel : fastMode.offLabel}
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+        </PickerDialog>
+      )}
     </span>
   );
 }

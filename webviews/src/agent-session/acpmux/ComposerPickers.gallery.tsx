@@ -7,7 +7,6 @@ import { ComposerPickers } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
 import { rememberFullAccess } from "./startMode";
-import { DEFAULT_MODEL_CHIP_LOOK, setModelChipLook, type ModelChipLook } from "./modelChipLook";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
 const galleryAccounts: ChatAccounts = {
@@ -17,16 +16,12 @@ const galleryAccounts: ChatAccounts = {
 
 /** `claude`: Leo's started claude-sr2 chat (2026-10-21), whose model menu listed nine models. */
 /** `managed`: acpmux answered `"fullAccess": "managed"` (MDM keeps full access off, #23322). */
-/** `look`: the model chip's right-click choices (modelChipLook.ts); restored when the variant goes. */
 /** `unlisted`: acpmux has not answered with its harnesses yet; the bundled catalog is the menu. */
-/** `bar`: inside the chat composer's footer (its size container and plain look), as the app draws it. */
 type Props = {
   claude?: boolean;
   accounts?: boolean;
   managed?: boolean;
-  look?: Partial<ModelChipLook>;
   unlisted?: boolean;
-  bar?: boolean;
 };
 
 const directAccounts: ChatAccounts = {
@@ -198,14 +193,7 @@ const codexSnapshot: AcpmuxSnapshot = {
   },
 };
 
-function GalleryComposerPickers({ claude, accounts, managed, look, unlisted, bar }: Props) {
-  const providerLogo = look?.providerLogo;
-  const effortShown = look?.effort;
-  useEffect(() => {
-    setModelChipLook({ ...DEFAULT_MODEL_CHIP_LOOK, ...(providerLogo === undefined ? {} : { providerLogo }) });
-    if (effortShown !== undefined) setModelChipLook({ effort: effortShown });
-    return () => setModelChipLook(DEFAULT_MODEL_CHIP_LOOK);
-  }, [providerLogo, effortShown]);
+function GalleryComposerPickers({ claude, accounts, managed, unlisted }: Props) {
   // As an acpmux answer would set it; cleared again when the variant goes.
   useEffect(() => {
     rememberFullAccess(managed ? "managed" : undefined);
@@ -266,15 +254,7 @@ function GalleryComposerPickers({ claude, accounts, managed, look, unlisted, bar
           <strong>Composer controls</strong>
           <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
         </div>
-        {bar ? (
-          <div className="acpmux-composer">
-            <div className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
-              {pickers}
-            </div>
-          </div>
-        ) : (
-          pickers
-        )}
+        {pickers}
       </div>
     </ChatAccountsContext.Provider>
   );
@@ -343,18 +323,6 @@ const modelPressDragRelease: Play = async (ctx) => {
   await ctx.waitFor(
     () => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === ctx.find(MODEL),
   );
-};
-
-// The model chip's right-click customizes it (Leo 2026-11-08: "make right clicking the model picker
-// let you customize"): Show Provider Logo and Show Effort, checked by default, then More models.
-const chipMenu: Play = async (ctx) => {
-  await ctx.contextMenu(MODEL);
-  await ctx.waitFor(() => ctx.document.querySelector('.ui-context-menu [role="menuitemcheckbox"]') !== null);
-  const labels = [...ctx.document.querySelectorAll(".ui-context-menu .ui-menu-label")].map((node) =>
-    node.textContent?.trim(),
-  );
-  if (labels[0] !== "Show Provider Logo" || labels[1] !== "Show Effort")
-    throw new Error(`the chip's menu reads ${labels.join(", ")}`);
 };
 
 // Before acpmux answers (the first open after launch): the bundled models, never an empty menu and
@@ -522,7 +490,6 @@ export default componentEntry<Props>({
       import("./styles.css"),
       import("./composerControls.css"),
       import("./modelPicker.css"),
-      import("./composerLocation.css"),
       import("./ComposerPickers.gallery.css"),
     ]),
   variants: {
@@ -612,24 +579,6 @@ export default componentEntry<Props>({
       play: modeFocus,
     },
     plan: { props: {}, play: planToggle },
-    "chip-look-logo": {
-      note: "Variant A, the default (#38095's look): the provider's logo, the model's name and its effort.",
-      props: { claude: true, bar: true },
-    },
-    "chip-look-no-logo": {
-      note: "Variant B, Show Provider Logo off from the chip's right-click: the name and effort alone; below the modelMark width the logo still comes back so the chip is never a bare chevron.",
-      props: { claude: true, bar: true, look: { providerLogo: false } },
-    },
-    "chip-look-name-only": {
-      note: "Variant C, both off: the model's name alone, the quietest footer.",
-      props: { claude: true, bar: true, look: { providerLogo: false, effort: false } },
-    },
-    "chip-menu": {
-      height: 320,
-      note: "Right-clicking the model chip opens its customize menu: Show Provider Logo and Show Effort (both on by default), then More models and Refresh models.",
-      props: { claude: true, bar: true },
-      play: chipMenu,
-    },
     "model-menu-before-acpmux": {
       note: "The first open after launch, before acpmux lists its harnesses: the bundled catalog's models, pickable at once, with no Not installed rows.",
       props: { unlisted: true },

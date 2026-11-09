@@ -510,8 +510,15 @@ def rows_of_part(part, report, budgets_mod, budgets):
         if isinstance(stream.get("p95Ms"), (int, float)):
             values["diff.stream.p95"] = (stream["p95Ms"], "ms", 10.0)
         versions = report.get("bench_versions") if isinstance(report.get("bench_versions"), dict) else {}
+        load = report.get("load") if isinstance(report.get("load"), dict) else {}
         for name, (v, unit, floor) in values.items():
-            out[name] = {"p50": v, "p95": v, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
+            # Every diff row is a time (us, ms/GiB, ms): on a busy runner it is divided by its bench's contention.
+            factor = load.get(name.split(".")[1])
+            factor = factor if isinstance(factor, (int, float)) and factor > 1 else None
+            scaled = round(v / factor, 4) if factor else v
+            out[name] = {"p50": scaled, "p95": scaled, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
+            if factor:
+                out[name].update(raw_p95=v, load=factor)
             version = versions.get(name.split(".")[1])  # sidecar or stream
             out[name]["measure_version"] = version if isinstance(version, int) else DIFF_LEGACY_VERSION
     elif part["kind"] == "webui":
@@ -656,6 +663,38 @@ def version_changed(rows, base_rows):
                 and r["part_config"] != base["part_config"]:
             out.append(n)
     return sorted(out)
+
+
+# A busy runner can't make a Linux row regress by accident (Leo, 2026-11-09: "we should be able to normalize based off
+# load. and for a lot of situations, load shouldn't even necessarily affect it by that much"). host_contention spins
+# this process for SPIN_S of wall time and reads the CPU time it got: 1 on a host with a free core, and wall / CPU
+# when every core is taken, which is how much longer any CPU-bound step takes than on that host idle. The part probes
+# before and after each bench (none of the bench's processes run then) and divides that bench's time rows by the
+# median (rows_of_part); the web-ui part's suite does the same per bench itself (webviews/bench/hostLoad.ts).
+CONTENTION_SPIN_S, CONTENTION_SPINS, CONTENTION_MAX = 0.02, 9, 8.0
+
+
+def spin_ratio(spin_s=CONTENTION_SPIN_S):
+    """One spin's wall time / the CPU time this process got during it."""
+    cpu, start, sink = time.process_time(), time.perf_counter(), 0.0
+    while time.perf_counter() - start < spin_s:
+        sink += (sink + 1) ** 0.5
+    wall, used = time.perf_counter() - start, time.process_time() - cpu
+    return wall / used if used > 0 else CONTENTION_MAX
+
+
+def contention_factor(ratios):
+    """The factor to divide a time row by (pure): the median ratio, clamped to 1..CONTENTION_MAX, to 2 decimals."""
+    finite = sorted(r for r in ratios if isinstance(r, (int, float)) and r == r)
+    if not finite:
+        return 1.0
+    mid = len(finite) // 2
+    median = finite[mid] if len(finite) % 2 else (finite[mid - 1] + finite[mid]) / 2
+    return round(min(CONTENTION_MAX, max(1.0, median)), 2)
+
+
+def host_contention(spins=CONTENTION_SPINS):
+    return [spin_ratio() for _ in range(spins)]
 
 
 def linux_bench_runs(root, part="diff-viewer"):
@@ -2709,13 +2748,17 @@ def cmd_run_linux_part(o):
     part = getattr(o, "part", "diff-viewer")
     runs = linux_bench_runs(ROOT, part)
     report, tail, ok = {}, [], True
+    load = {}
     for name, (argv, cwd, extra) in runs.items():
+        before = host_contention() if part != "web-ui" else []
         try:
             proc = subprocess.run(argv, cwd=cwd, env={**env, **extra}, capture_output=True, text=True, timeout=1800)
             value, code, stderr = last_json_object(proc.stdout), proc.returncode, proc.stderr or ""
         except subprocess.TimeoutExpired:
             value, code, stderr = None, "timeout (1800 s)", ""
         tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
+        if before:
+            load[name] = contention_factor(before + host_contention())
         if part == "web-ui":
             if isinstance(value, dict):
                 report = value
@@ -2733,6 +2776,7 @@ def cmd_run_linux_part(o):
             print(f"perf-cron web-ui: {line}")
     else:
         report["bench_versions"] = diff_bench_versions(ROOT)
+        report["load"] = load
     json.dump(report, open(os.path.join(o.out, "report.json"), "w"), indent=1)
     result = {"state": "done" if ok else "failed", "seconds": round(time.monotonic() - started), "tail": tail[-40:],
               "worker": o.runner_class}

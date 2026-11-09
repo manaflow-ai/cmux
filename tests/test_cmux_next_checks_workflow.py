@@ -44,9 +44,30 @@ def steps() -> list[dict]:
 
 
 def is_setup(step: dict) -> bool:
-    """Checkout and toolchain steps: an action, not a check script; and the reset of a reused
-    workspace's submodule checkouts that follows checkout on a mini."""
-    return "uses" in step or "scripts/ci/reset-stale-submodules.sh" in str(step.get("run", ""))
+    """Checkout and toolchain steps: an action, not a check script; the reset of a reused
+    workspace's submodule checkouts that follows checkout on a mini; and the start of the slow
+    checks in the background, whose own steps wait for their results."""
+    run = str(step.get("run", ""))
+    return ("uses" in step or "scripts/ci/reset-stale-submodules.sh" in run
+            or "scripts/ci/run-checks-concurrently.sh --start" in run)
+
+
+def check_commands(step: dict) -> str:
+    """What a check step runs: its own script, or for a step that waits on the background
+    start, the commands the start lists under the step's `[id]`."""
+    run = step["run"]
+    if "run-checks-concurrently.sh --wait" not in run:
+        return run
+    start = next(s for s in steps() if "scripts/ci/run-checks-concurrently.sh --start" in str(s.get("run", "")))
+    owned, current = [], None
+    for line in start["run"].splitlines():
+        line = line.strip()
+        match = re.fullmatch(r"\[([A-Za-z0-9_.-]+)\]", line)
+        if match:
+            current = match.group(1)
+        elif line and current == step["id"]:
+            owned.append(line)
+    return "\n".join(owned)
 
 
 
@@ -226,9 +247,9 @@ class ChecksJobStructure(unittest.TestCase):
         # dispatches; direct pushes to feat-cmux-next skipped it, and a
         # namespace-type red (CloudLinkSocketPolicy) reached the base unseen.
         _, checks, _ = self.split()
-        lint = [step for step in checks if "lint-ios-package-conventions.sh" in step["run"]]
+        lint = [step for step in checks if "lint-ios-package-conventions.sh" in check_commands(step)]
         self.assertEqual(len(lint), 1, [step["name"] for step in checks])
-        self.assertEqual(lint[0]["run"].strip(), "./scripts/lint-ios-package-conventions.sh")
+        self.assertEqual(check_commands(lint[0]).strip(), "./scripts/lint-ios-package-conventions.sh")
         document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         # PyYAML reads the `on:` key as True.
         push_paths = document[True]["push"]["paths"]
@@ -251,7 +272,7 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertIn("scripts/cmux-next/check-app-ffi-pin.sh --verify-release", pin[0]["run"])
         self.assertIn("base=(--base HEAD^1)", pin[0]["run"])
         script_tests = next(step for step in checks if step.get("id") == "script-tests")
-        self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", script_tests["run"])
+        self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", check_commands(script_tests))
         # Only there: the macOS swift test job no longer carries a copy.
         everywhere = [(job, step.get("name")) for job, spec in document["jobs"].items()
                       for step in spec.get("steps", []) if "check-app-ffi-pin.sh" in str(step.get("run", ""))]
