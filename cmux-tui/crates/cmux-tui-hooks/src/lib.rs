@@ -1423,7 +1423,10 @@ fn install_provider(
                     );
                 }
             }
-            // Each install pass writes only a file whose bytes differ, as the Plugin arm does.
+            // Each install pass writes only a file whose bytes differ, as the Plugin arm does; an
+            // unchanged file is still checked as a target atomic_write would replace.
+            ensure_replaceable_target(&module_path)?;
+            ensure_replaceable_target(&manifest_path)?;
             let module_changed = before_module.as_deref() != Some(module.as_bytes());
             let manifest_changed = before_manifest.as_deref() != Some(manifest.as_bytes());
             if module_changed {

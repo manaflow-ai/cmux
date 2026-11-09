@@ -278,6 +278,20 @@ fn launch_sidebar_doc(mux: &Mux) -> Value {
     }
 }
 
+/// Whether the snapshot at `path` holds what `bytes` holds, apart from `written_at_ms`.
+fn same_snapshot_on_disk(path: &Path, bytes: &[u8]) -> bool {
+    let parse = |bytes: &[u8]| {
+        serde_json::from_slice::<Value>(bytes).ok().map(|mut value| {
+            if let Some(object) = value.as_object_mut() {
+                object.remove("written_at_ms");
+            }
+            value
+        })
+    };
+    let Ok(stored) = std::fs::read(path) else { return false };
+    matches!((parse(&stored), parse(bytes)), (Some(stored), Some(next)) if stored == next)
+}
+
 /// Writes the snapshot; returns the projections left out to fit its bound
 /// (`frontend/scope/subject`), empty when all fit.
 fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<Vec<String>> {
@@ -297,8 +311,9 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<Vec<String>> 
         bytes.len() <= MAX_LAUNCH_SNAPSHOT_BYTES,
         "launch snapshot exceeds {MAX_LAUNCH_SNAPSHOT_BYTES} bytes"
     );
-    // Most wakeups change nothing the snapshot holds: the same bytes are not written and synced again.
-    if std::fs::read(path).is_ok_and(|stored| stored == bytes) {
+    // Most wakeups change nothing the snapshot holds: the same contents (its write time aside)
+    // are not written and synced again.
+    if same_snapshot_on_disk(path, &bytes) {
         return Ok(dropped);
     }
     let directory = path.parent().context("launch snapshot path has no directory")?;
