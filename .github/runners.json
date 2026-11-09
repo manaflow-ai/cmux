@@ -495,7 +495,6 @@
       "picker_followup": "a main dispatch with no job before it to pick a runner; it takes the owned nightly slot, which admits the exclusive claim the release App key needs (the nightly-only minis refuse a signing-class job)"
     },
     "nightly.yml#publish-nightly": "apple-signing-release",
-    "nightly.yml#publish-nightly-next-github": "apple-signing-release",
     "nightly.yml#keep-published-dsyms": "apple-signing-release",
     "nightly.yml#republish-nightly-deltas": "apple-signing-release",
     "nightly.yml#promote-nightly-next-acked": {

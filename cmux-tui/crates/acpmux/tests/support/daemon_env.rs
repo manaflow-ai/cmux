@@ -308,6 +308,13 @@ pub fn bin() -> &'static Path {
     }
 }
 
+/// The background-task runner an in-process hub starts (`Hub::set_bg_runner`): the binary under
+/// test. The runner child inherits this test process's hermetic environment, which [`enter`]
+/// set before `main` (`HERMETIC`), so it never sees the host's PATH or HOME.
+pub fn bg_runner() -> PathBuf {
+    bin().to_path_buf()
+}
+
 /// Whether the daemon may start agent processes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Agents {
