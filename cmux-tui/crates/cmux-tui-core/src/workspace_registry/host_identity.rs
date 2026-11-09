@@ -742,6 +742,63 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// An idempotency key is the client's opaque string, and the resource
+    /// ledger the rehome leaves as stored is joined on it: a creation
+    /// receipt and an input completion whose key happens to be the registry
+    /// id keep naming the effect receipt they belong to after a rehome.
+    #[test]
+    fn a_receipt_keyed_like_the_registry_keeps_its_joins_after_a_rehome() {
+        let root = temp_root("rehome-keys");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let copied = ids(&root).0;
+        {
+            let connection = Connection::open(registry_file(&root)).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO resource_effect_receipts(
+                       idempotency_key, operation, fingerprint, intent_json, state
+                     ) VALUES(?1, 'notification.create', '{}', '{}', 'pending')",
+                    [&copied],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO resource_creation_receipts(
+                       correlation_key, operation, fingerprint, idempotency_key, intent_json,
+                       execution_kind, attempt, state
+                     ) VALUES('correlated', 'notification.create', '{}', ?1, '{}', 'effect', 1,
+                       'prepared')",
+                    [&copied],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO resource_input_receipt_completions(idempotency_key) VALUES(?1)",
+                    [&copied],
+                )
+                .unwrap();
+        }
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        assert_ne!(ids(&root).0, copied, "rehomed");
+        let connection = Connection::open(registry_file(&root)).unwrap();
+        let joined = |table: &str| -> i64 {
+            connection
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM {table} AS keyed
+                         JOIN resource_effect_receipts AS effect USING(idempotency_key)"
+                    ),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(joined("resource_creation_receipts"), 1, "the creation receipt's effect");
+        assert_eq!(joined("resource_input_receipt_completions"), 1, "the completion's effect");
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     /// Mutation receipts and the events they recorded, `count` of each kind,
     /// and the resource ledger's receipts (results of a few kilobytes, as a
     /// real ledger's are): what a long-lived registry accumulates, none
