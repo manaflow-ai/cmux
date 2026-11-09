@@ -2,7 +2,7 @@
 """scripts/cmux-next/media/whats-new-clips.py: specs, cutting a capture to its clip steps, the
 idle-clip refusal, the clip's length, and the highlight's clip line. Encoding (ffmpeg, img2webp)
 and the fleet capture are not run here."""
-import importlib.util, json, sys, tempfile, unittest
+import importlib.util, io, json, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
 
@@ -212,6 +212,130 @@ class NightlyTourTests(unittest.TestCase):
                                  [("archive", ["after"]), ("better", ["before"]), ("uncategorized", ["after"])])
                 with mock.patch("sys.stdout"):  # its "more wait" notice
                     self.assertEqual(len(clips.plan(base, head, tours, limit=1, exists=lambda url: False, root=repo)), 1)
+
+    def commit(self, repo, message, when, files):
+        """Commits FILES ({relative path: text}) at WHEN (seconds since the epoch); returns the commit."""
+        import os
+        for name, text in files.items():
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (repo / name).write_text(text)
+        git(repo, "add", "-A")
+        env = {**os.environ, "GIT_AUTHOR_DATE": f"@{when} +0000", "GIT_COMMITTER_DATE": f"@{when} +0000"}
+        import subprocess
+        subprocess.run(["git", "-C", str(repo), "commit", "-q", "--allow-empty", "-m", message],
+                       capture_output=True, check=True, env=env)
+        return git(repo, "rev-parse", "HEAD")
+
+    def history(self, tmp):
+        repo = Path(tmp, "hist")
+        repo.mkdir()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "t")
+        return repo
+
+    @staticmethod
+    def highlight(name, category="new"):
+        return {f"release-notes/next/highlights/{name}.md": f"title: {name.title()}\ncategory: {category}\n\nBody.\n",
+                f"release-notes/next/clips/{name}.json": json.dumps(SPEC)}
+
+    def test_highlights_past_the_limit_are_planned_by_the_next_nightly(self):
+        # Five eligible highlights in one tip: the tour records four, and the next tip, which adds none,
+        # records the fifth (a plan of only the tip's own adds dropped it for good).
+        day = 86400
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.history(tmp)
+            t0 = 1_800_000_000
+            previous = self.commit(repo, "root", t0, {"README": "r\n"})
+            files = {}
+            for name in ("a1", "a2", "a3", "a4", "a5"):
+                files.update(self.highlight(name))
+            tip = self.commit(repo, "five highlights", t0 + day, files)
+            published = set()
+            exists = lambda url: url in published
+            with mock.patch("sys.stdout"):
+                first = clips.plan(previous, tip, Path(tmp, "t1"), limit=4, exists=exists, root=repo)
+            self.assertEqual([r["id"] for r in first], ["a1", "a2", "a3", "a4"])
+            published |= {clips.auto_url(r["id"], "after") for r in first}
+            next_tip = self.commit(repo, "unrelated", t0 + 2 * day, {"README": "r2\n"})
+            second = clips.plan(tip, next_tip, Path(tmp, "t2"), limit=4, exists=exists, root=repo)
+            self.assertEqual([r["id"] for r in second], ["a5"])
+            published.add(clips.auto_url("a5", "after"))
+            self.assertEqual(clips.plan(next_tip, self.commit(repo, "more", t0 + 3 * day, {"README": "r3\n"}),
+                                        Path(tmp, "t3"), exists=exists, root=repo), [])
+
+    def test_an_earlier_improvement_records_its_before_on_the_commit_before_its_highlight(self):
+        day = 86400
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.history(tmp)
+            t0 = 1_800_000_000
+            root = self.commit(repo, "root", t0, {"README": "r\n"})
+            better = self.commit(repo, "better", t0 + day, self.highlight("better", "improved"))
+            other = self.commit(repo, "other", t0 + day + 60, {"README": "o\n"})
+            later = self.commit(repo, "later", t0 + day + 120, self.highlight("later", "improved"))
+            previous = self.commit(repo, "previous tip", t0 + day + 180, {"README": "p\n"})
+            tip = self.commit(repo, "tip", t0 + 2 * day, self.highlight("fresh", "improved"))
+            rows = clips.plan(previous, tip, Path(tmp, "t"), exists=lambda url: False, root=repo)
+            # The tip's own one first, before on the previous tip; then the earlier ones, oldest first, each
+            # on its own commit's parent, with one extra before app a tour: `later` waits for its before.
+            self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in rows],
+                             [("fresh", ["after", "before"], previous),
+                              ("better", ["after", "before"], root),
+                              ("later", ["after"], None)])
+            self.assertNotEqual(other, better)
+            done = {clips.auto_url(i, "after") for i in ("fresh", "better", "later")} | {
+                clips.auto_url(i, "before") for i in ("fresh", "better")}
+            again = clips.plan(tip, self.commit(repo, "next", t0 + 3 * day, {"README": "n\n"}), Path(tmp, "t2"),
+                               exists=lambda url: url in done, root=repo)
+            self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in again], [("later", ["before"], other)])
+
+    def test_a_spec_added_after_its_highlight_shipped_is_planned(self):
+        day = 86400
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.history(tmp)
+            t0 = 1_800_000_000
+            self.commit(repo, "root", t0, {"README": "r\n"})
+            shipped = self.commit(repo, "highlight, no spec", t0 + day, {
+                "release-notes/next/highlights/drag.md": "title: Drag\ncategory: new\n\nBody.\n"})
+            self.assertEqual(clips.plan("HEAD~1", shipped, Path(tmp, "t0"), exists=lambda url: False, root=repo), [])
+            tip = self.commit(repo, "its spec", t0 + 2 * day, {"release-notes/next/clips/drag.json": json.dumps(SPEC)})
+            rows = clips.plan(shipped, tip, Path(tmp, "t"), exists=lambda url: False, root=repo)
+            self.assertEqual([(r["id"], r["roles"]) for r in rows], [("drag", ["after"])])
+            # Past the window it is not reconsidered.
+            late = self.commit(repo, "late", t0 + day + (clips.CLIP_REANNOUNCE_DAYS + 1) * day, {"README": "l\n"})
+            self.assertEqual(clips.plan(tip, late, Path(tmp, "t2"), exists=lambda url: False, root=repo), [])
+
+    def test_write_tours_makes_the_route_jobs_plan_into_tours_and_drops_a_row_with_no_spec(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, spec in {"drag": SPEC, "gone": None}.items():
+                (root / "release-notes/next/highlights").mkdir(parents=True, exist_ok=True)
+                (root / f"release-notes/next/highlights/{name}.md").write_text(f"title: {name.title()}\ncategory: new\n\nBody.\n")
+                if spec:
+                    (root / "release-notes/next/clips").mkdir(parents=True, exist_ok=True)
+                    (root / f"release-notes/next/clips/{name}.json").write_text(json.dumps(spec))
+            rows = [{"id": "drag", "category": "new", "roles": ["after"]}, {"id": "gone", "category": "new", "roles": ["after"]}]
+            with mock.patch("sys.stdout"):
+                kept = clips.write_tours(rows, root / "tours", root=root)
+            self.assertEqual([r["id"] for r in kept], ["drag"])
+            self.assertEqual(json.loads((root / "tours/drag.json").read_text())["title"], "Drag")
+            self.assertFalse((root / "tours/gone.json").exists())
+
+    def test_the_tours_command_splits_the_befores_by_commit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp, "plan.json")
+            plan.write_text(json.dumps([
+                {"id": "a", "category": "improved", "roles": ["after", "before"], "before": "b" * 40},
+                {"id": "b", "category": "improved", "roles": ["before"], "before": "c" * 40},
+                {"id": "c", "category": "new", "roles": ["after"]}]))
+            def tours(*args):
+                out = io.StringIO()
+                with mock.patch("sys.stdout", out):
+                    self.assertEqual(clips.main(["tours", "--plan", str(plan), "--dir", "D", *args]), 0)
+                return out.getvalue().split()
+            self.assertEqual(tours("--role", "after"), ["D/a.json", "D/c.json"])
+            self.assertEqual(tours("--role", "before", "--before", "b" * 40), ["D/a.json"])
+            self.assertEqual(tours("--role", "before", "--before", "b" * 40, "--other-befores"), ["c" * 40])
 
     def manifest(self, *ats, video=True, statuses=None):
         steps = [{"index": i + 1, "title": s["title"], "status": (statuses or {}).get(i, "ok"), "at": at}

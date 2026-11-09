@@ -6,7 +6,8 @@
     whats-new-clips.py publish ID FILE                                  upload it and point the item at it
     whats-new-clips.py check                                            every spec and clip line is valid
     whats-new-clips.py plan --base SHA --head SHA --out PLAN --tours DIR  what the nightly tour records
-    whats-new-clips.py tours --plan PLAN --role ROLE --dir DIR          the planned tours of one role
+    whats-new-clips.py write-tours --plan PLAN --tours DIR              a plan's tours, from this checkout
+    whats-new-clips.py tours --plan PLAN --role ROLE --dir DIR [--before SHA]  the planned tours of one role
     whats-new-clips.py publish-auto --plan PLAN --results DIR           render those, upload them
 
 Leo, 2026-10-24: "I also think the What's New video is kind of, uh, it's like you're not even
@@ -47,10 +48,14 @@ every frame first) and writes `clip: URL | SHA256` into the highlight, which rel
 carries into the signed notes.
 
 With no person: cmux-next-media.yml's nightly tour (a push to nightly-next) builds the previous
-nightly tip and the new one. `plan` lists the New and Improved highlights the new tip adds that
-have a spec and no `clip:` line, at most PLAN_LIMIT, and writes each spec as a tour.py tour; the
-tour job runs them on the new tip's app (the clip) and, for an improvement, on the previous tip's
-(its before). `publish-auto` renders each from the tour's capture.mov (or its stills), checks it
+nightly tip and the new one. `plan` (run on Linux by the route job, so a tip whose only change is a
+highlight and its spec still gets a Mac) lists the New and Improved highlights that have a spec, no
+`clip:` line and a role not published yet: the ones the new tip adds, then the ones added in the
+CLIP_REANNOUNCE_DAYS before it (an earlier tour left them waiting, or their spec came later), at
+most PLAN_LIMIT. The tour job writes each spec as a tour.py tour (`write-tours`) and runs them on the
+new tip's app (the clip) and, for an improvement, on the app of the commit before its highlight (its
+before): the previous tip's for the ones the tip adds, and for an earlier one the parent of the
+commit that added it, one such extra app a tour (PLAN_EXTRA_BEFORES). `publish-auto` renders each from the tour's capture.mov (or its stills), checks it
 and puts it at whats-new/ID/clip-auto-ROLE.webp, where release-notes.py finds it with no write back
 to the highlight. Those publish after the nightly is cut, so the highlight rides along with the
 next one (release-notes.py late_pictures).
@@ -95,6 +100,11 @@ SAME = 0.6
 QUALITIES = (80, 70, 60, 50)
 # At most this many highlights a nightly tour records (each twice for an improvement); the rest wait.
 PLAN_LIMIT = 4
+# A highlight a tour left waiting is planned again for this long (release-notes.py's CLIP_REANNOUNCE_DAYS,
+# the window in which a clip published later rides along with the next build).
+CLIP_REANNOUNCE_DAYS = 7
+# At most this many before commits other than the previous tip a tour builds an app for.
+PLAN_EXTRA_BEFORES = 1
 AUTO_ROLES = ("after", "before")
 # Spec step keys only `cmux-ci capture` reads: `clip` marks the clip's steps, `record` where its video starts.
 CAPTURE_ONLY_STEP_KEYS = {"clip", "record"}
@@ -390,15 +400,41 @@ def front_matter(text: str) -> dict:
     return meta
 
 
-def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=published,
-         root: Path = ROOT) -> list[dict]:
-    """The highlights base..head adds that the tour records: New or Improved, a valid spec, no `clip:`
-    line, and a role whose clip is not on pr-media yet. Writes each one's tour to TOURS/ID.json."""
+def highlight_rows(base: str, head: str, root: Path = ROOT, days: int = CLIP_REANNOUNCE_DAYS) -> list[tuple[str, str]]:
+    """(path, before) of the highlights a nightly tour may record: the ones base..head adds, before them the
+    previous tip, then the ones added on the first-parent line in the DAYS before head (a tour that planned
+    more than PLAN_LIMIT left them waiting), oldest first, each before the commit that added it."""
     git = lambda *a: run(["git", "-C", str(root), *a], text=True).stdout
-    added = git("diff", "--diff-filter=A", "--name-only", base, head, "--", "release-notes/next/highlights").split()
+    folder = "release-notes/next/highlights"
+    added = sorted(git("diff", "--no-renames", "--diff-filter=A", "--name-only", base, head, "--", folder).split())
+    rows = [(path, base) for path in added]
+    head_time = int(git("show", "-s", "--format=%ct", head).strip())
+    # Newest first; a highlight removed and added again counts from its newest add.
+    log = git("log", "--first-parent", "--no-renames", "--diff-filter=A", "--name-only", "--format=commit %H %P",
+              f"--since={head_time - days * 86400}", head, "--", folder)
+    earlier, parent = {}, ""
+    for line in log.splitlines():
+        if line.startswith("commit "):
+            parts = line.split()
+            parent = parts[2] if len(parts) > 2 else ""
+        elif line.strip() and parent and line not in added and line not in earlier:
+            # A commit with no parent is a root, or a shallow clone's boundary, where every file reads as added.
+            earlier[line] = parent
+    present = set(git("ls-tree", "-r", "--name-only", head, "--", folder).split())
+    rows += [(path, before) for path, before in reversed(earlier.items()) if path in present]
+    return rows
+
+
+def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=published,
+         root: Path = ROOT, days: int = CLIP_REANNOUNCE_DAYS, extra_befores: int = PLAN_EXTRA_BEFORES) -> list[dict]:
+    """The highlights the tour records (highlight_rows): New or Improved, a valid spec, no `clip:` line, and
+    a role whose clip is not on pr-media yet. Each row's `before` is the commit its before is recorded on;
+    at most EXTRA_BEFORES rows have one other than base (each is another app to build), and a row past
+    that records its after now and its before on a later tour. Writes each one's tour to TOURS/ID.json."""
+    git = lambda *a: run(["git", "-C", str(root), *a], text=True).stdout
     validate = tour_module().load_tour
-    rows = []
-    for path in sorted(added):
+    rows, others, waiting = [], set(), 0
+    for path, before in highlight_rows(base, head, root, days):
         clip_id = Path(path).stem
         if not path.endswith(".md") or not ID.fullmatch(clip_id):
             continue
@@ -410,7 +446,12 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
             spec = load_spec(clip_id, root / "release-notes/next/clips")
             roles = [role for role in AUTO_ROLES[:2 if category == "improved" else 1]
                      if not exists(auto_url(clip_id, role))]
+            if "before" in roles and before != base and before not in others and len(others) >= extra_befores:
+                roles.remove("before")  # no app for its commit this tour; a later tour records it
             if not roles:
+                continue
+            if len(rows) >= limit:
+                waiting += 1
                 continue
             tours.mkdir(parents=True, exist_ok=True)
             tour = tours / f"{clip_id}.json"
@@ -424,10 +465,37 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
             (tours / f"{clip_id}.json").unlink(missing_ok=True)
             print(f"::warning title=What's New clip::{clip_id}: not a tour: {error}")
             continue
-        rows.append({"id": clip_id, "category": category, "roles": roles})
-    if len(rows) > limit:
-        print(f"::notice title=What's New clip::{len(rows) - limit} more wait for the next nightly")
-    return rows[:limit]
+        row = {"id": clip_id, "category": category, "roles": roles}
+        if "before" in roles:
+            row["before"] = before
+            if before != base:
+                others.add(before)
+        rows.append(row)
+    if waiting:
+        print(f"::notice title=What's New clip::{waiting} more wait for the next nightly")
+    return rows
+
+
+def write_tours(rows: list[dict], tours: Path, root: Path = ROOT) -> list[dict]:
+    """Writes the tours of a plan another job made (the route job plans on Linux) from this checkout's
+    specs; a row whose spec no longer makes a tour is left out."""
+    validate = tour_module().load_tour
+    kept = []
+    for row in rows:
+        clip_id = row.get("id", "")
+        try:
+            spec = load_spec(clip_id, root / "release-notes/next/clips")
+            meta = front_matter((root / "release-notes/next/highlights" / f"{clip_id}.md").read_text())
+            tours.mkdir(parents=True, exist_ok=True)
+            tour = tours / f"{clip_id}.json"
+            tour.write_text(json.dumps(tour_from_spec(spec, meta.get("title") or clip_id), indent=2) + "\n")
+            validate(tour)
+        except Exception as error:  # ClipError, OSError, tour.py's TourError
+            (tours / f"{clip_id}.json").unlink(missing_ok=True) if ID.fullmatch(clip_id) else None
+            print(f"::warning title=What's New clip::{clip_id}: {error}")
+            continue
+        kept.append(row)
+    return kept
 
 
 def tour_frames(spec: dict, manifest: dict, tour_dir: Path, scratch: Path) -> list[Path]:
@@ -558,10 +626,16 @@ def main(argv: list[str] | None = None) -> int:
     n.add_argument("--out", type=Path, required=True)
     n.add_argument("--tours", type=Path, required=True)
     n.add_argument("--limit", type=int, default=PLAN_LIMIT)
+    w = sub.add_parser("write-tours")
+    w.add_argument("--plan", type=Path, required=True)
+    w.add_argument("--tours", type=Path, required=True)
     o = sub.add_parser("tours")
     o.add_argument("--plan", type=Path, required=True)
     o.add_argument("--role", choices=AUTO_ROLES, required=True)
     o.add_argument("--dir", type=Path, required=True)
+    o.add_argument("--before", help="only the rows whose before is recorded on this commit")
+    o.add_argument("--other-befores", action="store_true",
+                   help="print the before commits other than --before the plan names, one per line")
     u = sub.add_parser("publish-auto")
     u.add_argument("--plan", type=Path, required=True)
     u.add_argument("--results", type=Path, required=True)
@@ -572,9 +646,19 @@ def main(argv: list[str] | None = None) -> int:
             a.out.write_text(json.dumps(rows, indent=2) + "\n")
             print(len(rows))
             return 0
+        if a.command == "write-tours":
+            rows = write_tours(json.loads(a.plan.read_text()), a.tours)
+            a.plan.write_text(json.dumps(rows, indent=2) + "\n")
+            print(len(rows))
+            return 0
         if a.command == "tours":
-            for row in json.loads(a.plan.read_text()):
-                if a.role in row["roles"]:
+            rows = json.loads(a.plan.read_text())
+            if a.other_befores:
+                for sha in dict.fromkeys(r["before"] for r in rows if "before" in r["roles"] and r.get("before") != a.before):
+                    print(sha)
+                return 0
+            for row in rows:
+                if a.role in row["roles"] and (a.before is None or a.role != "before" or row.get("before") == a.before):
                     print(a.dir / f"{row['id']}.json")
             return 0
         if a.command == "publish-auto":
