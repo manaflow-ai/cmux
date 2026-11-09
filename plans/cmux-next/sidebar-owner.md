@@ -27,7 +27,7 @@
   into opaque when it does get hovered. I feel like we should be able to keep it as glass though, right?" A native
   glass behind the card's page (`SidebarUpdatedCardHost.glass`), the card and its open preview, frosts the rows under
   it, so the page keeps its tint open, at rest and dragged (takes back the solid fill of a72c0fd5c542, f1d36c5f77e3,
-  9205005b4340). The preview and the glass move on cubic-bezier(0.16, 1, 0.3, 1) over 265 ms on `Motion.web`. The rows
+  9205005b4340). The preview and the glass move on cubic-bezier(0.16, 1, 0.3, 1) over 180 ms on `Motion.web`. The rows
   under the open card neither light nor open hover cards (`SidebarListView.hoverOccluded`), and the grown view takes
   clicks only on the glass. Regression: `UpdatedCardHoverPreviewTests`, webviews `updated-card-hover-preview.test.tsx`,
   `updated-card-native-glass.test.ts`.
