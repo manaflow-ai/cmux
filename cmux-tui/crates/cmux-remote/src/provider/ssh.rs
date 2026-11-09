@@ -208,8 +208,9 @@ struct SshLinkGroup {
     /// Set once an ssh run of this group timed out on the host's banner:
     /// redials then keep the caller's ConnectTimeout.
     slow_banner: AtomicBool,
-    /// The newest run's stderr, read by the next open for a banner timeout.
-    last_stderr: StdMutex<Option<Arc<StderrTail>>>,
+    /// The newest run's generation and stderr, read by the next open for a
+    /// banner timeout.
+    last_stderr: StdMutex<Option<(u64, Arc<StderrTail>)>>,
 }
 
 impl SshLinkGroup {
@@ -222,10 +223,14 @@ impl SshLinkGroup {
             return Vec::new();
         }
         let previous = self.last_stderr.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        if let Some(tail) = previous {
-            // The run before may still be writing why it ended: its words
-            // are read once its stderr closed or STDERR_SETTLE passed.
-            let _ = tail.settled().await;
+        if let Some((ran_for, tail)) = previous {
+            // A run of an earlier generation has ended or is ending and may
+            // still be writing why: its words are read once its stderr
+            // closed or STDERR_SETTLE passed. Another lane of this generation
+            // is live, so its stderr stays open: read what it said so far.
+            if ran_for < generation {
+                let _ = tail.settled().await;
+            }
             if tail.said(SSH_BANNER_TIMEOUT) {
                 self.slow_banner.store(true, Ordering::Release);
             }
@@ -324,15 +329,17 @@ impl LinkGroup for SshLinkGroup {
             .stderr
             .take()
             .map(|stderr| StderrTail::spawn(stderr, !self.config.capture_stderr));
-        *self.last_stderr.lock().unwrap_or_else(PoisonError::into_inner) = tail.clone();
-        let stderr = tail.filter(|_| self.config.capture_stderr);
+        *self.last_stderr.lock().unwrap_or_else(PoisonError::into_inner) =
+            tail.clone().map(|tail| (request.generation, tail));
+        let (stderr, forwarding) =
+            if self.config.capture_stderr { (tail, None) } else { (None, tail) };
         let inner = LengthDelimitedLink::new(
             self.description.clone(),
             self.config.maximum_frame_bytes,
             stdout,
             stdin,
         );
-        Ok(Box::new(SshProcessLink { inner, child: Mutex::new(Some(child)), stderr }))
+        Ok(Box::new(SshProcessLink { inner, child: Mutex::new(Some(child)), stderr, forwarding }))
     }
 
     async fn close(&self) -> Result<(), ProviderError> {
@@ -346,6 +353,10 @@ struct SshProcessLink {
     child: Mutex<Option<Child>>,
     /// The run's stderr, when the provider captures it.
     stderr: Option<Arc<StderrTail>>,
+    /// The run's stderr, when it is passed on to this process's stderr: an
+    /// ended link waits for it to settle, so ssh's last words are written
+    /// before the caller reports the end.
+    forwarding: Option<Arc<StderrTail>>,
 }
 
 /// The last [`STDERR_TAIL_BYTES`] an `ssh` run wrote to its stderr, read
@@ -443,6 +454,13 @@ pub fn ssh_stderr_of(detail: &str) -> Option<&str> {
 }
 
 impl SshProcessLink {
+    /// Waits (at most STDERR_SETTLE) until a forwarded stderr is written out.
+    async fn forwarded(&self) {
+        if let Some(forwarding) = &self.forwarding {
+            let _ = forwarding.settled().await;
+        }
+    }
+
     /// An ended link's error, with what ssh said when it was captured.
     async fn with_stderr(&self, error: Option<LinkError>) -> Option<LinkError> {
         let said = match &self.stderr {
@@ -484,14 +502,20 @@ impl FrameLink for SshProcessLink {
             Err(error) if self.stderr.is_some() => {
                 Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
             }
-            Err(error) => Err(error),
+            Err(error) => {
+                self.forwarded().await;
+                Err(error)
+            }
         }
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
         match self.inner.receive().await {
             Ok(Some(frame)) => Ok(Some(frame)),
-            ended if self.stderr.is_none() => ended,
+            ended if self.stderr.is_none() => {
+                self.forwarded().await;
+                ended
+            }
             Ok(None) => self.with_stderr(None).await.map_or(Ok(None), Err),
             Err(error) => Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed)),
         }
@@ -582,6 +606,7 @@ mod tests {
             inner: LengthDelimitedLink::new("ssh://test", 1024, stdout, stdin),
             child: Mutex::new(Some(child)),
             stderr: None,
+            forwarding: None,
         };
 
         link.close().await.unwrap();
@@ -701,6 +726,29 @@ mod tests {
             connect_timeouts(&args),
             ["ConnectTimeout=3", "ConnectTimeout=15", "ConnectTimeout=15"]
         );
+    }
+
+    /// Lanes of one generation open while the first lane's ssh still runs:
+    /// its stderr stays open, and a later lane must not wait for it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn another_lane_of_the_same_redial_does_not_wait_for_a_live_stderr() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        std::fs::write(&script, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let group = group_with(script.to_str().unwrap().to_owned(), &[]).await;
+        let request =
+            || LinkRequest { lane: cmux_remote_protocol::Lane::Interactive, generation: 1 };
+
+        let first = group.open(request()).await.unwrap();
+        let started = std::time::Instant::now();
+        let second = group.open(request()).await.unwrap();
+
+        assert!(started.elapsed() < STDERR_SETTLE, "waited {:?}", started.elapsed());
+        first.close().await.unwrap();
+        second.close().await.unwrap();
     }
 
     #[test]
