@@ -384,7 +384,7 @@ final class FilePageService: InternalPageProvider {
             return true
         }
         return services.linkOpener.open(from: pane) { target, placed in
-            target.newTerminalTab(cwd: cwd, typing: run.text.hasSuffix("\n") ? run.text : run.text + "\n", then: placed)
+            target.newTerminalTab(cwd: cwd, typing: run.text.hasSuffix("\n") ? run.text : run.text + "\n", placementOwner: placed != nil, then: placed)
             return true
         }
     }

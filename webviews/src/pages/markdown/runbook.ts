@@ -57,9 +57,9 @@ export function runnableCommand(language: string, text: string): string {
   return commands.join("\n").trim();
 }
 
-/** A quoting or substitution scope the shell is inside: `'…'`, `$'…'` (where `\\` escapes), `"…"`, `` `…` ``, `$(…)` (and a
+/** A quoting, substitution or arithmetic scope the shell is inside: `'…'`, `$'…'` (where `\\` escapes), `"…"`, `((…))`, `` `…` ``, `$(…)` (and a
  * `(…)` inside it) or `${…}`. */
-type Scope = "'" | "$'" | '"' | "`" | "$(" | "(" | "${";
+type Scope = "'" | "$'" | '"' | "`" | "$(" | "(" | "${" | "((";
 
 /** What a shell still waits for after a line: the end of its open scopes or heredocs, a next line
  * after a `\\` or an operator, or the end of `depth` open compound commands. */
@@ -202,10 +202,21 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
       continue;
     }
     if (scope !== undefined) {
-      // Inside a substitution: its own parentheses and braces, until the one that closes it.
-      if (char === "(" && (scope === "$(" || scope === "(")) scopes.push("(");
-      else if (char === ")" && (scope === "$(" || scope === "(")) scopes.pop();
+      // Inside a substitution or `((…))`: its own parentheses and braces, until the one that closes it.
+      if (char === "(" && (scope === "$(" || scope === "(" || scope === "((")) scopes.push("(");
+      else if (char === ")" && scope === "((" && line[at + 1] === ")") {
+        scopes.pop();
+        at++;
+      } else if (char === ")" && (scope === "$(" || scope === "(")) scopes.pop();
       else if (char === "}" && scope === "${") scopes.pop();
+      continue;
+    }
+    if (char === "(" && line[at + 1] === "(" && !word) {
+      // `((…))` is arithmetic: its `<<` is a shift, never a heredoc.
+      endWord();
+      scopes.push("((");
+      at++;
+      last = "";
       continue;
     }
     if (char === "#" && !word) {

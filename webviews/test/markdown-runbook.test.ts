@@ -97,6 +97,14 @@ describe("runbook steps", () => {
     expect(runnableCommand("console", "$ cat <<EOF \\\n> -\n> rm important.txt\n> EOF\nrm important.txt")).toBe(
       "cat <<EOF \\\n-\nrm important.txt\nEOF",
     );
+    // `<<` inside `((…))` or `$((…))` is a shift, not a heredoc: the output line after is not run.
+    expect(runnableCommand("console", "$ (( 1 << 2 )); printf '> echo UNEXPECTED\\n'\n> echo UNEXPECTED")).toBe(
+      "(( 1 << 2 )); printf '> echo UNEXPECTED\\n'",
+    );
+    expect(runnableCommand("console", "$ echo $(( 1 << (2) ))\n> echo UNEXPECTED")).toBe("echo $(( 1 << (2) ))");
+    expect(runnableCommand("console", "$ if (( x > 1 )); then\n> echo big\n> fi\nbig")).toBe(
+      "if (( x > 1 )); then\necho big\nfi",
+    );
     // A heredoc's delimiter is its whole word, quoted or not, and heredocs on one line close in order.
     expect(runnableCommand("console", "$ cat <<EOF.txt\n> touch marker\n> EOF.txt\ntouch marker")).toBe(
       "cat <<EOF.txt\ntouch marker\nEOF.txt",
