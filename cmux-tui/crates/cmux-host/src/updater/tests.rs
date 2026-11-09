@@ -601,7 +601,7 @@ fn a_three_minute_pause_during_a_check_holds_its_flip() {
 fn another_process_reads_the_pause_record_and_holds() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
-    let file = paths.at(super::PAUSE_FILE);
+    let file = paths.at(PAUSE_FILE);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     let service = crate::agent::PauseWatch::new();
     service.persist_to(file.clone());
