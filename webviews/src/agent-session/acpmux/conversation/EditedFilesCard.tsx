@@ -24,7 +24,7 @@ import { SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
-import { TurnShots } from "../turnChanges/TurnShots";
+import { TurnShots } from "../turnChanges/TurnShotsPair";
 import { FindReveal, isRevealRow } from "./chatFind";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { EditDiff } from "./EditDiff";

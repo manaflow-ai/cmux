@@ -35,7 +35,7 @@
    (Leo 2026-11-07, on a diff card nested in this one: "the rest of the card situation"), so the card
    has one rim and one radius and its Show all / Show less row is the card's bottom row. */
 .acpmux-edited-diff>.cv-edit-diff{margin:0;border-radius:0;background:none;box-shadow:none}
-/* The turn's before and after picture of the chat's page (TurnShots.tsx), under the card's header:
+/* The turn's before and after picture of the chat's page (TurnShotsPair.tsx), under the card's header:
    a 16:10 frame from the pictures' top left, at most 220px tall, the split the person drags. A pair
    that arrives while the card shows grows its row from nothing, through the motion gate; with motion
    off or reduced it is there at once. */

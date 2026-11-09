@@ -1,5 +1,5 @@
 // A turn's before and after picture of the chat's page (agent-session/acpmux/turnChanges/turnShots.ts,
-// TurnShots.tsx; acpmux hub/turn_shots.rs): the reply reads as a pair only with both pictures, the
+// TurnShotsPair.tsx; acpmux hub/turn_shots.rs): the reply reads as a pair only with both pictures, the
 // pair belongs to the turn's ending summary, reads stay bounded, and the card draws the shared
 // before/after split with both fixture pictures.
 import { expect, test } from "bun:test";

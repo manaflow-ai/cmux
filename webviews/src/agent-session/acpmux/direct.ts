@@ -185,6 +185,7 @@ import {
   memoryRowId,
   settleMemoryOffer,
 } from "./conversation/memoryInbox";
+import { readTurnShots, type TurnShotPair } from "./turnChanges/turnShots";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;

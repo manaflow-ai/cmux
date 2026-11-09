@@ -1,7 +1,7 @@
 // A turn's before and after picture of the chat's page (wow idea 26): acpmux captures the page a
 // browser pane of the chat's workspace shows when the turn starts and once it ends, and keeps the
 // pair when the pictures differ (cmux-tui acpmux hub/turn_shots.rs). The edited-files card reads
-// it by the turn's id when it draws (TurnShots.tsx); a card that never draws reads nothing.
+// it by the turn's id when it draws (TurnShotsPair.tsx); a card that never draws reads nothing.
 import { createContext } from "react";
 import type { CompareMode } from "../../../ui/MediaCompare";
 import { endsTurn, turnRows } from "../diff";

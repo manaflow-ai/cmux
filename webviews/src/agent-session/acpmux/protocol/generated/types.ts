@@ -1990,6 +1990,12 @@ export interface TrustSetParams {
   sessionId?: unknown;
 }
 
+export interface TurnShotsParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+  turnId?: unknown;
+}
+
 /** The running turn. */
 export type TurnSummary = {
   /**
@@ -2012,12 +2018,6 @@ export type TurnSummary = {
   turnId: string;
   turnSeq: number;
 } & Record<string, unknown>;
-
-export interface TurnShotsParams {
-  _meta?: RequestMeta;
-  sessionId?: unknown;
-  turnId?: unknown;
-}
 
 /**
  * `_acpmux/typing`: at most 2 a second per connection (`typing.rate_limited`); an `on`

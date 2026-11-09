@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample paths and file text), not shipped UI.
 // The edited-files card with its turn's before and after picture of the chat's page
-// (TurnShots.tsx, turnShots.ts): the split the card ships with (the person drags it or moves it
+// (TurnShotsPair.tsx, turnShots.ts): the split the card ships with (the person drags it or moves it
 // with the arrow keys), and the shared pair's other modes as candidates (side by side, a Before /
 // After toggle), plus a pair that arrives while the card shows and grows in through the motion gate.
 import { useMemo } from "react";
@@ -64,7 +64,7 @@ export default componentEntry<Props>({
   title: "Turn before/after pictures",
   area: "Agent pane",
   height: 520,
-  covers: ["agent-session/acpmux/turnChanges/TurnShots.tsx#TurnShots", "ui/MediaCompare.tsx#MediaCompare"],
+  covers: ["agent-session/acpmux/turnChanges/TurnShotsPair.tsx#TurnShots", "ui/MediaCompare.tsx#MediaCompare"],
   load: async () => TurnShotsGallery,
   styles: () => Promise.all([import("../styles.css"), import("./turnChanges.css")]),
   variants: {
