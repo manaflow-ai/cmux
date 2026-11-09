@@ -964,7 +964,10 @@ async fn relay_session(
                         } else if !state.managed {
                             // A reconnect that settles the trust already saved writes no config.
                             let trust = Some(local_trust.as_str().to_owned());
-                            if owner_changed || config.trust != trust || config.pending_trust.is_some() {
+                            if owner_changed
+                                || config.trust != trust
+                                || config.pending_trust.is_some()
+                            {
                                 config.trust = trust;
                                 config.pending_trust = None;
                                 save(config, config_path);

@@ -24,7 +24,7 @@ use super::super::{
 use super::chunks::{CHUNK_RECORD_LIMIT, ChunkReader, StagedRecord, insert_chunk};
 use super::codec::{SegmentWriter, encode_hex};
 use super::stage::{
-    Staged, open_existing_staging, stage_segments, staged_records, state, state_u64,
+    Staged, open_existing_staging, sealed_records, stage_segments, staged_records, state, state_u64,
 };
 use super::{
     DONE_META_KEY, OUTPUT_KIND, PRUNED_RANGES_SCHEMA, REBUILT_TABLES, STAGED_WORK_CHANGED,
@@ -452,15 +452,20 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         return Ok(Swap::NotReady);
     }
     // Before anything is copied: the kept records are what the open copies.
+    // Segments sealed after Phase A are staged below, inside the open, with
+    // no bound of their own: they count at their kind map's most.
     let (staged_kept, staged_total) = staged_records(&staged)?;
-    let (live_kept, live_total) = {
+    let (tail, (live_kept, live_total)) = {
         let source = open_registry_database_read_only(db_path)?;
         source.busy_timeout(Duration::from_secs(5))?;
-        live_records(&source)?
+        (sealed_records(&source, state_u64(&staged, "staged_through")?)?, live_records(&source)?)
     };
-    if let Some(reason) = staged_bytes_refusal(db_path)
-        .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
-    {
+    if let Some(reason) = staged_bytes_refusal(&staged)?.or_else(|| {
+        kept_refusal(
+            staged_kept + tail.kept_at_most + live_kept,
+            staged_total + tail.total + live_total,
+        )
+    }) {
         return Ok(Swap::Abandoned(reason));
     }
     if let Err(reason) = free_space_refusal(db_path, copied)? {

@@ -23,6 +23,7 @@
     "agent-session-tabs-v1",
     "agent-session-trust-v1",
     "agent-session-trust-vm-kind-v1",
+    "app-provider-changed-v1",
     "app-screens-v1",
     "attach-identity-v1",
     "attach-visibility-v1",

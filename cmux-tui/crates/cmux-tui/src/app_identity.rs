@@ -174,7 +174,14 @@ impl AppIdentity {
     pub(crate) fn daemon_session_in(&self, home: &Path) -> Option<String> {
         let build = self.build();
         let session = build.app_session()?;
-        if build.legacy_session_marker(home).is_some_and(|marker| marker.is_file()) {
+        // The app moves its folder out of classic's at launch (CmuxNext `StateFolderMove`); a marker not
+        // moved yet (the move kept it, or this CLI runs before the app launched) still counts.
+        let adopted =
+            [build.legacy_session_marker(home), build.legacy_session_marker_before_move(home)]
+                .into_iter()
+                .flatten()
+                .any(|marker| marker.is_file());
+        if adopted {
             // `LegacyChannelSession.session`: the old shared daemon session.
             return Some("cmux-app".to_owned());
         }
@@ -411,6 +418,14 @@ mod tests {
             identity(Some("com.cmuxterm.app.debug.nx9"), None).daemon_session_in(&root).as_deref(),
             Some("cmux-app-nx9")
         );
+        // A marker still where builds before the folder move kept it (classic's folder) counts too.
+        std::fs::remove_file(&marker).unwrap();
+        assert_eq!(nightly.daemon_session_in(&root).as_deref(), Some("cmux-app-nightly"));
+        let before = nightly.build().legacy_session_marker_before_move(&root).unwrap();
+        assert_ne!(before, marker, "the marker before the move sits in classic's folder");
+        std::fs::create_dir_all(before.parent().unwrap()).unwrap();
+        std::fs::write(&before, br#"{"session":"cmux-app","state_root":"/x"}"#).unwrap();
+        assert_eq!(nightly.daemon_session_in(&root).as_deref(), Some("cmux-app"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
