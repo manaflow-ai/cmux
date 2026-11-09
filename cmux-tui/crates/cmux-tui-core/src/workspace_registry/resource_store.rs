@@ -2106,6 +2106,8 @@ pub(crate) fn resource_patch_replay(
     let Some((stored_operation, stored_fingerprint, result, revision)) = stored else {
         return Ok(None);
     };
+    let ids = super::host_identity::StoredIds::load(transaction)?;
+    let (stored_fingerprint, result) = (ids.fingerprint(stored_fingerprint)?, ids.text(result));
     if stored_operation != operation || stored_fingerprint != fingerprint {
         anyhow::bail!(
             "idempotency.conflict: key {} committed_operation {} from {} was reused with different input",

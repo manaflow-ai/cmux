@@ -217,23 +217,33 @@ const JOURNAL_TABLES: [&str; 10] = [
     "journal_producers",
 ];
 
-/// Mutation receipts and the events they recorded: a row per change, never
-/// pruned, so they grow with use (scanning them took 1.9 s of a 4.2 s first
-/// start of a 58.7 GB registry on its new machine). The rehome leaves them
-/// as stored and records the id it replaced ([`FORMER_IDS_META_KEY`]); their
-/// readers serve the stored text through [`StoredIds`], which moves the
-/// references the scan would have moved. Only `fingerprint` and
-/// `result_json` can hold one: their other columns are client origins and
-/// mutation ids, random workspace keys and terminal ids, and event kinds.
-/// No table references them, and they reference none.
-/// (`resource_mutations` and `bookmark_mutations` are pruned to a window,
-/// so the scan still covers them.)
-const RECEIPT_TABLES: [&str; 5] = [
+/// Mutation receipts and the events they recorded: a row per change, so
+/// they grow with use (scanning the first five took 1.9 s of a 4.2 s first
+/// start of a 58.7 GB registry on its new machine). The resource ledger
+/// (`resource_mutations`, `resource_effect_receipts`) is pruned to a window
+/// of rows, but its results are large: scanning it took 1.2 s of the same
+/// start for 63 rows changed (`resource_mutations`, 1225.5 ms) and 48 ms
+/// for none (`resource_effect_receipts`), 2026-11-09. The rehome leaves
+/// them as stored and records the id it replaced ([`FORMER_IDS_META_KEY`]);
+/// their readers serve the stored text through [`StoredIds`], which moves
+/// the references the scan would have moved. Only the JSON columns can hold
+/// one (`fingerprint`, `result_json`, `intent_json`, `outcome_json`): the
+/// others are client origins and mutation ids, actors, random workspace keys
+/// and terminal ids, operation names, states and event kinds. No table the
+/// rehome rewrites references them or joins on their JSON; the SQL that
+/// reads their JSON matches notification public ids (minted, never a registry
+/// id) and the schema migrations that copy `resource_mutations` rows
+/// (agent projections, the legacy event journal) run only on registries
+/// older than any that has a former id. (`bookmark_mutations` is pruned to
+/// a window of small rows, so the scan still covers it.)
+const RECEIPT_TABLES: [&str; 7] = [
     "mutations",
     "workspace_events",
     "terminal_events",
     "terminal_mutations",
     "projection_mutations",
+    "resource_mutations",
+    "resource_effect_receipts",
 ];
 
 /// In `meta`: the registry ids this registry had before its moves to other
@@ -243,14 +253,14 @@ const FORMER_IDS_META_KEY: &str = "registry_former_ids";
 /// The registry's former ids and its current one: text stored before a
 /// move ([`RECEIPT_TABLES`]) is served with its references moved, as the
 /// rehome's scan moves them elsewhere.
-pub(super) struct StoredIds {
+pub(crate) struct StoredIds {
     current: String,
     former: Vec<String>,
 }
 
 impl StoredIds {
     /// One `meta` read; no former ids for a registry that never moved.
-    pub(super) fn load(connection: &Connection) -> anyhow::Result<Self> {
+    pub(crate) fn load(connection: &Connection) -> anyhow::Result<Self> {
         let former = meta_value(connection, FORMER_IDS_META_KEY)?
             .map(|raw| serde_json::from_str::<Vec<String>>(&raw))
             .transpose()
@@ -265,7 +275,7 @@ impl StoredIds {
     }
 
     /// `text` with its references to a former id moved to the current one.
-    pub(super) fn text(&self, text: String) -> String {
+    pub(crate) fn text(&self, text: String) -> String {
         self.former.iter().fold(text, |text, old| {
             if !text.contains(old.as_str()) {
                 return text;
@@ -277,7 +287,7 @@ impl StoredIds {
     }
 
     /// A stored canonical fingerprint, moved and canonical again.
-    pub(super) fn fingerprint(&self, stored: String) -> anyhow::Result<String> {
+    pub(crate) fn fingerprint(&self, stored: String) -> anyhow::Result<String> {
         let moved = self.text(stored.clone());
         if moved == stored {
             return Ok(stored);
