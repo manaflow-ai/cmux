@@ -252,6 +252,11 @@ pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<
     use std::io::Write;
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = path.parent().ok_or_else(|| std::io::Error::other("the wrapper has no folder"))?;
+    // Private state, as every folder in the acpmux home: owner-only, and refused when another
+    // user could write it or an ancestor (F1 of #39020): they could swap the script agents run.
+    // Checked before the same-text return too: a folder an older build left open is refused.
+    crate::config::private_state_dir(dir).map_err(|e| std::io::Error::other(format!("{e:#}")))?;
     if let Ok(meta) = std::fs::symlink_metadata(path)
         && meta.is_file()
         && meta.permissions().mode() & 0o777 == 0o700
@@ -259,16 +264,20 @@ pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<
     {
         return Ok(());
     }
-    let dir = path.parent().ok_or_else(|| std::io::Error::other("the wrapper has no folder"))?;
-    // Private state, as every folder in the acpmux home: owner-only, and refused when another
-    // user could write it or an ancestor (F1 of #39020): they could swap the script agents run.
-    crate::config::private_state_dir(dir).map_err(|e| std::io::Error::other(format!("{e:#}")))?;
     remove_dead_temporaries(dir);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = dir.join(format!(".{CLI_ALIAS}.{}.{n}.tmp", std::process::id()));
+    let create = || std::fs::OpenOptions::new().write(true).create_new(true).mode(0o700).open(&tmp);
     let written = (|| {
-        let mut file =
-            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o700).open(&tmp)?;
+        // A file with this name is a dead writer's that had this pid (no live process but this
+        // one has it, and this one takes each `n` once): removed, then created once more.
+        let mut file = match create() {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::fs::remove_file(&tmp)?;
+                create()?
+            }
+            opened => opened?,
+        };
         file.write_all(script.as_bytes())?;
         file.sync_all()?;
         // The mode a umask may have narrowed: the script must run.
