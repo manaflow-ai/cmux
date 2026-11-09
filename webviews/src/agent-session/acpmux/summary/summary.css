@@ -8,7 +8,7 @@
 .acpmux-summary-card--reserve{visibility:hidden;pointer-events:none}
 /* The column clips its rows, so its drag edge sits just inside its left edge (ui/SplitEdge.css). */
 .acpmux-summary-card[data-placement=inline]>.ui-split-edge[data-side=left]{left:0}
-.acpmux-summary-card[data-placement=inline]>.ui-split-edge::after{left:0}
+.acpmux-summary-card[data-placement=inline]>.ui-split-edge::after{left:0;translate:none}
 .acpmux-main[data-summary=inline]{min-width:0}
 /* The inline Summary is beside the chat, not inside its stage: it must leave the native shared
    tab row empty too. The same column width keeps the tools at the pane edge while the chat narrows. */

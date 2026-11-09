@@ -3,33 +3,35 @@
    over it (DividerHandleView's active color). The hit zone is 8px, centred on the pane's edge. The
    pane it sizes must be positioned (relative or absolute). */
 .ui-split-edge {
+  --ui-split-edge-hit: 8px;
   position: absolute;
   z-index: var(--layer-raised, 2);
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: var(--ui-split-edge-hit);
   cursor: col-resize;
   touch-action: none;
 }
 .ui-split-edge[data-side="left"] {
-  left: -4px;
+  left: calc(var(--ui-split-edge-hit) / -2);
 }
 .ui-split-edge[data-side="right"] {
-  right: -4px;
+  right: calc(var(--ui-split-edge-hit) / -2);
 }
 .ui-split-edge[data-side="start"] {
-  inset-inline-start: -4px;
+  inset-inline-start: calc(var(--ui-split-edge-hit) / -2);
 }
 .ui-split-edge[data-side="end"] {
-  inset-inline-end: -4px;
+  inset-inline-end: calc(var(--ui-split-edge-hit) / -2);
 }
 .ui-split-edge::after {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 3px;
+  left: 50%;
   width: 2px;
+  translate: -50% 0;
   background: transparent;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
