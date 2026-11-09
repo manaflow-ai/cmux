@@ -189,6 +189,12 @@ it("never deletes a tunnel at the device's slug unless it is attached to exactly
     expect(h.mesh.tunnels.has(found.id), intentId).toBe(true);
     expect(h.mesh.store.deviceIntentAttempts().filter((row) => row.intentId === intentId && row.resolvedAt === null), intentId).toHaveLength(1);
     expect(h.upstream.callsTo("DELETE", new RegExp(`^/v5/tunnels/${found.id}$`, "u")), intentId).toHaveLength(0);
+    // The refused revoke still wrote its tombstone, which makes the tunnel the sweep's: the sweep checks the same
+    // exact-network rule before any delete, skips it, and sends no DELETE.
+    const report = await sweepTunnels();
+    expect(report.deleted, intentId).toEqual([]);
+    expect(h.mesh.tunnels.has(found.id), intentId).toBe(true);
+    expect(h.upstream.callsTo("DELETE", new RegExp(`^/v5/tunnels/${found.id}$`, "u")), intentId).toHaveLength(0);
   }
 });
 
