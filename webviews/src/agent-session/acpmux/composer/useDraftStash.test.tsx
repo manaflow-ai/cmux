@@ -139,3 +139,43 @@ test("a chip that changed while the stash was out (same id) keeps the prompt", a
   await act(async () => land());
   expect(cleared).toBe(0);
 });
+
+test("⌃S while a restore's drop is out waits, so a full stack lets no other draft go", async () => {
+  const pushed: string[] = [];
+  let dropDone: () => void = () => {};
+  const transport: StashTransport = {
+    list: async () => ({ drafts: [{ id: "stash-1", text: "kept", attachments: [], at: 1 }] }),
+    push: async (_chat, text) => (pushed.push(text), { draft: { id: "stash-2", text, attachments: [], at: 2 } }),
+    get: async () => ({ draft: { id: "stash-1", text: "kept", attachments: [], at: 1 } }),
+    drop: () => new Promise((resolve) => (dropDone = () => resolve({ removed: true }))),
+    move: async () => ({ moved: 0, ids: [] }),
+  };
+  resetStashForTests(transport);
+  let text = "";
+  let api: { unstash: (id?: string) => void; toggle: () => void } = { unstash: () => {}, toggle: () => {} };
+  function Probe() {
+    api = useDraftStash("chat", {
+      held: () => ({ text, attachments: [] }),
+      loading: () => false,
+      clear: () => void (text = ""),
+      restore: (back) => void (text = back),
+      focus: () => {},
+    });
+    return null;
+  }
+  globalThis.requestAnimationFrame ??= (done: FrameRequestCallback) => {
+    setTimeout(() => done(0), 0);
+    return 0;
+  };
+  root = createRoot(installDom());
+  await act(async () => root!.render(<Probe />));
+  await act(async () => api.unstash("stash-1"));
+  for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(text).toBe("kept");
+  // The drop is still out: ⌃S stashes nothing yet.
+  await act(async () => api.toggle());
+  expect(pushed).toEqual([]);
+  await act(async () => dropDone());
+  await act(async () => api.toggle());
+  expect(pushed).toEqual(["kept"]);
+});

@@ -51,28 +51,28 @@ export function useDraftStash(chat: string, composer: StashedComposer) {
       now.attachments.every((chip, index) => chip === held.attachments[index])
     );
   };
-  // One stash at a time: a second ⌃S while acpmux takes the draft would stash it twice.
-  const stashing = useRef(false);
+  // One stash or restore at a time, each to its end (a restore's drop included): a second ⌃S while
+  // acpmux takes the draft would stash it twice, a second pick would put both back and drop both,
+  // and a stash while a restore's drop is out could land first on a full stack and let an older
+  // draft go before the drop frees its place.
+  const busy = useRef(false);
   const stash = () => {
-    if (stashing.current) return;
-    stashing.current = true;
+    if (busy.current) return;
+    busy.current = true;
     const on = chat;
     const held = io.current.held();
     // The prompt empties once acpmux holds the draft; a refusal leaves it as it was.
     void stashDraft(on, held.text, held.attachments)
       .then((done) => done && showing(on) && stillHeld(held) && !io.current.loading() && io.current.clear())
       .finally(() => {
-        stashing.current = false;
+        busy.current = false;
       });
   };
-  // One restore at a time: a second pick while one is out would put both back and drop both, and
-  // the prompt would hold only the last.
-  const restoring = useRef(false);
   const unstash = (id?: string) => {
     const on = chat;
     const target = id ?? stashed[0]?.id;
-    if (!target || restoring.current || io.current.loading()) return;
-    restoring.current = true;
+    if (!target || busy.current || io.current.loading()) return;
+    busy.current = true;
     void (async () => {
       // Read whole, put back before what the prompt holds, and dropped only once this composer has
       // it again in the same chat: until then acpmux keeps it, so a page that goes loses nothing.
@@ -85,7 +85,7 @@ export function useDraftStash(chat: string, composer: StashedComposer) {
       await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
       if (showing(on)) await dropStashed(on, entry.id);
     })().finally(() => {
-      restoring.current = false;
+      busy.current = false;
     });
   };
   /// ⌃S: a draft is stashed (one acpmux does not take stays in the prompt); an empty prompt
