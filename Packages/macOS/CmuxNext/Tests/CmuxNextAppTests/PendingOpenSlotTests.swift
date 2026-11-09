@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+@testable import CmuxNextDaemonService
 import Testing
 
 /// A chat clicked while this Mac's sessions restore waits and opens once they are ready (Leo, 2026-11-08: "me trying

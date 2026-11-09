@@ -39,10 +39,6 @@ enum MiscHandlerStrings {
     static var paneNotReady: String { String(localized: "handlers.misc.failed.paneNotReady", defaultValue: "This pane is still opening; try again in a moment.", table: "MiscHandlers", bundle: .module) }
     /// A create's target was a pending pane whose own create was never made (`PendingPaneNotCreated`, P0 2026-10-30).
     static var pendingPaneNotCreated: String { String(localized: "handlers.misc.failed.pendingPaneNotCreated", defaultValue: "The pane it was for was not created.", table: "MiscHandlers", bundle: .module) }
-    /// A chat clicked while this Mac's sessions restore (``PendingSessionOpen``): it opens once they are ready.
-    static var pendingOpenWaits: String { String(localized: "handlers.misc.pendingOpen.waits", defaultValue: "Opens when your sessions are restored.", table: "MiscHandlers", bundle: .module) }
-    /// That chat's open was dropped: its window closed, or the sessions were not ready within 10 minutes.
-    static var pendingOpenDropped: String { String(localized: "handlers.misc.pendingOpen.dropped", defaultValue: "Stopped waiting to open the chat you clicked.", table: "MiscHandlers", bundle: .module) }
     static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "cmux's background service isn't connected.", table: "MiscHandlers", bundle: .module) }
     static var printUnavailable: String { String(localized: "handlers.misc.failed.printUnavailable", defaultValue: "This page can't be printed now.", table: "MiscHandlers", bundle: .module) }
     static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module) }

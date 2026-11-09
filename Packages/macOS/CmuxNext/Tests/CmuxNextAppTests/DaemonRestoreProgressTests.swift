@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDaemon
 @testable import CmuxNextDaemonRecovery
 import CmuxNextDaemonService
+import CmuxNextSidebar
 import Foundation
 import Testing
 
@@ -104,7 +105,7 @@ struct DaemonRestoreProgressTests {
         #expect(waited == waited.sorted() && Set(waited).count == waited.count, "the time shown stepped back: \(waited)")
         #expect(recovery.restoring == nil)
         #expect(launched.view?.titleText != RefusalStrings.restoringSessions(waitedMs: waited.last ?? 0))
-        let card = SidebarCardFeed.restoringCard(RestoreProgressReport(session: "s", pid: 1, waitedMs: 65_000, updatedAt: Date()))
+        let card = SidebarNoticeCard.restoring(RefusalStrings.restoringSessions(waitedMs: 65_000))
         #expect(card.title == RefusalStrings.restoringSessions(waitedMs: 65_000))
         #expect(card.dismissLabel == nil && card.actions.isEmpty, "the status card asks the person for something")
         func ms(_ instant: ContinuousClock.Instant) -> Int64 {
