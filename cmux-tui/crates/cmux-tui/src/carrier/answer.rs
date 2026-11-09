@@ -252,6 +252,25 @@ impl HttpSource {
         }
     }
 
+    /// POSTs `body` to `path` on the platform with the person's credential
+    /// (and the team header): the status and the JSON body (`Null` when the
+    /// body is not JSON). No answer at all is a retry.
+    pub(super) async fn post(&self, path: &str, body: &Value) -> Result<(u16, Value), SourceError> {
+        let credential = self.current()?;
+        let mut request = self
+            .client
+            .post(format!("{}{path}", self.api))
+            .bearer_auth(credential.as_str())
+            .json(body);
+        if let Some(team) = &self.team {
+            request = request.header(TEAM_HEADER, team);
+        }
+        let response =
+            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
     /// Who the current credential names, read afresh (a stdin token, else
     /// the token file re-read now, else the environment's): `sub:<sub>` for
     /// a JWT with a `sub` ([`token_subject`]), else `token:<sha-256 hex>` of
@@ -300,23 +319,12 @@ impl CarrierSource for HttpSource {
         machine: &str,
         noise_key: Option<&[u8; 32]>,
     ) -> Result<CarrierAnswer, SourceError> {
-        let credential = self.current()?;
         let body = match noise_key {
             Some(key) => json!({ "noise_key": key_text(key) }),
             None => json!({}),
         };
-        let mut request = self
-            .client
-            .post(format!("{}/v1/cloud/machines/{machine}/carrier", self.api))
-            .bearer_auth(credential.as_str())
-            .json(&body);
-        if let Some(team) = &self.team {
-            request = request.header(TEAM_HEADER, team);
-        }
-        let response =
-            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
-        let status = response.status().as_u16();
-        let body: Value = response.json().await.unwrap_or(Value::Null);
+        let (status, body) =
+            self.post(&format!("/v1/cloud/machines/{machine}/carrier"), &body).await?;
         read_reply(status, &body)
     }
 }
