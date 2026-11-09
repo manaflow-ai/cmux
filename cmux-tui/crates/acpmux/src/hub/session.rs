@@ -374,9 +374,9 @@ pub struct Session {
     /// Bounded completed tool attempts used to identify a repeated failing call
     /// (`loop_detector.rs`).
     pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
-    /// When its harness first refused a command because its own sandbox did not start
-    /// (`harness_sandbox.rs`): set once, so the refusal is recorded once.
-    pub(super) harness_sandbox_failed: std::sync::OnceLock<u64>,
+    /// Its command calls while its harness's sandbox refuses them, newest last and bounded
+    /// (`harness_sandbox.rs`): one that completes ends the failure. Empty otherwise.
+    pub(super) harness_sandbox_calls: StdMutex<std::collections::VecDeque<String>>,
     /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
     /// before that, so a turn whose prompt has not reached its agent is never stalled.
     pub(super) stalled_counted: StdMutex<Option<String>>,

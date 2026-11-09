@@ -135,6 +135,7 @@ struct CloudStartChat {
         // The chat's harness login (DEV and dogfood builds, +Login): it runs alongside the copy and is
         // awaited before the chat opens, so its first prompt starts signed in. It never fails the start.
         async let loginPassed = passHarnessLogin(harness: start.harness, machine: machine)
+        let approvals = Task { await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) } // task-owner: awaited before the chat opens, as the login is
         let size = AgentPaneCloudStart.sizeText(machine.machine.size)
         report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
@@ -156,6 +157,7 @@ struct CloudStartChat {
         // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this Mac's tab stays.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         _ = await loginPassed
+        _ = await approvals.value
         // The login may have waited on a confirm and a sign-in: check the account again after it.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", folder: folderName, machine: name, size: size,
@@ -257,8 +259,10 @@ struct CloudStartChat {
         let (machine, plan) = try await self.machine(for: start, account: account, workspace: origin.workspace,
                                                      cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout), invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        // The harness login before the first prompt, as for a chat with a project (+Login).
+        // The harness login before the first prompt, as for a chat with a project (+Login), and remote approvals meanwhile.
+        let approvals = Task { await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) } // task-owner: awaited before the chat opens
         _ = await passHarnessLogin(harness: start.harness, machine: machine)
+        _ = await approvals.value
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))

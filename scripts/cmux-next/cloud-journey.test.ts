@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -175,6 +175,82 @@ describe("cloud journey: app cli", () => {
     expect(machineIds([{ id: "vm_a" }, { machine_id: "vm_b" }, { id: "vm_c", status: "deleted" }, {}])).toEqual(["vm_a", "vm_b"]);
     expect(newMachineIds(["vm_a"], ["vm_a", "vm_b", "vm_b"])).toEqual(["vm_b"]);
     expect(newMachineIds(["vm_a"], ["vm_a"])).toEqual([]);
+  });
+});
+
+describe("cloud journey: leaked machine sweep", () => {
+  const now = Date.UTC(2026, 10, 9, 12, 0, 0);
+  const tagAt = (ms: number) => `jr-${ms.toString(36)}`;
+  const ids = (rows: any[], at = now) => staleJourneyMachines(rows, at).map((m) => m.id);
+
+  test("takes only an auto-named journey machine (and gateway) older than any journey run, in any state", () => {
+    const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
+    const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+    expect(ids([
+      { id: "vm_running", name: `cloud journey auto ${old}`, status: "running" },
+      { id: "vm_paused_gw", name: `cloud journey auto ${old} gateway`, status: "paused" },
+      { id: "vm_young", name: `cloud journey auto ${young}`, status: "paused" },
+      { id: "vm_gone", name: `cloud journey auto ${old}`, status: "deleted" },
+      { id: "vm_deleting", name: `cloud journey auto ${old}`, status: "deleting" },
+    ])).toEqual(["vm_running", "vm_paused_gw"]);
+    // Just inside the bound is a concurrent run's machine; just past it is leaked.
+    const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - STALE_JOURNEY_MS)}`, status: "paused" };
+    expect(ids([edge])).toEqual([]);
+    expect(ids([edge], now + 1)).toEqual(["vm_edge"]);
+  });
+
+  test("never a machine with recent activity, however old", () => {
+    const old = tagAt(now - 2 * STALE_JOURNEY_MS);
+    expect(ids([
+      { id: "vm_active", name: `cloud journey auto ${old}`, status: "running", last_active_at: now - 5 * 60_000 },
+      { id: "vm_edge", name: `cloud journey auto ${old}`, status: "running", last_active_at: now - IDLE_JOURNEY_MS },
+      { id: "vm_idle", name: `cloud journey auto ${old}`, status: "running", last_active_at: now - IDLE_JOURNEY_MS - 1 },
+    ])).toEqual(["vm_idle"]);
+  });
+
+  test("the age bound outlasts every workflow job that runs a journey, twice over", () => {
+    const dir = join(import.meta.dir, "../../.github/workflows");
+    const seen: string[] = [];
+    for (const f of readdirSync(dir).filter((n) => /\.ya?ml$/.test(n))) {
+      const text = readFileSync(join(dir, f), "utf8");
+      if (!/cloud-journey(\.ts|-ci\.sh)/.test(text)) continue;
+      seen.push(f);
+      // Every timeout in such a file, a superset of the journey jobs' own.
+      for (const m of text.matchAll(/timeout-minutes:\s*(\d+)/g)) {
+        expect({ f, fits: Number(m[1]) * 60_000 * 2 <= STALE_JOURNEY_MS }).toEqual({ f, fits: true });
+      }
+    }
+    expect(seen).toContain("cmux-vm.yml");
+  });
+
+  test("never a --keep run's plain name, another name or a tag that is not a time", () => {
+    const old = tagAt(now - 48 * 3600_000);
+    expect(ids([
+      { id: "vm_kept", name: `cloud journey ${old}`, status: "paused" },
+      { id: "vm_kept_gw", name: `cloud journey ${old} gateway`, status: "failed" },
+      { id: "vm_dev", name: "dev machine", status: "paused" },
+      { id: "vm_named", name: `my cloud journey auto ${old}`, status: "paused" },
+      { id: "vm_bad", name: "cloud journey auto jr-!!", status: "paused" },
+      { id: "vm_tiny", name: "cloud journey auto jr-zz", status: "paused" },
+      { id: "vm_future", name: `cloud journey auto ${tagAt(now + 3600_000)}`, status: "paused" },
+      null,
+    ])).toEqual([]);
+    const [m] = staleJourneyMachines([{ id: "vm_x", name: `cloud journey auto ${old}`, status: "paused", created_at: now - 48 * 3600_000 }], now);
+    expect(m).toEqual({ id: "vm_x", name: `cloud journey auto ${old}`, status: "paused", created: new Date(now - 48 * 3600_000).toISOString() });
+  });
+
+  test("reads every page of the machine list", async () => {
+    const pages: Record<string, any> = {
+      "": { machines: [{ id: "a" }], next_cursor: "c1" },
+      c1: { machines: [{ id: "b" }], next_cursor: "c2" },
+      c2: { machines: [{ id: "c" }], next_cursor: null },
+    };
+    const asked: any[] = [];
+    const rows = await listAllMachines(async (p) => { asked.push(p); return pages[String(p.cursor ?? "")]; });
+    expect(rows.map((r) => r.id)).toEqual(["a", "b", "c"]);
+    expect(asked).toEqual([{ limit: 100 }, { limit: 100, cursor: "c1" }, { limit: 100, cursor: "c2" }]);
+    // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep.
+    await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 3 pages");
   });
 });
 

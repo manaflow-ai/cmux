@@ -5443,8 +5443,88 @@ a.cv-sha:focus-visible {
 }
 @media (prefers-reduced-motion: reduce) {
   .cv-enter,
-  .acpmux-row--enter {
+  .acpmux-row--enter,
+  /* An arriving prompt or reply (acpmux-row--message-enter) fades too, with no reveal or rise. */
+  .acpmux-row--message-enter .acpmux-row__message-presentation {
     animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+
+/* SEND-ENTRANCE (Leo 2026-11-07, ask-bc3f176943: "there's space that's given to the user's message,
+ * and then the user's prompt, like, fades in from the right and, like, grows to the left ... and the
+ * push-up and the prompt. Like, it's all just one unified motion"). A prompt that arrives (the one the
+ * reader sent, or one sent from another device) comes in on the send motion (--agent-motion-send,
+ * --agent-ease-send): its row's room is laid out at once and the thread rises into it on the same
+ * clock (followGlide.ts `sent`), its bubble fades in anchored at its right edge and opens leftward to
+ * its width, and the thinking row that came with it fades in on the same clock. Only the bubble's
+ * clip and the ink move, never layout, so nothing reflows and the text never scales (an agent
+ * message keeps its plain fade: #34751). Reduce Motion keeps the fade: the system setting through the
+ * media query, the app's (move step 0, fades on) through --agent-motion-send-fade on the fade
+ * setting while the edge and the rise take the 0 move step. Motion off makes both tokens 0.
+ * The gallery's agent-pane.send-entrance compares the bubble's other entrances (`data-send-entrance`
+ * on an ancestor); the product's is `reveal`. */
+@keyframes cv-send-reveal {
+  from {
+    clip-path: inset(0 0 0 var(--cv-send-reveal-from, 45%) round var(--grid-cards-radius));
+  }
+  to {
+    clip-path: inset(0 0 0 0 round var(--grid-cards-radius));
+  }
+}
+@keyframes cv-send-grow {
+  from {
+    scale: 0.94;
+  }
+  to {
+    scale: 1;
+  }
+}
+@keyframes cv-send-slide {
+  from {
+    translate: 16px 0;
+  }
+  to {
+    translate: 0 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-user.acpmux-row--message-enter .acpmux-row__message-presentation,
+  .acpmux-user.acpmux-row--message-enter ~ .acpmux-thinking.acpmux-row--enter {
+    animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 265ms));
+    animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+  /* A sent picture or video appears in its slot, at its size, with the prompt: it only fades, on the
+     same clock, never rising or flying from the composer (Leo 2026-11-08, ask-104c134b68: "some
+     sort of, like, fly-in animation ... I feel like that's kind of weird"). One whose bytes come
+     later still fades in where it is, and so does one in a new chat's first prompt. */
+  .cv-user .cv-enter {
+    animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
+      both;
+  }
+  /* Backwards fill only: the clip is the entrance's, and once it ends the bubble draws unclipped, so
+     the "Sending" mark just outside its left edge (`.cv-user__delivery`) shows on a slow send. */
+  .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
+    animation: cv-send-reveal var(--agent-motion-send, 265ms) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
+      backwards;
+  }
+  /* The text comes in a beat behind the bubble's edge, so no letter shows cut at the edge. */
+  .acpmux-user.acpmux-row--message-enter .cv-user__bubble > * {
+    animation: cv-message-enter calc(var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) * 0.7)
+      var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--agent-motion-send, 265ms) * 0.3) both;
+  }
+  [data-send-entrance="grow"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
+    transform-origin: right bottom;
+    animation-name: cv-send-grow;
+  }
+  [data-send-entrance="slide"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
+    animation-name: cv-send-slide;
+  }
+  [data-send-entrance="fade"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble,
+  :is([data-send-entrance="grow"], [data-send-entrance="slide"], [data-send-entrance="fade"])
+    .acpmux-user.acpmux-row--message-enter
+    .cv-user__bubble
+    > * {
+    animation: none;
   }
 }
 

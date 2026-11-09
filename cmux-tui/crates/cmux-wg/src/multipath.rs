@@ -638,7 +638,11 @@ impl Underlay for Multipath {
 
 /// A path's medium: where its peer address is in the interface table for a
 /// direct path, else what its kind implies.
-fn medium_for(networks: &[LocalNetwork], kind: PathKind, peer: Option<SocketAddr>) -> Medium {
+pub(crate) fn medium_for(
+    networks: &[LocalNetwork],
+    kind: PathKind,
+    peer: Option<SocketAddr>,
+) -> Medium {
     match peer {
         Some(peer) if kind.class().is_direct() && !networks.is_empty() => {
             medium_of(peer.ip(), networks)
