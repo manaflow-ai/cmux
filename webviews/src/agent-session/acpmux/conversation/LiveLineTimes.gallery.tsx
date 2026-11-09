@@ -5,8 +5,7 @@
 // completes), so the two times left are the turn's summed thinking beside "Thinking" and the turn's
 // clock. The `live-line-times` arms: the turn's clock named, "Thinking 8s · turn 21s" (shipped); the
 // turn's clock alone; the thinking time alone with the turn's on hover. With no thoughts yet the
-// line reads "Thinking · 21s": the clock after a dot, unnamed (Leo, 2026-11-09: "when thinking dont
-// add the turn").
+// line reads "Thinking · turn 21s", never a bare clock beside the word.
 // Tests: webviews/test/transcript-live-line-times.test.tsx, transcript-live-line-call-done.test.tsx.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
@@ -65,7 +64,7 @@ export default componentEntry<Props>({
     },
     "no-thoughts": {
       props: { arm: "labelled", thoughts: false },
-      note: 'Right after a call completed, no thoughts yet: "Thinking · 21s", the turn\'s clock after the dot, unnamed.',
+      note: 'Right after a call completed, no thoughts yet: "Thinking · turn 21s", never "Thinking 21s".',
     },
     "turn-only": {
       props: { arm: "turn" },
