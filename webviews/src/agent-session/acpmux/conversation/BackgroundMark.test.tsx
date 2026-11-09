@@ -16,6 +16,7 @@ import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import {
   BACKGROUND_TAIL_BYTES,
   BackgroundTaskOutputContext,
+  prefetchBackgroundTaskOutput,
   readBackgroundTaskOutput,
   tailLines,
   type BackgroundTaskOutputReader,
@@ -435,6 +436,43 @@ test("a known process id wins over a reused tool call id", async () => {
   };
   const output = await readBackgroundTaskOutput(reader, "bg", "s1/old");
   expect(output.output).toBe("s1/old");
+});
+
+test("a finished task is read once; a read that failed or found it running is read again", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  const lists: string[] = [];
+  let state = "running";
+  let fail = false;
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s1",
+    source: {
+      listProcesses: async () => {
+        lists.push(state);
+        if (fail) throw new Error("daemon away");
+        return { processes: [{ id: "s1/p", toolCallId: "bg", harness: "claude", state, exitCode: 0 }] };
+      },
+      tailProcess: async () => ({ data: bytes(`done\n`), fromByte: 0 }),
+    },
+  };
+  // Asked twice at once: one read.
+  const [first, again] = await Promise.all([
+    prefetchBackgroundTaskOutput(reader, "bg"),
+    prefetchBackgroundTaskOutput(reader, "bg"),
+  ]);
+  expect(first).toBe(again);
+  expect(first.running).toBe(true);
+  // Running when read: its end may not be written yet, so the next ask reads again.
+  state = "exited";
+  expect((await prefetchBackgroundTaskOutput(reader, "bg")).running).toBeUndefined();
+  // Ended: kept.
+  await prefetchBackgroundTaskOutput(reader, "bg");
+  expect(lists).toEqual(["running", "exited"]);
+  // A failed read answers empty and is not kept.
+  fail = true;
+  expect(await prefetchBackgroundTaskOutput(reader, "other")).toEqual({});
+  fail = false;
+  await prefetchBackgroundTaskOutput(reader, "other");
+  expect(lists).toEqual(["running", "exited", "exited", "exited"]);
 });
 
 test("a live tail keeps the last lines and removes terminal control escapes", () => {
