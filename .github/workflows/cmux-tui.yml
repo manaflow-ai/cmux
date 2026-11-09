@@ -1223,8 +1223,9 @@ jobs:
       - name: smoltcp patch tests
         if: inputs.mode == 'full'
         working-directory: cmux-tui
-        # vendor/smoltcp/CMUX_PATCH.md: the initial window is CUBIC's, so its tests run with it.
-        run: cargo test --manifest-path vendor/smoltcp/Cargo.toml --lib --features socket-tcp-cubic
+        # vendor/smoltcp/CMUX_PATCH.md: the initial window is CUBIC's, and the SACK
+        # recovery tests cover both controllers. cmux-tui-spec.yml runs these on PRs.
+        run: cargo test --manifest-path vendor/smoltcp/Cargo.toml --lib --features socket-tcp-cubic,socket-tcp-reno
 
       - name: TUI smoke test (scripted pty)
         if: inputs.mode == 'full'

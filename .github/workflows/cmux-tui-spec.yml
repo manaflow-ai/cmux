@@ -429,6 +429,64 @@ jobs:
         working-directory: cmux-tui
         run: cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
 
+  # PR CI never runs cmux-tui.yml (dispatch only), and the vendored crates sit outside
+  # the cmux-tui workspace, so neither the fast tier nor the clippy job tests them: SACK
+  # recovery's patch to vendor/smoltcp (#39085) landed with tests no pull request ran.
+  # This tests each vendored crate whose files the change touches, as cmux-tui.yml
+  # does (smoltcp with both congestion controllers, so their patch tests run too).
+  vendored-crates:
+    name: vendored crate tests (changed crates)
+    needs: changes
+    # A router that failed or was skipped never skips the job (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # Pull requests compare with their merge commit's first parent, pushes with the
+      # commit before them; with no usable base (a dispatch or a new branch) every
+      # vendored crate is tested.
+      - name: Which vendored crates does the change touch
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          fi
+          smoltcp=true crossterm=true
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
+            && git fetch --no-tags --depth=1 origin "$BASE_SHA" \
+            && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
+            own='^(\.github/workflows/cmux-tui-spec\.yml$|\.github/actions/setup-cmux-tui-rust/|cmux-tui/rust-toolchain(\.toml)?$)'
+            grep -qE "^cmux-tui/vendor/smoltcp/|$own" <<<"$changed" || smoltcp=false
+            grep -qE "^cmux-tui/vendor/crossterm/|$own" <<<"$changed" || crossterm=false
+          fi
+          echo "smoltcp=$smoltcp" >> "$GITHUB_OUTPUT"
+          echo "crossterm=$crossterm" >> "$GITHUB_OUTPUT"
+          echo "Vendored crates to test: smoltcp=$smoltcp crossterm=$crossterm" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up pinned Rust
+        if: ${{ steps.scope.outputs.smoltcp == 'true' || steps.scope.outputs.crossterm == 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # vendor/smoltcp/CMUX_PATCH.md: the initial window is CUBIC's, and the SACK
+      # recovery tests cover both controllers.
+      - name: smoltcp patch tests
+        if: ${{ steps.scope.outputs.smoltcp == 'true' }}
+        working-directory: cmux-tui
+        run: cargo test --manifest-path vendor/smoltcp/Cargo.toml --lib --features socket-tcp-cubic,socket-tcp-reno
+
+      # Single-threaded, as in cmux-tui.yml: the colored tests mutate process env vars.
+      - name: crossterm parser tests
+        if: ${{ steps.scope.outputs.crossterm == 'true' }}
+        working-directory: cmux-tui
+        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
+
   # PR CI never runs cmux-tui.yml (dispatch only), so #18706 landed unformatted
   # Rust and broke base `cargo fmt --check`. rustfmt alone on the packages the
   # change touches: no build and no dependency download.
