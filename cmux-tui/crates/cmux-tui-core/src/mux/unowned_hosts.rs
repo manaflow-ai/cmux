@@ -794,7 +794,7 @@ mod tests {
                     terminal_id: terminal_id.clone(),
                     incarnation: incarnation.to_string(),
                 },
-                crate::terminal_host_protocol::TerminalExit {
+                TerminalExit {
                     outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
                     exited_at_ms: 1,
                 },
