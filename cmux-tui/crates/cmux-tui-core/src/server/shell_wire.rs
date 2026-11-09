@@ -52,9 +52,9 @@ pub(super) struct StopParams {
 #[cfg(unix)]
 mod serve {
     use super::*;
+    use crate::Mux;
     use crate::conversation_store::LOCAL_USER;
     use crate::panic_free::JsonFields;
-    use crate::Mux;
     use crate::server::{ClientTransport, MessageWriter, Response, send_response};
     use crate::shell_runs::{Chunk, READ_WAIT, ReadStart, Refusal};
     use std::sync::Arc;
@@ -72,7 +72,7 @@ mod serve {
 
     impl std::error::Error for NotOwner {}
 
-    pub(in crate::server) fn owner(mux: &Mux, client: u64) -> bool {
+    fn owner(mux: &Mux, client: u64) -> bool {
         let unix = matches!(mux.control_clients.transport_of(client), Some(ClientTransport::Unix));
         (unix && !mux.is_remote_client(client) && mux.conversation_principal(client) == LOCAL_USER)
             || mux.is_native_agent_owner(client)
@@ -82,7 +82,11 @@ mod serve {
         json!({"refused": refusal.as_str()})
     }
 
-    pub(in crate::server) fn run(mux: &Mux, client: u64, params: RunParams) -> anyhow::Result<Value> {
+    pub(in crate::server) fn run(
+        mux: &Mux,
+        client: u64,
+        params: RunParams,
+    ) -> anyhow::Result<Value> {
         anyhow::ensure!(owner(mux, client), NotOwner);
         let scope = params.scope.unwrap_or_default();
         Ok(match mux.shell_runs.run(&scope, client, &params.command, params.cwd.as_deref()) {
@@ -91,7 +95,11 @@ mod serve {
         })
     }
 
-    pub(in crate::server) fn stop(mux: &Mux, client: u64, params: StopParams) -> anyhow::Result<Value> {
+    pub(in crate::server) fn stop(
+        mux: &Mux,
+        client: u64,
+        params: StopParams,
+    ) -> anyhow::Result<Value> {
         anyhow::ensure!(owner(mux, client), NotOwner);
         Ok(match mux.shell_runs.stop(&params.run) {
             Ok(()) => json!({}),
@@ -120,10 +128,11 @@ mod serve {
         let thread_writer = writer.clone();
         let reply_id = id.clone();
         let spawned = std::thread::Builder::new().name("shell-run-read".into()).spawn(move || {
-            let answer = match thread_mux.shell_runs.wait_read(&permit, &params.run, params.after, wait) {
-                Ok(chunk) => chunk_json(&chunk),
-                Err(refusal) => refused(refusal),
-            };
+            let answer =
+                match thread_mux.shell_runs.wait_read(&permit, &params.run, params.after, wait) {
+                    Ok(chunk) => chunk_json(&chunk),
+                    Err(refusal) => refused(refusal),
+                };
             drop(permit);
             respond(&thread_writer, reply_id, Ok(answer));
         });
@@ -150,7 +159,14 @@ mod serve {
 
     fn respond(writer: &MessageWriter, id: Option<Value>, answer: anyhow::Result<Value>) -> bool {
         let response = match answer {
-            Ok(data) => Response { id, ok: true, data: Some(data), error: None, error_code: None, error_delivery: None },
+            Ok(data) => Response {
+                id,
+                ok: true,
+                data: Some(data),
+                error: None,
+                error_code: None,
+                error_delivery: None,
+            },
             Err(error) => Response {
                 id,
                 ok: false,
@@ -165,7 +181,7 @@ mod serve {
 }
 
 #[cfg(unix)]
-pub(super) use serve::{owner, read, run, stop};
+pub(super) use serve::{read, run, stop};
 
 #[cfg(not(unix))]
 pub(super) fn run(_: &super::Mux, _: u64, _: RunParams) -> anyhow::Result<Value> {

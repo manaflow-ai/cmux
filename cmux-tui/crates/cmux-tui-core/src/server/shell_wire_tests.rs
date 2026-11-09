@@ -3,6 +3,7 @@
 //! connection is refused before anything runs.
 
 use super::super::bounded_outbound::OutboundItem;
+use super::super::tests::captured_writer;
 use super::super::*;
 
 /// A folder of its own, removed after the test.
@@ -30,7 +31,9 @@ fn reply(mux: &Arc<Mux>, client: u64, request: Value) -> Value {
     assert!(handle_request(mux, client, request, &writer));
     loop {
         match outbound.recv() {
-            Some(OutboundItem::Text(text)) => return serde_json::from_str(&text.to_string()).unwrap(),
+            Some(OutboundItem::Text(text)) => {
+                return serde_json::from_str(&text.to_string()).unwrap();
+            }
             Some(OutboundItem::Flush(flushed)) => {
                 let _ = flushed.send(());
             }
@@ -75,7 +78,8 @@ fn a_waiting_read_does_not_hold_the_connection() {
     let started = reply(&mux, owner, json!({"cmd":"shell-run","command":"sleep 30","cwd":cwd}));
     let id = started["data"]["run"].as_str().unwrap().to_owned();
     let (writer, outbound) = captured_writer();
-    let read: Request = serde_json::from_value(json!({"cmd":"shell-read","run":id,"after":0})).unwrap();
+    let read: Request =
+        serde_json::from_value(json!({"cmd":"shell-read","run":id,"after":0})).unwrap();
     // Returns at once: the wait is on a thread of its own.
     assert!(handle_request(&mux, owner, read, &writer));
     assert!(outbound.try_pop().is_none(), "nothing to read yet");
@@ -84,7 +88,9 @@ fn a_waiting_read_does_not_hold_the_connection() {
     // The waiting read answers once the stopped command ends.
     let answer = loop {
         match outbound.recv() {
-            Some(OutboundItem::Text(text)) => break serde_json::from_str::<Value>(&text.to_string()).unwrap(),
+            Some(OutboundItem::Text(text)) => {
+                break serde_json::from_str::<Value>(&text.to_string()).unwrap();
+            }
             Some(OutboundItem::Flush(flushed)) => drop(flushed.send(())),
             None => panic!("closed"),
         }
@@ -96,7 +102,8 @@ fn a_waiting_read_does_not_hold_the_connection() {
 fn refusals_are_answers_with_their_code() {
     let mux = Mux::new_for_test("shell-wire", crate::SurfaceOptions::default());
     let owner = mux.local_test_client(43);
-    let missing = reply(&mux, owner, json!({"cmd":"shell-run","command":"true","cwd":"/no/such/folder"}));
+    let missing =
+        reply(&mux, owner, json!({"cmd":"shell-run","command":"true","cwd":"/no/such/folder"}));
     assert_eq!(missing["data"], json!({"refused": "folder_missing"}), "{missing}");
     let unknown = reply(&mux, owner, json!({"cmd":"shell-read","run":"run_nope","after":0}));
     assert_eq!(unknown["data"], json!({"refused": "unknown_run"}), "{unknown}");
