@@ -2,6 +2,7 @@
 import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileDiff
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -14,6 +15,12 @@ public enum AgentParityRoute: Hashable, Identifiable, Sendable {
     case handoff
     /// `/continue <harness>`: the review of a continuation to that agent, straight away.
     case handoffTo(AgentHandoffTarget)
+    /// Session Info (the Mac's Toggle Session Info).
+    case sessionInfo
+    /// The raw records this phone received (the Mac's Toggle Event Inspector).
+    case eventInspector
+    /// Replay Conversation.
+    case replay
 
     public var id: String {
         switch self {
@@ -22,6 +29,9 @@ public enum AgentParityRoute: Hashable, Identifiable, Sendable {
         case .checkpoints: "checkpoints"
         case .handoff: "handoff"
         case .handoffTo(let target): "handoff-\(target.id)"
+        case .sessionInfo: "session-info"
+        case .eventInspector: "event-inspector"
+        case .replay: "replay"
         }
     }
 }
@@ -61,6 +71,11 @@ struct AgentParityDestination: View {
         case .checkpoints: CheckpointsScreen(store: store, surface: surface)
         case .handoff: HandoffScreen(store: store, surface: surface)
         case .handoffTo(let target): HandoffReviewScreen(store: store, surface: surface, target: target)
+        case .sessionInfo: SessionInfoScreen(store: store, surface: surface)
+            // Popped together with the chat (to the list): what the chat was reading stops.
+            .onDisappear { if surface.parityRoute == .sessionInfo { ChatReadAloud.shared.stopIfReading(chat: store.summary.id) } }
+        case .eventInspector: EventInspectorScreen(journal: store.source.eventJournal, sessionID: store.summary.id)
+        case .replay: ReplayConversationScreen(store: store)
         }
     }
 }
@@ -74,7 +89,7 @@ struct SubagentStateGlyph: View {
     var body: some View {
         Group {
             switch state {
-            case .running: ProgressView().controlSize(.small)
+            case .running: CmuxSpinner().controlSize(.small)
             case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.cmuxMobileSuccess)
             case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.cmuxMobileDanger)
             case .cancelled: Image(systemName: "stop.circle").foregroundStyle(.secondary)
@@ -136,7 +151,7 @@ struct SubagentGroupCard: View {
             }
         }
         .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
-        .animation(.cmuxMobileSnap, value: agents.map(\.state))
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: agents.map(\.state))
     }
 }
 
@@ -334,7 +349,7 @@ struct CheckpointsScreen: View {
         Group {
             switch load {
             case .loading:
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
             case .unavailable(let message):
                 ContentUnavailableView {
                     Label("Checkpoints unavailable", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
@@ -347,7 +362,7 @@ struct CheckpointsScreen: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try again") { Task { await reload() } }
+                    RetryButton("Try Again") { await reload() }
                 }
             case .loaded(let checkpoints):
                 List {
@@ -421,7 +436,7 @@ struct CheckpointsScreen: View {
                     }
                 }
                 Spacer(minLength: 4)
-                if restoring == checkpoint.id { ProgressView().controlSize(.small) }
+                if restoring == checkpoint.id { CmuxSpinner().controlSize(.small) }
             }
             .contentShape(.rect)
         }
@@ -472,7 +487,7 @@ struct HandoffScreen: View {
         Group {
             switch load {
             case .loading:
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
             case .unavailable(let message):
                 ContentUnavailableView {
                     Label("Can't continue elsewhere", systemImage: "arrow.triangle.branch")
@@ -485,7 +500,7 @@ struct HandoffScreen: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try again") { Task { await reload() } }
+                    RetryButton("Try Again") { await reload() }
                 }
             case .loaded(let targets):
                 List {
@@ -588,7 +603,7 @@ struct HandoffReviewScreen: View {
             switch load {
             case .loading:
                 VStack(spacing: 12) {
-                    ProgressView()
+                    CmuxSpinner()
                     Text("Preparing the summary…").font(.footnote).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -614,7 +629,7 @@ struct HandoffReviewScreen: View {
                 }
             }
         }
-        .animation(.cmuxMobileSmooth, value: receipt)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: receipt)
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Review continuation")
         .navigationBarTitleDisplayMode(.inline)
@@ -623,7 +638,7 @@ struct HandoffReviewScreen: View {
         .onChange(of: surface.demoHandoffFill) { _, value in
             guard let value else { return }
             checkpoint = value
-            withAnimation(.cmuxMobileSnap) { attested = true }
+            withAnimation(.cmuxMobileSnap.unlessReduceMotion) { attested = true }
         }
         .onChange(of: surface.demoHandoffStart) {
             if case .loaded(let draft) = load { start(draft) }
@@ -662,6 +677,8 @@ struct HandoffReviewScreen: View {
                     .autocorrectionDisabled()
                 Toggle("I saved the working changes, including the files I need to keep.", isOn: $attested)
                     .font(.callout)
+                    // Green when on, not the chat's neutral tint (a white track in Dark Mode).
+                    .toggleStyle(.cmuxMobileSwitch)
             } header: {
                 Text("Repository checkpoint")
             } footer: {
@@ -696,7 +713,7 @@ struct HandoffReviewScreen: View {
                 start(draft)
             } label: {
                 HStack(spacing: 8) {
-                    if starting { ProgressView().tint(Color.cmuxMobileOnAccent) }
+                    if starting { CmuxSpinner(tint: Color.cmuxMobileOnAccent) }
                     Text(starting ? "Starting…" : "Continue in \(target.name)")
                 }
                 .frame(maxWidth: .infinity)
@@ -707,7 +724,7 @@ struct HandoffReviewScreen: View {
             .padding(.vertical, 10)
             .accessibilityIdentifier("handoff.start")
         }
-        .animation(.cmuxMobileSnap, value: error)
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: error)
     }
 
     private func canStart(_ draft: AgentHandoffDraft) -> Bool {

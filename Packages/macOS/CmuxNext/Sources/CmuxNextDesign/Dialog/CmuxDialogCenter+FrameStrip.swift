@@ -33,12 +33,18 @@ extension CmuxDialogCenter {
         let id = present(spec, in: .window(window)) { _ in }
         let presentMs = Self.ms(since: start) - openedAt
         // The card's rect in window points, top-left origin (frames are scaled below).
-        let cardPoints = view(id).map { view -> CGRect in
-            let rect = view.convert(view.bounds, to: nil)
+        // The page lays the card out in its own turn: wait for its rect, within the hold, so the strip never
+        // measures the whole region (the view fills it) as the card.
+        let laidOutAt = Self.ms(since: start)
+        await dialog(id)?.cardLaidOut(within: max(holdMs, 17))
+        let waitedMs = Self.ms(since: start) - laidOutAt
+        let cardPoints = dialog(id).flatMap { dialog -> CGRect? in
+            guard let view = dialog.view, let card = dialog.cardRect else { return nil }
+            let rect = view.convert(card, to: nil)
             return CGRect(x: rect.minX, y: frame.height - rect.maxY, width: rect.width, height: rect.height)
         }
 
-        await Self.pause(holdMs)
+        await Self.pause(max(0, holdMs + 17 - waitedMs))
         let closedAt = Self.ms(since: start)
         if close.hasPrefix("press:") {
             _ = press(id, button: String(close.dropFirst("press:".count)))
@@ -117,6 +123,20 @@ extension CmuxDialogCenter {
             timer.schedule(after: .milliseconds(Int(milliseconds))) { @MainActor in done.resume() }
         }
         // Held to here: freed before it fired, the timer would cancel itself and the await never end.
+        withExtendedLifetime(timer) {}
+    }
+}
+
+extension CmuxDialogPresentation {
+    /// Returns once the card has a rect, or after `milliseconds` without one.
+    func cardLaidOut(within milliseconds: Double) async {
+        guard cardRect == nil else { return }
+        let timer = DemandTimer(owner: "debug.dialog_strip.card")
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            cardWaiters.append(done)
+            // The call holds this presentation until it returns, so the deadline always finds it.
+            timer.schedule(after: .milliseconds(Int(milliseconds))) { @MainActor [weak self] in self?.resumeCardWaiters() }
+        }
         withExtendedLifetime(timer) {}
     }
 }

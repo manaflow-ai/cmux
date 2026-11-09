@@ -6,7 +6,7 @@
    "cmux-app-host": 2,
    "cmux-browser-host": 2,
    "cmux-mux2": 17,
-   "cmux-rd-host": 3,
+   "cmux-rd-host": 1,
    "cmux-tui": 1
   },
   "expect": {
@@ -17,7 +17,7 @@
    "cmux-mux2": 42,
    "cmux-remote": 39,
    "cmux-terminal-client": 1,
-   "cmux-tui": 76,
+   "cmux-tui": 75,
    "cmux-tui-core": 190,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
@@ -30,15 +30,15 @@
    "chatmux-relay": 1,
    "cmux-remote": 11,
    "cmux-tui": 33,
-   "cmux-tui-core": 25
+   "cmux-tui-core": 24
   },
   "unwrap": {
-   "acpmux": 134,
+   "acpmux": 130,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1136,
+   "cmux-tui-core": 1135,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -51,7 +51,7 @@
    "CmuxAuthRuntime": 7,
    "CmuxInstallAuthCore": 1,
    "CmuxIrohTransport": 4,
-   "CmuxNextApp": 4,
+   "CmuxNextApp": 3,
    "CmuxNextBrowserHost": 1,
    "CmuxNextDaemon": 1,
    "CmuxNextPalette": 1
@@ -93,7 +93,7 @@
    "CmuxNextBrowserAutomation": 1,
    "CmuxNextBrowserImport": 1,
    "CmuxNextControl": 3,
-   "CmuxNextDaemon": 4,
+   "CmuxNextDaemon": 3,
    "CmuxNextDesign": 1,
    "CmuxNextDictation": 6,
    "CmuxNextHomeEngine": 1,
@@ -101,7 +101,7 @@
    "CmuxNextServerHelper": 5,
    "CmuxNextSettings": 1,
    "CmuxNextTabs": 5,
-   "CmuxNextTerminal": 7,
+   "CmuxNextTerminal": 6,
    "CmuxUpdater": 1,
    "MessagesLabHome": 14,
    "MessagesLabSidebar": 2
@@ -120,7 +120,7 @@
     "cmux-layout-reducer": 4,
     "cmux-local-auth": 2,
     "cmux-terminal-sizing": 6,
-    "cmux-tui-core": 11,
+    "cmux-tui-core": 10,
     "cmux-unix-socket": 1
    },
    "panic_macro": {
@@ -137,10 +137,10 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 11,
+    "CmuxNextBrowser": 16,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
-    "CmuxNextPages": 3,
+    "CmuxNextPages": 4,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
     "CmuxNextResources": 2,
@@ -166,7 +166,7 @@
     "CmuxNextFilesUI": 1,
     "CmuxNextHome": 1,
     "CmuxNextPages": 1,
-    "CmuxNextPalette": 3,
+    "CmuxNextPalette": 4,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 1,
     "CmuxNextRemoteFetch": 1,
@@ -175,7 +175,6 @@
     "CmuxNextSidebar": 2,
     "CmuxNextSignposts": 1,
     "CmuxNextTabs": 1,
-    "CmuxNextTasks": 1,
     "CmuxNextVSCodeServer": 2,
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,

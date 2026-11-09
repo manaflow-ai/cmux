@@ -7,26 +7,39 @@ import AppKit
 /// close one tab each and never select one (cx-ag5.11).
 @MainActor
 struct TabClosingModeHit {
-    /// The last close press: its distance from its tab's trailing edge, and its height in the clip.
-    private var anchor: (fromTrailing: CGFloat, y: CGFloat)?
+    /// The last close press's height in the clip.
+    private var anchorY: CGFloat?
 
-    /// A close button press at clip point `point` on a tab laid out at `frame`.
-    mutating func closePressed(at point: CGPoint, on frame: CGRect) {
-        anchor = (frame.maxX - point.x, point.y)
+    /// A close button press at clip point `point`.
+    mutating func closePressed(at point: CGPoint) {
+        anchorY = point.y
     }
 
     /// The tab whose laid-out frame (where its springs settle, not where it
     /// is mid-slide) puts a close button it shows under the pointer at clip
     /// point `point`. Never a pinned tab or one whose x stays hidden there.
+    /// Each tab's own hovered close span decides, not the last press's offset:
+    /// a tab whose status gives the x its icon's centered slot draws its x
+    /// elsewhere than a neighbor without one (#36837).
     func tab(at point: CGPoint, in strip: TabStripView) -> TabID? {
-        guard let anchor, point.x >= 0, point.x <= strip.tabsClip.bounds.width,
-              abs(point.y - anchor.y) <= strip.metrics.closeButtonSize / 2 + 2,
+        guard let anchorY, point.x >= 0, point.x <= strip.tabsClip.bounds.width,
+              abs(point.y - anchorY) <= strip.metrics.closeButtonSize / 2 + 2,
               let hit = Self.laidOut(strip).first(where: { $0.frame.minX <= point.x && point.x < $0.frame.maxX }),
-              abs(hit.frame.maxX - point.x - anchor.fromTrailing) <= 4,
               let item = strip.model.tab(hit.id), !item.isPinned, item.isClosable,
-              TabChromeVisibility.resolve(width: hit.frame.width, isPinned: false, isSelected: item.id == strip.model.selectedID,
-                                          isHovered: true, style: strip.model.style, metrics: strip.metrics).showsClose else { return nil }
+              let span = Self.hoveredCloseSpan(of: item, at: hit.frame, in: strip),
+              span.lowerBound - 2 <= point.x, point.x <= span.upperBound + 2 else { return nil }
         return hit.id
+    }
+
+    /// Where tab `item`, laid out at clip frame `frame`, draws its x across while hovered (clip x, the
+    /// press's height decides the rest); nil when hovering shows no x. The pill starts at the slot's leading edge.
+    static func hoveredCloseSpan(of item: TabItem, at frame: CGRect, in strip: TabStripView) -> ClosedRange<CGFloat>? {
+        let m = strip.metrics
+        let form = TabChromeVisibility.resolve(
+            width: frame.width, isPinned: item.isPinned, isSelected: item.id == strip.model.selectedID, isHovered: true,
+            isClosable: item.isClosable, hasStatus: strip.cells[item.id]?.hasStatusMark ?? false, style: strip.model.style, metrics: m)
+        guard let x = form.closeButtonOriginX(pillWidth: m.pillFrame(slotWidth: frame.width, height: frame.height).width, metrics: m) else { return nil }
+        return (frame.minX + x)...(frame.minX + x + m.closeButtonSize)
     }
 
     /// The strip's shown tabs' frames in its clip once their springs settle.

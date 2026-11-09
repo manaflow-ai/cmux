@@ -25,6 +25,8 @@ use tokio::sync::mpsc;
 #[path = "hub_integration/idle_census.rs"]
 mod idle_census;
 
+#[path = "hub_integration/acp_schema.rs"]
+mod acp_schema;
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
 #[path = "hub_integration/agent_inbox.rs"]
@@ -64,6 +66,8 @@ mod permission_groups;
 mod presence;
 #[path = "hub_integration/prompt_approval.rs"]
 mod prompt_approval;
+#[path = "hub_integration/prompt_attribution.rs"]
+mod prompt_attribution;
 #[path = "hub_integration/prompt_class.rs"]
 mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]
@@ -486,6 +490,7 @@ async fn an_agents_bare_fork_error_names_the_harness() {
 async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_transcript() {
     let env = BTreeMap::from([("FAKE_FORK_ERROR".to_owned(), "1".to_owned())]);
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    hub.config.write().await.context_overrides.user = Some("GUIDANCE-ON-FORK".into());
     let s = c
         .request(
             method::SESSION_NEW,
@@ -511,6 +516,11 @@ async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_tr
         .await
         .unwrap_or_else(|e| panic!("a working chat forks, whatever its agent says: {e}"));
     let fid = f["sessionId"].as_str().unwrap().to_owned();
+    assert!(hub.resolve(&id).unwrap().meta().cmux_context_delivered);
+    assert!(
+        !hub.resolve(&fid).unwrap().meta().cmux_context_delivered,
+        "fresh reconstruction must deliver the hidden guidance to its new harness"
+    );
     let forked: Vec<Value> = hub
         .events(&fid, 0, 1000)
         .unwrap()
@@ -547,6 +557,7 @@ async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_tr
         .await
         .unwrap();
     assert_eq!(r["stopReason"], "end_turn", "{r}");
+    assert!(hub.resolve(&fid).unwrap().meta().cmux_context_delivered);
     let reply: String = hub
         .events(&fid, 0, 1000)
         .unwrap()
@@ -1133,7 +1144,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     assert_eq!(fake_models[0], "fake/m3", "{fake_models:?}");
     assert!(fake_models.contains(&"m1"));
     // Presets: one harness, bundled model/effort/policy/env; -m still wins.
-    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "deny-all", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
+    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "approve-reads", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
     assert_eq!(p["profile"], "fake-pool");
     let err = c
         .request(method::MUX_PRESETS, json!({"name": "bad", "set": {"harness": "nope"}}))
@@ -1143,7 +1154,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     let s4 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "fast", "name": "pre"}}})).await.unwrap();
     assert_eq!(s4["_meta"]["acpmux"]["harness"], "fake-pool");
     assert_eq!(s4["_meta"]["acpmux"]["model"], "m1");
-    assert_eq!(s4["_meta"]["acpmux"]["policy"], "deny-all");
+    assert_eq!(s4["_meta"]["acpmux"]["policy"], "approve-reads");
     // ${model} in the preset env: the model is a spawn parameter the process sees.
     let id4 = s4["sessionId"].as_str().unwrap().to_owned();
     c.request(method::MUX_SET_POLICY, json!({"sessionId": id4, "policy": "approve-all"}))
@@ -1160,7 +1171,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     // `fake` is the family: its prefer list still decides the profile.
     assert_eq!(s5["_meta"]["acpmux"]["harness"], "fake-pool");
     assert_eq!(s5["_meta"]["acpmux"]["model"], "m2");
-    assert_eq!(s5["_meta"]["acpmux"]["policy"], "deny-all");
+    assert_eq!(s5["_meta"]["acpmux"]["policy"], "approve-reads");
     let err = c
         .request(
             method::SESSION_NEW,
@@ -1169,6 +1180,18 @@ async fn family_defaults_presets_and_the_target_grammar() {
         .await
         .unwrap_err();
     assert!(err.contains("unknown preset"), "{err}");
+    // A deny-all preset on a harness that can keep it neither by a gate nor by a mode: the chat
+    // does not start (W5-L).
+    let locked = json!({"name": "locked", "set": {"harness": "fake-pool", "policy": "deny-all"}});
+    c.request(method::MUX_PRESETS, locked).await.unwrap();
+    let err = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "locked"}}}),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.contains("cannot be enforced"), "{err}");
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"][0]["name"], "fast");
 }
@@ -1701,6 +1724,8 @@ mod lifecycle_fixes;
 mod quit_spawn;
 #[path = "hub_integration/session_hibernate.rs"]
 mod session_hibernate;
+#[path = "hub_integration/start_retry.rs"]
+mod start_retry;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;

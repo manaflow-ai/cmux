@@ -26,6 +26,7 @@ pub mod op_names {
     pub const CALENDAR_EVENT_CREATE: &str = "calendar.event.create";
     pub const CALENDAR_EVENT_RESPOND: &str = "calendar.event.respond";
     pub const CALENDAR_EVENTS_LIST: &str = "calendar.events.list";
+    pub const CHANNEL_CREATE: &str = "channel.create";
     pub const CHIEF_ARCHIVE: &str = "chief.archive";
     pub const CHIEF_CREATE: &str = "chief.create";
     pub const CHIEF_DELETE: &str = "chief.delete";
@@ -167,6 +168,7 @@ pub mod op_names {
     pub const RUN_LIST: &str = "run.list";
     pub const SERVER_NETWORK_CONFIRM: &str = "server.network.confirm";
     pub const SERVER_PAIR_APPROVE: &str = "server.pair.approve";
+    pub const SERVER_PAIR_INVITE: &str = "server.pair.invite";
     pub const SERVER_PAIR_PREVIEW: &str = "server.pair.preview";
     pub const SERVER_REVOKE: &str = "server.revoke";
     pub const SLACK_POST_AS_BOT: &str = "slack.post_as_bot";
@@ -250,6 +252,7 @@ pub mod op_names {
         CALENDAR_EVENT_CREATE,
         CALENDAR_EVENT_RESPOND,
         CALENDAR_EVENTS_LIST,
+        CHANNEL_CREATE,
         CHIEF_ARCHIVE,
         CHIEF_CREATE,
         CHIEF_DELETE,
@@ -391,6 +394,7 @@ pub mod op_names {
         RUN_LIST,
         SERVER_NETWORK_CONFIRM,
         SERVER_PAIR_APPROVE,
+        SERVER_PAIR_INVITE,
         SERVER_PAIR_PREVIEW,
         SERVER_REVOKE,
         SLACK_POST_AS_BOT,
@@ -477,6 +481,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "calendar.event.create" => visitor.visit::<CalendarEventCreateOp>(),
         "calendar.event.respond" => visitor.visit::<CalendarEventRespondOp>(),
         "calendar.events.list" => visitor.visit::<CalendarEventsListOp>(),
+        "channel.create" => visitor.visit::<ChannelCreateOp>(),
         "chief.archive" => visitor.visit::<ChiefArchiveOp>(),
         "chief.create" => visitor.visit::<ChiefCreateOp>(),
         "chief.delete" => visitor.visit::<ChiefDeleteOp>(),
@@ -618,6 +623,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "run.list" => visitor.visit::<RunListOp>(),
         "server.network.confirm" => visitor.visit::<ServerNetworkConfirmOp>(),
         "server.pair.approve" => visitor.visit::<ServerPairApproveOp>(),
+        "server.pair.invite" => visitor.visit::<ServerPairInviteOp>(),
         "server.pair.preview" => visitor.visit::<ServerPairPreviewOp>(),
         "server.revoke" => visitor.visit::<ServerRevokeOp>(),
         "slack.post_as_bot" => visitor.visit::<SlackPostAsBotOp>(),

@@ -19,7 +19,7 @@ final class AppBrowserHost {
     let provider: BrowserHostProvider
     let driver: WebKitDriver
     private let credentials: AppProviderCredentials
-    private let tabs: AppBrowserHostTabs
+    let tabs: AppBrowserHostTabs
     private let relay: AppDevToolsRelay
     /// The Secure Store login guard on the host's agent code (the provider holds it weakly).
     private let scriptGate: PageScriptGate

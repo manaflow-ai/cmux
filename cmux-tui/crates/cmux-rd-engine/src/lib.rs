@@ -31,6 +31,14 @@ pub const HISTORY_FRAMES: usize = 16;
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 /// Shortest time between two forced keyframes.
 pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
+/// How long a stream's newest frame may go unacknowledged before the host
+/// resends it (a tail-loss probe). On a datagram path a frame whose every
+/// datagram was lost leaves the viewer nothing to NACK and the gate nothing
+/// to open on; the probe recovers it. A received frame's resend is dropped by
+/// the viewer's reassembler.
+pub const TAIL_PROBE_US: u64 = 250_000;
+/// Probes before the host stops resending and starts over from a keyframe.
+pub const TAIL_PROBES: u32 = 3;
 /// Most streams per peer (the viewer's CMUX_RD_SESSION_MAX_STREAMS).
 pub const MAX_STREAMS: usize = 16;
 /// Share of the target that popup streams may take together, in percent.
@@ -55,6 +63,14 @@ pub struct EngineConfig {
     pub input_gap_timeout_us: u64,
     /// The main display stream (0 by convention); more with `add_stream`.
     pub stream: u16,
+    /// Frames of each display stream that may be unacknowledged at once (at least one):
+    /// one keeps the latency lowest on a short path; a path whose round trip spans
+    /// several frame intervals needs more (`frames_in_flight_for`).
+    pub frames_in_flight: u32,
+    /// After injected input, frames skip the frame-rate cap for a short window
+    /// (`cmux_rd_core::flow::INPUT_FRAME_WINDOW_US`), so the input's effect goes out as soon
+    /// as the capture delivers it instead of on the next interval.
+    pub input_frame_now: bool,
 }
 
 impl Default for EngineConfig {
@@ -70,6 +86,8 @@ impl Default for EngineConfig {
             path: PathKind::ViaCloudRegion,
             input_gap_timeout_us: 200_000,
             stream: 0,
+            frames_in_flight: 1,
+            input_frame_now: false,
         }
     }
 }
@@ -259,20 +277,26 @@ struct StreamState {
     started: bool,
     /// A tile stream's surface stream (rd change C3).
     tile_of: Option<u16>,
+    /// When the newest frame went out, or was last probed, while it is unacknowledged.
+    probe_from_us: Option<u64>,
+    /// Tail-loss probes sent for the newest frame.
+    probes: u32,
 }
 
 impl StreamState {
-    fn new(width: u32, height: u32, max_fps: u32) -> Self {
+    fn new(width: u32, height: u32, max_fps: u32, frames_in_flight: u32) -> Self {
         Self {
             width,
             height,
-            gate: FrameGate::new(1, max_fps.max(1)),
+            gate: FrameGate::new(frames_in_flight.max(1), max_fps.max(1)),
             history: BTreeMap::new(),
             last_frame: 0,
             force_idr: true,
             last_forced_idr_us: None,
             started: false,
             tile_of: None,
+            probe_from_us: None,
+            probes: 0,
         }
     }
 
@@ -305,7 +329,10 @@ impl MediaEngine {
         let cc_cfg =
             CcConfig { start_bps: cfg.start_bps, max_bps: cfg.max_bps, ..CcConfig::default() };
         let mut streams = BTreeMap::new();
-        streams.insert(cfg.stream, StreamState::new(cfg.width, cfg.height, cfg.max_fps));
+        streams.insert(
+            cfg.stream,
+            StreamState::new(cfg.width, cfg.height, cfg.max_fps, cfg.frames_in_flight),
+        );
         Self {
             streams,
             cc: CongestionController::new(cc_cfg, cfg.path),
@@ -331,7 +358,10 @@ impl MediaEngine {
         if self.streams.len() >= MAX_STREAMS {
             return Err(StreamError::TooMany);
         }
-        self.streams.insert(stream, StreamState::new(width, height, self.cfg.max_fps));
+        self.streams.insert(
+            stream,
+            StreamState::new(width, height, self.cfg.max_fps, self.cfg.frames_in_flight),
+        );
         Ok(())
     }
 
@@ -455,6 +485,11 @@ impl MediaEngine {
             .filter_map(|s| s.gate.next_deadline_us())
             .chain(self.applier.next_deadline_us())
             .chain(self.upstreams.values().filter_map(Upstream::next_deadline_us))
+            .chain(self.streams.values().filter_map(|s| {
+                s.probe_from_us
+                    .filter(|_| s.gate.in_flight() > 0)
+                    .map(|t| t.saturating_add(TAIL_PROBE_US))
+            }))
             .min()
     }
 
@@ -522,6 +557,8 @@ impl MediaEngine {
         }
         state.force_idr = false;
         state.last_frame = req.frame;
+        state.probe_from_us = Some(now_us);
+        state.probes = 0;
         self.frames += 1;
         self.keyframes += u64::from(enc.idr && !tile);
         Ok(Output { datagrams: packets.datagrams, ..Output::default() })
@@ -538,6 +575,7 @@ impl MediaEngine {
                 if may_inject {
                     out.inject = self.applier.accept(&packet, now_us);
                     out.release_all = self.applier.take_skipped_gap();
+                    self.note_input(&out, now_us);
                 } else {
                     // Discard and acknowledge: a view-only viewer stops
                     // repeating, and a late repeat never applies after
@@ -606,6 +644,44 @@ impl MediaEngine {
         out.encode = self.request(stream, action);
     }
 
+    /// Tail-loss recovery: a stream whose newest frame has gone unacknowledged
+    /// for [`TAIL_PROBE_US`] gets that frame resent, up to [`TAIL_PROBES`] times;
+    /// then the gate opens for a keyframe. An ack ends it (the gate has nothing
+    /// in flight), so a stream that is acknowledged never probes.
+    fn probe_tails(&mut self, now_us: u64, out: &mut Output) {
+        let ids: Vec<u16> = self.streams.keys().copied().collect();
+        for stream in ids {
+            let Some(state) = self.streams.get_mut(&stream) else { continue };
+            if state.gate.in_flight() == 0 {
+                state.probe_from_us = None;
+                continue;
+            }
+            let Some(from) = state.probe_from_us else { continue };
+            if now_us < from.saturating_add(TAIL_PROBE_US) {
+                continue;
+            }
+            if state.probes < TAIL_PROBES {
+                state.probes = state.probes.saturating_add(1);
+                state.probe_from_us = Some(now_us);
+                if let Some(datagrams) = state.history.get(&state.last_frame) {
+                    out.datagrams.extend(datagrams.iter().take(MAX_RESENDS_PER_FEEDBACK).cloned());
+                }
+                continue;
+            }
+            // One encode per tick: a second stream's keyframe waits for the next.
+            if out.encode.is_some() {
+                continue;
+            }
+            state.probe_from_us = None;
+            state.last_forced_idr_us = Some(now_us);
+            state.force_idr = true;
+            state.gate.clear_in_flight();
+            let full = state.full();
+            let action = state.gate.damage(full, now_us);
+            out.encode = self.request(stream, action);
+        }
+    }
+
     /// Advances time for input: a missing event is skipped after its timeout.
     pub fn tick(&mut self, may_inject: bool, now_us: u64) -> Output {
         let mut out = Output::default();
@@ -614,12 +690,24 @@ impl MediaEngine {
             u.released_since_feedback |= !released.is_empty();
             out.upstream.extend(released.into_iter().map(|f| (stream, f)));
         }
+        self.probe_tails(now_us, &mut out);
         let events = self.applier.tick(now_us);
         if may_inject {
             out.inject = events;
             out.release_all = self.applier.take_skipped_gap();
+            self.note_input(&out, now_us);
         }
         out
+    }
+
+    /// Input goes to the source now: with `input_frame_now`, every stream's gate opens its
+    /// input window.
+    fn note_input(&mut self, out: &Output, now_us: u64) {
+        if self.cfg.input_frame_now && !out.inject.is_empty() {
+            for state in self.streams.values_mut() {
+                state.gate.input(now_us);
+            }
+        }
     }
 
     /// Forgets held input (control ended or the session stopped); the source
@@ -688,4 +776,13 @@ impl MediaEngine {
         d.extend_from_slice(&self.applier.applied().to_le_bytes());
         d
     }
+}
+
+/// Frames in flight for a path with this round trip at this frame rate: enough to
+/// cover the round trip plus one being encoded, at most 6 (the viewer's reassembly
+/// holds each frame until its deadline, and more only queues).
+pub fn frames_in_flight_for(rtt_us: u64, max_fps: u32) -> u32 {
+    let interval_us = 1_000_000 / u64::from(max_fps.max(1));
+    let covering = rtt_us.div_ceil(interval_us.max(1));
+    u32::try_from(covering + 1).unwrap_or(6).clamp(1, 6)
 }

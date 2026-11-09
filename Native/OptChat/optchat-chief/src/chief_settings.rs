@@ -30,9 +30,11 @@ pub struct ChiefSettings {
     /// gets a `<show>` block for the Chief to open them in the subagent's
     /// workspace or a new one (`show.afterReport`, crate::show). Default true.
     pub show_after_report: bool,
-    /// Each subagent gets a sidebar workspace when it starts
-    /// (`subagents.showWorkspaces`). Default false (#26386): subagents run
-    /// hidden, reachable from their links in the Chief's replies, and
+    /// Every subagent gets a sidebar workspace when it starts
+    /// (`subagents.showWorkspaces`), whatever the Chief chose. Default false:
+    /// the Chief chooses per spawn (`spawn(sidebar)`, sidebar_choice.rs, a1018)
+    /// under the user's cmux-next.json rules (`chief.subagentSidebar*`); a
+    /// hidden one is reachable from its link in the Chief's replies, and
     /// `control show ID` / `control hide ID` add or close one's workspace.
     pub show_subagent_workspaces: bool,
     /// The trace keeps whole texts (replies, tool arguments) for replaying

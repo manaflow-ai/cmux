@@ -1,21 +1,22 @@
-// Leo, 2026-10-12: a tooltip for truncated text was narrower than the row it came from, so the
-// full text wrapped into a tall thin column. A tooltip for truncated text shows the full text,
-// wrapping, up to the source row's width (at least ~480 px), and never narrower than the line.
-// Tooltips also carry a shortcut hint in the secondary ink, like the native one.
+// Tooltips reveal the full label in a compact bubble, independent of the source row width.
 import { afterEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { HoverGroup, HoverIntent } from "./hoverIntent";
-import { installTooltips, tooltipPosition, tooltipWidth } from "./titleTooltips";
+import { installTooltips, tooltipPosition, tooltipWidth, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./titleTooltips";
+import { UI_TOOLTIP_GAP } from "./tooltipTokens";
+import { setPopupInsetTop } from "./popupInset";
 
-test("a tooltip for truncated text wraps up to its source's width, never narrower than the line", () => {
-  // Untruncated: the standard tooltip width.
-  expect(tooltipWidth({ width: 120, truncated: false, view: 1000 })).toEqual({ min: 0, max: 320 });
-  // A truncated 600 px line: at least the line, wrapping up to it.
-  expect(tooltipWidth({ width: 600, truncated: true, view: 1000 })).toEqual({ min: 600, max: 600 });
-  // A narrow truncated chip: up to 480 px.
-  expect(tooltipWidth({ width: 140, truncated: true, view: 1000 })).toEqual({ min: 140, max: 480 });
-  // Never wider than the window's room.
-  expect(tooltipWidth({ width: 900, truncated: true, view: 700 })).toEqual({ min: 688, max: 688 });
+test("full labels stay content-sized and bounded even on wide truncated rows", () => {
+  for (const width of [140, 600, 900]) {
+    for (const truncated of [false, true]) {
+      expect(tooltipWidth({ width, truncated, view: 1000 })).toEqual({ min: 0, max: 320 });
+    }
+  }
+  expect(tooltipWidth({ width: 900, truncated: true, view: 200 })).toEqual({ min: 0, max: 192 });
+  expect(tooltipWidth({ width: 900, truncated: true, view: 1000, scale: 1.25 })).toEqual({
+    min: 0,
+    max: 400,
+  });
 });
 
 let dom: JSDOM | undefined;
@@ -42,7 +43,7 @@ function page(body: string, options: Parameters<typeof installTooltips>[1] = { d
   return dom.window.document;
 }
 
-test("hovering a truncated row shows its full text as wide as the row", async () => {
+test("hovering a truncated row shows its full text without adopting the row width", async () => {
   const doc = page(
     `<div id="row" title="A long chat title that the sidebar row cuts off with an ellipsis">A long…</div>`,
   );
@@ -54,15 +55,21 @@ test("hovering a truncated row shows its full text as wide as the row", async ()
   const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
   expect(tip.hidden).toBe(false);
   expect(tip.textContent).toBe("A long chat title that the sidebar row cuts off with an ellipsis");
-  expect(tip.style.minWidth).toBe("600px");
-  expect(tip.style.maxWidth).toBe("600px");
+  expect(tip.style.minWidth).toBe("0px");
+  expect(tip.style.maxWidth).toBe("320px");
 });
 
 test("a short title's tooltip for truncated text is only as wide as its text", () => {
-  // The line is 600 px but the full text measures 250 px: no wide empty box.
-  expect(tooltipWidth({ width: 600, truncated: true, view: 1000, text: 250 })).toEqual({ min: 250, max: 600 });
-  // Text longer than the line: at least the line, as before.
-  expect(tooltipWidth({ width: 600, truncated: true, view: 1000, text: 2000 })).toEqual({ min: 600, max: 600 });
+  // The source and text never impose a minimum width.
+  expect(tooltipWidth({ width: 600, truncated: true, view: 1000, text: 250 })).toEqual({
+    min: 0,
+    max: 320,
+  });
+  // Long text wraps and stays fully available.
+  expect(tooltipWidth({ width: 600, truncated: true, view: 1000, text: 2000 })).toEqual({
+    min: 0,
+    max: 320,
+  });
 });
 
 test("a row whose child clips its text gets the truncated tooltip, sized to the text", async () => {
@@ -87,8 +94,8 @@ test("a row whose child clips its text gets the truncated tooltip, sized to the 
   await hover(row);
   const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
   expect(tip.hidden).toBe(false);
-  expect(tip.style.minWidth).toBe("330px");
-  expect(tip.style.maxWidth).toBe("600px");
+  expect(tip.style.minWidth).toBe("0px");
+  expect(tip.style.maxWidth).toBe("320px");
 });
 
 test("an untruncated control's tooltip keeps the standard width and shows its shortcut hint", async () => {
@@ -253,7 +260,12 @@ test("a key typed while a toolbar hint waits drops it: it does not pop up mid-ty
   const doc = page(`<button id="b" title="Back"></button>`, { clock, group });
   // A toolbar hint (ui/Toolbar.tsx) in the same group, waiting its delay.
   const hint: string[] = [];
-  const toolbarHint = new HoverIntent<string>({ group, clock, show: (id) => hint.push(id), hide: () => {} });
+  const toolbarHint = new HoverIntent<string>({
+    group,
+    clock,
+    show: (id) => hint.push(id),
+    hide: () => {},
+  });
   toolbarHint.hover("Share");
   clock.advance(200);
   doc.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "a", bubbles: true }));
@@ -277,17 +289,23 @@ test("a tooltip near the right edge is measured at its full width, wherever the 
   proto.getBoundingClientRect = function (this: HTMLElement) {
     if (!this.classList.contains("ui-title-tooltip")) return original.call(this);
     const left = parseFloat(this.style.left) || 0;
-    return { left, top: 0, width: Math.min(7 * (this.textContent ?? "").length, 1000 - left), height: 16 } as DOMRect;
+    return {
+      left,
+      top: 0,
+      width: Math.min(7 * (this.textContent ?? "").length, 1000 - left),
+      height: 16,
+    } as DOMRect;
   };
   try {
     const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
     await hover(close);
-    expect(tip.style.left).toBe(`${1000 - 6 - 35}px`);
+    expect(tip.style.left).toBe(`${1000 - UI_TOOLTIP_EDGE - 35}px`);
     close.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true }));
     await hover(summary);
     expect(tip.textContent).toBe("Chat summary");
-    // As wide as its text (84 px), not squeezed into the 41 px right of the last tooltip's place.
-    expect(tip.style.left).toBe(`${1000 - 6 - 84}px`);
+    // The full 84px label now fits centered on the trigger, before the 4px edge clamp.
+    expect(tip.style.left).toBe(`${940 + 26 / 2 - 84 / 2}px`);
+    expect(tip.getBoundingClientRect().width).toBe(84);
   } finally {
     proto.getBoundingClientRect = original;
   }
@@ -297,9 +315,149 @@ test("a top-side tooltip (a message's time) sits above its element, below only w
   const view = { width: 800, height: 600 };
   const size = { width: 140, height: 22 };
   const time = { left: 100, top: 300, width: 80, height: 24 };
-  // Centered on the time, 6px above it (as Claude's), and below by default.
-  expect(tooltipPosition(time, size, view, "top")).toEqual({ left: 70, top: 272 });
-  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 330 });
+  // Centered on the time, on the compact 4px grid gap above it (as Claude's), and above by default.
+  expect(tooltipPosition(time, size, view, "top")).toEqual({ left: 70, top: 274 });
+  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 274 });
   // At the pane's top edge: below.
-  expect(tooltipPosition({ ...time, top: 10 }, size, view, "top")).toEqual({ left: 70, top: 40 });
+  expect(tooltipPosition({ ...time, top: 10 }, size, view, "top")).toEqual({ left: 70, top: 38 });
+  const scaled = tooltipPosition(time, size, view, "top", 1.5);
+  expect(time.top - (scaled.top + size.height)).toBe(UI_TOOLTIP_GAP * 1.5);
+  expect(UI_TOOLTIP_GAP).toBe(4);
+  expect(UI_TOOLTIP_EDGE).toBe(UI_TOOLTIP_GAP);
+  expect(UI_TOOLTIP_MAX_WIDTH).toBe(320);
+  const positioned = tooltipPosition(time, size, view);
+  expect(time.top - (positioned.top + size.height)).toBe(UI_TOOLTIP_GAP);
+});
+
+test("a tooltip stays inside its region: above when it fits there, else below, else the window's edges", () => {
+  const view = { width: 1000, height: 800 };
+  const size = { width: 240, height: 36 };
+  // The transcript below a 40px band the native tabs draw over.
+  const bounds = { left: 0, top: 40, width: 1000, height: 760 };
+  const row = { left: 50, top: 48, width: 200, height: 22 };
+  // The window has room above (8px), the region has none: below the row.
+  expect(tooltipPosition(row, size, view, "top")).toEqual({ left: 30, top: 8 });
+  expect(tooltipPosition(row, size, view, "top", 1, bounds)).toEqual({ left: 30, top: 74 });
+  // Lower down there is room above inside the region: above, as everywhere.
+  expect(tooltipPosition({ ...row, top: 300 }, size, view, "top", 1, bounds)).toEqual({ left: 30, top: 260 });
+  // A region too small for it either way: the window's edges, as before.
+  const tiny = { left: 0, top: 40, width: 1000, height: 40 };
+  expect(tooltipPosition(row, size, view, "top", 1, tiny)).toEqual({ left: 30, top: 8 });
+});
+
+test("a pane-wide row's tooltip anchors at its words and stays out of the tab row the native tabs cover", async () => {
+  // A one-tab pane (header.css data-solo-tab): the transcript runs up under the tab row.
+  const doc = page(
+    `<header id="tabs" data-tooltip-covered></header>` +
+      `<div id="scroll" style="overflow-y: auto"><button id="row" title="Claude Code 2.1.312 · claude-opus-5-5 · your Claude Code setup · ~/Projects"><span>Claude Code · Opus 5.5</span></button></div>`,
+  );
+  const box = (left: number, top: number, width: number, height: number) =>
+    ({ left, top, width, height, right: left + width, bottom: top + height }) as DOMRect;
+  doc.getElementById("tabs")!.getBoundingClientRect = () => box(0, 0, 1000, 40);
+  doc.getElementById("scroll")!.getBoundingClientRect = () => box(0, 0, 1000, 800);
+  const row = doc.getElementById("row")!;
+  row.getBoundingClientRect = () => box(50, 48, 900, 22);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  tip.getBoundingClientRect = () => box(0, 0, 240, 36);
+  // What the row draws: its icon, words and chevron, 200px of the 900.
+  // jsdom lays nothing out, so its Range has no geometry of its own: this page's gets the words' box.
+  Object.defineProperty(dom!.window.Range.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value: () => box(50, 50, 200, 18),
+  });
+  await hover(row);
+  expect(tip.hidden).toBe(false);
+  // Centered on the words (50 + 100 - 120), not on the row's middle (50 + 450 - 120 = 380), and
+  // below the row, not above it under the tabs (48 - 4 - 36 = 8).
+  expect(tip.style.left).toBe("30px");
+  expect(tip.style.top).toBe(`${48 + 22 + UI_TOOLTIP_GAP}px`);
+});
+
+/// Leo, 2026-11-07 (Trace-ID ask-11b77f340e): closing a tab in a tight pane moved the chat's tools up under a pointer
+/// that did not move. An element the page lays out under a still pointer gets the engine's `pointerover` too; its
+/// tooltip waits for the pointer to move, and then shows for what is under it.
+test("a layout that moves a control under a still pointer shows nothing until the pointer moves", async () => {
+  const doc = page(`<button id="tool" title="Session Info"></button><div id="rest"></div>`);
+  const tool = doc.getElementById("tool")!;
+  const at = (type: string, target: Element, x: number) =>
+    target.dispatchEvent(new dom!.window.MouseEvent(type, { bubbles: true, screenX: x, screenY: 40 }));
+  // The pointer rests over the row's empty part.
+  at("pointerover", doc.getElementById("rest")!, 500);
+  at("pointermove", doc.getElementById("rest")!, 500);
+  // The tools land under it: the same point, no move.
+  at("pointerover", tool, 500);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip");
+  expect(tip === null || tip.hidden).toBe(true);
+  // An engine's synthetic move at the same point is no move either.
+  at("pointermove", tool, 500);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(doc.querySelector<HTMLElement>(".ui-title-tooltip")?.hidden ?? true).toBe(true);
+  // A real move over the tool shows its tooltip.
+  at("pointermove", tool, 502);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(doc.querySelector<HTMLElement>(".ui-title-tooltip")?.hidden).toBe(false);
+  expect(doc.querySelector<HTMLElement>(".ui-title-tooltip")?.textContent).toBe("Session Info");
+});
+
+test("a timestamp's tooltip under an open Find bar flips below its row, never over the bar", async () => {
+  // Leo 2026-11-07: a message time's "Nov 7, 2026, 12:05 AM" drawn over the find bar. The bar
+  // (ChatFindBar.tsx) registers its bottom, 52px down, in ui/popupInset.ts while it shows.
+  const doc = page(
+    `<div id="scroll" style="overflow-y: auto"><time id="time" title="Nov 7, 2026, 12:05 AM">12:05 AM</time></div>`,
+  );
+  const box = (left: number, top: number, width: number, height: number) =>
+    ({ left, top, width, height, right: left + width, bottom: top + height }) as DOMRect;
+  doc.getElementById("scroll")!.getBoundingClientRect = () => box(0, 0, 1000, 800);
+  const time = doc.getElementById("time")!;
+  time.getBoundingClientRect = () => box(800, 60, 60, 18);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  tip.getBoundingClientRect = () => box(0, 0, 160, 24);
+  setPopupInsetTop(52, "findBar");
+  try {
+    await hover(time);
+    expect(tip.hidden).toBe(false);
+    // Above would be 60 - 4 - 24 = 32, under the bar: it goes below the time instead.
+    expect(tip.style.top).toBe(`${60 + 18 + UI_TOOLTIP_GAP}px`);
+  } finally {
+    setPopupInsetTop(0, "findBar");
+  }
+});
+
+test("a header control's tooltip above an open Find bar starts below the bar", () => {
+  // next-review F3 at e03f60d5: a control at y=2-26 with Find down to y=72 put its tooltip at y=30.
+  const bounds = { left: 0, top: 76, width: 1000, height: 724 };
+  const placed = tooltipPosition(
+    { left: 900, top: 2, width: 24, height: 24 },
+    { width: 120, height: 24 },
+    { width: 1000, height: 800 },
+    "top",
+    1,
+    bounds,
+  );
+  expect(placed.top).toBeGreaterThanOrEqual(76);
+});
+
+test("a tooltip already open when the Find bar opens goes away", async () => {
+  // router-review follow-up at e03f60d5: native Cmd-F reaches the page as no key, so the bar's own
+  // inset change (ChatFindBar.tsx) is what takes the tooltip away.
+  const doc = page(
+    `<div id="scroll" style="overflow-y: auto"><time id="time" title="Nov 7, 2026, 12:05 AM">12:05 AM</time></div>`,
+  );
+  const box = (left: number, top: number, width: number, height: number) =>
+    ({ left, top, width, height, right: left + width, bottom: top + height }) as DOMRect;
+  doc.getElementById("scroll")!.getBoundingClientRect = () => box(0, 0, 1000, 800);
+  const time = doc.getElementById("time")!;
+  time.getBoundingClientRect = () => box(800, 60, 60, 18);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  tip.getBoundingClientRect = () => box(0, 0, 160, 24);
+  await hover(time);
+  expect(tip.hidden).toBe(false);
+  try {
+    // The inset's listeners run as it is set: the tooltip leaves (or starts its fade) in that turn.
+    setPopupInsetTop(52, "findBar");
+    expect(tip.hidden || tip.hasAttribute("data-ending-style")).toBe(true);
+  } finally {
+    setPopupInsetTop(0, "findBar");
+  }
 });

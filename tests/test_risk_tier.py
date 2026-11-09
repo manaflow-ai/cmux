@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import subprocess
 import sys
@@ -677,6 +678,28 @@ class RecentRevertTests(unittest.TestCase):
         # A pure addition taken out again is a revert.
         self.assertTrue(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx", "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
 
+    def test_a_reflowed_list_does_not_take_back_the_line_it_rewraps(self):
+        # PR #38436 (2026-11-08): two exports added to a `pub use listen::{...}` list made rustfmt rewrap it.
+        # #37363 had added the line `verify_session_socket_directory,`; after the rewrap that name sits on a
+        # longer line, so line matching read the PR as taking #37363 back and held it.
+        commit = ("@@ -2746,6 +2746,7 @@ mod listen;\n pub use listen::{\n"
+                  "     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+                  "+    verify_session_socket_directory,\n };")
+        pr = ("@@ -2769,11 +2769,13 @@ mod listen;\n pub use listen::{\n"
+              "-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+              "-    verify_session_socket_directory,\n"
+              "+    connect_session_socket, prepare_socket_parent, remove_socket_start_lock, serve, serve_bound,\n"
+              "+    serve_paused, socket_start_lock_path, verify_session_socket_directory,\n };")
+        self.assertFalse(risk.undoes(pr, commit))
+        # Really deleting the line still takes it back.
+        self.assertTrue(risk.undoes("@@ -2769,3 +2769,2 @@\n pub use listen::{\n"
+                                    "-    verify_session_socket_directory,\n };", commit))
+        # A line that loses a token is not a reflow: `foo(a, b)` to `foo(a)`, then back, is a revert.
+        shortened = "@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx", shortened))
+        widened = "@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx", widened))
+
     def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
         now = time.time()
         with tempfile.TemporaryDirectory() as repo:
@@ -699,6 +722,44 @@ class RecentRevertTests(unittest.TestCase):
             unread = []
             self.assertEqual(risk.recent_reverts([stale], repo, base, own=21194, now=now, unread=unread, budget=0), {})
             self.assertEqual(unread, ["App.tsx"])
+
+
+class MergeBaseTests(unittest.TestCase):
+    """The merge base comes from git when the base history has both ends, not a `compare` call."""
+
+    def test_the_merge_base_comes_from_git_and_falls_back_to_compare(self):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t")
+
+        def git(repo, *args):
+            return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True,
+                                  env=env).stdout.strip()
+        compared = []
+
+        def fake_json(*args):
+            compared.append(args[1])
+            return {"sha": "c" * 40}
+        saved = risk.gh_json
+        risk.gh_json = fake_json
+        try:
+            with tempfile.TemporaryDirectory() as repo:
+                git(repo, "init", "-q")
+                git(repo, "commit", "-q", "--allow-empty", "-m", "fork")
+                fork = git(repo, "rev-parse", "HEAD")
+                git(repo, "commit", "-q", "--allow-empty", "-m", "base")
+                base = git(repo, "rev-parse", "HEAD")
+                git(repo, "checkout", "-q", "-b", "pr", fork)
+                git(repo, "commit", "-q", "--allow-empty", "-m", "head")
+                head = git(repo, "rev-parse", "HEAD")
+                pr = {"base": {"sha": base}, "head": {"sha": head}}
+                self.assertEqual(risk.merge_base_of("o/r", pr, repo), fork)
+                self.assertEqual(compared, [])
+                # The head was not fetched: compare answers.
+                missing = {"base": {"sha": base}, "head": {"sha": HEAD}}
+                self.assertEqual(risk.merge_base_of("o/r", missing, repo), "c" * 40)
+                self.assertEqual(compared, [f"repos/o/r/compare/{base}...{HEAD}"])
+        finally:
+            risk.gh_json = saved
 
 
 class RenderTests(unittest.TestCase):
@@ -777,9 +838,15 @@ class EvidenceTests(unittest.TestCase):
 
 
 class ShipReceiptTests(unittest.TestCase):
+    # The receipts here come from another account than the pull request's author (teamleaderleo): the rule
+    # from before Author-agent. SameAccountReceiptTests covers a receipt from the author's own account.
     def comment(self, body, at="2026-10-21T20:00:00Z", association="MEMBER", kind="User"):
         return {"body": body, "created_at": at, "author_association": association,
-                "user": {"login": "teamleaderleo", "type": kind}}
+                "user": {"login": "lawrencecchen", "type": kind}}
+
+    @staticmethod
+    def signed(comments, reviews, head=HEAD, author="teamleaderleo"):
+        return risk.signed_off(comments, reviews, head, author)
 
     def review(self, body="", state="COMMENTED", at="2026-10-21T20:00:00Z", login="lawrencecchen"):
         return {"body": body, "state": state, "commit_id": HEAD, "submitted_at": at,
@@ -787,50 +854,197 @@ class ShipReceiptTests(unittest.TestCase):
 
     def test_an_independent_ship_at_the_full_head_signs_off(self):
         comments = [self.comment(f"Review (subagent, correctness first): SHIP at {HEAD}\n\ndetails")]
-        self.assertEqual(risk.signed_off(comments, [], HEAD), "review (subagent, correctness first)")
+        self.assertEqual(self.signed(comments, [], HEAD), "review (subagent, correctness first)")
 
     def test_a_short_sha_another_head_or_a_self_review_does_not(self):
         for line in (f"Review (subagent): SHIP at {HEAD[:12]}", "Review (subagent): SHIP at " + "f" * 40,
                      f"Review (self): SHIP at {HEAD}", f"Addressed review: nothing blocking at {HEAD}"):
-            self.assertIsNone(risk.signed_off([self.comment(line)], [], HEAD), line)
+            self.assertIsNone(self.signed([self.comment(line)], [], HEAD), line)
 
     def test_the_receipt_must_lead_the_comment(self):
-        self.assertIsNone(risk.signed_off([self.comment(f"Notes\nReview (subagent): SHIP at {HEAD}")], [], HEAD))
+        self.assertIsNone(self.signed([self.comment(f"Notes\nReview (subagent): SHIP at {HEAD}")], [], HEAD))
 
     def test_a_newer_block_beats_an_earlier_ship(self):
         comments = [self.comment(f"Review (subagent): SHIP at {HEAD}", at="2026-10-21T20:00:00Z"),
                     self.comment(f"Review (codex): BLOCK at {HEAD}: races", at="2026-10-21T20:05:00Z")]
-        self.assertIsNone(risk.signed_off(comments, [], HEAD))
+        self.assertIsNone(self.signed(comments, [], HEAD))
         comments.append(self.comment(f"Review (codex): SHIP at {HEAD}", at="2026-10-21T20:10:00Z"))
-        self.assertEqual(risk.signed_off(comments, [], HEAD), "review (codex)")
+        self.assertEqual(self.signed(comments, [], HEAD), "review (codex)")
 
     def test_a_block_in_a_review_body_or_a_change_request_beats_an_earlier_ship(self):
         ship = [self.comment(f"Review (subagent): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")]
         later = "2026-10-21T20:05:00Z"
-        self.assertIsNone(risk.signed_off(ship, [self.review(f"Review (codex): BLOCK at {HEAD}", at=later)], HEAD))
-        self.assertIsNone(risk.signed_off(ship, [self.review(state="CHANGES_REQUESTED", at=later)], HEAD))
-        self.assertEqual(risk.signed_off(ship, [self.review(f"Review (codex): SHIP at {HEAD}", at=later)], HEAD),
+        self.assertIsNone(self.signed(ship, [self.review(f"Review (codex): BLOCK at {HEAD}", at=later)], HEAD))
+        self.assertIsNone(self.signed(ship, [self.review(state="CHANGES_REQUESTED", at=later)], HEAD))
+        self.assertEqual(self.signed(ship, [self.review(f"Review (codex): SHIP at {HEAD}", at=later)], HEAD),
                          "review (codex)")
 
     def test_a_newer_block_comment_beats_an_approval(self):
         approval = [self.review(state="APPROVED", at="2026-10-21T20:00:00Z")]
         block = [self.comment(f"Review (subagent): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")]
-        self.assertIsNone(risk.signed_off(block, approval, HEAD, "teamleaderleo"))
+        self.assertIsNone(self.signed(block, approval, HEAD, "teamleaderleo"))
 
     def test_a_block_wins_a_tie(self):
         comments = [self.comment(f"Review (codex): BLOCK at {HEAD}"), self.comment(f"Review (subagent): SHIP at {HEAD}")]
-        self.assertIsNone(risk.signed_off(comments, [], HEAD))
+        self.assertIsNone(self.signed(comments, [], HEAD))
 
     def test_bots_and_outside_accounts_do_not_count(self):
         line = f"Review (subagent): SHIP at {HEAD}"
-        self.assertIsNone(risk.signed_off([self.comment(line, kind="Bot")], [], HEAD))
-        self.assertIsNone(risk.signed_off([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
+        self.assertIsNone(self.signed([self.comment(line, kind="Bot")], [], HEAD))
+        self.assertIsNone(self.signed([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
+
+
+class PrivateMemberReceiptTests(unittest.TestCase):
+    """PR #38436 (2026-11-08): `risk evidence` said "no review verdict on the head commit yet" after a valid
+    `Review (claude-17-review-w3h, started by claude-17): SHIP at <head>` comment, while the same classifier run
+    on a person's token signed it off. The poster, lawrencecchen, is a private member of the organization.
+    A person's token reads that comment's author_association as MEMBER; the workflow's GITHUB_TOKEN and App
+    token cannot see a private membership and read CONTRIBUTOR, so the receipt was not trusted. A login whose
+    association is not trusted now counts when its permission on the repository is write or higher."""
+
+    BODY = "Author-agent: claude-opus-5-5 (W3-H)"
+    LINE = f"Review (claude-17-review-w3h, started by claude-17): SHIP at {HEAD}"
+
+    def comment(self, association="CONTRIBUTOR", login="lawrencecchen"):
+        return {"body": self.LINE, "created_at": "2026-11-08T20:08:13Z", "author_association": association,
+                "user": {"login": login, "type": "User"}}
+
+    def pull(self):
+        return {"body": self.BODY, "author_association": "CONTRIBUTOR", "head": {"sha": HEAD},
+                "user": {"login": "lawrencecchen", "type": "User"}, "labels": []}
+
+    def test_a_write_role_counts_whatever_the_token_reads_as_association(self):
+        roles = {"lawrencecchen": "admin", "drive-by": "read"}
+        signed = risk.signed_off([self.comment()], [], HEAD, "lawrencecchen", self.pull(), permission=roles.get)
+        self.assertEqual(signed, "review (claude-17-review-w3h, started by claude-17)")
+        self.assertIsNone(risk.signed_off([self.comment(login="drive-by")], [], HEAD, "lawrencecchen", self.pull(),
+                                          permission=roles.get))
+        # Without a permission reader the association alone decides, as before.
+        self.assertIsNone(risk.signed_off([self.comment()], [], HEAD, "lawrencecchen", self.pull()))
+
+    def test_human_ok_by_reads_the_permission_of_an_untrusted_association(self):
+        asked = []
+
+        def fake_json(*args):
+            asked.append(args[-1])
+            if args[-1].endswith("/collaborators/lawrencecchen/permission"):
+                return {"role_name": "admin"}
+            raise AssertionError(f"unexpected read {args}")
+        answers = {"repos/o/r/issues/7/comments?per_page=100": [self.comment(), self.comment()],
+                   "repos/o/r/pulls/7/reviews?per_page=100": []}
+        saved = risk.gh_items, risk.gh_json
+        risk.gh_items, risk.gh_json = answers.__getitem__, fake_json
+        try:
+            who, blocked = risk.human_ok_by("o/r", "7", self.pull())
+        finally:
+            risk.gh_items, risk.gh_json = saved
+        self.assertFalse(blocked)
+        self.assertEqual(who, f"review (claude-17-review-w3h, started by claude-17) shipped {HEAD[:12]}")
+        # One read per login, however many comments it posted.
+        self.assertEqual(asked, ["repos/o/r/collaborators/lawrencecchen/permission"])
+
+
+class SameAccountReceiptTests(unittest.TestCase):
+    """cmux-ad m25 item 7: every agent posts as the same account as the pull request's author, so a SHIP from that
+    account counts only when it names its reviewer agent and who started it, neither of them the description's
+    `Author-agent:` (risk_tier.py). #36311: the author agent's own subagent posted
+    `Review (claude-review-subagent): SHIP at ...` from the author's account and the gate read it as independent."""
+
+    AUTHOR = "lawrencecchen"
+
+    def pr(self, body="Author-agent: claude-author\n\n## Summary\nx"):
+        return {"body": body, "author_association": "MEMBER", "head": {"sha": HEAD},
+                "user": {"login": self.AUTHOR, "type": "User"}, "labels": []}
+
+    def comment(self, body, login=AUTHOR, at="2026-10-21T20:00:00Z"):
+        return {"body": body, "created_at": at, "author_association": "MEMBER",
+                "user": {"login": login, "type": "User"}}
+
+    def signed(self, *comments, body="Author-agent: claude-author\n\n## Summary\nx"):
+        return risk.signed_off(list(comments), [], HEAD, self.AUTHOR, self.pr(body))
+
+    def test_the_author_agent_as_its_own_reviewer_is_refused(self):
+        self.assertIsNone(self.signed(self.comment(f"Review (claude-author, started by lead): SHIP at {HEAD}")))
+        # The #36311 shape: no starter named at all.
+        self.assertIsNone(self.signed(self.comment(f"Review (claude-review-subagent): SHIP at {HEAD}")))
+
+    def test_a_reviewer_the_author_agent_started_is_refused(self):
+        self.assertIsNone(self.signed(
+            self.comment(f"Review (claude-review-subagent, started by claude-author): SHIP at {HEAD}")))
+        # Case and markup around the description's id do not hide it.
+        self.assertIsNone(self.signed(
+            self.comment(f"Review (claude-review-subagent, started by Claude-Author): SHIP at {HEAD}"),
+            body="- **Author-agent:** `claude-author`\n"))
+
+    def test_an_independent_agent_the_lead_started_counts(self):
+        ship = self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}")
+        self.assertEqual(self.signed(ship), "review (codex-reviewer-7, started by lead)")
+        # The same line in the description counts too, and ranks below a later comment's BLOCK.
+        self.assertEqual(self.signed(body=f"Author-agent: claude-author\nReview (codex-reviewer-7, started by lead): "
+                                          f"SHIP at {HEAD}"), "review (codex-reviewer-7, started by lead) in the description")
+        self.assertIsNone(self.signed(self.comment(f"Review (codex-reviewer-7, started by claude-author): SHIP at {HEAD}")))
+
+    def test_a_same_account_ship_without_an_author_agent_line_is_refused_and_a_block_still_holds(self):
+        no_agent = "## Summary\nx\n<!-- Author-agent: claude-author -->"
+        self.assertIsNone(self.signed(self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}"),
+                                      body=no_agent))
+        # A BLOCK counts in every case: it beats an earlier SHIP from another account.
+        other = self.comment(f"Review (codex): SHIP at {HEAD}", login="austinywang", at="2026-10-21T20:00:00Z")
+        block = self.comment(f"Review (claude-review-subagent): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
+        self.assertIsNone(self.signed(other, block, body=no_agent))
+        self.assertEqual(self.signed(other, body=no_agent), "review (codex)")
+
+    # The review service an author lane asks for (`router-review OWNER/REPO N --request`): next-review reviews the
+    # head and the cmux-bot App posts its receipt, so the author neither starts the reviewer nor writes the line.
+    def bot(self, body, at="2026-10-21T20:00:00Z", node_id="BOT_kgDOFMYsLQ", login="cmux-bot[bot]", kind="Bot"):
+        return {"body": body, "created_at": at, "submitted_at": at, "author_association": "NONE", "commit_id": HEAD,
+                "user": {"login": login, "type": kind, "node_id": node_id}}
+
+    def test_the_review_service_receipt_counts_and_an_author_started_one_still_fails(self):
+        service = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}")
+        self.assertEqual(self.signed(service), "review (codex gpt-6.1-sol xhigh, next-review)")
+        # Posted as a review body too.
+        self.assertEqual(risk.signed_off([], [dict(service, state="COMMENTED")], HEAD, self.AUTHOR, self.pr()),
+                         "review (codex gpt-6.1-sol xhigh, next-review)")
+        # The #38430 shape: the author lane started router-review itself; from its own account that never counts.
+        self.assertIsNone(self.signed(
+            self.comment(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}")))
+
+    def test_only_the_cmux_bot_app_by_node_id_counts_and_never_its_approval(self):
+        line = f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}"
+        for item in (self.bot(line, node_id="BOT_wrong"), self.bot(line, login="other-bot[bot]"),
+                     self.bot(line, kind="User")):
+            self.assertIsNone(self.signed(item), item["user"])
+        approval = dict(self.bot("cmux-bot approves it"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [approval], HEAD, self.AUTHOR, self.pr()))
+        # An approval whose body mirrors a self-started receipt never counts, and never beats a BLOCK.
+        mirrored = dict(self.bot(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}",
+                                 at="2026-10-21T20:10:00Z"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [mirrored], HEAD, self.AUTHOR, self.pr()))
+        block = self.comment(f"Review (codex-reviewer-7, started by lead): BLOCK at {HEAD}")
+        self.assertIsNone(risk.signed_off([block], [mirrored], HEAD, self.AUTHOR, self.pr()))
+
+    def test_a_later_service_block_beats_an_earlier_ship(self):
+        ship = self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")
+        block = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
+        self.assertIsNone(self.signed(ship, block))
+
+    def test_a_receipt_from_another_account_keeps_the_old_rule(self):
+        line = f"Review (claude-review-subagent): SHIP at {HEAD}"
+        self.assertEqual(self.signed(self.comment(line, login="austinywang")), "review (claude-review-subagent)")
+        self.assertEqual(self.signed(self.comment(line, login="austinywang"), body="no agent line"),
+                         "review (claude-review-subagent)")
+        # The same line from the author's own account does not count.
+        self.assertIsNone(self.signed(self.comment(line)))
 
 
 class DescriptionVerdictTests(unittest.TestCase):
-    """A review verdict in the PR description, so a review needs no receipt comment."""
+    """A review verdict in the PR description, so a review needs no receipt comment. The description is the
+    author's own account, so its SHIP lines name the reviewer agent and who started it, and the description
+    names its Author-agent (risk_tier.py)."""
 
     def pr(self, body, association="MEMBER", kind="User"):
+        body = f"Author-agent: claude-author\n{body}"
         return {"body": body, "author_association": association, "head": {"sha": HEAD},
                 "user": {"login": "teamleaderleo", "type": kind}, "labels": []}
 
@@ -848,12 +1062,12 @@ class DescriptionVerdictTests(unittest.TestCase):
             risk.pending_review("high", who is not None, blocked)
 
     def test_a_ship_line_at_the_head_in_the_description_signs_off(self):
-        body = f"## Summary\nFixes the gate.\n\nReview (codex gpt-6-astra xhigh): SHIP at {HEAD}\n"
+        body = f"## Summary\nFixes the gate.\n\nReview (codex gpt-6-astra xhigh, started by lead): SHIP at {HEAD}\n"
         who, blocked, missing, pending = self.state(body)
-        self.assertEqual(who, "review (codex gpt-6-astra xhigh) in the description")
+        self.assertEqual(who, "review (codex gpt-6-astra xhigh, started by lead) in the description")
         self.assertEqual((blocked, missing, pending), (False, [], ""))
         # A list item or quote around it still counts.
-        self.assertIsNotNone(self.state(f"- Review (codex): SHIP at {HEAD}")[0])
+        self.assertIsNotNone(self.state(f"- Review (codex, started by lead): SHIP at {HEAD}")[0])
 
     def test_a_ship_at_an_older_head_is_no_verdict_and_only_warns(self):
         who, blocked, missing, pending = self.state("Review (codex): SHIP at " + "f" * 40)
@@ -876,12 +1090,12 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertEqual(self.state("## Summary\nNothing about a review here.")[:3], (None, False, []))
 
     def test_a_comment_ship_still_signs_off_and_a_later_comment_block_beats_the_description(self):
-        ship = self.comment(f"Review (subagent): SHIP at {HEAD}")
-        self.assertEqual(self.state("no verdict here", [ship])[0], "review (subagent)")
+        ship = self.comment(f"Review (subagent, started by lead): SHIP at {HEAD}")
+        self.assertEqual(self.state("no verdict here", [ship])[0], "review (subagent, started by lead)")
         block = self.comment(f"Review (codex): BLOCK at {HEAD}: races")
-        self.assertTrue(self.state(f"Review (codex): SHIP at {HEAD}", [block])[1])
+        self.assertTrue(self.state(f"Review (codex, started by lead): SHIP at {HEAD}", [block])[1])
         # And a comment SHIP clears a FIX line left in the description.
-        self.assertEqual(self.state(f"Review (codex): FIX at {HEAD}", [ship])[0], "review (subagent)")
+        self.assertEqual(self.state(f"Review (codex): FIX at {HEAD}", [ship])[0], "review (subagent, started by lead)")
 
     def test_the_description_author_is_trusted_like_a_commenter(self):
         line = f"Review (codex): SHIP at {HEAD}"
@@ -916,22 +1130,92 @@ class DescriptionVerdictTests(unittest.TestCase):
             finally:
                 risk.gh_items, risk.gh_json = saved
 
-        out, summary = grade(f"Review (codex): SHIP at {HEAD}")
+        out, summary = grade(f"Review (codex, started by lead): SHIP at {HEAD}")
         self.assertIn("tier=high", out)
         self.assertIn("ready=true", out)
-        self.assertIn("Signed off: review (codex) in the description shipped", summary)
+        self.assertIn("Signed off: review (codex, started by lead) in the description shipped", summary)
         out, summary = grade("no verdict")
         self.assertIn("ready=true", out)
         self.assertIn("Warning: no review verdict", summary)
         out, summary = grade(f"Review (codex): FIX at {HEAD}")
         self.assertIn("ready=false", out)
-        out, _ = grade("no verdict", [self.comment(f"Review (subagent): SHIP at {HEAD}")])
+        out, _ = grade("no verdict", [self.comment(f"Review (subagent, started by lead): SHIP at {HEAD}")])
         self.assertIn("ready=true", out)
         # An unreadable comment read could hide a BLOCK: it holds, and never only warns.
         out, summary = grade("no verdict", None)
         self.assertIn("ready=false", out)
         self.assertIn("could not be read", summary)
         self.assertNotIn("Warning:", summary)
+
+
+class StandaloneCheckoutTests(unittest.TestCase):
+    """risk-tier.yml runs from main and checks out only scripts/ci/risk_tier.py from the base, so the script must
+    run with no other file beside it. #36941 moved the receipt grammar into its own module and every `risk evidence`
+    run failed with "ModuleNotFoundError: No module named 'receipt_grammar'"."""
+
+    def test_risk_tier_runs_from_a_directory_holding_only_that_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            alone = Path(tmp) / "scripts" / "ci"
+            alone.mkdir(parents=True)
+            (alone / "risk_tier.py").write_text((ROOT / "scripts/ci/risk_tier.py").read_text(encoding="utf-8"),
+                                                encoding="utf-8")
+            files = Path(tmp) / "files.txt"
+            files.write_text("scripts/ci/risk_tier.py\n", encoding="utf-8")
+            result = subprocess.run([sys.executable, "-I", str(alone / "risk_tier.py"), "classify", "--files", str(files)],
+                                    cwd=tmp, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("high", result.stdout)
+
+
+class EventPayloadTests(unittest.TestCase):
+    """pr_mode reads the pull request from the event payload, so a run makes no GET pulls/N call."""
+
+    def run_pr(self, event, attempt="1"):
+        calls = []
+        saved_attempt = os.environ.get("GITHUB_RUN_ATTEMPT")
+        os.environ["GITHUB_RUN_ATTEMPT"] = attempt
+        self.addCleanup(lambda: os.environ.pop("GITHUB_RUN_ATTEMPT", None) if saved_attempt is None
+                        else os.environ.__setitem__("GITHUB_RUN_ATTEMPT", saved_attempt))
+
+        def fake_json(*args):
+            calls.append(args[1])
+            return {"head": {"sha": HEAD}, "base": {"sha": "c" * 40}, "body": "from the API"}
+
+        saved = risk.gh_json, risk.gh_items
+        risk.gh_json, risk.gh_items = fake_json, lambda endpoint: [{"filename": "docs/a.md", "patch": ""}]
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out, payload = Path(tmp) / "out", Path(tmp) / "event.json"
+                args = ["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out)]
+                if event is not None:
+                    payload.write_text(event)
+                    args += ["--event", str(payload)]
+                with contextlib.redirect_stdout(io.StringIO()):
+                    risk.main(args)
+                return calls, out.read_text()
+        finally:
+            risk.gh_json, risk.gh_items = saved
+
+    def test_the_event_s_pull_request_replaces_the_pulls_call(self):
+        event = json.dumps({"pull_request": {"number": 7, "head": {"sha": HEAD}, "base": {"sha": "c" * 40},
+                                             "body": "", "labels": [], "user": {"login": "a"}}})
+        calls, out = self.run_pr(event)
+        self.assertEqual(calls, [])
+        self.assertIn("tier=low", out)
+
+    def test_a_re_run_reads_the_pull_request_live(self):
+        """A re-run gets the first attempt's frozen payload: it must grade today's pull request."""
+        event = json.dumps({"pull_request": {"number": 7, "head": {"sha": HEAD}, "base": {"sha": "c" * 40}}})
+        calls, _ = self.run_pr(event, attempt="2")
+        self.assertEqual(calls, ["repos/o/r/pulls/7"])
+
+    def test_no_payload_another_pull_request_or_a_broken_file_reads_the_api(self):
+        other = json.dumps({"pull_request": {"number": 8, "head": {"sha": HEAD}, "base": {"sha": "c" * 40}}})
+        no_head = json.dumps({"pull_request": {"number": 7, "base": {"sha": "c" * 40}}})
+        for event in (None, other, no_head, "not json", json.dumps({"issue": {}})):
+            calls, out = self.run_pr(event)
+            self.assertEqual(calls, ["repos/o/r/pulls/7"], event)
+            self.assertIn("tier=low", out)
 
 
 if __name__ == "__main__":

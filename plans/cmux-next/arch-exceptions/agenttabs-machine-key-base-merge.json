@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-06",
+  "row": "app_lines",
+  "allow": 34,
+  "why": "Merging the current feat-cmux-next base into AgentTabs PR #36767 carries 34 base-side CmuxNextApp lines introduced after the branch fork; the merge only reconciles that base with the already reviewed machine-qualified AgentTabs change.",
+  "author": "lane/agenttabs-machine-key",
+  "owner": "p0-machines-r3",
+  "receipt": "Review (codex gpt-6-astra high; follow-up fixes): SHIP at 8a9303e88f94f97443f796b19863c16d468d0e3b",
+  "expiry": "2026-12-06"
+}

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd'
+IR_SHA256 = '62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6'
 
 
 @dataclass(frozen=True)
@@ -102,6 +102,7 @@ COMMANDS = {
             'expected_generation': CommandFieldMetadata(None, 'attach-identity-v1'),
             'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
+            'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
@@ -2519,6 +2520,7 @@ COMMANDS = {
         None,
         {
             'data': CommandFieldMetadata(None, None),
+            'filename': CommandFieldMetadata(None, 'terminal-file-paste-v1'),
             'lease': CommandFieldMetadata(None, None),
             'mime': CommandFieldMetadata(None, None),
             'offset': CommandFieldMetadata(None, None),
@@ -2693,6 +2695,51 @@ COMMANDS = {
         6,
         None,
         ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'remote-host-app': CommandMetadata(
+        'remote-host-app',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'remote-host-call': CommandMetadata(
+        'remote-host-call',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
+        None,
+        {
+            'method': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+        },
+    ),
+    'remote-host-config': CommandMetadata(
+        'remote-host-config',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
+        None,
+        {
+            'computer_use': CommandFieldMetadata(None, None),
+            'headless': CommandFieldMetadata(None, None),
+            'screen_sharing': CommandFieldMetadata(None, None),
+        },
+    ),
+    'remote-host-status': CommandMetadata(
+        'remote-host-status',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
         None,
         {
         },
@@ -3156,6 +3203,18 @@ COMMANDS = {
             'policy': CommandFieldMetadata(None, None),
         },
     ),
+    'set-layout-sizes': CommandMetadata(
+        'set-layout-sizes',
+        'control',
+        12,
+        'layout-sizes-batch-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'transaction': CommandFieldMetadata(None, None),
+            'values': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-personal-terminal': CommandMetadata(
         'set-personal-terminal',
         'control',
@@ -3412,6 +3471,7 @@ COMMANDS = {
             'generation': CommandFieldMetadata(None, None),
             'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
+            'restart': CommandFieldMetadata(12, None),
         },
     ),
     'sidebar-plugin': CommandMetadata(
@@ -3449,6 +3509,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'before': CommandFieldMetadata(12, 'split-before-v1'),
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(12, 'terminal-env-v1'),
             'dir': CommandFieldMetadata(None, None),
@@ -3546,6 +3607,18 @@ COMMANDS = {
             'marker_epoch': CommandFieldMetadata(None, None),
             'max_bytes': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-last-command': CommandMetadata(
+        'terminal-last-command',
+        'control',
+        12,
+        'terminal-last-command-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'terminal-ports': CommandMetadata(
@@ -3980,6 +4053,7 @@ EVENTS = {
     'selection-changed': EventMetadata('selection-changed', 12, 'tree-selection-deltas-v1', ('subscribe-deltas',), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
+    'stash-changed': EventMetadata('stash-changed', 12, 'stash-v1', ('subscribe',), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),
     'surface-output': EventMetadata('surface-output', 5, None, ('subscribe',), 'emitted'),

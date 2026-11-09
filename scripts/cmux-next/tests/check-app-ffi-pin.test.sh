@@ -8,14 +8,17 @@
 set -euo pipefail
 
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/check-app-ffi-pin.sh"
+# The script reads the pin only through scripts/ci/app_ffi_pin.py, so the scratch tree carries it too.
+pin_reader="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../ci" && pwd)/app_ffi_pin.py"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 repo="$tmp/repo"
-mkdir -p "$repo/scripts/cmux-next" "$repo/Packages/macOS/CmuxNext"
+mkdir -p "$repo/scripts/cmux-next" "$repo/scripts/ci" "$repo/Packages/macOS/CmuxNext"
 cp "$script" "$repo/scripts/cmux-next/check-app-ffi-pin.sh"
+cp "$pin_reader" "$repo/scripts/ci/app_ffi_pin.py"
 crate() { # crate NAME [DEP...]
   local dir="$repo/cmux-tui/crates/$1"; shift
   mkdir -p "$dir/src"
@@ -36,7 +39,7 @@ git -C "$repo" add -A
 git -C "$repo" commit -qm sources
 pinned="$(git -C "$repo" rev-parse HEAD)"
 cat > "$repo/Packages/macOS/CmuxNext/Package.swift" <<EOF
-.binaryTarget(
+let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
     url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-$pinned/CCmuxAppFFI.xcframework.zip",
     checksum: "$(printf '0%.0s' {1..64})"
@@ -70,5 +73,13 @@ if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
   fail "a cmux-remote-browser change kept the pin current: $out"
 fi
 [[ "$out" == *"cmux-remote-browser"* ]] || fail "the stale report does not name cmux-remote-browser: $out"
+
+# A pin outside the canonical block fails closed, naming the reader's reason.
+git -C "$repo" checkout -q HEAD~1
+sed -i.bak 's/^let appFFI: Target = //' "$repo/Packages/macOS/CmuxNext/Package.swift"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a non-canonical pin passed: $out"
+fi
+[[ "$out" == *"no canonical cmux-app-ffi pin"* ]] || fail "the non-canonical report does not say so: $out"
 
 echo "check-app-ffi-pin.test.sh: ok"

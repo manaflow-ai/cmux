@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { ComposerPickers } from "./ComposerPickers";
-import { UpdateOfferContext, type UpdateOffer } from "./HarnessHealthNotice";
+import { UpdateOfferContext, type UpdateOffer } from "./harnessHealthNoticeModel";
 import type { AcpmuxSnapshot } from "./model";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 

@@ -74,7 +74,9 @@ const agent = (id: string, state: string, startedAt: number): Subagent => ({
   startedAt,
 });
 
-test("Session Info's running Subagents lines are in the wave, top to bottom; the ended row stays still", () => {
+// Session Info's lean Subagents (Lucas, 2026-11-06, Session Info proposal): each line is the agent's
+// mark, name and time, with no wave; the ended ones fold into one plain "› N done" row.
+test("Session Info's Subagents lines draw still; the ended ones fold into one plain row", () => {
   const agents = [
     agent("done-1", "completed", 5),
     agent("run-old", "running", 1),
@@ -82,21 +84,14 @@ test("Session Info's running Subagents lines are in the wave, top to bottom; the
     agent("run-new", "running", 3),
   ];
   const html = renderToStaticMarkup(<SubagentsSection agents={agents} waiting={new Set()} onOpen={() => {}} />);
-  // Running lines keep their wave; the collapsed ended row renders still avatars.
-  const icons = [
-    ...html.matchAll(/<span class="acpmux-lineage__icon([^"]*)"(?: style="([^"]*)")? data-state="(\w+)"/g),
-  ];
-  expect(icons.map((match) => [match[3], match[1].trim(), match[2] ?? ""])).toEqual([
-    ["running", WAVE_CLASS, "--wave-index:0"],
-    ["running", WAVE_CLASS, "--wave-index:1"],
-  ]);
+  expect(html).not.toContain(WAVE_CLASS);
+  expect(html).not.toContain("--wave-index");
   const dom = new JSDOM(html);
   try {
     const ended = dom.window.document.querySelector(".acpmux-session-info-subagents__ended")!;
     expect(ended.getAttribute("aria-expanded")).toBe("false");
     expect(ended.textContent).toContain("1 done · 1 failed");
-    expect(ended.querySelectorAll(".acpmux-session-info-subagents__avatars > span")).toHaveLength(2);
-    expect(ended.querySelector(`.${WAVE_CLASS}, [style*='--wave-index']`)).toBeNull();
+    expect(ended.querySelector(".acpmux-session-info-subagents__avatars")).toBeNull();
   } finally {
     dom.window.close();
   }

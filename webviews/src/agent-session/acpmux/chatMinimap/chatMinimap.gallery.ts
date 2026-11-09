@@ -16,6 +16,7 @@ const turns = (count: number) =>
     summary(399.6 - index * 3, { status: "completed" }),
   ]).flat();
 const done = turns(30);
+const short = turns(5);
 const streaming = [
   ...done,
   user("Prompt 61: write the release notes", 2),
@@ -32,7 +33,10 @@ export default agentPaneEntry({
   title: "VS Code Minimap",
   area: "Agent pane",
   height: 720,
-  widths: { narrow: 1040, normal: 1240, wide: 1440 },
+  // Each width draws the full 120px strip beside Chat Text Width's 800px column, with the summary card
+  // beside the chat (1420 and 1620: the chat keeps 1112 and 1312px) or not (1120: too narrow for it), so
+  // the card coming in after load narrows no strip (gallery health's layout-shift check).
+  widths: { narrow: 1120, normal: 1420, wide: 1620 },
   anchors: [{ selector: ".acpmux-chat-minimap" }],
   covers: ["agent-session/acpmux/chatMinimap/ChatMinimap.tsx#ChatMinimap"],
   experiment: {
@@ -52,6 +56,12 @@ export default agentPaneEntry({
       snapshot: chat(streaming, { title: "VS Code Minimap, streaming" }),
       display,
       play: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-minimap__placeholder")),
+    },
+    short: {
+      note: "A short chat: drawn at a quarter of its size from the top, as VS Code draws a short file, in a strip as wide as the gutter allows (up to 120px).",
+      snapshot: chat(short, { title: "VS Code Minimap, short chat" }),
+      display,
+      play: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-minimap canvas[data-draws]")),
     },
     "at-rest": {
       note: "No reply streaming: the whole chat drawn, prompts as accent bars at the right, replies as text lines, the view box at the reader's place.",

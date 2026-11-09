@@ -187,7 +187,7 @@ const holdsCall = (rows: readonly AcpmuxRow[], id: string) =>
 
 /// What the finished turn draws after its footer (its summary row): nothing of the helper's.
 function afterFooter(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
-  const drawn = turnViewFrom(rows, new Set(), { now: START + 600_000, working: false, lineBelow: true }).rows;
+  const drawn = turnViewFrom(rows, new Set(), { now: START + 600_000, working: false }).rows;
   const footer = drawn.map((row) => row.kind).lastIndexOf("turnSummary");
   expect(footer).toBeGreaterThanOrEqual(0);
   return drawn.slice(footer + 1);

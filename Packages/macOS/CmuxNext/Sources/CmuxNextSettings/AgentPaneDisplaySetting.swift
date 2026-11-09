@@ -12,7 +12,7 @@
 public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     /// The Markdown viewer keys the chat follows.
     public static let followedMarkdownPaths: [[String]] = [
-        ["markdown", "font", "preset"], ["markdown", "code", "family"], ["markdown", "code", "scale"],
+        MarkdownViewerSettingsSchema.fontPresetPath, MarkdownViewerSettingsSchema.codeFamilyPath, MarkdownViewerSettingsSchema.codeScalePath,
     ]
     /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
     /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx).
@@ -64,5 +64,32 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     public static func writablePath(_ key: String) -> [String]? {
         guard AgentPaneDisplaySettingsSchema.keys.contains(key) else { return nil }
         return key.split(separator: ".").map(String.init)
+    }
+}
+
+/// The chat display rows' logic; the rows, paths, defaults and ranges are generated from
+/// schemas/settings/source/agent-pane-display.json (Schema/SettingsSchema+AgentPaneDisplay.generated.swift).
+nonisolated extension AgentPaneDisplaySettingsSchema {
+    /// Every row's key (agents may set them: looks only).
+    static var keys: Set<String> { Set(descriptors.map(\.id)) }
+
+    /// The key the Session Info row had before (``RenamedSettingKeys``); a file that still holds it applies.
+    static let legacySessionInfoPlacementPath = ["agentPane", "display", "inspector", "placement"]
+
+    /// `agentPane.display.minimap`, the Chat Minimap row.
+    static let minimapKey = minimapPath.joined(separator: ".")
+
+    /// A stored value as the chat page and schema readers read it. `agentPane.display.minimap` was an on/off toggle
+    /// before it was the Rail / Full Map / Off choice: on (`true`) was the full map, and off (`false`)
+    /// left the chat to the thread minimap experiment, which no value means now. Every other value
+    /// is returned as stored; the row still checks it.
+    ///
+    /// - Parameters:
+    ///   - id: The dotted key.
+    ///   - value: The value cmux-next.json holds.
+    /// - Returns: The value to check against the row, or nil for none.
+    static func pageValue(_ id: String, _ value: JSONValue) -> JSONValue? {
+        guard id == minimapKey, case .bool(let on) = value else { return value }
+        return on ? .string("full") : nil
     }
 }

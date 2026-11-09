@@ -15,3 +15,4 @@ pub mod process_resources;
 pub mod unix_process_scope;
 #[cfg(windows)]
 mod windows_processes;
+pub mod write_budget;

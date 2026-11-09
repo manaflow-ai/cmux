@@ -1,0 +1,1628 @@
+{
+  "$comment": "HAND-EDITED source of which settings an agent may change (MCP settings_set and settings_reset, the socket's cli/mcp/script/remote writers; plans/cmux-next/settings-react.md section 3). Every key of the schema is in exactly one group, with no default: SettingsSchemaExportTests fails on a key in none or in two, so a new setting cannot reach agents without a decision. A group's agent is settable (an agent may set and reset its keys: looks and layout, usually) or the refusal that says why not (one of refusals). The settings schema export writes agent_settable and agent_refusal per row from it; scripts/cmux-next/gen-settings-sources.py writes the Swift copy the app enforces at its one write path (SettingsSchema+AgentPolicy.generated.swift: SettingsSchema.agentSettableKeys, agentRefusedKeys, SettingWriter).",
+  "refusals": [
+    {
+      "id": "privacy",
+      "doc": "The key decides what leaves the machine or what is recorded."
+    },
+    {
+      "id": "network",
+      "doc": "The key opens network access or egress."
+    },
+    {
+      "id": "destructive",
+      "doc": "The key can end terminals or other work."
+    },
+    {
+      "id": "userOnly",
+      "doc": "The person decides it; agents do not, in v1 (picker.pinned: which folders the picker offers first)."
+    }
+  ],
+  "groups": [
+    {
+      "agent": "settable",
+      "keys": [
+        "window.titlebar"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether a chat shows the live view of the app its agent uses: looks only.",
+      "keys": [
+        "computerUse.livePreview"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "shortcuts.showModifierHoldHints"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).",
+      "keys": [
+        "contextMenus.showCustomizeItem"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "window.titlebarButtons",
+        "tabs.plusButton",
+        "tabs.barPosition",
+        "tabs.barOrder",
+        "tabs.toolbarButtons",
+        "browser.toolbarPosition",
+        "navigation.historyScope",
+        "navigation.history.scope",
+        "sidebar.minimalMode",
+        "sidebar.minimal",
+        "sidebar.density",
+        "sidebar.textSize",
+        "sidebar.detailedStatusIcons",
+        "sidebar.showTimestamps",
+        "sidebar.showColors",
+        "sidebar.showLocalMachine",
+        "workspaceColors.indicatorStyle"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Sidebar control visibility (looks only)",
+      "keys": [
+        "sidebar.controlsOnHover"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "sidebar.groupHeader.memberCount",
+        "sidebar.groupHeader.unreadCount",
+        "sidebar.groupHeader.background",
+        "sidebar.groupPalette",
+        "sidebar.groupGradient",
+        "sidebar.numbering",
+        "sidebar.cmd9",
+        "sidebar.stepping",
+        "sidebar.steppingWraps",
+        "sidebar.side",
+        "sidebar.style",
+        "sidebar.spacesPosition",
+        "sidebar.spacesVisibility",
+        "tabs.newTabTemplate"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Which New Tab page draws; a look switch, ends no work.",
+      "keys": [
+        "tabs.nativeNewTabPage"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "tabs.newTabPosition"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Where the + puts a tab; looks only, ends no work.",
+      "keys": [
+        "tabs.newTabButtonPosition"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "newTerminal.opensWorkspace"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Dock icon and Cmd-Tab entry with no window open; ends no work.",
+      "keys": [
+        "app.hideDockIconWithoutWindows"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The menu bar item; looks only, ends no work.",
+      "keys": [
+        "app.showMenuBarIcon"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "tabs.overflow"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "How tabs are listed (looks only)",
+      "keys": [
+        "tabs.verticalTabs",
+        "tabs.verticalTabsExpandOnHover"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether a lone chat's tab draws (looks only)",
+      "keys": [
+        "tabs.hideLoneChatTab"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "tabs.swapCmdTAndCmdN",
+        "tabs.commandDigits",
+        "palette.scopes.tabs.prefix",
+        "palette.scopes.workspaces.prefix",
+        "palette.scopes.commands.prefix",
+        "palette.scopes.settings.prefix",
+        "palette.scopes.scopes.prefix",
+        "tasks.layout",
+        "layout.defaultColumnWidth",
+        "layout.centerFocusedColumn",
+        "layout.stripScrollbar",
+        "layout.closeFocus",
+        "layout.splitSizing",
+        "layout.newColumnWidth",
+        "layout.dockColumnEdge",
+        "layout.dockColumnMode",
+        "layout.frameOrientation",
+        "layout.rows",
+        "layout.focusFollowsMouse",
+        "layout.scrollAreas",
+        "layout.scrollModifier",
+        "layout.pagesHandleCommandScroll"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The cmux model router's default model is the same choice exposed by its Settings and MCP pickers.",
+      "keys": [
+        "agents.modelRouter.model"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "layout.minimumPaneWidth",
+        "layout.minimumPaneHeight",
+        "appearance.theme",
+        "appearance.appTheme",
+        "appearance.accent"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Cosmetic icon preference; the reserved Neko value currently falls back to default artwork",
+      "keys": [
+        "appearance.iconTheme"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The app's one selected-text color (looks only)",
+      "keys": [
+        "appearance.highlightColor"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "appearance.themeEdits"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The theme file whose look applies (looks only)",
+      "keys": [
+        "appearance.themeFile"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Starred themes and their rotation (looks only)",
+      "keys": [
+        "appearance.favoriteThemes",
+        "appearance.rotateFavoriteThemes"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The color of each machine's marks (looks only)",
+      "keys": [
+        "appearance.machineColors"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "appearance.backdropArt",
+        "appearance.backgroundOpacity",
+        "appearance.backgroundBlur",
+        "appearance.inactiveWindowDim",
+        "appearance.wallpaperTint",
+        "appearance.background",
+        "appearance.backgroundRotation"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Per-display background and cadence (looks only)",
+      "keys": [
+        "appearance.displayBackgrounds",
+        "appearance.displayBackgroundRotations"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "appearance.paneBackgrounds",
+        "ui.reducedBackgrounds",
+        "appearance.experimentalControls",
+        "app.uiScale",
+        "appearance.glassTransparency",
+        "appearance.hue",
+        "appearance.saturation",
+        "appearance.density",
+        "appearance.customDensity",
+        "appearance.customDensities",
+        "appearance.metrics.chromeFontSize",
+        "appearance.interfaceScale",
+        "appearance.borders",
+        "appearance.sidebarSurface",
+        "appearance.chromeStyle",
+        "appearance.focusIndicator",
+        "focus.inactiveTabStyle",
+        "ui.animationSpeed",
+        "ui.animations.newTab",
+        "ui.animations.newWorkspace",
+        "ui.animations.bounce",
+        "ui.animations.enabled",
+        "ui.animations.sidebar",
+        "ui.animations.tabs",
+        "ui.animations.panes",
+        "ui.animations.overlays",
+        "ui.animations.hoverCards",
+        "ui.animations.home",
+        "ui.animations.cursor",
+        "ui.animations.indicators",
+        "ui.animations.feedback",
+        "ui.animations.web",
+        "ui.paneAnimations",
+        "ui.calm",
+        "appearance.colorTransition.enabled",
+        "appearance.colorTransition.duration",
+        "appearance.colorTransition.curve",
+        "appearance.colorTransition.springResponse",
+        "appearance.colorTransition.springDamping",
+        "appearance.colorTransition.bezierX1",
+        "appearance.colorTransition.bezierY1",
+        "appearance.colorTransition.bezierX2",
+        "appearance.colorTransition.bezierY2",
+        "appearance.colorTransition.colorSpace",
+        "appearance.colorTransition.reduceMotion",
+        "layout.panePadding",
+        "layout.paneCornerRadius",
+        "layout.cornerPadding",
+        "layout.paneBorder",
+        "layout.paneSeparation",
+        "sidebar.border",
+        "sidebar.borderWidth",
+        "layout.paneBorderColor",
+        "layout.paneBorderWidth",
+        "focusRing.enabled",
+        "focusRing.style",
+        "focusRing.contrast",
+        "focusRing.color",
+        "focusRing.width",
+        "focusRing.showWhenSinglePane",
+        "appearance.statusIndicator.style",
+        "appearance.statusIndicator.animation",
+        "appearance.statusIndicator.size",
+        "appearance.statusIndicator.thickness",
+        "appearance.statusIndicator.color",
+        "appearance.statusIndicator.honorStatusStyle",
+        "appearance.statusIndicator.showAgentWorkingOnTabs",
+        "appearance.statusIndicator.showPageLoading",
+        "status.inferCommandBusy",
+        "status.inferCommandBusyAfter",
+        "terminal.fontFamily",
+        "terminal.fontSize",
+        "terminal.term",
+        "sidebar.sectionLook",
+        "sidebar.topBandMaxShare",
+        "sidebar.bottomBandMaxShare",
+        "sidebar.pinnedBandsScroll",
+        "sidebar.noFade",
+        "sidebar.showChats",
+        "sidebar.sessionTree",
+        "sidebar.cards.tips",
+        "sidebar.hoverCards.enabled",
+        "sidebar.hoverCards.delay",
+        "sidebar.hoverCards.layout",
+        "sidebar.hoverCards.maxRows",
+        "sidebar.hoverCards.sections.timings",
+        "sidebar.hoverCards.sections.prompts",
+        "sidebar.hoverCards.sections.waiting",
+        "sidebar.hoverCards.sections.git",
+        "sidebar.hoverCards.sections.ports",
+        "sidebar.hoverCards.groups.workspaceGroups",
+        "sidebar.hoverCards.groups.tabGroups",
+        "sidebar.hoverCards.groups.delay",
+        "sidebar.hoverCards.groups.order",
+        "sidebar.hoverCards.groups.maxMembers",
+        "sidebar.hoverCards.groups.sections.status",
+        "sidebar.hoverCards.groups.sections.members",
+        "sidebar.hoverCards.groups.sections.activity",
+        "sidebar.hoverCards.groups.sections.git",
+        "sidebar.hoverCards.groups.sections.ports",
+        "sidebar.nowPlaying.enabled",
+        "tabs.newTabNowPlaying",
+        "media.pictureInPicture.enabled",
+        "tabs.newTabWidgets.greeting",
+        "tabs.newTabWidgets.projects",
+        "tabs.newTabWidgets.actions",
+        "tabs.newTabWidgets.chats",
+        "tabs.newTabWidgets.styleDots",
+        "tabs.newTabWidgets.order",
+        "tabs.newTabWidgets.machines",
+        "tabs.newTabWidgets.clock",
+        "tabs.newTabWidgets.timer",
+        "tabs.newTabWidgets.warmGreeting",
+        "tabs.newTabWidgets.quote",
+        "sidebar.showProjects",
+        "sidebar.showSpaces",
+        "sidebar.showProfileControl",
+        "sidebar.showSearchButton",
+        "sidebar.showNewWorkspaceChooser",
+        "sidebar.workspacesAsTabs",
+        "sidebar.chromeGroups",
+        "sidebar.sideBySide",
+        "sidebar.groupBy",
+        "sidebar.priorityView.enabled",
+        "sidebar.priorityView.shown",
+        "browser.defaultEngine",
+        "browser.siteEngines",
+        "browser.newTabPage",
+        "browser.showBookmarksBar"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.",
+      "keys": [
+        "browser.import.cookieBanner"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "browser.toolbarButtons",
+        "browser.hibernation",
+        "browser.hibernationExclusions",
+        "browser.hibernatePinnedTabs",
+        "browser.freezeHiddenTabs",
+        "browser.keepNeighborTabsAwake",
+        "browser.wakeTabsOnHover",
+        "notifications.dismissal",
+        "notifications.timeoutSeconds",
+        "notifications.sources.agent.dismissal",
+        "notifications.sources.terminal.dismissal",
+        "notifications.sources.cli.dismissal",
+        "notifications.desktop",
+        "notifications.sound",
+        "notifications.quietHours",
+        "notifications.suppressWhileTypingSeconds",
+        "status.runNotifyMinimumSeconds",
+        "status.runNotifyWhenVisible",
+        "notifications.dockBadge",
+        "notifications.attention.style",
+        "notifications.attention.color",
+        "notifications.attention.terminals",
+        "notifications.attention.agentChats",
+        "notifications.attention.agentChatBlinkCount",
+        "notifications.attention.width",
+        "notifications.attention.blinkCount",
+        "notifications.attention.duration",
+        "notifications.attention.persist",
+        "notifications.attention.flash",
+        "notifications.attention.flashOnTyping",
+        "notifications.attention.showOnTab",
+        "notifications.attention.showOnSidebar",
+        "notifications.attention.moveToTop",
+        "notifications.attention.moveToTopOnAgentFinish"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).",
+      "keys": [
+        "notifications.mutedWorkspaces"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "labs.previewFeatures"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).",
+      "keys": [
+        "home.channelsEnabled"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.",
+      "keys": [
+        "home.chiefPetEnabled",
+        "home.chiefPetMascot"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
+      "keys": [
+        "home.chiefDock.edge",
+        "home.chiefPanel.style",
+        "home.chiefDock.openBeside"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
+      "keys": [
+        "home.chiefPanel.seesScreen"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Needs you in the agent chat header (an App Store item): a display the person can hide again.",
+      "keys": [
+        "agentPane.needsYou.enabled"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.",
+      "keys": [
+        "agentPane.newChatsIn"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.",
+      "keys": [
+        "chat.on"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "updates.notify",
+        "updates.showWhatsNew"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Feature tips: a display the person can turn on again.",
+      "keys": [
+        "updates.showFeatureTips"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
+        "announcements.enabled"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Every appearance.surfaces.<surface>.color|opacity row: looks only (R55).",
+      "keys": [
+        "appearance.surfaces.sidebar.color",
+        "appearance.surfaces.sidebar.opacity",
+        "appearance.surfaces.tabBar.color",
+        "appearance.surfaces.tabBar.opacity",
+        "appearance.surfaces.terminal.color",
+        "appearance.surfaces.terminal.opacity",
+        "appearance.surfaces.agentPane.color",
+        "appearance.surfaces.agentPane.opacity",
+        "appearance.surfaces.settings.color",
+        "appearance.surfaces.settings.opacity",
+        "appearance.surfaces.newTabPage.color",
+        "appearance.surfaces.newTabPage.opacity",
+        "appearance.surfaces.home.color",
+        "appearance.surfaces.home.opacity",
+        "appearance.surfaces.browserChrome.color",
+        "appearance.surfaces.browserChrome.opacity",
+        "appearance.surfaces.internalPage.color",
+        "appearance.surfaces.internalPage.opacity",
+        "appearance.surfaces.splitDivider.color",
+        "appearance.surfaces.splitDivider.opacity",
+        "appearance.surfaces.docks.color",
+        "appearance.surfaces.docks.opacity",
+        "appearance.surfaces.diff.color",
+        "appearance.surfaces.diff.opacity",
+        "appearance.surfaces.markdown.color",
+        "appearance.surfaces.markdown.opacity",
+        "appearance.surfaces.editor.color",
+        "appearance.surfaces.editor.opacity"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Every browser.links.* key: what each modified link click does (no network, privacy or destructive effect).",
+      "keys": [
+        "browser.links.cmdClick",
+        "browser.links.cmdShiftClick",
+        "browser.links.shiftClick",
+        "browser.links.optionClick",
+        "browser.links.middleClick"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "How many omnibar rows show, inline completion and the omnibar's looks.",
+      "keys": [
+        "browser.omnibar.inlineAutocomplete",
+        "browser.omnibar.maxRows",
+        "browser.omnibar.calculator",
+        "browser.omnibar.showFullURLs",
+        "browser.omnibar.glass",
+        "browser.omnibar.glassTint",
+        "browser.omnibar.glassTintStrength",
+        "browser.omnibar.cornerRadius",
+        "browser.omnibar.shadow",
+        "browser.omnibar.backgroundOpacity",
+        "browser.omnibar.height",
+        "browser.omnibar.fontSize"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Notification sounds per event and level (sound only).",
+      "keys": [
+        "notifications.sounds.events.finished",
+        "notifications.sounds.events.needsInput",
+        "notifications.sounds.events.error",
+        "notifications.sounds.events.bell",
+        "notifications.sounds.events.message",
+        "notifications.sounds.volume",
+        "notifications.sounds.when",
+        "notifications.sounds.cooldownSeconds",
+        "notifications.sounds.workspaces",
+        "notifications.sounds.groups",
+        "notifications.sounds.agents"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "A Chief configures its own reaction classifier (Lawrence 2026-10-21).",
+      "keys": [
+        "chief.reactionsCanWake",
+        "chief.reactionClassifier.harness",
+        "chief.reactionClassifier.model",
+        "chief.reactionClassifier.prompt"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "What sidebar rows show (looks only, SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).",
+      "keys": [
+        "sidebar.workspaceRow.icon",
+        "sidebar.workspaceRow.directory",
+        "sidebar.workspaceRow.branch",
+        "sidebar.workspaceRow.process",
+        "sidebar.workspaceRow.agentStatus",
+        "sidebar.workspaceRow.tabCount",
+        "sidebar.workspaceRow.ports",
+        "sidebar.workspaceRow.lastActivity",
+        "sidebar.workspaceRow.pullRequest",
+        "sidebar.workspaceRow.progress",
+        "sidebar.workspaceRow.working",
+        "sidebar.workspaceRow.log",
+        "sidebar.workspaceRow.notification",
+        "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.terminal.icon",
+        "sidebar.workspaceRow.terminal.directory",
+        "sidebar.workspaceRow.terminal.branch",
+        "sidebar.workspaceRow.terminal.process",
+        "sidebar.workspaceRow.terminal.agentStatus",
+        "sidebar.workspaceRow.terminal.tabCount",
+        "sidebar.workspaceRow.terminal.ports",
+        "sidebar.workspaceRow.terminal.lastActivity",
+        "sidebar.workspaceRow.terminal.pullRequest",
+        "sidebar.workspaceRow.terminal.progress",
+        "sidebar.workspaceRow.terminal.working",
+        "sidebar.workspaceRow.terminal.log",
+        "sidebar.workspaceRow.terminal.notification",
+        "sidebar.workspaceRow.terminal.secondLineOrder",
+        "sidebar.workspaceRow.agent.icon",
+        "sidebar.workspaceRow.agent.directory",
+        "sidebar.workspaceRow.agent.branch",
+        "sidebar.workspaceRow.agent.process",
+        "sidebar.workspaceRow.agent.agentStatus",
+        "sidebar.workspaceRow.agent.tabCount",
+        "sidebar.workspaceRow.agent.ports",
+        "sidebar.workspaceRow.agent.lastActivity",
+        "sidebar.workspaceRow.agent.pullRequest",
+        "sidebar.workspaceRow.agent.progress",
+        "sidebar.workspaceRow.agent.working",
+        "sidebar.workspaceRow.agent.log",
+        "sidebar.workspaceRow.agent.notification",
+        "sidebar.workspaceRow.agent.secondLineOrder",
+        "sidebar.workspaceRow.browser.icon",
+        "sidebar.workspaceRow.browser.directory",
+        "sidebar.workspaceRow.browser.branch",
+        "sidebar.workspaceRow.browser.process",
+        "sidebar.workspaceRow.browser.agentStatus",
+        "sidebar.workspaceRow.browser.tabCount",
+        "sidebar.workspaceRow.browser.ports",
+        "sidebar.workspaceRow.browser.lastActivity",
+        "sidebar.workspaceRow.browser.pullRequest",
+        "sidebar.workspaceRow.browser.progress",
+        "sidebar.workspaceRow.browser.working",
+        "sidebar.workspaceRow.browser.log",
+        "sidebar.workspaceRow.browser.notification",
+        "sidebar.workspaceRow.browser.secondLineOrder",
+        "sidebar.workspaceRow.mixed.icon",
+        "sidebar.workspaceRow.mixed.directory",
+        "sidebar.workspaceRow.mixed.branch",
+        "sidebar.workspaceRow.mixed.process",
+        "sidebar.workspaceRow.mixed.agentStatus",
+        "sidebar.workspaceRow.mixed.tabCount",
+        "sidebar.workspaceRow.mixed.ports",
+        "sidebar.workspaceRow.mixed.lastActivity",
+        "sidebar.workspaceRow.mixed.pullRequest",
+        "sidebar.workspaceRow.mixed.progress",
+        "sidebar.workspaceRow.mixed.working",
+        "sidebar.workspaceRow.mixed.log",
+        "sidebar.workspaceRow.mixed.notification",
+        "sidebar.workspaceRow.mixed.secondLineOrder"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The diff page's display keys (looks only, diff-host S4).",
+      "keys": [
+        "diff.layout",
+        "diff.diffIndicators",
+        "diff.colors",
+        "diff.wordWrap",
+        "diff.wordDiffs",
+        "diff.lineNumbers",
+        "diff.showBackgrounds",
+        "diff.expandUnchanged",
+        "diff.groupByKind",
+        "diff.hideWhitespace",
+        "diff.showBulkActions"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The markdown viewer's looks only.",
+      "keys": [
+        "markdown.layout.width",
+        "markdown.layout.fullWidth",
+        "markdown.font.size",
+        "markdown.font.preset",
+        "markdown.font.lineHeight",
+        "markdown.spacing.paragraph",
+        "markdown.code.scale",
+        "markdown.code.family",
+        "markdown.code.blockSize",
+        "markdown.tables",
+        "markdown.theme"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The agent chat's fonts, sizes and width (looks only).",
+      "keys": [
+        "agentPane.display.width",
+        "agentPane.display.fullWidth",
+        "agentPane.display.vscodeMinimap",
+        "agentPane.display.pinnedPlan",
+        "agentPane.display.trayTucked",
+        "agentPane.display.trayHandle",
+        "agentPane.display.senderIcon.lead",
+        "agentPane.display.senderIcon.badge",
+        "agentPane.display.senderIcon.corner",
+        "agentPane.display.font.preset",
+        "agentPane.display.font.ui",
+        "agentPane.display.font.size",
+        "agentPane.display.font.lineHeight",
+        "agentPane.display.code.family",
+        "agentPane.display.code.scale",
+        "agentPane.display.sessionInfo.placement",
+        "agentPane.display.environment.placement",
+        "agentPane.display.minimap",
+        "agentPane.display.transcriptView",
+        "agentPane.display.presentation",
+        "agentPane.display.statusVerbs.mode",
+        "agentPane.display.statusVerbs.custom",
+        "agentPane.display.harnessPlacement",
+        "agentPane.display.rail.side",
+        "agentPane.display.commandLabels"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.",
+      "keys": [
+        "editor.fontFamily",
+        "editor.fontSize",
+        "editor.fontWeight",
+        "editor.fontLigatures",
+        "editor.lineHeight",
+        "editor.letterSpacing",
+        "editor.tabSize",
+        "editor.insertSpaces",
+        "editor.detectIndentation",
+        "editor.wordWrap",
+        "editor.wordWrapColumn",
+        "editor.lineNumbers",
+        "editor.rulers",
+        "editor.minimap.enabled",
+        "editor.renderWhitespace",
+        "editor.renderControlCharacters",
+        "editor.renderLineHighlight",
+        "editor.bracketPairColorization.enabled",
+        "editor.guides.bracketPairs",
+        "editor.guides.indentation",
+        "editor.matchBrackets",
+        "editor.stickyScroll.enabled",
+        "editor.folding",
+        "editor.scrollBeyondLastLine",
+        "editor.smoothScrolling",
+        "editor.mouseWheelZoom",
+        "editor.cursorStyle",
+        "editor.cursorBlinking",
+        "editor.cursorSmoothCaretAnimation",
+        "editor.cursorSurroundingLines",
+        "editor.multiCursorModifier",
+        "editor.autoClosingBrackets",
+        "editor.autoClosingQuotes",
+        "editor.linkedEditing",
+        "editor.quickSuggestions",
+        "editor.wordBasedSuggestions",
+        "editor.acceptSuggestionOnEnter",
+        "editor.emptySelectionClipboard",
+        "editor.find.seedSearchStringFromSelection",
+        "editor.autoSave",
+        "editor.autoSaveDelay",
+        "editor.trimTrailingWhitespace",
+        "editor.insertFinalNewline",
+        "editor.formatOnSave"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Where new panes open (layout choices, like layout.dockColumnMode).",
+      "keys": [
+        "layout.newPanePlacement",
+        "layout.tileBrowsers",
+        "layout.linkPlacement",
+        "layout.mainPane"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "New workspace position, computer headers, automatic names (list shape).",
+      "keys": [
+        "workspaces.newPlacement",
+        "sidebar.groupByComputer",
+        "workspaces.autoName"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The edited-files card (looks only).",
+      "keys": [
+        "agentPane.editedFiles.show",
+        "agentPane.editedFiles.maxRows",
+        "agentPane.editedFiles.scope"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Display-only agent surface zoom.",
+      "keys": [
+        "agentPane.zoom"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The composer's context ring and mic (looks only).",
+      "keys": [
+        "agentPane.showContextUsage",
+        "agentPane.composerRing",
+        "agentPane.showDictation",
+        "agentPane.dictationSource",
+        "agentPane.spellChecking",
+        "agentPane.attachmentView",
+        "agentPane.showMachineLoadWarnings"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The Chief chat's bubble style and whether it shows the Feed (looks only).",
+      "keys": [
+        "home.chiefBubbleStyle",
+        "home.feedInChief",
+        "home.bubbleColors.sent",
+        "home.bubbleColors.sentText",
+        "home.bubbleColors.received",
+        "home.bubbleColors.receivedText"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script` (a separate process is never `user`), for example the sidebar width after a resize.",
+      "keys": [
+        "appearance.metrics.tabFontSize",
+        "appearance.metrics.tabStripHeight",
+        "appearance.metrics.tabMaxWidth",
+        "appearance.metrics.tabMinActiveWidth",
+        "appearance.metrics.tabMinInactiveWidth",
+        "appearance.metrics.tabPinnedWidth",
+        "appearance.metrics.sidebarWidth",
+        "appearance.metrics.columnGap",
+        "appearance.metrics.dividerThickness",
+        "appearance.metrics.dividerHitWidth",
+        "appearance.metrics.titlebarHeight",
+        "browser.toolbar.back",
+        "browser.toolbar.forward",
+        "browser.toolbar.reload",
+        "browser.toolbar.home",
+        "browser.toolbar.extensions",
+        "browser.toolbar.downloads",
+        "browser.toolbar.media",
+        "browser.toolbar.profile",
+        "browser.toolbar.menu",
+        "browser.omnibox.color",
+        "browser.omnibox.popupColor",
+        "browser.omnibox.popupHoverColor",
+        "layout.stripMargin",
+        "layout.columnWidthPresets",
+        "window.trafficLightClearance",
+        "sidebar.workspaceIcons"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "What leaves the machine: a device proof to the Cloud service (cx-ds09i).",
+      "keys": [
+        "freeModel.enabled"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.",
+      "keys": [
+        "cloud.newWorkspacesInCloud",
+        "cloud.newWorkspaceFolder"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.",
+      "keys": [
+        "agentPane.dictationShortcut"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.",
+      "keys": [
+        "cloud.agentsStartWithoutAsking"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.",
+      "keys": [
+        "cloud.useMyClaudeLoginOnMyCloudMachines",
+        "cloud.useMyCodexLoginOnMyCloudMachines"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "keys": [
+        "agents.chats.roots",
+        "agents.chats.discovery"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "keys": [
+        "agentPane.scrollToBottomOnSend"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "keys": [
+        "agents.chats.enabled"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Each recap is an extra model call on the person's usage: theirs to turn on or off.",
+      "keys": [
+        "agents.chats.sessionRecap"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "keys": [
+        "picker.pinned"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).",
+      "keys": [
+        "workspaces.autoArchive.style",
+        "workspaces.autoArchive.idleDays"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "keys": [
+        "workspaces.hibernation.enabled",
+        "workspaces.hibernation.idleMinutes",
+        "workspaces.hibernation.hiddenSpaceMinutes"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "Freeing ends shells (sidebar-recents-and-freeing-DESIGN.md): an agent must not turn it on to end the person's work.",
+      "keys": [
+        "workspaces.freeing.enabled",
+        "workspaces.freeing.idleMinutes",
+        "workspaces.freeing.agents",
+        "workspaces.freeing.runningCommands"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.",
+      "keys": [
+        "agents.hiddenChats.discard",
+        "agents.hiddenChats.discardAfterMinutes"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Which of the person's folders the Screenshots page reads.",
+      "keys": [
+        "screenshots.findTools",
+        "screenshots.folders"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "A pin leads the empty palette and an alias wins its word: an agent could put Close Window under the user's Return.",
+      "keys": [
+        "palette.aliases",
+        "palette.pins"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether the palette records what the person runs.",
+      "keys": [
+        "palette.searchHistory"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "keys": [
+        "history.terminalCommands",
+        "history.commandRetentionDays",
+        "history.closed.maxGroups",
+        "history.closed.maxAgeDays",
+        "feed.mirrorNotifications.agents",
+        "feed.mirrorNotifications.terminal"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "An agent must not turn on sending its own prompts to the phone (cx-aocz).",
+      "keys": [
+        "feed.agentPermissionPrompts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether Chief Home pins the Feed's requests over the person's chat is theirs to turn on.",
+      "keys": [
+        "feed.needsYouInChief"
+      ]
+    },
+    {
+      "agent": "network",
+      "keys": [
+        "feed.github.enabled",
+        "feed.github.pollIntervalSeconds",
+        "browser.remoteLocalhost"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "The weather widget asks Open-Meteo (and names a city) only once the person turns it on.",
+      "keys": [
+        "tabs.newTabWidgets.weather",
+        "tabs.newTabWidgets.weatherCity"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Off, Chromium tabs load ads and trackers again.",
+      "keys": [
+        "browser.builtInAdBlocker"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "On, merely opening attacker-authored Markdown contacts its web image hosts.",
+      "keys": [
+        "markdown.remoteImages"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Off, a person no longer sees what an agent clicks and types: an agent must not hide itself.",
+      "keys": [
+        "browser.showAgentCursor"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, an agent may have the person's saved sign-ins filled into its pages: only the person turns it on.",
+      "keys": [
+        "browser.agentSecureStoreFill"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "How agents move the pointer is the person's choice: an agent must not make itself faster or slower.",
+      "keys": [
+        "browser.agentMouse.motion",
+        "browser.agentMouse.maxMoveMs"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.",
+      "keys": [
+        "browser.openLinksInCmuxBrowser"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether sign-in pages open in a browser agents can drive is the person's call alone.",
+      "keys": [
+        "browser.openSignInPagesInCmux"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.",
+      "keys": [
+        "browser.openPullRequestsInGitHubPage"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.",
+      "keys": [
+        "browser.enabled"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).",
+      "keys": [
+        "browser.import.enabled"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "On, cmux keeps reading the source browser's cookies after an import: only the person turns that on.",
+      "keys": [
+        "browser.import.cookieSync"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Only the person's Connect click opts in to reading Messages.",
+      "keys": [
+        "imessage.enabled"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "A walkthrough choice, never permission to read Messages or send a reply.",
+      "keys": [
+        "imessage.automationSkipped"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "keys": [
+        "browser.openTerminalLinksInCmuxBrowser"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "The app that opens your files from a menu: an agent must not pick what runs them.",
+      "keys": [
+        "files.textEditor"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Where a terminal program's URLs open, and a command that may run for each: an agent must not pick what runs or move a sign-in page into a browser it drives.",
+      "keys": [
+        "terminal.linkOpener.default",
+        "terminal.linkOpener.rules"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Which of the person's editor settings files cmux reads (VS Code, Zed...).",
+      "keys": [
+        "editor.importFrom"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "keys": [
+        "browser.hostsToOpenInEmbeddedBrowser",
+        "browser.urlsToAlwaysOpenExternally"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "On, the sidebar and New Tab show what other apps play: an agent must not turn on reading them.",
+      "keys": [
+        "sidebar.nowPlaying.otherApps"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether attached photos and videos send their location.",
+      "keys": [
+        "home.attachments.keepLocation"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Where the person's direct messages and group chats go: an agent must not move them to another server.",
+      "keys": [
+        "home.server"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether the person's Chief runs on this Mac or in the cloud: where their messages go.",
+      "keys": [
+        "home.chiefEngine"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "A reply's file link outside the project, and a reply's web image (D4, D5).",
+      "keys": [
+        "agentPane.links.outsideRoots"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "A reply's file link outside the project, and a reply's web image (D4, D5).",
+      "keys": [
+        "agentPane.images.remote"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "keys": [
+        "app.quitBehavior"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Voice Room records mic and screen text and posts it to the configured room.",
+      "keys": [
+        "labs.voiceRoom"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "The room address chooses the network endpoint that receives that capture.",
+      "keys": [
+        "labs.voiceRoomURL"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "On, Add Device mints a line that joins any machine to the team's machines: only the person turns that on.",
+      "keys": [
+        "labs.machineJoin"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
+      "keys": [
+        "labs.liveCode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
+      "keys": [
+        "developerTools.appPages"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, a key is taken from every other app system-wide.",
+      "keys": [
+        "app.globalHotKey",
+        "app.startAgentGlobalHotKey"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "Off, a close ends running programs and agents without asking.",
+      "keys": [
+        "app.warnBeforeClosingTab",
+        "app.warnBeforeClosingAgentSession"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "Update checks and downloads reach the network; install on quit replaces the app.",
+      "keys": [
+        "updates.checkAutomatically",
+        "updates.checkIntervalSeconds",
+        "updates.downloadAutomatically",
+        "updates.meteredNetwork"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Which builds this Mac installs (a faster ring runs less-tested code): the person's call.",
+      "keys": [
+        "updates.channel"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "Web UI updates download and run new page code from files.cmux.com.",
+      "keys": [
+        "updates.web"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "How long a nightly waits before it restarts into an update: the person's call.",
+      "keys": [
+        "updates.idleInstallMaxWaitSeconds",
+        "updates.idleInstallQuietSeconds"
+      ]
+    },
+    {
+      "agent": "network",
+      "keys": [
+        "announcements.fetch"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.",
+      "keys": [
+        "diagnostics.hangReports"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "What a new chat may do without asking: an agent must not widen its own approvals.",
+      "keys": [
+        "agents.defaultPermissionMode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "How long Claude Code chats keep their prompt cache: it moves the person's model bill.",
+      "keys": [
+        "agents.promptCache"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, cmux starts a helper that sees and controls other apps; only the person turns it on.",
+      "keys": [
+        "computerUse.enabled",
+        "computerUse.driver"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "How hard cmux pulls the person back from another app: theirs to pick, not an agent's.",
+      "keys": [
+        "notifications.dockBounce"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Privacy: whether banners show what agents said is the person's call.",
+      "keys": [
+        "notifications.showPreviews"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Battery and sleep are the person's call: an agent must not keep the Mac up for itself.",
+      "keys": [
+        "sessions.keepAwake",
+        "sessions.keepAwakeForCommands"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether agents start again by themselves after a restart is the person's call.",
+      "keys": [
+        "sessions.resumeAgents"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "An agent must not let itself, or another agent, skip the person's approvals.",
+      "keys": [
+        "sessions.allowFullAccess"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, every agent gets tools that start child chats: the person turns that on.",
+      "keys": [
+        "sessions.promptSuggestions"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Claude's and Codex's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.",
+      "keys": [
+        "agents.promptSuggestions"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "How many agent sessions an agent may start, and how deep, is the person's call: an agent must not raise its own limits.",
+      "keys": [
+        "agents.subsessions.enabled",
+        "agents.subsessions.maxChildren",
+        "agents.subsessions.maxRunning",
+        "agents.subsessions.maxDepth"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Who answers a sub-session's questions is the person's call too.",
+      "keys": [
+        "agents.subsessions.answerQuestions"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "What every agent is told, and which of the person's skills reach it, is the person's call: an agent must not switch off the guidance or the skills it was given.",
+      "keys": [
+        "agents.guidance.claude",
+        "agents.guidance.codex",
+        "agents.guidance.otherAgents",
+        "agents.guidance.userSkills"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is.",
+      "keys": [
+        "agents.autoRetry.enabled",
+        "agents.autoRetry.intervalSeconds",
+        "agents.autoRetry.attempts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "keys": [
+        "agents.cacheCompact.enabled",
+        "agents.cacheCompact.minContextPercent"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking.",
+      "keys": [
+        "agents.trust.autoTrust",
+        "agents.trust.projectRoots",
+        "agents.trust.ownOrgs"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.",
+      "keys": [
+        "ssh.linkAllowedHosts"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "What reaches this Mac from outside and what leaves it: only the person opens phone access.",
+      "keys": [
+        "phone.allowConnections",
+        "phone.startSessions"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "keys": [
+        "phone.keepAwake"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Workspace names leave this Mac for the Cloud service: only the person turns it on.",
+      "keys": [
+        "phone.cloudReplica",
+        "phone.cloudDesktop"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, a phone signed in to the same account can open this Mac's terminals and agents.",
+      "keys": [
+        "mobile.allowIPhoneConnections"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Which device sizes a terminal shown on this Mac and a phone; the person sets it here or on the phone.",
+      "keys": [
+        "mobile.terminalSizing",
+        "mobile.terminalSizingOrder"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.",
+      "keys": [
+        "macScreen.systemShortcuts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "cmux Remote: the person's call.",
+      "keys": [
+        "remote.endSharingOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "keys": [
+        "remote.ultraMode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Changes how this Mac's Mac Screen streams leave the network; only the person sets it.",
+      "keys": [
+        "macScreen.debug.relayOnly"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Chooses the server this Mac registers its device keys with; only the person sets it.",
+      "keys": [
+        "deviceHub.url"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "keys": [
+        "updates.installOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, one click restarts cmux into an update: the person's call.",
+      "keys": [
+        "updates.oneClickInstall"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, What's New offers Install, which restarts cmux into another build: the person's call.",
+      "keys": [
+        "updates.whatsNewInstall"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, pages load from a loopback server the person runs: the person's call.",
+      "keys": [
+        "updates.liveWebReload"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "keys": [
+        "updates.keepPreviousVersions"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "The omnibar's engine and remote suggestions decide what leaves the machine.",
+      "keys": [
+        "browser.searchEngine",
+        "browser.customSearchEngine.search",
+        "browser.customSearchEngine.suggest",
+        "browser.omnibar.remoteSuggestions"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.",
+      "keys": [
+        "chief.autoRouteSubagents"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "How far the Chief's own turns act without asking is the person's to choose, never an agent's (cmux#37392).",
+      "keys": [
+        "chief.permissionMode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Which subagents show in the sidebar is the person's to shape, not an agent's.",
+      "keys": [
+        "chief.subagentSidebar",
+        "chief.subagentSidebarShowWords",
+        "chief.subagentSidebarHideWords",
+        "chief.subagentSidebarMinWords"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "The person decides what the password manager saves, suggests and writes out (decision P2: agents see no sites or usernames, and change none of this).",
+      "keys": [
+        "browser.passwords.offerToSave",
+        "browser.passwords.generate",
+        "browser.passwords.allowExport"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "The person decides whether cmux reads verification emails.",
+      "keys": [
+        "browser.verificationAutofill.enabled"
+      ]
+    }
+  ]
+}

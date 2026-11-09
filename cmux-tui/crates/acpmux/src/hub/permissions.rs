@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::person::ANSWERED_BY_SLOT;
+use super::review_queue::Settled;
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -45,12 +46,15 @@ pub(super) mod settled;
 mod display;
 pub(crate) use display::{ChildTags, drop_display_lines};
 
+pub(super) mod external;
 mod pending;
 
 #[cfg(test)]
 mod delivery_tests;
 #[cfg(test)]
 mod repo_sync_tests;
+#[cfg(test)]
+mod review_policy_tests;
 
 impl Hub {
     // ------------------------------------------------------------- inbound
@@ -129,7 +133,8 @@ impl Hub {
                             .unwrap_or_else(|e| e.into_inner())
                             .contains(&agent);
                         self.arm_auto_background(&session, params.as_ref(), replayed);
-                        self.on_update(&session, params.as_ref(), replayed);
+                        self.on_update_cache(&session, params.as_ref(), replayed);
+                        self.notice_overlaps(&session);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
                     {
@@ -265,6 +270,8 @@ impl Hub {
                     self.processes_lost(&session, processes::HARNESS_EXIT);
                     // So did its background subagents (`work_below.rs`).
                     self.end_background_subagents(&session);
+                    // And its loops, also when a forced Stop dropped its own clear (`loop_goal.rs`).
+                    self.end_loop_goal(&session);
                     // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
                     let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
                         && session.status() != SessionStatus::Closed;
@@ -346,11 +353,39 @@ impl Hub {
                 }
             }
             "tool_call" | "tool_call_update" => {
-                super::pull_requests::absorb(session, update, &mut m);
+                let at = now_ms();
+                if let Some(url) = super::pull_requests::absorb(session, update, &mut m, at) {
+                    self.review_index.note_pr(&session.id, &url, at);
+                    self.ledger.note_pull_request(&session.id, &url);
+                }
+                super::touched::absorb(session, update, &mut m, replayed);
                 super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
+            "plan"
+                if m.family.as_deref().is_some_and(crate::goal::GoalProvider::is_claude_family) =>
+            {
+                // A TodoWrite plan is supporting detail for an armed /loop. It
+                // must not replace or clear that loop's persistent goal.
+                let loop_goal = m.goal.as_ref().is_some_and(|goal| {
+                    goal.extra.get("kind").and_then(Value::as_str) == Some("loop")
+                });
+                // A TodoWrite plan is checklist detail for the armed /loop. Keep the
+                // loop's objective and lifecycle, but replace its visible steps as Claude
+                // advances or clears the plan.
+                if loop_goal
+                    && update.get("entries").and_then(Value::as_array).is_some()
+                    && let Some(goal) = m.goal.as_mut()
+                {
+                    goal.steps = crate::goal::GoalState::from_plan_update(update)
+                        .and_then(|plan| plan.steps);
+                    goal_write = true;
+                }
+                // An ordinary TodoWrite plan (no armed /loop) is not published as the chat's
+                // goal: the current web client would render it with Codex's Pause/Clear
+                // controls, which cannot drive Claude's checklist (review on #34457).
+            }
             "current_mode_update" => {
                 // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
                 // back to it later is not cmux's either (`trust_wait.rs` `full_access_by_cmux`).
@@ -367,7 +402,7 @@ impl Hub {
             }
             "session_info_update" => {
                 if let Some(goal) = update.pointer("/_meta/goal") {
-                    m.goal = goal.as_object().map(|_| goal.clone());
+                    m.goal = crate::goal::GoalState::from_value(goal, m.family.as_deref());
                     goal_write = true;
                 }
                 // A harness title made from the first input stops before a client context
@@ -377,6 +412,11 @@ impl Hub {
                     if !title.is_empty() {
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
+                        // The ledger's copy (one map entry; a line only when a field changed).
+                        self.ledger.note_session_info(
+                            &session.id,
+                            super::ledger::TurnContext::of(&m).info,
+                        );
                     }
                 }
                 // Claude Code's /context breakdown, sent after each turn (`claude_stdio`). It comes
@@ -391,6 +431,17 @@ impl Hub {
                         crate::claude_stdio::merge_usage_limits(m.usage_limits.as_ref(), limits);
                     breakdown_changed |= m.usage_limits.as_ref() != Some(&merged);
                     m.usage_limits = Some(merged);
+                }
+                // Codex's, as cmux-codex-acp passes `account/rateLimits/updated` on: each is
+                // every window it knows, so it replaces the last, and one that reports nothing
+                // clears it (`codex_app_server`). Another limit's snapshot changes nothing.
+                if let Some(snapshot) = update
+                    .pointer("/_meta/codexAppServer/rateLimits")
+                    .filter(|s| crate::codex_app_server::is_plan_snapshot(s))
+                {
+                    let limits = crate::codex_app_server::usage_limits(snapshot);
+                    breakdown_changed |= m.usage_limits != limits;
+                    m.usage_limits = limits;
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
@@ -532,8 +583,23 @@ impl Hub {
             self.respond_answer(&session, &child, id, result, again).await;
             return;
         }
+        // acpmux's Claude Code backend asks whether its PreToolUse gate lets a tool call run
+        // (`policy_gate.rs`).
+        if m == crate::claude_stdio::TOOL_GATE {
+            let result = self.answer_tool_gate(&session, params.unwrap_or(Value::Null)).await;
+            let _ = child.respond(id, Ok(result)).await;
+            return;
+        }
         if m == method::SESSION_REQUEST_PERMISSION {
-            let params = params.unwrap_or(Value::Null);
+            let mut params = params.unwrap_or(Value::Null);
+            // Gemini's plan approval names its plan file only: its card carries the plan
+            // (`gemini_plan.rs`).
+            if let Some(call) = params.get_mut("toolCall")
+                && super::gemini_plan::names_plan(call)
+            {
+                let cwd = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
+                super::gemini_plan::with_plan(call, &cwd, &super::gemini_plan::gemini_homes());
+            }
             let result = self
                 .handle_permission_for(
                     &session,
@@ -686,8 +752,9 @@ impl Hub {
                     {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}
                 ]
             });
-            denied =
-                !outcome_allows(&self.handle_permission(session, request, epoch, turn_id).await);
+            denied = !outcome_allows(
+                &self.handle_permission(session, request, epoch, turn_id.clone()).await,
+            );
         }
         if denied {
             return Err(RpcError::new(
@@ -695,19 +762,18 @@ impl Hub {
                 format!("read of {} rejected by the acpmux permission policy", path.display()),
             ));
         }
-        let read =
-            |e: std::io::Error| RpcError::new(-32000, format!("read {}: {e}", path.display()));
-        let text = match target {
-            Some(Some(t)) => {
-                use std::io::Read;
-                let mut text = String::new();
-                let mut file = super::remote_floor::open_read_target(&t).map_err(read)?;
-                file.read_to_string(&mut text).map_err(read)?;
-                text
-            }
-            Some(None) => return Err(read(std::io::Error::other("the path cannot be resolved"))),
-            None => std::fs::read_to_string(&path).map_err(read)?,
-        };
+        let text = self
+            .read_with_external_access(session, &path, epoch, turn_id, || match &target {
+                Some(Some(t)) => {
+                    use std::io::Read;
+                    let mut text = String::new();
+                    super::remote_floor::open_read_target(t)?.read_to_string(&mut text)?;
+                    Ok(text)
+                }
+                Some(None) => Err(std::io::Error::other("the path cannot be resolved")),
+                None => std::fs::read_to_string(&path),
+            })
+            .await?;
         let line = params.get("line").and_then(Value::as_u64).map(|l| l.max(1) as usize);
         let limit = params.get("limit").and_then(Value::as_u64).map(|l| l as usize);
         let content = match (line, limit) {
@@ -752,6 +818,35 @@ impl Hub {
             .unwrap_or(config_policy)
     }
 
+    /// Whether shell call `request` only reads (`shell_readonly.rs`). Judged in the environment
+    /// the harness runs it with: the daemon's, the allow-listed login values, then the env its
+    /// agent was started with (`ensure_child`). An agent this daemon did not start (re-adopted
+    /// after a restart) is not judged: false. A probe that takes too long is false; its thread
+    /// finishes on its own.
+    pub(super) async fn probe_shell_reads(&self, session: &Session, request: &Value) -> bool {
+        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some(own) = launched else { return false };
+        let meta = session.meta();
+        let family = self.config.read().await.family(&meta.harness);
+        let mut env = probe_env(&own, remote_base, |own| {
+            crate::login_env::effective_for(family.as_deref(), own)
+        });
+        // The agent's PATH, unless its own env names one (`apply_tokio_for`).
+        if let Some(path) = crate::login_env::agent_path()
+            && !own.contains_key("PATH")
+        {
+            env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+        }
+        let (request, cwd) = (request.clone(), meta.cwd);
+        let probe = tokio::task::spawn_blocking(move || {
+            super::shell_readonly::request_is_read_only(&request, &cwd, &env)
+        });
+        matches!(
+            tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
+            Ok(Ok(true))
+        )
+    }
+
     /// `epoch` is `permission_epoch` read when the agent's request arrived.
     pub(super) async fn handle_permission(
         self: &Arc<Self>,
@@ -783,6 +878,7 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        external::strip_forged(&mut request);
         // Native tools can mutate the repository even when their request has
         // no location or kind. Only known read-only kinds skip the barrier;
         // moves and unclassified/MCP tools wait before automatic approval too.
@@ -804,47 +900,22 @@ impl Hub {
         // A person-readable line for a tool whose name and JSON mean nothing
         // to a person (permissions/display.rs), before anything shows the request.
         self.stamp_permission_display(session, &mut request);
-        let needs_person = super::questions::needs_person(&request);
+        let needs_person =
+            super::questions::needs_person(&request) || external::is_external(&request);
         // A shell command that only reads (`shell_readonly.rs`), judged before the lock and off
         // the async workers: its git reads look at the repositories on disk.
         // Only under approve-reads: approve-edits writes files unasked, so a command's own
         // program could be one the agent wrote.
         let reads_policy = {
             let cfg = self.config.read().await;
-            capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off())
-                == PermissionPolicy::ApproveReads
+            matches!(
+                capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off()),
+                PermissionPolicy::ApproveReads | PermissionPolicy::Review
+            )
         };
-        // Judged in the environment the harness runs it with: the daemon's, the allow-listed
-        // login values, then the env its agent was started with (`ensure_child`). An agent this
-        // daemon did not start (re-adopted after a restart) asks.
-        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let shell_reads = reads_policy
             && request.pointer("/toolCall/kind").and_then(Value::as_str) == Some("execute")
-            && match launched {
-                None => false,
-                Some(own) => {
-                    let meta = session.meta();
-                    let family = self.config.read().await.family(&meta.harness);
-                    let mut env = probe_env(&own, remote_base, |own| {
-                        crate::login_env::effective_for(family.as_deref(), own)
-                    });
-                    // The agent's PATH, unless its own env names one (`apply_tokio_for`).
-                    if let Some(path) = crate::login_env::agent_path()
-                        && !own.contains_key("PATH")
-                    {
-                        env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
-                    }
-                    let (request, cwd) = (request.clone(), meta.cwd);
-                    // A probe that takes too long asks; its thread finishes on its own.
-                    let probe = tokio::task::spawn_blocking(move || {
-                        super::shell_readonly::request_is_read_only(&request, &cwd, &env)
-                    });
-                    matches!(
-                        tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
-                        Ok(Ok(true))
-                    )
-                }
-            };
+            && self.probe_shell_reads(session, &request).await;
         // Read before the locks (it reads the settings file); the mode is read again under them.
         // Do not cache whether the mode is bypass here: a successful mode switch can drain
         // pending asks before this request takes the lock and inserts itself. Judge its mode
@@ -909,7 +980,9 @@ impl Hub {
                 None => match policy {
                     PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
                     PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
-                    PermissionPolicy::ApproveReads | PermissionPolicy::ApproveEdits => {
+                    PermissionPolicy::ApproveReads
+                    | PermissionPolicy::ApproveEdits
+                    | PermissionPolicy::Review => {
                         let edits = policy == PermissionPolicy::ApproveEdits;
                         if matches!(tool_kind, "read" | "search" | "fetch" | "think")
                             || (edits && tool_kind == "edit")
@@ -917,7 +990,10 @@ impl Hub {
                             pick(&["allow_once", "allow_always"])
                         } else if tool_kind == "execute"
                             && shell_reads
-                            && policy == PermissionPolicy::ApproveReads
+                            && matches!(
+                                policy,
+                                PermissionPolicy::ApproveReads | PermissionPolicy::Review
+                            )
                         {
                             // Judged under approve-reads before the lock; the policy read here
                             // must still be it.
@@ -931,8 +1007,16 @@ impl Hub {
                     PermissionPolicy::Ask => None,
                 },
             };
+            // Review denies at once what approve-reads would leave to the person (a write, a
+            // command that does not only read), so a reviewer never waits on a prompt; a question
+            // still goes to the person, and a rule still decides first.
+            let review_refuses = policy == PermissionPolicy::Review
+                && rule.is_none()
+                && auto.is_none()
+                && !needs_person;
             let denied = policy == PermissionPolicy::DenyAll
-                || rule == Some(super::rules::RuleDecision::Deny);
+                || rule == Some(super::rules::RuleDecision::Deny)
+                || review_refuses;
             // The chat allowance never answers in a Web turn, nor what an `ask` rule sends to the person.
             let chat_option = if state.chat_allowed
                 && !denied
@@ -1304,6 +1388,10 @@ impl Hub {
             }
             (p, answered_by, checked_annotations)
         };
+        if option_id.is_none() {
+            // The caller dismissed it: the audit trail keeps it apart from a withdrawal.
+            self.review_index.mark_settled(&session.id, permission_id, Settled::Caller);
+        }
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
             None => json!({"outcome": "cancelled"}),

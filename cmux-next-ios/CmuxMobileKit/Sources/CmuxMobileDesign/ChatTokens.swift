@@ -147,6 +147,7 @@ public struct CmuxMobileCapsuleButtonStyle: ButtonStyle {
     var kind: Kind
     var size: Size
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     public init(_ kind: Kind = .primary, size: Size = .inline) {
         self.kind = kind
@@ -163,15 +164,16 @@ public struct CmuxMobileCapsuleButtonStyle: ButtonStyle {
             .font(.headline)
             .lineLimit(1)
             .padding(.horizontal, size == .compact ? 12 : 20)
-            // Bar buttons (permission options) may wrap to a second line.
-            .padding(.vertical, size == .bar ? 6 : 0)
-            .frame(minHeight: height, maxHeight: size == .bar ? nil : height)
+            // Bar buttons (permission options) may wrap to a second line; at
+            // accessibility text sizes every capsule grows with its title instead of clipping it.
+            .padding(.vertical, size == .bar || dynamicTypeSize.isAccessibilitySize ? 6 : 0)
+            .frame(minHeight: height, maxHeight: size == .bar || dynamicTypeSize.isAccessibilitySize ? nil : height)
             .frame(maxWidth: size == .inline ? nil : .infinity)
             .foregroundStyle(foreground)
             .background(background, in: .capsule)
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.cmuxMobileSnap, value: configuration.isPressed)
+            .animation(.cmuxMobileSnap.unlessReduceMotion, value: configuration.isPressed)
             // 40 pt capsules keep a 44 pt hit target (HIG): 2 pt of invisible margin above and below.
             .padding(.vertical, height < 44 ? (44 - height) / 2 : 0)
             .contentShape(.rect)

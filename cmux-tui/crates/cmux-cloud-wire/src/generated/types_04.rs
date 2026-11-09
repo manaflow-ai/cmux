@@ -5,6 +5,36 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesRetentionTranscriptDays {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesRetentionAuditDays {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoEnforce {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoEnforceForOwners {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoAllowGuests {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesSsoSessionMaxAgeHours {
     pub value: i64,
     pub mode: PolicyMode,

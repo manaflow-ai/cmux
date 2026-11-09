@@ -39,6 +39,7 @@ extension SidebarViewComponents {
             belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: target.bottomBand == 0)
             footerRegion.animator().alphaValue = target.footer
             searchButton.animator().alphaValue = target.footer
+            liveModeBadge?.animator().alphaValue = target.footer
         }
         fadeLine(aboveLine, to: target.topBand)
     }

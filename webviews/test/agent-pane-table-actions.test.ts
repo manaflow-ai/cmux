@@ -1,6 +1,8 @@
-// The Markdown table's Open and Copy controls share one centered line at the table's top-right
-// corner, outside its cells, so they never cover a header's text or catch a click meant for a cell. This is a real gallery render so the check covers CSS geometry as well as the static
-// TableBlock test. The hover screenshot is the zoomed gallery proof for Leo's alignment report.
+// The Markdown table's Open and Copy controls share one centered line on the table's own top-right
+// corner (the shipped `corner` arm, tableActions.experiment.ts), inside the header row's kept room,
+// so they never cover a heading's words and move with the table instead of the column's far edge.
+// This is a real gallery render so the check covers CSS geometry as well as the static TableBlock
+// test. The hover screenshot is the zoomed gallery proof for Leo's alignment report.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -70,7 +72,12 @@ await requireBrowserLane("agent-pane-table-actions.test.ts", async () => {
       const icons = buttons.map((button) => button.querySelector<SVGElement>("svg")!.getBoundingClientRect());
       const table = block.getBoundingClientRect();
       const box = (rect: DOMRect) => ({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom });
-      const cells = [...block.querySelectorAll<HTMLElement>("th, td")].map((cell) => box(cell.getBoundingClientRect()));
+      // Each cell's words, not its padding: the pair may sit in the header's kept room.
+      const cells = [...block.querySelectorAll<HTMLElement>("th, td")].flatMap((cell) => {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        return [...range.getClientRects()].map(box);
+      });
       const column = block.parentElement!.getBoundingClientRect();
       return {
         tools: box(tools.getBoundingClientRect()),
@@ -89,7 +96,7 @@ await requireBrowserLane("agent-pane-table-actions.test.ts", async () => {
       };
     });
 
-  for (const variant of ["hover", "first-block"])
+  for (const variant of ["hover", "first-block", "status-hover"])
     test(`the ${variant} gallery state keeps table actions aligned`, async () => {
       const page = await open(variant);
       const measured = await geometry(page);
@@ -104,10 +111,11 @@ await requireBrowserLane("agent-pane-table-actions.test.ts", async () => {
       ]);
       expect(Math.abs(measured.buttons[0]!.center - measured.buttons[1]!.center)).toBeLessThan(0.1);
       expect(Math.abs(measured.icons[0]!.center - measured.icons[1]!.center)).toBeLessThan(0.1);
-      expect(Math.abs(measured.buttons[0]!.top - measured.table.top)).toBeLessThan(0.1);
-      // Outside the cells: the pair starts at the table's right edge, inside the column, and
-      // no cell's box meets it.
-      expect(measured.tools.left).toBeGreaterThanOrEqual(measured.table.right - 0.1);
+      expect(measured.buttons[0]!.top).toBeGreaterThanOrEqual(measured.table.top - 0.1);
+      expect(measured.buttons[0]!.top - measured.table.top).toBeLessThan(8);
+      // On the table's own corner: the pair ends at the table's right edge, inside the column,
+      // and no cell's words meet it.
+      expect(Math.abs(measured.tools.right - measured.table.right)).toBeLessThan(0.6);
       expect(measured.tools.right).toBeLessThanOrEqual(measured.column.right + 0.1);
       const overlapping = measured.cells.filter(
         (cell) =>
@@ -117,7 +125,9 @@ await requireBrowserLane("agent-pane-table-actions.test.ts", async () => {
           cell.bottom > measured.tools.top + 0.1,
       );
       expect(overlapping).toEqual([]);
-      expect(measured.gap).toBe(4);
+      // Side by side with no gap, as a code card's corner buttons and a reply's Copy row
+      // (code-toolbar-buttons.test.ts).
+      expect(measured.gap).toBe(0);
       if (variant === "hover") {
         const output = path.resolve(import.meta.dir, "../../artifacts/fleet/table-action-alignment-zoom.png");
         await mkdir(path.dirname(output), { recursive: true });

@@ -58,6 +58,10 @@ extension AgentTurn {
                     rows.append(.edit(call))
                 } else if permissionTools.contains(call.id), call.status == .pending {
                     continue
+                } else if WhoElseCall(call) != nil {
+                    // "Who else is working on these files" stands alone: its row draws as the card.
+                    flush()
+                    rows.append(.tool(call))
                 } else {
                     pending.append(call)
                 }
@@ -170,6 +174,13 @@ public struct ToolWording: Sendable {
         }
         let text = phrases.joined(separator: ", ")
         return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    /// A duration worth showing: none under a millisecond, which read "0ms" (a replayed history
+    /// stamps a call's or turn's start and end together, so it has no real duration).
+    public func shown(_ seconds: TimeInterval?) -> TimeInterval? {
+        guard let seconds, seconds >= 0.001 else { return nil }
+        return seconds
     }
 
     public func duration(_ seconds: TimeInterval) -> String {

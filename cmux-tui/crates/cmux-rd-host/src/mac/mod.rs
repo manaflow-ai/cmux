@@ -3,9 +3,10 @@
 //! plans/cmux-next/remote-desktop-mac-host.md. Needs Screen Recording and Accessibility for
 //! the host process or the app that launched it.
 
-mod capture;
+pub(crate) mod capture;
 mod input;
 mod keys;
+mod sys;
 
 use crate::desktop::Desktop;
 use crate::stream::SessionCfg;
@@ -35,7 +36,9 @@ fn encoder_fps(width: u32, height: u32, fps: u32) -> u32 {
 pub struct MacDesktop {
     capture: Capture,
     /// The frame [`Desktop::capture`] picked and its damage, for the next encode.
-    picked: Option<(screencapturekit::CVPixelBuffer, Rect)>,
+    picked: Option<(capture::PixelBuffer, Rect)>,
+    /// The picked frame's display and arrival times (measurement only).
+    picked_times: Option<(u64, u64)>,
     encoder: VideoToolbox,
     injector: Injector,
     name: String,
@@ -63,7 +66,7 @@ impl MacDesktop {
         let name =
             format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
         let injector = Injector::new(capture.bounds(), (width, height))?;
-        Ok(Self { capture, picked: None, encoder, injector, name })
+        Ok(Self { capture, picked: None, picked_times: None, encoder, injector, name })
     }
 }
 
@@ -83,9 +86,14 @@ impl Desktop for MacDesktop {
 
     /// Picks the newest complete frame; ScreenCaptureKit already holds the pixels.
     fn capture(&mut self, damage: Rect) -> Res<()> {
-        let frame = self.capture.newest().ok_or("no captured frame yet")?;
+        let (frame, times) = self.capture.newest().ok_or("no captured frame yet")?;
         self.picked = Some((frame, damage));
+        self.picked_times = times;
         Ok(())
+    }
+
+    fn picked_times(&self) -> Option<(u64, u64)> {
+        self.picked_times
     }
 
     fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
@@ -95,7 +103,7 @@ impl Desktop for MacDesktop {
         // SAFETY: `frame` holds the pixel buffer and with it the IOSurface until this
         // function returns, which is after encode_surface returns.
         let picture = unsafe {
-            SurfaceFrame::new(surface.as_ptr(), SurfaceFormat::Nv12, width, height, ColorTag::Srgb)
+            SurfaceFrame::new(surface, SurfaceFormat::Nv12, width, height, ColorTag::Srgb)
         };
         let hint =
             SurfaceRect { x: damage.x, y: damage.y, width: damage.width, height: damage.height };

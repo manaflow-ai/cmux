@@ -24,6 +24,26 @@ impl WorkspaceRegistry {
         )
     }
 
+    /// The stored subtrees of the active workspace and of `workspaces`: what
+    /// a focus change reads, since it changes only the workspace it leaves and
+    /// the one it focuses. One frame read names the active workspace.
+    pub(crate) fn resource_topology_with_active(
+        &self,
+        workspaces: &[WorkspacePublicId],
+    ) -> anyhow::Result<ResourceTopologySnapshot> {
+        let connection = self.connection.get();
+        let mut topology =
+            load_topology_frame(&connection, self.session_id.clone(), self.generation.clone())?;
+        let mut scope = topology.active_workspace.iter().cloned().collect::<Vec<_>>();
+        for workspace in workspaces {
+            if !scope.contains(workspace) {
+                scope.push(workspace.clone());
+            }
+        }
+        load_subtrees(&connection, &mut topology, &scope)?;
+        Ok(topology)
+    }
+
     /// One terminal's durable record unless it is tombstoned, as
     /// [`Self::terminal_snapshot`] lists it.
     pub(crate) fn live_terminal_record(
@@ -135,6 +155,17 @@ pub(crate) fn load_resource_topology_scoped(
     workspaces: &[WorkspacePublicId],
 ) -> anyhow::Result<ResourceTopologySnapshot> {
     let mut topology = load_topology_frame(connection, session_id, generation)?;
+    load_subtrees(connection, &mut topology, workspaces)?;
+    Ok(topology)
+}
+
+/// Add the stored screens, panes, tabs and browsers of `workspaces` to
+/// `topology` (a frame with no subtrees yet).
+fn load_subtrees(
+    connection: &Connection,
+    topology: &mut ResourceTopologySnapshot,
+    workspaces: &[WorkspacePublicId],
+) -> anyhow::Result<()> {
     let mut screens = Vec::new();
     for workspace in workspaces {
         screens.extend(load_screens(connection, " AND workspace_id = ?1", &[&workspace.as_str()])?);
@@ -160,7 +191,7 @@ pub(crate) fn load_resource_topology_scoped(
             )?);
         }
     }
-    Ok(topology)
+    Ok(())
 }
 
 /// Revision, active workspace and every live workspace's active screen.

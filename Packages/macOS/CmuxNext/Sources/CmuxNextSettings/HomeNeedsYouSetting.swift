@@ -6,10 +6,9 @@
 /// only while this is on.
 public nonisolated struct HomeNeedsYouSetting {
     public nonisolated init() {}
-    public static let configPath = ["feed", "needsYouInChief"]
+    /// `configPath` and `fallback` (off until the person turns it on) are generated from
+    /// schemas/settings/source/notifications.json.
     public static let key = configPath.joined(separator: ".")
-    /// Off until the person turns it on.
-    public static let fallback = false
 
     /// Whether the pinned card is on in `settings` now (the default without them), read each call so
     /// an observation that calls it follows a change live.

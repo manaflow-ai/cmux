@@ -6,13 +6,10 @@ import Foundation
 /// after signing in, as a viewer or a talker whose every message waits for the owner. The palette's
 /// Invite People to Chat…, the tab menu's Invite People… (both open the Invite People sheet),
 /// `cmux share invite` and its MCP tool run `agent.share.invite`; `cmux share uninvite` and its tool
-/// run `agent.share.uninvite`. The daemon keeps the invitees on a share
-/// (`agent-session-share-invite|uninvite`); this only finds the chat's invite share, makes one
-/// first when the chat has none, and asks the owner when a run they did not start invites someone.
+/// run `agent.share.uninvite`. The daemon keeps the invitees on a share and finds or makes the
+/// chat's invite share itself (`agent-session-share-invite-chat`, `-uninvite`); this asks the owner
+/// when a run they did not start invites someone.
 extension AgentShareActions {
-    /// A share an invite makes lasts the longest a share may (the daemon's 7 days), unless --ttl says.
-    static let inviteTTL: UInt64 = AgentShareArguments.maximumTTL
-
     func bindInvites(into registry: ActionRegistry) {
         let host = host
         registry.bindEffect(Self.invite, effect: { invocation in
@@ -69,33 +66,33 @@ extension AgentShareActions {
 }
 
 extension AgentShareActions {
-    /// An invite's work, for the op and the sheet alike: the account goes on the chat's invite share,
-    /// made first when the chat has none. The caller has the owner's consent already.
+    /// An invite's work, for the op and the sheet alike: one daemon call puts the account on the chat's
+    /// invite share, which the daemon makes in the same step when the chat has none (and leaves none
+    /// behind when it refuses). The caller has the owner's consent already.
     static func inviteWork(_ chat: AgentShareChat, account: String, role: String, ttl: UInt64?,
                            host: any AgentShareHost) async throws -> [String: ActionResultValue] {
         let connection = try Self.connected(chat.connection)
-        let listed = try await connection.request(AgentSessionShareListRequest(surface: chat.surface))
-        let existing = AgentShareInvites.inviteShare(of: chat.session, in: listed.shares)
-        let shareID: String
-        if let existing {
-            shareID = existing
-        } else {
-            shareID = try await Self.create(chat, ttl: ttl ?? Self.inviteTTL, uses: nil, host: host).shareId
-        }
-        let reply: JSONValue
+        var request = AgentSessionShareInviteChatRequest(surface: chat.surface, session: chat.session, account: account, role: role,
+                                                         ttlSecs: ttl, createId: UUID().uuidString)
         do {
-            reply = try await connection.request(AgentSessionShareInviteRequest(shareId: shareID, account: account, role: role))
-        } catch {
-            // A share made only for this invite, which the daemon then refused (not an email or
-            // @handle, say), would sit open with nobody on it: end it.
-            if existing == nil { _ = try? await connection.request(AgentSessionShareRevokeRequest(shareId: shareID)) }
-            // The daemon's one refusal of a well-formed invite's params is the account's shape.
-            if case DaemonError.command(_, _, "share.bad_request"?, _, _) = error { throw AgentShareBadAccount() }
-            throw error
+            return AgentShareResults.ended(try await Self.inviteChat(request, on: connection))
+        } catch DaemonError.command(_, _, "share.needs_sign_in"?, _, _) {
+            // Only a share the daemon must make in its hosted room spends the owner's token: minted
+            // now, from the API that room takes (cmux#31372), for the same invite again.
+            let room = try? await connection.request(AgentSessionShareRoomRequest())
+            request.ownerToken = await host.shareOwnerToken(api: room?.ownerApi.flatMap { URL(string: $0) })
+            return AgentShareResults.ended(try await Self.inviteChat(request, on: connection))
         }
-        var result = AgentShareResults.ended(reply)
-        result["created_share"] = .bool(existing == nil)
-        return result
+    }
+
+    /// One `agent-session-share-invite-chat`, given the room's provisioning time, as a create is.
+    private static func inviteChat(_ request: AgentSessionShareInviteChatRequest, on connection: DaemonConnection) async throws -> JSONValue {
+        do {
+            return try await connection.request(request, timeout: Self.createDeadline)
+        } catch DaemonError.command(_, _, "share.bad_request"?, _, _) {
+            // The terms are checked here first (role, --ttl), so the daemon's refusal is the account's shape.
+            throw AgentShareBadAccount()
+        }
     }
 
     /// An uninvite's work, for the op and the sheet: the account leaves `shareID`, or every share of
@@ -125,7 +122,8 @@ extension AgentShareActions {
         AgentShareInviteSheetModel(chat: chat.title, session: chat.session, role: role, work: AgentShareInviteSheetModel.Work(
             list: { try await Self.connected(chat.connection).request(AgentSessionShareListRequest(surface: chat.surface)).shares },
             invite: { account, role in _ = try await Self.inviteWork(chat, account: account, role: role, ttl: nil, host: host) },
-            remove: { account in _ = try await Self.uninviteWork(account: account, shareID: nil, chat: chat, connection: chat.connection) }
+            remove: { account in _ = try await Self.uninviteWork(account: account, shareID: nil, chat: chat, connection: chat.connection) },
+            copy: { host.shareCopy($0) }
         ))
     }
 }
@@ -146,11 +144,11 @@ enum AgentShareInvites {
     /// An account as the daemon compares it (trimmed, lowercased).
     static func normal(_ account: String) -> String { account.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
 
-    /// The share new invites to `session`'s chat go on: the newest live share that already has
-    /// invitees. A guest link without any is left alone (its 24 hours and single use are the link's),
-    /// so nil makes a new share for invites.
-    static func inviteShare(of session: String, in shares: [AgentSessionShare]) -> String? {
-        shares.filter { $0.session == session && $0.isLive && !$0.invitees.isEmpty }.max { $0.createdAt < $1.createdAt }?.shareId
+    /// The link of the share new invites to `session`'s chat go on: the newest live share that already
+    /// has invitees (the daemon's `-invite-chat` picks the same). A guest link without any is left to
+    /// its link. Nil with none, or while that share has no room.
+    static func inviteLink(of session: String, in shares: [AgentSessionShare]) -> String? {
+        shares.filter { $0.session == session && $0.isLive && !$0.invitees.isEmpty }.max { $0.createdAt < $1.createdAt }?.inviteUrl
     }
 
     /// Every share of `session`'s chat on which `account` is still invited.

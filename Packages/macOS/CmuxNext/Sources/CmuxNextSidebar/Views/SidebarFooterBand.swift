@@ -86,7 +86,9 @@ final class SidebarFooterBand {
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
         // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
         let searchMinX = placeSearch()
-        let trailing = placeUpdateAvailable(before: searchMinX, after: bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
+        // Swift live mode's mark follows the avatar; the dots and the update button start after it.
+        let leadMaxX = placeLiveBadge(before: searchMinX)
+        let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
             bar.leadingInset = nil
@@ -97,7 +99,7 @@ final class SidebarFooterBand {
             // The bar runs from right after the control to the Search button (the
             // strip never covers either; the slots carry the gap) and centers on
             // the sidebar's middle.
-            let lead = row.itemsMaxX, end = trailing ?? bounds.width
+            let lead = leadMaxX ?? row.itemsMaxX, end = trailing ?? bounds.width
             bar.leadingInset = 0
             bar.frame = NSRect(x: lead, y: row.frame.minY, width: max(0, end - lead), height: row.frame.height)
             bar.centerX = bounds.midX - lead
@@ -105,7 +107,7 @@ final class SidebarFooterBand {
             if bar.superview !== footer { footer.addSubview(bar) }
             // The strip ends before the Search and update buttons at the row's right end.
             let end = trailing.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? footer.bounds.width
-            bar.leadingInset = nil
+            bar.leadingInset = leadMaxX.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x + Metrics.space2 }
             bar.frame = NSRect(x: 0, y: 0, width: max(0, end), height: footer.bounds.height)
             bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x
         }
@@ -188,6 +190,36 @@ final class SidebarFooterBand {
         let scale = host.window?.backingScaleFactor ?? 2
         button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
         return button.frame.minX
+    }
+
+    // MARK: Live mode badge
+
+    /// Places Swift live mode's mark (`host.liveModeBadge`) on the footer line right after the
+    /// profile avatar, `space2` from it, centered on the avatar's line (Leo 2026-11-06: "at the
+    /// bottom just to the right of the profile circle in the sidebar"); at the footer's leading
+    /// inset when the band shows no items. It never reaches `searchMinX`: with no room it steps out
+    /// of the line (zero frame), and the window's top row shows it while the sidebar is hidden.
+    /// Returns its maxX in the sidebar's coordinates, nil while it does not show.
+    @discardableResult
+    func placeLiveBadge(before searchMinX: CGFloat?) -> CGFloat? {
+        guard let host, let badge = host.liveModeBadge, !badge.isHidden else { return nil }
+        let size = badge.fittingSize
+        let x: CGFloat, midY: CGFloat
+        if let row = bandFirstRow {
+            (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
+        } else {
+            let footer = host.footer.frame
+            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - Self.searchButtonSide / 2)
+        }
+        let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1
+        guard x + size.width <= end else {
+            badge.frame = .zero
+            return nil
+        }
+        badge.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height),
+                                                  scale: host.window?.backingScaleFactor ?? 2)
+        return badge.frame.maxX
     }
 
     // MARK: Update Available button

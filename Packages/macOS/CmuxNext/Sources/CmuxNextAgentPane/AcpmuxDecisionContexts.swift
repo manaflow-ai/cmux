@@ -28,6 +28,12 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         /// A peer refused an answer that went without this Mac's signed allow because this Mac
         /// had no record of the prompt (acpmux `permission.person_required` with `data.peer`).
         case unproved(peer: String)
+        /// A peer refused this Mac's signed allow because it has not enrolled this Mac, for an
+        /// answer the person's click made that may go again once (``sent(pageID:proved:single:retry:)``):
+        /// the page has not seen the refusal (``observe(_:replyTo:)`` held it), and `frame` is
+        /// the answer as it went, signed, for the transport to send again after it enrolled
+        /// this Mac there (Leo, 2026-11-04: "it doesnt let me trust on click").
+        case enrollThenRetry(peer: String, pageID: String, frame: String)
     }
 
     /// A permission group the page read (`_acpmux/permission_groups`): its revision and its pending
@@ -45,6 +51,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     struct Sent: Equatable {
         let proved: Bool
         let single: Bool
+        /// The signed answer as it went (no relay id), when a refusal for want of enrollment
+        /// enrolls this Mac and sends it again; nil: such a refusal reaches the page.
+        var retry: String?
     }
 
     private struct State {
@@ -95,15 +104,17 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         }
     }
 
-    /// Reads one inbound frame, as the page gets it.
-    func observe(_ object: [String: Any], replyTo method: String?) {
+    /// Reads one inbound frame, as the page gets it. The page id of a reply the page must not get
+    /// yet (an ``Answer/enrollThenRetry(peer:pageID:frame:)``), else nil.
+    @discardableResult
+    func observe(_ object: [String: Any], replyTo method: String?) -> String? {
         if method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond" {
             // This reply's own request: whether it carried this Mac's signed allow. Any reply
             // ends it, an error of any kind too. A reply to no answer this connection sent (a
             // late one of the connection before a reconnect, which `reset` forgot) says nothing.
             let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
-            state.withLock { state in
-                guard let sent = pageID.flatMap({ state.proved.removeValue(forKey: $0) }) else { return }
+            return state.withLock { state -> String? in
+                guard let pageID, let sent = state.proved.removeValue(forKey: pageID) else { return nil }
                 var answer: Answer?
                 if let error = object["error"] as? [String: Any] {
                     let data = error["data"] as? [String: Any]
@@ -114,7 +125,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
                        let peer = data?["peer"] as? String, !peer.isEmpty {
                         // Only a single prompt's unsigned answer went for want of a record; a
                         // group's unsigned answer (Allow for this chat) was already said.
-                        if sent.proved {
+                        if sent.proved, let frame = sent.retry {
+                            answer = .enrollThenRetry(peer: peer, pageID: pageID, frame: frame)
+                        } else if sent.proved {
                             answer = .refused(peer: peer)
                         } else if sent.single {
                             answer = .unproved(peer: peer)
@@ -123,27 +136,30 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
                 } else if object["result"] != nil {
                     answer = .counted
                 }
-                guard let answer else { return }
+                guard let answer else { return nil }
                 state.answers.append(answer)
                 if state.answers.count > Self.limit { state.answers.removeFirst() }
+                if case .enrollThenRetry = answer { return pageID }
+                return nil
             }
-            return
         }
         if method == "_acpmux/permission_groups" {
             let groups = (object["result"] as? [String: Any])?["groups"] as? [[String: Any]] ?? []
-            return groups.forEach(noteGroup)
+            groups.forEach(noteGroup)
+            return nil
         }
         if method == AcpmuxPaneMethods.initialize {
             let meta = ((object["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let instance = meta?["personInstance"] as? String
             state.withLock { $0.localInstance = instance }
-            return
+            return nil
         }
         // A prompt the page learns from the event log (a live `_acpmux/event`, or the records of an
         // attach or events page: a chat on another machine whose prompt came before the page
         // attached, cx-oa6ah) carries the same nonce and run in its `permission_request` record.
         if object["method"] as? String == "_acpmux/event", let record = object["params"] as? [String: Any] {
-            return observeRecord(record)
+            observeRecord(record)
+            return nil
         }
         // Only the daemon's own replies are read (an agent's forwarded result could carry a
         // `session` or `events` member of its own).
@@ -162,14 +178,16 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
                 for prompt in pending { note(session: session, prompt, seq: seq) }
             }
             if let events = result["events"] as? [[String: Any]] {
-                return events.forEach(observeRecord)
+                events.forEach(observeRecord)
+                return nil
             }
         }
         guard object["method"] as? String == "_acpmux/permission_pending",
               let params = object["params"] as? [String: Any],
               let session = params["sessionId"] as? String
-        else { return }
+        else { return nil }
         note(session: session, params, seq: (params["seq"] as? NSNumber)?.uint64Value)
+        return nil
     }
 
     /// One event record: a `permission_request` or `permission_reissued` names its prompt's nonce and run.
@@ -339,11 +357,14 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     /// How the daemon answered the pane's permission answers since the last call, in order.
     /// The page's permission answer `pageID` goes out to the daemon, with this Mac's signed allow
     /// (`proved`) or without: only a signed one's refusal is read as "not enrolled there".
-    func sent(pageID: String, proved: Bool, single: Bool) {
+    /// `retry`: the signed answer as it went, when such a refusal enrolls this Mac and sends it
+    /// once more instead of reaching the page (``Answer/enrollThenRetry(peer:pageID:frame:)``).
+    func sent(pageID: String, proved: Bool, single: Bool, retry: String? = nil) {
         state.withLock { state in
             // Answered ones leave the order here, so it stays as long as what is in flight.
             state.provedOrder.removeAll { state.proved[$0] == nil }
-            if state.proved.updateValue(Sent(proved: proved, single: single), forKey: pageID) == nil {
+            let sent = Sent(proved: proved, single: single, retry: proved && single ? retry : nil)
+            if state.proved.updateValue(sent, forKey: pageID) == nil {
                 state.provedOrder.append(pageID)
             }
             while state.provedOrder.count > Self.limit {
@@ -352,7 +373,7 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         }
     }
 
-    /// The answer ``sent(pageID:proved:single:)`` named did not go out after all.
+    /// The answer ``sent(pageID:proved:single:retry:)`` named did not go out after all.
     func notSent(pageID: String) {
         state.withLock { state in
             state.proved[pageID] = nil

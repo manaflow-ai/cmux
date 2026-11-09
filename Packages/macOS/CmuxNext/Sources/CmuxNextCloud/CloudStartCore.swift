@@ -35,6 +35,13 @@ public nonisolated struct CloudStartCore: Sendable {
 
     // MARK: The start's own checks (`start`)
 
+    /// Whether a send asks the platform for its project's set-up machine (dependencies installed once, then warm): a
+    /// personal send, on production only once the sign-in names its platform, since the CLI's default is development.
+    /// Leo, 2026-11-06: "we want the default flow to go, the so-called auto mode".
+    public func ensuresProject(account: [String?], platform: URL?, production: Bool) -> Bool {
+        (account.last ?? nil) == nil && (platform != nil || !production)
+    }
+
     /// Why no Cloud chat can start at all now (`cloud_disabled`, `not_signed_in`), else nil. An FFI
     /// that does not answer refuses as Cloud off, never a start that goes on unchecked.
     public func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? {

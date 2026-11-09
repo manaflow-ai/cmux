@@ -35,11 +35,13 @@ import { waveProps } from "../../../ui/wave";
 import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { SubagentStatus } from "../summary/subagentStatusListModel";
 import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { SenderIcon } from "./SenderIcon";
 import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
+import { DoneCheck, DoneMark, type DoneLook } from "./DoneMark";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -71,6 +73,12 @@ export function AgentLine({
   trayColumns = false,
   quiet = false,
   progressAt = "below",
+  latest,
+  latestAt = "below",
+  latestCode = false,
+  via,
+  lean = false,
+  doneLook = "words",
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -81,8 +89,9 @@ export function AgentLine({
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
-  /// How long it has run, or ran (formatDuration); none when unknown.
-  time?: string;
+  /// How long it has run, or ran (formatDuration); none when unknown. A running one is its own ticking
+  /// leaf (Elapsed.tsx), so the clock's second never draws the line.
+  time?: ReactNode;
   /// `agent.session` for a subagent, `terminal` for a background command.
   icon?: string;
   /// The harness of an agent of another family (`codex`), whose mark replaces the icon.
@@ -126,6 +135,21 @@ export function AgentLine({
   /// Where `progress` sits on a tray line: in the trailing meta before the time (`meta`), or on a
   /// line under the title (`below`, every other consumer's place).
   progressAt?: "meta" | "below";
+  /// What it did last (trayDetail.ts `latestLine`): a quiet second line under the title, cut to one
+  /// line so a change never moves the line (`below`), or dim after the title (`inline`). Leo,
+  /// 2026-11-03: "Tray only, richer" (trayLatest.experiment.ts).
+  latest?: string;
+  latestAt?: "below" | "inline";
+  /// The activity is a shell command; keep its raw text in the tray's monospace face.
+  latestCode?: boolean;
+  /// The parent title for nested work.
+  via?: string;
+  /// Session Info's Subagents: its glyph, its name and its time, nothing else. The state is a word on
+  /// the line only where it asks for a look (waiting, failed, stopped) or no time shows; screen readers
+  /// always hear it (Lucas, 2026-11-05, Session Info lab: "remove the green spinning circle").
+  lean?: boolean;
+  /// How a finished tray line ends (DoneMark.tsx, hatParts.experiment.ts); `words` is "Done · 36s".
+  doneLook?: DoneLook;
 }) {
   const liveProgress = useAgentProgress(progressAgent);
   progress = liveProgress ?? progress;
@@ -165,6 +189,9 @@ export function AgentLine({
       >
         {working && !timed ? (
           <Spinner size={iconSize} loading />
+        ) : tone !== undefined ? (
+          // An agent or a chat: its sender icon, its family's mark with its badge in its tone.
+          <SenderIcon harness={mark} tone={tone} size={iconSize} fallback={icon} />
         ) : brand ? (
           <AgentMark agent={brand} size={iconSize} fallback={glyph} />
         ) : (
@@ -181,6 +208,16 @@ export function AgentLine({
         )}
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
+        {/* What it does now hands over as a status line does: the old step slides up and out as the
+            new one slides in (Leo, 2026-11-07: "the thinking transitions to the tool call ... That
+            animation, I like that"). */}
+        {latest && latest !== name && latestAt === "inline" && (
+          <Tick className={`acpmux-agent-line__latest-inline${latestCode ? " is-code" : ""}`} text={latest} slide />
+        )}
+        {latest && latest !== name && latestAt === "below" && (
+          <span className={`acpmux-agent-line__latest${latestCode ? " is-code" : ""}`}>{latest}</span>
+        )}
+        {via && <span className="acpmux-agent-line__via">via {via}</span>}
         {progress && trayColumns && progressAt === "meta" && (
           <span className="acpmux-agent-line__stats">{progress}</span>
         )}
@@ -200,6 +237,11 @@ export function AgentLine({
               {timed ? (
                 // Running says itself by its ticking time and Stop; the word is for screen readers.
                 <span className="acpmux-agent-line__sr">{state}</span>
+              ) : status === "done" && doneLook !== "words" ? (
+                // A finished line's done mark (DoneMark.tsx) in place of the word and its dot; the
+                // line's own time follows in its column, as every line's does, and the check sits in
+                // Stop's slot after it.
+                <DoneMark state={state} look={doneLook} checkInSlot />
               ) : (
                 <>
                   <Tick className="acpmux-summary-agent__state" text={state} />
@@ -217,13 +259,27 @@ export function AgentLine({
           </span>
           {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
               last at the line's end: the column the header's chevron ends in. */}
-          <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
+          {/* A finished line's check takes the Stop square's place, same size and column, so nothing
+              moves when the line ends (Leo, 2026-11-07: "instead of the done on the left, you can just
+              put like a check mark right where this stop square would be"). */}
+          <span className="acpmux-agent-line__stop-track" aria-hidden="true">
+            {status === "done" && doneLook === "check" && <DoneCheck />}
+          </span>
           {chevron && onOpen ? (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />
             </span>
           ) : (
             <span className="acpmux-agent-line__chevron-track" aria-hidden="true" />
+          )}
+        </>
+      ) : lean ? (
+        <>
+          {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
+          {time === undefined || status === "waiting" || status === "failed" || status === "stopped" ? (
+            <span className="acpmux-summary-meta acpmux-summary-agent__state">{state}</span>
+          ) : (
+            <span className="acpmux-agent-line__sr">{state}</span>
           )}
         </>
       ) : (

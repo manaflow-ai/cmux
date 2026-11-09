@@ -21,6 +21,11 @@ iroh-transport = ["cmux-remote/iroh-transport"]
 # a loaded DLL is not scanned that way. Without this feature cmux-tui.exe is
 # the whole program on every platform (dev builds, tests).
 windows-thin-exe = []
+# Debug only: patch the running daemon in place under `dx serve --hot-patch`
+# (cmux-tui-core/src/hotpatch.rs). No shipped build enables it.
+# It also builds cmux-terminal-client: dx 0.7.10 replays every workspace crate that
+# depends on an edited one, and fails on one its first build never compiled.
+hotpatch = ["cmux-tui-core/hotpatch", "dep:cmux-terminal-client"]
 
 # The whole program. src/main.rs stays the crate root (its dispatch tables are
 # where they always were); the cmux-tui binary is a small entry point that
@@ -33,6 +38,15 @@ path = "src/main.rs"
 [[bin]]
 name = "cmux-tui"
 path = "src/bin/cmux-tui.rs"
+
+# `hotpatch` only: the whole program compiled as one binary crate, for
+# `dx serve --hot-patch --bin cmux-tui-hotpatch`. dx 0.7.10 never replays the
+# tip package's own library, so a cmux-tui binary that links the `cmux_tui`
+# library fails to patch an edit in a dependency (E0460, a stale rlib).
+[[bin]]
+name = "cmux-tui-hotpatch"
+path = "src/main.rs"
+required-features = ["hotpatch"]
 
 [[bin]]
 name = "cmux-tui-hook"
@@ -52,14 +66,25 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 tempfile = "3"
 cmux-json.workspace = true
+cmux-cloud-client.workspace = true
+cmux-cloud-environment.workspace = true
+cmux-cloud-wire.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+# The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
+cmux-focus-core.workspace = true
+# The daemon client every SDK user shares (cli/chief/link.rs talks through it).
+cmux-sdk = { path = "../../bindings/rust", default-features = false }
+# Only for `hotpatch` (see the feature).
+cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
 cmux-git.workspace = true
 cmux-conversation.workspace = true
 cmux-process.workspace = true
 # `cmux vm`: the cmux VM API CLI (workers/cmux-vm/cli), linked in process so the
 # bundle needs no cmux-vm binary. Its TLS rides this crate's rustls (ring).
 cmux-vm = { path = "../../../workers/cmux-vm/cli/crates/cmux-vm", default-features = false }
+# `cmux vm token create`'s mint rules, shared with the app (cli/vm.rs `mint_exit`).
+cmux-cloud-config.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
@@ -100,6 +125,8 @@ terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
+# `cmux link sync pull` merges a text file both sides changed by line.
+diffy.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
 # Verifies the signed invite-wave flags (feature_flags.rs); tests sign with it.
@@ -113,6 +140,11 @@ acpmux = { path = "../acpmux", default-features = false }
 acpmux-build-id = { path = "../acpmux-build-id" }
 
 [target.'cfg(unix)'.dependencies]
+# `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
+cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
+cmux-cloud-api.workspace = true
+# `cmux cloud codex-holder` (cli/cloud_codex_holder.rs, unix only).
+cmux-cloud-codex-holder.workspace = true
 # `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
 # unix files and processes, so the crate does not build for Windows.
 cmux-automations.workspace = true
@@ -162,6 +194,22 @@ windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 serde_json.workspace = true
 
 [dev-dependencies]
+# carrier/rd_link.rs tests: the rd host's own parser reads what the dial sends.
+cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
+# tests/carrier_dial.rs: a real relay for `cmux carrier dial`.
+axum.workspace = true
 cmux-pty.workspace = true
+cmux-relay = { path = "../cmux-relay" }
+# Paused-clock tests of the Cloud dial's handshake wait.
+tokio = { workspace = true, features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# `cmux carrier dial`: the device's Noise key in the login Keychain (carrier/noise_key.rs).
+# All three are already in the graph through rustls-native-certs.
+core-foundation = "0.10"
+security-framework = "3"
+security-framework-sys = "2"
+# Mac Screen on cmux.rd/1 (`cmux rd serve|connect`): capture, encode, input and the secure link.
+cmux-rd-host = { path = "../cmux-rd-host", default-features = false, features = ["link"] }

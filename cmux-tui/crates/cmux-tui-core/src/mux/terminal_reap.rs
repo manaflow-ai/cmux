@@ -33,7 +33,7 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
 
 use super::*;
-use crate::state::kept_tab_store::{KeptTab, kept_title};
+use crate::state::kept_tab_store::{KeptTab, LastCommand, kept_title};
 
 /// Default reap grace period for a terminal with no placement.
 pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
@@ -619,11 +619,25 @@ impl Mux {
             // The title the tab shows now; the next owner has no surface to
             // ask once the terminal ended.
             let title = runtime.as_ref().and_then(|surface| kept_title(&surface.title()));
+            // The command it runs (a park ends it; the freed shell types it
+            // again) or last finished, for the restored marker line; an
+            // incognito terminal keeps none.
+            let last_command = runtime
+                .as_ref()
+                .filter(|surface| {
+                    surface
+                        .terminal_public_id()
+                        .is_some_and(|id| !self.output_store.is_private(self, id))
+                })
+                .and_then(|surface| surface.kept_command())
+                .as_ref()
+                .and_then(LastCommand::from_finished);
             rows.extend(tab_ids.into_iter().map(|tab_id| KeptTab {
                 tab_id,
                 cwd: cwd.clone(),
                 title: title.clone(),
                 on_show,
+                last_command: last_command.clone(),
             }));
             kept.insert(terminal_id);
         }
@@ -741,6 +755,23 @@ impl Mux {
             ),
         }
         Ok(())
+    }
+
+    /// Of `ids`, the parked terminals (`output_store/parked_trim.rs`): the workspace store keeps a tab of
+    /// each (`kept_tabs`) and no shell of it runs (no catalog surface, as after a daemon restart, or a dead one).
+    /// A terminal whose facts cannot be read is not parked.
+    pub(crate) fn parked_terminal_ids(
+        &self,
+        ids: impl IntoIterator<Item = TerminalPublicId>,
+    ) -> HashSet<TerminalPublicId> {
+        // Registry, then connection, then state (`lock_rank`): the kept-tab
+        // read below queries the registry database while state is held.
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
+        ids.into_iter()
+            .filter(|id| state.terminal_catalog.get(id).is_none_or(|surface| surface.is_dead()))
+            .filter(|id| Self::terminal_tabs_kept_locked(&registry, &state, id).unwrap_or(false))
+            .collect()
     }
 
     /// Whether the workspace store keeps any tab of `public_id`

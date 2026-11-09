@@ -115,9 +115,7 @@ export class HostDO extends DurableObject<Env> {
   /** Registers an install's socket in its UserDO, so `install.revoke` closes it here at once (socket-registry.ts). */
   private registerSocket(ws: WebSocket, p: ReturnType<typeof replicaPrincipal>, host: string) {
     if (p.kind !== "install" || !p.install || !p.user) return
-    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)) as unknown as {
-      registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number, agent?: string): Promise<boolean>
-    }
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user))
     this.ctx.waitUntil(
       stub.registerSocket(p.user, p.install, p.grant, "HostDO", host, p.expires_at ?? Date.now() + 3600_000, p.agent).then(
         (ok) => (ok ? undefined : closeQuietly(ws, 4401, "install revoked")),

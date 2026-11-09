@@ -20,7 +20,7 @@ final class TerminalSizedForChip: NSView {
         button = NSButton(title: title, target: nil, action: nil)
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = Metrics.surfaceCornerRadius
         layer?.borderWidth = Metrics.lineWidth(1)
         label.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
         label.ink = .secondary
@@ -67,12 +67,21 @@ final class TerminalSizedForChip: NSView {
     }
 
     private func applyThemeColors() {
+        // The button draws its title and bezel for its own appearance, not the theme's colors: on a
+        // dark terminal theme in a light app it drew a dark title on the dark chip. It takes the
+        // theme's light or dark appearance, as the chip's fill and label do.
+        let dark = themeTokens.isDark
+        if Self.isDark(button.appearance) != dark { button.appearance = NSAppearance(named: dark ? .darkAqua : .aqua) }
         performWithTheme {
             layer?.backgroundColor = Palette.elevatedBackground.cgColor
             layer?.borderColor = Palette.separator.cgColor
             button.contentTintColor = Palette.textSecondary
             button.bezelColor = Palette.selectionFill
         }
+    }
+
+    private static func isDark(_ appearance: NSAppearance?) -> Bool? {
+        appearance.map { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
     }
 
     /// Only Take over is a target; the rest of the chip lets clicks reach the terminal.

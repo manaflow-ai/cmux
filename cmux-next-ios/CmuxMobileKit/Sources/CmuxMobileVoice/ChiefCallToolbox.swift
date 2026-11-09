@@ -1,31 +1,59 @@
 import CmuxConversationCore
-import CmuxMobileChief
+public import CmuxMobileChief
 import CmuxMobileModel
 public import CmuxMobileRealtime
 import Foundation
 
 /// Chief's tools on a live call, over what the app already holds: the
-/// default Chief's conversation (``ChiefSources/primary``), the workspaces
-/// and the Feed (``AppStore``). Nothing here reaches past what the user
-/// can see and do in the app; the one action, send_to_chief, is the
-/// composer's send.
+/// called Chief's conversation, the workspaces and the Feed (``AppStore``).
+/// Nothing here reaches past what the user can see and do in the app; the
+/// one action, send_to_chief, is the composer's send.
+///
+/// Scoped to the Chief the user called, and only it (Aziz 2026-11-05: a call
+/// to one Chief read and wrote the Cloud Chief, ``ChiefSources/primary``).
+/// The Cloud session is shared by every Cloud Chief of the account (Home
+/// switches it to the one opened), so the call also pins the called Chief's
+/// id: once the session shows another Chief, the call reads and sends nothing.
 @MainActor
 public final class ChiefCallToolbox: VoiceCallToolbox {
-    private let sources: ChiefSources
+    private let chief: ChiefSession
+    /// The called Chief's id (``ChiefIdentity/chiefID``), fixed for the call.
+    public let chiefID: String
+    /// The Mac a Mac Chief runs on, once known: every Mac's Chief has the same id, and the
+    /// Mac Chief's session follows the Mac the phone shows.
+    private var macID: String?
+    public let chiefName: String
     private let store: AppStore
     private let userName: String?
 
-    public init(sources: ChiefSources, store: AppStore, userName: String?) {
-        self.sources = sources
+    public init(chief: ChiefSession, store: AppStore, userName: String?) {
+        self.chief = chief
+        chiefID = chief.identity.chiefID
+        macID = chief.runsInCloud ? nil : chief.macID
+        let name = chief.title ?? chief.identity.title
+        chiefName = name.isEmpty ? "Chief" : name
         self.store = store
         self.userName = userName
     }
 
-    private var chief: ChiefSession { sources.primary }
+    /// The called Chief is still the one its session holds: the same Chief, and for a
+    /// Mac Chief the same Mac (the first Mac it shows, when the call began before one).
+    public var isScoped: Bool {
+        guard chief.identity.chiefID == chiefID else { return false }
+        guard !chief.runsInCloud, let now = chief.macID else { return true }
+        guard let macID else {
+            macID = now
+            return true
+        }
+        return now == macID
+    }
 
-    public var chiefName: String {
-        let name = chief.title ?? chief.identity.title
-        return name.isEmpty ? "Chief" : name
+    /// What the call's tools say once the session shows another Chief.
+    private var outOfScope: VoiceCallToolResult {
+        VoiceCallToolResult(object: [
+            "error": "chief_closed",
+            "note": "This call is to \(chiefName), which is no longer open on this phone. Nothing was read or sent; tell the user to call \(chiefName) again.",
+        ])
     }
 
     public func briefing() -> VoiceCallBriefing {
@@ -49,6 +77,7 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
     }
 
     public func sendToChief(_ message: String) async -> VoiceCallToolResult {
+        guard isScoped else { return outOfScope }
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return VoiceCallToolResult(object: ["error": "empty message"]) }
         let connected = chief.acceptsSendsNow && chief.isConnected
@@ -61,7 +90,8 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
     }
 
     public func readChiefMessages(count: Int) -> VoiceCallToolResult {
-        VoiceCallToolResult(object: ["messages": recentLines(count: count, limit: 1200)],
+        guard isScoped else { return outOfScope }
+        return VoiceCallToolResult(object: ["messages": recentLines(count: count, limit: 1200)],
                             activity: String(localized: "Read the Chief chat"))
     }
 
@@ -81,6 +111,7 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
 
     /// The newest text messages, oldest first, each cut to `limit` characters.
     private func recentLines(count: Int, limit: Int) -> [String] {
+        guard isScoped else { return [] }
         let store = chief.store
         let messages = store.messages.filter { !$0.text.isEmpty && $0.unsentAt == nil && $0.systemEvent == nil }
         return messages.suffix(count).map { message in

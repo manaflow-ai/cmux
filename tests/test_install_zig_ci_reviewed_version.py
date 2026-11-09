@@ -22,8 +22,8 @@ TOOLCHAINS = ROOT / "cmux-tui/build-support/notices/toolchains/toolchains.json"
 
 def fake_zig(directory: Path, version: str) -> None:
     lib = directory / "lib"
-    (lib / "compiler").mkdir(parents=True)
-    (lib / "compiler/build_runner.zig").write_text("// fixture\n")
+    (lib / "std").mkdir(parents=True)
+    (lib / "std/std.zig").write_text("// fixture\n")
     zig = directory / "zig"
     zig.write_text(
         "#!/bin/sh\n"
@@ -34,20 +34,40 @@ def fake_zig(directory: Path, version: str) -> None:
     zig.chmod(0o755)
 
 
+# Zig versions whose std install-zig-ci.sh patches (the reused Zig must be the patched one).
+STD_PATCHED = {"0.17.0"}
+UNREACHABLE = "http://127.0.0.1:9/unreachable"
+
+
 def run(version: str, fake: str | None = None) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
-        fake_zig(tmp, fake or version)
-        env = {**os.environ, "ZIG_REQUIRED": version, "PATH": f"{tmp}:{os.environ['PATH']}",
-               "ZIG_INDEX_URL": "http://127.0.0.1:9/unreachable", "GITHUB_PATH": "", "GITHUB_ENV": ""}
+        fake_zig(tmp / "fake", fake or version)
+        # Every download source is unreachable: a run that tries to download fails fast.
+        env = {**os.environ, "ZIG_REQUIRED": version, "PATH": f"{tmp / 'fake'}:{os.environ['PATH']}",
+               "ZIG_INDEX_URL": UNREACHABLE, "ZIG_MIRROR_URL": UNREACHABLE, "ZIG_SECONDARY_MIRROR_URL": UNREACHABLE,
+               "ZIG_TERTIARY_MIRROR_URL": UNREACHABLE, "ZIG_OFFICIAL_URL": UNREACHABLE,
+               "ZIG_DOWNLOAD_ATTEMPTS": "1", "ZIG_DOWNLOAD_RETRY_DELAY": "0", "ZIG_FORCE_LOCAL_INSTALL": "0",
+               "RUNNER_TEMP": str(tmp / "runner"), "GITHUB_PATH": "", "GITHUB_ENV": ""}
         return subprocess.run(["bash", str(SCRIPT)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
 
 
 class ReviewedZigVersionTest(unittest.TestCase):
-    def test_the_reviewed_ci_version_is_accepted(self) -> None:
-        [zig] = json.loads(TOOLCHAINS.read_text())["zig"]
-        result = run(zig["ci_version"])
-        self.assertEqual(result.returncode, 0, result.stderr)
+    def test_the_reviewed_ci_versions_are_accepted(self) -> None:
+        versions = [zig["ci_version"] for zig in json.loads(TOOLCHAINS.read_text())["zig"]]
+        self.assertIn("0.17.0", versions)
+        for version in versions:
+            with self.subTest(version=version):
+                result = run(version)
+                if version in STD_PATCHED:
+                    # Reviewed (no refusal), but the fake Zig has no patched std, so it
+                    # is not reused: the run goes on to download a verified copy.
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("not a reviewed Zig version", result.stderr)
+                    self.assertIn("lacks the reviewed std/Io/Threaded.zig", result.stderr)
+                    self.assertIn(UNREACHABLE, result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_the_sdk_conformance_version_is_accepted(self) -> None:
         zon = (ROOT / "cmux-tui/bindings/zig/build.zig.zon").read_text()

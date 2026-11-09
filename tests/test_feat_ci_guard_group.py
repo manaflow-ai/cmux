@@ -41,7 +41,9 @@ def runs_ci_group(job: dict) -> bool:
         return False
     for step in job.get("steps") or []:
         command = str(step.get("run", ""))
-        if "scripts/ci/guards-local.sh" in command and "--group" not in command and "--list" not in command:
+        # No --group runs the fast set (the ci group) plus the groups --feat-routes picks.
+        if ("scripts/ci/guards-local.sh" in command and "--list" not in command
+                and ("--group" not in command or "--group ci " in command)):
             return True
     return False
 
@@ -248,21 +250,17 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         return workflow["jobs"]["ci-guard-group"]
 
     def test_the_job_runs_on_its_measured_size_and_follows_the_outage_switch(self):
-        # Fleet Linux, then a free mini (portable-placement), then Blacksmith at its measured size
-        # (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things cant our minis just run them").
-        placed = "needs.portable-placement.outputs"
-        attempt = f"{placed}.placed_attempt == format('{{0}}', github.run_attempt)"
+        # Linux only: fleet Linux, then Blacksmith at its measured size. On a mini 24 of its steps red (no
+        # python3.9 or node, temp-cwd scripts), so portable-placement never places it.
         measured = entry("cmux-next-guards.yml", "ci-guard-group")
         pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
                       f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
-        self.assertEqual(self.job()["needs"], ["portable-placement"])
+        self.assertNotIn("needs", self.job())
         self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
         self.assertEqual(
             self.job()["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
             " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
-            f" || {attempt} && contains({placed}.linux_jobs, ' ci-guard-group ') && {placed}.linux_runner"
-            f" || {attempt} && contains({placed}.mini_jobs, ' ci-guard-group ') && {placed}.mini_runner"
             " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
             " || " + pool_route + " }}",
         )
@@ -270,7 +268,8 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
     def test_each_guard_pass_uses_a_worker_per_core(self):
         run = "\n".join(str(step.get("run", "")) for step in self.job()["steps"])
         calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
-        self.assertEqual(len(calls), 2, calls)
+        # The head (a pull request's call, a push's call without release-notary), then the base.
+        self.assertEqual(len(calls), 3, calls)
         for call in calls:
             with self.subTest(call=call):
                 # getconf, not nproc: a mini (macOS) has no GNU coreutils.

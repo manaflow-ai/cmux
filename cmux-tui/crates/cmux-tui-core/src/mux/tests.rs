@@ -10,8 +10,10 @@ mod agent_presence;
 mod agent_reports;
 mod agent_roster_catch_up;
 mod agent_roster_fold_lock;
+mod agent_roster_kind_scope;
 mod agent_roster_poison;
 mod agent_roster_restore;
+mod agent_screen_exit;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod column_update;
@@ -25,6 +27,7 @@ mod journal_roster;
 mod kitty_budget;
 mod kitty_reservation;
 mod layout_apply_focus;
+mod layout_sizes;
 mod layout_undo;
 mod layout_undo_commit;
 mod lone_dock;
@@ -48,6 +51,7 @@ mod tab_workspace_move;
 mod tabs;
 mod terminal_exit_restart;
 mod terminal_moves;
+mod terminal_publisher;
 mod terminal_registry;
 mod terminal_views;
 mod view_close_replay;
@@ -500,8 +504,18 @@ fn append_journal_hook(
     mux.append_journal_ingress(&ingress, "test", &key).unwrap();
 }
 
+/// `mux` once the agent roster's owner finished the work recorded so far. It
+/// folds after the request that asked for it answered (`agent_roster_worker.rs`),
+/// so a test reads the roster through this.
+#[track_caller]
+fn settled(mux: &Mux) -> &Mux {
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
+    mux
+}
+
 fn roster_agent_state(mux: &Mux, terminal_id: &TerminalPublicId) -> Option<String> {
-    mux.agent_roster
+    settled(mux)
+        .agent_roster
         .lock()
         .unwrap()
         .roster

@@ -136,7 +136,8 @@ struct HomeWireMapping: Sendable {
             lastMessage: lastMessage ?? message(head["last_message"]),
             readCursors: cursors, declaredKind: kind(head["kind"].string),
             memberCount: head["member_count"].int,
-            chiefReplies: head["settings"]["wake_policy"].string.flatMap(ChiefReplyPolicy.init(rawValue:)))
+            chiefReplies: head["settings"]["wake_policy"].string.flatMap(ChiefReplyPolicy.init(rawValue:)),
+            channelChief: head["channel_chief"].string.map(ParticipantID.init(rawValue:)))
     }
 
     /// A conversation known only from its inbox entry (no head read yet): no

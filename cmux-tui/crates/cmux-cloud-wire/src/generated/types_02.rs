@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// Per-user push rules, synced by the feed owner.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedPrefs {
+    pub push_enabled: bool,
+    pub push_delay: FeedPrefsPushDelay,
+    pub push_skip_when_mac_active: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedPrefsPushDelay {
     pub urgent: Option<i64>,
@@ -156,6 +164,14 @@ pub struct HomeChief {
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
     pub archived_at: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<HomeChiefChannel>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeChiefChannel {
+    pub conversation: ConversationId,
+    pub title: String,
 }
 
 /// rev after the op; seq and message_id for a new message; change is the committed Change.
@@ -212,6 +228,9 @@ pub struct HomeConversationSummary {
     pub read_cursors: BTreeMap<String, i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<ConversationKind>,
+    /// A channel's own Chief (channel.create): it is woken only by this conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_chief: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -881,24 +900,4 @@ pub struct ManagedDevice {
     pub via: ManagedDeviceVia,
     pub token: Option<EnrollmentTokenId>,
     pub at: i64,
-}
-
-wire_enum! {
-    ManagedDeviceVia {
-        Token = "token",
-        Accept = "accept",
-    }
-}
-
-pub type MessageId = String;
-
-wire_enum! {
-    Meter {
-        AutomationSteps = "automation.steps",
-        AutomationCpuMs = "automation.cpu_ms",
-        AutomationInvocations = "automation.invocations",
-        AutomationDynamicWorkers = "automation.dynamic_workers",
-        EgressRequests = "egress.requests",
-        ModelSpendUsd = "model.spend_usd",
-    }
 }

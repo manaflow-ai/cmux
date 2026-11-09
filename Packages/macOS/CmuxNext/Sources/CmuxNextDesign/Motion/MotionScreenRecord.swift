@@ -28,6 +28,8 @@ import ScreenCaptureKit
 ///   2026-11-02, probe rounds on cmux24 and cmux22) a window filter on cmux's main window gave frames only when a
 ///   page child window changed, none for terminal output, a split or a workspace switch.
 /// - `stop`: ends the capture; the files are written on the recording's queue: `read` says `written` once they are.
+///   The movie is fragmented (one fragment each 0.5 s): a recording that is never stopped, or a copy taken before
+///   `written`, plays up to its last fragment.
 ///   Beside the movie: `PATH.frames.json` (every frame ScreenCaptureKit gave as `[t, status, in movie]`: `t` its
 ///   display time in host seconds, CACurrentMediaTime's clock; `status` ScreenCaptureKit's frame status, `idle`
 ///   when nothing changed on screen; `in movie` false when the encoder was not ready) and `PATH.scan` (a JSON
@@ -353,39 +355,15 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
 
     /// On `queue`, at the first complete frame: the movie writer at that frame's size.
     private func openWriter(width: Int, height: Int) {
-        var settings: [String: Any] = [AVVideoWidthKey: width, AVVideoHeightKey: height]
-        if options.prores {
-            settings[AVVideoCodecKey] = AVVideoCodecType.proRes4444
-        } else {
-            settings[AVVideoCodecKey] = AVVideoCodecType.hevc
-            settings[AVVideoCompressionPropertiesKey] = [
-                AVVideoAverageBitRateKey: options.bitsPerSecond, AVVideoExpectedSourceFrameRateKey: 120,
-                AVVideoMaxKeyFrameIntervalKey: 120, AVVideoAllowFrameReorderingKey: false,
-            ] as [String: Any]
+        do {
+            let movie = try Self.movieWriter(url: options.url, width: width, height: height, prores: options.prores,
+                                             bitsPerSecond: options.bitsPerSecond)
+            writer = movie.writer
+            input = movie.input
+            adaptor = movie.adaptor
+        } catch {
+            state.withLock { $0.writeError = "\(error)" }
         }
-        let writer: AVAssetWriter
-        do { writer = try AVAssetWriter(outputURL: options.url, fileType: .mov) } catch {
-            state.withLock { $0.writeError = "movie writer: \(error)" }
-            return
-        }
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
-        input.expectsMediaDataInRealTime = true
-        guard writer.canAdd(input) else {
-            state.withLock { $0.writeError = "movie writer refused the input (\(width)x\(height))" }
-            return
-        }
-        writer.add(input)
-        // The adaptor must exist before startWriting: AVFoundation raises an Objective-C exception for an adaptor
-        // made on an input that already started, and the process aborts (cmux18 and cmux24, 2026-11-02 02:15Z).
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
-        guard writer.startWriting() else {
-            state.withLock { $0.writeError = "movie writer did not start: \(String(describing: writer.error))" }
-            return
-        }
-        writer.startSession(atSourceTime: .zero)
-        self.writer = writer
-        self.input = input
-        self.adaptor = adaptor
     }
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {

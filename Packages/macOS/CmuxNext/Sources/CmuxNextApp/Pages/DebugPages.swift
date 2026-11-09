@@ -61,7 +61,7 @@ enum DebugPages {
             made.append(cloud)
         }
         if params["action"]?.stringValue == "list" {
-            return ["pages": .array(PageRegistry.pages(id: id).map { .object(identity($0)) })]
+            return ["pages": .array(PageRegistry.pages(id: id, probing: true).map { .object(identity($0)) })]
         }
         let instance = params["instance"]?.intValue.map { UInt64(max($0, 0)) }
         guard let page = PageRegistry.probeTarget(id: id, parked: params["parked"]?.boolValue == true,

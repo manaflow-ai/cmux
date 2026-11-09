@@ -188,6 +188,26 @@ fn hosted_terminal_id(
     })
 }
 
+/// `terminal-last-command`: the newest command the terminal's live shell
+/// finished, or null.
+pub(super) fn terminal_last_command(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+    terminal_id: Option<String>,
+) -> anyhow::Result<Value> {
+    let terminal_id = hosted_terminal_id(mux, surface, terminal_id)?;
+    // Times are strings, as in command history rows: u64 milliseconds.
+    let last = mux.terminal_last_command(&terminal_id).map(|last| {
+        json!({
+            "command": last.command,
+            "exit_code": last.exit_code,
+            "started_at_ms": last.started_at_ms.to_string(),
+            "ended_at_ms": last.ended_at_ms.to_string(),
+        })
+    });
+    Ok(json!({ "terminal_id": terminal_id, "last_command": last }))
+}
+
 /// `terminal-resume-command`: an absent `command` reads, a string sets and
 /// null clears the terminal's resume command (`resume-command`).
 pub(super) fn terminal_resume_command(
@@ -300,10 +320,12 @@ pub(super) fn create_terminal(
             "terminal_id":result.terminal_id,
             "workspace_key":key,
         });
-        mux.commit_full_resource_projection_with_mutation(
+        mux.commit_created_terminal_projection_with_mutation(
             &workspace_mutation,
             "raw.terminal.create",
             &projection_fingerprint,
+            &key,
+            result.created_surface,
             json!({
                 "terminal_id":result.terminal_id,
                 "workspace_key":key,

@@ -1,13 +1,14 @@
 import Foundation
 
 /// The one-shot offline document used by HTML/SVG artifact cards. It lives on the agent page's
-/// origin only so the page's frame CSP can name one exact endpoint, while the response sandbox
+/// origin so both supported parents can name the same exact endpoint, while the response sandbox
 /// gives the rendered document an opaque origin even when the iframe's HTML is rewritten.
 nonisolated enum PageArtifactFrame {
     static let endpoint = "cmux-page://cmux.agent/__artifact"
     static let pageID = "cmux.agent"
+    static let parentIDs: Set<String> = [pageID, "cmux.artifacts"]
     static let path = "/__artifact"
-    static let csp = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors cmux-page://cmux.agent"
+    static let csp = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors cmux-page://cmux.agent cmux-page://cmux.artifacts"
 
     /// The endpoint host/path, allowing a query or fragment so navigation can refuse it as a
     /// self-navigation. `isFrame` below is the exact request served by the scheme handler.
@@ -26,26 +27,26 @@ nonisolated enum PageArtifactFrame {
         return url.absoluteString == endpoint
     }
 
-    static func isAgentPageURL(_ url: URL?) -> Bool {
+    static func isParentPageURL(_ url: URL?) -> Bool {
         guard let url,
               url.scheme?.lowercased() == PageDescriptor.scheme,
-              url.host?.lowercased() == pageID,
+              let host = url.host?.lowercased(), parentIDs.contains(host),
               url.port == nil, url.user == nil, url.password == nil else { return false }
-        return true
+        return !isArtifactURL(url)
     }
 
     /// A frame that is already an artifact, or a passive srcdoc artifact, cannot navigate or load
     /// another document. The parent check prevents an ordinary page's srcdoc from being widened.
     static func contextRestricted(frame: URL?, parent: URL?) -> Bool {
         isArtifactURL(frame) || isArtifactURL(parent) ||
-            (frame?.absoluteString == "about:srcdoc" && isAgentPageURL(parent))
+            (frame?.absoluteString == "about:srcdoc" && isParentPageURL(parent))
     }
 
-    /// Only an empty/about:blank direct child of the agent page may load the endpoint once.
+    /// Only an empty/about:blank direct child of either supported page may load the endpoint once.
     static func navigationRefused(mainFrame: Bool, frame: URL?, parent: URL?, target: URL?) -> Bool {
         if contextRestricted(frame: frame, parent: parent) { return true }
         guard isArtifactURL(target) else { return false }
-        guard isFrame(target), !mainFrame, isAgentPageURL(parent) else { return true }
+        guard isFrame(target), !mainFrame, isParentPageURL(parent) else { return true }
         return frame != nil && frame?.absoluteString != "about:blank"
     }
 

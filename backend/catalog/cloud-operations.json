@@ -1474,6 +1474,13 @@
             }
           }
         },
+        "desktop": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
         "revision": {
           "required": true,
           "type": {
@@ -1904,6 +1911,13 @@
             "name": "int64"
           }
         },
+        "admit_until": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
         "acl_version": {
           "required": true,
           "type": {
@@ -1993,7 +2007,8 @@
               "kind": "enum",
               "values": [
                 "daemon",
-                "ssh"
+                "ssh",
+                "desktop"
               ]
             }
           }
@@ -3591,6 +3606,28 @@
               "name": "Timestamp"
             }
           }
+        },
+        "channel": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "conversation": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ConversationId"
+                }
+              },
+              "title": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -3761,6 +3798,14 @@
             "kind": "ref",
             "name": "ConversationKind"
           }
+        },
+        "channel_chief": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "A channel's own Chief (channel.create): it is woken only by this conversation."
         },
         "team": {
           "required": false,
@@ -5879,6 +5924,45 @@
           }
         }
       }
+    },
+    "PairingInvite": {
+      "kind": "object",
+      "fields": {
+        "invite": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "PairingInviteCode"
+          }
+        },
+        "display": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "expires_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "watch_secret": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      }
+    },
+    "PairingInviteCode": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{10}$",
+      "description": "A normalized invite code: 10 Crockford base32 symbols, no hyphen."
     },
     "PairingPreview": {
       "kind": "object",
@@ -22831,6 +22915,268 @@
         "$defs": {}
       }
     },
+    "channel.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "chief",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          },
+          "display_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeChief"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat channel create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "home"
+      },
+      "docs": "Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to \"<title> Chief\". Invite people with participants.add or invite.create on the channel.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeChief",
+        "$defs": {
+          "ChiefId": {
+            "type": "string",
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "Timestamp": {
+            "type": "string",
+            "description": "RFC 3339 UTC with milliseconds."
+          },
+          "HomeChief": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ChiefId"
+              },
+              "owner_user": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "is_default": {
+                "type": "boolean"
+              },
+              "brain": {
+                "type": "string",
+                "enum": [
+                  "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "id",
+              "owner_user",
+              "display_name",
+              "is_default",
+              "brain",
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "chief.archive": {
       "class": "mutation",
       "idempotency": "required",
@@ -23081,6 +23427,22 @@
                     "type": "null"
                   }
                 ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -23357,6 +23719,22 @@
                     "type": "null"
                   }
                 ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -23627,6 +24005,22 @@
                     "type": "null"
                   }
                 ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -23913,6 +24307,22 @@
                     "type": "null"
                   }
                 ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -24297,6 +24707,22 @@
                     "type": "null"
                   }
                 ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -24852,6 +25278,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "desktop": {
+                "type": "boolean"
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -26340,7 +26769,7 @@
         "expose": "default",
         "group": "cloud"
       },
-      "docs": "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team).",
+      "docs": "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -27012,6 +27441,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -27478,6 +27910,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -27862,6 +28297,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -27912,7 +28350,8 @@
                 "kind": "enum",
                 "values": [
                   "daemon",
-                  "ssh"
+                  "ssh",
+                  "desktop"
                 ]
               }
             }
@@ -27970,7 +28409,8 @@
                     "kind": "enum",
                     "values": [
                       "daemon",
-                      "ssh"
+                      "ssh",
+                      "desktop"
                     ]
                   }
                 }
@@ -28024,7 +28464,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+      "docs": "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists, or `desktop`, which connect_info never lists: the machine's creator only, on a machine whose daemon advertises link-desktop-v1) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -28038,11 +28478,12 @@
               "type": "string",
               "enum": [
                 "daemon",
-                "ssh"
+                "ssh",
+                "desktop"
               ]
             },
             "minItems": 1,
-            "maxItems": 2,
+            "maxItems": 3,
             "uniqueItems": true
           },
           "native_proof": {
@@ -28111,11 +28552,12 @@
               "type": "string",
               "enum": [
                 "daemon",
-                "ssh"
+                "ssh",
+                "desktop"
               ]
             },
             "minItems": 1,
-            "maxItems": 2,
+            "maxItems": 3,
             "uniqueItems": true
           },
           "vm_kind": {
@@ -28519,6 +28961,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -28893,6 +29338,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "desktop": {
+                "type": "boolean"
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -29279,6 +29727,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "desktop": {
+                "type": "boolean"
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -29696,6 +30147,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -30074,6 +30528,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -30448,6 +30905,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "desktop": {
+                "type": "boolean"
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -31919,6 +32379,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -32374,7 +32837,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "docs": "Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -32472,11 +32935,12 @@
                   "type": "string",
                   "enum": [
                     "daemon",
-                    "ssh"
+                    "ssh",
+                    "desktop"
                   ]
                 },
                 "minItems": 1,
-                "maxItems": 2
+                "maxItems": 3
               }
             },
             "required": [
@@ -32571,6 +33035,11 @@
                 "maximum": 9007199254740991
               },
               "expires_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "admit_until": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -33136,6 +33605,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "desktop": {
+                "type": "boolean"
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -34678,6 +35150,10 @@
               },
               "kind": {
                 "$ref": "#/$defs/ConversationKind"
+              },
+              "channel_chief": {
+                "type": "string",
+                "description": "A channel's own Chief (channel.create): it is woken only by this conversation."
               },
               "team": {
                 "type": "string"
@@ -37724,6 +38200,10 @@
               "kind": {
                 "$ref": "#/$defs/ConversationKind"
               },
+              "channel_chief": {
+                "type": "string",
+                "description": "A channel's own Chief (channel.create): it is woken only by this conversation."
+              },
               "team": {
                 "type": "string"
               },
@@ -39967,6 +40447,10 @@
               },
               "kind": {
                 "$ref": "#/$defs/ConversationKind"
+              },
+              "channel_chief": {
+                "type": "string",
+                "description": "A channel's own Chief (channel.create): it is woken only by this conversation."
               },
               "team": {
                 "type": "string"
@@ -65848,6 +66332,132 @@
               "tenant",
               "mesh",
               "device"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "server.pair.invite": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "pairing",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PairingInvite"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:PairingDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "servers invite",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "servers"
+      },
+      "docs": "Make a 10-minute, single-use invite code that a new machine types (`cmux pair CODE`) to ask to join the team. Only the person who made it can approve that machine, after comparing its four words; making another invite voids this one. Origin user only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          }
+        },
+        "required": [
+          "team"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/PairingInvite",
+        "$defs": {
+          "PairingInviteCode": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{10}$",
+            "description": "A normalized invite code: 10 Crockford base32 symbols, no hyphen."
+          },
+          "PairingInvite": {
+            "type": "object",
+            "properties": {
+              "invite": {
+                "$ref": "#/$defs/PairingInviteCode"
+              },
+              "display": {
+                "type": "string"
+              },
+              "expires_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "watch_secret": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "invite",
+              "display",
+              "expires_at",
+              "watch_secret"
             ],
             "additionalProperties": true
           }

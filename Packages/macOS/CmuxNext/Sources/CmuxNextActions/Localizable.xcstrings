@@ -263,268 +263,6 @@
         }
       }
     },
-    "argument.value.viewerWeb": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Browser"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المتصفح"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Web preglednik"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Webbrowser"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Webbrowser"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Navegador"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Navigateur"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Browser web"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブラウザ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កម្មវិធីរុករក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "브라우저"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nettleser"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przeglądarka"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Navegador"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Браузер"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เบราว์เซอร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tarayıcı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Браузер"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trình duyệt"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "浏览器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "瀏覽器"
-          }
-        }
-      }
-    },
-    "argument.value.viewerNative": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Native"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أصلي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Izvorni"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indbygget"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nativ"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nativo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Natif"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nativo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ネイティブ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ដើម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "네이티브"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Innebygd"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Natywny"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nativo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Встроенный"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เนทีฟ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yerel"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вбудований"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gốc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "原生"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "原生"
-          }
-        }
-      }
-    },
     "action.effect.failed": {
       "comment": "Shown when an action's change was undone because the daemon refused it. %1$@ is the action title, %2$@ the reason.",
       "extractionState": "manual",
@@ -14021,6 +13759,137 @@
         }
       }
     },
+    "menu.folder.archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أرشفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arhiviraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkivér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiver"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivia"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទុកក្នុងប័ណ្ណសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보관"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkiver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiwizuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Архивировать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เก็บถาวร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arşivle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Архівувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lưu trữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "归档"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "封存"
+          }
+        }
+      }
+    },
     "menu.folder.close": {
       "extractionState": "manual",
       "localizations": {
@@ -16768,6 +16637,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Mở trong nền"
+          }
+        }
+      }
+    },
+    "argument.link.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beside Tab"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neben Tab"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À côté de l’onglet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بجانب علامة التبويب"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Junto a la pestaña"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在分頁旁"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在标签页旁"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 옆"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの横"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pored kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved siden af fanen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accanto alla scheda"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅជាប់ផ្ទាំង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved siden av fanen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obok karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ao lado da aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рядом с вкладкой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้างแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekmenin Yanında"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поруч із вкладкою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bên cạnh tab"
           }
         }
       }
@@ -25025,6 +25025,137 @@
         }
       }
     },
+    "menu.group.sortOrder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sort Order"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ترتيب الفرز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redoslijed sortiranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sorteringsrækkefølge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortierung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordre de tri"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordinamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "並べ替え順"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លំដាប់តម្រៀប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정렬 순서"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sorteringsrekkefølge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolejność sortowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порядок сортировки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลำดับการเรียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sıralama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порядок сортування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thứ tự sắp xếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排序方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排序方式"
+          }
+        }
+      }
+    },
     "menu.group.sortByName": {
       "extractionState": "manual",
       "localizations": {
@@ -31029,6 +31160,33 @@
         }
       }
     },
+    "argument.environment": {
+      "comment": "cloud new-machine argument: the Cloud environment (a saved setup of repository and script) the new machine boots in.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud Environment"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "クラウド環境"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Cloud-Umgebung"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Environnement cloud"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Entorno en la nube"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بيئة السحابة"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "클라우드 환경"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "云环境"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "雲端環境"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Cloud okruženje"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Cloud-miljø"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ambiente cloud"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បរិស្ថានពពក"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Skymiljø"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Środowisko w chmurze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ambiente na nuvem"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Облачное окружение"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สภาพแวดล้อมคลาวด์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bulut ortamı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Хмарне середовище"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Môi trường đám mây"}}
+      }
+    },
     "argument.repo": {
       "comment": "cloud new-machine argument: the GitHub repository the new machine clones.",
       "extractionState": "manual",
@@ -31054,33 +31212,6 @@
         "tr": {"stringUnit": {"state": "needs_review", "value": "Depo"}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Репозиторій"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Kho mã"}}
-      }
-    },
-    "argument.sshKey": {
-      "comment": "cloud enroll-machine argument: the ssh public key file on this Mac.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "SSH Public Key"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "SSH 公開鍵"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Öffentlicher SSH-Schlüssel"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Clé publique SSH"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Clave pública SSH"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "مفتاح SSH العام"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "SSH 공개 키"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "SSH 公钥"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "SSH 公鑰"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Javni SSH ključ"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Offentlig SSH-nøgle"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Chiave pubblica SSH"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "សោសាធារណៈ SSH"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Offentlig SSH-nøkkel"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Klucz publiczny SSH"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Chave pública SSH"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Открытый ключ SSH"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "คีย์สาธารณะ SSH"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "SSH açık anahtarı"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкритий ключ SSH"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Khóa công khai SSH"}}
       }
     },
     "action.notifications.importSound": {

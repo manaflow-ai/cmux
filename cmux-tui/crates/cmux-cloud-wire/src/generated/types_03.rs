@@ -4,6 +4,26 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    ManagedDeviceVia {
+        Token = "token",
+        Accept = "accept",
+    }
+}
+
+pub type MessageId = String;
+
+wire_enum! {
+    Meter {
+        AutomationSteps = "automation.steps",
+        AutomationCpuMs = "automation.cpu_ms",
+        AutomationInvocations = "automation.invocations",
+        AutomationDynamicWorkers = "automation.dynamic_workers",
+        EgressRequests = "egress.requests",
+        ModelSpendUsd = "model.spend_usd",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MovedAutomation {
     pub id: AutomationId,
@@ -54,6 +74,17 @@ wire_enum! {
         Aarch64 = "aarch64",
     }
 }
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingInvite {
+    pub invite: PairingInviteCode,
+    pub display: String,
+    pub expires_at: i64,
+    pub watch_secret: String,
+}
+
+/// A normalized invite code: 10 Crockford base32 symbols, no hyphen.
+pub type PairingInviteCode = String;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PairingPreview {
@@ -871,35 +902,5 @@ pub struct TeamPolicyValuesRetentionCuaEventsDays {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesRetentionCuaFramesDays {
     pub value: i64,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesRetentionTranscriptDays {
-    pub value: i64,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesRetentionAuditDays {
-    pub value: i64,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesSsoEnforce {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesSsoEnforceForOwners {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesSsoAllowGuests {
-    pub value: bool,
     pub mode: PolicyMode,
 }
