@@ -72,6 +72,9 @@ struct QueueState {
     /// The demultiplexer was dropped with replies still owed: the thread
     /// ends once no waiter it resolves is left, or at this deadline.
     draining: Option<std::time::Instant>,
+    /// Tests: how many times the reader thread waited for room in the queue.
+    #[cfg(test)]
+    budget_waits: usize,
 }
 
 struct Queue {
@@ -303,6 +306,11 @@ fn read_stream(
             && !state.frames.is_empty()
             && state.queued_payload + frame.payload.len() > QUEUED_PAYLOAD_BUDGET
         {
+            #[cfg(test)]
+            {
+                state.budget_waits += 1;
+                queue.changed.notify_all();
+            }
             state = queue.changed.wait(state).unwrap();
         }
         if state.abandoned {
@@ -503,6 +511,43 @@ mod tests {
         assert!(kitty.recv_timeout(Duration::from_secs(1)).is_ok());
         let state = queue.state.lock().unwrap();
         assert!(state.frames.is_empty() && state.queued_payload == 0);
+    }
+
+    /// Empty frames (Bell, metadata) count against the queue budget too: a
+    /// host that floods them while the surface's reader is busy cannot grow
+    /// the queue without bound. The thread must stop reading at the budget,
+    /// as it does for output.
+    #[test]
+    fn empty_frames_count_against_the_queue_budget() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let queue = queue();
+        let mut bell = Frame::new(MessageKind::Bell, Vec::new());
+        bell.version = version;
+        // More empty frames than the budget admits at their wire size alone.
+        let admitted = QUEUED_PAYLOAD_BUDGET / crate::terminal_host_protocol::HEADER_LEN;
+        let stream = stream_of(&vec![bell; admitted + 2]);
+        std::thread::scope(|scope| {
+            let reader = scope.spawn(|| read_stream(stream, &responses, version, SMART, &queue));
+            // The surface's reader drains nothing: the thread either stops
+            // at the budget or reads the whole stream.
+            let state = queue
+                .changed
+                .wait_while(queue.state.lock().unwrap(), |state| {
+                    !state.ended && state.budget_waits == 0
+                })
+                .unwrap();
+            let (ended, queued) = (state.ended, state.frames.len());
+            drop(state);
+            // Release a waiting thread, as the surface reader's abandon does.
+            queue.state.lock().unwrap().abandoned = true;
+            queue.changed.notify_all();
+            reader.join().unwrap();
+            assert!(
+                !ended && queued <= admitted,
+                "the reader thread queued {queued} empty frames without stopping at the budget"
+            );
+        });
     }
 
     /// A Kitty limits acknowledgement whose requester already gave up does
