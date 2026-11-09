@@ -4,10 +4,10 @@
 // route where the end-of-turn fold (turnEndFold.ts) has nothing of its own to play. The real agent pane
 // from its dev entry, against a stand-in acpmux daemon (as turn-end-fold-browser.test.ts). The turn's
 // last paragraph comes with its end, so it reveals after it:
-// - the fold captured the rows but cannot play (`playTurnEnd` finds no motion on the thread): the
-//   reply's last paragraph eases in, the bottom pinned. Before the fix it stepped in at once;
-// - a turn of words alone, followed at the bottom: the same;
-// - motion off before the end: the end applies at once, nothing plays and nothing settles on after;
+// - the fold read the rows at the end but cannot play (`playTurnEnd` finds no motion on the thread):
+//   the reply rises to make room for the paragraph over several frames, the bottom pinned;
+// - a turn of words alone (no running line, so no fold): the same;
+// - motion off before the end: the end applies at once, and nothing settles on after;
 // - the reader scrolled up: the row at the top of their view stays where it is.
 // Another chat shown in place of the one that ended is turnEndFold.test.ts's (nothing plays or draws).
 //
@@ -18,7 +18,6 @@ import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
-import { LIVE_THINKING } from "../src/agent-session/acpmux/conversation/turns";
 
 await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -258,7 +257,7 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
           return clone.call(this, deep);
         };
       });
-    await page.evaluate((live) => {
+    await page.evaluate(() => {
       const samples: Sample[] = [];
       (window as any).replySamples = samples;
       const started = performance.now();
@@ -276,13 +275,13 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
           topId: first?.dataset.rowId ?? "",
           top: first ? first.getBoundingClientRect().top - view.top : NaN,
           folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
-          // The turn's running line is gone: the turn ended.
-          ended: !scroller.querySelector(`.acpmux-row[data-row-id="${live}"]`),
+          // The answer's last paragraph, which comes with the turn's end, is drawn: the turn ended.
+          ended: Boolean(reply?.textContent?.includes("All of the retry tests pass again.")),
           gap: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
         });
         return performance.now() - started < 1_200;
       });
-    }, LIVE_THINKING);
+    });
     endTurn!();
     await turnEnded;
     // Scrolled up, the reply may be out of the mounted window: the frames after the end are enough.
@@ -293,12 +292,12 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
   }
 
   /// The reply's last paragraph, revealing after the end, moves the reply up to make room over several
-  /// frames, never more than 75% of the way in one, and never past its place and back. The swap's
-  /// own frame is the fold's (or, with no fold, the swap's) and is left out: from the frame after it.
+  /// frames, never more than 75% of the way in one, and never past its place and back: from the
+  /// last frame before the paragraph is drawn.
   function expectEased(samples: Sample[], label: string) {
     const ended = samples.findIndex((sample) => sample.ended);
     expect(ended).toBeGreaterThan(0);
-    const after = samples.slice(ended).filter((sample) => Number.isFinite(sample.reply));
+    const after = samples.slice(ended - 1).filter((sample) => Number.isFinite(sample.reply));
     const move = after.at(-1)!.reply - after[0]!.reply;
     const steps = after.slice(1).map((sample, index) => sample.reply - after[index]!.reply);
     console.log(`TURN_END_REPLY ${label} move=${move.toFixed(1)} steps=${JSON.stringify(steps.map(Math.round))}`);

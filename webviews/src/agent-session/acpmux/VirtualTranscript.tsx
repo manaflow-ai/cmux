@@ -3534,14 +3534,6 @@ function TranscriptView({
     // took the view keeps the thread where the held chase drew it: nothing of theirs moves.
     if (followingRef.current) stopFollowMotion();
     turnEnd.current = playTurnEnd(host, capture, sessionId, ref.current);
-    // Nothing of the fold plays: the pass that placed the swap noted no row for the follow motion (the
-    // fold was to take the rows), so the reply's lines still revealing after the end moved at once.
-    // The row in view is noted now, as a followed pass notes it, and those lines chase on the follow's
-    // curve (send-stream-motion).
-    const node = ref.current;
-    if (!turnEnd.current && chasing && followingRef.current && node)
-      chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- chaseFollow and layout are read at the turn's end only
   }, [rows, sessionId, stopFollowMotion]);
   // Another chat shown, or the transcript unmounting: a fold still playing ends at once.
   useLayoutEffect(
