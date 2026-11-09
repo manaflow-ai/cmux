@@ -377,16 +377,6 @@ extension SidebarSettingsSchema {
                 default: .bool(SidebarSectionsSetting.showLocalMachineDefault),
                 keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"]
             ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderMemberCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
-                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
-            ),
         ]
     }
 }
