@@ -270,6 +270,8 @@ impl Mux {
         (snapshot.wal_commits, snapshot.wal_synced_commits) =
             self.registry_connection.durability_counts();
         snapshot.registry_wal_frame_bytes = self.registry_connection.wal_frame_bytes();
+        (snapshot.registry_wal_file_bytes, snapshot.registry_wal_file_high_water_bytes) =
+            self.registry_connection.wal_file_bytes();
         snapshot
     }
 
