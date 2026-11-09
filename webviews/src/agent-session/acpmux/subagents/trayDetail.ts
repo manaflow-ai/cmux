@@ -8,6 +8,7 @@
 // short label); the whole text stays the line's tooltip.
 import type { Translate } from "../i18n";
 import { shortCommand } from "../conversation/shortCommand";
+import { toolForName } from "../toolNames";
 
 /// A command as a shell call's title starts: a lowercase program (`git`, `cd`, `./x`), a path
 /// (`/opt/bin/x`, `~/bin/x`) or an assignment before one (`FOO=1 make`).
@@ -70,9 +71,28 @@ export function lastSaidLine(text: string | undefined): string | undefined {
   return undefined;
 }
 
+/// A tool's own name standing in for its step ("Bash", "Read"): Claude's progress names a
+/// background subagent's last tool so when it has no summary, and the parent sees none of its calls.
+const isBareToolName = (action: string | undefined, shell = false): boolean =>
+  !shell && action !== undefined && /^\S+$/.test(action.trim()) && toolForName(action) !== undefined;
+
+/// An agent's step as every surface names it: a bare shell tool's name reads "Running a command",
+/// never "Bash", which read as the line's kind (Leo, 2026-11-05, on a tray of subagents each reading
+/// "Bash": "these are all bash? How are they all bash? Aren't they sub-agents?"); any other as it is.
+export function namedAction(t: Translate, action: string | undefined, shell = false): string | undefined {
+  return isBareToolName(action, shell) && toolForName(action!) === "shell" ? t("tools.runningUnnamed") : action;
+}
+
+/// What an agent does now in words: ``namedAction``, else its call's title (``toolDetail``).
+export function actionDetail(t: Translate, action: string | undefined, shell = false): string | undefined {
+  const named = namedAction(t, action, shell);
+  return named === action ? toolDetail(t, action, shell) : named;
+}
+
 /// What a running tray line says its agent did last, on its second line (trayLatest.experiment.ts):
 /// for one that stopped to wait on background work of its own, the last line it said; else its
-/// latest step in words (``toolDetail``), else the last line it said. Never its prompt.
+/// latest step in words (``actionDetail``), else the last line it said. A step known only by its
+/// tool's name says less than the agent's own last line, so that line leads it. Never its prompt.
 export function latestLine(
   t: Translate,
   agent: {
@@ -85,6 +105,7 @@ export function latestLine(
   ownWork: boolean,
 ): string | undefined {
   const said = lastSaidLine(agent.reaction?.text) ?? lastSaidLine(agent.lastMessage ?? agent.result);
-  if (ownWork) return said ?? toolDetail(t, agent.action, agent.actionShell);
-  return toolDetail(t, agent.action, agent.actionShell) ?? said;
+  const doing = actionDetail(t, agent.action, agent.actionShell);
+  if (ownWork || isBareToolName(agent.action, agent.actionShell)) return said ?? doing;
+  return doing ?? said;
 }

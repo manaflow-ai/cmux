@@ -8,6 +8,7 @@ import {
 } from "../summary/transcriptPullRequests";
 import { ChildRowView, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName, showsNothing } from "../hiddenTools";
+import { toolForName } from "../toolNames";
 import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 import {
@@ -21,6 +22,9 @@ import {
   runModel,
   runReply,
 } from "./agentRuns";
+
+/// A call titled only by its shell tool's name ("Bash", "shell"), not by what it runs.
+const isBareShellTitle = (title: string): boolean => /^\S+$/.test(title.trim()) && toolForName(title) === "shell";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -365,7 +369,10 @@ export class SubagentFold {
       }
       const newest = call === undefined || (this.latestCall.get(owner.id) ?? call) === call;
       if (tool && update.title && newest) {
-        owner.action = String(update.title);
+        // A call titled only by its shell tool ("Bash", before its input streamed) is its command.
+        const command = update.rawInput?.command;
+        const typed = typeof command === "string" && command.trim() !== "" && isBareShellTitle(String(update.title));
+        owner.action = typed ? command : String(update.title);
         // A shell call's title is its command as typed (ACP kind `execute`); the tray says it in words.
         // An update that omits its kind keeps what its own call said, never another call's.
         const key = call === undefined ? undefined : `${owner.id}\u0000${call}`;
@@ -374,7 +381,9 @@ export class SubagentFold {
           else this.shellCalls.delete(key);
         }
         const shell =
-          update.kind === "execute" || (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
+          typed ||
+          update.kind === "execute" ||
+          (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
         if (shell) owner.actionShell = true;
         else delete owner.actionShell;
       }

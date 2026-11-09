@@ -509,6 +509,80 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    // Leo, 2026-11-05, on background subagents each reading "Bash": "these are all bash? How are they
+    // all bash? Aren't they sub-agents?". Claude's progress names their last tool and nothing more.
+    "bare-tool-said": {
+      note: "Background subagents whose progress names only their last tool (Bash): each line reads what the agent last said instead.",
+      play: openTray,
+      snapshot: chat(
+        [
+          user("Run the cloud work in the background", 200),
+          group(
+            [
+              agent("Cloud machines self-update cmux-tui", 183, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "Waiting on the fleet build for the self-update PR.",
+              }),
+              agent("Webview fixes: protocol errors, new tab", 133, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "Pushed the fix; CI is running on the head.",
+              }),
+              agent("Contract checks: CLI vs app, every action", 90, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "38 of 52 actions match; checking the rest.",
+              }),
+            ],
+            200,
+          ),
+        ],
+        { isWorking: false },
+      ),
+    },
+    "bare-tool-silent": {
+      note: "The same subagents before they said anything: a bare Bash reads as running a command, never as the line's kind.",
+      play: openTray,
+      snapshot: chat(
+        [
+          user("Run the cloud work in the background", 200),
+          group(
+            [
+              agent("Cloud machines self-update cmux-tui", 183, "running", { background: true, action: "Bash" }),
+              agent("Cloud dev loop: hot-swap + cloud-in-a-box", 81, "running", { background: true, action: "Read" }),
+            ],
+            200,
+          ),
+        ],
+        { isWorking: false },
+      ),
+    },
+    "bare-tool-command": {
+      note: "A subagent's call titled only Bash, its command in its input: the line reads the command in words.",
+      play: openTray,
+      snapshot: chat(
+        [
+          user("Run the cloud work in the background", 200),
+          group(
+            [
+              agent("Delete seed capture code PR", 32, "running", {
+                background: true,
+                action: "glaeda-gh wait pr 39120 --timeout 1800",
+                actionShell: true,
+              }),
+              agent("Cloud machines self-update cmux-tui", 183, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "Waiting on the fleet build for the self-update PR.",
+              }),
+            ],
+            200,
+          ),
+        ],
+        { isWorking: false },
+      ),
+    },
     "grid-31": {
       note: "Grid fixture: 31 rows (29 ended and two running), expanded with the header visible.",
       snapshot: panel(29),
