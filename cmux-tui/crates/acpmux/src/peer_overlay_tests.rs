@@ -185,3 +185,19 @@ async fn ssh_down_with_a_found_overlay_connects_over_the_cmux_link() {
     assert_eq!(via.carrier(), Carrier::Direct);
     peer.stop();
 }
+
+#[test]
+fn the_backup_line_says_which_path_carries_the_link_and_why_ssh_does_not() {
+    use crate::peer::carriers::backup_line;
+    let refused = [(Via::Ssh, "SSH connection refused".to_owned())];
+    assert_eq!(
+        backup_line(Via::Link, true, &refused).as_deref(),
+        Some("ssh did not connect (SSH connection refused); the link runs on the link path")
+    );
+    assert_eq!(
+        backup_line(Via::Link, true, &[]).as_deref(),
+        Some("ssh had not connected first; the link runs on the link path")
+    );
+    assert_eq!(backup_line(Via::Ssh, true, &[]), None, "ssh carries it: nothing to say");
+    assert_eq!(backup_line(Via::Link, false, &[]), None, "a peer with no ssh path");
+}

@@ -124,6 +124,21 @@ where
     }
 }
 
+/// The log line of a cold connect of a peer with an ssh path (`has_ssh`) that `via`, another
+/// path, won: which path carries the link and why ssh does not (its failure class,
+/// `peer_ssh.rs`, never ssh's stderr; or that it had not answered first). None when ssh won
+/// or the peer has no ssh path.
+pub(super) fn backup_line(via: Via, has_ssh: bool, failed: &[(Via, String)]) -> Option<String> {
+    if via == Via::Ssh || !has_ssh {
+        return None;
+    }
+    let why = match failed.iter().find(|(failed, _)| *failed == Via::Ssh) {
+        Some((_, error)) => format!("ssh did not connect ({error})"),
+        None => "ssh had not connected first".to_owned(),
+    };
+    Some(format!("{why}; the link runs on the {} path", via.as_str()))
+}
+
 /// One line for a connect whose every path failed.
 pub(super) fn failures_line(failed: &[(Via, String)]) -> String {
     match failed {
@@ -414,6 +429,9 @@ impl Peer {
         for (via, error) in &failed {
             tracing::debug!(peer = %self.name, via = via.as_str(), "path unavailable: {error}");
             self.path_failed(*via);
+        }
+        if let Some(line) = backup_line(via, self.ssh_parts().is_some(), &failed) {
+            tracing::info!(peer = %self.name, via = via.as_str(), carrier = via.carrier().as_str(), "{line}");
         }
         Ok((via, opened))
     }
