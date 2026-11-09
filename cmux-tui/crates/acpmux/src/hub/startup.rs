@@ -48,6 +48,7 @@ impl Hub {
         self.login_env_requested.store(login_env, Ordering::SeqCst);
         self.startup_ready.send_replace(false);
         self.catalog_ready.send_replace(false);
+        self.model_caches_ready.send_replace(false);
     }
 
     /// The daemon's work once startup is done: chats start (after the login env import: it names
@@ -81,8 +82,9 @@ impl Hub {
         }
         // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
         self.resume_queues();
-        // The last live model lists, before anything slow.
-        self.load_live_cache().await;
+        // The last live model lists and the ACP agents' last probed lists (OpenCode, Gemini),
+        // before anything slow; `_acpmux/models` waits for them.
+        self.load_model_caches().await;
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
         if login_env {

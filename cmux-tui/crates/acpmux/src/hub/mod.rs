@@ -4,6 +4,9 @@
 //! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
+// A reply's checkable claims against the turn's runs (`claim_checks`).
+mod claim_check;
+
 mod activity;
 // A foreground shell still running after a minute goes to the background (Claude Code).
 mod auto_background;
@@ -724,6 +727,13 @@ pub struct Hub {
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
+    /// start: by harness, the profile key it was probed under and the list. Each fills
+    /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
+    pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
+    /// The harnesses whose `known_models` entry is that disk copy, not a report of this
+    /// daemon's: the probe still runs for them.
+    pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -757,6 +767,8 @@ pub struct Hub {
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
+    /// Startup has served the model lists kept on disk: `_acpmux/models` waits for it.
+    pub(super) model_caches_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
@@ -1116,6 +1128,8 @@ impl Hub {
             peer_notices_finished: AtomicBool::new(false),
             peer_notices_done: Arc::new(Notify::new()),
             known_models: StdMutex::new(HashMap::new()),
+            acp_cached: StdMutex::new(HashMap::new()),
+            acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
@@ -1129,6 +1143,7 @@ impl Hub {
             retention_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
+            model_caches_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
             pending_forks: Default::default(),
@@ -1604,6 +1619,7 @@ impl Hub {
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
+            claim_runs: StdMutex::new(Default::default()),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),

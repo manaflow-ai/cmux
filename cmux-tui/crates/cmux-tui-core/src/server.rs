@@ -470,8 +470,9 @@ pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
 pub const TERMINAL_REAPER_ACTIVE_CAPABILITY: &str = "terminal-reaper-active-v1";
 /// Advertises `if_unplaced` on the resource `terminal.close`: end the
 /// terminal only when it has no view, no `keep` mark and no attach stream.
-/// An older daemon refuses the field as an unknown parameter, so a client
-/// sends it only to a daemon that advertises this.
+/// An older daemon refuses the field as an unknown parameter
+/// (`validation.invalid`, before the request is keyed), so a client sends
+/// it and falls back to the plain close on that refusal.
 pub const TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY: &str = "terminal-close-if-unplaced-v1";
 /// Advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`,
 /// every terminal ends but the placed ones keep their tabs, so the next
