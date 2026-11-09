@@ -58,7 +58,7 @@ use projection_size::{
     MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
 };
 mod host_identity;
-pub(crate) use StoredIds;
+pub(crate) use host_identity::StoredIds;
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;

@@ -1050,7 +1050,7 @@ mod tests {
         .unwrap()
         .unwrap();
         expected(&terminal.result);
-        let resource = resource_patch_replay(
+        let resource = resource_store::resource_patch_replay(
             &registry.connection.get(),
             &mutation,
             "workspace.update",
