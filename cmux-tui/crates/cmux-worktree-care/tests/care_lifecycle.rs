@@ -742,3 +742,56 @@ fn care_a_chat_opened_after_the_scan_keeps_its_stale_worktree() {
     assert!(!outcome.ok && outcome.error.as_deref().is_some_and(|e| e.contains("late")), "{outcome:?}");
     assert!(wt.exists(), "the late chat's worktree stays");
 }
+
+#[test]
+fn care_a_chat_opened_while_it_is_archived_keeps_its_stale_worktree() {
+    let (base, main) = repository("archiving-chat");
+    let wt = base.join("wt-archiving");
+    merged_worktree(&main, &wt, "feat/archiving");
+    let zero = [0, 0, 0];
+    let late = wt.clone();
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = reads.clone();
+    let options = Options {
+        roots: vec![base.clone()],
+        sessions: Vec::new(),
+        settings: Settings {
+            recent_hours: zero,
+            idle_pushed_hours: zero,
+            idle_unpushed_hours: zero,
+            trim_hours: zero,
+            ..Settings::default()
+        },
+        uses: nothing(),
+        open: closed(),
+        apply: true,
+        pressure: Some(Pressure::Critical),
+        only: vec![wt.clone()],
+        measure: false,
+        stale_only: true,
+        measure_budget: None,
+        // No chat when the free decides again; one by the time the folder
+        // would go.
+        sessions_now: Some(Arc::new(move || {
+            if counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                return Vec::new();
+            }
+            vec![cmux_worktree_care::policy::Session {
+                name: "archiving".into(),
+                cwd: late.clone(),
+                open: true,
+                updated_ms: 0,
+            }]
+        })),
+    };
+    let store = Store::open(base.join("store")).unwrap();
+    let report = pass::run(&options, &store).unwrap();
+    let item = report.items.iter().find(|i| i.path == wt).unwrap();
+    let outcome = item.outcome.as_ref().expect("acted on");
+    assert!(
+        !outcome.ok && outcome.error.as_deref().is_some_and(|e| e.contains("while it was archived")),
+        "{outcome:?}"
+    );
+    assert!(reads.load(std::sync::atomic::Ordering::SeqCst) >= 2, "read again before removal");
+    assert!(wt.exists(), "the chat's worktree stays");
+}
