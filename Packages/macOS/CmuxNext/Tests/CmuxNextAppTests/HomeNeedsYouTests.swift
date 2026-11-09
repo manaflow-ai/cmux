@@ -183,7 +183,20 @@ import Testing
         view.layoutSubtreeIfNeeded()
         #expect(card.frame.height > 1 && card.frame.height < 2000, "\(card.frame)")
         #expect(card.frame.maxY < view.transcript.fieldTop, "above the message box")
+
+        // Needs you rows taller than the pane: the pinned section gives way, and the card keeps a usable height.
+        let pinned = TallSection()
+        view.setPinnedSection(pinned)
+        view.layoutSubtreeIfNeeded()
+        #expect(card.frame.height >= 120, "the card keeps its title and a row: \(card.frame)")
+        #expect(pinned.frame.maxY < card.frame.minY && card.frame.maxY < view.transcript.fieldTop, "\(pinned.frame) \(card.frame)")
+        view.setPinnedSection(nil)
     }
+}
+
+/// Needs you rows taller than any pane.
+private final class TallSection: NSView {
+    override var fittingSize: NSSize { NSSize(width: 400, height: 2000) }
 }
 
 /// A stand-in for `feed.needsYouInChief` (the app reads it from the observable settings snapshot).

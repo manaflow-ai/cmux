@@ -814,6 +814,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Host(PeerCmd::Tunnel { cmd }) => {
+            use crate::cli::command_host::TunnelCmd;
+            let (m, network) = match cmd {
+                TunnelCmd::Attach { network } => (method::MUX_MACHINE_TUNNEL_ATTACH, network),
+                TunnelCmd::Detach { network } => (method::MUX_MACHINE_TUNNEL_DETACH, network),
+                TunnelCmd::Rekey => (method::MUX_MACHINE_TUNNEL_REKEY, None),
+            };
+            let token = crate::cli::join_input::read_stdin_line(false)?
+                .ok_or_else(|| anyhow!("pass the cmux access token on stdin"))?;
+            let mut params = json!({"token": token.as_str()});
+            if let Some(network) = network {
+                cmux_json::JsonSet::set(&mut params, "networkId", json!(network));
+            }
+            let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
+            let value = client.request(m, params).await?;
+            if json_out {
+                print_json(&value);
+            } else {
+                println!("{}", m.trim_start_matches("_acpmux/machine.tunnel."));
+            }
+            Ok(())
+        }
         // Reads the host; asks a running daemon only, never starts one (`host_load.rs`).
         Command::Host(PeerCmd::Load) => {
             let load = crate::host_load::sample().await;
@@ -1057,6 +1079,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Join { .. }
                 | PeerCmd::Leave { .. }
                 | PeerCmd::Consent { .. }
+                | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }
                 | PeerCmd::Deps { .. }
                 | PeerCmd::Key { .. } => {
