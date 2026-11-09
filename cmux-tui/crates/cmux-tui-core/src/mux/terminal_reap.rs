@@ -15,7 +15,8 @@
 //! The grace holds at most [`MAX_TERMINALS_IN_REAP_GRACE`] closed terminals: each keeps its
 //! shell and so its PTY (a shell cannot outlive its PTY), and a script that closes several tabs a
 //! second held the machine's PTYs until every new tab was refused (feat STATUS 7998). Past the cap
-//! the longest-closed ends at once.
+//! the longest-closed detached terminal ends at once; a terminal a client is attached to is not
+//! counted, and the reap close re-checks attach streams under its locks.
 //!
 //! The grace runs across owner restarts. The registry keeps the wall-clock
 //! time the owner first saw each terminal unplaced
@@ -278,9 +279,9 @@ impl Mux {
             .collect())
     }
 
-    /// End one unplaced terminal. The placement and attach checks are
-    /// repeated atomically with the close, so a terminal that gained a view
-    /// or an attach stream since the caller looked is retained.
+    /// End one unplaced terminal. The close repeats the placement and attach
+    /// checks once it holds its locks, so a terminal that gained a view, or
+    /// an attach stream that landed before then, is retained.
     pub(crate) fn reap_unplaced_terminal(&self, terminal_id: &str) -> anyhow::Result<ReapOutcome> {
         let runtime_view = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
