@@ -160,25 +160,30 @@ pub fn moved(reference: &[String], next: &[String]) -> Vec<String> {
         .iter()
         .filter_map(|key| rank.get(key.as_str()).map(|&rank| (rank, key.as_str())))
         .collect();
-    // Longest increasing run of ranks (patience sort with back links).
+    // Longest increasing run of ranks (patience sort with back links). `tails` holds positions
+    // into `shared` and `previous` one entry per position, so every lookup is in range; `get`
+    // keeps that from being a panic path.
     let mut tails: Vec<usize> = Vec::new();
     let mut previous: Vec<Option<usize>> = vec![None; shared.len()];
     for (position, &(rank, _)) in shared.iter().enumerate() {
-        let slot = tails.partition_point(|&tail| shared[tail].0 < rank);
-        if slot > 0 {
-            previous[position] = Some(tails[slot - 1]);
+        let slot = tails.partition_point(|&tail| shared.get(tail).is_some_and(|&(r, _)| r < rank));
+        if let (Some(back), Some(link)) =
+            (slot.checked_sub(1).and_then(|s| tails.get(s)), previous.get_mut(position))
+        {
+            *link = Some(*back);
         }
-        if slot == tails.len() {
-            tails.push(position);
-        } else {
-            tails[slot] = position;
+        match tails.get_mut(slot) {
+            Some(tail) => *tail = position,
+            None => tails.push(position),
         }
     }
     let mut stays = vec![false; shared.len()];
     let mut cursor = tails.last().copied();
     while let Some(position) = cursor {
-        stays[position] = true;
-        cursor = previous[position];
+        if let Some(stay) = stays.get_mut(position) {
+            *stay = true;
+        }
+        cursor = previous.get(position).copied().flatten();
     }
     shared
         .iter()
