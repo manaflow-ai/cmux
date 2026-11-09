@@ -15,6 +15,11 @@
 //! ships (`catalog/models-v1.json`) for the others. A model no source prices is left out. A
 //! missing cache read price bills cache reads as input; a missing cache write price bills them
 //! nothing (those vendors do not charge for writes).
+//!
+//! A cache write is billed by its tier. `cacheWrite` is the 5-minute rate; the hour-long writes a
+//! turn reports (`TurnUsage::cache_write_1h_tokens`, the tier cmux asks Claude Code for by
+//! default, `prompt_cache_env.rs`) bill at an entry's `cacheWrite1h`, else at twice its input
+//! price (Anthropic's rule), or nothing where the vendor charges no writes at all.
 
 use std::sync::LazyLock;
 
@@ -32,6 +37,18 @@ pub struct Price {
     pub cache_read: Option<f64>,
     #[serde(default)]
     pub cache_write: Option<f64>,
+    /// The hour-long cache write rate, when it is not twice the input price.
+    #[serde(default, rename = "cacheWrite1h")]
+    pub cache_write_1h: Option<f64>,
+}
+
+impl Price {
+    /// The hour-long cache write rate: the entry's own, else twice the input price for a vendor
+    /// that charges writes, else nothing.
+    pub fn cache_write_1h_rate(&self) -> f64 {
+        let doubled = if self.cache_write.is_some() { self.input * 2.0 } else { 0.0 };
+        self.cache_write_1h.unwrap_or(doubled)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,11 +145,15 @@ impl PriceTable {
         }
         let (_, p) = self.lookup(model)?;
         let per = |tokens: Option<u64>, price: f64| tokens.unwrap_or(0) as f64 * price / 1e6;
+        // The writes' hour-long part at its tier, the rest at the 5-minute rate.
+        let write = usage.cache_write_tokens.unwrap_or(0);
+        let write_1h = usage.cache_write_1h_tokens.unwrap_or(0).min(write);
         Some(
             per(usage.input_tokens, p.input)
                 + per(usage.output_tokens, p.output)
                 + per(usage.cache_read_tokens, p.cache_read.unwrap_or(p.input))
-                + per(usage.cache_write_tokens, p.cache_write.unwrap_or(0.0)),
+                + per(Some(write - write_1h), p.cache_write.unwrap_or(0.0))
+                + per(Some(write_1h), p.cache_write_1h_rate()),
         )
     }
 }
@@ -187,6 +208,7 @@ mod tests {
             output_tokens: Some(100_000),
             cache_read_tokens: Some(1_000_000),
             cache_write_tokens: Some(1_000_000),
+            cache_write_1h_tokens: None,
         };
         // 4 + 2 + 0.2 + 5
         let cost = table().cost("claude-opus-5-5", &usage).unwrap();
@@ -197,6 +219,35 @@ mod tests {
         assert!(table().cost("claude-opus-5-5", &none).is_none());
         let zero = TurnUsage { input_tokens: Some(0), ..TurnUsage::default() };
         assert_eq!(table().cost("claude-opus-5-5", &zero), Some(0.0));
+    }
+
+    #[test]
+    fn hour_long_cache_writes_bill_at_their_tier() {
+        let t = table();
+        let usage = |write_1h: Option<u64>| TurnUsage {
+            cache_write_tokens: Some(1_000_000),
+            cache_write_1h_tokens: write_1h,
+            ..TurnUsage::default()
+        };
+        // Opus 5.5: input 4, 5-minute writes 5, hour-long writes twice the input (8).
+        let cost = |write_1h| t.cost("claude-opus-5-5", &usage(write_1h)).unwrap();
+        assert!((cost(None) - 5.0).abs() < 1e-9, "{}", cost(None));
+        assert!((cost(Some(1_000_000)) - 8.0).abs() < 1e-9, "{}", cost(Some(1_000_000)));
+        // A quarter hour-long: 0.75 * 5 + 0.25 * 8.
+        assert!((cost(Some(250_000)) - 5.75).abs() < 1e-9, "{}", cost(Some(250_000)));
+        // A count past the writes is the writes.
+        assert!((cost(Some(5_000_000)) - 8.0).abs() < 1e-9, "{}", cost(Some(5_000_000)));
+
+        // An entry's own hour-long rate wins; a vendor that charges no writes bills none.
+        let custom = PriceTable::parse(
+            r#"{"version": "t", "currency": "USD", "vendors": {"v": {"models": [
+                {"id": "own", "input": 1, "output": 1, "cacheWrite": 1.25, "cacheWrite1h": 3},
+                {"id": "free", "input": 1, "output": 1}
+            ]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(custom.cost("own", &usage(Some(1_000_000))), Some(3.0));
+        assert_eq!(custom.cost("free", &usage(Some(1_000_000))), Some(0.0));
     }
 
     #[test]
