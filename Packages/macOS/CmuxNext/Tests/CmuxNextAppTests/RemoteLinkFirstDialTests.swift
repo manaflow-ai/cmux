@@ -141,7 +141,7 @@ import Testing
             let tui = root.appendingPathComponent("cmux-tui")
             try RemoteLinkFirstDialTests.link.write(to: tui, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tui.path)
-            for name in marks { mark(name) }
+            for name in marks { FileManager.default.createFile(atPath: root.appendingPathComponent(name).path, contents: nil) }
             // A host no ssh reaches: the app must never need ssh before the link connects.
             let host = try SSHHost(destination: SSHDestination(parsing: "first-dial-\(UUID().uuidString.prefix(6)).invalid"))
             session = SSHMachineSession(host: host, binary: tui, paths: SSHPaths(root: root.appendingPathComponent("p")),
