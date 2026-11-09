@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42574938803",
+  "recorded_at": "2026-11-09T06:52:17Z",
+  "reason": "cmux-tui 97de5daadafe changes the image's cmux-tui (pinned f2021c535d59)",
+  "dry_run": false,
+  "cmux_tui": "97de5daadafedd2c4fe685146890e7e310ed32bf",
+  "fixes": [
+    {
+      "sha": "97de5daadafedd2c4fe685146890e7e310ed32bf",
+      "mergedAt": "2026-11-08T22:29:07-08:00",
+      "subject": "Agent chat: a subagent's report card shows the whole message or Show more, never a cut span (#39100)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T06:52:17Z",
+    "snapshot_id": "sh-1dbca327bb734ac0a06f24add87212ea",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42574938803): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3739ae54af34bb45258fc25ac34710b85992996a",
+    "image": "cloud-native-auto-97de5daa-42574938803-1",
+    "revision": "ci-42574938803-1",
+    "at": "2026-11-09T06:52:17Z"
+  },
+  "rolled_back": false
+}
