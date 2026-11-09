@@ -8,7 +8,8 @@
 // `runDisclosureKey`). The arms compare how the inner lines sit under the opened outer one
 // (`data-turn-levels-look`, conversation.css): `outer-line`, shipped, keeps them at their own weight;
 // `indented` sets them in and dims them; `guide` hangs them on a rule. `live` is the same turn while
-// it runs: no outer line yet, the inner lines counting their own runs.
+// it runs: nothing folds yet (cmux#38339), so there is no outer line and no run line, each call in
+// sight in its group and each aside its own paragraph.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
@@ -93,6 +94,10 @@ export default agentPaneEntry({
     ),
     indented: variant("indented", "Inner run lines set in by one icon box and dimmed under the opened outer line."),
     guide: variant("guide", "Inner run lines hung on a rule from the outer line's glyph."),
-    live: variant(undefined, "The same turn while it runs: each run between the asides counts its own calls.", true),
+    live: variant(
+      undefined,
+      "The same turn while it runs: nothing folds until it ends, each call in sight and each aside its own paragraph.",
+      true,
+    ),
   },
 });

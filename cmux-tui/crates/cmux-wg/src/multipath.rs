@@ -51,6 +51,17 @@ const TRANSIENT_RETRIES: usize = 8;
 const EVENT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 /// Path events a slow subscriber may fall behind before it misses some.
 const EVENT_BACKLOG: usize = 64;
+/// The shortest silence window: below it, scheduling jitter alone would
+/// look like a dead path.
+const SILENCE_FLOOR: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// How long the current path may stay silent, and then leave a probe
+/// unanswered, before the underlay acts: four smoothed round trips, at
+/// least [`SILENCE_FLOOR`].
+pub fn silence_window(rtt_us: Option<u64>) -> std::time::Duration {
+    let rtt = std::time::Duration::from_micros(rtt_us.unwrap_or(0));
+    rtt.saturating_mul(4).max(SILENCE_FLOOR)
+}
 
 /// `path.changed` (transport.md 12a): the path the session uses and how it
 /// performs. Sent on every switch, and every 5 s while the session carries
@@ -85,7 +96,7 @@ struct Slot {
     sent: u64,
     received: u64,
     failed: bool,
-    /// Probes and silence: shared with the mesh's peer paths.
+    /// Probes and the quiet-path watch.
     watch: PathWatch,
     /// The last round trip measured, smoothed jitter (mean deviation of
     /// successive round trips, RFC 3550 style) and smoothed probe loss.
@@ -121,6 +132,9 @@ struct Shared {
     fixed_paths: bool,
     /// This machine's interfaces, for each new path's medium.
     networks: Vec<LocalNetwork>,
+    /// The path that carried the session went quiet (datagrams now go on
+    /// every path) or died since the last `take_path_change`.
+    left_path: bool,
 }
 
 impl Shared {
@@ -134,11 +148,19 @@ impl Shared {
         if current.is_some() {
             self.last_path = current;
         }
-        let switched =
-            self.current.send_if_modified(|seen| std::mem::replace(seen, current) != current);
+        let mut sprayed = false;
+        let switched = self.current.send_if_modified(|seen| {
+            let previous = std::mem::replace(seen, current);
+            sprayed = previous.is_some() && current.is_none();
+            previous != current
+        });
         let held = self.selector.chosen();
         let held_died = self.held.is_some() && held.is_none();
         self.held = held;
+        // Only a path that went quiet or died can have lost what was in
+        // flight; a move to a better path while the old one still answers
+        // loses nothing and needs no resend.
+        self.left_path |= sprayed || held_died;
         if switched || held_died {
             self.emit(Instant::now());
         }
@@ -275,6 +297,7 @@ impl Multipath {
             held: None,
             fixed_paths: false,
             networks: local_networks(),
+            left_path: false,
         }));
         (Self { shared: Arc::clone(&shared) }, MultipathControl { shared })
     }
@@ -470,22 +493,38 @@ impl Underlay for Multipath {
         let Some(config) = shared.probes else {
             return DueProbes { pings: Vec::new(), next: next_event };
         };
+        let current = shared.selector.current();
+        let chosen = shared.selector.chosen();
+        let mut due = DueProbes { pings: Vec::new(), next: next_event };
+        let mut lost = Vec::new();
+        let mut silent = Vec::new();
         let Shared { slots, selector, last_probe_id, .. } = &mut *shared;
-        let live = slots.iter_mut().filter(|slot| !slot.failed);
-        let watched =
-            config.watch(selector, live.map(|slot| (slot.id, &mut slot.watch)), last_probe_id, now);
-        for id in watched.lost {
+        for slot in slots.iter_mut().filter(|slot| !slot.failed) {
+            let Some(view) = selector.path(slot.id) else { continue };
+            let roles = (current == Some(slot.id), chosen == Some(slot.id));
+            let step = slot.watch.step(&config, &view, roles, last_probe_id, now);
+            if step.lost {
+                lost.push(slot.id);
+            }
+            if step.silent {
+                silent.push(slot.id);
+            }
+            if let Some(id) = step.ping {
+                due.pings.push((slot.id, id));
+            }
+            due.next = match (due.next, step.next) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+        }
+        for id in lost {
             shared.probe(id, ProbeOutcome::Lost);
         }
-        for id in watched.silent {
+        for id in silent {
             let _ = shared.selector.on_silence(id);
             shared.publish();
         }
-        let next = match (next_event, watched.next) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
-        DueProbes { pings: watched.pings, next }
+        due
     }
 
     fn set_max_datagram(&mut self, bytes: usize) {
@@ -496,7 +535,7 @@ impl Underlay for Multipath {
         let mut shared = lock(&self.shared);
         let Some(config) = shared.probes else { return };
         let Some(slot) = shared.slot_mut(path) else { return };
-        if let Some(rtt_us) = config.answer(&mut slot.watch.probe, id, now) {
+        if let Some(rtt_us) = slot.watch.answer(&config, id, now) {
             shared.probe(path, ProbeOutcome::Answered { rtt_us });
         }
     }
@@ -574,6 +613,17 @@ impl Underlay for Multipath {
         lock(&self.shared).slots.iter().any(|slot| !slot.failed && slot.carrier.has_peer())
     }
 
+    fn take_path_change(&mut self) -> bool {
+        let mut shared = lock(&self.shared);
+        // A path's own carrier roaming (the peer's address on it moved)
+        // counts too.
+        let mut roamed = false;
+        for slot in &mut shared.slots {
+            roamed |= slot.carrier.take_path_change();
+        }
+        std::mem::take(&mut shared.left_path) || roamed
+    }
+
     fn peer_hint(&self) -> Option<SocketAddr> {
         let shared = lock(&self.shared);
         let current = shared.selector.current();
@@ -588,11 +638,7 @@ impl Underlay for Multipath {
 
 /// A path's medium: where its peer address is in the interface table for a
 /// direct path, else what its kind implies.
-pub(crate) fn medium_for(
-    networks: &[LocalNetwork],
-    kind: PathKind,
-    peer: Option<SocketAddr>,
-) -> Medium {
+fn medium_for(networks: &[LocalNetwork], kind: PathKind, peer: Option<SocketAddr>) -> Medium {
     match peer {
         Some(peer) if kind.class().is_direct() && !networks.is_empty() => {
             medium_of(peer.ip(), networks)

@@ -9,26 +9,16 @@
 //! The driver asks only while the session carries traffic, so an idle
 //! session sends no probes.
 //!
-//! [`PathWatch`] adds the quiet-path rule to one path's probes, with no
-//! carrier attached, so a [`crate::Multipath`] (a carrier per path) and a
-//! mesh peer (an address per path on one shared socket) run the same rule.
+//! [`PathWatch`] adds the quiet-path watch on top: the chosen path that
+//! went silent is probed at once, and a probe it leaves unanswered for a
+//! [`silence_window`](crate::multipath::silence_window) makes it suspect,
+//! so the selector sprays around it. [`crate::Multipath`] keeps one per
+//! path; an underlay with its own carriers (the iPhone link's) does too.
 
 use std::time::Duration;
 
-use cmux_transport::{PathId, PathState, PathView, Selector};
+use cmux_transport::{PathState, PathView};
 use tokio::time::Instant;
-
-/// The shortest silence window: below it, scheduling jitter alone would
-/// look like a dead path.
-const SILENCE_FLOOR: Duration = Duration::from_millis(100);
-
-/// How long the current path may stay silent, and then leave a probe
-/// unanswered, before the underlay acts: four smoothed round trips, at
-/// least [`SILENCE_FLOOR`].
-pub fn silence_window(rtt_us: Option<u64>) -> Duration {
-    let rtt = Duration::from_micros(rtt_us.unwrap_or(0));
-    rtt.saturating_mul(4).max(SILENCE_FLOOR)
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProbeConfig {
@@ -73,10 +63,11 @@ impl PathProbe {
     }
 }
 
-/// One path's probe and silence state, without its carrier.
+/// One path's probes and its quiet-path watch: when it was last silent,
+/// and which probe already reported that.
 #[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct PathWatch {
-    pub(crate) probe: PathProbe,
+pub struct PathWatch {
+    probe: PathProbe,
     /// The first send on this path since it last delivered an
     /// authenticated datagram: how long it has been silent.
     unanswered_since: Option<Instant>,
@@ -84,33 +75,91 @@ pub(crate) struct PathWatch {
     flagged_probe: Option<u64>,
 }
 
+/// What a [`PathWatch`] found at one step.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct WatchStep {
+    /// Send a ping with this id on the path.
+    pub ping: Option<u64>,
+    /// The outstanding probe timed out: report [`ProbeOutcome::Lost`].
+    ///
+    /// [`ProbeOutcome::Lost`]: cmux_transport::ProbeOutcome::Lost
+    pub lost: bool,
+    /// The chosen path stayed silent through a probe's window: report
+    /// [`Selector::on_silence`](cmux_transport::Selector::on_silence).
+    pub silent: bool,
+    /// When this path next needs a step.
+    pub next: Option<Instant>,
+}
+
 impl PathWatch {
-    /// A datagram left on this path.
-    pub(crate) fn sent(&mut self, now: Instant) {
+    /// A datagram went out on the path at `now`.
+    pub fn sent(&mut self, now: Instant) {
         self.unanswered_since.get_or_insert(now);
     }
 
-    /// An authenticated datagram arrived on this path.
-    pub(crate) fn heard(&mut self) {
+    /// An authenticated datagram arrived on the path: it is not silent.
+    pub fn heard(&mut self) {
         self.unanswered_since = None;
     }
-}
 
-/// What the paths of one peer need now: the pings to send, when they next
-/// need anything, and the outcomes for the selector (probes lost, and
-/// chosen paths gone quiet).
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct WatchDue {
-    pub pings: Vec<(PathId, u64)>,
-    pub next: Option<Instant>,
-    pub lost: Vec<PathId>,
-    pub silent: Vec<PathId>,
-}
+    /// Probe at the next step, whatever the interval says: something on
+    /// the path says it may work again (a dead path's peer reached us on
+    /// it), so it need not wait out the interval to prove it.
+    pub fn probe_now(&mut self, now: Instant) {
+        self.probe.due_now(now);
+    }
 
-fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (a, b) => a.or(b),
+    /// The round trip of probe `id`'s answer, if it is the one outstanding.
+    pub fn answer(&mut self, config: &ProbeConfig, id: u64, now: Instant) -> Option<u64> {
+        config.answer(&mut self.probe, id, now)
+    }
+
+    /// The path's step at `now`. `current` is whether the selector sends on
+    /// it, `chosen` whether it holds it (suspect or not); `next_id` is the
+    /// underlay's probe id counter. The chosen path that went quiet is
+    /// probed at once, and its probe is judged one silence window after it
+    /// left, not at the probe timeout.
+    pub fn step(
+        &mut self,
+        config: &ProbeConfig,
+        view: &PathView,
+        (current, chosen): (bool, bool),
+        next_id: &mut u64,
+        now: Instant,
+    ) -> WatchStep {
+        let mut found = WatchStep::default();
+        let mut silence_at = None;
+        let window = crate::multipath::silence_window(view.rtt_us);
+        if chosen {
+            match self.probe.outstanding() {
+                Some((probe, sent)) if self.flagged_probe != Some(probe) => {
+                    if now >= sent + window {
+                        self.flagged_probe = Some(probe);
+                        found.silent = true;
+                    } else {
+                        silence_at = Some(sent + window);
+                    }
+                }
+                Some(_) => {}
+                None => match self.unanswered_since {
+                    Some(since) if now >= since + window => self.probe.due_now(now),
+                    Some(since) => silence_at = Some(since + window),
+                    None => {}
+                },
+            }
+        }
+        let step = config.step(&mut self.probe, view, current, next_id, now);
+        found.lost = step.lost;
+        found.ping = step.ping;
+        if step.ping.is_some() && chosen {
+            let at = now + window;
+            silence_at = Some(silence_at.map_or(at, |old: Instant| old.min(at)));
+        }
+        found.next = match (step.next, silence_at) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        found
     }
 }
 
@@ -162,61 +211,6 @@ impl ProbeConfig {
             None => probe.next_at,
         };
         step
-    }
-
-    /// Step every path of one peer. The chosen path's silence counts too:
-    /// it is probed at once when it went quiet, and reported silent when
-    /// that probe is not answered within the window. The caller feeds
-    /// `lost` to [`Selector::on_probe`] and `silent` to
-    /// [`Selector::on_silence`].
-    pub(crate) fn watch<'a>(
-        &self,
-        selector: &Selector,
-        paths: impl Iterator<Item = (PathId, &'a mut PathWatch)>,
-        next_id: &mut u64,
-        now: Instant,
-    ) -> WatchDue {
-        let current = selector.current();
-        let chosen = selector.chosen();
-        let mut due = WatchDue::default();
-        for (id, watch) in paths {
-            let Some(view) = selector.path(id) else { continue };
-            let mut silence_at = None;
-            let window = silence_window(view.rtt_us);
-            if chosen == Some(id) {
-                match watch.probe.outstanding() {
-                    Some((probe, sent)) if watch.flagged_probe != Some(probe) => {
-                        if now >= sent + window {
-                            watch.flagged_probe = Some(probe);
-                            due.silent.push(id);
-                        } else {
-                            silence_at = Some(sent + window);
-                        }
-                    }
-                    Some(_) => {}
-                    None => match watch.unanswered_since {
-                        Some(since) if now >= since + window => watch.probe.due_now(now),
-                        Some(since) => silence_at = Some(since + window),
-                        None => {}
-                    },
-                }
-            }
-            let step = self.step(&mut watch.probe, &view, current == Some(id), next_id, now);
-            if step.lost {
-                due.lost.push(id);
-            }
-            if let Some(probe) = step.ping {
-                due.pings.push((id, probe));
-                // A probe just sent on the chosen path (a silence probe
-                // among them) is judged one window from now, not at its
-                // 1 s timeout.
-                if chosen == Some(id) {
-                    silence_at = earliest(silence_at, Some(now + window));
-                }
-            }
-            due.next = earliest(earliest(due.next, step.next), silence_at);
-        }
-        due
     }
 
     /// The round trip of probe `id`, if it is the one outstanding.

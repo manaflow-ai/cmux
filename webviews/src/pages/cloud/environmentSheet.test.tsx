@@ -247,3 +247,29 @@ test("a secret's header opens under its hosts, and an invalid host shows inline 
     await mounted.dispose();
   }
 });
+
+test("removing a secret row keeps every other row's open header with its own secret", async () => {
+  const route = (name: string, host: string) => ({ name, updated_at: "2026-11-01T00:00:00Z", hosts: [host] });
+  const mounted = await mount("secrets", {
+    ...sample,
+    secret_routes: true,
+    secrets: [route("PACKAGE_TOKEN", "registry.example.com"), route("GITHUB_TOKEN", "api.github.com")],
+  });
+  try {
+    const secretRows = () => [...document.querySelectorAll<HTMLElement>(".env-secret")];
+    const nameOf = (row: HTMLElement) => row.querySelector<HTMLInputElement>('input[aria-label="Secret name"]')?.value;
+    const disclosureOf = (row: HTMLElement) => row.querySelector<HTMLButtonElement>(":scope > .env-disclosure");
+    expect(secretRows().map(nameOf)).toEqual(["PACKAGE_TOKEN", "GITHUB_TOKEN"]);
+    await act(async () => disclosureOf(secretRows()[1]!)!.click());
+    expect(secretRows().map((row) => disclosureOf(row)?.getAttribute("aria-expanded"))).toEqual(["false", "true"]);
+    await act(async () => button("Remove PACKAGE_TOKEN")!.click());
+    expect(secretRows().map(nameOf)).toEqual(["GITHUB_TOKEN"]);
+    expect(disclosureOf(secretRows()[0]!)?.getAttribute("aria-expanded")).toBe("true");
+    // A row added after it starts closed.
+    await act(async () => document.querySelector<HTMLButtonElement>(".env-add")!.click());
+    expect(secretRows().map((row) => disclosureOf(row)?.getAttribute("aria-expanded"))).toEqual(["true", "false"]);
+    expect(mounted.store.getSnapshot().draft?.secrets.map((row) => row.name)).toEqual(["GITHUB_TOKEN", ""]);
+  } finally {
+    await mounted.dispose();
+  }
+});

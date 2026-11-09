@@ -11,6 +11,7 @@ use crate::server::AgentStartHost;
 use serde_json::{Value, json};
 
 struct Phone {
+    mux: Arc<Mux>,
     fake: FakeAcpmux,
     client: Client,
     surface: u64,
@@ -62,7 +63,7 @@ fn connect_with(label: &str, phone: bool, floor: PhoneFloor) -> Phone {
     let directory = PathBuf::from(format!("/tmp/cmux-phone-{label}-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let cwd = directory.to_string_lossy().into_owned();
-    Phone { fake, client, surface, cwd, mode }
+    Phone { mux, fake, client, surface, cwd, mode }
 }
 
 impl Phone {
@@ -147,7 +148,7 @@ fn a_phone_start_keeps_the_phones_floor_after_the_phone_disconnects() {
         stuck: false,
         table_gate: Some(Arc::new(Mutex::new(gate))),
     };
-    let Phone { fake, mut client, surface, cwd, mode } =
+    let Phone { fake, mut client, surface, cwd, mode, .. } =
         connect_with("phone-disconnects", true, floor);
     client.send(json!({"cmd":"agent-session-start","surface":surface,"cwd":cwd,
         "harness":"claude","vm_kind":"owner"}));
@@ -181,4 +182,23 @@ fn a_phone_start_of_a_codex_bridge_session_moves_to_ask() {
     let started = phone.client.request(start);
     assert_eq!(started["ok"], json!(true), "{started}");
     assert_eq!(*phone.mode.lock().unwrap(), "ask");
+}
+
+/// hostd closes a start's tab past its session limit (`cloud_acp.rs` `Reply::Start`): the phone's
+/// channel may close a tab whose chat it started itself, and no other bound tab.
+#[test]
+fn a_phone_may_close_the_tab_of_a_chat_it_started_and_no_other() {
+    let mut phone = connect("phone-closes-own", true, true, "claude", "default", false);
+    let started = phone.start();
+    assert_eq!(started["ok"], json!(true), "{started}");
+    // Another phone channel can't close it.
+    let mut other = Client::connect(&phone.mux, "phone-closes-own-other");
+    assert_eq!(other.request(json!({"cmd":"carrier-role","vmk":"owner"}))["ok"], json!(true));
+    let declared = other.request(json!({"cmd":"set-client-info","kind":"ios",
+        "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}));
+    assert_eq!(declared["ok"], json!(true), "{declared}");
+    let refused = other.request(json!({"cmd":"close-surface","surface":phone.surface}));
+    assert_code(&refused, "remote_denied");
+    let closed = phone.client.request(json!({"cmd":"close-surface","surface":phone.surface}));
+    assert_eq!(closed["ok"], json!(true), "{closed}");
 }

@@ -15,7 +15,7 @@
 //!
 //! Each path is probed inside the session ([`crate::probing`]) on the same
 //! schedule as a [`crate::Multipath`] path, and the same quiet-path rule
-//! ([`ProbeConfig::watch`]) makes a chosen path that stops answering suspect
+//! ([`PathWatch::step`]) makes a chosen path that stops answering suspect
 //! within about two silence windows, while datagrams go on every proven
 //! path. A peer that never answers a probe (a build from before path
 //! probes) keeps the old rule: datagrams follow its latest authenticated
@@ -343,19 +343,28 @@ impl MeshPaths {
     /// lost probes and quiet chosen paths already fed to the selector.
     pub(crate) fn poll(&mut self, now: Instant) -> DueProbes {
         self.last_probe_id = random_probe_base();
-        let watched = self.probes.watch(
-            &self.selector,
-            self.paths.iter_mut().map(|path| (path.id, &mut path.watch)),
-            &mut self.last_probe_id,
-            now,
-        );
-        for id in watched.lost {
-            let _ = self.selector.on_probe(id, ProbeOutcome::Lost);
+        let current = self.selector.current();
+        let chosen = self.selector.chosen();
+        let mut due = DueProbes::default();
+        for path in &mut self.paths {
+            let Some(view) = self.selector.path(path.id) else { continue };
+            let roles = (current == Some(path.id), chosen == Some(path.id));
+            let step = path.watch.step(&self.probes, &view, roles, &mut self.last_probe_id, now);
+            if step.lost {
+                let _ = self.selector.on_probe(path.id, ProbeOutcome::Lost);
+            }
+            if step.silent {
+                let _ = self.selector.on_silence(path.id);
+            }
+            if let Some(probe) = step.ping {
+                due.pings.push((path.id, probe));
+            }
+            due.next = match (due.next, step.next) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
         }
-        for id in watched.silent {
-            let _ = self.selector.on_silence(id);
-        }
-        DueProbes { pings: watched.pings, next: watched.next }
+        due
     }
 
     /// Where probes on `id` go.
@@ -372,7 +381,7 @@ impl MeshPaths {
         if path.address != source {
             return;
         }
-        let Some(rtt_us) = self.probes.answer(&mut path.watch.probe, probe, now) else { return };
+        let Some(rtt_us) = path.watch.answer(&self.probes, probe, now) else { return };
         path.proven = true;
         self.answered = true;
         let _ = self.selector.on_probe(id, ProbeOutcome::Answered { rtt_us });
