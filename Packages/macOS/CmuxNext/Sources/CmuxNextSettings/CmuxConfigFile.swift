@@ -158,7 +158,7 @@ public actor CmuxConfigFile {
     public func readBeside(suffix: String) -> String? {
         let url = self.url.resolvingSymlinksInPath()
         let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
-        return try? String(contentsOf: record, encoding: .utf8)
+        return try? String(blockingContentsOf: record, encoding: .utf8)
     }
 
     /// Sets each path the file leaves unset to its value, in one atomic publish; a path set since
