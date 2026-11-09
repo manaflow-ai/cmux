@@ -14,6 +14,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import unittest.mock
@@ -147,16 +148,33 @@ class WindowTests(unittest.TestCase):
 
 
 class MainTests(unittest.TestCase):
-    def test_a_github_error_warns_instead_of_failing_the_schedule(self):
+    def test_github_api_failures_return_distinct_unavailable_status(self):
+        for error in (urllib.error.HTTPError("u", 403, "Forbidden", {}, None),
+                      urllib.error.HTTPError("u", 429, "rate limited", {}, None),
+                      TimeoutError("timed out")):
+            with self.subTest(error=repr(error)), \
+                    unittest.mock.patch.object(watch.GitHub, "call", side_effect=error), \
+                    unittest.mock.patch.object(watch, "fetch_feed", return_value=NEWEST_FEED), \
+                    unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+                self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), watch.EXIT_UNAVAILABLE)
+
+    def test_api_failure_writes_a_durable_step_summary(self):
         def boom(*_args, **_kwargs):
-            raise urllib.error.HTTPError("u", 502, "Bad Gateway", {}, None)
-        original = watch.GitHub.call, watch.fetch_feed
-        watch.GitHub.call, watch.fetch_feed = boom, lambda url: NEWEST_FEED
-        try:
-            with unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
-                self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
-        finally:
-            watch.GitHub.call, watch.fetch_feed = original
+            raise urllib.error.HTTPError("u", 403, "rate limited", {}, None)
+        with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as summary, \
+                unittest.mock.patch.object(watch.GitHub, "call", side_effect=boom), \
+                unittest.mock.patch.object(watch, "fetch_feed", return_value=NEWEST_FEED), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t", "GITHUB_STEP_SUMMARY": summary.name}):
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), watch.EXIT_UNAVAILABLE)
+            summary.seek(0)
+            self.assertIn("Nightly feed health degraded", summary.read())
+
+    def test_feed_read_failure_is_visible_but_non_blocking(self):
+        with unittest.mock.patch.object(watch, "fetch_feed", side_effect=urllib.error.HTTPError("feed", 403, "Forbidden", {}, None)), \
+                unittest.mock.patch.object(watch, "published_commit", return_value=""), \
+                unittest.mock.patch.object(watch, "starvation_dispatch", return_value="feed unknown, nothing dispatched"), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run", "--legacy-identity", "off"]), watch.EXIT_OK)
 
 
 class TickRefusalTests(unittest.TestCase):
@@ -292,7 +310,7 @@ class QueuedGateTests(unittest.TestCase):
                 unittest.mock.patch.object(watch, "sync_issue", lambda *a: printed.append(a[2]) or "synced"), \
                 unittest.mock.patch.object(watch, "starvation_dispatch", lambda *a, **k: "stubbed"), \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
-            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 1)
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), watch.EXIT_STALE)
         self.assertIn("glaeda-side-std-xcode-26.6", printed[0])
         self.assertIn(self.DAEMON, printed[0])
 
@@ -310,16 +328,16 @@ class QueuedGateTests(unittest.TestCase):
                 unittest.mock.patch.object(watch, "sync_issue", lambda *a: "synced"), \
                 unittest.mock.patch.object(watch, "starvation_dispatch", lambda *a, **k: "stubbed"), \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
-            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 1)
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), watch.EXIT_UNAVAILABLE)
 
 
 class FeedTests(unittest.TestCase):
-    def test_watches_the_cmux_next_feed(self):
-        # nightly-next ships as cmux NEXT with its own feed (cx-x7hwx); the old
-        # feed is cmux NIGHTLY's (com.cmuxterm.app.nightly reads it), written
-        # only by publish-nightly-identity-legacy, and watched too.
-        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
+    def test_watches_the_cmux_nightly_feed(self):
+        # nightly-next ships once, as cmux NIGHTLY (com.cmuxterm.app.nightly), on
+        # the bare feed it polls (hq#7156). `/next/` is read only to find builds the
+        # legacy jobs have not copied yet (legacy_lag), until nightly-next signs once.
         self.assertEqual(watch.LEGACY_FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
 
 
 def feed(*items):
@@ -373,6 +391,10 @@ class LegacyFeedTests(unittest.TestCase):
         self.assertEqual(build, 4023540480101)
         self.assertIn("4020374816001", message)
 
+    def test_a_frozen_next_feed_behind_the_bare_one_reruns_nothing(self):
+        # Once nightly-next signs once, `/next/` freezes and the bare feed moves ahead of it.
+        self.assertIsNone(self.lag(next_xml=self.OLD, old_xml=self.NEXT)[0])
+
     def test_current_or_fresh_is_not_behind(self):
         self.assertIsNone(self.lag(old_xml=feed((4023540480101, 30, "cmux-next")))[0])
         self.assertIsNone(self.lag(next_xml=feed((4023540480101, 5, "cmux-next"), (4020374816001, 450, "cmux-next")))[0])
@@ -409,6 +431,17 @@ class LegacyFeedTests(unittest.TestCase):
             _, posts = self.rerun(jobs=jobs)
             self.assertEqual(posts, [f"/actions/jobs/{posted}/rerun"], jobs)
 
+    def test_reruns_a_cancelled_signing_job(self):
+        # Run 41000008430: the signing job sat queued with no Blacksmith macOS runner and was
+        # cancelled, with every later legacy job cancelled behind it.
+        jobs = [{"id": 10, "name": "legacy-identity-target", "conclusion": "success"},
+                {"id": 13, "name": "sign-nightly-identity-legacy", "conclusion": "cancelled"},
+                {"id": 11, "name": "verify-nightly-identity-legacy", "conclusion": "cancelled"},
+                {"id": 12, "name": "publish-nightly-identity-legacy", "conclusion": "cancelled"}]
+        message, posts = self.rerun(jobs=jobs)
+        self.assertEqual(posts, ["/actions/jobs/13/rerun"])
+        self.assertIn("sign-nightly-identity-legacy", message)
+
     def test_no_rerun_when_running_exhausted_not_failed_or_foreign(self):
         for run, jobs in (({"status": "in_progress"}, None), ({"run_attempt": 3}, None),
                           (None, [{"id": 12, "name": "publish-nightly-identity-legacy", "conclusion": "skipped"}]),
@@ -428,16 +461,16 @@ class LegacyFeedTests(unittest.TestCase):
             return watch.main(["--repo", "o/r", "--dry-run", *extra])
 
     def test_an_api_error_never_turns_a_stale_feed_green(self):
-        self.assertEqual(self.run_main(fail=True), 1)
+        self.assertEqual(self.run_main(fail=True), watch.EXIT_UNAVAILABLE)
 
-    def test_a_stale_legacy_feed_fails_after_both_guards_ran(self):
+    def test_a_stale_legacy_feed_is_reported_after_release_read_fails(self):
         # The merged order (#25350): the starvation guards run first, then this check, and a 403
         # everywhere still ends red while cmux NIGHTLY's feed is behind.
         seen = []
         with unittest.mock.patch.object(watch, "starvation_dispatch",
                                         lambda *a, **k: seen.append(k.get("branch")) or "stubbed"):
-            self.assertEqual(self.run_main(fail=True), 1)
-        self.assertEqual(seen, ["feat-cmux-next"])
+            self.assertEqual(self.run_main(fail=True), watch.EXIT_UNAVAILABLE)
+        self.assertEqual(seen, [])
 
     def test_a_zoneless_or_malformed_date_never_hides_the_lag(self):
         stamp = (NOW - dt.timedelta(minutes=40)).strftime("%a, %d %b %Y %H:%M:%S")
@@ -450,7 +483,7 @@ class LegacyFeedTests(unittest.TestCase):
 
     def test_the_off_switch_stops_the_watch(self):
         # NIGHTLY_NEXT_LEGACY_IDENTITY=off stops every legacy job; nothing can catch the feed up.
-        self.assertEqual(self.run_main(True, "--legacy-identity", "off"), 0)
+        self.assertEqual(self.run_main(True, "--legacy-identity", "off"), watch.EXIT_UNAVAILABLE)
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
         self.assertIn("LEGACY_IDENTITY: ${{ vars.NIGHTLY_NEXT_LEGACY_IDENTITY == 'off' && 'off' || 'on' }}", workflow)
         self.assertIn('--legacy-identity "$LEGACY_IDENTITY"', workflow)
@@ -463,12 +496,9 @@ class LegacyFeedTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
         self.assertIn("actions: write", workflow)
 
-    def test_watches_both_next_appcast_paths(self):
-        """The shipped app polls the bare path; `/next/` is the channel path."""
-        self.assertEqual(set(watch.NEXT_FEED_URLS), {
-            "https://files-next.cmux.com/nightly-next/appcast-arm64.xml",
-            "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
-        })
+    def test_watches_only_the_bare_appcast(self):
+        """The shipped app polls the bare path; the retired `/next/` appcast gets no builds."""
+        self.assertEqual(watch.NEXT_FEED_URLS, ("https://files-next.cmux.com/nightly-next/appcast-arm64.xml",))
 
     def test_freshness_is_the_older_of_the_two_feeds(self):
         """On 2026-10-26 the bare feed was two hours ahead of `/next/`; a build
@@ -544,6 +574,9 @@ class StarvationGuardTests(unittest.TestCase):
 
         def recent_runs(self, workflow, branch=None, now=None):
             return list(self._runs)
+
+        def jobs(self, run):
+            return [{"status": "in_progress"}]
 
         def dispatch(self, workflow, ref, inputs=None):
             self.dispatched.append((workflow, ref, inputs))
@@ -977,12 +1010,12 @@ class HealBeforeAlarmTests(unittest.TestCase):
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             return watch.main(["--repo", "o/r", "--dry-run"]), seen
 
-    def test_a_rate_limited_alarm_still_runs_the_next_guard(self):
+    def test_a_rate_limited_release_prevents_dispatch_and_marks_unavailable(self):
         def forbidden(self, method, path, body=None):
             raise urllib.error.HTTPError("u", 403, "rate limit exceeded", {}, None)
         code, seen = self.run_main(forbidden)
-        self.assertEqual(code, 0)
-        self.assertEqual(seen, ["feat-cmux-next"])
+        self.assertEqual(code, watch.EXIT_UNAVAILABLE)
+        self.assertEqual(seen, [])
 
     def test_a_failing_next_guard_never_skips_legacy_feed_repair(self):
         calls = []
@@ -999,9 +1032,10 @@ class HealBeforeAlarmTests(unittest.TestCase):
                 unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.object(watch.GitHub, "call", forbidden), \
                 unittest.mock.patch.object(watch, "starvation_dispatch", guard), \
+                unittest.mock.patch.object(watch, "published_commit", return_value=""), \
                 unittest.mock.patch.object(watch, "legacy_lag", return_value=(None, "current")) as legacy, \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
-            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), watch.EXIT_UNAVAILABLE)
         self.assertEqual(calls, ["feat-cmux-next"])
         legacy.assert_called_once()
 
@@ -1020,7 +1054,7 @@ class HealBeforeAlarmTests(unittest.TestCase):
                     lambda *a, **k: seen.append(k.get("branch")) or "dispatched"), \
                 unittest.mock.patch.object(watch, "legacy_lag", return_value=(None, "current")) as legacy, \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
-            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), watch.EXIT_UNAVAILABLE)
         # The NEXT guard cannot run without its marker, but legacy repair still does.
         self.assertEqual(seen, [])
         legacy.assert_called_once()
@@ -1040,8 +1074,8 @@ class HealBeforeAlarmTests(unittest.TestCase):
             watch.main(["--repo", "o/r", "--dry-run"])
         self.assertEqual(reads, ["next"])
 
-    def test_the_next_guard_runs_when_its_feeds_are_unreadable(self):
-        """The guard can recover by tip age when no feed timestamp is available."""
+    def test_unreadable_feeds_do_not_hide_a_release_api_failure(self):
+        """A feed failure alone is nonblocking; an API failure is unavailable."""
         seen = []
 
         def read(url):
@@ -1056,8 +1090,8 @@ class HealBeforeAlarmTests(unittest.TestCase):
                     watch, "starvation_dispatch",
                     lambda *a, **k: seen.append(k.get("branch")) or "ok"), \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
-            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
-        self.assertEqual(seen, ["feat-cmux-next"])
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), watch.EXIT_UNAVAILABLE)
+        self.assertEqual(seen, [])
 
     def test_heal_reports_any_failure_without_raising(self):
         """A guard runs before the alarm, so nothing it raises may stop the check."""

@@ -6,7 +6,20 @@ import Foundation
 /// Workspace surface creation for Chief panes: a Chief conversation as a tab or a split.
 extension Workspace {
     /// True when this workspace owns its protected canonical Chief Home pane.
+    /// Home is protected only while `chief.enabled` is on; with Chief off it is
+    /// an ordinary workspace the user can unpin and close.
     var isChiefHome: Bool {
+        ChiefSettings.isEnabled && holdsChiefHomePane
+    }
+
+    /// True when this workspace or its Dock holds any Chief pane, whether or not Chief is enabled.
+    var holdsChiefPane: Bool {
+        panels.values.contains { $0 is ChiefPanel }
+            || _dockSplit?.panels.values.contains { $0 is ChiefPanel } == true
+    }
+
+    /// True when this workspace holds the canonical Home pane, whether or not Chief is enabled.
+    var holdsChiefHomePane: Bool {
         panels.values.contains { ($0 as? ChiefPanel)?.isHome == true }
     }
 
@@ -132,7 +145,8 @@ extension Workspace {
         focus: Bool = true,
         initialDividerPosition: CGFloat? = nil
     ) -> ChiefPanel? {
-        guard !isRetiredFromOwningTabManager,
+        guard ChiefSettings.isEnabled,
+              !isRetiredFromOwningTabManager,
               let sourceTabId = surfaceIdFromPanelId(panelId),
               let sourcePaneId = bonsplitController.allPaneIds.first(where: { paneId in
                   bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == sourceTabId })

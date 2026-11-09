@@ -1,7 +1,10 @@
-name: Familiar intent review warning
+name: Familiar intent review warning (advisory)
 
 # This is advisory. It runs from the trusted base copy so a pull request cannot
 # change the warning policy, and it never fails a check or requests changes.
+# Its GitHub API steps continue on error: an API error (the installation's rate
+# limit) is no red on the pull request. "(advisory)" in the name tells landing
+# tools its red is never a PR's own.
 #
 # Lives on main: GitHub takes a pull_request_target workflow from the default
 # branch whatever the pull request's base, so the feat-cmux-next copy never ran.
@@ -22,7 +25,7 @@ concurrency:
 jobs:
   warn:
     # pull_request_target runs for outside authors too: an ephemeral runner only.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 5
     permissions:
       contents: read
@@ -35,7 +38,77 @@ jobs:
           sparse-checkout: |
             scripts/ci/intent_familiar_warning.py
 
-      - name: Read the pull-request patch
+      # The patch comes from git, not the API: every workflow's GITHUB_TOKEN shares one
+      # hourly REST budget, and listing files on every push spent ~155 calls an hour of it.
+      # The head is only read as data (git objects and diff text); nothing from it runs,
+      # and no attribute or diff driver applies in a bare repository with --no-ext-diff
+      # --no-textconv. The API listing is the fallback when git fails.
+      - name: Read the pull-request patch with git
+        id: git-read
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          WORK: ${{ runner.temp }}/intent-git
+          FILES_JSON: ${{ runner.temp }}/intent-files.json
+          BODY_FILE: ${{ runner.temp }}/intent-body.md
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          rm -rf "$WORK"
+          # Commits only (no trees) to find the merge base the API's file list diffs from;
+          # then the trees of the two ends, with blobs fetched as the diff needs them.
+          git init -q --bare "$WORK/history"
+          git -C "$WORK/history" remote add origin "$REPO_URL"
+          git -C "$WORK/history" fetch -q --no-tags --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"
+          merge_base="$(git -C "$WORK/history" merge-base "$BASE_SHA" "$HEAD_SHA")"
+          git init -q --bare "$WORK/ends"
+          git -C "$WORK/ends" remote add origin "$REPO_URL"
+          git -C "$WORK/ends" fetch -q --no-tags --depth=1 --filter=blob:none origin "$merge_base" "$HEAD_SHA"
+          git -C "$WORK/ends" -c core.quotepath=off diff --no-color --no-ext-diff --no-textconv -M \
+            "$merge_base" "$HEAD_SHA" > "$WORK/pr.diff"
+          python3 - "$WORK/pr.diff" "$FILES_JSON" <<'PY'
+          import json
+          import sys
+
+          # One {filename, patch} per file, the shape pulls.listFiles gives: the patch is
+          # the file's hunks from its first "@@" line, without the diff header. Git ends a
+          # ---/+++ name that holds a space with a tab.
+          files = []
+          current = None
+          with open(sys.argv[1], encoding="utf-8", errors="replace") as diff:
+              for line in diff.read().split("\n"):
+                  if line.startswith("diff --git "):
+                      # A binary or mode-only change has no ---/+++ lines: name it from here.
+                      header = line.rsplit(" b/", 1)[-1] if " b/" in line else ""
+                      current = {"new": "", "old": "", "rename": "", "header": header, "patch": []}
+                      files.append(current)
+                  elif current is None:
+                      continue
+                  elif current["patch"] or line.startswith("@@"):
+                      current["patch"].append(line)
+                  elif line.startswith("+++ ") and line != "+++ /dev/null":
+                      current["new"] = line[4:].rstrip("\t").strip('"')[2:]
+                  elif line.startswith("--- ") and line != "--- /dev/null":
+                      current["old"] = line[4:].rstrip("\t").strip('"')[2:]
+                  elif line.startswith("rename to "):
+                      current["rename"] = line[len("rename to "):]
+          result = [
+              {"filename": name, "patch": "\n".join(item["patch"]).rstrip("\n")}
+              for item in files
+              if (name := item["new"] or item["rename"] or item["old"] or item["header"])
+          ]
+          with open(sys.argv[2], "w", encoding="utf-8") as out:
+              json.dump(result, out)
+          PY
+          jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > "$BODY_FILE"
+
+      - name: Read the pull-request patch from the API
+        id: read
+        if: steps.git-read.outcome != 'success'
+        continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           FILES_JSON: ${{ runner.temp }}/intent-files.json
@@ -58,6 +131,7 @@ jobs:
 
       - name: Detect familiar intent changes
         id: detect
+        if: steps.git-read.outcome == 'success' || steps.read.outcome == 'success'
         env:
           FILES_JSON: ${{ runner.temp }}/intent-files.json
           BODY_FILE: ${{ runner.temp }}/intent-body.md
@@ -69,6 +143,8 @@ jobs:
             --output "$RESULT_JSON"
 
       - name: Warn CodeRabbit and cubic reviewers
+        if: steps.detect.outcome == 'success'
+        continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RESULT_JSON: ${{ runner.temp }}/intent-result.json

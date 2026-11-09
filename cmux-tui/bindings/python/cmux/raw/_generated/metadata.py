@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298'
+IR_SHA256 = '93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d'
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,17 @@ class EventMetadata:
 
 
 COMMANDS = {
+    'ack-tab-notifications': CommandMetadata(
+        'ack-tab-notifications',
+        'control',
+        12,
+        None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'apply-layout': CommandMetadata(
         'apply-layout',
         'control',
