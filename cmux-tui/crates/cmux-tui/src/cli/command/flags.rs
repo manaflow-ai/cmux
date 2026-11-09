@@ -8,6 +8,8 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `terminal <t> screen read --details`: the screen record's fields, not its text alone.
+    "details",
     // `cloud kill-machine --confirm`: without this it would swallow a following `--json`.
     "confirm",
     // `setup trust --dry-run`: plan only; without this it would swallow a following `--json`.
@@ -17,6 +19,12 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "no-focus",
     // `agent list`: only the agents waiting on the person.
     "needs-me",
+    // `terminal list --agents`: without this it would swallow a following `--json`.
+    "agents",
+    // `pane <p> move --new-screen|--new-tab`: without this it would swallow a
+    // following `--help` or `--json`.
+    "new-screen",
+    "new-tab",
     // `agent list --json`: the agents and their counts by state.
     "counts",
     // `agent message release`: the person's decision on a held message.

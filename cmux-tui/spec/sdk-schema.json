@@ -6462,13 +6462,29 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "registry_wal_file_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "registry_wal_file_high_water_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
     "Counters accumulate since daemon start.",
     "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect.",
-    "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each). Each is absent from daemons older than its field."
+    "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each); registry_wal_file_bytes is the registry's WAL file size now and registry_wal_file_high_water_bytes the largest size seen since daemon start. Each is absent from daemons older than its field."
    ]
   },
   "ServerStatsLockSiteDetail": {
@@ -13862,6 +13878,17 @@
         "format": "client-minted public split id"
        }
       ]
+     },
+     "before": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "split-before-v1"
      }
     },
     "additional_properties": false,
@@ -13879,7 +13906,8 @@
     "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
     "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
     "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1).",
-    "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1)."
+    "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1).",
+    "before:true puts the new pane before pane on the split axis (left of it for dir right, above it for dir down) in the one split commit, with the even ratio; the layout equals split then swap-pane, so a client that shows the split before the reply sends no swap (split-before-v1)."
    ]
   },
   "set-ratio": {
@@ -17476,6 +17504,16 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "filename": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-file-paste-v1"
      }
     },
     "additional_properties": false
@@ -17496,7 +17534,7 @@
    },
    "stream": null,
    "constraints": [
-    "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
+    "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. With terminal-file-paste-v1, begin(filename,size) accepts a regular file, including an empty file, instead of an image MIME. Filename is a validated basename, never a path; the daemon chooses the private temporary directory. 48 KiB chunks; committed temporary files expire after 600 seconds."
    ]
   },
   "url-open": {

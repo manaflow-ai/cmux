@@ -19,15 +19,38 @@ pub(super) fn add_steer_sender(
     add_sender(params, sender, class.map(crate::prompt_class::PromptClass::as_str), provenance);
 }
 
-/// [`prompt_params`] for queued prompt `run`.
-pub(super) fn run_params(agent_sid: &str, prompt: Value, run: &super::queue::PromptRun) -> Value {
+/// The `session/prompt` params for queued prompt `run`: its blocks marked under its turn's
+/// effective `provenance` (a fan-in turn's is its digest's, `turns.rs`), its sender routed by
+/// `run`'s own (the digest has no `threadId`, `fromChief` or origin of its head's).
+pub(super) fn run_params(
+    agent_sid: &str,
+    prompt: Value,
+    run: &super::queue::PromptRun,
+    provenance: Option<&Value>,
+) -> Value {
     let class = run.class.map(crate::prompt_class::PromptClass::as_str);
-    prompt_params(agent_sid, prompt, run.agent.as_deref(), class, run.provenance.as_ref())
+    turn_params(agent_sid, prompt, run.agent.as_deref(), class, run.provenance.as_ref(), provenance)
+}
+
+/// [`run_params`] apart from the run: marks by `effective`, sender by `own`.
+fn turn_params(
+    agent_sid: &str,
+    prompt: Value,
+    agent: Option<&str>,
+    class: Option<&str>,
+    own: Option<&Value>,
+    effective: Option<&Value>,
+) -> Value {
+    let mut params = json!({"sessionId": agent_sid, "prompt": prompt});
+    super::prompt_attribution::mark(&mut params, agent, effective);
+    sender_meta(&mut params, agent, class, own);
+    params
 }
 
 /// The `session/prompt` params for `prompt` to `agent_sid`, with the sender of
 /// an agent's message (`agent`, its `class` and its provenance's `threadId`).
-pub(super) fn prompt_params(
+#[cfg(test)]
+fn prompt_params(
     agent_sid: &str,
     prompt: Value,
     agent: Option<&str>,
@@ -40,8 +63,20 @@ pub(super) fn prompt_params(
 }
 
 /// Adds `_meta.acpmux.sender` to `params` (a turn's prompt or a steer) when
-/// `agent` sent it.
+/// `agent` sent it, and the marks of who wrote it to its blocks.
 pub(super) fn add_sender(
+    params: &mut Value,
+    agent: Option<&str>,
+    class: Option<&str>,
+    provenance: Option<&Value>,
+) {
+    // The agent reads who wrote it in the prompt too (`prompt_attribution.rs`).
+    super::prompt_attribution::mark(params, agent, provenance);
+    sender_meta(params, agent, class, provenance);
+}
+
+/// Adds `_meta.acpmux.sender` to `params` when `agent` sent it (or it is `unverified`).
+fn sender_meta(
     params: &mut Value,
     agent: Option<&str>,
     class: Option<&str>,
@@ -196,6 +231,27 @@ mod tests {
             params["_meta"]["acpmux"]["sender"],
             json!({"name": "lane-a", "editedBy": {"actor": "owner"}})
         );
+    }
+
+    #[test]
+    fn a_fan_in_turn_routes_its_sender_by_its_heads_chief_and_thread() {
+        // A fan-in turn marks its blocks by its digest (`turns.rs`), but a relay
+        // (`cmux chief acp`) still routes the reply by the head message's Chief and thread.
+        let head = json!({"kind": "session_message", "from": "s-turn",
+            "fromName": "Codex Chief", "fromChief": "agent_codex", "threadId": "t2"});
+        let digest = json!({"kind": "agent_digest", "messages": [head.clone()]});
+        let params = turn_params(
+            "s",
+            json!([{"type": "text", "text": "hi"}]),
+            Some("Codex Chief"),
+            Some("question"),
+            Some(&head),
+            Some(&digest),
+        );
+        let sender = &params["_meta"]["acpmux"]["sender"];
+        assert_eq!(sender["chief"], "agent_codex");
+        assert_eq!(sender["threadId"], "t2");
+        assert_eq!(sender["sessionId"], "s-turn");
     }
 
     #[test]

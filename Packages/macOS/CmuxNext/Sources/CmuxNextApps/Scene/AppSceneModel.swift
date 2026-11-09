@@ -6,6 +6,12 @@ public import Observation
 @MainActor
 public protocol AppSceneInteraction: AnyObject {
     func dispatch(node: String, event: String, payload: AppJSON)
+    /// Runs the app's script again from its saved files and draws it anew (a failed mount's Reload).
+    func reload()
+}
+
+extension AppSceneInteraction {
+    public func reload() {}
 }
 
 /// The observable mirror of one mounted contribution, for `AppSceneView`.
@@ -26,6 +32,9 @@ public final class AppSceneModel {
 
     public private(set) var scene = AppScene()
     public var status: Status = .loading
+    /// Why the app's last saved script did not load while this view kept drawing the script before
+    /// it (`apps-reload-failed`); nil once a scene of a script that loaded replaces it.
+    public var reloadFailure: String?
     /// Counts applied batches and resets, so an AppKit renderer can tell in `layout()` whether the
     /// scene changed since it last drew, without comparing scenes.
     @ObservationIgnored public private(set) var revision = 0
@@ -54,7 +63,14 @@ public final class AppSceneModel {
     public func reset() {
         scene = AppScene()
         status = .loading
+        // A new scene comes from a script that loaded: the refused save is behind it.
+        reloadFailure = nil
         revision &+= 1
+    }
+
+    /// The error card's Reload: the mount's app runs its script again and every view of it redraws.
+    public func reload() {
+        interaction?.reload()
     }
 
     func send(_ node: String, _ event: String, _ payload: AppJSON = .object([:])) {

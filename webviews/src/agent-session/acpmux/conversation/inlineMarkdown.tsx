@@ -11,6 +11,8 @@ import { SoftBroken } from "./softBreaks";
 import { codePath, foreignFileId, isTemplatePath, linkPath, pathName } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { StartedSessionChip } from "../started/StartedSessionCard";
+import { CmuxLinkChip } from "../chips/CmuxLinkChip";
+import { cmuxLinkTarget } from "./cmuxLinks";
 import { type StartedMentions } from "../started/startedSessionCardModel";
 import { isAgentMotionOff } from "../../shared/motion";
 import { animateScroll } from "../threadMinimap/scrollMotion";
@@ -184,13 +186,24 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       else if (named)
         out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
       else if (path) out.push(<PathChip key={k++} path={path} label={linkLabel(lm[1], labelOpts)} />);
-      else if (app)
+      else if (app) {
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
-        out.push(
-          <a key={k++} className="cv-link is-app" href={app}>
-            {linkLabel(lm[1], labelOpts)}
-          </a>,
+        // One that names a chat or a place the page knows draws as its chip, with the author's label
+        // (chips/CmuxLinkChip.tsx), as a bare link does (review of #38166).
+        const label = linkLabel(lm[1], labelOpts);
+        const anchor = (
+          <a className="cv-link is-app" href={app}>
+            {label}
+          </a>
         );
+        out.push(
+          cmuxLinkTarget(app) ? (
+            <CmuxLinkChip key={k++} href={app} label={label} fallback={anchor} />
+          ) : (
+            <Fragment key={k++}>{anchor}</Fragment>
+          ),
+        );
+      }
       // A template (`${variant}.png`) names no file: its text.
       else if (!href && isTemplatePath(lm[2])) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
       else if (linkKind(lm[2]) === "file")
@@ -201,16 +214,22 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
           </span>,
         );
       else if (!href) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
-      else
-        out.push(
-          <UrlChip
-            key={k++}
-            href={href}
-            icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}
-          >
-            {linkLabel(lm[1], labelOpts)}
-          </UrlChip>,
+      else {
+        const label = linkLabel(lm[1], labelOpts);
+        const chip = (
+          <UrlChip href={href} icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}>
+            {label}
+          </UrlChip>
         );
+        // cmux.com's agent link: the chat it names, with the author's label, once the page knows it.
+        out.push(
+          href.includes("/deeplink/") && cmuxLinkTarget(href) ? (
+            <CmuxLinkChip key={k++} href={href} label={label} fallback={chip} />
+          ) : (
+            <Fragment key={k++}>{chip}</Fragment>
+          ),
+        );
+      }
     } else if (m[6]) out.push(<br key={k++} />);
     else if (m[7]) out.push(<MathInline key={k++} tex={t.slice(2, -2).trim()} display />);
     else if (m[8])

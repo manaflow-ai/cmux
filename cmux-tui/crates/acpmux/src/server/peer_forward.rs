@@ -88,6 +88,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/peer_status",
+    // This daemon's own queue and audit trail (`hub/review_queue.rs`, `hub/audit_log.rs`).
+    method::MUX_REVIEW_QUEUE,
+    method::MUX_REVIEW_VERDICT,
+    method::MUX_AUDIT,
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
     // Every live chat on this daemon (`host_notice.rs`).
@@ -574,8 +578,15 @@ async fn forward_inner(
             }
             return Err(crate::hub::presence::peer_unsupported());
         }
+        // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are
+        // current: its notices keep the row as current as the peer's answer would be, one round
+        // trip sooner.
+        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() {
+            return Ok(Some(from_row(&row, &peer.name)));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
+            obj.remove(ROW_WILL_DO);
             obj.remove("session");
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
@@ -616,6 +627,19 @@ async fn forward_inner(
         }
         // The peer cannot see the session this connection runs in: it gets that session's name.
         if m == method::SESSION_PROMPT {
+            // The person's answer to the suggestion this daemon showed them for the chat, counted
+            // in their own tally before the turn can bring the next one (`suggestion_gate.rs`).
+            let person = super::requests::person_asks(conn)
+                && conn.caller().is_none()
+                && crate::prompt_provenance::relay_sender(params).is_none()
+                && params.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null);
+            crate::suggestion_gate::note_relayed_prompt(
+                &hub.suggestion_gate,
+                &peer.name,
+                &id,
+                params,
+                person,
+            );
             name_sender(hub, conn, &mut p);
         }
         if m == method::MUX_PERMISSION_RESPOND {
@@ -930,6 +954,14 @@ async fn forward_inner(
         if purge {
             hub.forget_remote((&peer.name, peer.generation), &id, asked);
         }
+        // Qualify race references only for the local viewer, after saving the raw peer page.
+        if conn.origin != Origin::Peer
+            && let Some(events) = result.get_mut("events").and_then(Value::as_array_mut)
+        {
+            for event in events {
+                super::races::peer::qualify_event(&peer.name, event);
+            }
+        }
         if let Some(obj) = result.as_object_mut() {
             obj.insert("peer".into(), Value::String(peer.name.clone()));
         }
@@ -1000,6 +1032,30 @@ pub(crate) fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut 
             }
         });
     }
+}
+
+/// An `_acpmux/info`'s flag: the session list's row will do for its answer. For a peer's chat
+/// whose link's rows are current ([`crate::peer::Peer::rows_current`]), this daemon answers from
+/// its mirrored row instead of asking the peer (`acpmux send` saves a round trip over the link).
+/// The answer says `row: true`. Never sent on to the peer.
+///
+/// A send's `_acpmux/attach` still goes to the peer: attaches from several clients here share
+/// the link's one subscription at the peer and are applied there in no fixed order, so this
+/// daemon cannot know which `kinds` filter that subscription has.
+pub const ROW_WILL_DO: &str = "row";
+
+fn row_will_do(params: &Value) -> bool {
+    params.get(ROW_WILL_DO).and_then(Value::as_bool) == Some(true)
+}
+
+/// A peer chat's mirrored row as a read's answer, marked so (`ROW_WILL_DO`).
+fn from_row(row: &Value, peer: &str) -> Value {
+    let mut reply = row.clone();
+    if let Some(obj) = reply.as_object_mut() {
+        obj.insert("peer".into(), json!(peer));
+        obj.insert(ROW_WILL_DO.into(), json!(true));
+    }
+    reply
 }
 
 /// `_meta.acpmux` field of a forwarded `permission_respond`: how many
@@ -1287,3 +1343,7 @@ mod message_identity_tests {
         assert_eq!(forwarded_message_id(&with(json!({"promptId": "p"}))), "p");
     }
 }
+
+#[cfg(test)]
+#[path = "row_read_tests.rs"]
+mod row_read_tests;

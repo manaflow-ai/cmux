@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1768118a3f6c36eca9967eb1114909809bec1c337cc65d95be19e530da94a705. */
+/* cmux-tui mux protocol 12, IR 62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "1768118a3f6c36eca9967eb1114909809bec1c337cc65d95be19e530da94a705" as const;
+export const SDK_IR_SHA256 = "62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2278,10 +2278,15 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "terminal-image-paste-v1",
-    "fields": {},
+    "fields": {
+      "filename": {
+        "since": null,
+        "capability": "terminal-file-paste-v1"
+      }
+    },
     "stream": null,
     "constraints": [
-      "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
+      "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. With terminal-file-paste-v1, begin(filename,size) accepts a regular file, including an empty file, instead of an image MIME. Filename is a validated basename, never a path; the daemon chooses the private temporary directory. 48 KiB chunks; committed temporary files expire after 600 seconds."
     ]
   },
   "pin-workspace": {
@@ -3213,6 +3218,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "before": {
+        "since": 12,
+        "capability": "split-before-v1"
+      },
       "cwd": {
         "since": 12,
         "capability": "terminal-env-v1"
@@ -3260,7 +3269,8 @@ export const COMMAND_METADATA = {
       "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
       "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
       "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1).",
-      "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1)."
+      "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1).",
+      "before:true puts the new pane before pane on the split axis (left of it for dir right, above it for dir down) in the one split commit, with the even ratio; the layout equals split then swap-pane, so a client that shows the split before the reply sends no swap (split-before-v1)."
     ]
   },
   "subscribe": {
@@ -11387,7 +11397,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "constraints": [
       "Counters accumulate since daemon start.",
       "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect.",
-      "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each). Each is absent from daemons older than its field."
+      "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each); registry_wal_file_bytes is the registry's WAL file size now and registry_wal_file_high_water_bytes the largest size seen since daemon start. Each is absent from daemons older than its field."
     ],
     "fields": {
       "effect_intent_batches": {
@@ -11409,6 +11419,22 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "effect_intents": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "registry_wal_file_bytes": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "registry_wal_file_high_water_bytes": {
+        "nullable": false,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "uint64"
@@ -23919,6 +23945,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "filename": {
+          "capability": "terminal-file-paste-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "lease": {
           "nullable": false,
           "presence": "required",
@@ -27365,6 +27401,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "cols and rows affect sizing only when both are present."
       ],
       "fields": {
+        "before": {
+          "capability": "split-before-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "cols": {
           "default": null,
           "nullable": true,

@@ -2,9 +2,10 @@
 //! terminal), for the Chief and scripts:
 //!
 //! - `cmux terminal list --agents`: the terminals that run an agent, with
-//!   harness, status (blocked, done, working, idle, unknown; `state` keeps
-//!   the older busy, idle, waiting-for-input, ended), age, workspace and
-//!   title (roster.rs).
+//!   harness, status (blocked, done, working, idle, unknown; `state` is a
+//!   deprecated alias with the same word, `ended` for an ended session), age, workspace and
+//!   title (roster.rs), plus the agent's name, tab, pane and last reply
+//!   (roster_names.rs).
 //! - `cmux terminal <t> send --text <msg> [--wait idle|prompt|none]
 //!   [--timeout 5m] [--settle 3s] [--force]`: type the message, press
 //!   Enter, wait, and print only what the terminal printed after the
@@ -20,6 +21,7 @@
 
 pub(in crate::cli) mod reply;
 pub(in crate::cli) mod roster;
+pub(in crate::cli) mod roster_names;
 pub(in crate::cli) mod send;
 #[cfg(test)]
 mod tests;
@@ -157,10 +159,13 @@ pub(in crate::cli) fn parse_send(
 
 /// `terminal <t> run [OPTIONS] -- <command...>` (or `--text <command>`):
 /// a send that waits for the prompt and exits with the command's status.
+/// One word after `--` is a shell line as it is (`run -- 'make && ./a'`);
+/// two or more are an argv, each word shell-quoted, so `run -- sh -c 'exit
+/// 7'` runs `sh` with the two arguments `-c` and `exit 7`.
 pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRequest, UsageError> {
     let split = flags.iter().position(|word| word == "--").unwrap_or(flags.len());
     let (options, argv) = flags.split_at(split);
-    let command = argv.split_first().map(|(_, command)| command.join(" "));
+    let command = argv.split_first().map(|(_, command)| shell_line(command));
     let mut options = options.to_vec();
     if options.iter().any(|word| word == "--wait" || word.starts_with("--wait=")) {
         return Err(UsageError("terminal run waits for the prompt; it takes no --wait".into()));
@@ -184,6 +189,33 @@ pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRe
     Ok(request)
 }
 
+/// The shell line `terminal run` types for the words after `--`: one word
+/// as it is, more words each POSIX-quoted (sh, bash and zsh read them back
+/// as the same words). The command word is also quoted when the shell would
+/// read it as syntax: a reserved word (`if`, `{`, `!`) or an assignment
+/// (`FOO=bar`). cmd.exe and PowerShell quote differently; the help tells
+/// their users to pass one word.
+fn shell_line(argv: &[String]) -> String {
+    let [first, rest @ ..] = argv else { return String::new() };
+    if rest.is_empty() {
+        return first.clone();
+    }
+    let command =
+        if first.contains('=') || SHELL_RESERVED.split_whitespace().any(|word| word == first) {
+            format!("'{}'", first.replace('\'', "'\\''"))
+        } else {
+            super::cloud_start_chat::shell_quote(first)
+        };
+    std::iter::once(command)
+        .chain(rest.iter().map(|word| super::cloud_start_chat::shell_quote(word)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The words sh, bash and zsh read as syntax in command position.
+const SHELL_RESERVED: &str = "! { } [[ ]] case coproc do done elif else esac fi for foreach \
+                              function if in nocorrect repeat select then time until while";
+
 fn print_json(value: &Value) {
     println!("{}", serde_json::to_string(value).unwrap_or_default());
 }
@@ -198,15 +230,15 @@ fn list(global: &GlobalArgs) -> i32 {
         Ok(snapshot) => snapshot,
         Err(failure) => return fail(global, &failure, 1),
     };
-    let rows = roster::agent_rows(&snapshot);
+    let rows = roster_names::rows(&snapshot);
+    let facts = roster_names::facts(&snapshot);
     let now = now_ms();
+    let json = |row: &roster::AgentRow| roster_names::row_json(row, &facts, now);
     match global.output {
-        OutputMode::Human => println!("{}", roster::table(&rows, now)),
+        OutputMode::Human => println!("{}", roster_names::table(&rows, &facts, now)),
         OutputMode::Quiet => {}
-        OutputMode::Json => {
-            print_json(&Value::Array(rows.iter().map(|row| row.to_json(now)).collect()));
-        }
-        OutputMode::JsonLines => rows.iter().for_each(|row| print_json(&row.to_json(now))),
+        OutputMode::Json => print_json(&Value::Array(rows.iter().map(json).collect())),
+        OutputMode::JsonLines => rows.iter().for_each(|row| print_json(&json(row))),
     }
     0
 }
@@ -230,7 +262,7 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
                     "cmux: the terminal was still busy after {}; the output so far is above",
                     humantime(request.timeout)
                 );
-            } else if receipt["state"] == "waiting-for-input" {
+            } else if receipt["state"] == roster::AgentState::Blocked.as_str() {
                 eprintln!("cmux: the agent now waits on a dialog (terminal screen read shows it)");
             } else if receipt.get("matched") == Some(&Value::Bool(false)) {
                 eprintln!("cmux: the command finished without output that matches --pattern");

@@ -75,10 +75,15 @@
 //! - into a running turn that steers, is under its cap (`turn_cap.rs`), has none of the
 //!   person's prompts waiting behind it, and was not started by the person's own prompt: as a
 //!   steer, which Claude Code reads at its next tool step; what comes meanwhile goes in the next
-//!   one, so a turn takes at most one per step. A prompt that waits is never held up by notices;
-//! - into the next such turn that starts, as a steer at its start;
+//!   one, so a turn takes at most one per step. A prompt that waits is never held up by notices.
+//!   FYIs alone steer in no sooner than [`FLUSH_MS`] after the oldest came: a message that is no
+//!   FYI brings them sooner, in its notice, and a Stop's [`Inbox::due_now`] still lets them in
+//!   at once. A coordinator, busy most of the day, took 204 of its 305 notices in 24 h as
+//!   steers, most of them tool FYIs (2026-11-08);
+//! - into the next such turn that starts, as a steer at its start, on the same terms;
 //! - an idle chat: as ONE turn of its own, at once for messages the person's own turn held back
-//!   ([`Inbox::held_by_person`]), else [`WAKE_DEBOUNCE_MS`] after the oldest message that may
+//!   ([`Inbox::held_by_person`]; FYIs alone are not held so, they wait for the flush as they
+//!   would have in that turn), else [`WAKE_DEBOUNCE_MS`] after the oldest message that may
 //!   wake it came (a burst is one turn), or [`FLUSH_MS`] after the oldest of any, so none is
 //!   stranded. A message that may wake it: a blocker (a block or a question,
 //!   `prompt_class.rs`), a report of work it gave (a lane's report, a task's result), or an
@@ -106,10 +111,14 @@
 //! if it did not go in, retracted if it did. A restart keeps the inbox (its records), a closed
 //! chat's included, and what was new is noticed again.
 //!
-//! The timer: one per session ([`Inbox::timer`]), for an idle chat's next wake or flush. Stop
-//! condition: it wakes once, at its deadline, and ends; it is armed only while a new message
-//! waits in an idle chat. Cleanup: every arm aborts the one before, a turn's start and a delivery abort it,
-//! closing the session aborts it, and it holds the hub and the session weakly.
+//! The timer: one per session ([`Inbox::timer`]), for an idle chat's next wake or flush, or the
+//! flush of FYIs alone that wait for a running turn. Stop condition: it wakes once, at its
+//! deadline, and ends; it is armed only while a new message waits in an idle chat, or only FYIs
+//! (or a refused steer's backoff) wait for a running turn that takes notices. Cleanup: every
+//! arm aborts the one before, a turn's start and a delivery abort it (a turn's start reviews the
+//! inbox again as its prompt is written, `inbox_prompt_written`, which arms it anew), a review
+//! that finds nothing to time aborts it, closing the session aborts it, and it holds the hub and
+//! the session weakly.
 
 use super::*;
 use crate::prompt_class::PromptClass;
@@ -125,7 +134,8 @@ pub const FIRST_WORK: &str = "firstWork";
 pub const WAKE_DEBOUNCE_MS: u64 = 2_000;
 /// A notice the chat refused is tried again no sooner than this.
 pub const REFUSED_RETRY_MS: u64 = 30_000;
-/// How long a message that wakes no one waits in an idle chat before a notice brings it anyway.
+/// How long a message that wakes no one waits in an idle chat, or FYIs alone wait for a running
+/// turn, before a notice brings them anyway.
 pub const FLUSH_MS: u64 = 10 * 60 * 1000;
 /// A notice line shows this much of the newest message's first line, in characters.
 const PREVIEW_CHARS: usize = 120;
@@ -204,7 +214,7 @@ pub struct Inbox {
     /// The notice in flight: its prompt id and the messages it carries. None goes after it until
     /// it ends, or, a turn of its own, until its prompt is written to the agent.
     pub(super) in_flight: Option<(String, Vec<String>)>,
-    /// The idle chat's wake timer.
+    /// The idle chat's wake timer, or a running turn's FYI flush or steer retry.
     pub(super) timer: Option<tokio::task::AbortHandle>,
     /// Unix ms the chat last refused a notice; 0 since one went in or a turn started or ended.
     pub(super) refused_at: u64,
@@ -227,7 +237,8 @@ pub struct Inbox {
     /// message meanwhile is no first work.
     pub(super) first: Option<String>,
     /// The person's own turn held a notice back (module docs): its messages are due as a turn of
-    /// their own once the chat is idle, whatever their class. Cleared when a notice goes.
+    /// their own once the chat is idle, whatever their class, unless all are FYIs. Cleared when a
+    /// notice goes, or when the idle chat finds only FYIs new.
     pub(super) held_by_person: bool,
     /// A Stop kept a notice out of the turn it ended, or the turn's end answered it before the
     /// agent read it (`cancel.rs` module docs): its messages are due as a turn of their own once
@@ -865,11 +876,16 @@ fn controls(meta: &SessionMeta, from: Option<&str>) -> bool {
     from.is_some() && (from == parent || from == meta.delegator.as_deref())
 }
 
-/// Whether a message no class or sender of its own wakes would sit in the inbox until a flush
-/// ([`FLUSH_MS`]): the chat is idle (or runs a turn that takes no notice and is not the person's,
-/// whose end would bring it) and nothing new there wakes it or is due now.
-fn would_strand(session: &Session, inbox: &Inbox, meta: &SessionMeta) -> bool {
-    if inbox.held_by_person || inbox.due_now || inbox.first.is_some() {
+/// Whether a message of `class` that no class or sender of its own wakes would sit in the inbox
+/// until a flush ([`FLUSH_MS`]): nothing new there wakes it or is due now, and the chat is idle
+/// (or runs a turn that takes no notice and is not the person's, whose end would bring it), or
+/// it is an FYI and only FYIs are new, which wait for the flush in any chat (`inbox_review`).
+fn would_strand(session: &Session, inbox: &Inbox, meta: &SessionMeta, class: PromptClass) -> bool {
+    // Before the first work's hold: FYIs alone wait for the flush after its turn too.
+    if fyis_alone_wait(inbox, class) {
+        return true;
+    }
+    if inbox.due_now || inbox.held_by_person || inbox.first.is_some() {
         return false;
     }
     if inbox.items.iter().any(|i| !i.noticed && wakes(meta, i)) {
@@ -881,24 +897,35 @@ fn would_strand(session: &Session, inbox: &Inbox, meta: &SessionMeta) -> bool {
     }
 }
 
+/// Whether an FYI (`class`) would wait for the flush whatever the chat does next: only FYIs are
+/// new and no Stop made them due now (`inbox_review`). A first work's turn or a cut turn's
+/// continuation brings them no sooner.
+fn fyis_alone_wait(inbox: &Inbox, class: PromptClass) -> bool {
+    class == PromptClass::Fyi
+        && !inbox.due_now
+        && inbox.items.iter().filter(|i| !i.noticed).all(|i| i.class == PromptClass::Fyi)
+}
+
 /// The refusal of a waiting send whose message the receiver's inbox would hold without waking it
 /// (`PromptOptions::wake_or_fail`). Nothing was delivered. Exit 1 at the CLI, never a hang: the
 /// round-2 eval's `send --wait --timeout 300` waited all 300 s for an idle receiver.
 pub(super) fn not_woken(receiver: &str, sender: &str, class: PromptClass) -> RpcError {
-    let class = match class {
-        PromptClass::Fyi => "an fyi",
-        _ => "a result or action",
-    };
-    RpcError::new(
-        -32000,
-        format!(
-            "send.not_woken: {receiver} is idle, and {class} from {sender} does not wake it (only a \
-             question or blocker does, or a message from the session that started it or first gave \
-             it work). Nothing was delivered. Send it again with --class question to wake it, or \
-             with --no-wait to leave it in its inbox for its next turn."
+    let message = match class {
+        PromptClass::Fyi => format!(
+            "send.not_woken: an fyi from {sender} neither wakes {receiver} nor interrupts its \
+             turn: it waits for its next notice (FYIs alone go in once 10 minutes old). Nothing \
+             was delivered. Send it again with --class question to have it read now, or with \
+             --no-wait to leave it in its inbox."
         ),
-    )
-    .with_data(json!({"reason": "send.not_woken", "retryable": false, "receiver": receiver}))
+        _ => format!(
+            "send.not_woken: {receiver} is idle, and a result or action from {sender} does not \
+             wake it (only a question or blocker does, or a message from the session that started \
+             it or first gave it work). Nothing was delivered. Send it again with --class question \
+             to wake it, or with --no-wait to leave it in its inbox for its next turn."
+        ),
+    };
+    RpcError::new(-32000, message)
+        .with_data(json!({"reason": "send.not_woken", "retryable": false, "receiver": receiver}))
 }
 
 /// Whether a turn comes for the idle chat without anyone sending more: its inbox holds a message
@@ -967,12 +994,15 @@ fn reply_hint(items: &[&Item]) -> Option<String> {
         ));
     }
     for name in &later {
-        parts.push(format!("To answer {name}, inbox_reply or `acpmux send {name} \"…\"`."));
+        parts.push(format!(
+            "To answer {name}, inbox_reply or the send tool (to: \"{name}\"); `acpmux send \
+             {name}` in a shell only without them."
+        ));
     }
     for lead in &leads {
         parts.push(format!(
-            "A subagent reads only the reply to its own send; `acpmux send {lead}` reaches {lead} \
-             itself."
+            "A subagent reads only the reply to its own send; the send tool (to: \"{lead}\") \
+             reaches {lead} itself."
         ));
     }
     (!parts.is_empty()).then(|| {
@@ -1159,7 +1189,14 @@ impl Hub {
             if session.meta().status == SessionStatus::Closed {
                 return Err(super::queue::closing_error());
             }
-            let strands = !wakes_now && !continuing && would_strand(session, &inbox, &meta_now);
+            // A continuation that may still fire brings a turn, but no sooner notice for FYIs
+            // alone (router review of #38603 at 8991049, F1).
+            let strands = !wakes_now
+                && if continuing {
+                    fyis_alone_wait(&inbox, class)
+                } else {
+                    would_strand(session, &inbox, &meta_now, class)
+                };
             let carry = inbox.carrying.iter_mut().find(|c| c.ids.iter().any(|id| id == prompt_id));
             if let Some(carry) = carry {
                 // A resend of one a notice carries now: answered with that notice.
@@ -1414,6 +1451,10 @@ impl Hub {
             let mut held_by_person = false;
             let next = {
                 let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
+                let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
+                // Nothing new but FYIs: they go with the next notice, or once the oldest is
+                // `FLUSH_MS` old (module docs).
+                let fyi_only = new.iter().all(|i| i.class == PromptClass::Fyi);
                 if new.is_empty()
                     || inbox.in_flight.is_some()
                     || meta.status == SessionStatus::Closed
@@ -1447,12 +1488,18 @@ impl Hub {
                                 || crate::review_box::of_meta(&meta)
                             {
                                 Next::Nothing
-                            } else if retry > now {
-                                // A refused steer is tried again no sooner than the backoff: no
-                                // loop of refusals within a turn.
-                                Next::WakeAt(retry)
                             } else {
-                                Next::Steer
+                                // A refused steer is tried again no sooner than the backoff: no
+                                // loop of refusals within a turn. An FYI-only batch steers in at
+                                // its flush, unless a message that is no FYI brings it sooner; a
+                                // Stop's `due_now` still lets it in at once.
+                                let flush = if fyi_only && !inbox.due_now {
+                                    oldest.saturating_add(FLUSH_MS)
+                                } else {
+                                    0
+                                };
+                                let at = retry.max(flush);
+                                if at > now { Next::WakeAt(at) } else { Next::Steer }
                             }
                         }
                         // A first work holds the chat, or waits in its queue (a restart rebuilds
@@ -1472,10 +1519,14 @@ impl Hub {
                             // A waking message after the debounce; anything after the flush, so no
                             // message is stranded in an idle chat.
                             // Messages the person's own turn held back are due now: they would
-                            // have gone into that turn.
+                            // have gone into that turn. FYIs alone are not: they would have
+                            // waited there too, so the hold lets go of them and they wait for the
+                            // flush or the next notice.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
-                            let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
                             let flush = oldest.saturating_add(FLUSH_MS);
+                            if fyi_only {
+                                inbox.held_by_person = false;
+                            }
                             let due = if inbox.held_by_person || inbox.due_now {
                                 now
                             } else {
@@ -1655,9 +1706,17 @@ impl Hub {
             }
         };
         // Its messages wait again. The cap's timer saw them carried, and the inbox steers none
-        // into a turn past its cap: that turn gets the cap's notice (`turn_cap.rs`).
+        // into a turn past its cap: that turn gets the cap's notice (`turn_cap.rs`), unless they
+        // are FYIs alone, which end no turn sooner.
         if answered.is_none() && !ids.is_empty() && !super::queue::closing(session) {
-            self.turn_cap_recheck(session);
+            let fyis_only = {
+                let inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+                let mut carried = inbox.items.iter().filter(|i| ids.contains(&i.prompt_id));
+                carried.all(|i| i.class == PromptClass::Fyi)
+            };
+            if !fyis_only {
+                self.turn_cap_recheck(session);
+            }
         }
         if let Some(answer) = answered {
             let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
@@ -2092,8 +2151,12 @@ impl Hub {
                 .rev()
                 .filter(|i| thread_matches(i, thread, allow_declared_fallback))
             {
+                // `from` is the agent's words (`inbox_read`, `acpmux session inbox`, the team
+                // read); `fromName` is the name alone, which the transcript draws when the person
+                // opens the thread, as a notice's parts name it.
                 messages.push(json!({
-                    "promptId": item.prompt_id, "from": display_sender(&item.sender, &item.from), "fromSession": item.from_session,
+                    "promptId": item.prompt_id, "from": display_sender(&item.sender, &item.from),
+                    "fromName": shown_sender(&item.sender, &item.from), "fromSession": item.from_session,
                     "sender": item.sender,
                     "class": item.class, "kind": kind_of(item.class), "at": item.at,
                     "text": item.text, "read": item.read, "details": item.details,

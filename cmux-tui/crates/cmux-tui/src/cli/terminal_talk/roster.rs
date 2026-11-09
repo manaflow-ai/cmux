@@ -8,14 +8,14 @@ use std::collections::{HashMap, HashSet};
 use cmux_tui_core::AgentStatus;
 use serde_json::{Value, json};
 
-/// What a terminal agent does now, in the older CLI words (`state` in the
-/// JSON rows, `send` receipts). The shared vocabulary is
-/// [`AgentStatus`] (`status` in the JSON rows, the table's STATE column).
+/// What a terminal agent does now, as the send wait and its receipt see it.
+/// The words are the shared status words ([`AgentStatus`]) plus `ended`:
+/// a list row and a send receipt say the same word for one agent (W5-Q).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::cli) enum AgentState {
     /// A permission dialog, a question or an error waits for an answer.
-    WaitingForInput,
-    Busy,
+    Blocked,
+    Working,
     Idle,
     /// The harness reported its session ended; a shell may run there now.
     Ended,
@@ -24,8 +24,8 @@ pub(in crate::cli) enum AgentState {
 impl AgentState {
     pub(in crate::cli) fn as_str(self) -> &'static str {
         match self {
-            Self::WaitingForInput => "waiting-for-input",
-            Self::Busy => "busy",
+            Self::Blocked => "blocked",
+            Self::Working => "working",
             Self::Idle => "idle",
             Self::Ended => "ended",
         }
@@ -35,8 +35,8 @@ impl AgentState {
     /// program status state.
     pub(in crate::cli) fn from_record(state: &str) -> Option<Self> {
         Some(match state {
-            "working" => Self::Busy,
-            "blocked" | "input" | "waiting" | "attention" => Self::WaitingForInput,
+            "working" => Self::Working,
+            "blocked" | "input" | "waiting" | "attention" => Self::Blocked,
             "idle" | "done" | "unknown" => Self::Idle,
             "ended" | "exited" => Self::Ended,
             _ => return None,
@@ -80,7 +80,9 @@ impl AgentRow {
         json!({
             "terminal": self.terminal,
             "harness": self.harness,
-            "state": self.state.as_str(),
+            // `state` is a deprecated alias of `status` (`ended` for a session
+            // that ended): scripts that read it get the same word.
+            "state": self.status_word(),
             "status": self.status.map(AgentStatus::as_str),
             "title": self.title,
             "workspace_id": self.workspace_id,
@@ -138,20 +140,21 @@ fn workspaces_of_terminals(snapshot: &Value) -> HashMap<String, (String, Option<
 /// The terminals with an unread notification: a turn finished there that
 /// nobody has viewed (done-until-seen). Reading the snapshot clears nothing.
 fn unseen_terminals(snapshot: &Value) -> HashSet<&str> {
-    snapshot["notifications"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|notification| notification["unread"] == true)
-        .filter_map(|notification| notification["terminal_id"].as_str())
-        .collect()
+    let notifications = snapshot["notifications"].as_array().map(Vec::as_slice);
+    super::super::wire::unseen_terminals(notifications.unwrap_or_default())
+}
+
+/// Whether `terminal` carries an unread notification in `snapshot`: its
+/// finished turn is `done` until somebody views it.
+pub(in crate::cli) fn unseen(snapshot: &Value, terminal: &str) -> bool {
+    unseen_terminals(snapshot).contains(terminal)
 }
 
 /// The shared status of a status word: a daemon agent record's state or an
 /// OSC 7501 program status state. `done` there is a finished turn
 /// (program status) and `idle` an agent at its prompt; either one is `done`
 /// while its terminal is `unseen`.
-fn status_of(word: &str, unseen: bool) -> Option<AgentStatus> {
+pub(in crate::cli) fn status_of(word: &str, unseen: bool) -> Option<AgentStatus> {
     match AgentStatus::parse(word)? {
         AgentStatus::Done | AgentStatus::Idle if unseen => Some(AgentStatus::Done),
         AgentStatus::Done => Some(AgentStatus::Idle),

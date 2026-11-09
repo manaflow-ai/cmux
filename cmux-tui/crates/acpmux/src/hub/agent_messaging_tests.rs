@@ -128,3 +128,28 @@ async fn a_waiting_send_that_cannot_wake_an_idle_chat_is_refused_at_once() {
     };
     tokio::time::timeout(WAIT, settled).await.expect("nothing more comes once it ran");
 }
+
+/// A waiting FYI is refused at once while a cut turn's continuation may still fire: the
+/// continuation brings a turn, but FYIs alone still wait for the flush (router review of #38603
+/// at 8991049, F1). A result from the chat's delegator still goes in as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_waiting_fyi_is_refused_while_a_continuation_may_fire() {
+    let (hub, s) = delegated().await;
+    hub.set_ending_for_test(&s, Some("cut"));
+    let (asked, _) = send(&hub, &s, "s-other", "p-f", "CI is slow", PromptClass::Fyi, true);
+    let refused = tokio::time::timeout(Duration::from_secs(5), asked)
+        .await
+        .expect("refused at once, not after a flush")
+        .unwrap()
+        .expect_err("a held FYI is no answer");
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "send.not_woken", "{refused:?}");
+    assert!(s.inbox.lock().unwrap().items.is_empty(), "nothing was delivered");
+
+    // A result from someone else is held for the continuation, never refused, as before.
+    let (held, accepted) = send(&hub, &s, "s-other", "p-r", "done", PromptClass::Result, true);
+    let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
+    assert_eq!(accepted["inbox"], true, "{accepted}");
+    assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
+    held.abort();
+    hub.set_ending_for_test(&s, None);
+}

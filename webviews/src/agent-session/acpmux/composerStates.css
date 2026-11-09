@@ -14,9 +14,20 @@
   --agent-motion-hover: var(--cmux-motion-quick, 80ms);
   --agent-motion-focus: var(--cmux-motion-quick, 80ms);
   --agent-motion-in: var(--cmux-motion-micro, 120ms);
+  /* A row that arrives in a running turn (a thought, a tool call, a call joining a group, a
+     subagent, the reply's next words), the live line's words that roll to it, and the rows it moves
+     (tailGlide.ts, followChase.ts arrivalStepMs): one step, so all of it rests together, within
+     120 ms of the event (Leo 2026-11-09: "thinking, tool calls, etc... cannot lag nor can they take
+     long"; row-arrival-settle.test.ts). */
+  --agent-motion-arrive: var(--cmux-motion-quick, 80ms);
   --agent-motion-out: var(--cmux-motion-quick, 80ms);
   /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
   --agent-motion-move: var(--cmux-motion-standard, 180ms);
+  /* A sent prompt's one motion: its room, its bubble and the thread's rise (the scale's send step;
+     shared/theme.ts scales it as the host scaled the move step). */
+  --agent-motion-send: var(--cmux-motion-send, 180ms);
+  --agent-motion-send-fade: var(--agent-motion-send);
+  --agent-ease-send: var(--cmux-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }

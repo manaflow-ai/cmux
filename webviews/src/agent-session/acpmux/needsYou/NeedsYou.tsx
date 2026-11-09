@@ -26,33 +26,18 @@ import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import type { AskContext } from "./context";
 import { reply as questionReply, selection, type AgentQuestion, type QuestionReply } from "../question/model";
-
 import "./needsYou.css";
-import { type NeedsYouMode, answerKey, askText, keyedAnswer, sideQuestionPrompt } from "./needsYouModel";
-export type NeedsYouActions = {
-  /// Sends a one-click answer; rejects when acpmux refused it.
-  answer(item: NeedsYouItem, answer: NeedsYouAnswer): Promise<unknown>;
-  /// Opens the chat the ask is in, at the ask.
-  goTo(item: NeedsYouItem): void;
-  /// Opens a side session about the asking chat (`_acpmux/btw`) beside it, its first prompt the
-  /// question seeded with the ask; rejects when it could not.
-  ask(item: NeedsYouItem, question: string): Promise<unknown>;
-  /// Sends an expanded question's whole answer (every item, an Other text); rejects when it was
-  /// refused or could not be sent from here (another chat's question opens that chat instead).
-  reply?(item: NeedsYouItem, sent: QuestionReply): Promise<unknown>;
-  /// The turns before the ask, for the context stage (context.ts).
-  context?(item: NeedsYouItem): AskContext;
-  /// Opens another chat's ask at `place`: on the right (the default, as Go to source), the
-  /// workspace whose tab shows it, or a new workspace (`chat.asks.open {where}`).
-  open?(item: NeedsYouItem, place: NeedsYouPlace): void;
-  /// Whether `open` can open the ask's chat: another chat on this pane's own acpmux, never the chat
-  /// on screen (its ask is already here) or another computer's.
-  opensElsewhere?(item: NeedsYouItem): boolean;
-};
+import {
+  answerKey,
+  askText,
+  keyedAnswer,
+  sideQuestionPrompt,
+  type NeedsYouActions,
+  type NeedsYouMode,
+  type NeedsYouPlace,
+} from "./needsYouModel";
 
-/// Where the expanded row opens another chat: `right` (the default), `workspace` (jump to the tab
-/// that shows the chat, in whatever workspace or window), `newWorkspace`.
-export type NeedsYouPlace = "right" | "workspace" | "newWorkspace";
+export type { NeedsYouActions, NeedsYouPlace } from "./needsYouModel";
 
 const PLACES: readonly { place: NeedsYouPlace; label: StringKey }[] = [
   { place: "right", label: "needsYou.openRight" },

@@ -4,6 +4,9 @@
 import { expect, test } from "bun:test";
 import { currentChatMetrics } from "../chatDisplay";
 import {
+  ARRIVAL_BURST_S,
+  ARRIVAL_FRAME_LINES,
+  arrivalStepMs,
   BURST_S,
   CHASE_HOLD_LINES,
   CHASE_LAND_LINES,
@@ -14,7 +17,7 @@ import {
 import type { FollowMotionArm } from "./followMotion.experiment";
 
 /// A thread with a stand-in window whose frames the test runs one at a time (8.33 ms apart).
-function fixture(motion: { off?: boolean; reduce?: boolean; token?: string; optOut?: boolean } = {}) {
+function fixture(motion: { off?: boolean; reduce?: boolean; token?: string; optOut?: boolean; look?: string } = {}) {
   let callbacks = new Map<number, FrameRequestCallback>();
   let id = 0;
   let now = 1000;
@@ -44,7 +47,12 @@ function fixture(motion: { off?: boolean; reduce?: boolean; token?: string; optO
   const node = {
     ownerDocument: doc,
     parentElement: { parentElement: { clientHeight: 600 } },
-    closest: (selector: string) => (motion.optOut && selector.includes("follow-glide") ? {} : null),
+    closest: (selector: string) =>
+      motion.optOut && selector.includes("follow-glide")
+        ? {}
+        : motion.look && selector.includes("data-tail-glide")
+          ? { getAttribute: () => motion.look }
+          : null,
     style: {
       ...style,
       setProperty() {},
@@ -206,11 +214,37 @@ test("the turn ending lands the chase within BURST_S, no frame more than a line"
   }
   expect(drawn()).toBe(0);
   expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 1);
-  // Within a line of home it lands at once.
+  // A quiet frame within CHASE_LAND_LINES of home lands at once: nothing moves after the turn
+  // settles (agent-pane-stream-jitter).
   chase.shift(node, -0.5 * line);
   chase.land();
   expect(drawn()).toBe(0);
   expect(pending()).toBe(0);
+});
+
+test("a turn that ends in a frame that already moved adds no snap: that frame moves at most a line", () => {
+  // send-stream-motion: the reply's last line lands (part of it at once, as a landing frame does),
+  // the turn ends in the same frame, and a snap of what was left moved the rows 26-40 px in it.
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  const line = currentChatMetrics().lineHeight;
+  chase.shift(node, -0.5 * line, 2 * line);
+  frame();
+  const before = drawn();
+  // The rows' layout rises a line; the thread is drawn `drawn()` from it.
+  chase.shift(node, -line, 2 * line);
+  chase.land();
+  expect(Math.abs(-line + drawn() - before)).toBeLessThanOrEqual(line + 1e-6);
+  let previous = drawn();
+  let frames = 0;
+  while (pending() > 0 && frames < 240) {
+    const at = frame();
+    frames += 1;
+    expect(previous - at).toBeLessThanOrEqual(line + 1e-6);
+    previous = at;
+  }
+  expect(drawn()).toBe(0);
+  expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 1);
 });
 
 test("blocks: a reply's growth holds back a line; its landing frame moves the rest, up to CHASE_LAND_LINES", () => {
@@ -232,6 +266,27 @@ test("blocks: a reply's growth holds back a line; its landing frame moves the re
   chase.stop();
   chase.shift(node, -1.5 * line);
   expect(drawn()).toBeCloseTo(1.5 * line);
+});
+
+test("blocks: what lands before a frame's step, the step and what lands after it move the rows at most a line", () => {
+  // send-stream-motion.test.ts on the frames' own clock, frame 247 of the send: a 4-line block landed
+  // between two frames (16 px of it at once), that frame's step moved 6 px, then the same frame's
+  // measuring pass brought 0.9 of a line more and moved 12 px of it at once: 34.5 px, a line and a
+  // half, in one 120 Hz frame. The step forgot what the frame had already moved at once.
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn } = fixture();
+  const line = currentChatMetrics().lineHeight;
+  chase.shift(node, -0.5 * line, 52);
+  frame();
+  frame();
+  const before = drawn();
+  chase.shift(node, -4 * line, 52);
+  frame();
+  chase.shift(node, -0.88 * line, 52);
+  // The rows' move on screen in that frame: the layout's (up 4.88 lines) less what the thread is
+  // drawn back by now, against where it was drawn in the frame before.
+  const moved = -4.88 * line + (drawn() - before);
+  expect(Math.abs(moved)).toBeLessThanOrEqual(line + 1e-6);
 });
 
 test("reader input while still followed (at the bottom, nothing scrolls) resumes the chase next frame", () => {
@@ -293,3 +348,75 @@ test.each(["spring", "chunk", "linear", "blocks"] as FollowMotionArm[])(
     expect(drawn()).toBeLessThanOrEqual(4 + 1e-6);
   },
 );
+
+// Leo, 2026-11-07: "the jumps are jarring. We want to minimize the jumps", and 2026-11-09: "the
+// animations end to end need to just resolve faster" (test/row-arrival-settle.test.ts).
+test("a row that arrived holds all of its move back, then comes home on the arrival step, ending on its last frame", () => {
+  const line = currentChatMetrics().lineHeight;
+  for (const px of [28, 115]) {
+    const chase = createFollowChase("blocks");
+    const { node, frame, drawn } = fixture();
+    chase.shift(node, -px, line * 10, false, true);
+    expect(drawn()).toBeCloseTo(px);
+    const steps = Math.ceil(arrivalStepMs(px) / (1000 / 120));
+    let previous = drawn();
+    let frames = 0;
+    while (drawn() !== 0 && frames < 60) {
+      frame();
+      frames += 1;
+      // No frame moves more than the step's bound, and none moves the rows away from home.
+      expect(previous - drawn()).toBeLessThanOrEqual(ARRIVAL_FRAME_LINES * line + 1e-6);
+      expect(drawn()).toBeLessThanOrEqual(previous);
+      previous = drawn();
+    }
+    // Home at the step's end exactly, with no tail: a call's row (28 px) on the quick step (80 ms),
+    // a steer and its call (115 px) over the frames its bound needs (110 ms).
+    expect({ px, frames }).toEqual({ px, frames: steps });
+    expect(px > 70 || steps <= 10).toBe(true);
+    expect(steps).toBeLessThanOrEqual(14);
+  }
+});
+
+test("a move that comes during an arrival's step keeps the step's end", () => {
+  const line = currentChatMetrics().lineHeight;
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn } = fixture();
+  chase.shift(node, -28, line * 10, false, true);
+  for (let index = 0; index < 4; index += 1) frame();
+  // The arrived row's measured height a pass later: 6 px more, four frames in.
+  chase.shift(node, -6, line * 10, false, true);
+  let frames = 4;
+  while (drawn() !== 0 && frames < 60) {
+    frame();
+    frames += 1;
+  }
+  expect(frames).toBe(Math.ceil(arrivalStepMs(28) / (1000 / 120)));
+});
+
+// The earlier looks (data-tail-glide quick, glide, jump: the gallery's comparisons) keep the spring.
+test("in the earlier looks a row that arrived holds all of its move back, and is back within the bound in ARRIVAL_BURST_S", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn } = fixture({ look: "quick" });
+  const line = currentChatMetrics().lineHeight;
+  // A steer and the call it came under: 115 px of rows above the live line. A reply's growth of the
+  // same size moves CHASE_LAND_LINES of it at once; an arrival moves none of it in that frame.
+  chase.shift(node, -115, line * 10, false, true);
+  expect(drawn()).toBeCloseTo(115);
+  let previous = drawn();
+  let frames = 0;
+  while (drawn() > chaseMaxTrail() + 0.5) {
+    frame();
+    frames += 1;
+    // Never more than a line in a frame.
+    expect(previous - drawn()).toBeLessThanOrEqual(line + 1e-6);
+    previous = drawn();
+  }
+  // Back within the bound over ARRIVAL_BURST_S (nine 120 Hz frames), not BURST_S's six.
+  expect(frames).toBeLessThanOrEqual(Math.ceil(ARRIVAL_BURST_S * 120) + 1);
+  expect(frames).toBeGreaterThan(Math.ceil(BURST_S * 120));
+  // The same move as a reply's growth lands part at once, as before.
+  const growth = createFollowChase("blocks");
+  const other = fixture();
+  growth.shift(other.node, -2 * line, line * 10);
+  expect(other.drawn()).toBeCloseTo((2 - Math.min(2 - CHASE_HOLD_LINES, CHASE_LAND_LINES)) * line);
+});

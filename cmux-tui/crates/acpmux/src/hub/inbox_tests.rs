@@ -437,6 +437,140 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
     }
 }
 
+/// A hub with one idle chat `id` that ran turns before, its store in memory and no agent.
+fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta = json!({"schema": crate::store::META_SCHEMA, "id": id, "name": id,
+        "harness": "claude", "cwd": "/tmp", "status": "idle", "turnCount": 3,
+        "createdAt": 1, "updatedAt": 2});
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    let session = hub.resolve(id).unwrap();
+    (hub, session)
+}
+
+/// The chat runs another agent's turn (not the person's) that takes steers.
+fn running(session: &Session) {
+    let turn = TurnInfo::prompted("test", "go", "t-run", "p-run", Control::Local);
+    *session.turn.lock().unwrap() = Some(turn);
+    session.steering.store(true, Ordering::SeqCst);
+}
+
+/// The ids the notice in flight carries, sorted; none when no notice went.
+fn carried(session: &Session) -> Option<Vec<String>> {
+    let inbox = session.inbox.lock().unwrap();
+    inbox.in_flight.as_ref().map(|(_, ids)| {
+        let mut ids = ids.clone();
+        ids.sort();
+        ids
+    })
+}
+
+/// FYIs alone never interrupt a running turn: no steer before their flush, only the timer for it
+/// (Leo, 2026-11-08, of tool notices sent as FYIs: "Once an hour is extremely infrequent in the
+/// grand scheme of things"). Once the oldest is `FLUSH_MS` old they steer in, so none is
+/// stranded.
+#[tokio::test]
+async fn fyis_alone_steer_into_a_running_turn_only_at_their_flush() {
+    let (hub, session) = hub_with_chat("fyi-steer");
+    running(&session);
+    let fresh = item("f1", "t", "ci", PromptClass::Fyi, now_ms(), "CI is slow");
+    session.inbox.lock().unwrap().items.push(fresh);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), None, "no steer before the flush");
+    {
+        let inbox = session.inbox.lock().unwrap();
+        assert!(inbox.timer.is_some(), "the flush is timed");
+        assert!(inbox.items.iter().all(|i| !i.noticed), "it waits, new");
+    }
+
+    // The flush's deadline: the timer's review steers it in.
+    session.inbox.lock().unwrap().items[0].at = now_ms().saturating_sub(FLUSH_MS + 1);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["f1".to_owned()]), "steered in at its flush");
+    assert!(session.inbox.lock().unwrap().timer.is_none(), "the delivery ends the timer");
+}
+
+/// A message that is no FYI steers into the running turn at once, and carries the FYIs that
+/// waited for it in the same notice.
+#[tokio::test]
+async fn a_message_that_is_no_fyi_steers_in_and_carries_the_waiting_fyis() {
+    for class in [PromptClass::Result, PromptClass::Question, PromptClass::Block] {
+        let (hub, session) = hub_with_chat("fyi-carried");
+        running(&session);
+        let fyi = item("f1", "t", "ci", PromptClass::Fyi, now_ms(), "CI is slow");
+        session.inbox.lock().unwrap().items.push(fyi);
+        hub.inbox_review(&session);
+        assert_eq!(carried(&session), None, "the FYI waits ({class:?})");
+        let other = item("r1", "t2", "lane-b", class, now_ms(), "done with #9");
+        session.inbox.lock().unwrap().items.push(other);
+        hub.inbox_review(&session);
+        let both = Some(vec!["f1".to_owned(), "r1".to_owned()]);
+        assert_eq!(carried(&session), both, "one steer carries both ({class:?})");
+    }
+}
+
+/// FYIs alone that the person's own turn held back start no turn of their own when it ends:
+/// they wait for the flush, as they would have in any turn. Anything else it held back is due at
+/// once, as before.
+#[tokio::test]
+async fn fyis_alone_the_persons_turn_held_back_wait_for_their_flush() {
+    let (hub, session) = hub_with_chat("fyi-held");
+    {
+        let mut inbox = session.inbox.lock().unwrap();
+        inbox.items.push(item("f1", "t", "ci", PromptClass::Fyi, now_ms(), "CI is slow"));
+        inbox.held_by_person = true;
+    }
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), None, "no turn of its own before the flush");
+    {
+        let inbox = session.inbox.lock().unwrap();
+        assert!(inbox.timer.is_some(), "the flush is timed");
+        assert!(!inbox.held_by_person, "the hold lets go of FYIs alone");
+    }
+    assert!(!turn_coming(&session), "no turn comes for FYIs alone");
+    session.inbox.lock().unwrap().items[0].at = now_ms().saturating_sub(FLUSH_MS + 1);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["f1".to_owned()]), "a turn at its flush");
+
+    // A result the person's turn held back (it wakes no one here) is due at once, as before.
+    let (hub, session) = hub_with_chat("result-held");
+    {
+        let mut inbox = session.inbox.lock().unwrap();
+        inbox.items.push(item("r1", "t", "lane-b", PromptClass::Result, now_ms(), "done"));
+        inbox.held_by_person = true;
+    }
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["r1".to_owned()]), "due at once");
+}
+
+/// A waiting send of an FYI is refused at once (`not_woken`) wherever only FYIs are new: it would
+/// wait for the flush in a running turn too. Any other class, or an FYI behind a message that is
+/// no FYI, is not.
+#[tokio::test]
+async fn a_waiting_fyi_strands_in_a_running_turn_unless_a_notice_comes() {
+    let (_hub, session) = hub_with_chat("fyi-strand");
+    running(&session);
+    let meta = session.meta();
+    let strands = |class| would_strand(&session, &session.inbox.lock().unwrap(), &meta, class);
+    assert!(strands(PromptClass::Fyi), "an FYI alone waits for the flush");
+    assert!(!strands(PromptClass::Result), "a result steers in");
+    let other = item("r1", "t", "lane-b", PromptClass::Result, now_ms(), "done");
+    session.inbox.lock().unwrap().items.push(other);
+    assert!(!strands(PromptClass::Fyi), "it goes with the result's notice");
+
+    // A first work's hold brings no notice sooner for FYIs alone (router review of #38603, F1).
+    let (_hub, session) = hub_with_chat("fyi-first");
+    session.inbox.lock().unwrap().first = Some("p-first".to_owned());
+    let meta = session.meta();
+    let strands = |class| would_strand(&session, &session.inbox.lock().unwrap(), &meta, class);
+    assert!(strands(PromptClass::Fyi), "an FYI waits past the first work too");
+    assert!(!strands(PromptClass::Result), "the first work's turn brings a result");
+}
+
 /// Whether a notice's reader can open a thread comes from what its agent was given and what its
 /// next spawn gets, both from memory: an agent a restart adopted (launch unknown here) that its
 /// last daemon started with no `acpmux` server reads previews it cannot follow, whatever its
@@ -641,7 +775,7 @@ mod agent_messaging {
 
     /// A Claude Code subagent's message names the subagent beside its lead's session, and the notice
     /// says how each sender gets an answer: the one that waits gets this turn's reply, another
-    /// session `inbox_reply` or `acpmux send`, and a subagent only the reply to its own send.
+    /// session `inbox_reply` or the `send` tool, and a subagent only the reply to its own send.
     #[test]
     fn a_notice_names_a_subagent_and_says_how_each_sender_gets_its_answer() {
         let sub = json!({"id": "a0a68e7af3df5967e", "type": "general-purpose"});
@@ -673,14 +807,17 @@ mod agent_messaging {
             hint.contains("goes back to claude-17's general-purpose subagent a0a68e7a, waiting"),
             "{hint}"
         );
-        assert!(hint.contains("`acpmux send claude-17` reaches claude-17 itself"), "{hint}");
+        assert!(
+            hint.contains("the send tool (to: \"claude-17\") reaches claude-17 itself"),
+            "{hint}"
+        );
 
         // Another session that no longer waits: the commands that reach it.
         let mut lane = item("p2", "from:lane-b", "lane-b", PromptClass::Result, 2, "merged");
         lane.from_session = Some("s-b".into());
         let hint = reply_hint(&[&lane]).unwrap();
         assert!(
-            hint.contains("To answer lane-b, inbox_reply or `acpmux send lane-b \"…\"`"),
+            hint.contains("To answer lane-b, inbox_reply or the send tool (to: \"lane-b\")"),
             "{hint}"
         );
         assert!(!hint.contains("goes back"), "nobody waits: {hint}");
@@ -703,4 +840,34 @@ mod agent_messaging {
             "only a proven session"
         );
     }
+}
+
+/// An inbox notice past `WHOLE_BYTES` opens its thread with `_acpmux/inbox_thread` (review of
+/// #37652, F2): the transcript draws each message's `fromName`, the name alone, as a notice's parts
+/// do. `from` stays the agent's words (`inbox_read`, `acpmux session inbox`, the team read), and
+/// `sender` keeps the whole record, its verification included.
+#[tokio::test]
+async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta = json!({"schema": crate::store::META_SCHEMA, "id": "inbox-open",
+        "name": "inbox-open", "harness": "claude", "cwd": "/tmp", "status": "idle",
+        "createdAt": 1, "updatedAt": 2});
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    let session = hub.resolve("inbox-open").unwrap();
+    let declared = crate::prompt_provenance::named_sender("dot", "inbox-open");
+    let mut message = item("p1", "declared:dot", "dot", PromptClass::Result, 1, "hello");
+    message.sender = crate::prompt_provenance::sender_record(Some(&declared), None, None);
+    session.inbox.lock().unwrap().items.push(message);
+    let thread = hub.inbox_thread(&session, "declared:dot", false);
+    let m = &thread["messages"][0];
+    assert_eq!(m["fromName"], "dot", "{thread}");
+    assert_eq!(m["from"], "dot (self-declared, unauthenticated)", "{thread}");
+    assert_eq!(
+        (&m["sender"]["verification"], &m["sender"]["label"]),
+        (&json!("declared"), &json!("dot"))
+    );
 }

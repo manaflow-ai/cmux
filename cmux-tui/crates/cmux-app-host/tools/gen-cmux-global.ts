@@ -41,9 +41,11 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // workspace.open_url (cx-ebm.59.3) navigates the person's browser tabs; Home and the person's tools only.
 // conductor_import.plan/record read Conductor's database and worktrees and keep the import ledger: the app's
 // own Import from Conductor only.
+// classic_import.plan/record read classic cmux's session files and keep the migration ledger: the app's own
+// move from classic cmux only.
 // palette.rank ranks rows for a cmux page's own palette (the Channels page); apps have `cmux.palette`, the
 // app palette, so the op family would collide with it.
-const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
+const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
 
 /** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
 const CLOUD_API_CALLS = [
@@ -65,23 +67,17 @@ const CLOUD_API_CALLS = [
   "cloud.runs.sandbox",
   "cloud.runs.start",
   "cloud.runs.wait",
-  "cloud.vm.delete_snapshot",
   "cloud.vm.domains",
   "cloud.vm.firewall_create",
   "cloud.vm.firewall_delete",
   "cloud.vm.firewall_get",
   "cloud.vm.firewall_list",
-  "cloud.vm.fork",
   "cloud.vm.networks",
   "cloud.vm.provision_api",
   "cloud.vm.publication_api_keys",
   "cloud.vm.publications",
-  "cloud.vm.resize",
-  "cloud.vm.restore",
   "cloud.vm.revoke_publication_api_key",
   "cloud.vm.scp_endpoint",
-  "cloud.vm.snapshot",
-  "cloud.vm.snapshots",
   "cloud.vm.tunnel_attach",
   "cloud.vm.tunnel_detach",
   "cloud.vm.tunnel_enroll",

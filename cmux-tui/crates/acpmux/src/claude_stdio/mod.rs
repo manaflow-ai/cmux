@@ -32,6 +32,15 @@ pub fn steers_by_info(info: Option<&Value>) -> bool {
     info.and_then(|i| i.get("name")).and_then(Value::as_str) == Some(AGENT_NAME)
 }
 
+/// Whether a chat's saved `agentInfo` names this adapter with its PreToolUse policy gate
+/// (`policy_gate.rs`, registered on unix). An agent started by a build without it (a host
+/// adopted after an upgrade) says nothing: false.
+pub fn has_tool_gate(info: Option<&Value>) -> bool {
+    steers_by_info(info)
+        && info.and_then(|i| i.pointer("/_meta/acpmux/toolGate")).and_then(Value::as_bool)
+            == Some(true)
+}
+
 /// Claude Code's own permission modes, offered as ACP session modes: id
 /// (Claude Code's `--permission-mode` value), label and one-line description,
 /// in the order Claude Code's mode menu lists them. acpmux names none of its
@@ -280,6 +289,8 @@ mod edit_diff_tests;
 mod elicitation;
 #[cfg(test)]
 mod elicitation_tests;
+#[cfg(test)]
+mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod foreground_work;
 #[cfg(test)]
@@ -291,6 +302,9 @@ mod inbound;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
+// What the log keeps of Claude's raw system/init lines (`logged_init.rs`).
+mod logged_init;
+pub use logged_init::{InitSections, LoggedInit};
 mod live_name;
 #[cfg(test)]
 mod live_name_tests;
@@ -298,6 +312,9 @@ mod loops;
 #[cfg(test)]
 mod loops_tests;
 mod outbound;
+mod policy_gate;
+#[cfg(test)]
+mod policy_gate_tests;
 pub mod prompt_cache;
 pub mod prompt_suggestions;
 #[cfg(test)]
@@ -384,6 +401,12 @@ pub const RECAP: &str = "_acpmux/claude/recap";
 /// (`hub/live_name.rs`), `{sessionId, name}`: its `/rename` line between turns (`live_name.rs`).
 /// The answer is `{renamed: true}`, or `RENAME_BUSY` while a turn runs.
 pub const RENAME: &str = "_acpmux/claude/rename";
+
+/// This backend -> hub: whether the PreToolUse gate lets one tool call run (`policy_gate.rs`,
+/// `hub/policy_gate.rs`). Params as `session/request_permission`'s; the answer is
+/// `{"decision": "none"|"allow"|"ask"|"deny", "reason"?}`. A backend that has the gate says so in
+/// its `agentInfo` (`_meta.acpmux.toolGate`, [`has_tool_gate`]).
+pub const TOOL_GATE: &str = "_acpmux/claude/tool_gate";
 pub use live_name::{RENAME_BUSY, RENAME_IN_FLIGHT, RENAME_UNSUPPORTED};
 
 /// The chat's own session recap switch (`hub/away_recap.rs`): `default` follows the app's
@@ -515,6 +538,8 @@ pub struct Translator {
     /// claude control request_id -> the MCP elicitation form it asked
     /// (`elicitation.rs`), held until the answer.
     elicitations: Mutex<HashMap<String, elicitation::Form>>,
+    /// The PreToolUse gate that holds the chat's permission policy (`policy_gate.rs`).
+    gate: policy_gate::PolicyGate,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -737,6 +762,7 @@ impl Translator {
             suggestions: Mutex::new(HashMap::new()),
             inputs: Mutex::new(HashMap::new()),
             elicitations: Mutex::new(HashMap::new()),
+            gate: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
@@ -1097,7 +1123,11 @@ fn tool_title(name: &str, input: &Value) -> String {
     let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_owned);
     match name {
         "Bash" => s("command")
-            .map(|c| c.lines().next().unwrap_or("").chars().take(120).collect())
+            .map(|c| {
+                // A subagent's command shows as it was written, without the hook's mark line.
+                let c = crate::bg_hook::without_subagent_mark(&c);
+                c.lines().next().unwrap_or("").chars().take(120).collect()
+            })
             .unwrap_or_else(|| "Bash".into()),
         "Read" | "Write" | "Edit" | "MultiEdit" => format!(
             "{name} {}",

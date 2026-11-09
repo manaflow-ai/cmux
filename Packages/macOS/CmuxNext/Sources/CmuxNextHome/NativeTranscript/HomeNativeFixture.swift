@@ -26,6 +26,11 @@ public final class HomeNativeFixture {
     private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500)))
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
+    /// Each transcript this fixture shows (the one shown now too), once its `onStartAgent` is set: the fixture page and
+    /// the Agent Messages Playground hand it the pill menu's registered Start now row (HomeChiefHomes's `startsOwnAgents`).
+    public var onShow: ((HomeNativeTranscriptView) -> Void)? {
+        didSet { if let view { onShow?(view) } }
+    }
     /// The shown conversation and its Chief (set once the view shows).
     private var shown: (conversation: ConversationID, chief: ParticipantID)?
     /// The Chief's streamed turn (`debugStream`) and its last draft seq.
@@ -111,6 +116,7 @@ public final class HomeNativeFixture {
         // Start now on a queued agent: the mock Chief starts it at once (its session shows, so it says Working).
         let store = store
         view.onStartAgent = { peer in store.agentsStarted([peer]); return true }
+        onShow?(view)
         self.view = view
         shown = (id, chief)
         await view.binding.opened()
@@ -259,8 +265,13 @@ public final class HomeNativeFixture {
         guard let shown else { return false }
         if let pill {
             guard let view else { return false }
-            // As a click on it: over its drawn pill when it shows.
+            // As a click on it: over its drawn pill when it shows. The pill's frame is MessagesLab's DEBUG-only
+            // hit test; a CMUX_BENCH_HOOKS release build opens the agent without a point.
+            #if DEBUG
             view.openAgent(pill, at: view.transcript.debugAgentPillFrame(pill).map { view.convert($0, from: nil) })
+            #else
+            view.openAgent(pill, at: nil)
+            #endif
             return true
         }
         if open {

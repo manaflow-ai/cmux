@@ -64,22 +64,32 @@ import Testing
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == settings.terminalFontSize)
         #expect(CmuxMobilePreferences.wrapCode(defaults) == settings.wrapCode)
         #expect(CmuxMobilePreferences.keyClicks(defaults) == settings.keyClicks)
+        #expect(CmuxMobilePreferences.predictiveEcho(defaults) == settings.predictiveEcho)
+        #expect(CmuxMobilePreferences.predictiveEcho(defaults))
         #expect(CmuxMobilePreferences.dismissKeyboardAfterSend(defaults) == settings.dismissKeyboardAfterSend)
         #expect(!CmuxMobilePreferences.steersFollowUps(defaults))
 
         settings.terminalFontSize = 17
         settings.wrapCode = true
         settings.keyClicks = false
+        settings.predictiveEcho = false
         settings.dismissKeyboardAfterSend = false
         settings.followUp = .steer
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == 17)
         #expect(CmuxMobilePreferences.wrapCode(defaults))
         #expect(!CmuxMobilePreferences.keyClicks(defaults))
+        #expect(!CmuxMobilePreferences.predictiveEcho(defaults))
         #expect(!CmuxMobilePreferences.dismissKeyboardAfterSend(defaults))
         #expect(CmuxMobilePreferences.steersFollowUps(defaults))
 
         settings.terminalFontSize = 99
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == CmuxMobilePreferences.terminalFontSizes.upperBound)
+
+        // Ultra mode on cellular: off by default, stored under the key the WireGuard dial reads.
+        #expect(!settings.ultraOnCellular)
+        #expect(CmuxMobilePreferences.Key.ultraOnCellular == "cmuxMobile.settings.ultraOnCellular")
+        settings.ultraOnCellular = true
+        #expect(defaults.bool(forKey: CmuxMobilePreferences.Key.ultraOnCellular))
     }
 
     @Test func liveSessionsHideCheckpoints() {

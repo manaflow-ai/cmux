@@ -564,8 +564,8 @@ class GeneratedClientMixin:
     def park_tabs(self, surfaces: List[TabRef]) -> JsonValue:
         return self._invoke_command('park-tabs', ParkTabsRequest(surfaces=surfaces))
 
-    def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
-        return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, mime=mime, offset=offset, size=size))
+    def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, filename: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
+        return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, filename=filename, mime=mime, offset=offset, size=size))
 
     def pin_workspace(self, profile: str, session_id: str, workspace_key: str) -> JsonValue:
         return self._invoke_command('pin-workspace', PinWorkspaceRequest(profile=profile, session_id=session_id, workspace_key=workspace_key))
@@ -786,8 +786,8 @@ class GeneratedClientMixin:
     def snapshot_request(self, surface: Id, *, have: Union[SnapshotRequestHave, None, MissingType] = MISSING, reason: Union[str, None, MissingType] = MISSING, request_id: Union[str, None, MissingType] = MISSING) -> SnapshotRequestResult:
         return self._invoke_command('snapshot-request', SnapshotRequestRequest(surface=surface, have=have, reason=reason, request_id=request_id))
 
-    def split(self, pane: Id, dir: SplitDirection, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, kind: Union[PaneKind, None, MissingType] = MISSING, pane_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING, split_id: Union[str, None, MissingType] = MISSING, tab_id: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> PaneSurfaceResult:
-        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, kind=kind, pane_id=pane_id, rows=rows, shell_args=shell_args, split_id=split_id, tab_id=tab_id, url=url))
+    def split(self, pane: Id, dir: SplitDirection, *, terminal_id: Union[str, None, MissingType] = MISSING, before: Union[bool, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, kind: Union[PaneKind, None, MissingType] = MISSING, pane_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING, split_id: Union[str, None, MissingType] = MISSING, tab_id: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> PaneSurfaceResult:
+        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, terminal_id=terminal_id, before=before, cols=cols, cwd=cwd, env=env, keep=keep, kind=kind, pane_id=pane_id, rows=rows, shell_args=shell_args, split_id=split_id, tab_id=tab_id, url=url))
 
     def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING) -> Any:
         return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events))
