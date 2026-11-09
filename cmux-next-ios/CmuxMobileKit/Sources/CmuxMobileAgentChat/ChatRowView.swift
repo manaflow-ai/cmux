@@ -97,8 +97,11 @@ struct ChatRowView: View {
             let turnID = row.turnID
             UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast,
                        editAndResend: { context.editAndResend(turnID: turnID) },
-                       editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil)
+                       editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil,
+                       polish: ChatPolishMenuButtons(store: context.store, turnID: turnID, prompt: text))
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        case .incoming(let incoming, let attachments, let at):
+            AgentIncomingCard(incoming: incoming, attachments: attachments, at: at)
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block) { context.messageText(messageID) }
         case .thought(let text, let isLive):
@@ -119,7 +122,7 @@ struct ChatRowView: View {
         case .permission(let record, let offersChoices):
             let surface = context.surface
             PermissionCard(record: record, agentName: store.summary.agentName,
-                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth) { surface.showPermissionChoices() } } : nil)
+                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() } } : nil)
         case .question(let question):
             VStack(alignment: .leading, spacing: 10) {
                 QuestionCard(question: question) { store.answer(question, with: $0) }
@@ -147,13 +150,33 @@ struct ChatRowView: View {
             // The latest failed turn retries through acpmux (its input and context kept).
             FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
                         canRetry: turn.map { store.canRetryFailedTurn($0) } ?? false,
-                        retryWith: turn.flatMap { RetryModelChoice(store: store, turn: $0) }) {
+                        retryWith: turn.flatMap { RetryModelChoice(store: store, turn: $0) },
+                        leadsWithContinue: turn?.continuesAfterFailure ?? false) {
                 if let turn { store.retryFailedTurn(turn) }
             }
+        case .nextStep(let ask, let answer, let canAnswer):
+            NextStepCard(ask: ask, answer: answer, canAnswer: canAnswer) { option in
+                // The answer goes as the next prompt (`session/prompt`), in the agent's own words,
+                // quoting the ask it answers as the Mac's card does.
+                store.send(prompt: ask.answerPrompt(option.label, asker: store.summary.agentName))
+            }
+        case .whoElse(let id, let call):
+            WhoElseCard(id: id, call: call, open: openWhoElse)
         case .actions(let turn, let isLast):
-            AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn)) {
+            AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn),
+                            polish: ChatPolishMenuButtons(store: store, turnID: turn.id, prompt: nil)) {
                 store.retry(turn)
             }
+        }
+    }
+
+    /// A who-else session opens as a tab of this workspace by its id; a peer's session stays a
+    /// name (a phone can't route to another machine's acpmux). Its own member: inline in
+    /// `content`'s switch, the closure was past what the type checker solves in time.
+    private var openWhoElse: (@MainActor (WhoElseCall.Session) -> Void)? {
+        guard !context.store.source.isReadOnly, let open = context.surface.tabActions?.openSession else { return nil }
+        return { session in
+            Task { @MainActor in await open(session.sessionId, session.harness, session.title) }
         }
     }
 }

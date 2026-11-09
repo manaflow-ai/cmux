@@ -162,33 +162,12 @@ test("releases the browse guard after switching environment kind", async () => {
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Folder access was denied.");
 });
 
-test("back from Add Project cannot apply its deferred browse to the environment", async () => {
+test("the folder menu's one browse row is Add folder…, with no Add project beside it", async () => {
   const container = installDom();
-  let resolveBrowse!: (folder: string) => void;
-  await renderPanel(container, (request) => {
-    expect(request?.deferPick).toBe(true);
-    return new Promise((resolve) => {
-      resolveBrowse = resolve;
-    });
-  });
+  await renderPanel(container, () => Promise.resolve(undefined));
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
-  const pick = async (label: string) => {
-    const item = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((node) =>
-      node.textContent?.includes(label),
-    );
-    expect(item).toBeTruthy();
-    await act(async () => item!.click());
-  };
-  await pick("Add project");
-  await pick("This Mac");
-  await pick("Local folder");
-  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
-  await act(async () => document.querySelector<HTMLButtonElement>(".acpmux-add-project-heading button")!.click());
-  await pick("This Mac");
-  await pick("Local folder");
-  // The native chooser is still pending: the second attempt must stay in Add Project,
-  // rather than interpreting the busy guard as cancellation and closing the dialog.
-  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
-  await act(async () => resolveBrowse("/Users/you/src/stale"));
-  expect(container.querySelector('.acpmux-env-select[title="/Users/you/src/cmux"]')).toBeTruthy();
+  const actions = [...document.querySelectorAll<HTMLElement>(".acpmux-location-action")].map((node) =>
+    node.textContent?.trim(),
+  );
+  expect(actions).toEqual(["Add folder…"]);
 });

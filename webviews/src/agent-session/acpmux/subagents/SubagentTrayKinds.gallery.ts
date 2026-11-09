@@ -16,7 +16,7 @@
 // Compare the header's arms (trayHeadKinds.experiment.ts) with the entry's experiment.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, chat, row, SESSION_ID, session, tool, user } from "../../../gallery/fixtures/acpmux";
-import { minutesAgo } from "../../../gallery/clock";
+import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxSnapshot } from "../model";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
@@ -31,8 +31,9 @@ function agent(task: string, minutes: number, state: Subagent["state"], fields: 
     kind: "general-purpose",
     state,
     background: true,
-    startedAt: minutesAgo(minutes),
-    ...(state !== "running" && { endedAt: minutesAgo(Math.max(0, minutes - 29.35)) }),
+    // What ended lingers in the hat only for its grace (trayLinger.ts): it ran up to 29m 21s and
+    // ended just now.
+    ...(state === "running" ? { startedAt: minutesAgo(minutes) } : recentRun(minutes, Math.min(minutes, 29.35))),
     ...fields,
   };
 }
@@ -113,6 +114,15 @@ async function open(ctx: PlayContext, lines?: number): Promise<void> {
     const count = ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length;
     return lines === undefined ? count > 0 : count === lines;
   });
+  // The lines are drawn at once, but the list's box opens on the shared fold (settle curve), whose
+  // tail is still a pixel short of the list at about 250 ms: the columns are measured once it is open.
+  await ctx.waitFor(
+    () =>
+      !ctx.document
+        .querySelector(".acpmux-running-tray__fold")
+        ?.getAnimations()
+        .some((animation) => animation.playState === "running"),
+  );
 }
 
 const box = (node: Element | null | undefined) => node?.getBoundingClientRect();
@@ -172,24 +182,27 @@ export default agentPaneEntry({
   },
   variants: {
     "leo-tray": {
-      note: 'Leo\'s tray (2026-11-03): four background commands and a finished subagent, open. Every time ends on one x (the done line\'s "Done · 29m 21s" no longer runs into the empty Stop column), the Stop squares and the chevrons each sit in one column with the header\'s, and the header says "4 commands · 1 subagent done".',
+      note: 'Leo\'s tray (2026-11-03): four background commands and a finished subagent, open. Every time ends on one x (the done line\'s "Done · 29m 21s" no longer runs into the empty Stop column), the Stop squares and the chevrons each sit in one column with the header\'s, and the header says "1 build · 2 waits · 1 command · 1 subagent done", its commands counted by what they do.',
       play: async (ctx) => {
         await open(ctx, 5);
         columns(ctx);
-        if (title(ctx) !== "4 commands · 1 subagent done") throw new Error(`unexpected header: ${title(ctx)}`);
+        if (title(ctx) !== "1 build · 2 waits · 1 command · 1 subagent done")
+          throw new Error(`unexpected header: ${title(ctx)}`);
       },
       snapshot: leoTray,
     },
     mixed: {
-      note: "Every kind: two subagents running (one Codex, by its mark after the counts), a session the agent started, two commands, a subagent done and one failed, in red. The columns hold on every line.",
+      note: "Every kind: two subagents running (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one failed, in red. The columns hold on every line.",
       play: async (ctx) => {
         await open(ctx, 7);
         columns(ctx);
-        if (title(ctx) !== "2 subagents running · 1 session · 2 commands · 1 subagent done")
+        if (title(ctx) !== "2 subagents running · 1 session · 1 test run · 1 server · 1 subagent done")
           throw new Error(`unexpected header: ${title(ctx)}`);
         if (ctx.find({ selector: ".acpmux-running-tray__failed" }).textContent?.trim() !== "· 1 failed")
           throw new Error("the failure count reads after the counts");
-        if (!ctx.document.querySelector(".acpmux-running-tray__marks")) throw new Error("the Codex subagent's mark");
+        // The Codex mark is one of the header's stacked marks, or after the counts.
+        if (!ctx.document.querySelector('.acpmux-running-tray__head svg[data-agent="openai"]'))
+          throw new Error("the Codex subagent's mark");
       },
       snapshot: mixed,
     },

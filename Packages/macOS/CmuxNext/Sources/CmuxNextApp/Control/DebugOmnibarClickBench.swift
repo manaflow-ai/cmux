@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextSettings
+import CmuxNextControl
 
 /// `debug.omnibar_bench` (DEBUG builds): one click on the omnibar of a browser pane at rest,
 /// through the app's real mouse path (`debug.mouse`: the event queue, `CmuxApplication.sendEvent`,

@@ -75,6 +75,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   debounce:
     if: ${{ github.event_name != 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && vars.CMUX_NEXT_BATCH_ENABLED == '1' && (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'next-batch/'))) }}
@@ -224,6 +228,18 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # regenerate-swift-exports.sh then rebuilds the docs reference data with
+      # web/scripts/export-next-docs.ts, which needs bun (or Node 22.18+).
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
+
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -263,6 +279,7 @@ jobs:
             exit 0
           fi
           git add -A -- plans/cmux-next schemas/settings docs/mdm
+          [[ ! -d web/data/next-docs ]] || git add -A -- web/data/next-docs
           [[ ! -e Packages/macOS/CmuxNext/ci-target-graph.json ]] || git add -- Packages/macOS/CmuxNext/ci-target-graph.json
           if ! git diff --cached --quiet; then
             git -c user.name="cmux-next batch queue" \

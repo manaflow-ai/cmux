@@ -374,15 +374,41 @@ export function inlinePlugin(views: InlineViews) {
 
 /// Places attachments `ids` at the selection, the caret after them; false where they cannot go (a
 /// code block) or the editor has no such node.
-export function insertInline(view: EditorView, ids: readonly string[]): boolean {
+///
+/// `replace`: the person's own paste or drop, which takes the selection's place as a paste of text
+/// does, a selection across lines or the whole prompt (Select All) included. Their placeholder then
+/// goes where the selection was, never into the strip above the text to jump into the text once read
+/// (Leo, 2026-11-07: "you expect it to be right at my caret ... It tries to place it above"). Without
+/// it (an attachment placed later, once read or once the field can take it) nothing typed is ever
+/// replaced: the attachments go in at the selection's end.
+export function insertInline(view: EditorView, ids: readonly string[], replace = false): boolean {
   const type = view.state.schema.nodes[INLINE_NODE];
   if (!type || ids.length === 0) return false;
-  const { $from, $to, from, to } = view.state.selection;
+  const tr = view.state.tr;
+  const { selection } = tr;
+  if (!replace) {
+    if (!selection.empty) {
+      const $end = tr.doc.resolve(selection.to);
+      tr.setSelection(
+        $end.parent.inlineContent ? TextSelection.create(tr.doc, selection.to) : Selection.near($end, -1),
+      );
+    }
+  } else if (
+    !selection.empty &&
+    (selection.$from.parent !== selection.$to.parent || !selection.$from.parent.inlineContent)
+  ) {
+    // Not into a code block it would end in: the attachment could not go there.
+    const lands = selection.$from.parent.inlineContent ? selection.$from.parent : selection.$to.parent;
+    if (lands.type.spec.code) return false;
+    tr.deleteSelection();
+  }
+  const { $from, $to, from, to } = tr.selection;
   if (!$from.parent.inlineContent || $from.parent.type.spec.code || $from.parent !== $to.parent) return false;
   const nodes = Fragment.from(ids.map((id) => type.create({ id })));
   if (!$from.parent.canReplace($from.index(), $to.index(), nodes)) return false;
-  const tr = view.state.tr.replaceWith(from, to, nodes);
-  tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(to))));
+  const placedAt = tr.steps.length;
+  tr.replaceWith(from, to, nodes);
+  tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.slice(placedAt).map(to))));
   view.dispatch(tr.scrollIntoView());
   return true;
 }
@@ -390,7 +416,15 @@ export function insertInline(view: EditorView, ids: readonly string[]): boolean 
 /// Takes attachment `id`'s node out of the prompt, as an undoable edit.
 export function removeInline(view: EditorView, id: string, caret = false) {
   const found = inlineNodes(view.state.doc).filter((node) => node.id === id);
-  if (!found.length) return;
+  if (!found.length) {
+    // A chip with no place (an oversized paste in a code fence keeps its chip in the strip): what
+    // goes in next goes after the selection, never over the person's selected draft.
+    const { selection } = view.state;
+    if (caret && !selection.empty) {
+      view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(selection.to), -1)));
+    }
+    return;
+  }
   // `caret`: what goes in next (a pasted chip's text) takes the attachment's place, not the caret's,
   // and the two are one undo step of their own, as a Backspace over the node is: an undo brings the
   // chip back, never the typing before it.

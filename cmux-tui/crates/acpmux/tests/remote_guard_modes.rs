@@ -107,6 +107,9 @@ async fn a_web_source_is_resolved_like_its_handler_and_refused_when_it_cannot_be
         let created = local.new_on(&d, "fake", json!({"policy": "approve-all", "_meta": {"acpmux": {"harness": "fake", "name": "loose-one"}}})).await;
         let sid = id(&created);
         let _ = local.call("_acpmux/kill", json!({"sessionId": sid})).await;
+        // The old daemon's shutdown seal: in one process the journal's lock passes to the next
+        // open only on it.
+        hub.seal();
         ("loose-one".to_owned(), sid)
     };
     // A new daemon: the session is stored, not live.

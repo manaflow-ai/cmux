@@ -24,7 +24,11 @@ pub struct NewArgs {
     pub name: Option<String>,
     #[arg(long)]
     pub cwd: Option<PathBuf>,
-    /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
+    /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all, or `review`
+    /// for a reviewer: reads, searches and read-only shell commands (`git log`/`diff`/`show`,
+    /// `grep`, `rg`, `ls`, `cat`, `sed -n`) run unasked, and every write or other command is
+    /// denied at once, so it never waits for a person
+    /// (`acpmux run -m claude --policy review "review the diff in ~/proj"`).
     #[arg(long)]
     pub policy: Option<String>,
     /// The harness mode to start in (e.g. `auto`). One that does not ask needs the
@@ -34,7 +38,7 @@ pub struct NewArgs {
     pub mode: Option<String>,
     /// HARNESS[/MODEL]: a family or profile name (`claude`, `codex`, `omp`), optionally with a model
     /// (`claude/opus`, `codex/gpt-5.5`, `opencode/zai/glm-5.1`). Omitted: the default harness and its defaults.
-    #[arg(long, short)]
+    #[arg(long, short, visible_alias = "harness")]
     pub model: Option<String>,
     /// Thinking effort: default, low, medium, high, xhigh, max (Codex adds ultra).
     #[arg(long, short)]
@@ -68,8 +72,8 @@ pub struct NewArgs {
     /// Retry the turn on an agent-internal error, only when it produced nothing yet.
     #[arg(long, default_value_t = 0)]
     pub retries: u32,
-    /// Report prompt_stalled (exit 1) when nothing happens for this many seconds; 0 disables.
-    #[arg(long, default_value_t = 30)]
+    /// Report prompt_stalled (exit 1) when nothing happens for this many seconds; 0 disables. The default waits for the live peer.
+    #[arg(long, default_value_t = 0)]
     pub stall: u64,
     /// Send the first prompt with this id again (from a `daemon_closed` error); it runs once.
     #[arg(long)]
@@ -112,4 +116,9 @@ pub struct NewArgs {
     /// floor; the fleet registry's max_lanes only warns). The daemon logs it.
     #[arg(long)]
     pub force_admit: bool,
+    /// With --json, print the whole record, with the command, tool and option catalogs that
+    /// `--json` leaves out (about 23 of a Claude session's 27 KB). `acpmux --json session info
+    /// NAME` prints them too.
+    #[arg(long)]
+    pub full: bool,
 }

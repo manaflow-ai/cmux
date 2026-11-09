@@ -9,10 +9,17 @@ import { ChevronRight, Globe, Magnifier, MultiTool, Pencil, TerminalSquare, Tool
 import { countsFailed } from "./toolGroups";
 import { isMixedToolRun, mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useToolRunLook } from "../toolRunLook";
-import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
+import {
+  callDisclosureKeys,
+  FoldPin,
+  useFoldPin,
+  useTranscriptDisclosure,
+  useTranscriptViewContext,
+} from "./transcriptDisclosureModel";
 import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { EditCounts, useEditTotals } from "./EditCounts";
+import { EditCounts } from "./EditCounts";
+import { useEditTotals } from "./editCountsModel";
 import { FailedCount } from "./FailedCount";
 import { ToolLabel } from "./ToolVerb";
 
@@ -23,16 +30,16 @@ function runIcon(category: ToolRunCategory | "mixed" | undefined): ReactNode {
     case "mixed":
       return <MultiTool />;
     case "edited":
-      return <Pencil size={16} strokeWidth={1.1} />;
+      return <Pencil size={16} />;
     case "read":
     case "searched":
       return <Magnifier />;
     case "web":
-      return <Globe size={16} strokeWidth={1.1} />;
+      return <Globe size={16} />;
     case "ran":
       return <TerminalSquare />;
     default:
-      return <ToolGroup size={16} strokeWidth={1.2} />;
+      return <ToolGroup size={16} />;
   }
 }
 
@@ -40,10 +47,16 @@ export function ToolRun({
   items,
   children,
   disclosureKey,
+  inherits,
+  defaultOpen = false,
 }: {
   items: readonly AcpmuxActivity[];
   children: ReactNode;
   disclosureKey: string;
+  /// The keys of the group lines this run's line took the place of: one the reader opened opens it.
+  inherits?: readonly string[];
+  /// Open until the reader closes it: a run inside a steered turn's opened Worked for (turns.ts).
+  defaultOpen?: boolean;
 }) {
   const t = useT();
   const look = useToolRunLook();
@@ -51,7 +64,18 @@ export function ToolRun({
   // thought, so the thought it opens is on screen.
   const thinking = useTranscriptViewContext() === "thinking";
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true);
+  // A call in the run the reader opened keeps the run open when it folds (`members`); a choice inside
+  // the run pins it (`pin`).
+  const members = useMemo(() => callDisclosureKeys(items), [items]);
+  const [open, setOpen] = useTranscriptDisclosure(
+    disclosureKey,
+    defaultOpen || holdsThought,
+    true,
+    inherits,
+    true,
+    members,
+  );
+  const pin = useFoldPin(disclosureKey);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
@@ -76,6 +100,7 @@ export function ToolRun({
       <button
         type="button"
         className={quiet ? "cv-tool is-toggle is-run" : "cv-tool is-toggle is-run is-strong"}
+        data-tool-run={disclosureKey}
         aria-expanded={open}
         aria-controls={open ? list : undefined}
         ref={fold.headerRef}
@@ -89,18 +114,16 @@ export function ToolRun({
           {totals && <EditCounts totals={totals} />}
           <FailedCount n={failures} />
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
-        <div {...fold.bodyProps}>
-          <div className="cv-tool-run" id={list}>
-            {children}
+        <FoldPin.Provider value={pin}>
+          <div {...fold.bodyProps}>
+            <div className="cv-tool-run" id={list}>
+              {children}
+            </div>
           </div>
-        </div>
+        </FoldPin.Provider>
       )}
     </>
   );

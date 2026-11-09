@@ -835,6 +835,39 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to "<title> Chief". Invite people with participants.add or invite.create on the channel.
+    ChannelCreateOp {
+        name: "channel.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: ChannelCreateParams,
+        result: HomeChief,
+        error: ChannelCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChannelCreateParams {
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes channel.create declares.
+    ChannelCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever.
     ChiefArchiveOp {
         name: "chief.archive",
@@ -864,42 +897,6 @@ wire_errors! {
         IdempotencyConflict = "idempotency.conflict",
         RevisionConflict = "revision.conflict",
         SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain.
-    ChiefCreateOp {
-        name: "chief.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: ChiefCreateParams,
-        result: HomeChief,
-        error: ChiefCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChiefCreateParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub is_default: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub brain_place: Option<ChiefBrainPlace>,
-}
-
-wire_errors! {
-    /// The error codes chief.create declares.
-    ChiefCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }
 }

@@ -222,6 +222,7 @@ public final class AppsClient {
             let changed = changedFiles
             changedFiles.removeAll()
             for app in changed { fileRevisions[app, default: 0] += 1 }
+            remountListedFailures()
         }
     }
 

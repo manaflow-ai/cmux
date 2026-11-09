@@ -10,6 +10,8 @@ import {
   type ListResult,
   type NewsLayout,
   type SheetLayout,
+  type SheetLinks,
+  type CompareMode,
   type ReleaseNotes,
 } from "./types";
 
@@ -30,6 +32,12 @@ export interface ChangelogSnapshot {
   loaded: Record<string, ReleaseNotes>;
   /** Builds whose notes could not be loaded (offline, unsigned). */
   unavailable: Record<string, true>;
+  /** The host can restart into another listed build (``ChangelogStore.install``). */
+  installs: boolean;
+  /** The build an install is downloading and checking; the app restarts when it is done. */
+  installing?: string;
+  /** Why the last install did not run, for the build it was for. */
+  installFailed?: { build: string; message: string };
 }
 
 export interface UpdateSpan {
@@ -45,6 +53,26 @@ export function parseSpan(hash: string): UpdateSpan | undefined {
   if (!to) return undefined;
   const from = params.get("from")?.trim();
   return from ? { from, to } : { to };
+}
+
+/** The change a click on the sidebar Updated card's list asks for (Leo 2026-11-08: "maybe just
+    bring them to the section in what's new aka bringing that tab up"): `entry`, its title, and
+    `area`, its app area (areas.ts), from the host's route `#/?…&area=<a>&entry=<t>&n=<nonce>`.
+    `n` differs per click, so the same row clicked again scrolls again. Undefined without either. */
+export interface ChangelogFocus {
+  area?: string;
+  entry?: string;
+  n?: string;
+}
+
+export function parseFocus(hash: string): ChangelogFocus | undefined {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const params = new URLSearchParams(query);
+  const area = params.get("area")?.trim();
+  const entry = params.get("entry")?.trim();
+  if (!area && !entry) return undefined;
+  const n = params.get("n")?.trim();
+  return { ...(area ? { area } : {}), ...(entry ? { entry } : {}), ...(n ? { n } : {}) };
 }
 
 /** The design the route names (`design=ledger|journal|rail|digest`, Debug Settings `whatsNew.design`); the sheet by default. */
@@ -66,6 +94,19 @@ export function parseSheetLayout(hash: string): SheetLayout {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const sheet = new URLSearchParams(query).get("sheet");
   return sheet === "stack" || sheet === "grid" ? sheet : "inline";
+}
+
+/** How a before/after pair shows (`compare=side|toggle`); the dragged split by default. */
+export function parseCompareMode(hash: string): CompareMode {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const compare = new URLSearchParams(query).get("compare");
+  return compare === "side" || compare === "toggle" ? compare : "slider";
+}
+
+export function parseSheetLinks(hash: string): SheetLinks {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const prs = new URLSearchParams(query).get("prs");
+  return prs === "end" || prs === "row" ? prs : "hover";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */
@@ -123,6 +164,7 @@ export class ChangelogStore {
       inSpan: [],
       loaded: {},
       unavailable: {},
+      installs: false,
     };
   }
 
@@ -138,10 +180,23 @@ export class ChangelogStore {
     for (const listener of this.listeners) listener();
   }
 
-  /** Loads the list, then the span's newest notes, else the running build's (or the newest listed). */
-  start(span?: UpdateSpan): Promise<void> {
-    this.started = this.load(span);
+  /** Loads the list, then the span's newest notes, else the running build's (or the newest listed).
+      `cachedFirst` (the Updated card after a relaunch) takes the list the host kept on disk when it
+      lists the span's newest build, and asks the network only when it does not. */
+  start(span?: UpdateSpan, options: { cachedFirst?: boolean } = {}): Promise<void> {
+    this.started = this.load(span, options.cachedFirst === true);
     return this.started;
+  }
+
+  /** The host's list from disk (`cached: true`, no network) when it lists `span`'s newest build. */
+  private async cachedList(span: UpdateSpan): Promise<ListResult | undefined> {
+    if (!this.client) return undefined;
+    try {
+      const list = await this.client.call<ListResult>(ChangelogOps.list, { cached: true });
+      return list.builds.some((b) => compareVersions(b.shortVersion, span.to) === 0) ? list : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Settles once the first screen's data has: the list, the selected build's notes and the notes
@@ -156,14 +211,17 @@ export class ChangelogStore {
     }
   }
 
-  private async load(span?: UpdateSpan): Promise<void> {
+  private async load(span?: UpdateSpan, cachedFirst = false): Promise<void> {
     if (!this.client) return;
     this.latestSpan = span;
     try {
-      const list = await this.client.call<ListResult>(ChangelogOps.list, {});
+      const list =
+        (cachedFirst && span ? await this.cachedList(span) : undefined) ??
+        (await this.client.call<ListResult>(ChangelogOps.list, {}));
       const builds = list.builds.length ? list.builds : [];
       this.listed = true;
       this.set({ builds, current: list.current, loading: false });
+      void this.readInstallable();
       // A route change while the list loaded wins over the first route.
       if (this.latestSpan) return this.setSpan(this.latestSpan);
       await this.select(list.current || builds[0]?.build);
@@ -216,6 +274,31 @@ export class ChangelogStore {
       .finally(() => this.pending.delete(build));
     this.pending.set(build, load);
     return load;
+  }
+
+  /** Whether the host lists Install (none on a DEV build, or a host without the op). */
+  private async readInstallable(): Promise<void> {
+    try {
+      const answer = await this.client?.call<{ installs?: boolean }>(ChangelogOps.installable, {});
+      if (answer?.installs === true) this.set({ installs: true });
+    } catch {
+      // An older host: no Install.
+    }
+  }
+
+  /** Install this version: the host downloads `build`, checks its signature and team, keeps it and
+      restarts into it with every session. One at a time; a refusal (pulled, unsigned, a store the
+      build cannot read) stays beside that build. */
+  async install(build: string): Promise<void> {
+    if (!this.client || this.snapshot.installing) return;
+    this.set({ installing: build, installFailed: undefined });
+    try {
+      await this.client.call(ChangelogOps.install, { build });
+    } catch (error) {
+      this.set({ installFailed: { build, message: isPageError(error) ? error.message : String(error) } });
+    } finally {
+      this.set({ installing: undefined });
+    }
   }
 
   /** "Try it": the host runs the action only when it is on the allow-list. */

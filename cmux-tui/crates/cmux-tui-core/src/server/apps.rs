@@ -112,6 +112,11 @@ enum Command {
     /// tell every app server that reads the link (`cmux.host.link.changed`).
     #[serde(rename = "apps-link-changed")]
     LinkChanged,
+    /// One Cloud event the app received pushed (a machine's state socket):
+    /// the daemon passes it to the first-party Cloud server as a
+    /// `team.event` line (`Supervisor::team_event`). Verified app only.
+    #[serde(rename = "apps-team-event")]
+    TeamEvent { event: String, data: Value },
     /// The Mac app serves ops the daemon does not own (app-op-routing.md).
     #[serde(rename = "apps-provider-register")]
     ProviderRegister {
@@ -135,6 +140,9 @@ enum Command {
     /// One console line of a web pane; the hosting app only.
     #[serde(rename = "apps-web-log")]
     WebLog { app: String, level: String, message: String },
+    /// The verified app's provider of `family` says its data changed (`<family>.changed`).
+    #[serde(rename = "apps-provider-changed")]
+    ProviderChanged { family: String },
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -275,9 +283,15 @@ pub(super) fn try_handle(
         return None;
     }
     let id = value.get("id").cloned();
-    if cmd == "apps-agent-inventory-changed"
+    // An invalidation carries its one field and nothing else (no stream, owner or rows).
+    let only = match cmd {
+        "apps-agent-inventory-changed" => Some("demand_sequence"),
+        "apps-provider-changed" => Some("family"),
+        _ => None,
+    };
+    if let Some(only) = only
         && value.as_object().is_none_or(|fields| {
-            fields.keys().any(|key| !matches!(key.as_str(), "id" | "cmd" | "demand_sequence"))
+            fields.keys().any(|key| key != "id" && key != "cmd" && key != only)
         })
     {
         return Some(reply(
@@ -285,7 +299,7 @@ pub(super) fn try_handle(
             id,
             Err(crate::apps::ApiError::new(
                 "bad-request",
-                "inventory invalidation accepts only demand_sequence",
+                format!("this invalidation accepts only {only}"),
             )),
         ));
     }
@@ -315,7 +329,7 @@ pub(super) fn try_handle(
         Command::Set { .. } => true,
         Command::Store { op, .. } => crate::apps::store_op_mutates(op),
         // Only the app that runs the link reports its changes (cx-rtipa).
-        Command::LinkChanged => true,
+        Command::LinkChanged | Command::TeamEvent { .. } => true,
         _ => false,
     };
     let user_authority = changes_apps || request.origin == crate::apps::Origin::User;
@@ -325,8 +339,10 @@ pub(super) fn try_handle(
     // Origin `user` also needs a connection that is not bound to an agent
     // (the verified app check above does not see the agent binding).
     let origin_claim = claim_for(mux, client);
-    if matches!(request.command, Command::AgentInventoryChanged { .. })
-        && !crate::apps::hosting_app_connection(&origin_claim)
+    if matches!(
+        request.command,
+        Command::AgentInventoryChanged { .. } | Command::ProviderChanged { .. }
+    ) && !crate::apps::hosting_app_connection(&origin_claim)
     {
         return Some(reply(
             writer,
@@ -356,7 +372,7 @@ pub(super) fn try_handle(
     }
     // An agent-bound connection never reports a link change, also when it
     // is the verified app's (as `apps-provider-register`).
-    if matches!(request.command, Command::LinkChanged)
+    if matches!(request.command, Command::LinkChanged | Command::TeamEvent { .. })
         && !crate::apps::hosting_app_connection(&origin_claim)
     {
         return Some(reply(
@@ -388,6 +404,7 @@ pub(super) fn try_handle(
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
+        Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),
         Command::Set {
             idempotency_key,
             app,
@@ -464,6 +481,9 @@ pub(super) fn try_handle(
         }
         Command::AgentInventoryChanged { demand_sequence } => {
             supervisor.agent_inventory_changed(client, claim_for(mux, client), demand_sequence)
+        }
+        Command::ProviderChanged { family } => {
+            supervisor.provider_changed(client, claim_for(mux, client), &family)
         }
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)
@@ -692,6 +712,29 @@ mod tests {
         );
         // The full UInt64 range is parsed exactly before the authority gate.
         let frame = json!({"id":1,"cmd":"apps-agent-inventory-changed","demand_sequence":u64::MAX});
+        assert_eq!(
+            error_code(&mux, client, &out, frame).as_deref(),
+            Some("apps.provider.forbidden")
+        );
+    }
+
+    #[test]
+    fn cmux_next_provider_changed_frame_names_only_its_family() {
+        let mux = Mux::new_for_test("provider-changed-frame", SurfaceOptions::default());
+        let (client, out) = connection(&mux, Some("app"), false);
+        for key in ["stream", "event", "body", "demand_sequence", "origin"] {
+            let mut frame = json!({"id":1,"cmd":"apps-provider-changed","family":"agent_chat"});
+            frame[key] = json!("untrusted");
+            assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
+        }
+        for family in [Value::Null, json!(1), json!(["agent_chat"])] {
+            let frame = json!({"id":1,"cmd":"apps-provider-changed","family":family});
+            assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
+        }
+        let frame = json!({"id":1,"cmd":"apps-provider-changed"});
+        assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
+        // A well-formed frame from a connection that is not the verified app stops at the gate.
+        let frame = json!({"id":1,"cmd":"apps-provider-changed","family":"agent_chat"});
         assert_eq!(
             error_code(&mux, client, &out, frame).as_deref(),
             Some("apps.provider.forbidden")

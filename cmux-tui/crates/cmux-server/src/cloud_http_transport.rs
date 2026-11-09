@@ -3,16 +3,19 @@ use std::time::Duration;
 
 use serde_json::Value;
 use tokio::runtime::{Builder, Runtime};
+use tokio::sync::watch;
 
 use super::RequestDeadline;
 
 pub(super) struct Transport {
     client: reqwest::Client,
     runtime: Runtime,
+    /// The address-change count this pool was made at.
+    epoch: u64,
 }
 
 impl Transport {
-    pub(super) fn new(allow_http: bool) -> Result<Self, String> {
+    pub(super) fn new(allow_http: bool, epoch: u64) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .https_only(!allow_http)
             .redirect(reqwest::redirect::Policy::none())
@@ -25,7 +28,11 @@ impl Transport {
             .enable_all()
             .build()
             .map_err(|_| "Cloud transport unavailable")?;
-        Ok(Self { client, runtime })
+        Ok(Self { client, runtime, epoch })
+    }
+
+    pub(super) fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     pub(super) fn request(
@@ -35,7 +42,8 @@ impl Transport {
         body: Option<&Value>,
         bearer: Option<&str>,
         deadline: &RequestDeadline,
-    ) -> Result<(u16, Vec<u8>), String> {
+        network: &mut watch::Receiver<u64>,
+    ) -> Result<super::Response, String> {
         let remaining = deadline.remaining().ok_or("Cloud request unavailable")?;
         let result = self.runtime.block_on(async {
             tokio::select! {
@@ -43,6 +51,8 @@ impl Transport {
                 _ = crate::deadline::wait(deadline.active(), deadline.elapsed()) => {
                     Err("Cloud request unavailable".to_owned())
                 }
+                // The connection under this request may be dead: fail now rather than at the deadline.
+                Ok(()) = network.changed() => Err("Cloud request unavailable".to_owned()),
                 response = self.send(method, url, body, bearer, remaining) => response,
             }
         })?;
@@ -57,7 +67,7 @@ impl Transport {
         body: Option<&Value>,
         bearer: Option<&str>,
         remaining: Duration,
-    ) -> Result<(u16, Vec<u8>), String> {
+    ) -> Result<super::Response, String> {
         let mut request = self.client.request(method, url).timeout(remaining);
         if let Some(body) = body {
             request = request.json(body);
@@ -67,6 +77,13 @@ impl Transport {
         }
         let mut response = request.send().await.map_err(|_| "Cloud request failed")?;
         let status = response.status().as_u16();
+        // The one header a caller reads (a 429's wait), bounded like the body.
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| value.len() <= 64)
+            .map(str::to_owned);
         const LIMIT: usize = 1024 * 1024;
         if response.content_length().is_some_and(|n| n > LIMIT as u64) {
             return Err("Cloud response too large".into());
@@ -78,11 +95,11 @@ impl Transport {
             }
             bytes.extend_from_slice(&chunk);
         }
-        Ok((status, bytes))
+        Ok(super::Response { status, retry_after, bytes })
     }
 
     pub(super) fn stop(self) {
-        let Self { client, runtime } = self;
+        let Self { client, runtime, .. } = self;
         drop(client);
         // Async drivers and their credential-bearing sockets are aborted.
         // A system DNS lookup may finish separately; it owns only the hostname.

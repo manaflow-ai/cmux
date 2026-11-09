@@ -15,7 +15,9 @@
 //! the app's ssh Add Machine card, as before.
 //!
 //! The platform origin comes from `--platform` (or `CMUX_PLATFORM_URL`) and
-//! defaults to the development platform, the only one where joining is on.
+//! defaults to the production platform, where `acpmux host join` and the served
+//! join.sh redeem by default too (Leo, 2026-11-04: "don't stick it into dev. Put
+//! it into prod").
 //! The caller's cmux credential comes from `--cloud-token-stdin`,
 //! `--cloud-token-file` or `CMUX_CLOUD_ACCESS_TOKEN`, and goes only in the
 //! `Authorization` header. The join token appears only in the printed line
@@ -46,8 +48,9 @@ use serde_json::{Map, Value, json};
 use super::{GlobalArgs, OutputMode, UsageError};
 use cmux_json::JsonSet as _;
 
-/// The development platform: joining is on there alone until it is flipped.
-pub(super) const DEV_ORIGIN: &str = "https://cmux-platform-development.debussy.workers.dev";
+/// The production platform: the default, the same hub `acpmux host join` and production's join.sh use,
+/// so a line minted with no flags is redeemed where it was minted.
+pub(super) const DEFAULT_ORIGIN: &str = cmux_cloud_environment::PRODUCTION_PLATFORM;
 const PLATFORM_ENV: &str = "CMUX_PLATFORM_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -55,10 +58,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 pub(super) const LIST_TIMEOUT: Duration = Duration::from_secs(3);
 /// How often `machine add --wait` reads the credentials list.
 const WAIT_EVERY: Duration = Duration::from_secs(2);
-/// A joined machine is online when its last heartbeat is younger than this.
-pub(super) const ONLINE_WITHIN_MS: u64 = 120_000;
+/// A joined machine is online when the platform's row says `online` (its last heartbeat within the
+/// mesh row TTL, by the platform's clock). A platform that predates that field gets this window
+/// instead: its 90 s rows and its heartbeat stamp, which moves at most every 30 s.
+pub(super) const LEGACY_ONLINE_WITHIN_MS: u64 = 120_000;
 /// How soon a revoke takes effect: the platform checks revocation on every heartbeat (each
-/// 30 s) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces
+/// 10 s, a third of the hub's row TTL) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces
 /// this.
 const REVOKE_BOUND: &str = "30 seconds";
 /// The minted line's default life when the answer's `expiresAt` is unreadable.
@@ -77,7 +82,7 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
        cmux machine revoke ID|NAME [--yes]
        cmux machine rotate ID|NAME
        cmux machine vault set|rm NAME, cmux machine vault ls, cmux machine vault grant|revoke MACHINE
-  each takes --platform URL (or CMUX_PLATFORM_URL; default the development platform)
+  each takes --platform URL (or CMUX_PLATFORM_URL; default the production platform)
   and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN.
   cmux machine add HOST (without --vault or --bootstrap) opens the app's Add Machine card for an ssh host.";
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
@@ -418,7 +423,7 @@ pub(super) fn read_credential(
     Ok(Some(credential))
 }
 
-/// `--platform`, else `CMUX_PLATFORM_URL`, else the development platform; https only.
+/// `--platform`, else `CMUX_PLATFORM_URL`, else the production platform; https only.
 pub(crate) fn platform_origin(
     flag: Option<&str>,
     env: &dyn Fn(&str) -> Option<String>,
@@ -427,7 +432,7 @@ pub(crate) fn platform_origin(
         .map(str::to_owned)
         .or_else(|| env(PLATFORM_ENV))
         .filter(|raw| !raw.trim().is_empty())
-        .unwrap_or_else(|| DEV_ORIGIN.to_owned());
+        .unwrap_or_else(|| DEFAULT_ORIGIN.to_owned());
     super::cloud_client_session::secure_origin(raw.trim())
         .map_err(|message| message.replace("the cmux API", "the cmux platform"))
 }
@@ -436,6 +441,7 @@ pub(crate) fn platform_origin(
 pub(crate) struct Platform {
     origin: String,
     credential: String,
+    team: Option<String>,
     client: reqwest::Client,
     runtime: tokio::runtime::Runtime,
     timeout: Duration,
@@ -505,7 +511,13 @@ impl Platform {
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| internal(&e))?;
-        Ok(Self { origin, credential, client, runtime, timeout })
+        Ok(Self { origin, credential, team: None, client, runtime, timeout })
+    }
+
+    /// Pin session-authenticated requests to the team selected by the native app.
+    pub(crate) fn with_team(mut self, team: Option<String>) -> Self {
+        self.team = team;
+        self
     }
 
     async fn call(
@@ -532,6 +544,9 @@ impl Platform {
             .timeout(timeout);
         if let Some(body) = body {
             request = request.json(&body);
+        }
+        if let Some(team) = &self.team {
+            request = request.header("x-cmux-team", team.as_str());
         }
         let response = request
             .send()
@@ -587,6 +602,10 @@ impl Platform {
     /// `POST path` with a JSON body: the answer, or why it failed (`link start-chat ensure`).
     pub(crate) fn post(&self, path: &str, body: Value) -> Result<Value, CallError> {
         self.runtime.block_on(self.call(reqwest::Method::POST, path, Some(body)))
+    }
+
+    pub(crate) fn delete(&self, path: &str) -> Result<Value, CallError> {
+        self.runtime.block_on(self.call(reqwest::Method::DELETE, path, None))
     }
 
     /// A short telemetry read must not extend the workspace machine admission timeout.
@@ -684,7 +703,14 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 39] = [
+const KNOWN_CODES: [&str; 46] = [
+    "lease.not_found",
+    "reservation.expired",
+    "reservation.terminal",
+    "reservation.bound",
+    "reservation.not_ready",
+    "reservation.unavailable",
+    "reservation.owner",
     "auth.unauthenticated",
     "auth.forbidden",
     "auth.sso_required",
@@ -1019,6 +1045,8 @@ pub(super) struct Joined {
     pub created_at: Value,
     pub last_heartbeat: Value,
     pub last_heartbeat_ms: Option<u64>,
+    /// The platform's `online` for the row; `None` from a platform that predates it.
+    pub online: Option<bool>,
     pub revoked: bool,
     pub join_token_id: Option<String>,
     pub mesh_peer_id: Option<String>,
@@ -1046,6 +1074,7 @@ pub(super) fn joined(entry: &Value) -> Option<Joined> {
         created_at: entry.get("createdAt").cloned().unwrap_or(Value::Null),
         last_heartbeat_ms: epoch_ms(&last_heartbeat),
         last_heartbeat,
+        online: entry.get("online").and_then(Value::as_bool),
         revoked,
         join_token_id: text("joinTokenId"),
         // The mesh daemon id: `meshIdentity` in the platform's rows, `meshPeerId` in the contract.
@@ -1061,12 +1090,20 @@ impl Joined {
     pub(super) fn state(&self, now: u64) -> &'static str {
         if self.revoked {
             "revoked"
-        } else if self.last_heartbeat_ms.is_some_and(|at| now.saturating_sub(at) < ONLINE_WITHIN_MS)
-        {
+        } else if self.is_online(now) {
             "online"
         } else {
             "offline"
         }
+    }
+
+    /// The platform's `online` when it sends one (it follows the mesh row TTL, so the platform
+    /// tunes it without a CLI release); else the heartbeat within [`LEGACY_ONLINE_WITHIN_MS`].
+    pub(super) fn is_online(&self, now: u64) -> bool {
+        self.online.unwrap_or_else(|| {
+            self.last_heartbeat_ms
+                .is_some_and(|at| now.saturating_sub(at) < LEGACY_ONLINE_WITHIN_MS)
+        })
     }
 
     /// The machine as a `machine list` row (`kind: "joined"`).
@@ -1325,7 +1362,9 @@ fn rows_signed_in(platform: Option<&str>, credential: String) -> Result<Vec<Valu
     let platform = Platform::new(origin, credential, LIST_TIMEOUT).map_err(|f| f.message)?;
     let entries = platform.credentials().map_err(|e| e.failure("the machine list").message)?;
     let now = now_ms();
-    Ok(entries.iter().filter_map(joined).map(|machine| machine.row(now)).collect())
+    let rows = entries.iter().filter_map(joined).map(|machine| machine.row(now)).collect();
+    // A machine `cmux device remove` removed leaves the list; one only revoked stays, as revoked.
+    Ok(crate::devices::removed::without(rows, &crate::devices::removed::ids()))
 }
 
 /// The cmux credential `cmux device …` signs in with: `--cloud-token-stdin`, else

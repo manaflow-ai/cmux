@@ -45,6 +45,12 @@ fn scripted_app_host() {
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { break };
         match serde_json::from_str::<ToHost>(&line).expect("protocol") {
+            // A script that names THROW_AT_INIT fails to load, as a syntax error does.
+            ToHost::Init { main, .. } if main.contains("THROW_AT_INIT") => {
+                send(FromHost::InitFailed {
+                    error: "SyntaxError: expecting ';' at main.js:2:12".into(),
+                });
+            }
             ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
             ToHost::Mount { mount, export, .. } => {
                 if export == "renderFail" {
@@ -994,6 +1000,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]
 mod local_reload;
+#[path = "supervisor_provider_changed_tests.rs"]
+mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
 mod provider_channel;
 #[path = "supervisor_server_tests.rs"]

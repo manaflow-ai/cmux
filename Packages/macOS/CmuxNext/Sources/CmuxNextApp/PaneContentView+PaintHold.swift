@@ -1,5 +1,6 @@
 import AppKit
 public import CmuxNextAgentPane
+import CmuxNextCloudUI
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextWakeups
@@ -28,6 +29,9 @@ extension InternalPageView: PaneFirstPaintGated {
         page.whenPainted(body)
     }
 }
+
+/// The Cloud progress page in a window's content area: transparent until it paints, like a page tab.
+extension CloudProgressHost: PaneFirstPaintGated {}
 
 extension PaneContentView {
     /// Re-applies page visibility after an outer alpha hold is released (for example, launch

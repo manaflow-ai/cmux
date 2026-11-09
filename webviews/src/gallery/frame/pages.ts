@@ -3,6 +3,7 @@
 // ops from the state's data. The config carries the look the app sends: the Ghostty theme pair
 // and the code font (`appearance`), and for markdown the `markdown` settings (font family, size).
 import { HostError, installMockHost, type HostOp } from "../../../test/latency/mock-host";
+import type { DiffCommentRecord } from "../../comments/types";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { AppsOps, OPEN_ACTION, RegistryOps } from "../../pages/apps/types";
 import { MockAppsProvider } from "../../pages/apps/mockProvider";
@@ -222,6 +223,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
     : undefined;
   const source = { kind: "branch", repoRoot: repo, baseRef: state.baseRef ?? "main" };
   const prefs: Record<string, unknown> = {};
+  let comments: DiffCommentRecord[] = [...(state.comments ?? [])];
   const host = installMockHost(
     {
       "cmux.diff.config": () => ({
@@ -237,6 +239,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           layoutSource: "default",
           appearance: context.appearance,
           labels,
+          commentsSend: state.commentsSend,
         },
         ops: ["cmux.diff.comments", ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : [])],
       }),
@@ -269,7 +272,19 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
       "cmux.diff.comments": (params: { method: string; params: Record<string, unknown> }) => {
         if (params.method === "viewedFiles.list") return { files: [] };
         if (params.method === "viewerPrefs.get") return { preferences: prefs };
-        if (params.method === "comments.list") return { comments: [] };
+        if (params.method === "comments.list") return { comments };
+        if (params.method === "comments.save") {
+          const input = params.params.comment as DiffCommentRecord;
+          const now = new Date(0).toISOString();
+          const saved = { ...input, id: input.id ?? `gallery-${comments.length + 1}`, createdAt: now, updatedAt: now };
+          comments = [...comments.filter((entry) => entry.id !== saved.id), saved];
+          return { comment: saved };
+        }
+        if (params.method === "comments.delete") comments = comments.filter((entry) => entry.id !== params.params.id);
+        if (params.method === "comments.send") {
+          const ids = new Set(params.params.ids as string[]);
+          comments = comments.filter((entry) => !ids.has(entry.id));
+        }
         return {};
       },
     },
@@ -426,6 +441,10 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
           ?.click();
       }
     }, 320);
+  }
+  if (state.action === "ports-shared") {
+    clickLater(".cloud-machine");
+    setTimeout(() => document.querySelector<HTMLElement>(".cloud-forward-share")?.click(), 320);
   }
 }
 

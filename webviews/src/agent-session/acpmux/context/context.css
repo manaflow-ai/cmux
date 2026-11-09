@@ -1,0 +1,36 @@
+.acpmux-context-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;box-sizing:border-box;padding:calc(var(--grid-base) * 5) max(calc(var(--grid-base) * 4),round(down,calc((100% - var(--context-column))/2),var(--grid-base)));color:var(--agent-text);--context-column:640px}
+.acpmux-context-screen[data-layout="split"]{--context-column:880px}
+.acpmux-context-screen-head{display:flex;align-items:flex-start;gap:8px}
+.acpmux-context-screen-heading{flex:1;min-width:0}
+.acpmux-context-screen-heading h2{margin:0;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600;letter-spacing:var(--text-body--letter-spacing)}
+.acpmux-context-screen-heading p,.acpmux-context-screen-muted,.acpmux-context-screen-note{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-context-screen-note{display:flex;align-items:center;gap:8px}
+.acpmux-context-screen-close{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:none;color:var(--agent-soft)}
+.acpmux-context-screen-close:hover{background:var(--agent-control-hover);color:var(--agent-text)}
+.acpmux-context-screen-summary{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0;font-variant-numeric:tabular-nums}
+.acpmux-context-screen-parts{display:flex;flex-direction:column;gap:12px}
+.acpmux-context-screen[data-layout="split"] .acpmux-context-screen-parts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);align-items:start}
+.acpmux-context-screen-groups{display:flex;flex-direction:column;gap:12px;min-width:0}
+.acpmux-context-group h3,.acpmux-context-editor h3,.acpmux-context-screen-detail h3{margin:0 0 4px;color:var(--agent-soft);font-size:var(--text-detail);line-height:var(--text-detail--line-height);font-weight:600;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-context-group ul{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
+.acpmux-context-row{display:flex;flex-direction:column;min-width:0;border-radius:8px}
+.acpmux-context-row[data-picked]{background:var(--agent-control-hover)}
+.acpmux-context-row-head{display:flex;align-items:center;gap:8px;min-height:28px;padding:0 8px;border:0;border-radius:8px;background:none;color:inherit;font:inherit;text-align:left}
+button.acpmux-context-row-head:hover{background:var(--agent-control-hover)}
+.acpmux-context-row-head svg{flex:none;color:var(--agent-muted)}
+.acpmux-context-row-spacer{flex:none;width:12px}
+.acpmux-context-row-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-context-row-off{flex:none;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-context-row-count{flex:none;color:var(--agent-soft);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
+.acpmux-context-text{margin:0 8px 8px 24px;padding:8px 12px;max-height:320px;overflow:auto;border-radius:6px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);font-family:var(--font-mono, ui-monospace, monospace);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:pre-wrap;overflow-wrap:anywhere}
+.acpmux-context-screen[data-layout="document"] .acpmux-context-text{max-height:none}
+.acpmux-context-screen-detail{position:sticky;top:0;min-width:0}
+.acpmux-context-screen-detail .acpmux-context-text{margin:0;max-height:60vh}
+.acpmux-context-editor{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:.5px solid var(--acpmux-composer-edge)}
+.acpmux-context-editor-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.acpmux-context-editor-head h3{margin:0}
+.acpmux-context-editor-text{box-sizing:border-box;width:100%;padding:8px 12px;border:0;border-radius:6px;resize:vertical;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font-family:var(--font-mono, ui-monospace, monospace);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.acpmux-context-editor-text:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-context-editor-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.acpmux-context-editor-actions>span{flex:1;min-width:0}
+.acpmux-context-screen button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}

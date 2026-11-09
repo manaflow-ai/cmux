@@ -59,7 +59,7 @@ public nonisolated enum CaptureBackdropPattern: Equatable, Sendable {
 #if DEBUG || CMUX_BENCH_HOOKS
 /// A capture backdrop: a borderless window of the app that only draws a ``CaptureBackdropPattern``,
 /// ordered just behind its ``target`` window, which a snapshot of the target
-/// (``NSWindow/compositedSnapshotWithOverlays()``) composites behind it. A capture slot shares its
+/// (``NSWindow/compositedImageWithOverlays(cuttingOverlays:capture:)``) composites behind it. A capture slot shares its
 /// mini's desktop with other slots, and the window server composites only the windows a snapshot
 /// names, so a translucent window or its glass shows nothing behind it in a snapshot; with the
 /// backdrop behind it the window's translucency and the blur of its glass show as on screen. It

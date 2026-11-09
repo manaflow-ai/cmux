@@ -1172,9 +1172,35 @@ def capped_env(env: dict[str, str] | None) -> dict[str, str]:
     return env
 
 
+# Bun's preload flags that take a path. In BUN_OPTIONS, Bun reads `--preload PATH` (a space, not `=`) as a script
+# path, so every `bun install` failed with 'Script not found "install"' and the pre-push lint stopped every push
+# (a shell profile that adds a Claude Code preload, 2026-11-07). The `--flag=PATH` form means the same and installs.
+BUN_PATH_FLAGS = {"--preload": "--preload", "--require": "--require", "--import": "--import", "-r": "--preload"}
+
+
+def bun_options_joined(value: str) -> str:
+    """BUN_OPTIONS with each path-taking preload flag joined to its path (`--preload=PATH`), the rest as given."""
+    words = value.split()
+    joined: list[str] = []
+    index = 0
+    while index < len(words):
+        flag = BUN_PATH_FLAGS.get(words[index])
+        if flag and index + 1 < len(words) and not words[index + 1].startswith("-"):
+            joined.append(f"{flag}={words[index + 1]}")
+            index += 2
+        else:
+            joined.append(words[index])
+            index += 1
+    return " ".join(joined)
+
+
 def spawn(command: list[str] | str, cwd: Path, env: dict[str, str] | None):
     """The one way this script starts a tool (git aside): installs, builds and checks alike. Outside CI it runs
-    under `nice` with capped_env, so no path spawns an uncapped type check or build."""
+    under `nice` with capped_env, so no path spawns an uncapped type check or build. A BUN_OPTIONS preload is
+    joined to its path (bun_options_joined), so the person's Bun preload never breaks `bun install`."""
+    env = dict(os.environ if env is None else env)
+    if env.get("BUN_OPTIONS"):
+        env["BUN_OPTIONS"] = bun_options_joined(env["BUN_OPTIONS"])
     if not in_ci():
         env = capped_env(env)
         nice = shutil.which("nice")

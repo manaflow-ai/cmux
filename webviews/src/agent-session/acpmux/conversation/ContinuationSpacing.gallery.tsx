@@ -58,7 +58,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   height: 760,
   pane: true,
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   load: async () => ContinuationSpacing,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: {

@@ -40,7 +40,7 @@ test("a toggle lights while the App reports its split open, and not in open mode
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
   // Other header cases change these shared stores; this case starts from its own toggle state.
   configureQuickActions({});
-  applyHostEvent({ kind: "headerState", value: { lit: [], browserOpensPreview: true } });
+  applyHostEvent({ kind: "headerState", value: { lit: [] } });
   root = createRoot(host);
   act(() =>
     root!.render(<ChatHeaderTools onTerminal={() => {}} onBrowser={() => {}} summary={null} menu={() => []} />),

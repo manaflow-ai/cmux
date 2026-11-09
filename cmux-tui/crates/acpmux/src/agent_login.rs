@@ -66,6 +66,7 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
+mod hot;
 pub mod parse;
 #[cfg(test)]
 mod tests;
@@ -656,7 +657,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
             let buf = output.lock().unwrap_or_else(|e| e.into_inner());
             String::from_utf8_lossy(&buf).into_owned()
         };
-        if let Some(offer) = parse::offer(agent, &text) {
+        if let Some(offer) = hot::offer(agent, &text) {
             break Some(offer);
         }
         if ended.load(Ordering::SeqCst) >= 2 {

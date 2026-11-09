@@ -1,24 +1,14 @@
 public import AppKit
-public import CmuxNextDesign
 
-/// Presenter prototypes (`remoteDesktop.debug.presenter`, DEV and NIGHTLY
-/// Debug Settings; section 7). Lawrence picks after the lit-display bench.
-public nonisolated enum RemotePresenterKind: String, Sendable, CaseIterable, TunableChoice {
+/// How decoded frames reach the screen. The remote desktop pane uses Metal (B);
+/// the remote browser pane and page sessions use layer contents (A), which is
+/// also B's fallback where Metal is missing.
+public nonisolated enum RemotePresenterKind: String, Sendable, CaseIterable {
     /// A: `CALayer.contents` = the decoded IOSurface. Zero copy; the window
     /// server converts color.
     case layerContents
     /// B: `CAMetalLayer` with two drawables, a YUV shader, latest frame wins.
     case metal
-    /// C: `AVSampleBufferDisplayLayer` with display-immediately samples.
-    case sampleBuffer
-
-    public var tunableTitle: String {
-        switch self {
-        case .layerContents: "A: Layer contents (IOSurface)"
-        case .metal: "B: Metal layer (YUV shader)"
-        case .sampleBuffer: "C: Sample buffer display layer"
-        }
-    }
 }
 
 /// Shows decoded frames in one layer. `present` is called off the main
@@ -46,7 +36,6 @@ public struct RemoteFramePresenters {
         switch kind {
         case .layerContents: return LayerContentsPresenter()
         case .metal: return MetalFramePresenter() ?? LayerContentsPresenter()
-        case .sampleBuffer: return SampleBufferPresenter()
         }
     }
 }

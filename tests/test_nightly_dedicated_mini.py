@@ -24,7 +24,7 @@ EARLY = ("build-nightly-inputs", "build-nightly-ghostty-cli-helper")
 # (run 41481821056: 555 s). Unplaced, attempt 1 takes hosted Ubuntu.
 PLACED = ("resolve-nightly-cmux-tui-client", "find-nightly-next-recovery", "pick-nightly-build-runner",
           "resolve-nightly-ghostty-cli-helper")
-VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image", "launch-smoke-nightly")
+VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly")
 DOC = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 
 
@@ -53,14 +53,12 @@ class DedicatedMini(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertEqual(selected(job, context()), LABEL)
 
-    def test_decide_bootstraps_on_hosted_ubuntu_not_the_reservation(self):
-        # No earlier job can admit decide on the fleet; attempt 1 takes the declared hosted bootstrap.
-        self.assertNotIn(VARIABLE, DOC["jobs"]["decide"]["runs-on"])
-        self.assertEqual(selected("decide", context()), "ubuntu-24.04")
-        self.assertEqual(selected("decide", context(**{VARIABLE: ""})), "ubuntu-24.04")
+    def test_decide_bootstraps_on_the_reservation(self):
+        # No earlier job places decide; nightlies run only on our own minis, so it takes the reservation pool.
+        self.assertEqual(selected("decide", context()), LABEL)
+        self.assertEqual(selected("decide", context(**{VARIABLE: ""})), LABEL)
         pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
-        self.assertEqual(selected("decide", context(**{"github.run_attempt": 2, "vars.RUNNER_POOLS": pools})),
-                         "blacksmith-16vcpu-ubuntu-2404")
+        self.assertEqual(selected("decide", context(**{"github.run_attempt": 2, "vars.RUNNER_POOLS": pools})), LABEL)
 
     def placed(self, jobs, label=LABEL, attempt="1", **changes):
         return context(**{"needs.decide.outputs.early_attempt": attempt,
@@ -71,17 +69,22 @@ class DedicatedMini(unittest.TestCase):
     def test_light_jobs_take_the_reservation_only_when_decide_placed_them(self):
         for job in PLACED:
             with self.subTest(job=job):
-                self.assertNotIn(VARIABLE, DOC["jobs"][job]["runs-on"])
-                self.assertEqual(selected(job, self.placed(PLACED)), LABEL)
-                # Unplaced (no idle reservation runner within three minutes, or capacity unread): hosted Ubuntu.
-                self.assertEqual(selected(job, context()), "ubuntu-24.04")
-                self.assertEqual(selected(job, self.placed([other for other in PLACED if other != job])),
-                                 "ubuntu-24.04")
+                self.assertEqual(selected(job, self.placed(PLACED, label="glaeda-runner-cmux15-glaeda-nightly-only-3")),
+                                 "glaeda-runner-cmux15-glaeda-nightly-only-3")
+                # Unplaced (no idle reservation runner within three minutes, or capacity unread): the reservation
+                # pool, where the job waits its turn; never hosted Ubuntu or Blacksmith.
+                fallback = "glaeda-nightly-std-xcode-26.6" if job == "build-nightly-inputs" else LABEL
+                self.assertEqual(selected(job, context(**{"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""})), fallback)
+                self.assertEqual(selected(job, self.placed([other for other in PLACED if other != job],
+                                                           label="glaeda-runner-cmux15-glaeda-nightly-only-3",
+                                                           **{"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""})), fallback)
                 # A placement from another attempt is never reused.
                 pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
-                self.assertEqual(selected(job, self.placed(PLACED, attempt="1", **{"github.run_attempt": 2,
-                                                                                 "vars.RUNNER_POOLS": pools})),
-                                 "blacksmith-16vcpu-ubuntu-2404")
+                self.assertEqual(selected(job, self.placed(PLACED, label="glaeda-runner-cmux15-glaeda-nightly-only-3",
+                                                           attempt="1", **{"github.run_attempt": 2,
+                                                                           "vars.RUNNER_POOLS": pools,
+                                                                           "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""})),
+                                 fallback)
 
     def test_reservation_route_places_the_light_jobs_with_the_bounded_wait(self):
         steps = {step.get("id"): step for step in DOC["jobs"]["decide"]["steps"]}
@@ -118,14 +121,6 @@ class DedicatedMini(unittest.TestCase):
                 with self.subTest(job=job, changes=changes):
                     self.assertNotEqual(selected(job, context(**changes)), LABEL)
 
-    def test_dedicated_route_skips_the_unreachable_linux_admission_wait(self):
-        steps = {step.get("id"): step for step in DOC["jobs"]["decide"]["steps"]}
-        values = context(**{"steps.decide.outputs.track": "nightly-next",
-                            "steps.decide.outputs.should_build": "true"})
-        for name in ("start-early-linux", "place-early", "place-early-mac"):
-            condition = steps[name]["if"].removeprefix("${{").removesuffix("}}")
-            self.assertFalse(evaluate(parse_expression(condition), values))
-            self.assertTrue(evaluate(parse_expression(condition), {**values, VARIABLE: ""}))
 
     def test_app_and_helper_pick_the_reserved_mini_without_api_quota(self):
         def unavailable(*args):
@@ -220,8 +215,6 @@ class DedicatedMini(unittest.TestCase):
         self.assertTrue(evaluate(condition, {**values, BUILDER_VARIABLE: BUILDER}))
         self.assertIn(f"${{{{ {BUILDER_VARIABLE} }}}}", steps["pick"]["env"]["NIGHTLY_ONLY_BUILDER_LABEL"])
 
-    def test_linux_elf_signer_does_not_take_the_mac_reservation(self):
-        self.assertNotIn(VARIABLE, DOC["jobs"]["signer-build"]["runs-on"])
 
     def test_sign_picker_prefers_reservation_for_secret_free_mac_consumers(self):
         output = DOC["jobs"]["pick-nightly-sign-runner"]["outputs"]["owned"]

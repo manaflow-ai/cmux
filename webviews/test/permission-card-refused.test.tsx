@@ -62,7 +62,11 @@ const ask = (permissionId: string, allowId = `${permissionId}-yes`): AcpmuxPermi
   ],
 });
 
-type Sent = { permissionId: string; optionId: string; settle: { resolve(): void; reject(error: Error): void } };
+type Sent = {
+  permissionId: string;
+  optionId: string;
+  settle: { resolve(): void; reject(error: Error): void };
+};
 
 type Options = {
   reply?(optionId: string): unknown;
@@ -85,7 +89,11 @@ async function mount(first: AcpmuxPermission, options: Options = {}) {
             options.reply
               ? options.reply(optionId)
               : new Promise<void>((resolve, reject) => {
-                  sent.push({ permissionId: permission.permissionId, optionId, settle: { resolve, reject } });
+                  sent.push({
+                    permissionId: permission.permissionId,
+                    optionId,
+                    settle: { resolve, reject },
+                  });
                 })
           }
           onDenyWithFeedback={options.onDenyWithFeedback}
@@ -422,4 +430,96 @@ test("an answer taken late, past the card's memory of taken answers, stays taken
   await card.key("3");
   expect(card.sent.filter((s) => s.permissionId === "p0")).toHaveLength(1);
   await card.unmount();
+});
+
+test("external access settings is a side action and Skip never opens feedback", async () => {
+  const { setNativeHost } = await import("../src/agent-session/acpmux/native");
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  setNativeHost(async (method, params) => {
+    calls.push({ method, params });
+    return {};
+  });
+  const permission: AcpmuxPermission = {
+    ...ask("external"),
+    scope: { kind: "resource", value: "/Users/you/Documents/report.txt" },
+    kind: "read",
+    command: undefined,
+    externalAccess: {
+      kind: "files_and_folders",
+      target: "/Users/you/Documents/report.txt",
+      operation: "read_text_file",
+      platform: "macos",
+    },
+  };
+  let feedback = 0;
+  const card = await mount(permission, {
+    onDenyWithFeedback: async () => {
+      feedback += 1;
+      return true;
+    },
+  });
+  try {
+    expect(card.host.textContent).toContain("cmux needs one-time access to /Users/you/Documents/report.txt");
+    expect(card.host.textContent).toContain("you may need to grant access in System Settings first");
+    expect(card.host.textContent?.match(/\/Users\/you\/Documents\/report.txt/g)).toHaveLength(1);
+    await card.click("Open Settings");
+    expect(calls).toEqual([{ method: "externalAccess.openSettings", params: { kind: "files_and_folders" } }]);
+    expect(card.sent).toHaveLength(0);
+    await card.click("Skip");
+    expect(card.sent.map((sent) => sent.optionId)).toEqual(["external-no"]);
+    expect(card.host.querySelector("textarea")).toBeNull();
+    expect(feedback).toBe(0);
+    await card.settle(0, true);
+  } finally {
+    await card.unmount();
+    setNativeHost(undefined);
+  }
+});
+
+test("external access recovery action metric", async () => {
+  const card = await mount({
+    ...ask("external-metric"),
+    kind: "read",
+    command: undefined,
+    externalAccess: {
+      kind: "files_and_folders",
+      target: "/Users/you/Documents/report.txt",
+      operation: "read_text_file",
+      platform: "macos",
+    },
+  });
+  try {
+    const actions = [...card.host.querySelectorAll("button")].filter((button) =>
+      button.textContent?.includes("Open Settings"),
+    ).length;
+    console.log(`PERF external_access_settings_actions=${actions}`);
+    expect(actions).toBe(1);
+  } finally {
+    await card.unmount();
+  }
+});
+
+test("remote access settings refusal is localized and never answers the ask", async () => {
+  const { setNativeHost } = await import("../src/agent-session/acpmux/native");
+  const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
+  setNativeHost(async () => {
+    throw new NativeError({ code: "remote.unsupported", userMessage: "remote.unsupported" });
+  });
+  const card = await mount({
+    ...ask("external-remote"),
+    externalAccess: {
+      kind: "files_and_folders",
+      target: "/Users/you/Documents/report.txt",
+      operation: "read_text_file",
+      platform: "macos",
+    },
+  });
+  try {
+    await card.click("Open Settings");
+    expect(card.alert()).toBe("Open Privacy & Security on the remote Mac to grant access.");
+    expect(card.sent).toHaveLength(0);
+  } finally {
+    await card.unmount();
+    setNativeHost(undefined);
+  }
 });

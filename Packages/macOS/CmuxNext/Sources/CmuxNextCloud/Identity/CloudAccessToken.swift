@@ -59,41 +59,43 @@ public struct CloudAccessToken: Sendable, Equatable {
         }
     }
 
-    /// `token` with its claims read (unverified: the API verifies it).
+    /// `token` with its claims read (unverified: the API verifies it; Rust's `identity::claims`).
     public init(token: String, team: String) {
+        struct Claims: Decodable { var user: String?, expiresAt: Double? }
         accessToken = token
         self.team = team
-        let claims = Self.claims(of: token)
-        user = (claims?["sub"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        expiresAt = (claims?["exp"] as? NSNumber).map(\.doubleValue)
-            .flatMap { $0.isFinite && $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+        let claims = CloudStartCore().call("cloud_identity_token", ["token": token], as: Claims.self)
+        user = claims?.user
+        expiresAt = claims?.expiresAt.map { Date(timeIntervalSince1970: $0) }
     }
 
-    /// A backend team id: `team_` and 20 lowercase hex digits (the owner's form).
+    private struct Check: Decodable { var isTeam: Bool?, transient: Bool? }
+
+    /// A backend team id: `team_` and 20 lowercase hex digits (Rust's `identity::is_team`).
     public static func isTeam(_ value: String) -> Bool {
-        value.utf8.count == 25 && value.hasPrefix("team_") && value.dropFirst(5).allSatisfy { "0123456789abcdef".contains($0) }
+        CloudStartCore().call("cloud_identity_check", ["team": value], as: Check.self)?.isTeam ?? false
     }
 
-    /// The backend team to mint for, from the app's team state (Stack ids): the asked team, else
-    /// the active team, else nil (the install's own, personal team). A device restricted to a
-    /// managed team mints only for that team, and only while it is the active one, as every other
-    /// Cloud call on it (ActiveTeam.refusal(requesting:)).
+    /// The backend team to mint for, from the app's team state (Stack ids; Rust's `identity::mint_team`): the asked
+    /// team, else the active team, else nil (the install's own, personal team). A device restricted to a managed team
+    /// mints only for that team, and only while it is the active one, as every other Cloud call on it.
     public static func team(requested: String?, activeStackTeam: String?, managedStackTeam: String?,
                             stackProjectID: String) throws -> String? {
-        let backend = { backendTeamID(stackProjectID: stackProjectID, stackTeamID: $0) }
-        if let managed = managedStackTeam {
-            guard activeStackTeam == managed else { throw Failure.managed }
-            let only = backend(managed)
-            if let requested, requested != only { throw Failure.managed }
-            return only
-        }
-        return requested ?? activeStackTeam.map(backend)
+        struct Request: Encodable { var requested: String?, activeStackTeam: String?, managedStackTeam: String?, stackProjectId: String }
+        struct Reply: Decodable { var team: String?, refusal: String? }
+        let request = Request(requested: requested, activeStackTeam: activeStackTeam, managedStackTeam: managedStackTeam,
+                              stackProjectId: stackProjectID)
+        guard let reply = CloudStartCore().call("cloud_identity_mint_team", request, as: Reply.self) else { throw Failure.badReply }
+        if reply.refusal != nil { throw Failure.managed }
+        return reply.team
     }
 
-    /// The backend's id for a Stack team (the API's `stackTeamIdFor`; CloudIdentity.workerTeamID).
-    public static func backendTeamID(stackProjectID: String, stackTeamID: String) -> String {
-        let digest = SHA256.hash(data: Data("stack-team:\(stackProjectID):\(stackTeamID.lowercased())".utf8))
-        return "team_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
+    /// The backend's id for a Stack user (the API's `userIdFor`, as CloudIdentity.workerUserID): the `creator` a
+    /// cmux-next machine record names. Rust has the same rule (cmux-tui-core `cloud_conversations`), but not yet over
+    /// the pinned app FFI.
+    public static func backendUserID(stackProjectID: String, stackUserID: String) -> String {
+        let digest = SHA256.hash(data: Data("stack:\(stackProjectID):\(stackUserID)".utf8))
+        return "user_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
     }
 
     /// The failure an install mint threw, as one of ours.
@@ -110,19 +112,10 @@ public struct CloudAccessToken: Sendable, Equatable {
         }
     }
 
-    /// A refusal that is the service's trouble, not the account's: a 5xx or 429 status with no
-    /// owner code (`http_503`), or a rate limit. The caller retries those; it never reads them
-    /// as "not a member of the team".
+    /// A refusal that is the service's trouble, not the account's (Rust's `identity::is_transient`: a 5xx or 429 with
+    /// no owner code, or a rate limit). The caller retries those; it never reads them as "not a member of the team".
     static func isTransient(_ code: String) -> Bool {
-        if code == "http_429" || code.contains("rate_limit") { return true }
-        guard code.hasPrefix("http_5"), code.count == 8 else { return false }
-        return code.dropFirst(5).allSatisfy(\.isNumber)
-    }
-
-    private static func claims(of token: String) -> [String: Any]? {
-        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 3, let payload = Data(base64URLEncoded: String(parts[1])) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
+        CloudStartCore().call("cloud_identity_check", ["refusalCode": code], as: Check.self)?.transient ?? false
     }
 }
 

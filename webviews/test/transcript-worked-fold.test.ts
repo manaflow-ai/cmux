@@ -142,7 +142,14 @@ test("an earlier turn without a summary draws as it came, its text in place (no 
     row("end-2", "turnSummary", { status: "completed", durationMs: 1_000 }),
   ];
   const shaped = drawn(rows);
-  expect(shaped.slice(0, shaped.indexOf("user:u2"))).toEqual(["user:u1", "assistant:interim", "activity:read"]);
+  // Nothing folds; the next prompt ended the turn, so it ends on its copy row (turns.ts
+  // supersededFooters, #34939).
+  expect(shaped.slice(0, shaped.indexOf("user:u2"))).toEqual([
+    "user:u1",
+    "assistant:interim",
+    "activity:read",
+    "turnSummary:superseded-read",
+  ]);
 });
 
 test("expanding the fold of a turn that ended on a tool shows the interim text and tools in order", () => {
@@ -187,11 +194,8 @@ test("the last reply stays open when short notes and tools come after it", () =>
     summary(),
   ];
   const open = drawn(rows, new Set(["worked-u"]));
-  expect(open.filter((entry) => entry.startsWith("activity:"))).toEqual([
-    "activity:read",
-    "activity:grep",
-    "activity:test",
-  ]);
+  // The short note joins the runs on either side of it (turns.ts mergeShortNotes).
+  expect(open.filter((entry) => entry.startsWith("activity:"))).toEqual(["activity:read", "activity:grep"]);
   expect(open.slice(-2)).toEqual(["assistant:answer", "turnSummary:end"]);
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:answer", "turnSummary:end"]);
 });

@@ -5,14 +5,17 @@ import { useT } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef } from "./blockPartsModel";
 import { CopyButton } from "./CopyButton";
 import { ChevronRight } from "./icons";
 import { Markdown } from "./Markdown";
 import { menuPartRef } from "./menuParts";
 import { watchOutputViewport } from "./outputViewport";
-import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
+import { OutputMore } from "./toolOutput";
+import { previewedOutput, useOutput } from "./toolOutputModel";
 import type { ToolResult } from "./toolResult";
+import { wholeBlocksAfter } from "./markdownCut";
 
 /// Its own component keeps the sideways watcher mounted with the Raw body when a reader switches
 /// renderers. Markdown never mounts that watcher, and no renderer runs a tool's fences.
@@ -66,10 +69,13 @@ export const ToolOutput = memo(function ToolOutput({
   id,
   result,
   reveal = 0,
+  ownCopy = true,
 }: {
   id?: string;
   result: ToolResult;
   reveal?: number;
+  /// Whether the card draws its own copy button; false where its heading already has one (ToolDetail.tsx).
+  ownCopy?: boolean;
 }) {
   const t = useT();
   const generated = useId();
@@ -95,8 +101,8 @@ export const ToolOutput = memo(function ToolOutput({
       <div className="cv-tool-output__box" id={bodyId}>
         <span className="cv-tool-output__actions" data-find-skip="">
           {!rendered && <WrapButton kind="output" />}
-          {experimentArm(hoverActions) === "all" && (
-            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
+          {ownCopy && experimentArm(hoverActions) === "all" && (
+            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} />
           )}
         </span>
         {rendered ? (
@@ -109,7 +115,10 @@ export const ToolOutput = memo(function ToolOutput({
             tabIndex={0}
             aria-label={t("handoff.tool_output")}
           >
-            {shown.shown && <Markdown plainCode>{shown.shown}</Markdown>}
+            {/* A cut tail starts at its first whole block: never inside a fence or a span (markdownCut.ts). */}
+            {shown.shown && (
+              <Markdown plainCode>{(shown.cut && wholeBlocksAfter(shown.shown)) || shown.shown}</Markdown>
+            )}
           </div>
         ) : (
           <MonoOutput
@@ -120,11 +129,12 @@ export const ToolOutput = memo(function ToolOutput({
             viewport={viewport}
           />
         )}
-      </div>
-      <div className="cv-tool-output__controls" data-find-skip="">
+        {/* Show all / Show less is the box's whole bottom row, on its own fill (ExpandRow.tsx). */}
         <PreviewMore preview={preview} />
         {!preview.long && <OutputMore output={shown} />}
-        {markdown && (
+      </div>
+      {markdown && (
+        <div className="cv-tool-output__controls" data-find-skip="">
           <button
             type="button"
             className="cv-tool-output__raw"
@@ -134,10 +144,10 @@ export const ToolOutput = memo(function ToolOutput({
             onClick={() => setRawShown((value) => !value)}
           >
             {t("subsession.raw")}
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${rawShown ? " is-open" : ""}`} />
+            <ChevronRight size={12} className={`cv-rotor${rawShown ? " is-open" : ""}`} />
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 });

@@ -132,6 +132,7 @@ mod tests {
                     id: (*id).into(),
                     identity_key: (*key).into(),
                     approval_key: String::new(),
+                    ..Default::default()
                 })
                 .collect(),
             denied: vec![],

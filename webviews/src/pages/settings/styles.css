@@ -291,6 +291,49 @@ mark {
   overflow-wrap: anywhere;
 }
 
+/* A provider's accounts under its harness row (ProviderAccounts). */
+.harness-accounts {
+  gap: 8px;
+}
+
+.harness-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.harness-account-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.harness-account-copy > .row-help {
+  overflow-wrap: anywhere;
+}
+
+/* The plan usage card under an account (PlanUsageCardBody): its pane colors from this page's. */
+.harness-account-usage {
+  --agent-text: var(--text);
+  --agent-muted: var(--muted-text);
+  --agent-accent: var(--cmux-accent, var(--text));
+  width: 300px;
+  max-width: 100%;
+  margin-top: 4px;
+}
+
+.harness-account-usage > .acpmux-plan-usage {
+  padding: 0;
+}
+
+.harness-account-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
 .harness-update-card > .button {
   flex: 0 0 auto;
   margin-top: 1px;
@@ -838,6 +881,14 @@ mark {
   height: 0;
   border: 3px solid var(--muted-text);
   border-radius: 50%;
+}
+
+/* Settings > Privacy and Security > Shared Links' `table` layout (gallery
+   settings.shared-links-layouts): the kind and both dates each in a column. */
+.shared-links-table .row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, auto) auto;
+  align-items: center;
 }
 
 .host-footer,
@@ -1746,6 +1797,11 @@ mark {
   font-size: var(--density-caption);
 }
 
+/* Text Size: a normal settings row under the tiles. */
+.density-rows {
+  margin-top: var(--grid-gap);
+}
+
 .density-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1999,12 +2055,19 @@ button.menu-disclosure {
 .menu-row-actions {
   display: inline-flex;
   opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 
 .menu-row:hover .menu-row-actions,
 .menu-row:focus-within .menu-row-actions,
 .menu-row:has([data-popup-open]) .menu-row-actions {
   opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.menu-row:has(:focus-visible) .menu-row-actions {
+  transition: none;
 }
 
 .menu-separator .menu-separator-line {
@@ -2098,6 +2161,11 @@ button.menu-disclosure {
 }
 
 /* Updates > App Update: the download's bar under its status row, and Restart to Update filled. */
+/* The download's bytes line counts with tabular digits, so nothing on it moves as it counts. */
+[data-card="app-update"] .row-help {
+  font-variant-numeric: tabular-nums;
+}
+
 .app-update-progress-row {
   padding: 0 8px 8px;
 }
@@ -2130,4 +2198,55 @@ button.menu-disclosure {
 .button.app-update-prominent:not(.ui-btn) {
   border-color: transparent;
   background: var(--accent-soft);
+}
+
+/* Settings > Personalization (PersonalizationCard): a jump bar pinned to the top of the content over
+ * the parts, each a titled run of its home category's card or rows, with More in … on its right. */
+.personalization-jump {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: fit-content;
+  margin: 0 0 var(--ds-space-5);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-drop);
+}
+
+.personalization-jump-link[aria-current] {
+  background: var(--accent-soft);
+}
+
+.personalization-part {
+  scroll-margin-top: calc(var(--grid-row) * 2);
+  margin-bottom: var(--ds-space-6);
+}
+
+.personalization-part-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 var(--ds-space-3);
+}
+
+.personalization-part-title {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  color: var(--text);
+}
+
+.personalization-more {
+  color: var(--muted-text);
+}
+
+.personalization-more-links {
+  display: flex;
+  gap: 4px;
 }

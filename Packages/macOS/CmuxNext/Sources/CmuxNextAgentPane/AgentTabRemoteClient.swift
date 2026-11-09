@@ -62,6 +62,12 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         try await mapped { try await client.setConfig(id: configId, value: value) }
     }
 
+    public func context() async throws -> Data { try await mapped { try await client.context() } }
+
+    public func setContextOverride(scope: String, text: String?, partId: String?) async throws -> Data {
+        try await mapped { try await client.setContextOverride(scope: scope, text: text, partId: partId) }
+    }
+
     /// An observation never signs the chat's agent in.
     public func servesLogin() async -> Bool {
         guard mode != .observe else { return false }
@@ -70,6 +76,16 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
         try await mapped { try await client.login(op, fields) }
+    }
+
+    /// An observation never opens a side chat.
+    public func servesSide() async -> Bool {
+        guard mode != .observe else { return false }
+        return await client.servesSide()
+    }
+
+    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data {
+        try await mapped { try await client.side(throughSeq: throughSeq, prompt: prompt, promptID: promptID) }
     }
 
     public func close() async { await client.close() }

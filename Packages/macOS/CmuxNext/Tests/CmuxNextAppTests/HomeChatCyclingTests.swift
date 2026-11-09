@@ -1,5 +1,6 @@
 import CmuxHomeCore
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import Testing
 
 /// The Home tab keys move through the chat list in sidebar order (the pinned grid, then the rows):

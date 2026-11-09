@@ -27,11 +27,15 @@ fn id(value: u32) -> Option<u32> {
     (value != NONE).then_some(value)
 }
 
-/// The tab to select after `selected` (`CMUX_FOCUS_NONE`: none was) closed:
+/// The tab to select after `selected` (`CMUX_FOCUS_NONE`: none was) closed
+/// (`close_focus::tab`: the shown tab before it, else the one after it):
 /// `old` is the strip order before the close, `surviving` the tabs left,
-/// `shown` the surviving tabs that are not hidden, and the opener relations
-/// are `opener_children[i]` opened by `opener_parents[i]`. Returns the tab,
-/// or `CMUX_FOCUS_NONE` when none is left (or an array is null).
+/// `shown` the surviving tabs that are not hidden. Returns the tab, or
+/// `CMUX_FOCUS_NONE` when none is left (or an array is null). The opener
+/// arrays are read for the null check only and no longer pick: the rule
+/// went with 2026-11-08's "always the tab before it"; they stay in the
+/// signature so the pinned app build and this source keep one ABI, and go
+/// with the next ABI change.
 ///
 /// # Safety
 ///
@@ -61,14 +65,12 @@ pub unsafe extern "C" fn cmux_close_focus_tab(
             ids(opener_parents, opener_count),
         )
     };
-    let (Some(old), Some(surviving), Some(shown), Some(children), Some(parents)) = arrays else {
+    let (Some(old), Some(surviving), Some(shown), Some(_), Some(_)) = arrays else {
         return NONE;
     };
     catch_unwind(AssertUnwindSafe(|| {
         let shown: HashSet<u32> = shown.iter().copied().collect();
-        let opener: HashMap<u32, u32> =
-            children.iter().copied().zip(parents.iter().copied()).collect();
-        close_focus::tab(id(selected).as_ref(), old, surviving, &shown, &opener).unwrap_or(NONE)
+        close_focus::tab(id(selected).as_ref(), old, surviving, &shown).unwrap_or(NONE)
     }))
     .unwrap_or(NONE)
 }

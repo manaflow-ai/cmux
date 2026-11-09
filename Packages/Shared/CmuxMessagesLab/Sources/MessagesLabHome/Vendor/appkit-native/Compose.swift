@@ -941,7 +941,8 @@ final class ComposeView: UIView {
         let p = NSMutableParagraphStyle()
         p.minimumLineHeight = Fixture.lineHeight
         p.maximumLineHeight = Fixture.lineHeight
-        return [.font: Fixture.bodyFont, .foregroundColor: Fixture.incomingText, .kern: Fixture.bodyKern, .paragraphStyle: p]
+        // cmux: the composer's own text (the theme's), not a chat's chosen received-bubble text.
+        return [.font: Fixture.bodyFont, .foregroundColor: Fixture.composeText, .kern: Fixture.bodyKern, .paragraphStyle: p]
     }
     /// UITextView's text container inset above the first line (Catalyst value).
     static let textTopInset: CGFloat = ComposeView.firstBaseline - 13.26 - 0.25
@@ -989,7 +990,7 @@ final class ComposeView: UIView {
         tv.drawsBackground = false
         tv.backgroundColor = .clear
         tv.font = ComposeView.font
-        tv.textColor = Fixture.incomingText
+        tv.textColor = Fixture.composeText  // cmux: the composer's own text
         tv.insertionPointColor = Fixture.caret
         tv.installCaret()
         inlineHover.install(on: tv)  // cmux: an inline attachment's remove button on hover
@@ -1082,6 +1083,7 @@ final class ComposeView: UIView {
         renderChips()
         // cmux: the caret follows the palette too (the bubble style, the theme, the accent).
         textView.view.recolorCaret()
+        textView.view.recolorText()  // cmux: and the typed text (ComposeTextColor.swift)
     }
 
     /// The "+" button (opens the file picker).

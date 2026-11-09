@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list | string_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, note (developer note, not shown).",
+  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list | string_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, placeholder {key, text} (what an empty list field shows; a list row only), note (developer note, not shown).",
   "lists": [
     {
       "name": "updates",
@@ -22,6 +22,9 @@
             "text": "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesChannelSetting"
+          },
           "choices": [
             {
               "value": "stable",
@@ -124,6 +127,50 @@
           ]
         },
         {
+          "key": "updates.oneClickInstall",
+          "note": "One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.",
+          "title": {
+            "key": "settings.updates.oneClickInstall",
+            "text": "Update in One Click"
+          },
+          "help": {
+            "key": "settings.updates.oneClickInstall.help",
+            "text": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "restart",
+            "relaunch",
+            "one click"
+          ]
+        },
+        {
+          "key": "updates.whatsNewInstall",
+          "note": "What's New's Versions list offers Install on each build (Leo 2026-11-05: \"Like literally with a click to a past nightly\", cmux#36375). Off until a nightly proves the install end to end on a fleet Mac; then a follow-up turns it on.",
+          "title": {
+            "key": "settings.updates.whatsNewInstall",
+            "text": "Install Versions from What's New"
+          },
+          "help": {
+            "key": "settings.updates.whatsNewInstall.help",
+            "text": "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "version",
+            "rollback",
+            "earlier",
+            "nightly",
+            "what's new"
+          ]
+        },
+        {
           "key": "updates.meteredNetwork",
           "note": "What automatic downloads do on a metered link.",
           "title": {
@@ -135,6 +182,9 @@
             "text": "While downloads wait, a found update shows on Settings and one click downloads it."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesMeteredSetting"
+          },
           "choices": [
             {
               "value": "defer-low-data",
@@ -179,6 +229,9 @@
             "text": "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesWebSetting"
+          },
           "choices": [
             {
               "value": "every-merge",
@@ -214,6 +267,30 @@
           ]
         },
         {
+          "key": "updates.liveWebReload",
+          "note": "Your own web edits, live in this app (docs/cmux-next/hot-reload.md): pages and agent panes load from the server or overlay ~/.config/cmux/web-dev.json names, in WebKit and Chromium, in every build. On by default (Leo 2026-11-05: \"we probably want to have this feature like toggleable on by default\"); a missing web-dev.json changes nothing.",
+          "title": {
+            "key": "settings.updates.liveWebReload",
+            "text": "Live Web Reload"
+          },
+          "help": {
+            "key": "settings.updates.liveWebReload.help",
+            "text": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "web",
+            "live",
+            "hot reload",
+            "reload",
+            "dev server",
+            "overlay",
+            "edit",
+            "web-dev"
+          ]
+        },
+        {
           "key": "updates.installOnQuit",
           "title": {
             "key": "settings.updates.installOnQuit",
@@ -239,6 +316,9 @@
             "text": "When an Update Is Ready"
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesNotifySetting"
+          },
           "choices": [
             {
               "value": "badge",

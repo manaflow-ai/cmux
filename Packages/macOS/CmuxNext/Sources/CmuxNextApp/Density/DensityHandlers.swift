@@ -32,7 +32,7 @@ enum DensityHandlers {
             source == ActionSuggestions.densities ? controller.choices() : others?(source) ?? []
         }
         context.services.palette.sources.extraProviders.append(AsyncPaletteProvider(id: "densities", showsItemsForEmptyQuery: false) {
-            [weak registry] in registry.map { DensityPaletteRows.items(design: design, registry: $0) } ?? []
+            [weak registry] in registry.map { DensityPaletteRows(currentMark: DensityStrings.current, useTitle: DensityStrings.use).items(design: design, registry: $0) } ?? []
         })
     }
 }

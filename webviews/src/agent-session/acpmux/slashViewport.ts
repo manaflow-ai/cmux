@@ -1,9 +1,9 @@
 /**
- * The composer slash list has fixed 31px rows (styles.css) in a menu capped at 296px.
+ * The composer slash list uses the shared 28px menu row (styles.css) in a menu capped at 296px.
  * Keep keyboard selection in the complete match list; mount only this window of rows.
  * The same logical indices can also feed a future native-popup consumer.
  */
-export const SLASH_ROW_PX = 31;
+export const SLASH_ROW_PX = 28;
 export const SLASH_MAX_VIEWPORT_PX = 296;
 export const SLASH_OVERSCAN_ROWS = 6;
 

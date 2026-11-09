@@ -7,17 +7,15 @@ import Foundation
 /// The owner side of the Files page (`cmux.files.*`, cx-p4rt), for one tab's folder: `root` (the
 /// folder), `list {path}` (one folder's children through the session host's `git.files.list`, so
 /// ignored files never show) and `open {path}` (a file in the file pages). `path` is relative to the
-/// tab's folder; the page never names a file outside it.
+/// tab's folder; the page never names a file outside it, and a machine's folder (`onMachine`) is never looked up here.
 @MainActor
 final class FileTreePageProvider: PageProvider {
-    private let folder: URL?
+    private let folder: URL?, onMachine: Bool
     private let link: AgentPaneGitLink?
-    private let open: @MainActor (URL) -> String?
+    private let open: @MainActor (URL) async -> String?
 
-    init(folder: URL?, link: AgentPaneGitLink?, open: @escaping @MainActor (URL) -> String?) {
-        self.folder = folder
-        self.link = link
-        self.open = open
+    init(folder: URL?, link: AgentPaneGitLink?, onMachine: Bool = false, open: @escaping @MainActor (URL) async -> String?) {
+        self.folder = folder; self.link = link; self.onMachine = onMachine; self.open = open
     }
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
@@ -26,10 +24,10 @@ final class FileTreePageProvider: PageProvider {
         case "cmux.files.root":
             return ["folder": .string(folder.path), "name": .string(folder.lastPathComponent)]
         case "cmux.files.list":
-            return try await list(Self.resolve(params["path"]?.stringValue, in: folder))
+            return try await list(Self.resolve(params["path"]?.stringValue, in: folder, onMachine: onMachine))
         case "cmux.files.open":
-            let file = try Self.resolve(params["path"]?.stringValue, in: folder)
-            if let failure = open(file) { throw PageError(code: "cmux.files.open_failed", message: failure, retryable: false) }
+            let file = try Self.resolve(params["path"]?.stringValue, in: folder, onMachine: onMachine)
+            if let failure = await open(file) { throw PageError(code: "cmux.files.open_failed", message: failure, retryable: false) }
             return .null
         default:
             throw PageError.unknownOp(op)
@@ -47,14 +45,15 @@ final class FileTreePageProvider: PageProvider {
     }
 
     /// `path` ('/'-separated, "" for the folder itself) inside `folder`; anything that could leave it
-    /// (absolute, `..`, `.`, empty components, NUL, or a symlink pointing outside) is refused.
-    nonisolated static func resolve(_ path: String?, in folder: URL) throws -> URL {
+    /// (absolute, `..`, `.`, empty components, NUL, or a symlink pointing outside) is refused; `onMachine`, by spelling alone.
+    nonisolated static func resolve(_ path: String?, in folder: URL, onMachine: Bool = false) throws -> URL {
         guard let path else { throw PageError.invalidParams("path is required") }
         guard !path.isEmpty else { return folder }
         let parts = path.split(separator: "/", omittingEmptySubsequences: false)
         guard !path.contains("\u{0}"), parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
             throw PageError.invalidParams("path must be relative to the folder")
         }
+        if onMachine { return parts.reduce(folder) { $0.appendingPathComponent(String($1), isDirectory: false) } }
         let target = parts.reduce(folder) { $0.appendingPathComponent(String($1)) }
         let root = realPath(folder)
         let real = realPath(target)

@@ -133,6 +133,18 @@ const openFolderMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-extra-folders"));
 };
 
+/// An experiment arm's wording for the extra-folder row, drawn over the shipped menu.
+const openFolderMenuWithExtraWords =
+  (words: string): Play =>
+  async (ctx) => {
+    await openFolderMenu(ctx);
+    const row = [...ctx.document.querySelectorAll(".acpmux-folder-popover .acpmux-location-action")].find(
+      (node) => node.textContent === "Add another folder…",
+    );
+    const label = row?.querySelector(".acpmux-menu-label");
+    if (label) label.textContent = words;
+  };
+
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
@@ -409,7 +421,7 @@ const openRunToggle: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Where should this chat run/ });
   await waitRows("run")(ctx);
 };
-/// Where > Another machine: the first ready machine is the pick and the machine control opens.
+/// Where > Remote: the first ready machine is the pick and the machine control opens.
 const pickAnother: Play = async (ctx) => {
   await openWhere(ctx);
   await ctx.click({ selector: '.acpmux-env-popover [data-action="another"]' });
@@ -430,10 +442,6 @@ const STRIP_NOTES: Record<StripArm, string> = {
 const chatgptRunDetails = {
   local: "This chat stays on this computer",
   cloud: "Available on any device and can access your computer",
-};
-const openCloudChip: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Machine/ });
-  await waitRows("cloud")(ctx);
 };
 function stripVariants(arm: StripArm) {
   const props = {
@@ -458,7 +466,7 @@ function stripVariants(arm: StripArm) {
       height: 320,
       note: note(
         arm === "where-machine"
-          ? "Another machine picked: the first ready machine is the pick and the machine chip opens on the person's machines, ready first, SSH and Cloud alike (the icon is how each connects), Add Machine… last."
+          ? "Remote picked: the first ready machine is the pick and the machine chip opens on the person's machines, ready first, SSH and Cloud alike (the icon is how each connects), Add Machine… last."
           : "Which machine, open.",
       ),
       props,
@@ -467,20 +475,22 @@ function stripVariants(arm: StripArm) {
     [`strip-${arm}-cloud`]: {
       note: note(
         arm === "where-machine" || arm === "where-machine-always"
-          ? "Cloud picked: the third chip is which Cloud machine, New machine by default (the workspace's own new machine); its project is picked in the same Project chip."
-          : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
+          ? "Cloud picked: two chips, Project and Where, with no machine chip and no New machine step. Send reuses the person's Cloud machine or makes one, its progress in the chat (Leo, 2026-11-04: \"after you pick Cloud, like, you shouldn't be seeing the new machine situation\")."
+          : arm === "cloud-toggle"
+            ? "Cloud picked: the machine chip says Cloud, never New machine; Send reuses the person's Cloud machine or makes one, its progress in the chat."
+            : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
       ),
       props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
     },
-    ...(arm === "where-machine" || arm === "where-machine-always"
+    ...(arm === "where-machine"
       ? {
-          [`strip-${arm}-cloud-machines`]: {
-            height: 320,
+          [`strip-${arm}-cloud-where`]: {
+            height: 260,
             note: note(
-              "Cloud's chip open: New machine checked, the account's Cloud machines, then New Cloud Machine… and Open Cloud… under a hairline (Codex's Create and Manage environments).",
+              "Cloud picked, Where open: Cloud checked, one line, and nothing to choose after it: no New machine row, no machine chip, no create card on Send.",
             ),
             props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
-            play: openCloudChip,
+            play: whereOpen,
           },
         }
       : {}),
@@ -627,7 +637,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "Project actions stay directly below search, above the recent projects (paths on hover).",
+      note: "Search, the recent folders (paths on hover, the current one checked), then the actions under them with their glyphs.",
       props: folderMenuProps,
       play: openFolder,
     },
@@ -706,7 +716,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolder,
     },
     "folder-long-list": {
-      note: "Project actions stay below search while a long folder list scrolls; the thumb stays inside the right edge.",
+      note: "The actions stay under the list while a long folder list scrolls; the thumb stays inside the right edge.",
       props: {
         ...baseProps,
         projectChoices: Array.from({ length: 40 }, (_, index) => ({
@@ -900,7 +910,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
-      note: "Where a chat runs (the shipped strip, Codex desktop's): This Mac, Cloud and Another machine, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Another machine shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control's right-click menu.",
+      note: "Where a chat runs (the shipped strip, Codex desktop's): This Mac, Cloud and Remote, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Remote shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control's right-click menu.",
       props: {
         ...baseProps,
         environments: true,
@@ -957,7 +967,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openMachineList,
     },
     "environment-picker-alone": {
-      note: "Leo's case: This Mac, Cloud and Another machine, as Codex's strip. A person with other machines sees the same three; with none, Another machine is Add Machine….",
+      note: "Leo's case: This Mac, Cloud and Remote, as Codex's strip. A person with other machines sees the same three; with none, Remote is Add Machine….",
       props: {
         ...baseProps,
         environments: true,
@@ -1318,15 +1328,40 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolderMenu,
     },
     "extra-folders-adding": {
-      note: "Add folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Choose folder… opens this Mac's panel.",
+      note: "Add another folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Add folder… opens this Mac's panel.",
       props: extraProps("local", ["/Users/you/src/relay"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),
       play: async (ctx) => {
         await openFolderMenu(ctx);
-        await ctx.click({ role: "option", name: "Add folder…" });
+        await ctx.click({ role: "option", name: "Add another folder…" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-folder-popover input[placeholder="Add a folder"]'));
       },
+    },
+    // Leo, 2026-11-06, on the old menu's Do not work in a project, Add project, Choose folder… and
+    // Add folder…: "what even is the deal with add project? what is that? and add folder? why not
+    // just add fodler? what's special about project?". One concept: a folder. These arms differ only
+    // in how the one row that is not about the chat's own folder reads.
+    "folder-one-concept": {
+      note: "Shipped (Leo: \"it's just folder\"): search, the recent folders with their icons and the current one checked, then Add folder… (this Mac's folder panel), Add another folder… (one more folder the chat also sees) and No folder, each with its glyph.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenu,
+    },
+    "folder-one-concept-also-show": {
+      note: "Experiment arm: the extra row as Also show a folder…; rejected, it reads as a view filter, not a folder the agent can read and edit.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenuWithExtraWords("Also show a folder…"),
+    },
+    "folder-one-concept-let-see": {
+      note: "Experiment arm: the extra row as Let it see another folder…; rejected, the longest row in the menu, and nothing in the menu names the 'it'.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenuWithExtraWords("Let it see another folder…"),
     },
     "extra-folders-peer": {
       note: "A new chat on an SSH machine: its folders are that machine's (its own folder list or a typed path, never this Mac's panel); two of them sit beside its project.",

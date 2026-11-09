@@ -27,6 +27,10 @@ concurrency:
   group: mux-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   test:
     name: mux bun test

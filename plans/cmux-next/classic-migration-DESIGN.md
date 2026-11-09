@@ -150,10 +150,10 @@ Gate before that release:
    `scripts/cmux-next/legacy-appcast-item.xml` for the final classic build
    (`skills/cmux-release/references/cmux-next-update-floor.md`).
 2. Per-arch feeds: classic stable rewrites the feed to `appcast-<arch>.xml`
-   (`UpdateFeedResolver.swift`). cmux-next stable publishes only `appcast.xml` today. **Before the
-   switch release, `release.yml` on feat-cmux-next must also publish `appcast-arm64.xml` and
-   `appcast-x86_64.xml` (or classic's last release must stop rewriting)**, otherwise classic
-   clients keep reading the last classic per-arch feed and never see cmux-next.
+   (`UpdateFeedResolver.swift` on `main`). Done 2026-11-05: `release.yml` on feat-cmux-next
+   publishes `appcast-arm64.xml` and `appcast-x86_64.xml` as copies of the universal
+   `appcast.xml` (GitHub release assets and `files.cmux.com/stable/`, per-arch first,
+   `appcast.xml` last). cmux-next's own resolver keeps reading `appcast.xml`.
 3. Staging check: publish the candidate appcast to a staging key (`files.cmux.com/staging-handoff/`),
    point a classic stable build at it with the `SUFeedURL` default override
    (`defaults write com.cmuxterm.app SUFeedURL …`), update, and confirm: app relaunches as cmux-next,
@@ -198,7 +198,8 @@ cmux-next nightly under their bundle ID. The legacy-identity jobs (`nightly.yml`
   differently could misbehave in classic. Not audited key by key.
 - Selected tab per pane, browser back/forward history and profile, canvas positions, workspace
   descriptions, status/log entries, notifications and unread state do not come over.
-- The per-arch stable feed gap (5, Stable step 2) blocks the stable handoff until fixed.
+- The per-arch stable feeds (5, Stable step 2) are published but not yet seen by a real classic
+  stable install; the staging check (step 3) must confirm it.
 - Groups need a daemon with state resources; an older daemon brings workspaces over loose.
 - A workspace made between `createWorkspace` returning and the `created` ledger write (one daemon
   round trip) is not closed by a resume; it would remain as one extra workspace.

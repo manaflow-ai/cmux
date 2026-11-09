@@ -2,9 +2,9 @@ public import AppKit
 
 /// `window.titlebar` in cmux.json.
 public nonisolated enum TitlebarStyle: String, Sendable, CaseIterable, Codable {
-    /// No titlebar strip (the explicit minimal choice, user nxdog9): content
-    /// reaches the window's top edge, the traffic lights sit in the top row,
-    /// and every empty area of that row moves the window.
+    /// No titlebar strip (the default, user nxdog9): content reaches the
+    /// window's top edge, the traffic lights sit in the top row, and every
+    /// empty area of that row moves the window.
     case minimal
     /// A titlebar strip with the workspace name above the content.
     case standard
@@ -87,17 +87,66 @@ public struct WindowTitlebar {
         return frames.dropFirst().reduce(first) { $0.union($1) }
     }
 
+    /// Aligns both edges of a titlebar control to the display's device-pixel grid.
+    ///
+    /// - Parameters:
+    ///   - frame: The control's proposed frame.
+    ///   - scale: The window's current backing scale factor.
+    /// - Returns: A pixel-aligned frame whose center moves by at most half a device pixel.
+    public static func alignedFrame(_ frame: CGRect, scale: CGFloat) -> CGRect {
+        let pixelScale = max(1, scale)
+        let minX = (frame.minX * pixelScale).rounded() / pixelScale
+        let minY = (frame.minY * pixelScale).rounded() / pixelScale
+        let maxX = (frame.maxX * pixelScale).rounded() / pixelScale
+        let maxY = (frame.maxY * pixelScale).rounded() / pixelScale
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    /// Places titlebar accessories after the toolbar band on the traffic lights' center line.
+    ///
+    /// - Parameters:
+    ///   - band: The toolbar band's frame in the accessories' parent coordinates.
+    ///   - badge: The badge whose width is reserved, including while temporarily hidden.
+    ///   - indicator: The pressure indicator, laid out only while visible.
+    ///   - indicatorWidth: The indicator's width supplied by its owner.
+    ///   - midY: The traffic lights' center in the accessories' parent coordinates.
+    ///   - scale: The window's current backing scale factor.
+    ///   - trailing: A quiet mark after them, shown only while `showsTrailing` (hidden otherwise).
+    public static func layoutAccessories(after band: CGRect, badge: NSView?, indicator: NSView?,
+                                         indicatorWidth: CGFloat, centeredOn midY: CGFloat, scale: CGFloat,
+                                         trailing: NSView? = nil, showsTrailing: Bool = true) {
+        var x = band.maxX + Metrics.space2
+        if let badge {
+            let size = badge.fittingSize
+            badge.frame = alignedFrame(CGRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height), scale: scale)
+            x = badge.frame.maxX + Metrics.space2
+        }
+        if let indicator, !indicator.isHidden {
+            let side = TitlebarBandButton.side
+            indicator.frame = alignedFrame(CGRect(x: x, y: midY - side / 2, width: indicatorWidth, height: side), scale: scale)
+            x = indicator.frame.maxX + Metrics.space2
+        }
+        // Last, a quiet text mark such as Swift live mode's (LiveModeBadgeView).
+        trailing?.isHidden = !showsTrailing
+        guard let trailing, showsTrailing else { return }
+        let size = trailing.fittingSize
+        trailing.frame = alignedFrame(CGRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height), scale: scale)
+    }
+
     /// The main pane card's top inset in `root` (the window's root view):
-    /// `gutter`, except under a minimal titlebar, where the top row's tab
-    /// pills center on the traffic lights' line (never more than `gutter`;
-    /// `PaneChromeMetrics.cardTop`).
+    /// `gutter`, except under a minimal titlebar, where the card moves down
+    /// so the top row's tab pills center on the traffic lights' line with
+    /// equal gaps above and below them (never more than `gutter`;
+    /// `topRowCardTop`, `PaneChromeMetrics.cardTop`).
     ///
     /// - Parameter clearsTrafficLights: The lights sit over the card and no
     ///   top-row strip makes room for them (tab bars at the bottom, no
     ///   sidebar under the lights): the card starts `gutter` below their row
     ///   (the lights and the toolbar band's buttons on their line).
     public static func cardTopInset(of root: NSView, minimal: Bool, gutter: CGFloat, clearsTrafficLights: Bool = false) -> CGFloat {
-        guard minimal, let window = root.window, let lights = trafficLightsFrame(in: window) else { return gutter }
+        guard minimal, let window = root.window else { return gutter }
+        // Under a minimal titlebar the card meets the window's top edge: it stays under the window's lit rim.
+        guard let lights = trafficLightsFrame(in: window) else { return Metrics.windowEdgeInset(gutter, in: window) }
         let local = root.convert(lights, from: nil)
         if clearsTrafficLights {
             let row = max(local.height, TitlebarBandButton.side)
@@ -105,8 +154,16 @@ public struct WindowTitlebar {
         }
         // Floating panes keep the one even gap at the top too.
         guard !Metrics.floatingPanes else { return gutter }
-        let centerFromTop = root.bounds.maxY - local.midY
-        return min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor))
+        // The top row's shared line (`TopRowLine`): the lights' center unless Debug picks another variant.
+        // Concentric (the default line): the gutter on top as at the sides, with or without a top-row strip.
+        if TopRowLineLook.tunable.value == .concentric { return Metrics.windowEdgeInset(gutter, in: window) }
+        guard let target = targetTopRowLine(in: window) else {
+            // No top-row strip (tab bars at the bottom): the card keeps its place from before #38054.
+            let card = PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: root.bounds.maxY - local.midY,
+                                                                              scale: window.backingScaleFactor)
+            return Metrics.windowEdgeInset(min(gutter, card), in: window)
+        }
+        return topRowCardTop(centeringPillOn: target.centerY, gutter: gutter, in: window)
     }
 
     /// Whether `view` sits in the window's titlebar band (a full-size
@@ -114,8 +171,13 @@ public struct WindowTitlebar {
     /// points below the window's top edge).
     public static func isInTopRow(_ view: NSView) -> Bool {
         guard let window = view.window else { return false }
+        return isInTopRow(view.convert(view.bounds, to: nil), in: window)
+    }
+
+    /// Whether `frame` (window coordinates) lies in `window`'s titlebar band: a view's frame where
+    /// its pane will rest, for chrome that lays out once for its final place.
+    public static func isInTopRow(_ frame: CGRect, in window: NSWindow) -> Bool {
         let band = TitlebarDragPolicy.bandRect(in: window)
-        let frame = view.convert(view.bounds, to: nil)
         return band.height > 0 && frame.maxY > band.minY && frame.minY < band.maxY
     }
 }

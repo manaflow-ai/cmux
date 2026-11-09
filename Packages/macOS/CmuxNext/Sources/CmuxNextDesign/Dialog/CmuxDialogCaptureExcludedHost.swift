@@ -1,6 +1,6 @@
 public import AppKit
 
-/// Places dialogs with another host (the overlay host by default) and leaves the window that
+/// Places dialogs with another host (the shared center's, the overlay page, by default) and leaves the window that
 /// shows them out of screen capture and screen sharing (`NSWindow.sharingType = .none`) while
 /// they show: a screenshot, a recording, screen sharing or an agent's capture never contains
 /// what they show (the Passwords reveal sheet). The person still sees them on screen.
@@ -20,23 +20,32 @@ public final class CmuxDialogCaptureExcludedHost: CmuxDialogHosting {
     private static var excluded: [ObjectIdentifier: Excluded] = [:]
     private let inner: any CmuxDialogHosting
 
-    public init(inner: any CmuxDialogHosting = CmuxDialogOverlayHost()) {
+    public init(inner: any CmuxDialogHosting = CmuxDialogCenter.shared.host) {
         self.inner = inner
     }
 
-    public func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
+    public func show(_ dialog: CmuxDialogPresentation, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
         inner.show(dialog, in: scope, scopeGone: scopeGone)
+        // The window it shows in is the overlay's, known once the host presents it: its view may wait in
+        // the source window before, invisible, while the page draws the card.
+        dialog.whenPresented { [weak dialog] in
+            guard let dialog else { return }
+            Self.exclude(dialog)
+        }
+    }
+
+    private static func exclude(_ dialog: CmuxDialogPresentation) {
         guard let window = dialog.window else { return }
         let key = ObjectIdentifier(window)
-        var entry = Self.excluded[key] ?? Excluded(window: window, sharing: window.sharingType, dialogs: [])
+        var entry = excluded[key] ?? Excluded(window: window, sharing: window.sharingType, dialogs: [])
         entry.dialogs.insert(ObjectIdentifier(dialog))
-        Self.excluded[key] = entry
+        excluded[key] = entry
         window.sharingType = .none
     }
 
-    public func hide(_ dialog: CmuxDialogView) {
+    public func hide(_ dialog: CmuxDialogPresentation) {
         // Off the screen now: the overlay's fade-out would draw it after the window is capturable.
-        dialog.isHidden = true
+        dialog.view?.isHidden = true
         inner.hide(dialog)
         let id = ObjectIdentifier(dialog)
         for (key, var entry) in Self.excluded where entry.dialogs.contains(id) {

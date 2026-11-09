@@ -1402,7 +1402,7 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 mod codex_daemon;
 pub use codex_daemon::descends_from_codex_app_server_daemon;
 mod job_launch;
-pub use job_launch::{JobLaunch, foreground_job_launch};
+pub use job_launch::{JobLaunch, foreground_job_launch, process_launch};
 
 #[cfg(test)]
 mod tests;
