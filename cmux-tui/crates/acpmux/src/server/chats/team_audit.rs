@@ -39,7 +39,10 @@ pub(super) struct AuditQuery {
 fn is_day(text: &str) -> bool {
     let bytes = text.as_bytes();
     bytes.len() == 10
-        && bytes.iter().enumerate().all(|(i, b)| if i == 4 || i == 7 { *b == b'-' } else { b.is_ascii_digit() })
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, b)| if i == 4 || i == 7 { *b == b'-' } else { b.is_ascii_digit() })
 }
 
 impl AuditQuery {
@@ -147,7 +150,9 @@ impl Client {
                 .await;
             let response = match sent {
                 Ok(response) => response,
-                Err(e) => return failed(format!("cmux-platform did not answer: {}", e.without_url())),
+                Err(e) => {
+                    return failed(format!("cmux-platform did not answer: {}", e.without_url()));
+                }
             };
             let status = response.status().as_u16();
             // A token the platform no longer takes: one more try with a new one.
@@ -184,7 +189,10 @@ fn refusal(status: u16, body: &[u8]) -> String {
     let code = serde_json::from_slice::<Value>(body)
         .ok()
         .and_then(|v| v.get("code").and_then(Value::as_str).map(str::to_owned))
-        .filter(|code| code.len() <= 64 && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_'));
+        .filter(|code| {
+            code.len() <= 64
+                && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_')
+        });
     match code {
         Some(code) => format!("cmux-platform refused ({status} {code})"),
         None => format!("cmux-platform refused ({status})"),
@@ -216,7 +224,9 @@ fn suggested_name(disposition: Option<&str>) -> String {
             name.len() <= 120
                 && name.ends_with(".csv")
                 && !name.starts_with('.')
-                && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
         })
         .map_or_else(|| DEFAULT_CSV_NAME.to_owned(), str::to_owned)
 }
@@ -289,10 +299,17 @@ mod tests {
     #[test]
     fn a_csv_keeps_a_plain_suggested_name_and_never_replaces_a_file() {
         assert_eq!(
-            suggested_name(Some(r#"attachment; filename="cmux-agent-spend-2026-11-01-2026-11-09-model.csv""#)),
+            suggested_name(Some(
+                r#"attachment; filename="cmux-agent-spend-2026-11-01-2026-11-09-model.csv""#
+            )),
             "cmux-agent-spend-2026-11-01-2026-11-09-model.csv"
         );
-        for odd in [None, Some("attachment"), Some(r#"attachment; filename="../x.csv""#), Some("filename=a.sh")] {
+        for odd in [
+            None,
+            Some("attachment"),
+            Some(r#"attachment; filename="../x.csv""#),
+            Some("filename=a.sh"),
+        ] {
             assert_eq!(suggested_name(odd), DEFAULT_CSV_NAME, "{odd:?}");
         }
         let dir = tempfile::tempdir().unwrap();
@@ -304,7 +321,10 @@ mod tests {
 
     #[test]
     fn a_refusal_names_only_a_plain_code() {
-        assert_eq!(refusal(503, br#"{"code":"usage.unavailable"}"#), "cmux-platform refused (503 usage.unavailable)");
+        assert_eq!(
+            refusal(503, br#"{"code":"usage.unavailable"}"#),
+            "cmux-platform refused (503 usage.unavailable)"
+        );
         assert_eq!(refusal(500, b"<html>secret</html>"), "cmux-platform refused (500)");
         assert_eq!(refusal(400, br#"{"code":"has spaces in it"}"#), "cmux-platform refused (400)");
     }
