@@ -170,11 +170,13 @@ async fn a_turn_end_logs_its_checks_once_before_turn_end() {
     let cfg = crate::config::Config::default();
     let store = Box::new(crate::store::MemoryStore::default());
     let hub = Hub::new(cfg, store);
-    let meta = serde_json::from_value(json!({
+    let meta: SessionMeta = serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": "claims", "name": "claims",
         "harness": "fake", "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1,
     }))
     .unwrap();
+    // Records land in the log of a saved chat only.
+    hub.store.save(&meta).unwrap();
     let session = hub.make_session(meta);
     hub.note_claim_run(&session, &start("t1", "cargo test"));
     hub.note_claim_run(&session, &end("t1", 0));

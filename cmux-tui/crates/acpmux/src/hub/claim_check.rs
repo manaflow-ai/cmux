@@ -346,7 +346,7 @@ fn classify_simple(part: &str) -> u8 {
             _ => break,
         }
     }
-    let Some((program, args)) = words.split_first() else {
+    let Some((&program, args)) = words.split_first() else {
         return 0;
     };
     let program = program.rsplit('/').next().unwrap_or(program);
