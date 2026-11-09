@@ -24,6 +24,9 @@ pub struct FakeOptions {
     /// Remove every endpoint but the TURN relayed ones from wg-init and
     /// wg-resp, so WireGuard can only use TURN.
     pub strip_direct_endpoints: bool,
+    /// The same for wg-resp only: the dialer learns the answerer's direct
+    /// address only from its datagrams, as from a peer-reflexive mapping.
+    pub strip_answer_direct_endpoints: bool,
     /// Do not stamp `fromUserId` on forwarded signals.
     pub omit_from_user_id: bool,
     /// Remove `version` from wg-init and wg-resp, so each side takes the
@@ -224,8 +227,9 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                 {
                     payload.remove("version");
                 }
-                if options.strip_direct_endpoints
-                    && matches!(value["payload"]["kind"].as_str(), Some("wg-init" | "wg-resp"))
+                let kind = value["payload"]["kind"].as_str();
+                if (options.strip_direct_endpoints && matches!(kind, Some("wg-init" | "wg-resp")))
+                    || (options.strip_answer_direct_endpoints && kind == Some("wg-resp"))
                 {
                     let relayed = value["payload"]["relayed"].clone();
                     value["payload"]["endpoints"] = if relayed.is_array() { relayed } else { json!([]) };
