@@ -21,15 +21,16 @@ extension SidebarModel {
         return order
     }
 
-    /// The item `offset` steps from `selected` (Cmd-Ctrl-] is +1), from where `selected` draws: a workspace that
-    /// draws away from its stop when selected (folded into "Done (N)", behind "Show N more", in the closed Archive,
-    /// or listed at the end of an opened fold) steps to the stops drawn around it. That one lays the list out with it
-    /// active, as the list does on every selection, so only such a press costs a layout; any other is a key compare.
+    /// The item `offset` steps from `selected` (Cmd-Ctrl-] is +1). A workspace with no stop of its own (folded into
+    /// "Done (N)", behind "Show N more", in the closed Archive) steps to the stops drawn around it when selected: that
+    /// one lays the list out with it active, as the list does on every selection. Any other selection steps in the
+    /// order's own sequence, a key compare, so repeated presses walk every stop once: a row an opened fold lists at
+    /// its end steps from there even though, selected, it draws in its place (a walk from where it draws would come
+    /// back to it forever).
     public func step(from selected: SidebarItem?, by offset: Int, _ settings: SidebarNavigationSettings) -> SidebarItem? {
         let order = itemOrder
-        // A collapsed group's member steps from its group, the stop that stands for it (`stops`).
-        guard case .workspace(let id)? = selected, order.stops[id] == nil, let ws = workspace(id), !ws.rowState.isPending,
-              order.stop(for: selected) == nil || ws.isArchived || ws.taskStatus == .done else {
+        guard case .workspace(let id)? = selected, order.stop(for: selected) == nil,
+              let ws = workspace(id), !ws.rowState.isPending else {
             return order.step(from: selected, by: offset, settings)
         }
         return order.step(from: selected, by: offset, settings, place: drawnPlace(of: id, in: order))

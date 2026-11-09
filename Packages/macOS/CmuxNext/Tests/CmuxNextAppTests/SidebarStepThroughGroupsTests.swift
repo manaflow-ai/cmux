@@ -136,9 +136,9 @@ import Testing
 
     // Review follow-ups on #39747: a selected row draws in its place, so a step goes on from there.
 
-    /// An opened Done fold lists its member at the end of the group, but selected it draws in its place: Next and
-    /// Previous are the rows drawn around it, and its number stays the fold's.
-    @Test func aSelectedRowOfAnOpenedDoneFoldStepsFromWhereItDraws() throws {
+    /// An opened Done fold lists its member at the end of the group, and it is a stop there: Next and Previous walk
+    /// the stops in number order from it too, so repeated presses visit every row once and never come back.
+    @Test func anOpenedDoneFoldsRowStepsInNumberOrder() throws {
         try Self.withFolds {
             let model = SidebarModel(sections: Self.doneSections(Self.withDone))
             let section = try #require(model.sections.first?.id)
@@ -147,9 +147,15 @@ import Testing
             #expect(order.rows == Self.ids(["top", "work-1", "work-3", "work-2", "below"]))
             let selected = SidebarItem.workspace(WorkspaceID("work-2"))
             #expect(order.number(for: selected, Self.numbers) == 4)
-            #expect(model.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
-            #expect(model.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
-            #expect(model.step(from: .workspace(WorkspaceID("work-3")), by: 1, Self.numbers) == selected)
+            #expect(model.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("below")))
+            #expect(model.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("work-3")))
+            var visited: [SidebarItem] = []
+            var at: SidebarItem? = .workspace(WorkspaceID("top"))
+            for _ in 0..<4 {
+                at = model.step(from: at, by: 1, Self.numbers)
+                if let at { visited.append(at) }
+            }
+            #expect(visited == Self.ids(["work-1", "work-3", "work-2", "below"]))
         }
     }
 
