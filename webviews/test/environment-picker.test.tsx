@@ -587,6 +587,27 @@ test("a started chat on this Mac: the picker shows this Mac and Move to Cloud, w
   expect(mounted).toEqual([]);
 });
 
+test("a move the app would refuse is greyed with its reason and a pick runs nothing", async () => {
+  // Move to Cloud on a chat with no first message was offered, and its click did nothing on screen.
+  const reason = "Send a first message, then move this chat.";
+  const calls: unknown[][] = [];
+  await mount(true, {
+    ...startedOn("local"),
+    onOffload: (kind: string) => calls.push(["offload", kind]),
+    offloadReasons: { move: reason },
+  });
+  await openPicker();
+  const row = newRows()[0]!;
+  expect(row.querySelector(".acpmux-menu-label")?.textContent).toBe(t("composer.moveToCloud"));
+  expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(reason);
+  const drawn = row.querySelector(".acpmux-env-row") ?? row;
+  expect(drawn.getAttribute("aria-disabled")).toBe("true");
+  expect(drawn.getAttribute("title")).toBe(reason);
+  await act(async () => row.click());
+  expect(calls).toEqual([]);
+  expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();
+});
+
 test("a started Cloud chat: the picker shows its machine and Bring Back Local", async () => {
   const { calls } = await mountStarted("cloud");
   await openPicker();
