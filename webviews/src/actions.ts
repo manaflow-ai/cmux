@@ -1,3 +1,4 @@
+// measurement only: makes fast gates run the web lint
 import type { DiffViewerLabelResolver } from "./labels";
 
 export function resolveDiffNavigationURL(rawURL: string): string {

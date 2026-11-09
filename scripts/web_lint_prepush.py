@@ -1792,6 +1792,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     global PHASES
     PHASES = args.timings
+    if PHASES and in_ci():  # MEASUREMENT ONLY (throwaway PR): memory every 15 s
+        def sample():
+            while True:
+                info = dict(line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())
+                gb = lambda key: int(info[key].split()[0]) / 1048576
+                print(f"web-lint: mem: total={gb('MemTotal'):.1f}G avail={gb('MemAvailable'):.1f}G "
+                      f"swapfree={gb('SwapFree'):.1f}G/{gb('SwapTotal'):.1f}G load={os.getloadavg()[0]:.1f}",
+                      file=sys.stderr, flush=True)
+                time.sleep(15)
+        import threading as _t
+        _t.Thread(target=sample, daemon=True).start()
 
     mode = "pre-push" if args.pre_push else "web-lint"
     if args.pre_push:
