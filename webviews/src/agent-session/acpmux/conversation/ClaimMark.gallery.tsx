@@ -12,12 +12,16 @@ const TURNS: Turn[] = [
   {
     title: "A true claim",
     reply: "Fixed the off-by-one in the pager. All tests pass.",
-    claims: [{ text: "All tests pass", kind: "tests", verdict: "backed", toolCallId: "t1", command: "cargo test -p acpmux" }],
+    claims: [
+      { text: "All tests pass", kind: "tests", verdict: "backed", toolCallId: "t1", command: "cargo test -p acpmux" },
+    ],
   },
   {
     title: "A false claim",
     reply: "Moved the import and the build succeeds now.",
-    claims: [{ text: "the build succeeds", kind: "build", verdict: "failed", toolCallId: "b1", command: "bun run build" }],
+    claims: [
+      { text: "the build succeeds", kind: "build", verdict: "failed", toolCallId: "b1", command: "bun run build" },
+    ],
   },
   {
     title: "A claim with no run",
@@ -29,7 +33,13 @@ const TURNS: Turn[] = [
     reply: "Tests pass and typecheck passes.",
     claims: [
       { text: "Tests pass", kind: "tests", verdict: "failed", toolCallId: "t3", command: "pytest -x" },
-      { text: "typecheck passes", kind: "typecheck", verdict: "backed", toolCallId: "c1", command: "bunx tsc --noEmit" },
+      {
+        text: "typecheck passes",
+        kind: "typecheck",
+        verdict: "backed",
+        toolCallId: "c1",
+        command: "bunx tsc --noEmit",
+      },
     ],
   },
 ];

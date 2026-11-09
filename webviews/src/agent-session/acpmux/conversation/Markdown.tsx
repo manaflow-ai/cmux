@@ -501,7 +501,19 @@ export function Markdown({
       ...(commonmark ? { commonmark } : {}),
       ...(claims?.length ? { claims } : {}),
     };
-  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails, skills, commonmark, claims]);
+  }, [
+    commits,
+    githubRepository,
+    linkIcon,
+    noteIds,
+    notePrefix,
+    overBudget,
+    started,
+    thumbnails,
+    skills,
+    commonmark,
+    claims,
+  ]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   // A later token must not invalidate every completed code block's memoized props.

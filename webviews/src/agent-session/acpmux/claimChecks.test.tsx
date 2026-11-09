@@ -22,8 +22,20 @@ afterAll(() => {
   scope.document = saved.document;
 });
 
-const backed: ClaimCheck = { text: "All tests pass", kind: "tests", verdict: "backed", toolCallId: "t1", command: "cargo test" };
-const failed: ClaimCheck = { text: "the build succeeds", kind: "build", verdict: "failed", toolCallId: "b1", command: "bun run build" };
+const backed: ClaimCheck = {
+  text: "All tests pass",
+  kind: "tests",
+  verdict: "backed",
+  toolCallId: "t1",
+  command: "cargo test",
+};
+const failed: ClaimCheck = {
+  text: "the build succeeds",
+  kind: "build",
+  verdict: "failed",
+  toolCallId: "b1",
+  command: "bun run build",
+};
 const none: ClaimCheck = { text: "lint is clean", kind: "lint", verdict: "none" };
 
 test("splitClaims cuts prose at each phrase, in reading order", () => {
@@ -95,7 +107,9 @@ test("a turn's claim_checks mark its last reply, also on a page built from histo
         status: "in_progress",
       },
     },
-    { update: { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed", rawOutput: { exit_code: 0 } } },
+    {
+      update: { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed", rawOutput: { exit_code: 0 } },
+    },
     reply("Fixed. All tests pass"),
     reply(" and lint is clean."),
     {
