@@ -294,7 +294,7 @@ impl ChildEnv<'_> {
         }
         let Some(explicit) = &self.explicit else { return false };
         !self.remote
-            && !explicit.iter().any(|(k, _)| k == name)
+            && !explicit.iter().any(|(k, v)| k == name && v.is_some())
             && !self.never(name)
             && PROVIDER_KEYS.contains(&name)
             && allowed_with(name, "", Some(self.family), self.profile)
@@ -364,7 +364,7 @@ pub(crate) async fn build_ready<T, E>(
         let built = build();
         plan.explicit = built.as_ref().ok().map(&explicit);
         let waited = await_child_env(plan, deadline).await.map_err(&refuse)?;
-        if !waited && reads == reads {
+        if !waited && READS.load(Ordering::SeqCst) == reads {
             return built;
         }
     }
