@@ -14,6 +14,8 @@ Then: "For the swift bit why can't we simply apply after switching the build?" S
   start   build (once per commit, cached) the live code build of the checkout's HEAD, turn
           Labs > Live Code (`labs.liveCode`) on, restart into it keeping every session, and patch
           in every CmuxNextApp file that differs from what that build compiled: the edits apply now.
+          When the tag already has a live code build of an earlier commit and everything since
+          patches in, start reuses it and patches the difference in: no build (`--fresh` builds).
   watch   (started by start, in the background) patch each saved file in; once saves go quiet,
           make the optimized build of the edited checkout. Ends when live mode does.
   stop    turn Live Code off and restart into that optimized build, sessions kept (`--discard`:
@@ -21,7 +23,7 @@ Then: "For the swift bit why can't we simply apply after switching the build?" S
   status  one line: which build runs, since when, the patches, what waits for the stop build.
   patch   compile edited Swift files against the running live code build (scripts/live-code/patch.py).
 
-  scripts/live-code/live-mode.py start [--tag TAG] [--detach] [--json]
+  scripts/live-code/live-mode.py start [--tag TAG] [--fresh] [--detach] [--json]
   scripts/live-code/live-mode.py stop [--discard] [--tag TAG] [--detach] [--json]
   scripts/live-code/live-mode.py status [--tag TAG] [--json]
   scripts/live-code/live-mode.py patch [--tag TAG] FILE.swift...
@@ -597,6 +599,49 @@ def start(args):
         return start_locked(args, path, identify(path), tag, root)
 
 
+def reusable_build(root, tree):
+    """The tag's last live code build, to patch the checkout into instead of building it again.
+
+    Leo (2026-11-05): "do you need it to be a build versus do you need actually just to be able to
+    test out that change on its own ... We can just reuse an existing copy ... propagating from the
+    previous change". The watcher already patches a pull in while live mode is on; this does the
+    same across starts. (entry, commit, patchable files) when the tag's live derived data still holds
+    that build's intermediates and every file that differs from what it compiled patches in (an
+    existing CmuxNextApp file); None when there is no such build or a file would wait for a build.
+    Every other input of the build counts too (shared packages, resources, webviews, manifests): git
+    must show nothing changed since that build's commit but CmuxNextApp Swift, and the build itself
+    must have been of a checkout with nothing else uncommitted (its `reusable` mark)."""
+    holds = root / "derived-data.commit"
+    current = holds.read_text().strip() if holds.is_file() else ""
+    if not re.fullmatch(r"[0-9a-f]{7,40}", current):
+        return None
+    entry = root / current[:12]
+    built_from = entry / "sources.json"
+    if not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file() and built_from.is_file()
+            and (entry / "reusable").is_file()):
+        return None
+    if not only_app_swift_changed(tree, current):
+        return None
+    patchable, waiting = changed_sources(load_sources(built_from), swift_sources(tree))
+    if waiting:
+        return None
+    return entry, current, patchable
+
+
+def only_app_swift_changed(tree, commit):
+    """Whether every tracked file that differs from `commit` (committed since or edited) is a
+    CmuxNextApp Swift file, and no untracked file is there. False when git cannot tell."""
+    diff = subprocess.run(["git", "-C", str(tree), "diff", "--name-only", commit, "--"],
+                          capture_output=True, text=True)
+    untracked = subprocess.run(["git", "-C", str(tree), "ls-files", "--others", "--exclude-standard"],
+                               capture_output=True, text=True)
+    if diff.returncode != 0 or untracked.returncode != 0:
+        return False
+    app = f"{SOURCES}/{PATCHED_MODULE}/"
+    changed = [f for f in diff.stdout.splitlines() if f]
+    return not untracked.stdout.strip() and all(f.startswith(app) and f.endswith(".swift") for f in changed)
+
+
 def start_locked(args, path, ident, tag, root):
     state = read_state(root)
     app = ident["app_bundle_path"]
@@ -604,32 +649,46 @@ def start_locked(args, path, ident, tag, root):
         return {"mode": "live", "already": True, **state}
     info = app_info(app)
     head = git(args.tree, "rev-parse", "HEAD")
-    commit = info.get("CMUXCommit") or ""
-    if re.fullmatch(r"[0-9a-f]{7,40}", commit) and not same_commit(commit, head):
-        raise Refused(f"the running app is {commit[:12]}, {args.tree} is at {head[:12]}: check that commit out "
-                      f"(or pass --tree) so the live code build and your patches match the app")
     if not head:
         raise Refused(f"{args.tree} is not a git checkout")
-    entry = root / head[:12]
     log = root / "live-mode.log"
     built_s = None
+    reused = None if args.fresh else reusable_build(root, args.tree)
+    if reused:
+        # The app restarts into that build and the difference patches in, so the running app's
+        # commit need not be HEAD: what runs after the swap is the reused build, patched.
+        entry, built_commit, _ = reused
+        print(f"live mode: reusing the live code build of {built_commit[:12]} and patching {head[:12]}'s "
+              f"difference in (no build; --fresh builds {head[:12]})", file=sys.stderr, flush=True)
+    else:
+        commit = info.get("CMUXCommit") or ""
+        if re.fullmatch(r"[0-9a-f]{7,40}", commit) and not same_commit(commit, head):
+            raise Refused(f"the running app is {commit[:12]}, {args.tree} is at {head[:12]}: check that commit out "
+                          f"(or pass --tree) so the live code build and your patches match the app")
+        entry, built_commit = root / head[:12], head
     # The tag's live derived data holds one commit's intermediates, which patches compile against:
     # an entry is good only while it is that commit's.
     holds = root / "derived-data.commit"
     current = holds.read_text().strip() if holds.is_file() else ""
     built_from = entry / "sources.json"
-    if not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file() and current == head
-            and built_from.is_file()):
+    # --fresh builds even when HEAD's own build is cached: a layout change the app refused needs it.
+    if not reused and (args.fresh or not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file()
+                                          and current == head and built_from.is_file())):
         print(f"live mode: building the live code build of {head[:12]} (once per commit; log {log})",
               file=sys.stderr, flush=True)
         holds.unlink(missing_ok=True)  # a build that stops half way leaves no commit's intermediates
         entry.mkdir(parents=True, exist_ok=True)
         save_sources(built_from, swift_sources(args.tree))  # before: a save during the build patches in after
+        # A build of a checkout with an uncommitted edit outside CmuxNextApp's Swift compiled an input
+        # git cannot compare later (reverted, it would look unchanged): such a build is never reused.
+        (entry / "reusable").unlink(missing_ok=True)
+        if only_app_swift_changed(args.tree, head):
+            (entry / "reusable").write_text(head + "\n")
         built_s = build_live(args.tree, tag, entry, log, app)
         holds.write_text(head + "\n")
     setting = "skipped" if args.setting_done else live_code_setting(path, True)
-    state = {"mode": "live", "commit": head, "tag": tag, "app": app, "since": now(), "entry": str(entry),
-             "tree": str(args.tree)}
+    state = {"mode": "live", "commit": head, "built_commit": built_commit, "tag": tag, "app": app, "since": now(),
+             "entry": str(entry), "tree": str(args.tree)}
 
     def swapped(binary):
         write_state(root, {**state, "binary": binary} if binary else {**state, "mode": "normal", "binary": None})
@@ -645,6 +704,8 @@ def start_locked(args, path, ident, tag, root):
     applied = apply_edits(args.tree, entry, patchable)
     if applied["exit"]:
         waiting = sorted(set(waiting) | set(patchable))  # did not compile: they wait for the stop build
+        if reused:
+            applied["hint"] = f"`cmux live start --swift --fresh` after a stop builds {head[:12]} instead"
     write_state(root, {**state, "waiting": waiting})
     watcher = detach(["watch", "--tag", tag, "--tree", str(args.tree)], root, quiet=True)
     return {**state, **result, "built_s": built_s, "setting": setting, "edits": applied, "waiting": waiting,
@@ -800,7 +861,8 @@ def status(args):
     app = ident.get("app_bundle_path")
     on = bool(state.get("mode") == "live" and app and state.get("binary") == binary_id(app))
     result = {"mode": "live" if on else "normal", "tag": tag or None, "running": bool(ident),
-              "commit": state.get("commit"), "since": state.get("since") if on else None}
+              "commit": state.get("commit"), "built_commit": state.get("built_commit"),
+              "since": state.get("since") if on else None}
     if on:
         result.update(patches())
         result["waiting"] = state.get("waiting") or []
@@ -814,7 +876,7 @@ def line(result):
     """`cmux live status`'s Swift line."""
     if result.get("mode") == "live":
         text = (f"Swift live mode: on, cmux DEV {result.get('tag')} runs the live code build of "
-                f"{(result.get('commit') or '')[:12]} since {result.get('since')}")
+                f"{built_text(result)} since {result.get('since')}")
         if "applied" in result:
             text += f"; {result['applied']} patch(es) applied, {result['refused']} refused"
         if result.get("waiting"):
@@ -827,6 +889,12 @@ def line(result):
     return "Swift live mode: off" + (f", cmux DEV {result['tag']} runs its normal build" if result.get("tag") else "")
 
 
+def built_text(result):
+    """The live code build's commit, and the commit it was patched up to when start reused it."""
+    commit, built = (result.get("commit") or "")[:12], (result.get("built_commit") or "")[:12]
+    return f"{built}, patched up to {commit}" if built and not same_commit(built, commit) else commit
+
+
 def summary(verb, result):
     if result.get("already"):
         return line(dict(result, mode=result["mode"]))
@@ -834,13 +902,17 @@ def summary(verb, result):
     kept_text = (f"sessions kept: {sessions_kept['workspaces']} workspaces, {sessions_kept['tabs']} tabs, "
                  f"{sessions_kept['terminals']} running terminals"
                  + ("" if sessions_kept["all"] else f" (lost {', '.join(sessions_kept['lost'][:5])})"))
-    what = f"the live code build of {result['commit'][:12]}" if verb == "start" else result.get("into", "the normal build")
+    what = f"the live code build of {built_text(result)}" if verb == "start" else result.get("into", "the normal build")
     built = f"; built in {result['built_s']} s" if result.get("built_s") else ""
+    if verb == "start" and result.get("built_s") is None:
+        built = "; no build"
     text = (f"Swift live mode {'on' if verb == 'start' else 'off'}: restarted into {what} in {result['restart_s']} s "
             f"(quit {result['quit_s']} s, launch {result['launch_s']} s); {kept_text}{built}")
     edits = result.get("edits") or {}
     if edits.get("files"):
         text += f"; your edits to {len(edits['files'])} file(s) patched in (exit {edits['exit']})"
+    if edits.get("hint"):
+        text += f"; {edits['hint']}"
     if result.get("waiting"):
         text += (f"; {len(result['waiting'])} file(s) cannot patch in (another module, a new or deleted file) "
                  f"and wait for the stop build")
@@ -884,6 +956,8 @@ def main(argv=None):
     parser.add_argument("--detach", action="store_true", help="start or stop in the background (the app's buttons)")
     parser.add_argument("--discard", action="store_true",
                         help="stop: restart into the build from before live mode, not the optimized build of your edits")
+    parser.add_argument("--fresh", action="store_true",
+                        help="start: build the live code build of HEAD even when the last one could be reused and patched")
     parser.add_argument("--setting-done", action="store_true",
                         help="the app already set labs.liveCode (its Live Mode button, the person's click)")
     args = parser.parse_args(argv)
