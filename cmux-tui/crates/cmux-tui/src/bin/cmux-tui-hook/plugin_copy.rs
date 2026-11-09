@@ -209,25 +209,47 @@ mod tests {
         // A claim for another terminal: this Claude runs in its own terminal
         // (`cmux agent start` from a tool command).
         assert!(!run("nested-2", &[plugin, (TERMINAL_ENV, "term_b"), claimed]));
-        // Only the plugin copy reads claims; a malformed claim is none.
-        assert!(!run("nested-2", &[here, claimed]));
+        // Every copy reads claims: the installed and the shim's hooks too.
+        assert!(run("nested-2", &[here, claimed]));
+        assert!(!run("outer-1", &[here, claimed]));
+        assert!(!stands_down("codex", "Stop", Some("nested-2"), env(&[here, claimed])));
+        // A malformed claim is none.
         assert!(!run("nested-2", &[plugin, here, (OWNER_ENV, "term_a")]));
     }
 
     #[test]
     fn any_launcher_plugin_session_start_claims_the_terminal_in_the_env_file() {
         let dir = tempfile::tempdir().unwrap();
+        // Claude Code names the file but does not create it.
         let file = dir.path().join("env.sh");
-        fs::write(&file, "export KEEP=1\n").unwrap();
         let path = file.to_str().unwrap();
         let plugin = (ORIGIN_ENV, PLUGIN_ORIGIN);
         let here = (TERMINAL_ENV, "term_a");
         let envfile = (CLAUDE_ENV_FILE, path);
         claim_terminal("claude", "SessionStart", Some("outer-1"), env(&[plugin, here, envfile]));
-        // Not a SessionStart, not the plugin copy, an id a shell would read as
-        // code, or no session: nothing is written.
+        assert_eq!(
+            fs::read_to_string(&file).unwrap_or_default(),
+            format!("export {OWNER_ENV}=term_a/outer-1\n")
+        );
+        // The installed or shim copy of SessionStart claims too.
+        let installed_file = dir.path().join("installed.sh");
+        let installed_path = installed_file.to_str().unwrap();
+        claim_terminal(
+            "claude",
+            "SessionStart",
+            Some("outer-1"),
+            env(&[here, (CLAUDE_ENV_FILE, installed_path)]),
+        );
+        assert_eq!(
+            fs::read_to_string(&installed_file).unwrap_or_default(),
+            format!("export {OWNER_ENV}=term_a/outer-1\n")
+        );
+        fs::write(&file, "export KEEP=1\n").unwrap();
+        claim_terminal("claude", "SessionStart", Some("outer-1"), env(&[plugin, here, envfile]));
+        // Not a SessionStart, not Claude, an id a shell would read as code, or
+        // no session: nothing is written.
         claim_terminal("claude", "Stop", Some("outer-1"), env(&[plugin, here, envfile]));
-        claim_terminal("claude", "SessionStart", Some("outer-1"), env(&[here, envfile]));
+        claim_terminal("codex", "SessionStart", Some("outer-1"), env(&[plugin, here, envfile]));
         claim_terminal("claude", "SessionStart", Some("x;rm -rf ~"), env(&[plugin, here, envfile]));
         claim_terminal("claude", "SessionStart", None, env(&[plugin, here, envfile]));
         claim_terminal(

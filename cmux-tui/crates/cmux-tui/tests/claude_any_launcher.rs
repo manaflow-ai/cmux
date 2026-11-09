@@ -87,9 +87,9 @@ def commands(event):
 session = os.environ["FAKE_SESSION_ID"]
 record = {"session_id": session, "outputs": {}}
 # The session's env file: SessionStart hooks may append `export` lines, and
-# Claude Code sources it before each Bash tool command.
+# Claude Code sources it before each Bash tool command when it exists. Like
+# Claude Code 2.1.319, the stand-in does not create it.
 env_file = os.path.join(os.environ["FAKE_RECORD_DIR"], "env-" + os.environ["OB_TAG"] + ".sh")
-open(env_file, "w").close()
 payloads = [
     ("SessionStart", {"source": "startup"}),
     ("UserPromptSubmit", {"prompt": "hello"}),
@@ -129,7 +129,7 @@ if go:
                   FAKE_EXIT="1", CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
                   CLAUDE_CODE_SESSION_ID=session)
     del nested["FAKE_NESTED_GO"]
-    subprocess.run(["/bin/sh", "-c", '. "$1" && exec "$2" -p hi', "sh", env_file,
+    subprocess.run(["/bin/sh", "-c", '[ -f "$1" ] && . "$1"; exec "$2" -p hi', "sh", env_file,
                     os.path.realpath(sys.argv[0])], env=nested, timeout=120)
 if os.environ.get("FAKE_EXIT"):
     sys.exit(0)
@@ -577,7 +577,9 @@ fn any_launcher_nested_claude_leaves_the_pane_session_and_its_messages_to_the_ou
     let data = root.join("data");
     let realbin = root.join("realbin");
     let build = root.join("build");
-    for dir in [&home, &data, &realbin, &build, &root.join("config-outer")] {
+    let empty_config = root.join("config-empty");
+    let installed_config = root.join("config-installed");
+    for dir in [&home, &data, &realbin, &build, &empty_config, &installed_config] {
         fs::create_dir_all(dir).unwrap();
     }
     let claude = realbin.join("claude");
@@ -586,59 +588,83 @@ fn any_launcher_nested_claude_leaves_the_pane_session_and_its_messages_to_the_ou
     if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
         fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
     }
+    // `agent hook install claude` in one config directory: its copy of the
+    // hooks, not the plugin's, then reports for the Claude and the nested one.
+    let install = Command::new(&daemon_exe)
+        .args(["agent", "hook", "install", "claude"])
+        .env("HOME", &home)
+        .env("XDG_DATA_HOME", &data)
+        .env("CLAUDE_CONFIG_DIR", &installed_config)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(install.status.success(), "{}", String::from_utf8_lossy(&install.stderr));
     let path = format!("{}:/usr/bin:/bin", realbin.display());
     let mut daemon = Daemon::start(&root, &daemon_exe, "nest", &home, &data, &path);
     let cli_env = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
 
-    // Claude by its full path; once told, a tool call of it starts another
-    // Claude (`claude -p`), which inherits the pane's environment.
-    let go = root.join("go");
-    let outer_session = "00000000-0000-4000-8000-000000000011";
-    let script = format!(
-        "OB_TAG=outer FAKE_RECORD_DIR='{root}' FAKE_SESSION_ID={outer_session} \
-         FAKE_NESTED_SESSION_ID=00000000-0000-4000-8000-000000000012 FAKE_NESTED_GO='{go}' \
-         FAKE_REPLY='outer reply' CLAUDE_CONFIG_DIR='{root}/config-outer' \
-         SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock; export OB_TAG FAKE_RECORD_DIR \
-         FAKE_SESSION_ID FAKE_NESTED_SESSION_ID FAKE_NESTED_GO FAKE_REPLY CLAUDE_CONFIG_DIR \
-         SR2_CLAUDE2_HOOK_SOCKET; '{claude}'; sleep 600",
-        root = root.display(),
-        go = go.display(),
-        claude = claude.display(),
-    );
-    let terminal = daemon.run("outer", &script);
-    launch_record(&root, &daemon, "outer");
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        let row = daemon.agent_row(&daemon_exe, &cli_env, &terminal);
-        if row["source"] == "hook" && row["extra"]["agent_session_id"] == outer_session {
-            break;
-        }
-        assert!(Instant::now() < deadline, "the outer Claude never reported: {row}");
-        std::thread::sleep(Duration::from_millis(100));
+    // Each terminal runs a Claude; once told, a tool call of it starts another
+    // Claude (`claude -p`), which inherits the pane's environment and sources
+    // the outer Claude's env file. The plugin reports for the first; the
+    // installed hooks for the second; the shim's own hooks for the third.
+    let cases = [
+        ("plain", format!("'{}'", claude.display()), &empty_config, 2),
+        ("installed", format!("'{}'", claude.display()), &installed_config, 3),
+        ("shim", "claude".to_owned(), &installed_config, 4),
+    ];
+    let mut terminals = Vec::new();
+    for (tag, command, config, n) in &cases {
+        let outer = format!("00000000-0000-4000-8000-0000000000{n}1");
+        let script = format!(
+            "OB_TAG={tag} FAKE_RECORD_DIR='{root}' FAKE_SESSION_ID={outer} \
+             FAKE_NESTED_SESSION_ID=00000000-0000-4000-8000-0000000000{n}2 \
+             FAKE_NESTED_GO='{root}/go-{tag}' FAKE_REPLY='outer reply' \
+             CLAUDE_CONFIG_DIR='{config}' SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock; \
+             export OB_TAG FAKE_RECORD_DIR FAKE_SESSION_ID FAKE_NESTED_SESSION_ID \
+             FAKE_NESTED_GO FAKE_REPLY CLAUDE_CONFIG_DIR SR2_CLAUDE2_HOOK_SOCKET; \
+             {command}; sleep 600",
+            root = root.display(),
+            config = config.display(),
+        );
+        terminals.push((*tag, daemon.run(tag, &script), outer));
     }
-
-    // A message for the pane's agent waits for the outer Claude's next prompt.
-    let note = "note for the pane agent 7f3a";
-    let (sent, text) = cli(&daemon, &daemon_exe, &cli_env, &["agent", "message", &terminal, note]);
-    assert!(sent, "agent message failed: {text}");
-    fs::write(&go, b"go").unwrap();
-    let nested = launch_record(&root, &daemon, "outer-nested");
-
-    // The nested Claude neither takes the message nor reports as the pane's agent.
-    assert!(
-        !nested["outputs"].to_string().contains(note),
-        "the nested Claude took the pane agent's message: {nested}"
-    );
-    assert_eq!(
-        session_start_outputs_with(&nested, "systemMessage"),
-        0,
-        "the nested Claude ran the pane's hooks: {nested}"
-    );
-    let (listed, inbox) =
-        cli(&daemon, &daemon_exe, &cli_env, &["agent", "inbox", &terminal, "--state", "queued"]);
-    assert!(listed && inbox.contains(note), "the message is no longer queued: {inbox}");
-    let row = daemon.agent_row(&daemon_exe, &cli_env, &terminal);
-    assert_eq!(row["extra"]["agent_session_id"], outer_session, "{row}");
+    for (tag, terminal, outer) in &terminals {
+        launch_record(&root, &daemon, tag);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
+            if row["source"] == "hook" && row["extra"]["agent_session_id"] == outer.as_str() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "{tag}: the outer Claude never reported: {row}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        // A message for the pane's agent waits for the outer Claude's next prompt.
+        let note = format!("note for the {tag} pane agent 7f3a");
+        let (sent, text) =
+            cli(&daemon, &daemon_exe, &cli_env, &["agent", "message", terminal, &note]);
+        assert!(sent, "{tag}: agent message failed: {text}");
+        fs::write(root.join(format!("go-{tag}")), b"go").unwrap();
+    }
+    for (tag, terminal, outer) in &terminals {
+        let nested = launch_record(&root, &daemon, &format!("{tag}-nested"));
+        let note = format!("note for the {tag} pane agent 7f3a");
+        // The nested Claude neither takes the message nor reports as the pane's agent.
+        assert!(
+            !nested["outputs"].to_string().contains(&note),
+            "{tag}: the nested Claude took the pane agent's message: {nested}"
+        );
+        assert_eq!(
+            session_start_outputs_with(&nested, "systemMessage"),
+            0,
+            "{tag}: the nested Claude ran the pane's hooks: {nested}"
+        );
+        let (listed, inbox) =
+            cli(&daemon, &daemon_exe, &cli_env, &["agent", "inbox", terminal, "--state", "queued"]);
+        assert!(listed && inbox.contains(&note), "{tag}: the message is no longer queued: {inbox}");
+        let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
+        assert_eq!(row["extra"]["agent_session_id"], outer.as_str(), "{tag}: {row}");
+    }
     drop(daemon);
     let _ = fs::remove_dir_all(&root);
 }
