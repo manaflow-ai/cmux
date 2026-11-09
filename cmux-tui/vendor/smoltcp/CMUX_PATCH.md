@@ -38,7 +38,8 @@ scoreboard of up to 16 SACKed ranges and, in one recovery episode, resends only
 the holes it deems lost (three segments' worth or three ranges SACKed above a
 hole, or everything sent after it SACKed, or three duplicate ACKs for the head),
 several per round trip when the window has room. An episode cuts the window
-once, and only when a hole is lost by the duplicate threshold: a hole lost only
+once, to ssthresh with no inflation for the duplicate ACKs (the pipe already
+leaves the SACKed segments out), and only when a hole is lost by the duplicate threshold: a hole lost only
 because everything after it arrived (a short frame's loss) is resent with no
 cut, as the tail-loss probe it replaces did, one round trip sooner. SACKed and
 lost bytes count out of the data in flight (RFC 6675's pipe), so new data keeps
