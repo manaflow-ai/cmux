@@ -7079,6 +7079,134 @@
         "summary": "Remove a device and its tunnel"
       }
     },
+    "/v1/meshes/{meshId}/device-intents/{intentId}/revoke": {
+      "post": {
+        "tags": [
+          "mesh"
+        ],
+        "operationId": "mesh.revokeDeviceIntent",
+        "parameters": [
+          {
+            "name": "meshId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "intentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The intent is revoked: no enroll with it makes a device for 7 days, so an empty device list after this is final.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceIntentRevocation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke an enroll intent. Requires the mesh:join scope. Writes a tombstone for the intentId and deletes the device it made, with its tunnel. Idempotent. An enroll still in flight with this intentId refuses with 409 mesh.device.intent_revoked and removes what it created, so nothing it starts stays live. The tombstone lasts 7 days. Only the principal that used the intent or a tenant admin may revoke it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "Revoke an enroll intent"
+      }
+    },
     "/v1/devices/{deviceId}/peers": {
       "get": {
         "tags": [
@@ -10742,6 +10870,13 @@
           "message": {
             "type": "string"
           },
+          "code": {
+            "type": "string",
+            "enum": [
+              "mesh.device.intent_revoked"
+            ],
+            "description": "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again."
+          },
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"
           },
@@ -12791,6 +12926,11 @@
           "signature"
         ],
         "properties": {
+          "intentId": {
+            "type": "string",
+            "description": "The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live.",
+            "pattern": "^[A-Za-z0-9._:~-]{1,128}$"
+          },
           "name": {
             "type": "string",
             "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$",
@@ -12979,6 +13119,20 @@
           }
         },
         "additionalProperties": false
+      },
+      "DeviceIntentRevocation": {
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "description": "Whether this call deleted the intent's device (and its tunnel)."
+          }
+        },
+        "additionalProperties": false,
+        "description": "The intent is revoked: no enroll with it makes a device for 7 days, so an empty device list after this is final."
       },
       "PeerMap": {
         "type": "object",
@@ -13940,6 +14094,11 @@
           "code"
         ],
         "properties": {
+          "intentId": {
+            "type": "string",
+            "description": "The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live.",
+            "pattern": "^[A-Za-z0-9._:~-]{1,128}$"
+          },
           "name": {
             "type": "string",
             "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$",
