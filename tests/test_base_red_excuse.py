@@ -4891,7 +4891,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         # cmux#37645 moves the pin to app-ffi-pin.json; this classifier runs from the base, so it reads that form
         # before the PR lands. Changing the pin file moves the pin, so only the published base pin rule can excuse it.
         self.json_pin_at_head(self.STEP_B_PIN)
-        self.pr_files(excuse.FFI_PIN_FILE, excuse.FFI_PIN_MANIFEST, "scripts/ci/app_ffi_pin.py")
+        self.pr_files(excuse.FFI_PIN_FILE, excuse.FFI_PIN_MANIFEST)
         self.compiled()
         self.assertEqual(self.judge(), [
             f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
@@ -4899,6 +4899,15 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             f"which is on feat-cmux-next, and the cmux-next/compile status compiled {HEAD} against that pin and passed"])
         self.pr_files(excuse.FFI_PIN_FILE)
         self.assertIn("pins cmux-app-ffi-1f63d516", self.judge()[0])
+
+    def test_a_json_pin_that_also_changes_the_pin_reader_is_refused(self):
+        # cmux#37645's own file set: the pin reader (scripts/ci/app_ffi_pin.py) is the pin check's code, so the PR
+        # that changes it cannot excuse its own pin red; it lands the reader on its own, or with the pin check green.
+        self.json_pin_at_head(self.STEP_B_PIN)
+        self.pr_files(excuse.FFI_PIN_FILE, excuse.FFI_PIN_MANIFEST, "scripts/ci/app_ffi_pin.py")
+        self.compiled()
+        with self.assertRaisesRegex(excuse.Refused, r"changes the app FFI pin check's code \(scripts/ci/app_ffi_pin.py\)"):
+            self.judge()
 
     def test_a_json_pin_off_its_rules_is_refused(self):
         line = f"// app-ffi-pin-checksum: {self.CHECKSUM}\n"
