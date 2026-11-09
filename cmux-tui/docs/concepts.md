@@ -46,11 +46,11 @@ Each screen keeps an in-memory history of its latest structural layout actions. 
 
 ## Collapse Behavior
 
-Closing a tab removes one placement. A PTY terminal remains addressable with zero or more placements; closing its process requires `terminal.close`. A browser closes with its only tab. If the pane still has tabs, the active tab index moves to a remaining tab.
+Closing a tab removes one placement. A PTY terminal remains addressable with zero or more placements; `terminal.close` ends its process at once. An owner started with `--terminal-reap-grace-seconds <n>` also ends a terminal that has had zero placements for `n` seconds (`0` ends it at once). Such an owner advertises `terminal-reaper-active-v1` in `identify` from the bind of its socket while its reaper runs or is about to start. The grace is counted from the first time a reaping owner sees the terminal without a placement (normally the close) and goes on across owner restarts, so a crash loop does not keep closed terminals alive. A placement restored within the grace, such as a layout undo, cancels the reap. A terminal with an attach stream is not reaped and is tried again one grace later. At most 16 closed terminals wait out the grace; past that, the longest-closed ends at once. An owner started without the option ends no terminal this way. A browser closes with its only tab. If the pane still has tabs, the active tab index moves to a remaining tab.
 
 If a pane loses its last tab, that pane is removed from the split tree and its parent split collapses to the remaining child. If that empties the screen, the screen is removed. A canonical workspace remains in the durable registry when its final screen or terminal view disappears; it becomes an empty workspace and is still projected to every frontend. Only an explicit `close-workspace` mutation tombstones it. If every workspace is explicitly closed, mux emits an `empty` event.
 
-Closing a pane removes all tab placements in that pane. Closing a screen removes every pane and placement in that screen. Closing a workspace tombstones that workspace and removes all of its placements. These tree operations detach PTY terminal views without ending their processes; browser surfaces close because they are single-view.
+Closing a pane removes all tab placements in that pane. Closing a screen removes every pane and placement in that screen. Closing a workspace tombstones that workspace and removes all of its placements. These tree operations detach PTY terminal views without ending their processes at once; with a reap grace, a detached terminal ends after the grace. Browser surfaces close because they are single-view.
 
 ## PTY and Browser Surfaces
 

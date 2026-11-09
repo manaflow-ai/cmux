@@ -85,6 +85,10 @@
 //!   "viewport": {
 //!     "animation": true
 //!   },
+//!   "notifications": {
+//!     "desktop": "auto",
+//!     "bell": false
+//!   },
 //!   "server": {
 //!     "ws": "127.0.0.1:7681",
 //!     "ws_token": "replace-with-a-secret"
@@ -122,9 +126,12 @@
 //! `toggle-sidebar-view`, `focus-sidebar`, `new-pane-right`, `undo-layout`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
-//! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
+//! `resize-shrink`, `scroll-up`, `scroll-down`, `scroll-page-up`,
+//! `scroll-page-down`, `scroll-half-page-up`, `scroll-half-page-down`,
+//! `copy-mode`, `search-scrollback`, `clear-history`, `browser-back`,
 //! `browser-forward`, `browser-reload`, `browser-edit-url`, `show-shortcuts`,
-//! and `detach`.
+//! `next-attention`, `attention-list`, and `detach`. `keys.copy_mode` holds
+//! the copy-mode key table.
 //!
 //! The defaults intentionally match tmux where cmux has the same
 //! capability, except that `x` closes the more commonly managed tab and
@@ -170,6 +177,9 @@ use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
 
+mod copy_mode_keys;
+pub use copy_mode_keys::{CopyModeAction, CopyModeKeys};
+
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
 /// also produces, so callers can tell "not set" from "set to null".
@@ -214,6 +224,9 @@ struct RawConfig {
     viewport: RawViewport,
     #[serde(default)]
     server: RawServer,
+    /// Host terminal notifications (`host_notify.rs`).
+    #[serde(default)]
+    notifications: RawNotifications,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
     /// `"alt_shortcuts": false`, `"super_shortcuts": false`, or the host
@@ -228,6 +241,14 @@ struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
     detached_owner: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNotifications {
+    /// `off`, `auto` or `always`.
+    desktop: Option<crate::host_notify::DesktopNotifyMode>,
+    bell: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -552,6 +573,8 @@ struct RawSidebar {
     rail_glyph: Option<String>,
     /// Workspace row label template with `{index}` and `{name}`.
     workspace_label: Option<String>,
+    /// The workspace rail's agents section; `false` hides it.
+    agents: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1058,6 +1081,9 @@ pub struct Sidebar {
     pub rail_glyph: String,
     /// Workspace row label template with `{index}` and `{name}`.
     pub workspace_label: String,
+    /// Show the agents section (every agent across workspaces, most urgent
+    /// first) at the bottom of the workspace rail.
+    pub agents: bool,
 }
 
 /// Background agent integrations. The process is optional and runs outside
@@ -1096,6 +1122,7 @@ impl Default for Sidebar {
             row_gap: 1,
             rail_glyph: "\u{258e}".to_string(),
             workspace_label: "{name}".to_string(),
+            agents: true,
         }
     }
 }
@@ -1679,12 +1706,24 @@ pub enum Action {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ScrollPageUp,
+    ScrollPageDown,
+    ScrollHalfPageUp,
+    ScrollHalfPageDown,
+    /// Keyboard copy mode over the active terminal's scrollback.
+    CopyMode,
+    /// Copy mode opened straight into a backward scrollback search.
+    SearchScrollback,
     ClearHistory,
     BrowserBack,
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
     ShowShortcuts,
+    /// Jump to the next tab that needs the person (src/attention.rs order).
+    NextAttention,
+    /// Open the searchable list of tabs that need the person.
+    AttentionList,
     Detach,
     /// A user-configured command from the top-level `commands` section,
     /// opened as a new PTY tab through the mux `run` command.
@@ -1736,12 +1775,20 @@ pub(crate) enum ActionExecution {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ScrollPageUp,
+    ScrollPageDown,
+    ScrollHalfPageUp,
+    ScrollHalfPageDown,
+    CopyMode,
+    SearchScrollback,
     ClearHistory,
     BrowserBack,
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
     ShowShortcuts,
+    NextAttention,
+    AttentionList,
     Detach,
     UserCommand(UserCommandIndex),
 }
@@ -1961,12 +2008,20 @@ define_named_action_definitions! {
     RESIZE_SHRINK_DEFINITION => (Action::ResizeShrink, "resize-shrink", "Shrink pane", "ペインを縮小");
     SCROLL_UP_DEFINITION => (Action::ScrollUp, "scroll-up", "Scroll up", "上にスクロール");
     SCROLL_DOWN_DEFINITION => (Action::ScrollDown, "scroll-down", "Scroll down", "下にスクロール");
+    SCROLL_PAGE_UP_DEFINITION => (Action::ScrollPageUp, "scroll-page-up", "Scroll up one page", "1 ページ上にスクロール");
+    SCROLL_PAGE_DOWN_DEFINITION => (Action::ScrollPageDown, "scroll-page-down", "Scroll down one page", "1 ページ下にスクロール");
+    SCROLL_HALF_PAGE_UP_DEFINITION => (Action::ScrollHalfPageUp, "scroll-half-page-up", "Scroll up half a page", "半ページ上にスクロール");
+    SCROLL_HALF_PAGE_DOWN_DEFINITION => (Action::ScrollHalfPageDown, "scroll-half-page-down", "Scroll down half a page", "半ページ下にスクロール");
+    COPY_MODE_DEFINITION => (Action::CopyMode, "copy-mode", "Copy mode", "コピーモード");
+    SEARCH_SCROLLBACK_DEFINITION => (Action::SearchScrollback, "search-scrollback", "Search scrollback", "スクロールバックを検索");
     CLEAR_HISTORY_DEFINITION => (Action::ClearHistory, "clear-history", "Clear terminal history", "ターミナル履歴を消去");
     BROWSER_BACK_DEFINITION => (Action::BrowserBack, "browser-back", "Browser back", "ブラウザで戻る");
     BROWSER_FORWARD_DEFINITION => (Action::BrowserForward, "browser-forward", "Browser forward", "ブラウザで進む");
     BROWSER_RELOAD_DEFINITION => (Action::BrowserReload, "browser-reload", "Reload browser", "ブラウザを再読み込み");
     BROWSER_EDIT_URL_DEFINITION => (Action::BrowserEditUrl, "browser-edit-url", "Edit browser URL", "ブラウザ URL を編集");
     SHOW_SHORTCUTS_DEFINITION => (Action::ShowShortcuts, "show-shortcuts", "Keyboard shortcuts", "キーボードショートカット");
+    NEXT_ATTENTION_DEFINITION => (Action::NextAttention, "next-attention", "Go to next tab that needs you", "対応が必要な次のタブへ移動");
+    ATTENTION_LIST_DEFINITION => (Action::AttentionList, "attention-list", "Tabs that need you", "対応が必要なタブ");
     DETACH_DEFINITION => (Action::Detach, "detach", "Detach", "デタッチ");
 }
 
@@ -2099,7 +2154,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 67] = [
+    static DEFINITIONS: [&ActionDefinition; 75] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -2160,12 +2215,20 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &RESIZE_SHRINK_DEFINITION,
         &SCROLL_UP_DEFINITION,
         &SCROLL_DOWN_DEFINITION,
+        &SCROLL_PAGE_UP_DEFINITION,
+        &SCROLL_PAGE_DOWN_DEFINITION,
+        &SCROLL_HALF_PAGE_UP_DEFINITION,
+        &SCROLL_HALF_PAGE_DOWN_DEFINITION,
+        &COPY_MODE_DEFINITION,
+        &SEARCH_SCROLLBACK_DEFINITION,
         &CLEAR_HISTORY_DEFINITION,
         &BROWSER_BACK_DEFINITION,
         &BROWSER_FORWARD_DEFINITION,
         &BROWSER_RELOAD_DEFINITION,
         &BROWSER_EDIT_URL_DEFINITION,
         &SHOW_SHORTCUTS_DEFINITION,
+        &NEXT_ATTENTION_DEFINITION,
+        &ATTENTION_LIST_DEFINITION,
         &DETACH_DEFINITION,
     ];
     &DEFINITIONS
@@ -2447,6 +2510,42 @@ impl Action {
                 "frontend viewport adapter; scroll-surface for shared local viewport",
                 ActionExecution::ScrollDown,
             ),
+            Action::ScrollPageUp => ActionMetadata::new(
+                "scroll-page-up",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter",
+                ActionExecution::ScrollPageUp,
+            ),
+            Action::ScrollPageDown => ActionMetadata::new(
+                "scroll-page-down",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter",
+                ActionExecution::ScrollPageDown,
+            ),
+            Action::ScrollHalfPageUp => ActionMetadata::new(
+                "scroll-half-page-up",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter",
+                ActionExecution::ScrollHalfPageUp,
+            ),
+            Action::ScrollHalfPageDown => ActionMetadata::new(
+                "scroll-half-page-down",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter",
+                ActionExecution::ScrollHalfPageDown,
+            ),
+            Action::CopyMode => ActionMetadata::new(
+                "copy-mode",
+                ActionClassification::PresentationOnly,
+                "frontend copy mode over the terminal mirror",
+                ActionExecution::CopyMode,
+            ),
+            Action::SearchScrollback => ActionMetadata::new(
+                "search-scrollback",
+                ActionClassification::PresentationOnly,
+                "frontend copy mode over the terminal mirror",
+                ActionExecution::SearchScrollback,
+            ),
             Action::ClearHistory => ActionMetadata::new(
                 "clear-history",
                 ActionClassification::Direct,
@@ -2482,6 +2581,18 @@ impl Action {
                 ActionClassification::PresentationOnly,
                 "frontend shortcut overlay",
                 ActionExecution::ShowShortcuts,
+            ),
+            Action::NextAttention => ActionMetadata::new(
+                "next-attention",
+                ActionClassification::PresentationOnly,
+                "frontend attention queue + client focus",
+                ActionExecution::NextAttention,
+            ),
+            Action::AttentionList => ActionMetadata::new(
+                "attention-list",
+                ActionClassification::PresentationOnly,
+                "frontend attention list overlay",
+                ActionExecution::AttentionList,
             ),
             Action::Detach => ActionMetadata::new(
                 "detach",
@@ -2544,12 +2655,20 @@ impl Action {
             Action::ResizeShrink => &RESIZE_SHRINK_DEFINITION,
             Action::ScrollUp => &SCROLL_UP_DEFINITION,
             Action::ScrollDown => &SCROLL_DOWN_DEFINITION,
+            Action::ScrollPageUp => &SCROLL_PAGE_UP_DEFINITION,
+            Action::ScrollPageDown => &SCROLL_PAGE_DOWN_DEFINITION,
+            Action::ScrollHalfPageUp => &SCROLL_HALF_PAGE_UP_DEFINITION,
+            Action::ScrollHalfPageDown => &SCROLL_HALF_PAGE_DOWN_DEFINITION,
+            Action::CopyMode => &COPY_MODE_DEFINITION,
+            Action::SearchScrollback => &SEARCH_SCROLLBACK_DEFINITION,
             Action::ClearHistory => &CLEAR_HISTORY_DEFINITION,
             Action::BrowserBack => &BROWSER_BACK_DEFINITION,
             Action::BrowserForward => &BROWSER_FORWARD_DEFINITION,
             Action::BrowserReload => &BROWSER_RELOAD_DEFINITION,
             Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
             Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
+            Action::NextAttention => &NEXT_ATTENTION_DEFINITION,
+            Action::AttentionList => &ATTENTION_LIST_DEFINITION,
             Action::Detach => &DETACH_DEFINITION,
             // One shared fallback: presentation surfaces resolve the
             // configured display name through the command list instead of
@@ -2700,6 +2819,8 @@ pub struct Keys {
     action_by_chord: HashMap<Chord, Action>,
     modeless_action_by_chord: HashMap<Chord, Action>,
     pub(crate) provider_menu_overridden: bool,
+    /// Keys of keyboard copy mode, configured under `keys.copy_mode`.
+    pub copy_mode: CopyModeKeys,
 }
 
 impl Default for Keys {
@@ -2779,20 +2900,24 @@ impl Default for Keys {
                 bind(KeyCode::Char('z'), Action::ZoomPane),
                 bind(KeyCode::Char('{'), Action::SwapPanePrev),
                 bind(KeyCode::Char('}'), Action::SwapPaneNext),
-                bind(KeyCode::Char('['), Action::ScrollUp),
-                bind(KeyCode::PageUp, Action::ScrollUp),
-                bind(KeyCode::PageDown, Action::ScrollDown),
+                bind(KeyCode::Char('['), Action::CopyMode),
+                bind(KeyCode::Char('/'), Action::SearchScrollback),
+                bind(KeyCode::PageUp, Action::ScrollPageUp),
+                bind(KeyCode::PageDown, Action::ScrollPageDown),
                 command(KeyCode::Char('k'), Action::ClearHistory),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
                 bind(KeyCode::Char('>'), Action::BrowserForward),
                 bind(KeyCode::Char('r'), Action::BrowserReload),
                 bind(KeyCode::Char('u'), Action::BrowserEditUrl),
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
+                bind(KeyCode::Char('a'), Action::NextAttention),
+                bind(KeyCode::Char('A'), Action::AttentionList),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
             action_by_chord: HashMap::new(),
             modeless_action_by_chord: HashMap::new(),
             provider_menu_overridden: false,
+            copy_mode: CopyModeKeys::default(),
         };
         keys.rebuild_dispatch_maps();
         keys
@@ -2961,6 +3086,7 @@ impl Keys {
                 || name == "alt_shortcuts"
                 || name == "super_shortcuts"
                 || name == "prefix"
+                || name == "copy_mode"
             {
                 continue;
             }
@@ -3020,6 +3146,9 @@ impl Keys {
             }
         }
         let prefix = self.prefix;
+        if let Some(value) = raw.get("copy_mode") {
+            self.copy_mode.apply(value, prefix);
+        }
         self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
         self.rebuild_dispatch_maps();
     }
@@ -3103,6 +3232,8 @@ pub struct Config {
     pub status_bar: StatusBarOptions,
     pub viewport: Viewport,
     pub server: Server,
+    /// Host terminal notifications (`notifications`).
+    pub notifications: crate::host_notify::NotifyConfig,
     pub keys: Keys,
     pub commands: Vec<UserCommandConfig>,
 }
@@ -3483,6 +3614,9 @@ pub fn load() -> Config {
                 "cmux-tui: ignoring sidebar.rail_glyph {glyph:?}: one single-width character or \"none\""
             );
         }
+    }
+    if let Some(agents) = raw.sidebar.agents {
+        config.sidebar.agents = agents;
     }
     if let Some(template) = raw.sidebar.workspace_label {
         let template = template.trim().to_string();
@@ -3946,6 +4080,12 @@ pub fn load() -> Config {
     if let Some(detached_owner) = raw.server.detached_owner {
         config.server.detached_owner = detached_owner;
     }
+    if let Some(desktop) = raw.notifications.desktop {
+        config.notifications.desktop = desktop;
+    }
+    if let Some(bell) = raw.notifications.bell {
+        config.notifications.bell = bell;
+    }
     config.keys.apply(&raw.keys);
     bind_user_command_chords(&mut config.keys, &user_commands, &user_command_keys);
     config.commands = user_commands;
@@ -4140,6 +4280,7 @@ fn load_raw_config() -> RawConfig {
         "status_bar",
         "viewport",
         "server",
+        "notifications",
         "keys",
     ];
     if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
@@ -4181,6 +4322,7 @@ fn load_raw_config() -> RawConfig {
     section!(status_bar, "status_bar");
     section!(viewport, "viewport");
     section!(server, "server");
+    section!(notifications, "notifications");
     section!(keys, "keys");
     raw
 }
@@ -9104,6 +9246,8 @@ mod tests {
             ("new-pane-right", Action::NewPaneRight),
             ("undo-layout", Action::UndoLayout),
             ("show-shortcuts", Action::ShowShortcuts),
+            ("next-attention", Action::NextAttention),
+            ("attention-list", Action::AttentionList),
             ("send-prefix", Action::SendPrefix),
             ("prev-workspace", Action::PrevWorkspace),
             ("close-workspace", Action::CloseWorkspace),
@@ -9947,5 +10091,62 @@ mod tests {
         let synced = synced.into_inner();
         assert!(synced.iter().any(|directory| directory == &parent));
         assert!(synced.iter().any(|directory| directory == &dir.path));
+    }
+
+    #[test]
+    fn copy_mode_and_page_scroll_have_default_prefix_bindings() {
+        let keys = Keys::default();
+        let plain = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        assert_eq!(keys.action_for(&plain(KeyCode::Char('['))), Some(Action::CopyMode));
+        assert_eq!(keys.action_for(&plain(KeyCode::Char('/'))), Some(Action::SearchScrollback));
+        assert_eq!(keys.action_for(&plain(KeyCode::PageUp)), Some(Action::ScrollPageUp));
+        assert_eq!(keys.action_for(&plain(KeyCode::PageDown)), Some(Action::ScrollPageDown));
+        assert_eq!(
+            keys.copy_mode.action_for(&plain(KeyCode::Char('v'))),
+            Some(CopyModeAction::SelectChar)
+        );
+        assert_eq!(
+            keys.copy_mode.action_for(&KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)),
+            Some(CopyModeAction::SelectBlock)
+        );
+        assert_eq!(
+            keys.copy_mode.action_for(&KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT)),
+            Some(CopyModeAction::HistoryBottom)
+        );
+        assert_eq!(keys.copy_mode.label(CopyModeAction::Yank).as_deref(), Some("y"));
+    }
+
+    #[test]
+    fn copy_mode_keys_are_configurable_under_keys_copy_mode() {
+        let mut keys = Keys::default();
+        let raw: HashMap<String, Value> = serde_json::from_value(serde_json::json!({
+            "scroll-half-page-up": "u",
+            "copy_mode": {
+                "yank": ["Y", "x"],
+                "exit": "none",
+                "search-forward": "ctrl+b",
+                "not-a-command": "z"
+            }
+        }))
+        .unwrap();
+        keys.apply(&raw);
+        let plain = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        assert_eq!(keys.action_for(&plain('u')), Some(Action::ScrollHalfPageUp));
+        assert_eq!(keys.copy_mode.action_for(&plain('x')), Some(CopyModeAction::Yank));
+        assert_eq!(keys.copy_mode.action_for(&plain('Y')), Some(CopyModeAction::Yank));
+        assert_eq!(
+            keys.copy_mode.action_for(&plain('y')),
+            None,
+            "an override replaces the defaults"
+        );
+        assert_eq!(keys.copy_mode.action_for(&plain('q')), None, "none unbinds a command");
+        assert_eq!(
+            keys.copy_mode.action_for(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+            None,
+            "the prefix stays the prefix"
+        );
+        assert_eq!(keys.copy_mode.action_for(&plain('/')), None);
+        assert_eq!(keys.copy_mode.action_for(&plain('z')), None);
+        assert_eq!(keys.copy_mode.action_for(&plain('j')), Some(CopyModeAction::CursorDown));
     }
 }

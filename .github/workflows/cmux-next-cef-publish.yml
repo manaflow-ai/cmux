@@ -1,0 +1,172 @@
+name: cmux NEXT CEF publish
+
+# Mirrors one manaflow-ai/cef release (a fleet build: `cmux-ci build cef
+# --release-version cef-<x.y.z>-cmux.<n>`, uploaded to the fork's GitHub
+# release with its SHA256SUMS) into the private cmux-cef R2 bucket that
+# ensure-cef.sh reads first, so a CEF release needs no person with the
+# bucket's write key at a Mac.
+#
+# Anyone may dispatch it. The publish job runs in the cef-publish environment:
+# it waits for one of its required reviewers to approve, and only that
+# environment holds the cmux-cef-write token (CMUX_CEF_R2_WRITE_*, Object Read
+# and Write on bucket cmux-cef only); no repository secret has it.
+#
+# resolve  checks the tag, that the release's commit is the tip of a fork
+#          branch (the packager records it as fork_branch), and that every
+#          .tar.xz asset is named in SHA256SUMS. It holds no secret.
+# publish  downloads the assets again, checks them against SHA256SUMS, and
+#          runs main's publish-cef-r2.sh on them (write-once, then read back
+#          with the read-only token and its sha256 checked). The step summary
+#          lists each key for the pin PR's cef-manifest.json (run
+#          `publish-cef-r2.sh --dir ... --manifest` there, or copy the keys).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "A manaflow-ai/cef release tag, e.g. cef-157.0.0-cmux.47"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-cef-publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Check the release
+    if: github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.check.outputs.commit }}
+      branch: ${{ steps.check.outputs.branch }}
+      sums: ${{ steps.check.outputs.sums }}
+    steps:
+      - name: Checkout main's checksum check
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/check-cef-sums.py
+          sparse-checkout-cone-mode: false
+
+      - name: Mint a read token for manaflow-ai/cef
+        id: cef-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: manaflow-ai
+          repositories: cef
+          permission-contents: read
+
+      - name: Check the tag, its branch and SHA256SUMS
+        id: check
+        env:
+          GH_TOKEN: ${{ steps.cef-token.outputs.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^cef-[0-9]+\.[0-9]+\.[0-9]+-cmux\.[0-9]+$ ]] || { echo "::error::tag must look like cef-157.0.0-cmux.47" >&2; exit 1; }
+          commit="$(gh api "repos/manaflow-ai/cef/commits/$TAG" --jq .sha)"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::manaflow-ai/cef has no tag $TAG" >&2; exit 1; }
+          # A release is built from a branch tip of the fork (the packager
+          # refuses any other commit); the tip may have moved on since, so
+          # accept a branch that contains the commit and name it.
+          branch="$(gh api "repos/manaflow-ai/cef/commits/$commit/branches-where-head" --jq '[.[].name | select(startswith("cmux/"))][0] // empty' 2>/dev/null || true)"
+          if [[ -z "$branch" ]]; then
+            for name in $(gh api "repos/manaflow-ai/cef/branches?per_page=100" --jq '.[].name | select(startswith("cmux/"))'); do
+              status="$(gh api "repos/manaflow-ai/cef/compare/$commit...$name" --jq .status)"
+              if [[ "$status" == identical || "$status" == ahead ]]; then branch="$name"; break; fi
+            done
+          fi
+          [[ -n "$branch" ]] || { echo "::error::$TAG ($commit) is on no cmux/ branch of manaflow-ai/cef" >&2; exit 1; }
+          work="$RUNNER_TEMP/check"; mkdir -p "$work"
+          gh release view "$TAG" --repo manaflow-ai/cef --json assets --jq '.assets[].name' > "$work/assets"
+          grep -qx SHA256SUMS "$work/assets" || { echo "::error::release $TAG has no SHA256SUMS" >&2; exit 1; }
+          gh release download "$TAG" --repo manaflow-ai/cef --pattern SHA256SUMS --dir "$work"
+          # One strict parser: every line well formed, and the release's
+          # archives are exactly the listed ones.
+          python3 -I scripts/cmux-next/check-cef-sums.py names "$work/SHA256SUMS" "$work/assets"
+          # The approval covers exactly this SHA256SUMS: publish takes no other file set.
+          sums="$(sha256sum "$work/SHA256SUMS" | awk '{print $1}')"
+          { echo "commit=$commit"; echo "branch=$branch"; echo "sums=$sums"; } >> "$GITHUB_OUTPUT"
+          { echo "Release $TAG: manaflow-ai/cef $commit on $branch"; echo; echo '```'; cat "$work/SHA256SUMS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish to R2
+    needs: resolve
+    environment: cef-publish
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      # Only whether the token is set reaches this step, never its value.
+      - name: Require the cmux-cef-write token
+        env:
+          HAS_WRITE_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID != '' && secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY != '' && secrets.CMUX_CEF_R2_ACCOUNT_ID != '' }}
+        run: |
+          if [[ "$HAS_WRITE_KEY" != true ]]; then
+            echo "::error::the cef-publish environment has no CMUX_CEF_R2_ACCOUNT_ID / CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token); nothing was published" >&2
+            exit 1
+          fi
+
+      - name: Checkout main's publish script and checksum check
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next/publish-cef-r2.sh
+            scripts/cmux-next/check-cef-sums.py
+          sparse-checkout-cone-mode: false
+
+      - name: Mint a read token for manaflow-ai/cef
+        id: cef-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: manaflow-ai
+          repositories: cef
+          permission-contents: read
+
+      # The assets are data: they are hashed and uploaded, never run.
+      - name: Download and check the assets
+        env:
+          GH_TOKEN: ${{ steps.cef-token.outputs.token }}
+          TAG: ${{ inputs.tag }}
+          COMMIT: ${{ needs.resolve.outputs.commit }}
+          SUMS: ${{ needs.resolve.outputs.sums }}
+        run: |
+          set -euo pipefail
+          now="$(gh api "repos/manaflow-ai/cef/commits/$TAG" --jq .sha)"
+          [[ "$now" == "$COMMIT" ]] || { echo "::error::$TAG moved from $COMMIT to $now since it was checked" >&2; exit 1; }
+          dir="$RUNNER_TEMP/assets"; mkdir -p "$dir"
+          gh release download "$TAG" --repo manaflow-ai/cef --pattern '*.tar.xz' --pattern SHA256SUMS --dir "$dir"
+          # The SHA256SUMS approved in resolve, and exactly its archives with
+          # their listed digests: anything added or replaced since is refused.
+          echo "$SUMS  $dir/SHA256SUMS" | sha256sum --strict -c -
+          python3 -I scripts/cmux-next/check-cef-sums.py files "$dir/SHA256SUMS" "$dir"
+          rm "$dir/SHA256SUMS"
+
+      - name: Publish
+        env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_WRITE_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          ./scripts/cmux-next/publish-cef-r2.sh "$TAG" --dir "$RUNNER_TEMP/assets" > "$RUNNER_TEMP/keys"
+          { echo "Published $TAG to cmux-cef (asset, sha256, key):"; echo; echo '```'; cat "$RUNNER_TEMP/keys"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

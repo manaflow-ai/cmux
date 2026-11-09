@@ -1,0 +1,305 @@
+name: nightly-next rollback drill
+
+# The weekly rollback drill (cmuxterm-hq goals/release-rollback-drilled.md). It
+# publishes a deliberately bad canary to a test channel, then rolls it back
+# through the real rollback jobs, so the pull is timed on the production
+# route: R2 and files-next.cmux.com. A fleet Mac (the cmuxterm-hq probe
+# release-rollback-drill) installs the kept build, is offered the bad one,
+# installs it, and restores the kept build after the pull.
+#
+# The test channel is the drill folder, nightly-next/drill/: its own appcast,
+# pulled.json and receipt.json. No app reads it unless pointed there
+# (updates.test_feed). The users' appcast is never written, and
+# nightly-next-guard.py lets a run of this workflow write only that folder.
+#
+#   step publish  copies the live feed's two newest Nightly-ring items, N (the
+#                 bad canary) and K (the build it rolls back to), byte for byte
+#                 into the drill appcast with a <cmux:drillRun> element naming
+#                 this run (the probe matches it to the receipt), empties the drill pulled.json, and
+#                 writes receipt.json with the pull fields empty.
+#   step pull     refuses a receipt that is not this week's unpulled publish,
+#                 orders the pull of N (nightly-next-rollback.yml with drill
+#                 true; no fix-forward), waits until files-next.cmux.com serves
+#                 the rolled-back appcast and a pulled.json that lists N, and
+#                 writes receipt.json with pull_ordered_at and served_at. A
+#                 failed pull writes outcome failed.
+#
+# The probe reads feed_s from the receipt: served_at minus pull_ordered_at.
+# GitHub runs a schedule, and registers a dispatch, only from the default
+# branch, so this file is on main too, with main's runner labels. There the Monday cron
+# (publish 09:15 UTC, pull 10:15 UTC; the probe starts at 09:29) runs job
+# start, which dispatches the step here on nightly-next, where release-next
+# releases the feed's R2 token. Every other job runs only on nightly-next.
+on:
+  schedule:
+    - cron: "15 9 * * 1"
+    - cron: "15 10 * * 1"
+  workflow_dispatch:
+    inputs:
+      step:
+        description: publish (put N and K on the drill feed) or pull (roll N back).
+        required: true
+        type: choice
+        options: [publish, pull]
+
+permissions: {}
+
+concurrency:
+  group: nightly-next-rollback-drill-${{ github.run_id }}
+  cancel-in-progress: false
+
+env:
+  # The same values as nightly-next-rollback.yml; nightly-next-guard.py checks every write against them.
+  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next
+  NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
+  NIGHTLY_NEXT_R2_PREFIX: nightly-next/
+  NIGHTLY_APPCAST: appcast-arm64.xml
+  DRILL_DIR: drill/
+
+jobs:
+  # No secrets: it only dispatches this workflow on nightly-next.
+  start:
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule'
+    permissions:
+      actions: write # dispatch nightly-next-rollback-drill.yml
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STEP: ${{ github.event.schedule == '15 9 * * 1' && 'publish' || 'pull' }}
+    steps:
+      - name: Dispatch the step on nightly-next
+        run: gh workflow run nightly-next-rollback-drill.yml -R "$GITHUB_REPOSITORY" --ref nightly-next -f step="$STEP"
+
+  publish:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && inputs.step == 'publish'
+    environment: release-next
+    permissions:
+      contents: read
+    # A literal ephemeral label: this job holds the feed's write token.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Pick N and K from the live feed
+        id: pick
+        run: |
+          set -euo pipefail
+          mkdir -p drill
+          curl -fsSL --retry 3 -A "cmux-nightly-next-rollback-drill/1" -H "Cache-Control: no-cache" \
+            -o drill/live.xml "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_APPCAST}?drill=${GITHUB_RUN_ID}"
+          summary="$(python3 scripts/ci/nightly_next_rollback_drill.py pick --feed drill/live.xml \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --out "drill/$NIGHTLY_APPCAST")"
+          echo "$summary"
+          python3 - "$summary" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          s = json.loads(sys.argv[1])
+          print(f"bad={s['bad']}")
+          print(f"kept={s['kept']}")
+          PY
+          python3 scripts/ci/nightly-next-guard.py appcast "drill/$NIGHTLY_APPCAST"
+          printf '[]\n' > drill/pulled.json
+          python3 scripts/ci/nightly_next_rollback_drill.py receipt publish \
+            --bad "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["bad"])' "$summary")" \
+            --kept "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["kept"])' "$summary")" \
+            --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --out drill/receipt.json
+
+      - name: Write the drill feed
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          # pulled.json first and the receipt last: a receipt that says published names a drill
+          # feed that is already up, with no pull listed.
+          for name in pulled.json "$NIGHTLY_APPCAST" receipt.json; do
+            key="${NIGHTLY_NEXT_R2_PREFIX}${DRILL_DIR}${name}"
+            python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+            case "$name" in *.xml) type=application/xml ;; *) type=application/json ;; esac
+            python3 scripts/ci/upload-r2-object.py --file "drill/$name" --endpoint-url "$R2_ENDPOINT" \
+              --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" \
+              --cache-control "no-cache, no-store, must-revalidate"
+          done
+
+      - name: Read the drill feed back
+        run: |
+          set -euo pipefail
+          for name in pulled.json "$NIGHTLY_APPCAST" receipt.json; do
+            curl -fsSL --retry 3 -A "cmux-nightly-next-rollback-drill/1" -H "Cache-Control: no-cache" \
+              -o "drill/served-$name" "${NIGHTLY_NEXT_FEED_BASE}/${DRILL_DIR}${name}?after=${GITHUB_RUN_ID}"
+            cmp -s "drill/$name" "drill/served-$name" || { echo "files-next.cmux.com does not serve the drill $name yet" >&2; exit 1; }
+          done
+
+      - name: Summary
+        if: always()
+        env:
+          BAD: ${{ steps.pick.outputs.bad }}
+          KEPT: ${{ steps.pick.outputs.kept }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "### cmux NEXT rollback drill: publish"
+            echo ""
+            if [ "$JOB_STATUS" = success ]; then
+              echo "The drill feed (${NIGHTLY_NEXT_FEED_BASE}/${DRILL_DIR}${NIGHTLY_APPCAST}) offers $BAD, the bad canary, and $KEPT, the build it rolls back to."
+            else
+              echo "The drill feed was not published (${BAD:-no pick})."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # No secrets: it reads the public receipt and stamps the moment the pull is ordered.
+  order:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && inputs.step == 'pull'
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      bad: ${{ steps.check.outputs.bad }}
+      kept: ${{ steps.check.outputs.kept }}
+      publish_run_id: ${{ steps.check.outputs.publish_run_id }}
+      publish_attempt: ${{ steps.check.outputs.publish_attempt }}
+      ordered_at: ${{ steps.check.outputs.ordered_at }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/nightly_next_rollback_drill.py
+          sparse-checkout-cone-mode: false
+
+      - name: Check this week's publish
+        id: check
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --connect-timeout 10 --max-time 30 -A "cmux-nightly-next-rollback-drill/1" -H "Cache-Control: no-cache" \
+            -o receipt.json "${NIGHTLY_NEXT_FEED_BASE}/${DRILL_DIR}receipt.json?pull=${GITHUB_RUN_ID}"
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          picked="$(python3 scripts/ci/nightly_next_rollback_drill.py receipt check --existing receipt.json --now "$now")"
+          python3 - "$picked" "$now" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          p = json.loads(sys.argv[1])
+          print(f"bad={p['bad']}")
+          print(f"kept={p['kept']}")
+          print(f"publish_run_id={p['publish_run_id']}")
+          print(f"publish_attempt={p['publish_attempt']}")
+          print(f"ordered_at={sys.argv[2]}")
+          PY
+
+  rollback:
+    needs: order
+    # The real rollback jobs on the drill folder. The fix-forward job never runs for a drill, but
+    # GitHub checks a called workflow's permissions against its caller's, so this grants them.
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+    uses: ./.github/workflows/nightly-next-rollback.yml
+    secrets:
+      NIGHTLY_NEXT_R2_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+      NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+      NIGHTLY_NEXT_R2_ACCOUNT_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}
+    with:
+      reason: weekly rollback drill (deliberately bad canary)
+      bad_build: ${{ needs.order.outputs.bad }}
+      if_newest: ${{ needs.order.outputs.bad }}
+      drill: true
+
+  receipt:
+    needs: [order, rollback]
+    if: always() && needs.order.result == 'success'
+    environment: release-next
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Wait for files-next.cmux.com to serve the rollback
+        id: served
+        if: needs.rollback.result == 'success'
+        env:
+          BAD: ${{ needs.order.outputs.bad }}
+          KEPT: ${{ needs.order.outputs.kept }}
+        run: |
+          set -euo pipefail
+          mkdir -p drill
+          # Bounded by a deadline: the goal's bar is 300 s from the order, so 600 s is a clear failure.
+          # Each read is capped too (two tries of 20 s), so a stalled response overruns the deadline by
+          # at most 80 s, and the job's 15 min still leave the receipt step its time.
+          deadline=$(( $(date +%s) + 600 ))
+          while :; do
+            stamp="$(date +%s%N)"
+            curl -fsSL --retry 1 --connect-timeout 5 --max-time 20 -A "cmux-nightly-next-rollback-drill/1" -H "Cache-Control: no-cache" \
+              -o drill/feed.xml "${NIGHTLY_NEXT_FEED_BASE}/${DRILL_DIR}${NIGHTLY_APPCAST}?served=${stamp}" || true
+            curl -fsSL --retry 1 --connect-timeout 5 --max-time 20 -A "cmux-nightly-next-rollback-drill/1" -H "Cache-Control: no-cache" \
+              -o drill/pulled.json "${NIGHTLY_NEXT_FEED_BASE}/${DRILL_DIR}pulled.json?served=${stamp}" || true
+            if python3 scripts/ci/nightly_next_rollback_drill.py served --feed drill/feed.xml \
+                --pulled drill/pulled.json --bad "$BAD" --kept "$KEPT"; then
+              echo "served_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            [ "$(date +%s)" -lt "$deadline" ] || { echo "not served 600 s after the pull was ordered" >&2; exit 1; }
+            sleep 5
+          done
+
+      - name: Write the receipt
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          PUBLISH_RUN_ID: ${{ needs.order.outputs.publish_run_id }}
+          PUBLISH_ATTEMPT: ${{ needs.order.outputs.publish_attempt }}
+          ORDERED_AT: ${{ needs.order.outputs.ordered_at }}
+          SERVED_AT: ${{ steps.served.outputs.served_at }}
+        run: |
+          set -euo pipefail
+          mkdir -p drill
+          key="${NIGHTLY_NEXT_R2_PREFIX}${DRILL_DIR}receipt.json"
+          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+          curl -fsSL --retry 3 --connect-timeout 10 --max-time 30 -A "cmux-nightly-next-rollback-drill/1" -H "Cache-Control: no-cache" \
+            -o drill/published.json "${NIGHTLY_NEXT_FEED_BASE}/${DRILL_DIR}receipt.json?receipt=${GITHUB_RUN_ID}"
+          outcome=failed
+          [ -z "$SERVED_AT" ] || outcome=served
+          # Only the publish order checked: a publish that replaced the receipt since is another drill.
+          python3 scripts/ci/nightly_next_rollback_drill.py receipt pull --existing drill/published.json \
+            --publish-run-id "$PUBLISH_RUN_ID" --publish-attempt "$PUBLISH_ATTEMPT" --ordered-at "$ORDERED_AT" --served-at "$SERVED_AT" --outcome "$outcome" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --out drill/receipt.json
+          # Written only while the object still holds the bytes read above (If-Match on its ETag), so a
+          # publish that lands between the read and this write is never overwritten.
+          read_sha="$(shasum -a 256 drill/published.json | awk '{print $1}')"
+          python3 scripts/ci/upload-r2-object.py --file drill/receipt.json --endpoint-url "$R2_ENDPOINT" \
+            --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type application/json \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --replace-sha256 "$read_sha" --conflict-exit-code 3
+          [ "$outcome" = served ] || { echo "::error title=rollback drill::the drill pull was not served; receipt says failed"; exit 1; }
+
+      - name: Summary
+        if: always()
+        env:
+          BAD: ${{ needs.order.outputs.bad }}
+          KEPT: ${{ needs.order.outputs.kept }}
+          ORDERED_AT: ${{ needs.order.outputs.ordered_at }}
+          SERVED_AT: ${{ steps.served.outputs.served_at }}
+        run: |
+          {
+            echo "### cmux NEXT rollback drill: pull"
+            echo ""
+            if [ -n "$SERVED_AT" ]; then
+              feed_s=$(( $(date -u -d "$SERVED_AT" +%s) - $(date -u -d "$ORDERED_AT" +%s) ))
+              echo "Pulled $BAD; files-next.cmux.com serves $KEPT and lists $BAD in pulled.json, ${feed_s} s after the pull was ordered (bar: 300 s)."
+            else
+              echo "The pull of $BAD was ordered at $ORDERED_AT and NOT served; receipt.json says failed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

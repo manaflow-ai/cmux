@@ -36,7 +36,6 @@ use ghostty_vt::{
     Dirty, KeyAction, KeyEncoder, KeyInput, KittyReplayState, Mods, StyledRun, UnderlineStyle,
     key_input_from_chord, rows_to_runs, sys,
 };
-use regex::Regex;
 use regex::bytes::{Regex as BytesRegex, RegexBuilder as BytesRegexBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -146,6 +145,21 @@ pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
 /// Advertises `set-terminal-idle-policy` and the owner-side reaper that
 /// closes a terminal once it has had no attached view for its policy.
 pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
+/// `identify` lists it while this owner's unplaced-terminal reaper runs (an
+/// owner started with `--terminal-reap-grace-seconds`): a terminal whose last
+/// tab closed then ends after the reap grace instead of running until the
+/// session ends. Not in the static set, because the reaper is started per owner.
+pub const TERMINAL_REAPER_ACTIVE_CAPABILITY: &str = "terminal-reaper-active-v1";
+/// `terminal.screen.read` takes `unwrap` (soft wraps joined into logical
+/// lines) and `lines` (the last N lines of scrollback and screen), and
+/// `terminal.copy` takes `unwrap`.
+pub const TERMINAL_READ_UNWRAP_CAPABILITY: &str = "terminal-read-unwrap-v1";
+/// `terminal.wait` takes `new`: only text printed below the cursor's line as
+/// the wait starts can match, so a typed command's echo and older output never do.
+pub const TERMINAL_WAIT_NEW_CAPABILITY: &str = "terminal-wait-new-v1";
+/// Terminal records carry `extra.last_command` (`exit_code`, `finished_at_ms`,
+/// `started_at_ms`): the last command the shell finished (OSC 133 `D`).
+pub const TERMINAL_EXIT_STATUS_CAPABILITY: &str = "terminal-exit-status-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -263,12 +277,25 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         MACHINE_LISTENING_TCP_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
+        TERMINAL_READ_UNWRAP_CAPABILITY,
+        TERMINAL_WAIT_NEW_CAPABILITY,
+        TERMINAL_EXIT_STATUS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
+    capabilities
+}
+
+/// `identify`'s capabilities: [`advertised_capabilities`] plus
+/// [`TERMINAL_REAPER_ACTIVE_CAPABILITY`] while the unplaced-terminal reaper runs.
+fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
+    let mut capabilities = advertised_capabilities(cfg!(unix));
+    if mux.terminal_reaper_advertised() {
+        capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
+    }
     capabilities
 }
 
@@ -1134,6 +1161,11 @@ enum Command {
         #[serde(default)]
         state: Option<String>,
     },
+    /// Clear one tab's unread marker without selecting or focusing it: the
+    /// frontend showed the tab to the person (done-until-seen).
+    AckTabNotifications {
+        surface: SurfaceId,
+    },
     ReportAgent {
         surface: SurfaceId,
         state: String,
@@ -1671,6 +1703,7 @@ impl Command {
             | Self::SendKey { surface, .. }
             | Self::Copy { surface, .. }
             | Self::ReportAgent { surface, .. }
+            | Self::AckTabNotifications { surface }
             | Self::VtState { surface }
             | Self::MintTerminalRenderer { surface, .. }
             | Self::BrowserFramePresented { surface, .. }
@@ -5562,9 +5595,12 @@ fn verify_private_socket_directory(dir: &Path) -> std::io::Result<()> {
 /// atomic, so two unserialized starts can both classify a socket as stale,
 /// and the second unlink disconnects the first starter's freshly bound
 /// socket while its process keeps running unreachably. The lock file lives
-/// next to the socket and is left in place: unlinking it would reopen the
-/// very race it exists to close. The OS releases the lock when the holder
-/// exits, so a crashed starter never wedges the session.
+/// next to the socket. Only [`remove_socket_start_lock`] unlinks it, while it
+/// holds the lock; a starter that locked a file which is no longer the one at
+/// the path (it was unlinked or replaced after the starter opened it) opens
+/// the path again, so an unlink never lets two starters in at once. The OS
+/// releases the lock when the holder exits, so a crashed starter never wedges
+/// the session.
 pub struct SocketStartLock {
     _file: std::fs::File,
 }
@@ -5587,9 +5623,36 @@ fn socket_start_lock_timeout() -> std::io::Error {
 
 impl SocketStartLock {
     pub fn acquire(socket: &Path, deadline: Instant) -> std::io::Result<Self> {
-        let mut name = socket.file_name().unwrap_or_default().to_os_string();
-        name.push(".spawn-lock");
-        let path = socket.with_file_name(name);
+        Self::acquire_with(&socket_start_lock_path(socket), deadline, &mut || {}, &still_at_path)
+    }
+
+    /// [`Self::acquire`] on the lock file `path`. `before_lock` runs after each open and
+    /// check of the path and before the lock; `at_path` tells whether a locked file is still
+    /// the one at the path. Tests use both to make an unlink race happen at a known step.
+    fn acquire_with(
+        path: &Path,
+        deadline: Instant,
+        before_lock: &mut dyn FnMut(),
+        at_path: &dyn Fn(&std::fs::File, &Path) -> bool,
+    ) -> std::io::Result<Self> {
+        let mut reopens = 0_u32;
+        loop {
+            // `None`: unlinked between the open and the checks; open the path again.
+            if let Some(file) = Self::checked_lock_file(Self::open_lock_file(path)?)? {
+                before_lock();
+                Self::lock(&file, deadline)?;
+                if at_path(&file, path) {
+                    return Ok(Self { _file: file });
+                }
+                // Unlinked or replaced while this start waited: drop that file (and its
+                // lock), then lock the file at the path.
+            }
+            reopens += 1;
+            reopen_pause(reopens, deadline)?;
+        }
+    }
+
+    fn open_lock_file(path: &Path) -> std::io::Result<std::fs::File> {
         let mut options = std::fs::OpenOptions::new();
         options.create(true);
         #[cfg(windows)]
@@ -5609,7 +5672,13 @@ impl SocketStartLock {
             use std::os::unix::fs::OpenOptionsExt as _;
             options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK).mode(0o600);
         }
-        let file = options.open(&path)?;
+        options.open(path)
+    }
+
+    /// Checks an opened lock file: a private regular file of this user with one link.
+    /// `Ok(None)` when it has no link: [`remove_socket_start_lock`] unlinked it after the
+    /// open, so the caller opens the path again.
+    fn checked_lock_file(file: std::fs::File) -> std::io::Result<Option<std::fs::File>> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
@@ -5619,6 +5688,9 @@ impl SocketStartLock {
                     std::io::ErrorKind::PermissionDenied,
                     "session-server start lock is not a regular file",
                 ));
+            }
+            if metadata.nlink() == 0 {
+                return Ok(None);
             }
             if metadata.nlink() != 1 {
                 return Err(std::io::Error::new(
@@ -5643,9 +5715,13 @@ impl SocketStartLock {
                 ));
             }
         }
+        Ok(Some(file))
+    }
+
+    fn lock(file: &std::fs::File, deadline: Instant) -> std::io::Result<()> {
         loop {
-            match fs4::FileExt::try_lock(&file) {
-                Ok(()) => return Ok(Self { _file: file }),
+            match fs4::FileExt::try_lock(file) {
+                Ok(()) => return Ok(()),
                 Err(fs4::TryLockError::WouldBlock) => {}
                 Err(fs4::TryLockError::Error(error)) => return Err(error),
             }
@@ -5658,6 +5734,68 @@ impl SocketStartLock {
             }
         }
     }
+}
+
+/// The pause before the `reopens`-th open of a replaced lock file. One unlink is the
+/// normal case, so the first reopen is at once; later ones wait the retry interval, so a
+/// path that keeps changing (or a file system whose fstat and lstat disagree) cannot spin
+/// until `deadline`. A timeout error when `deadline` passed.
+fn reopen_pause(reopens: u32, deadline: Instant) -> std::io::Result<()> {
+    if reopens <= 1 {
+        return if Instant::now() >= deadline { Err(socket_start_lock_timeout()) } else { Ok(()) };
+    }
+    let delay = socket_start_lock_retry_delay(Instant::now(), deadline)
+        .ok_or_else(socket_start_lock_timeout)?;
+    std::thread::sleep(delay);
+    Ok(())
+}
+
+/// The start lock file of `socket`: `<socket>.spawn-lock` beside it.
+pub fn socket_start_lock_path(socket: &Path) -> PathBuf {
+    let mut name = socket.file_name().unwrap_or_default().to_os_string();
+    name.push(".spawn-lock");
+    socket.with_file_name(name)
+}
+
+/// Whether `file` is still the file at `path` (same device and inode).
+#[cfg(unix)]
+fn still_at_path(file: &std::fs::File, path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    match (file.metadata(), std::fs::symlink_metadata(path)) {
+        (Ok(open), Ok(linked)) => open.dev() == linked.dev() && open.ino() == linked.ino(),
+        _ => false,
+    }
+}
+
+/// Windows cannot unlink an open file, so the open lock file is the one at the path.
+#[cfg(not(unix))]
+fn still_at_path(_file: &std::fs::File, _path: &Path) -> bool {
+    true
+}
+
+/// Removes the start lock file of `socket` after its owner stopped (`server stop`), so a
+/// stopped session leaves no `.spawn-lock` behind. It takes the lock first (waiting at most
+/// until `deadline` for a starter that holds it) and unlinks the file while it holds it; a
+/// starter that waits on the unlinked file opens the path again ([`SocketStartLock`]).
+/// `Ok(false)` when there was no lock file. A running owner does not hold the lock (only a
+/// bind does), so call it once the owner of `socket` closed its socket.
+/// Windows cannot unlink an open file, so the lock file stays there (`Ok(false)`).
+#[cfg(unix)]
+pub fn remove_socket_start_lock(socket: &Path, deadline: Instant) -> std::io::Result<bool> {
+    let path = socket_start_lock_path(socket);
+    if std::fs::symlink_metadata(&path).is_err() {
+        return Ok(false);
+    }
+    let lock = SocketStartLock::acquire(socket, deadline)?;
+    let removed = std::fs::remove_file(&path).map(|()| true);
+    drop(lock);
+    removed
+}
+
+/// See the unix [`remove_socket_start_lock`]: Windows keeps the file.
+#[cfg(not(unix))]
+pub fn remove_socket_start_lock(_socket: &Path, _deadline: Instant) -> std::io::Result<bool> {
+    Ok(false)
 }
 
 /// How long a server start may wait for a concurrent starter of the same
@@ -7029,7 +7167,7 @@ fn run_terminal_resource_wait(
 ) -> Result<Option<Value>, ResourceError> {
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
     let pattern = request.fields["pattern"].as_str().expect("catalog validates wait pattern");
-    let regex = Regex::new(pattern).map_err(|_| {
+    let regex = crate::wait_pattern::compile(pattern).map_err(|_| {
         ResourceError::validation_invalid(
             None,
             "terminal wait pattern is not a valid regular expression",
@@ -7046,12 +7184,10 @@ fn run_terminal_resource_wait(
             })
         })
         .transpose()?;
-    let check = || -> Result<String, ResourceError> {
-        surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
-            .map_err(resource_wait_runtime_error)?
-            .map_err(resource_wait_runtime_error)
-    };
+    // `new` (`terminal-wait-new-v1`): only text printed below the cursor's
+    // line as the wait starts can match, never a typed command's echo.
+    let wait_text = crate::resource_router::WaitText::start(&surface, &request.fields)?;
+    let check = || wait_text.read();
     loop {
         if resource_wait_stopped(canceled, writer) {
             return Ok(None);
@@ -11000,10 +11136,14 @@ fn parse_notification_level(level: &str) -> anyhow::Result<NotificationLevel> {
     }
 }
 
+/// A roster state word. The older CLI words are aliases: `busy` is
+/// `working`, `waiting-for-input` is `blocked` and `ended` is `done` (the
+/// roster's word for an ended session).
 fn parse_agent_state(state: &str) -> anyhow::Result<AgentState> {
     match state {
-        "working" => Ok(AgentState::Working),
-        "blocked" => Ok(AgentState::Blocked),
+        "working" | "busy" => Ok(AgentState::Working),
+        "blocked" | "waiting-for-input" => Ok(AgentState::Blocked),
+        "ended" => Ok(AgentState::Done),
         "idle" => Ok(AgentState::Idle),
         "done" => Ok(AgentState::Done),
         "unknown" => Ok(AgentState::Unknown),
@@ -11019,10 +11159,15 @@ fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     }
 }
 
-fn agent_json(record: &AgentRecord) -> Value {
+/// One `list-agents` row. `state` is the roster state (`done` there is an
+/// ended session); `status` is what the person sees (`working`, `blocked`,
+/// `done` for a finished turn not yet seen, `idle`, `unknown`), `null` for an
+/// ended session.
+fn agent_json(record: &AgentRecord, status: Option<crate::AgentStatus>) -> Value {
     json!({
         "surface": record.surface,
         "state": record.state.as_str(),
+        "status": status.map(crate::AgentStatus::as_str),
         "source": record.source.as_str(),
         "session": record.session,
         "agent": record.agent,
@@ -12110,7 +12255,7 @@ fn handle_command_with_cancellation(
                 "build_commit": stamped_build_commit(),
                 "ghostty_commit": stamped_ghostty_commit(),
                 "protocol": PROTOCOL_VERSION,
-                "capabilities": advertised_capabilities(cfg!(unix)),
+                "capabilities": identify_capabilities(mux),
                 "session": mux.session,
                 "pid": std::process::id(),
                 "registry_id": registry_id,
@@ -12568,7 +12713,8 @@ fn handle_command_with_cancellation(
             }
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
+            let regex = crate::wait_pattern::compile(&pattern)
+                .map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
             let start = Instant::now();
             let check = || -> anyhow::Result<Option<String>> {
                 let text = surface.try_with_terminal(|t| t.viewport_text())??;
@@ -12732,8 +12878,17 @@ fn handle_command_with_cancellation(
                 Some(state) => Some(parse_agent_state(&state)?),
                 None => None,
             };
-            let agents = mux.list_agents(surface, state).iter().map(agent_json).collect::<Vec<_>>();
+            let agents = mux
+                .list_agents(surface, state)
+                .iter()
+                .map(|record| agent_json(record, mux.agent_status(record)))
+                .collect::<Vec<_>>();
             Ok(json!({ "agents": agents }))
+        }
+        Command::AckTabNotifications { surface } => {
+            get_surface(mux, surface)?;
+            let cleared = mux.clear_surface_notification(surface);
+            Ok(json!({ "surface": surface, "cleared": cleared }))
         }
         Command::ReportAgent { surface, state, source, session } => {
             get_surface(mux, surface)?;
@@ -14636,6 +14791,105 @@ mod tests {
         );
     }
 
+    /// W3-H: `server stop` removes the start lock. A removal leaves no file,
+    /// and a second one finds none.
+    #[cfg(unix)]
+    #[test]
+    fn w3h_socket_start_lock_removal_unlinks_the_lock_file() {
+        let dir = TestSocketDir::create("start-lock-remove");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        drop(SocketStartLock::acquire(&socket, Instant::now()).unwrap());
+        assert!(lock.is_file());
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        assert!(remove_socket_start_lock(&socket, deadline).unwrap());
+        assert!(!lock.exists());
+        assert!(!remove_socket_start_lock(&socket, deadline).unwrap());
+        // The next start makes a new lock file.
+        drop(SocketStartLock::acquire(&socket, Instant::now()).unwrap());
+        assert!(lock.is_file());
+    }
+
+    /// A starter that waited on a lock file that was unlinked meanwhile does
+    /// not take the unlinked file's lock: it locks the file now at the path,
+    /// so it still waits for the starter that holds that one. The race
+    /// happens at a known step (before the waiter's first lock), not after a
+    /// sleep.
+    #[cfg(unix)]
+    #[test]
+    fn w3h_socket_start_lock_waiter_follows_an_unlinked_lock_file() {
+        let dir = TestSocketDir::create("start-lock-unlinked");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let mut first = Some(SocketStartLock::acquire(&socket, Instant::now()).unwrap());
+        let mut newer = None;
+        let mut opens = 0;
+        let mut race = || {
+            opens += 1;
+            if opens == 1 {
+                // The waiter opened and checked the first file; a stop unlinks
+                // it, a newer start locks a new file, and the first starter ends.
+                std::fs::remove_file(&lock).unwrap();
+                newer = Some(SocketStartLock::acquire(&socket, Instant::now()).unwrap());
+                first = None;
+            }
+        };
+        let outcome = SocketStartLock::acquire_with(
+            &lock,
+            Instant::now() + Duration::from_millis(300),
+            &mut race,
+            &still_at_path,
+        );
+        let error = outcome.map(drop).expect_err("the waiter must wait for the newer starter");
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(first.is_none() && newer.is_some());
+        drop(newer);
+        SocketStartLock::acquire(&socket, Instant::now()).map(drop).unwrap();
+    }
+
+    /// W3-H review: a lock file that is unlinked between the open and its
+    /// checks (no link left) is a replaced file, not a refused one: the check
+    /// asks for a new open instead of an "unexpected hard links" error.
+    #[cfg(unix)]
+    #[test]
+    fn w3h_socket_start_lock_check_asks_for_a_new_open_of_an_unlinked_file() {
+        let dir = TestSocketDir::create("start-lock-nlink-zero");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        drop(
+            SocketStartLock::acquire_with(&lock, Instant::now(), &mut || {}, &still_at_path)
+                .unwrap(),
+        );
+        let opened = std::fs::OpenOptions::new().append(true).open(&lock).unwrap();
+        std::fs::remove_file(&lock).unwrap();
+        let checked = SocketStartLock::checked_lock_file(opened);
+        assert!(matches!(checked, Ok(None)), "an unlinked file was refused: {:?}", checked.err());
+    }
+
+    /// W3-H review: when the locked file is never the one at the path, the
+    /// start opens it again only after a pause, so it does not spin until its
+    /// deadline.
+    #[cfg(unix)]
+    #[test]
+    fn w3h_socket_start_lock_pauses_between_reopens_of_a_changing_path() {
+        let dir = TestSocketDir::create("start-lock-backoff");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let checks = std::cell::Cell::new(0_u32);
+        let outcome = SocketStartLock::acquire_with(
+            &lock,
+            Instant::now() + Duration::from_millis(200),
+            &mut || {},
+            &|_, _| {
+                checks.set(checks.get() + 1);
+                false
+            },
+        );
+        let error = outcome.map(drop).expect_err("a path that keeps changing must time out");
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        // 200 ms at one reopen per 25 ms, plus the first reopen at once.
+        assert!(checks.get() <= 12, "{} reopens in 200 ms", checks.get());
+    }
+
     #[test]
     fn socket_start_lock_acquires_a_new_lock_file() {
         let dir = TestSocketDir::create("start-lock-new-file");
@@ -14946,6 +15200,44 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    /// A client decides from `identify` whether a closed tab's terminal ends
+    /// after the reap grace: the capability is listed only while the reaper runs.
+    #[test]
+    fn terminal_reap_identify_advertises_the_reaper_only_while_it_runs() {
+        let mux = test_mux();
+        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        let reaper = crate::start_terminal_reaper(&mux).unwrap();
+        assert!(
+            identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
+            "identify does not advertise the running terminal reaper"
+        );
+        reaper.stop();
+        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+    }
+
+    /// The socket answers `identify` as soon as it is bound, and the owner
+    /// started its reaper only later: a client that identified in between
+    /// saw an owner without a reaper (restart_host_leak.rs:87 on macOS,
+    /// main #39586). An owner that announced its reaper lists the capability
+    /// from the start; a stopped reaper ends the announcement.
+    #[test]
+    fn terminal_reap_identify_lists_an_announced_reaper_before_it_starts() {
+        let mux = test_mux();
+        mux.announce_terminal_reaper();
+        assert!(
+            identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
+            "an owner that starts its reaper once bound answered identify without \
+             terminal-reaper-active-v1 before the reaper thread ran"
+        );
+        let reaper = crate::start_terminal_reaper(&mux).unwrap();
+        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        reaper.stop();
+        assert!(
+            !identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
+            "a stopped reaper is still advertised"
+        );
     }
 
     fn sizing_browser(mux: &Arc<Mux>, size: (u16, u16)) -> Arc<crate::Surface> {
@@ -16164,6 +16456,124 @@ mod tests {
         assert_eq!(response["id"], "coalesced-wait");
         assert_eq!(response["ok"], true, "{response}");
         assert_eq!(response["result"]["matched"], true, "{response}");
+        disconnect_client(&mux, client, false);
+    }
+
+    /// `screen wait --pattern '^READY$'` (bench round 3, T2): a wait pattern
+    /// is matched line by line, so `^` and `$` anchor at each line without
+    /// `(?m)`; `(?-m)` still asks for the whole text.
+    #[test]
+    fn w4j_connection_terminal_wait_pattern_anchors_match_at_each_line() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-line-wait",
+            "workspace.create",
+            json!({"machine":"current", "session":"current", "initial_content":"terminal"}),
+            Some("create-for-line-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+        surface.apply_stream_output_for_test(b"step 1\r\nREADY\r\nstep 3\r\n$ ").unwrap();
+        let wait = |id: &str, pattern: &str| {
+            resource_request(
+                id,
+                "terminal.wait",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "terminal":terminal_id,
+                    "pattern":pattern,
+                    "timeout_ms":"300",
+                }),
+                None,
+            )
+        };
+        assert!(handle_connection_message(
+            &mux,
+            client,
+            &wait("line-wait", "^READY$"),
+            &writer,
+            &scheduler
+        ));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "line-wait");
+        assert_eq!(response["result"]["matched"], true, "{response}");
+        assert!(handle_connection_message(
+            &mux,
+            client,
+            &wait("whole-wait", "(?-m)^READY$"),
+            &writer,
+            &scheduler
+        ));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "whole-wait");
+        assert_ne!(response["result"]["matched"], true, "(?-m) is the whole text: {response}");
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn read_run_connection_terminal_wait_new_matches_only_output_after_the_call() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-new-wait",
+            "workspace.create",
+            json!({"machine":"current", "session":"current", "initial_content":"terminal"}),
+            Some("create-for-new-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+        // Older output and the typed command's echo, on the cursor's line, both
+        // match the pattern; a `new` wait must not.
+        surface.apply_stream_output_for_test(b"\r\nREADY\r\n$ echo READY").unwrap();
+        let wait = resource_request(
+            "new-wait",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"(?m)^READY$",
+                "timeout_ms":"2000",
+                "new":true,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not subscribe");
+            std::thread::yield_now();
+        }
+        surface.apply_stream_output_for_test(b"\r\nREADY\r\n").unwrap();
+
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "new-wait");
+        assert_eq!(response["result"]["matched"], true, "{response}");
+        let text = response["result"]["text"].as_str().unwrap();
+        assert!(text.lines().any(|line| line == "READY"), "{response}");
+        assert!(!text.contains("echo"), "the typed command's echo is not new output: {response}");
         disconnect_client(&mux, client, false);
     }
 
@@ -20975,6 +21385,60 @@ mod tests {
         );
     }
 
+    /// Done-until-seen: a finished turn lists as `status: done` (the roster
+    /// `state` stays `idle`) until a frontend acknowledges the tab; reading the
+    /// list again does not clear it, and the next turn is `working` again.
+    #[test]
+    fn agent_status_done_until_seen_survives_reads_and_clears_on_ack() {
+        let mux = test_mux();
+        let tab = mux.new_workspace(None, None).unwrap();
+        let report = |state: AgentState| {
+            mux.report_agent(tab.id, state, AgentSource::Hook, Some("done-until-seen".into()))
+                .unwrap();
+        };
+        let listed = || {
+            let command = Command::ListAgents { surface: Some(tab.id), state: None };
+            let listed = handle_command(&mux, 0, command, &test_writer()).unwrap();
+            let agent = listed["agents"].as_array().unwrap().first().cloned().unwrap_or_default();
+            (
+                agent["state"].as_str().map(str::to_owned),
+                agent["status"].as_str().map(str::to_owned),
+            )
+        };
+        let pair = |state: &str, status: &str| (Some(state.to_owned()), Some(status.to_owned()));
+
+        report(AgentState::Idle);
+        assert_eq!(listed(), pair("idle", "idle"), "a new session has nothing unseen");
+        report(AgentState::Working);
+        assert_eq!(listed(), pair("working", "working"));
+        report(AgentState::Idle);
+        mux.post_notification(
+            "Claude finished".into(),
+            String::new(),
+            NotificationLevel::Info,
+            Some(tab.id),
+        )
+        .unwrap();
+        assert_eq!(listed(), pair("idle", "done"), "the finished turn is not seen yet");
+        assert_eq!(listed(), pair("idle", "done"), "a read must not clear done");
+
+        let ack = |expected: bool| {
+            let command = Command::AckTabNotifications { surface: tab.id };
+            let result = handle_command(&mux, 0, command, &test_writer()).unwrap();
+            assert_eq!(result["cleared"], expected, "{result}");
+            assert_eq!(result["surface"], tab.id, "{result}");
+        };
+        ack(true);
+        assert_eq!(listed(), pair("idle", "idle"), "viewing the tab clears done");
+        ack(false);
+
+        report(AgentState::Working);
+        assert_eq!(listed(), pair("working", "working"));
+        let busy = Command::ListAgents { surface: Some(tab.id), state: Some("busy".into()) };
+        let busy = handle_command(&mux, 0, busy, &test_writer()).unwrap();
+        assert_eq!(busy["agents"].as_array().map(Vec::len), Some(1), "`busy` is `working`: {busy}");
+    }
+
     #[test]
     fn raw_report_agent_command_commits_public_revision_projection_and_event() {
         let mux = test_mux();
@@ -24690,6 +25154,9 @@ mod tests {
             CREATION_RECEIPTS_CAPABILITY,
             CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+            "terminal-read-unwrap-v1",
+            "terminal-wait-new-v1",
+            "terminal-exit-status-v1",
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }

@@ -148,8 +148,29 @@ jobs:
               const handled = (run) => (run.name === publishTitle || run.display_title === publishTitle) &&
                 (['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
                  (run.status === 'completed' && run.conclusion === 'success'));
+              // A publish run of a later source run, in flight or published,
+              // supersedes this one: publish and the tip feed never roll back,
+              // so an older source could never publish after it. Its supersede
+              // job cancels such older publish runs before their Mac jobs start
+              // (scripts/ci/cmux_next_dev_publish_supersede.py); without this
+              // check every tick would hand the cancelled source over again
+              // while the newer source run, which hands itself over from inside
+              // the run, is not yet finished.
+              const publishSource = (run) => {
+                for (const title of [run.display_title, run.name]) {
+                  const match = /^cmux NEXT DEV daily · publish ([0-9]+)$/.exec(title || '');
+                  if (match) return Number(match[1]);
+                }
+                return 0;
+              };
+              const superseding = published.workflow_runs.find((run) =>
+                publishSource(run) > finishedDev.id &&
+                (['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
+                 (run.status === 'completed' && run.conclusion === 'success')));
               if (published.workflow_runs.some(handled)) {
                 core.notice(`Source run ${finishedDev.id} (${finishedDev.head_sha}) already went to the publisher`);
+              } else if (superseding) {
+                core.notice(`Source run ${finishedDev.id} (${finishedDev.head_sha}) is superseded by publish run ${superseding.id} of source run ${publishSource(superseding)}`);
               } else {
                 await call((client) => client.rest.actions.createWorkflowDispatch({
                   owner,

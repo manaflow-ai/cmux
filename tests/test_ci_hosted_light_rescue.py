@@ -116,8 +116,29 @@ class Scope(unittest.TestCase):
     def test_reusable_declarations_bring_their_callers(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            (directory / "caller.yml").write_text("jobs:\n  report:\n    uses: ./.github/workflows/report.yml\n")
-            self.assertEqual(rescue.with_callers(["report.yml"], directory), ["caller.yml", "report.yml"])
+            (directory / "report.yml").write_text("on:\n  workflow_call:\n")
+            (directory / "caller.yml").write_text("on: [pull_request]\njobs:\n  report:\n    uses: ./.github/workflows/report.yml\n")
+            self.assertEqual(rescue.with_callers(["report.yml"], directory), ["caller.yml"])
+
+    def test_callers_drops_only_workflows_proven_to_be_reusable_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "reusable.yml").write_text("on:\n  workflow_call:\n")
+            (directory / "caller.yml").write_text(
+                "on:\n  workflow_call:\n  pull_request:\n\njobs:\n  call:\n    uses: ./.github/workflows/reusable.yml\n")
+            self.assertEqual(rescue.with_callers(["reusable.yml"], directory), ["caller.yml"])
+
+    def test_reusable_only_callers_with_nested_inputs_are_filtered_but_dual_trigger_is_kept(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "reusable.yml").write_text(
+                "on:\n  workflow_call:\n    inputs:\n      mode:\n        required: false\n    outputs:\n      result:\n        value: x\n")
+            (directory / "dual.yml").write_text(
+                "on:\n  workflow_call:\n    inputs:\n      mode:\n        required: false\n  pull_request:\n")
+            (directory / "caller.yml").write_text(
+                "on: [pull_request]\njobs:\n  call:\n    uses: ./.github/workflows/reusable.yml\n")
+            self.assertEqual(rescue.with_callers(["reusable.yml", "dual.yml"], directory),
+                             ["caller.yml", "dual.yml"])
 
     def test_callers_without_a_directory_are_just_the_declaration(self):
         self.assertEqual(rescue.with_callers(["b.yml", "a.yml"], None), ["a.yml", "b.yml"])
@@ -238,8 +259,93 @@ class WorkflowToken(unittest.TestCase):
         self.assertEqual(request.get_header("If-none-match"), '"v1"')
         self.assertEqual(request.get_header("Authorization"), "Bearer workflow-token")
 
+    def test_forbidden_diagnostics_are_bounded_and_quota_refusal_is_cooled_down(self):
+        client = rescue.GitHub("workflow-token", "o/r")
+        body = json.dumps({"message": "API rate limit exceeded; " + "secret-token " * 200,
+                           "resource": "core"}).encode()
+        error = urllib.error.HTTPError("url", 403, "forbidden", {
+            "X-RateLimit-Remaining": "0", "X-RateLimit-Limit": "5000", "X-RateLimit-Reset": "123",
+            "X-RateLimit-Resource": "core", "Retry-After": "9", "X-Secret": "do-not-print"},
+            __import__("io").BytesIO(body))
+        with mock.patch.object(rescue.urllib.request, "urlopen", side_effect=error) as opened:
+            with self.assertRaises(rescue.GitHubHTTPError) as raised:
+                client.run(7)
+            with self.assertRaises(rescue.GitHubHTTPError) as raised_again:
+                client.run(8)
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(raised.exception.status, 403)
+        self.assertEqual(raised_again.exception.status, 403)
+        rendered = str(raised.exception)
+        self.assertTrue(rendered.endswith("HTTP 403"), rendered)
+        self.assertIn("quota", rendered)
+        self.assertIn("remaining=0", rendered)
+        self.assertIn("resource=core", rendered)
+        self.assertNotIn("secret-token", rendered)
+        self.assertNotIn("X-Secret", rendered)
+
 
 class Sweep(unittest.TestCase):
+    def test_discovery_query_retains_fresh_runs_for_local_stall_filtering(self):
+        client = rescue.GitHub("workflow-token", "o/r")
+        with mock.patch.object(client, "request", return_value={"workflow_runs": []}) as request:
+            client.runs("pr-checks.yml", "queued", NOW - rescue.WINDOW,
+                        NOW - dt.timedelta(seconds=rescue.STALL_SECONDS))
+        query = rescue.urllib.parse.parse_qs(rescue.urllib.parse.urlsplit(request.call_args.args[1]).query)
+        self.assertEqual(query["created"], [f">={rescue.iso(NOW - rescue.WINDOW)}"])
+        self.assertEqual(query["event"], ["pull_request"])
+
+    def test_fresh_run_becomes_eligible_while_discovery_page_is_cached(self):
+        fresh = {**run(7), "created_at": ago(150)}
+        fake = Fake({"pr-checks.yml": [fresh]}, {7: [job("PR size", waited=150)]})
+        cursor = rescue.ScanState()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, scan_state=cursor,
+                     clock=lambda: 0, sleep=lambda _: None)
+        self.assertEqual(fake.job_reads, {})
+        self.assertEqual(mutations(fake), [])
+        fake.calls.clear()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=31), dry_run=False,
+                     scan_state=cursor, clock=lambda: 31, sleep=lambda _: None, log=lambda _: None)
+        self.assertEqual(sum(call[0] == "runs" for call in fake.calls), 0)
+        self.assertEqual(mutations(fake), [("cancel", 7), ("rerun", 7)])
+
+    def test_discovery_page_cache_reuses_a_page_within_its_short_ttl(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        cursor = rescue.ScanState()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=True, scan_state=cursor,
+                     clock=lambda: 0, sleep=lambda _: None)
+        first = sum(call[0] == "runs" for call in fake.calls)
+        fake.calls.clear()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=60), dry_run=True, scan_state=cursor,
+                     clock=lambda: 60, sleep=lambda _: None)
+        self.assertEqual(first, 2)
+        self.assertEqual(sum(call[0] == "runs" for call in fake.calls), 0)
+
+    def test_non_stalled_job_verdict_is_cached_but_stalled_verdict_is_read_again(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("build", status="in_progress", runner_id=7)]})
+        cursor = rescue.ScanState()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=True, scan_state=cursor,
+                     clock=lambda: 0, sleep=lambda _: None)
+        first_reads = fake.job_reads[7]
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=30), dry_run=True, scan_state=cursor,
+                     clock=lambda: 30, sleep=lambda _: None)
+        self.assertEqual(fake.job_reads[7], first_reads)
+
+    def test_same_sequence_reduces_discovery_and_non_stalled_job_reads(self):
+        rows = [run(index) for index in range(1, 41)]
+        fake = Fake({"pr-checks.yml": rows}, {
+            item["id"]: [job("build", status="in_progress", runner_id=7)] for item in rows})
+        cursor = rescue.ScanState()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=True, scan_state=cursor,
+                     clock=lambda: 0, sleep=lambda _: None)
+        first_discovery = sum(call[0] == "runs" for call in fake.calls)
+        first_jobs = sum(fake.job_reads.values())
+        fake.calls.clear()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=60), dry_run=True, scan_state=cursor,
+                     clock=lambda: 60, sleep=lambda _: None)
+        self.assertEqual((first_discovery, first_jobs), (2, 40))
+        self.assertEqual(sum(call[0] == "runs" for call in fake.calls), 0)
+        self.assertEqual(sum(fake.job_reads.values()), 40)
+
     def test_an_overflow_listing_page_finds_a_candidate_past_the_first_100_runs(self):
         gated = [run(100 + index) for index in range(101)]
         overflow = run(999)
@@ -601,6 +707,41 @@ class RecoverCancelled(unittest.TestCase):
                 f"{rescue.LIGHT_CANCEL_SENT} run 7 attempt 1",
                 f"{rescue.LIGHT_CANCEL_SENT} run 9 attempt 1"])]
         self.assertEqual(client.pending_cancellations(NOW), {9})
+        history.rescue_jobs.assert_called_once_with(
+            NOW - rescue.WINDOW, events=("schedule", "workflow_dispatch"), titles=("owned-pool-sweeper",))
+
+    def test_unrelated_history_cap_does_not_hide_newest_owned_settlement(self):
+        import owned_pool_rescue
+        client = rescue.GitHub("workflow-token", "o/r")
+        history = owned_pool_rescue.GitHub("workflow-token", "o/r")
+        client.history = history
+        listing_reads = []
+        rows = [
+            {"id": 10, "event": "schedule", "display_title": "owned-pool-sweeper", "status": "completed",
+             "conclusion": "cancelled", "run_attempt": 1, "created_at": ago(600),
+             "run_started_at": ago(600), "updated_at": ago(400)},
+            {"id": 20, "event": "workflow_dispatch", "display_title": "owned-pool-sweeper", "status": "completed",
+             "conclusion": "success", "run_attempt": 1, "created_at": ago(300),
+             "run_started_at": ago(300), "updated_at": ago(200)}]
+        def request(method, path, **_):
+            if path.startswith("/actions/workflows/"):
+                listing_reads.append(path)
+                query = rescue.urllib.parse.parse_qs(rescue.urllib.parse.urlsplit(path).query)
+                if "event" not in query:
+                    return {"total_count": 2501, "workflow_runs": []}
+                selected = [row for row in rows if row["event"] == query["event"][0]]
+                return {"total_count": len(selected), "workflow_runs": selected if query["page"] == ["1"] else []}
+            run_id = int(path.split("/runs/")[1].split("/")[0])
+            return {"jobs": [{"id": run_id, "status": "completed", "conclusion": "success"}]}
+        history.request = request
+        marks = {
+            20: [f"{rescue.LIGHT_CANCEL_SETTLED} run 7 attempt 1"],
+            10: [f"{rescue.LIGHT_CANCEL_SENT} run 7 attempt 1", f"{rescue.LIGHT_CANCEL_SENT} run 9 attempt 1"]}
+        history.job_marks = lambda job_id: owned_pool_rescue.cancel_marks(marks[job_id])
+        self.assertEqual(client.pending_cancellations(NOW), {9})
+        self.assertEqual(len(listing_reads), 4)
+        with self.assertRaises(owned_pool_rescue.RescueHistoryCapped):
+            history.rescue_jobs(NOW - rescue.WINDOW)
 
     def test_an_incomplete_journal_cannot_authorize_a_recovery(self):
         client = rescue.GitHub("workflow-token", "o/r")
@@ -778,6 +919,18 @@ class BotTokenFirst(unittest.TestCase):
             client.runs(None, "queued", NOW - rescue.WINDOW, NOW)
         self.assertEqual(self.sent(opened), ["Bearer bot-token", "Bearer workflow-token"])
         self.assertEqual(client.read_pool(), "fallback")
+
+    def test_a_quota_refusal_on_both_tokens_pauses_reads_without_another_request(self):
+        client = self.client()
+        def refused():
+            return urllib.error.HTTPError("url", 403, "rate limited", {"X-RateLimit-Remaining": "0"}, None)
+        with mock.patch.object(rescue.urllib.request, "urlopen", side_effect=[refused(), refused()]) as opened:
+            with self.assertRaises(rescue.GitHubHTTPError):
+                client.runs(None, "queued", NOW - rescue.WINDOW, NOW)
+            with self.assertRaises(rescue.GitHubHTTPError) as again:
+                client.runs(None, "in_progress", NOW - rescue.WINDOW, NOW)
+        self.assertEqual(self.sent(opened), ["Bearer bot-token", "Bearer workflow-token"])
+        self.assertIn("quota", str(again.exception))
 
     def test_both_pools_low_stop_the_pass(self):
         client = self.client()

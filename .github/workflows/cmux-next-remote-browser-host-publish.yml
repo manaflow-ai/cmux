@@ -1,0 +1,350 @@
+name: cmux NEXT remote browser host publish
+
+# Builds the remote browser host (cmux-tui/crates/cmux-remote-browser-host)
+# against the CEF that a branch's scripts/cmux-next/cef-manifest.json pins,
+# publishes the binary to the private cmux-cef R2 bucket, and gives the
+# matching scripts/cmux-next/remote-browser-host.pin.json. A DEV build refuses
+# a host built for another CEF (embed-remote-browser-host.sh), so every CEF pin
+# bump needs one; this route needs no person with the bucket's write key at a
+# Mac. The same shape as cmux-next-cua-driver-sdk-publish.yml.
+#
+# resolve  the branch's commit (a branch of this repository, so no fork code
+#          reaches a build Mac), its pinned CEF and the crate's tree. No secret.
+# cef      on Linux, with the read-only token: downloads the pinned CEF archive
+#          from R2 and checks it against the manifest sha256.
+# build    on a macOS runner, holding no secret: unpacks that archive (its
+#          digest checked again) and runs `cargo build --release --locked` with
+#          a job-local Rust toolchain (the one cmux-tui/rust-toolchain.toml names).
+# publish  in the cef-publish environment, which waits for one of its required
+#          reviewers and alone holds the cmux-cef-write token. Only main code
+#          runs here: the binary is data. It checks the binary's digest and
+#          Mach-O arm64 header, uploads it write-once to
+#          remote-browser-host/<sha256>/cmux-remote-browser-host-macos-arm64
+#          (read back and checked), pushes the source tag
+#          cmux-rbh-src-<commit, 11 characters> that the third-party notices
+#          name, and writes the pin to the step summary and the
+#          remote-browser-host-pin artifact. Commit the pin; the run does not.
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "A branch of this repository whose CEF pin and host source are built (e.g. the CEF pin PR's branch)"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-remote-browser-host-publish-${{ inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve the branch and its CEF
+    if: github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      cef_version: ${{ steps.cef.outputs.version }}
+      cef_sha256: ${{ steps.cef.outputs.sha256 }}
+      cef_r2_key: ${{ steps.cef.outputs.r2_key }}
+      crate_tree: ${{ steps.cef.outputs.crate_tree }}
+    steps:
+      - name: Resolve the branch
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::branch has unexpected characters" >&2; exit 1; }
+          # The branches API lists this repository's own branches only.
+          sha="$(gh api "repos/$GH_REPO/branches/$BRANCH" --jq .commit.sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot resolve branch $BRANCH" >&2; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the branch's CEF pin
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          sparse-checkout: |
+            scripts/cmux-next/cef-manifest.json
+            cmux-tui/crates/cmux-remote-browser-host/Cargo.toml
+          sparse-checkout-cone-mode: false
+
+      - name: Read the pinned CEF
+        id: cef
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          read -r version sha256 r2_key < <(python3 -I -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["version"], m["sha256"], m.get("r2_key", ""))' scripts/cmux-next/cef-manifest.json)
+          [[ "$version" =~ ^cef-[0-9]+\.[0-9]+\.[0-9]+-cmux\.[0-9]+$ && "$sha256" =~ ^[0-9a-f]{64}$ ]] ||
+            { echo "::error::cef-manifest.json has no valid version and sha256" >&2; exit 1; }
+          [[ "$r2_key" == "cef/$sha256/$version-macos-arm64.tar.xz" ]] ||
+            { echo "::error::cef-manifest.json's r2_key is not cef/<sha256>/<version>-macos-arm64.tar.xz" >&2; exit 1; }
+          tree="$(git rev-parse "HEAD:cmux-tui/crates/cmux-remote-browser-host")"
+          { echo "version=$version"; echo "sha256=$sha256"; echo "r2_key=$r2_key"; echo "crate_tree=$tree"; } >> "$GITHUB_OUTPUT"
+          echo "Branch $BRANCH at $SHA; CEF $version (sha256 $sha256); crate tree $tree" >> "$GITHUB_STEP_SUMMARY"
+
+  cef:
+    name: Fetch the pinned CEF
+    needs: resolve
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions: {}
+    steps:
+      # R2 only, read-only token, credential on curl's stdin; the bytes must match the manifest.
+      - name: Download from R2
+        env:
+          ACCOUNT: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          SECRET: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          KEY: ${{ needs.resolve.outputs.cef_r2_key }}
+          WANT: ${{ needs.resolve.outputs.cef_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ -n "$ACCOUNT" && -n "$ID" && -n "$SECRET" ]] || { echo "::error::the read-only CMUX_CEF_R2_* secrets are not set" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/cef"
+          printf 'user = "%s:%s"\n' "$ID" "$SECRET" |
+            curl --config - --fail --silent --show-error --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 1800 \
+              --aws-sigv4 "aws:amz:auto:s3" -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
+              -o "$RUNNER_TEMP/cef/cef-macos-arm64.tar.xz" "https://$ACCOUNT.r2.cloudflarestorage.com/cmux-cef/$KEY"
+          echo "$WANT  $RUNNER_TEMP/cef/cef-macos-arm64.tar.xz" | sha256sum --strict -c -
+
+      - name: Upload the CEF archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cef-macos-arm64
+          path: ${{ runner.temp }}/cef/cef-macos-arm64.tar.xz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build the host
+    needs: [resolve, cef]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+    steps:
+      - name: Checkout the branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          sparse-checkout: |
+            .xcode-version
+            cmux-tui
+            scripts/ci/xcode-pins.txt
+            scripts/select-ci-xcode.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # Job-local, so an owned Mac keeps no toolchain or cargo registry from this run.
+      - name: Install the Rust toolchain
+        run: |
+          set -euo pipefail
+          export RUSTUP_HOME="$RUNNER_TEMP/rustup" CARGO_HOME="$RUNNER_TEMP/cargo"
+          channel="$(sed -n 's/^channel *= *"\([0-9][0-9.]*\)".*/\1/p' cmux-tui/rust-toolchain.toml)"
+          [[ "$channel" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::no pinned channel in cmux-tui/rust-toolchain.toml" >&2; exit 1; }
+          base=https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin
+          curl --fail --silent --show-error --retry 3 -o "$RUNNER_TEMP/rustup-init" "$base/rustup-init"
+          want="$(curl --fail --silent --show-error --retry 3 "$base/rustup-init.sha256" | awk '{print $1}')"
+          echo "$want  $RUNNER_TEMP/rustup-init" | shasum -a 256 -c -
+          chmod +x "$RUNNER_TEMP/rustup-init"
+          "$RUNNER_TEMP/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
+          "$CARGO_HOME/bin/rustup" toolchain install "$channel" --profile minimal
+          { echo "RUSTUP_HOME=$RUSTUP_HOME"; echo "CARGO_HOME=$CARGO_HOME"; echo "RUSTUP_TOOLCHAIN=$channel"; } >> "$GITHUB_ENV"
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Download the CEF archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cef-macos-arm64
+          path: ${{ runner.temp }}/cef-archive
+
+      - name: Unpack the pinned CEF
+        id: cef
+        env:
+          WANT: ${{ needs.resolve.outputs.cef_sha256 }}
+          VERSION: ${{ needs.resolve.outputs.cef_version }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/cef-archive/cef-macos-arm64.tar.xz"
+          echo "$WANT  $archive" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/cef"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/cef"
+          dir="$RUNNER_TEMP/cef/$VERSION"
+          [[ -d "$dir/include" ]] || { echo "::error::the archive holds no $VERSION/include" >&2; exit 1; }
+          grep -q 'cmux_rp_capture_start' "$dir/include/cef_cmux.h" ||
+            { echo "::error::the pinned CEF is not a remote presentation build (no cmux_rp_* in cef_cmux.h)" >&2; exit 1; }
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        id: build
+        env:
+          CEF_PATH: ${{ steps.cef.outputs.dir }}
+        run: |
+          set -euo pipefail
+          umask 022
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/target"
+          (cd cmux-tui/crates/cmux-remote-browser-host && cargo build --release --locked)
+          mkdir -p "$RUNNER_TEMP/out"
+          cp "$CARGO_TARGET_DIR/release/cmux-remote-browser-host" "$RUNNER_TEMP/out/cmux-remote-browser-host-macos-arm64"
+          lipo -archs "$RUNNER_TEMP/out/cmux-remote-browser-host-macos-arm64" | tr ' ' '\n' | grep -qx arm64 ||
+            { echo "::error::the host has no arm64 slice" >&2; exit 1; }
+          echo "sha256=$(shasum -a 256 "$RUNNER_TEMP/out/cmux-remote-browser-host-macos-arm64" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the host
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: remote-browser-host
+          path: ${{ runner.temp }}/out/cmux-remote-browser-host-macos-arm64
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish the host and write its pin
+    needs: [resolve, build]
+    environment: cef-publish
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: write # the source tag only
+    steps:
+      # Only whether the token is set reaches this step, never its value.
+      - name: Require the cmux-cef-write token
+        env:
+          HAS_WRITE_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID != '' && secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY != '' && secrets.CMUX_CEF_R2_ACCOUNT_ID != '' }}
+        run: |
+          if [[ "$HAS_WRITE_KEY" != true ]]; then
+            echo "::error::the cef-publish environment has no CMUX_CEF_R2_ACCOUNT_ID / CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token); nothing was published" >&2
+            exit 1
+          fi
+
+      - name: Checkout main's R2 upload
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/upload-r2-object.py
+          sparse-checkout-cone-mode: false
+
+      - name: Download the host
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: remote-browser-host
+          path: ${{ runner.temp }}/host
+
+      # The binary is data: hashed, its Mach-O header read, uploaded; never run.
+      - name: Check the host and write the pin
+        id: pin
+        env:
+          WANT: ${{ needs.build.outputs.sha256 }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          TREE: ${{ needs.resolve.outputs.crate_tree }}
+          CEF_VERSION: ${{ needs.resolve.outputs.cef_version }}
+          CEF_SHA256: ${{ needs.resolve.outputs.cef_sha256 }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$WANT" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::the build job gave no digest" >&2; exit 1; }
+          bin="$RUNNER_TEMP/host/cmux-remote-browser-host-macos-arm64"
+          echo "$WANT  $bin" | sha256sum --strict -c -
+          mkdir -p "$RUNNER_TEMP/pin"
+          python3 -I - "$bin" "$WANT" "$SHA" "$TREE" "$CEF_VERSION" "$CEF_SHA256" "$RUN_URL" "$RUNNER_TEMP/pin/remote-browser-host.pin.json" <<'PY'
+          import json, struct, sys
+          path, sha, commit, tree, cef_version, cef_sha, run_url, out = sys.argv[1:]
+          with open(path, "rb") as f:
+              head = f.read(8)
+          magic, cputype = struct.unpack("<II", head)
+          # A thin 64-bit Mach-O (MH_MAGIC_64) for arm64 (CPU_TYPE_ARM64), as cargo builds it.
+          assert magic == 0xFEEDFACF and cputype == 0x0100000C, f"not a Mach-O arm64 binary: {magic:#x} {cputype:#x}"
+          asset = "cmux-remote-browser-host-macos-arm64"
+          pin = {
+              "asset": asset, "arch": "arm64", "sha256": sha, "r2_bucket": "cmux-cef",
+              "r2_key": f"remote-browser-host/{sha}/{asset}",
+              "source_commit": commit, "crate_tree": tree,
+              "cef_version": cef_version, "cef_sha256": cef_sha, "build_step": run_url,
+          }
+          with open(out, "w", encoding="utf-8") as f:
+              json.dump(pin, f, indent=2)
+              f.write("\n")
+          PY
+          echo "key=remote-browser-host/$WANT/cmux-remote-browser-host-macos-arm64" >> "$GITHUB_OUTPUT"
+          { echo '`scripts/cmux-next/remote-browser-host.pin.json`:'; echo '```json'; cat "$RUNNER_TEMP/pin/remote-browser-host.pin.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the pin
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: remote-browser-host-pin
+          path: ${{ runner.temp }}/pin/remote-browser-host.pin.json
+          if-no-files-found: error
+          retention-days: 14
+
+      # Content-addressed and write-once; the second call reads the object back
+      # and checks its sha256 (an identical object is accepted, any other refused).
+      - name: Publish to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          KEY: ${{ steps.pin.outputs.key }}
+        run: |
+          set -euo pipefail
+          for attempt in upload read-back; do
+            echo "R2 $attempt"
+            python3 scripts/ci/upload-r2-object.py \
+              --file "$RUNNER_TEMP/host/cmux-remote-browser-host-macos-arm64" \
+              --endpoint-url "$R2_ENDPOINT" --bucket cmux-cef --key "$KEY" \
+              --content-type application/octet-stream --cache-control 'private, max-age=31536000, immutable' \
+              --write-once
+          done
+          echo "Published cmux-cef/$KEY" >> "$GITHUB_STEP_SUMMARY"
+
+      # generate-third-party-notices.sh names the host's source by this tag.
+      - name: Push the source tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          tag="cmux-rbh-src-${SHA:0:11}"
+          # Five tries, 10/20/40/80 s apart: a transient 5xx (run 42541124658 got a 502) must not fail a
+          # publish whose objects are already in R2. Each try reads the tag first, since a failed
+          # create may still have made it.
+          for attempt in 1 2 3 4 5; do
+            if have="$(gh api "repos/$GH_REPO/git/ref/tags/$tag" --jq .object.sha 2>/dev/null)"; then
+              [[ "$have" == "$SHA" ]] || { echo "::error::tag $tag already names $have, not $SHA" >&2; exit 1; }
+              break
+            fi
+            if gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$SHA" > /dev/null; then
+              break
+            fi
+            if (( attempt == 5 )); then
+              echo "::error::could not create tag $tag after $attempt tries" >&2
+              exit 1
+            fi
+            echo "::warning::tag push try $attempt failed; retrying"
+            sleep $(( 10 * 2 ** (attempt - 1) ))
+          done
+          echo "Source tag $tag at $SHA" >> "$GITHUB_STEP_SUMMARY"

@@ -1375,6 +1375,170 @@ class OutsideTheDiff(unittest.TestCase):
         self.assertTrue(self.judge())
 
 
+FFI_PIN = "Check the app FFI pin"
+CLASSIFIER_STEP = "Base-red classifier (per test)"
+# What a passing tests/test_next_batch.py prints from its fixtures on feat-cmux-next: an "error:" line in a green step.
+NEXT_BATCH_FIXTURE = ("[next-batch 04:08:16] base tier verdict for cmux-next daemon tests from 3 at cccccccccccc "
+                      "(created 2026-10-30T12:00:00Z; the newest for it, not necessarily the base head): "
+                      "cmux-next daemon tests: error error: y")
+
+
+class StaleFfiPinOfAStepARustChange(unittest.TestCase):
+    """cmux#37292 on feat-cmux-next: a PR that changes app FFI inputs is red on "Check the app FFI pin" until its
+    merge publishes the release the re-pin names, since app-ffi-release.yml publishes only from a feat-cmux-next
+    push. gh-merge-green runs this copy, so it excuses that red the way feat's classifier does: only when the pin
+    is the job's one red, the PR changes FFI inputs, leaves the pin alone and changes no Swift. Only the red steps'
+    own output is read (2026-11-09, cmux#38923: a green test step's fixture line "... error error: y" is no red)."""
+
+    PR = 38923
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.base_runs = []
+        self.gh.history = {"feat-cmux-next": [TIP]}
+        self.gh.jobs = {1: self.job(1, 10, HEAD), 2: self.job(2, 40, TIP, red=())}
+        self.gh.jobs[2]["conclusion"] = "success"
+        self.gh.logs = {1: self.head_log(), 2: ""}
+        self.gh.commit_checks[TIP] = [check_run(self.gh.jobs[2])]
+        self.files = [{"filename": "cmux-tui/crates/cmux-terminal-prediction/tests/common/mod.rs"}]
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"/pulls/{self.PR}/files?per_page=100"):
+                self.gh.routes.append(route)
+                return [copy.deepcopy(self.files)]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+    @staticmethod
+    def job(job_id, run_id, sha, red=(FFI_PIN,)):
+        """The cmux-next checks job: each check continues on error; only the last step fails."""
+        steps = [{"name": "Set up runner", "status": "completed", "conclusion": "success"}]
+        steps += [{"name": name, "status": "completed", "conclusion": "success"}
+                  for name in (CLASSIFIER_STEP, "Crash safety", FFI_PIN)]
+        steps.append({"name": AGGREGATE_STEP, "status": "completed", "conclusion": "failure" if red else "success"})
+        return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": CHECKS, "status": "completed",
+                "conclusion": "failure", "html_url": f"https://github.com/{REPO}/actions/runs/{run_id}/job/{job_id}",
+                "steps": steps}
+
+    @staticmethod
+    def head_log(red=(FFI_PIN,), pin_extra=(), step_names=True):
+        """The job's log: a green classifier step printing NEXT_BATCH_FIXTURE, the pin check's words as
+        scripts/cmux-next/check-app-ffi-pin.sh prints them, a crash safety check, and the rollup."""
+        blocks = [
+            (CLASSIFIER_STEP, ["##[group]Run python3 tests/test_next_batch.py", "##[endgroup]", "Ran 25 tests in 0.667s",
+                               "OK", NEXT_BATCH_FIXTURE]),
+            ("Crash safety", ["##[group]Run bash scripts/cmux-next/check-crash-safety.sh", "##[endgroup]"]
+             + (["Sources/A.swift:3: error: fatalError in app code", "##[error]Process completed with exit code 1."]
+                if "Crash safety" in red else ["crash safety: ok"])),
+            (FFI_PIN, ["##[group]Run base=()", "##[endgroup]"]
+             + ([f"error: the app FFI sources changed since the pinned source {'0' * 40}:",
+                 " .../cmux-terminal-prediction/tests/common/mod.rs   |  4 +-",
+                 " 1 file changed, 2 insertions(+), 2 deletions(-)",
+                 "Owning lane(s), which publish the release and update the pin:",
+                 "  app FFI packaging (test triage lane: cmux-app-ffi, build-app-ffi.sh, toolchain)",
+                 "Commits since the pin:",
+                 "  4a49f0ed lawrencecchen: cmux-terminal-prediction tests: neutral host name in the simulated prompt",
+                 "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run "
+                 "says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the "
+                 "source change when possible.", *pin_extra, "##[error]Process completed with exit code 1."]
+                if FFI_PIN in red else ["app FFI pin: sources match " + "0" * 40])),
+            (AGGREGATE_STEP, ["##[group]Run failed=()", "##[endgroup]"]
+             + [f"##[error]red check: {name}" for name in red]
+             + [f"### {len(red)} cmux-next check(s) failed"] + [f"- {name} (failure)" for name in red]
+             + ["Each check's own step log has the details.", "##[error]Process completed with exit code 1."]),
+        ]
+        return "\n".join(log(CHECKS, step if step_names else excuse.UNKNOWN_STEP, *lines) for step, lines in blocks)
+
+    def judge(self, pr=PR):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh, pr=pr)
+
+    def test_a_rust_only_ffi_change_is_excused_for_its_stale_pin(self):
+        self.assertEqual(self.judge(), [
+            f"excused '{CHECKS}': only '{FFI_PIN}' is red (\"error: the app FFI sources changed since the pinned "
+            f"source\"), and #{self.PR} changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no "
+            "Swift: a step-A Rust change, pinned by the release its merge publishes"])
+
+    def test_a_job_log_with_no_step_names_is_read_by_its_run_groups(self):
+        # GitHub serves today's checks job logs with every line under UNKNOWN STEP (run 42559404221).
+        self.gh.logs[1] = self.head_log(step_names=False)
+        self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0])
+
+    def test_an_error_line_a_green_step_printed_is_no_red(self):
+        self.assertIn(NEXT_BATCH_FIXTURE, excuse.lines_of(self.gh.logs[1]))
+        self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0])
+
+    def test_another_red_check_beside_the_pin_is_judged_as_before(self):
+        self.gh.logs[1] = self.head_log(red=("Crash safety", FFI_PIN))
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+    def test_another_error_in_the_pin_step_refuses(self):
+        self.gh.logs[1] = self.head_log(pin_extra=("error: release SOURCE_SHA x is not the pinned sha y",))
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+    def test_a_change_to_the_pin_or_to_swift_or_with_no_ffi_input_is_refused(self):
+        for path in ("Packages/macOS/CmuxNext/Package.swift", "Packages/macOS/CmuxNext/app-ffi-pin.json",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift", "docs/ci/app-ffi-release.md"):
+            self.files = [{"filename": "cmux-tui/crates/cmux-app-ffi/src/lib.rs"}, {"filename": path}]
+            if path.startswith("docs/"):
+                self.files = [{"filename": path}]
+            with self.assertRaises(excuse.Refused, msg=path):
+                self.judge()
+
+    def test_a_change_to_the_check_code_is_refused(self):
+        # Review of cmux#39194: a PR changing the pin check, its workflow or this classifier could make the pin error
+        # print for any change; such a PR is never excused this way.
+        for path in ("scripts/cmux-next/check-app-ffi-pin.sh", ".github/workflows/cmux-next.yml",
+                     "scripts/ci/base_red_excuse.py", "scripts/ci/app_ffi_pin.py", "scripts/ci/api_call_log/env.sh"):
+            self.files = [{"filename": "cmux-tui/crates/cmux-app-ffi/src/lib.rs"}, {"filename": path}]
+            with self.assertRaises(excuse.Refused, msg=path):
+                self.judge()
+
+    # cmux#37869's real file set (a new FFI crate): the release workflow's push paths, the router, the licence list and
+    # the FFI build script change with every new crate, and none of them decides the pin check's verdict (review of
+    # cmux#39471: the broad list refused every recent step-A PR).
+    STEP_A_37869 = (".github/workflows/app-ffi-release.yml", "cmux-tui/Cargo.lock", "cmux-tui/Cargo.toml",
+                    "cmux-tui/crates/cmux-app-ffi/Cargo.toml", "cmux-tui/crates/cmux-app-ffi/src/lib.rs",
+                    "cmux-tui/crates/cmux-cookie-sync/Cargo.toml", "cmux-tui/crates/cmux-cookie-sync/src/lib.rs",
+                    "scripts/ci/cmux_next_route.py", "scripts/cmux-next/build-app-ffi.sh",
+                    "scripts/cmux-next/check_app_crate_licenses.py", "tests/test_app_crate_licenses.py")
+
+    def test_a_new_crate_with_its_workflow_router_and_licence_changes_is_excused(self):
+        self.files = [{"filename": path} for path in self.STEP_A_37869]
+        self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0])
+
+    def test_a_json_pin_that_also_changes_the_pin_reader_is_refused(self):
+        # cmux#37645's file set: the pin file and Package.swift move the pin, and scripts/ci/app_ffi_pin.py is the pin
+        # check's reader; this rule never excuses it.
+        self.files = [{"filename": path} for path in ("Packages/macOS/CmuxNext/app-ffi-pin.json",
+                                                      "Packages/macOS/CmuxNext/Package.swift",
+                                                      "scripts/ci/app_ffi_pin.py")]
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+    def test_a_pr_into_another_base_is_judged_as_before(self):
+        self.assertIsNone(excuse.ffi_pin_step_a("main", self.gh.jobs[1], self.gh.logs[1],
+                                                {"cmux-tui/crates/cmux-app-ffi/src/lib.rs"}, self.PR))
+
+    def test_the_toolchain_and_the_build_script_are_ffi_inputs(self):
+        for path in ("cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"):
+            self.files = [{"filename": path}]
+            self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0], path)
+
+    def test_without_the_pull_request_nothing_is_excused(self):
+        with self.assertRaises(excuse.Refused):
+            self.judge(pr=None)
+
+    def test_the_pin_error_in_another_job_is_judged_as_before(self):
+        self.gh.jobs[1]["name"] = "cmux-next other checks"
+        self.gh.logs[1] = self.gh.logs[1].replace(CHECKS, "cmux-next other checks")
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+
 class Script(unittest.TestCase):
     def test_gh_merge_green_names_the_pull_request_to_the_base_comparison(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()

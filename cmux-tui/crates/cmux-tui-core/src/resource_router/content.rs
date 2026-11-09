@@ -8,7 +8,6 @@ use ghostty_vt::{
     KeyEncoder, Mods, MouseAction, MouseButton, MouseInput, StyledRun, UnderlineStyle,
     key_input_from_chord, rows_to_runs,
 };
-use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::effects::{self, EffectPreparation, PreparedEffect};
@@ -111,7 +110,9 @@ fn terminal_screen_read(
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
-    let snapshot = surface.terminal_screen_snapshot().map_err(resource_operation_error)?;
+    let snapshot = surface
+        .terminal_screen_snapshot_with(screen_text(&request.fields)?)
+        .map_err(resource_operation_error)?;
     Ok(json!({
         "text":snapshot.text,
         "cols":snapshot.cols,
@@ -122,6 +123,24 @@ fn terminal_screen_read(
         "revision":snapshot.revision.to_string(),
         "osc_progress":snapshot.osc_progress,
     }))
+}
+
+/// The text a `terminal.screen.read` asks for: `unwrap` joins soft wraps,
+/// `lines` reads the last N lines of scrollback and screen instead of the
+/// viewport (`terminal-read-unwrap-v1`).
+fn screen_text(fields: &Map<String, Value>) -> Result<crate::surface::ScreenText, ResourceError> {
+    let unwrap = fields.get("unwrap").and_then(Value::as_bool).unwrap_or(false);
+    let lines = fields.get("lines").and_then(Value::as_u64);
+    Ok(match lines {
+        Some(count) => crate::surface::ScreenText::LastLines {
+            count: usize::try_from(count).map_err(|_| {
+                validation_error("lines is too large", json!({"field":"lines","value":count}))
+            })?,
+            unwrap,
+        },
+        None if unwrap => crate::surface::ScreenText::Unwrapped,
+        None => crate::surface::ScreenText::Rows,
+    })
 }
 
 fn terminal_state_read(
@@ -210,7 +229,7 @@ fn terminal_output_read(
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
     let pattern = required_string(&request.fields, "pattern")?;
-    let regex = Regex::new(pattern).map_err(|error| {
+    let regex = crate::wait_pattern::compile(pattern).map_err(|error| {
         validation_error(
             "terminal wait pattern is not a valid regular expression",
             json!({"pattern":pattern,"error":error.to_string()}),
@@ -227,12 +246,10 @@ fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
             })
         })
         .transpose()?;
-    let check = || -> Result<String, ResourceError> {
-        surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
-            .map_err(resource_operation_error)?
-            .map_err(|error| resource_operation_error(error.into()))
-    };
+    // `new`: only text printed below the cursor's line as the wait starts
+    // counts (`terminal-wait-new-v1`).
+    let wait_text = super::WaitText::start(&surface, &request.fields)?;
+    let check = || wait_text.read();
     let mut observed = surface
         .terminal_stream_revision()
         .map_err(|error| resource_operation_error(error.into()))?;
@@ -279,13 +296,20 @@ fn terminal_wait_exit(
 fn terminal_copy(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
     let mode = required_string(&request.fields, "mode")?;
+    // `unwrap` joins soft-wrapped rows into the lines the program printed
+    // (`terminal-read-unwrap-v1`); a selection keeps the app's own rules.
+    let unwrap = request.fields.get("unwrap").and_then(Value::as_bool).unwrap_or(false);
     let text = match mode {
         "screen" => surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
+            .try_with_terminal(|terminal| {
+                if unwrap { terminal.viewport_text_unwrapped() } else { terminal.viewport_text() }
+            })
             .map_err(resource_operation_error)?
             .map_err(|error| resource_operation_error(error.into()))?,
         "scrollback" => surface
-            .try_with_terminal(|terminal| terminal.plain_text())
+            .try_with_terminal(|terminal| {
+                if unwrap { terminal.plain_text_unwrapped() } else { terminal.plain_text() }
+            })
             .map_err(resource_operation_error)?
             .map_err(|error| resource_operation_error(error.into()))?,
         "selection" => surface.selection_text().ok_or_else(|| {
@@ -487,34 +511,30 @@ fn execute_browser_effect(
                     "url",
                     &prepared.operation,
                 )?)
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
-            "browser.back" => surface
-                .browser_back_confirmed()
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
-            "browser.forward" => surface
-                .browser_forward_confirmed()
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
-            "browser.reload" => surface
-                .browser_reload_confirmed()
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
-            "browser.activate" => surface
-                .browser_activate_confirmed()
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
+                .map_err(unconfirmed_browser_action),
+            "browser.back" => surface.browser_back_confirmed().map_err(unconfirmed_browser_action),
+            "browser.forward" => {
+                surface.browser_forward_confirmed().map_err(unconfirmed_browser_action)
+            }
+            "browser.reload" => {
+                surface.browser_reload_confirmed().map_err(unconfirmed_browser_action)
+            }
+            "browser.activate" => {
+                surface.browser_activate_confirmed().map_err(unconfirmed_browser_action)
+            }
             "browser.input.text" => surface
                 .browser_insert_text_confirmed(required_intent_string(
                     &fields,
                     "text",
                     &prepared.operation,
                 )?)
-                .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
+                .map_err(unconfirmed_browser_action),
             "browser.input.key" => browser_key(&surface, &fields),
             "browser.input.mouse" => browser_mouse(&surface, &fields),
             "browser.input.wheel" => browser_wheel(&surface, &fields),
             "browser.close" => {
                 if surface.browser_source().is_some() {
-                    surface
-                        .browser_close_confirmed()
-                        .map_err(|error| ActionFailure::Indeterminate(error.to_string()))?;
+                    surface.browser_close_confirmed().map_err(unconfirmed_browser_action)?;
                 }
                 Ok(())
             }
@@ -683,11 +703,11 @@ fn finish_projection_commit(
 ) -> Result<Value, ResourceError> {
     let commit = match commit {
         Ok(commit) => commit,
-        Err(_) => {
-            let _ = mux.mark_resource_effect_indeterminate(&prepared.idempotency_key);
-            return Err(effects::indeterminate_error(
-                &prepared.idempotency_key,
-                &prepared.operation,
+        Err(error) => {
+            return Err(effects::mark_indeterminate(
+                mux,
+                prepared,
+                &format!("the projection commit failed: {error:#}"),
             ));
         }
     };
@@ -781,9 +801,17 @@ fn confirmed_input_error(
             ActionFailure::Known(ResourceError::operation_failed(operation, message, json!({})))
         }
         crate::surface::ConfirmedInputFailure::Indeterminate(error) => {
-            // Raw transport diagnostics must not enter the durable API response.
-            drop(error);
-            ActionFailure::Indeterminate("terminal_input_delivery_indeterminate".into())
+            // Raw transport text can name private sockets, so neither the
+            // durable API response nor the daemon log gets it: the log gets
+            // the error kind and OS code, which tell a missed InputAck
+            // (TimedOut, ConnectionAborted) from a failed frame write.
+            let cause = match error.raw_os_error() {
+                Some(code) => {
+                    format!("input delivery failed: {:?} (os error {code})", error.kind())
+                }
+                None => format!("input delivery failed: {:?}", error.kind()),
+            };
+            ActionFailure::Indeterminate(cause)
         }
     }
 }
@@ -1040,7 +1068,7 @@ fn browser_key(surface: &Surface, fields: &Map<String, Value>) -> Result<(), Act
                 modifiers,
                 text,
             )
-            .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+            .map_err(unconfirmed_browser_action)
     };
     match kind {
         "down" => send("keyDown", text.as_deref()),
@@ -1076,7 +1104,7 @@ fn browser_mouse(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
     let pointer_frame_seq = required_decimal_action(fields, "pointer_frame_seq")?;
     surface
         .browser_mouse_event_confirmed(event_type, x, y, button, click_count, pointer_frame_seq)
-        .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+        .map_err(unconfirmed_browser_action)
 }
 
 fn browser_wheel(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
@@ -1088,7 +1116,7 @@ fn browser_wheel(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
             required_f64(fields, "delta_y")?,
             required_decimal_action(fields, "pointer_frame_seq")?,
         )
-        .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+        .map_err(unconfirmed_browser_action)
 }
 
 fn validate_terminal_effect_fields(request: &ParsedResourceRequest) -> Result<(), ResourceError> {
@@ -1626,8 +1654,16 @@ fn direct_child_pids(_pid: u32) -> Vec<u32> {
     Vec::new()
 }
 
+/// Browser bridge errors can echo a URL or typed text, so the daemon log
+/// gets only the stage of an unconfirmed browser action.
+fn unconfirmed_browser_action(_error: anyhow::Error) -> ActionFailure {
+    ActionFailure::Indeterminate("the browser did not confirm the action".into())
+}
+
 enum ActionFailure {
     Known(ResourceError),
+    /// The effect may have run. The text is the cause for the daemon
+    /// diagnostic log only; it never enters the API response.
     Indeterminate(String),
 }
 
@@ -1638,7 +1674,9 @@ fn finish_action_failure(
 ) -> Result<Value, ResourceError> {
     match failure {
         ActionFailure::Known(error) => effects::commit_known_failure(mux, prepared, error),
-        ActionFailure::Indeterminate(_message) => Err(effects::mark_indeterminate(mux, prepared)),
+        ActionFailure::Indeterminate(cause) => {
+            Err(effects::mark_indeterminate(mux, prepared, &cause))
+        }
     }
 }
 
@@ -2816,5 +2854,187 @@ mod tests {
         assert_eq!(replay["value"], moved["value"]);
         assert_eq!(replay["revision"], moved["revision"]);
         assert_eq!(replay["replayed"], true);
+    }
+
+    fn terminal_record(mux: &Arc<Mux>, selectors: &ResourceSelectors) -> Value {
+        let id = selectors.terminal.clone().unwrap();
+        public_session_snapshot(mux).unwrap()["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == id.as_str())
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn read_run_terminal_reads_unwrap_soft_wraps_and_read_the_last_lines() {
+        let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let long = "x".repeat(40);
+        surface
+            .apply_stream_output_for_test(format!("one\r\ntwo\r\n{long}\r\nend").as_bytes())
+            .unwrap();
+        let read = |operation: &str, fields: Value| {
+            dispatch(&mux, parsed_request(operation, &selectors, fields, None)).unwrap()
+        };
+        let rows = read("terminal.screen.read", json!({}));
+        assert!(!rows["text"].as_str().unwrap().contains(&long), "rows break at the width");
+        let last = read("terminal.screen.read", json!({"lines": 2, "unwrap": true}));
+        assert_eq!(last["text"], format!("{long}\nend"), "two logical lines");
+        assert_eq!(last["cols"], 12);
+        assert!(last["cursor_row"].is_u64());
+        let last_rows = read("terminal.screen.read", json!({"lines": 2}));
+        assert_eq!(last_rows["text"], format!("{}\nend", "x".repeat(40 % 12)));
+        let all = read("terminal.screen.read", json!({"lines": 100, "unwrap": true}));
+        assert_eq!(all["text"], format!("one\ntwo\n{long}\nend"));
+        let viewport = read("terminal.screen.read", json!({"unwrap": true}));
+        assert!(viewport["text"].as_str().unwrap().ends_with("end"), "{viewport}");
+        let copied = read("terminal.copy", json!({"mode": "scrollback", "unwrap": true}));
+        assert!(copied["text"].as_str().unwrap().contains(&long));
+        let plain = read("terminal.copy", json!({"mode": "scrollback"}));
+        assert!(!plain["text"].as_str().unwrap().contains(&long));
+        assert!(
+            super::super::parse_resource_request(
+                &json!({
+                    "protocol":"cmux.protocol/2",
+                    "type":"request",
+                    "id":"lines-zero",
+                    "operation":"terminal.screen.read",
+                    "params":{"machine":"current","session":"current","terminal":selectors.terminal.clone().unwrap(),"lines":0},
+                })
+                .to_string()
+            )
+            .is_err(),
+            "lines starts at 1"
+        );
+    }
+
+    #[test]
+    fn read_run_terminal_wait_new_matches_only_output_printed_after_the_call() {
+        let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        surface.apply_stream_output_for_test(b"old READY\r\n$ echo READY").unwrap();
+        let wait = |fields: Value| {
+            dispatch(&mux, parsed_request("terminal.wait", &selectors, fields, None)).unwrap()
+        };
+        let old = wait(json!({"pattern": "READY", "timeout_ms": "0"}));
+        assert_eq!(old["matched"], true, "a plain wait matches the old text and the echo");
+        let fresh = wait(json!({"pattern": "READY", "timeout_ms": "0", "new": true}));
+        assert_eq!(fresh["matched"], false, "new text only: {fresh}");
+
+        let request = parsed_request(
+            "terminal.wait",
+            &selectors,
+            json!({"pattern": "(?m)^READY$", "timeout_ms": "2000", "new": true}),
+            None,
+        );
+        let waiting_mux = mux.clone();
+        let waiter = std::thread::spawn(move || dispatch(&waiting_mux, request));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not subscribe");
+            std::thread::yield_now();
+        }
+        surface.apply_stream_output_for_test(b"\r\nREADY\r\n").unwrap();
+        let result = waiter.join().unwrap().unwrap();
+        assert_eq!(result["matched"], true, "{result}");
+        assert_eq!(result["text"].as_str().unwrap().trim(), "READY");
+    }
+
+    #[test]
+    fn read_run_terminal_record_carries_the_osc_133_exit_status_only_with_shell_integration() {
+        let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        surface.apply_stream_output_for_test(b"$ sh -c 'exit 7'\r\n$ ").unwrap();
+        let plain = terminal_record(&mux, &selectors);
+        assert!(
+            plain.get("extra").and_then(|extra| extra.get("last_command")).is_none(),
+            "no marks, no status: {plain}"
+        );
+
+        surface
+            .apply_stream_output_for_test(
+                b"\x1b]133;A\x07$ \x1b]133;B\x07sh -c 'exit 7'\r\n\x1b]133;C\x07\x1b]133;D;7\x07\x1b]133;A\x07$ ",
+            )
+            .unwrap();
+        let record = terminal_record(&mux, &selectors);
+        let last = record
+            .get("extra")
+            .and_then(|extra| extra.get("last_command"))
+            .unwrap_or_else(|| panic!("a finished command: {record}"));
+        assert_eq!(last.get("exit_code"), Some(&json!(7)), "{record}");
+        assert!(last.get("finished_at_ms").is_some_and(Value::is_string), "{record}");
+        assert!(last.get("started_at_ms").is_some_and(Value::is_string), "{record}");
+    }
+
+    fn capture_diagnostics(mux: &Mux) -> Arc<std::sync::Mutex<Vec<String>>> {
+        let diagnostics = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        diagnostics
+    }
+
+    #[test]
+    fn a_failed_outcome_commit_reports_its_cause_to_the_daemon_log() {
+        let (mux, _surface, selectors) = terminal_fixture(None);
+        let diagnostics = capture_diagnostics(&mux);
+        mux.reject_resource_effect_commits_for_test();
+
+        let error = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.input.write",
+                &selectors,
+                json!({"text":"echo cause\n"}),
+                Some("terminal-write-commit-cause"),
+            ),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "mutation.indeterminate");
+        let diagnostics = diagnostics.lock().unwrap();
+        assert!(
+            diagnostics.iter().any(|message| message.contains("terminal.input.write")
+                && message.contains("terminal-write-commit-cause")
+                && message.contains("injected outcome commit failure")),
+            "the daemon log has no cause for the indeterminate outcome: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_unconfirmed_terminal_input_reports_its_kind_but_no_private_detail() {
+        let (mux, _surface, _selectors) = terminal_fixture(None);
+        let diagnostics = capture_diagnostics(&mux);
+        let private = "internal socket /private/terminal.sock token=secret-test-value";
+        let failure = crate::surface::ConfirmedInputFailure::Indeterminate(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            private,
+        ));
+        let prepared = PreparedEffect {
+            idempotency_key: "terminal-write-transport-cause".into(),
+            operation: "terminal.input.write".into(),
+            fingerprint: json!({}),
+            intent: json!({}),
+        };
+
+        let error = finish_action_failure(
+            &mux,
+            prepared,
+            confirmed_input_error("terminal.input.write", failure),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "mutation.indeterminate");
+        assert!(!error.details.to_string().contains(private));
+        let diagnostics = diagnostics.lock().unwrap();
+        assert!(
+            diagnostics.iter().any(|message| message.contains("terminal-write-transport-cause")
+                && message.contains("TimedOut")),
+            "the daemon log has no cause for the unconfirmed input: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.iter().all(|message| !message.contains("secret-test-value")),
+            "raw transport text reached the daemon log: {diagnostics:?}"
+        );
     }
 }

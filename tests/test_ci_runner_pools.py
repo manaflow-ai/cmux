@@ -210,15 +210,49 @@ class Evidence(unittest.TestCase):
         self.assertEqual((dead, started), (set(), set()))
 
     def test_a_stalled_blacksmith_mac_in_the_snapshot_is_dead(self) -> None:
-        # simple_pool_picker.blacksmith_stalled(): a queued job waited 10 minutes, so nothing started.
+        # simple_pool_picker.blacksmith_stalled(): a queued job waited 10 minutes, nothing runs there, and the
+        # janitor's label_started shows no start since that job began to wait.
         snapshot = copy.deepcopy(RECORDED)
-        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=9)
+        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=9)
+        snapshot["label_started"] = {"blacksmith-6vcpu-macos-26": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=40))}
         dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
         # Owned labels in the snapshot are never pool members and are not read.
         snapshot["pools"]["glaeda-std-xcode-26.6"].update(queued=9, oldest_queued_minutes=60)
         snapshot["starved"] = [{"label": "glaeda-gui-std-xcode-26.6+glaeda-std-xcode-26.6", "queued": 1}]
         dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
+
+    def test_a_busy_blacksmith_mac_that_starts_jobs_is_not_dead(self) -> None:
+        # 2026-11-08: blacksmith-6vcpu-macos-15 started four jobs of run 42503576472 at 17:28-17:31Z, one
+        # still running, yet RUNNER_POOLS marked it dead at 17:34:13Z: other jobs had queued there over 10
+        # minutes. A long queue on a label that starts jobs is load, not death; only a label that runs
+        # nothing and started nothing while its oldest job waited is dead.
+        stalled = copy.deepcopy(RECORDED)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=6, running=0, oldest_queued_minutes=25)
+        stalled["label_started"] = {}
+        # A start it shows is evidence it serves: that clears a mark the old rule wrote, at once.
+        # No label_started map is no evidence either way.
+        label = {"blacksmith-6vcpu-macos-26"}
+        for name, change, served in [
+            ("a job runs there", {"running": 1}, label),
+            ("a job started after the oldest began to wait",
+             {"label_started": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=3))}, label),
+            ("no start evidence in the snapshot", {"no_label_started": True}, set()),
+        ]:
+            with self.subTest(name):
+                snapshot = copy.deepcopy(stalled)
+                if "running" in change:
+                    snapshot["pools"]["blacksmith-6vcpu-macos-26"]["running"] = change["running"]
+                if "label_started" in change:
+                    snapshot["label_started"] = {"blacksmith-6vcpu-macos-26": change["label_started"]}
+                if change.get("no_label_started"):
+                    del snapshot["label_started"]
+                dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+                self.assertEqual(dead, set())
+                self.assertEqual(started, served)
+        # The control: nothing runs, and the last start is older than the oldest wait.
+        dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
 
     def test_dead_label_entries_split_on_comma_and_plus(self) -> None:
@@ -251,7 +285,8 @@ class Evidence(unittest.TestCase):
 
     def test_an_undated_stale_or_future_snapshot_decides_nothing(self) -> None:
         stalled = copy.deepcopy(RECORDED)
-        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=30)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=30)
+        stalled["label_started"] = {}
         stalled["dead_labels"] = [{"label": "blacksmith-16vcpu-ubuntu-2404", "live": []}]
         dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26", "blacksmith-16vcpu-ubuntu-2404"})
@@ -604,7 +639,8 @@ class TruncatedSnapshot(unittest.TestCase):
     def test_a_truncated_snapshot_is_no_snapshot_evidence(self) -> None:
         # A janitor sweep that listed part of the queue (queue_janitor.listing_state()) undercounts every pool.
         stalled = copy.deepcopy(RECORDED)
-        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=30)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=30)
+        stalled["label_started"] = {}
         dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
         dead, started, notes = runner_pools.label_evidence(None, dict(stalled, truncated=True), now=NOW)
