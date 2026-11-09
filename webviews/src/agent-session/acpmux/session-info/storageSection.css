@@ -28,7 +28,8 @@
   margin-left: auto;
   white-space: nowrap;
 }
-.acpmux-session-info-storage__free {
+.acpmux-session-info-storage__foot > .acpmux-session-info-storage__free {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
