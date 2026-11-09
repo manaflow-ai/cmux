@@ -57,14 +57,17 @@ import Testing
         #expect(offline.historyCount == 0)
     }
 
-    /// Online, a page above the loaded window that the device already holds comes from the
-    /// device, not the server.
-    @Test func olderPagesComeFromTheDeviceOnceSynced() async throws {
-        let cache = ConversationTranscriptCache(directory: Self.directory())
+    /// Online, an older page comes from the server (it has edits and unsends made while the
+    /// phone was away), and joins the device's history.
+    @Test func onlineOlderPagesComeFromTheServerAndAreKept() async throws {
+        let cache = ConversationTranscriptCache(directory: Self.directory(), writeDelay: .milliseconds(1))
         defer { cache.removeAll() }
         cache.activate(account: "user_a")
         let backend = ScriptedBackend(total: 300)
         _ = try await cache.sync("k", pageSize: 100, fetch: Self.fetch(backend))
+        var edited = backend.makeMessage(seq: 220, sender: "lc")
+        edited.text = "edited while away"
+        backend.setHistoryMessage(edited)
         let store = ConversationStore(backend: backend, pageSize: 50)
         store.useTranscriptCache(cache, key: "k")
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
@@ -72,8 +75,11 @@ import Testing
         let asked = backend.historyCount
         store.loadOlder()
         try await waitUntil { store.messages.count == 100 }
-        #expect(store.messages.first?.seq == 201)
-        #expect(backend.historyCount == asked)
+        #expect(backend.historyCount == asked + 1)
+        #expect(store.message(id: "m220")?.text == "edited while away")
+        try await waitUntil { cache.cached("k")?.messages.contains { $0.id == "m220" && $0.text == "edited while away" } == true }
+        cache.flush()
+        #expect(await cache.older("k", beforeSeq: 221, limit: 1)?.messages.first?.text == "edited while away")
     }
 
     /// The network drops during a backfill: what was written stays, the next sync resumes below
@@ -169,7 +175,7 @@ import Testing
         cache.activate(account: "user_b")
         #expect(await cache.storedCount("cloud:c2") <= 100)
 
-        // Sign-out: every account's file goes.
+        // Sign-out: every account's file goes, and a late save writes nothing back.
         cache.removeAll()
         cache.flush()
         #expect(!FileManager.default.fileExists(atPath: directory.path(percentEncoded: false)))
@@ -183,10 +189,31 @@ import Testing
         let cache = ConversationTranscriptCache(directory: Self.directory())
         defer { cache.removeAll() }
         _ = try await cache.sync("k", pageSize: 100, fetch: Self.fetch(ScriptedBackend(total: 300)))
-        let report = try await cache.sync("k", pageSize: 100, fetch: Self.fetch(ScriptedBackend(total: 12)))
+        // A new history: its own message ids from seq 1.
+        let reset = ScriptedBackend(total: 12)
+        let report = try await cache.sync("k", pageSize: 100) { before, limit in
+            var page = try await reset.history(beforeSeq: before, limit: limit)
+            for index in page.messages.indices { page.messages[index].id = "r\(page.messages[index].seq ?? 0)" }
+            return page
+        }
         #expect(report.replaced)
         #expect(await cache.storedCount("k") == 12)
         #expect(report.range == ConversationHistoryRange(oldestSeq: 1, newestSeq: 12, complete: true))
+    }
+
+    /// An empty page (a backend still starting) or a newest message deleted on the server is
+    /// not a reset: nothing stored goes.
+    @Test func anEmptyPageOrALowerNewestKeepsTheHistory() async throws {
+        let cache = ConversationTranscriptCache(directory: Self.directory())
+        defer { cache.removeAll() }
+        _ = try await cache.sync("k", pageSize: 100, fetch: Self.fetch(ScriptedBackend(total: 300)))
+        let empty = try await cache.sync("k", pageSize: 100) { _, _ in ConversationHistoryPage(messages: [], hasMore: false) }
+        #expect(!empty.replaced)
+        #expect(await cache.storedCount("k") == 300)
+        let lower = try await cache.sync("k", pageSize: 100, fetch: Self.fetch(ScriptedBackend(total: 298)))
+        #expect(!lower.replaced)
+        #expect(await cache.storedCount("k") == 300)
+        #expect(lower.range == ConversationHistoryRange(oldestSeq: 1, newestSeq: 300, complete: true))
     }
 
     /// Delete for me leaves the device for good: a later sync does not bring the row back.
@@ -206,7 +233,7 @@ import Testing
         #expect(await cache.storedCount("k") == 79)
         _ = try await cache.sync("k", pageSize: 100, fetch: Self.fetch(backend))
         #expect(await cache.storedCount("k") == 79)
-        #expect(await cache.older("k", beforeSeq: 41, limit: 1, requireSynced: false)?.messages.first?.seq == 39)
+        #expect(await cache.older("k", beforeSeq: 41, limit: 1)?.messages.first?.seq == 39)
     }
 
     /// A store's own window widens the synced range it touches, so a conversation read on

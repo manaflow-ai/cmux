@@ -239,6 +239,8 @@ public final class ChiefSources {
     /// no sync runs). Rows of another account never show: each account has its own store.
     private func useHistory(of account: String?) {
         if account == nil || mac.transcriptCache?.account != account { historySync.cancelAll() }
+        // Both sessions rebind: they share one cache, so the first activation must not hide the
+        // switch from the second.
         mac.useTranscriptAccount(account)
         cloud.useTranscriptAccount(account)
         mac.historySync = account == nil ? nil : historySync

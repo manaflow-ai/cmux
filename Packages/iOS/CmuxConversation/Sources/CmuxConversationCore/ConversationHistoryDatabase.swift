@@ -189,8 +189,29 @@ final class ConversationHistoryDatabase {
     func forget(_ conversation: String) throws {
         try transaction {
             try exec("DELETE FROM messages WHERE conversation = ?", [.text(conversation)])
-            try exec("DELETE FROM conversations WHERE conversation = ?", [.text(conversation)])
+            // The title and participants stay: they still name the conversation.
+            try exec("UPDATE conversations SET oldest_seq = NULL, newest_seq = NULL, complete = 0 WHERE conversation = ?",
+                     [.text(conversation)])
         }
+    }
+
+    /// Whether any of `ids` is stored for `conversation`.
+    func containsAny(_ conversation: String, ids: [String]) throws -> Bool {
+        for id in ids where try queryInt("SELECT 1 FROM messages WHERE conversation = ? AND id = ?", [.text(conversation), .text(id)]) != nil {
+            return true
+        }
+        return false
+    }
+
+    /// Stores `messages` and widens the synced range by `range` (min, max, either complete),
+    /// against the range as it is now, in one transaction: a store's save that widened it
+    /// meanwhile is kept.
+    func merge(_ conversation: String, messages: [ConversationMessage], range: SyncedRange) throws {
+        let merged = try syncedRange(conversation).map {
+            SyncedRange(oldestSeq: min($0.oldestSeq, range.oldestSeq), newestSeq: max($0.newestSeq, range.newestSeq),
+                        complete: $0.complete || range.complete)
+        } ?? range
+        try write(conversation, messages: messages, range: .some(merged))
     }
 
     /// What is stored of a message: no image bytes picked on the phone (the server has them).

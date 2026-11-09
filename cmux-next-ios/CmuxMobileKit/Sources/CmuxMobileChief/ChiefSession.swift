@@ -287,11 +287,21 @@ public final class ChiefSession {
     /// The account whose kept history this Chief reads and writes from now on (nil: signed
     /// out). The previous account's rows on screen go at once; the new account's show.
     func useTranscriptAccount(_ account: String?) {
-        guard let transcripts, transcripts.account != account else { return }
+        guard let transcripts else { return }
+        // The cache is shared (the Mac and Cloud sessions): it may already serve `account`,
+        // but this session's store still holds what it bound before.
         transcripts.activate(account: account)
+        guard boundAccount != .some(account) else { return }
+        let first = boundAccount == nil
+        boundAccount = .some(account)
         store.discardKeptTranscript()
-        store.useTranscriptCache(transcripts, key: transcriptKey)
+        // A store with the server's rows talks to the previous account's backend: it keeps
+        // nothing more (the next backend's store reads this account's history).
+        if first || !store.hasLoadedNewest { store.useTranscriptCache(transcripts, key: transcriptKey) }
     }
+
+    /// The account this session's store was last bound to (nil: never bound).
+    @ObservationIgnored private var boundAccount: String??
 
     /// The Chief `backend` talks to (``outboxTarget``). An offline backend
     /// keeps the Chief that was open: what is written meanwhile is for it.
