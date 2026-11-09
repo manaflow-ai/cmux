@@ -163,7 +163,9 @@ impl Writer {
         };
         let tmp = self.dir.join(format!("{FILE}.tmp"));
         let text: String = lines.iter().filter_map(encode).collect();
-        let written = std::fs::write(&tmp, text.as_bytes())
+        // The first seed's rewrite may be the first write of all: the folder may not exist yet.
+        let written = std::fs::create_dir_all(&self.dir)
+            .and_then(|()| std::fs::write(&tmp, text.as_bytes()))
             .and_then(|()| File::open(&tmp)?.sync_all())
             .and_then(|()| std::fs::rename(&tmp, &self.path));
         match written {
