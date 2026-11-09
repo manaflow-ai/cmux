@@ -435,8 +435,7 @@ async fn a_first_attach_that_fails_while_the_link_is_up_is_retried_and_reported(
     assert!(connected, "the link connects");
     peer.mark_attached("chat");
     assert!(peer.attach_hidden("chat").await.is_err(), "the first attach fails");
-    let (_, reattached) =
-        reattached_until_quiet(&mut notices, Duration::from_secs(60), true).await;
+    let (_, reattached) = reattached_until_quiet(&mut notices, Duration::from_secs(60), true).await;
     assert_eq!(reattached, ["chat"], "attached again, and its clients read the hole");
     assert_eq!(attaches(&mut asked), 2);
     fake.abort();
