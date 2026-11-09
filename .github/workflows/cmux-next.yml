@@ -2420,12 +2420,16 @@ jobs:
       # On a pull request the base's copy of the check and of its pin reader
       # (the merge commit's first parent), extracted outside the checkout,
       # judges a fresh worktree of the merge commit (--tree), with only
-      # PATH=/usr/bin:/bin, HOME and the git switches below in its
+      # PATH=/usr/bin:/bin, an empty HOME and the git switches below in its
       # environment. The steps above ran the pull request's code, which could
       # rewrite the checkout's files on disk (the check, its reader, the
-      # manifest, a Cargo.toml) or change PATH and the environment, and
-      # base_red_excuse.py trusts this verdict for a pull request whose diff
-      # leaves the check alone. BASH_ENV is empty here, so the checkout's
+      # manifest, a Cargo.toml), change PATH and the environment, or write
+      # dotfiles in HOME (a ~/.gitconfig hooks path, a ~/.curlrc) and git
+      # hooks in .git/hooks; base_red_excuse.py trusts this verdict for a
+      # pull request whose diff leaves the check alone. So no global or
+      # system git config is read, git runs no hook and no fsmonitor, and
+      # the base is the merge commit's first parent as its object records
+      # it (no graft). BASH_ENV is empty here, so the checkout's
       # scripts/ci/api_call_log/env.sh is not sourced either.
       - name: Check the app FFI pin
         id: app-ffi-pin
@@ -2438,13 +2442,19 @@ jobs:
           if [[ "$EVENT_NAME" != pull_request ]]; then
             exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release
           fi
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" GIT_NO_REPLACE_OBJECTS=1 GIT_LFS_SKIP_SMUDGE=1 \
-            MERGE="$GITHUB_SHA" WORK="${RUNNER_TEMP:-/tmp}" CHECKOUT="$PWD" /bin/bash -euo pipefail -c '
+          work="$(/usr/bin/mktemp -d "${RUNNER_TEMP:-/tmp}/app-ffi-pin.XXXXXX")"
+          /bin/mkdir "$work/home" "$work/code"
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$work/home" \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_LFS_SKIP_SMUDGE=1 \
+            GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null \
+            GIT_CONFIG_KEY_1=core.fsmonitor GIT_CONFIG_VALUE_1=false \
+            MERGE="$GITHUB_SHA" CODE="$work/code" CHECKOUT="$PWD" /bin/bash -euo pipefail -c '
             cd "$CHECKOUT"
             [[ "$(git rev-parse HEAD)" == "$MERGE" ]] \
               || { echo "error: the checkout HEAD is not the merge commit $MERGE" >&2; exit 1; }
-            base="$(git rev-parse --verify "$MERGE^1^{commit}")"
-            code="$(mktemp -d "$WORK/app-ffi-pin-base.XXXXXX")"
+            base="$(git cat-file commit "$MERGE" | awk "\$1 == \"parent\" && !found { print \$2; found = 1 }")"
+            base="$(git rev-parse --verify "$base^{commit}")"
+            code="$CODE"
             git archive "$base" scripts/cmux-next/check-app-ffi-pin.sh scripts/ci/app_ffi_pin.py | tar -x -C "$code"
             if ! grep -q -e "--tree)" "$code/scripts/cmux-next/check-app-ffi-pin.sh"; then
               # Only while the base predates --tree (the pull request that adds it).
