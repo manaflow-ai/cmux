@@ -534,7 +534,7 @@ impl Mux {
     pub(super) fn reconcile_agent_roster_projections(&self) {
         // A stale roster (a reducer bump) can disagree with projections the
         // current reducer would make. The rebuild reconciles when it is done.
-        if self.agent_roster_rebuilding() {
+        if self.agent_roster_stale() {
             return;
         }
         let entries = self
@@ -557,7 +557,7 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) {
-        if self.agent_roster_rebuilding() {
+        if self.agent_roster_stale() {
             return;
         }
         let entry = self

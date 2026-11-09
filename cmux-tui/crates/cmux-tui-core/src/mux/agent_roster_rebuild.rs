@@ -94,6 +94,12 @@ impl Mux {
         self.agent_roster_worker.rebuilding.load(Ordering::Acquire)
     }
 
+    /// Whether the live roster may hold state the current reducer would not
+    /// have folded: projections are not reconciled from it.
+    pub(in crate::mux) fn agent_roster_stale(&self) -> bool {
+        self.agent_roster_rebuilding()
+    }
+
     /// One slice of the rebuild, on the owner after a pass: fold toward the
     /// live roster's cursor for at most [`REBUILD_SLICE`], and replace the
     /// live roster once there. Only the owner moves the live cursor and this
