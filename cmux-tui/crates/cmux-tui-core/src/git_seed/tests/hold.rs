@@ -160,7 +160,12 @@ fn a_hold_takes_only_a_new_folder_and_a_retry_gets_its_job() {
 
     // A done hold is never a retry: the same key on the folder again (emptied since) takes a
     // new hold, so the old one's ready barrier never stands over the new copy.
-    std::fs::remove_file(folder.join("README.md")).unwrap();
+    // (The nested hold's refusal made `inner` on its way.)
+    for entry in std::fs::read_dir(&folder).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() { std::fs::remove_dir_all(&path) } else { std::fs::remove_file(&path) }
+            .unwrap();
+    }
     let again = hold(&service, &folder, json!({ "key": "send-1" })).unwrap();
     assert_ne!(again, job, "a new hold, not the done one");
     assert_eq!(settles(&folder, "syncing"), "syncing");
