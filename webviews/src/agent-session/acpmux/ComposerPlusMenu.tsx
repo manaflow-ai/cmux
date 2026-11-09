@@ -6,6 +6,8 @@
 // listed whole here (Leo, 2026-11-01: "our + button results are still really bad"): at most a few
 // recent ones, then one "Commands and skills…" row that opens the slash list, which searches them
 // all (composerPlusRegistry.ts, recentCommands.ts).
+import { useCallback, useState } from "react";
+
 import { Picker, PlusIcon, type Section } from "./ComposerPickers";
 import { runComposerPlusAction, type ComposerPlusEntry } from "./composerPlusRegistry";
 import type { SlashCommand } from "./slashCommands";
@@ -42,8 +44,17 @@ export function ComposerPlusMenu({
   onOpen,
 }: ComposerPlusMenuProps) {
   const t = useT();
+  // A picked row's action can change the rows (an attached screenshot takes away Run on several
+  // agents): the closing menu keeps the rows it was picked from, so none drops out under the
+  // pointer and the rows below it don't jump; the next open lists the composer's rows again.
+  const [held, setHeld] = useState<readonly ComposerPlusEntry[] | null>(null);
+  const opened = useCallback(() => {
+    setHeld(null);
+    onOpen?.();
+  }, [onOpen]);
+  const shown = held ?? entries;
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
-  const sections: Section[] = composerPlusMenuSections(entries, planning, experimentArm(composerPlusCommands)).map(
+  const sections: Section[] = composerPlusMenuSections(shown, planning, experimentArm(composerPlusCommands)).map(
     (group) => ({
       choices: group.choices,
       onPick: (id: string) => {
@@ -54,6 +65,7 @@ export function ComposerPlusMenu({
           ...(onExtension ? { extension: onExtension } : {}),
           slash: onSlash,
         });
+        if (handled) setHeld(shown);
         return handled ? undefined : "keep";
       },
     }),
@@ -67,7 +79,7 @@ export function ComposerPlusMenu({
       button={<PlusIcon />}
       align="start"
       sections={sections}
-      {...(onOpen ? { onOpen } : {})}
+      onOpen={opened}
     />
   );
 }
