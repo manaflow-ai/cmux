@@ -615,6 +615,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// asked for, and the page holds again when it shows (`resumePageHold`).
     func dropHold(keepingKeyHold: Bool = false) {
         if !keepingKeyHold { pageMotionHold = nil }
+        // A hide or reparent drops a spring's rest hold too: the page's next spring decides afresh.
+        pageRestHold = false
         guard heldPageSize != nil else { return }
         heldPageSize = nil
         layer?.masksToBounds = false
