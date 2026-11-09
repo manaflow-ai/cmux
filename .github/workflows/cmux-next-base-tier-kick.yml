@@ -11,10 +11,12 @@ name: cmux NEXT base tier kick
 # compile, the fast tier and every nightly, DEV or promote build still run on each push, untouched.
 # Once the tip has a base tier run, the tip's run covers the landings of the older open ones (on
 # 2026-10-31 82% of base tier Mac minutes started after a newer base tier run was dispatched). Of those
-# with no Mac job in progress (a finished one protects nothing: on 2026-11-09 eleven held a queued scheme
-# compile for hours after their daemon tests), the kick keeps the oldest, whose queued job is nearest a
-# runner so the tier never starves, and cancels the rest. A run with a Mac job in progress, the newest
-# base tier run and every other run are never cancelled.
+# still waiting for a Mac (no Mac job in progress, one not finished, no scheme compile verdict; finished
+# daemon tests do not protect a run: on 2026-11-09 eleven held a queued scheme compile for hours after
+# them), the kick keeps the oldest, whose queued job is nearest a runner so the tier never starves, and
+# cancels the rest. A run with a Mac job in progress, a scheme compile verdict (base_red_excuse.py never
+# reads it from a cancelled run) or only its Linux tail left, the newest base tier run and every other
+# run are never cancelled.
 # vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' turns this off and puts the tier back on every push.
 on:
   push:
@@ -23,7 +25,8 @@ on:
 permissions: {}
 
 # One kick at a time: the running one waits once for the window to open and dispatches; a newer
-# push's kick replaces a pending one, which never started. It cancels no run with a Mac job in progress.
+# push's kick replaces a pending one, which never started. It cancels no run with a Mac job in progress
+# or a scheme compile verdict.
 concurrency:
   group: cmux-next-base-tier-kick
   cancel-in-progress: false
