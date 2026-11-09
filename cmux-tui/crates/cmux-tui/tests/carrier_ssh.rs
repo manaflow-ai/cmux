@@ -225,6 +225,46 @@ fn a_session_fails_over_to_ssh_and_back_to_a_fresh_relay_group() {
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
 }
 
+/// ssh's own stderr never reaches the dial's: with the relay refused and
+/// ssh failing loudly, every stderr line is the reply or a route line, and
+/// what ssh said is in the connect log as one quoted field.
+#[test]
+fn a_failing_ssh_s_stderr_stays_out_of_the_dial_s_stderr_and_goes_to_the_log() {
+    let world = world_ssh(false);
+    std::fs::write(&world.ssh_junk, b"").unwrap();
+    let mut child = Command::new(BIN)
+        .args(["carrier", "dial", "--machine", MACHINE, "--deadline-ms", "3000", "--wg-hub"])
+        .arg(&world.hub)
+        .args(["--cloud-api", &format!("http://{}", world.platform)])
+        .env_clear()
+        .env("HOME", world.dir.path())
+        .env("CMUX_CLOUD_ACCESS_TOKEN", TOKEN)
+        .env("CMUX_CARRIER_SSH_BINARY", &world.fake_ssh)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stderr = String::new();
+    std::io::Read::read_to_string(&mut child.stderr.take().unwrap(), &mut stderr).unwrap();
+    assert_ne!(wait(&mut child, Duration::from_secs(20)), Some(0), "{stderr}");
+    let mut lines = stderr.lines();
+    let reply: Value = serde_json::from_str(lines.next().unwrap_or_default()).expect(&stderr);
+    assert_eq!(reply["ok"], false, "{stderr}");
+    for line in lines {
+        assert!(line.starts_with("cloud.connect route=carrier "), "only route lines: {stderr}");
+    }
+    // ssh's words appear only inside the reply's JSON string, never raw.
+    assert!(!stderr.lines().any(|line| line.starts_with("ssh:")), "{stderr}");
+    let log = world.connect_log();
+    assert!(
+        log.contains(&format!(
+            " ssh_stderr=\"ssh: connect to host {SSH_HOST} port 22: Connection refused {{'ok': 'junk'}}\"\n"
+        )),
+        "{log}"
+    );
+}
+
 /// Without a tunnel hub the dial is the relay's alone, and says why.
 #[test]
 fn without_a_tunnel_hub_the_ssh_group_is_left_out_and_the_log_says_so() {

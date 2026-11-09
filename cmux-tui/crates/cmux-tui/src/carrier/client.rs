@@ -38,7 +38,7 @@ use cmux_remote::crypto::{ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::link::FrameLink;
 use cmux_remote::provider::{
     ConnectRequest, LinkGroup, LinkRequest, ProviderError, RelayClientConfig,
-    RelayCredentialSource, RelayProvider, lane_bindings,
+    RelayCredentialSource, RelayProvider, lane_bindings, ssh_stderr_of,
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::session::SessionLimits;
@@ -677,7 +677,8 @@ impl ResumeHooks for Resume {
         let detail = result.err().map(ToString::to_string);
         (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
         let carrier = Some(self.current.get()).filter(|_| outcome.is_none());
-        (self.phases)(routes_line(&self.machine, Phase::Resume, None, carrier, outcome));
+        let said = detail.as_deref().and_then(ssh_stderr_of);
+        (self.phases)(routes_line(&self.machine, Phase::Resume, None, carrier, outcome, said));
     }
 }
 
@@ -757,7 +758,8 @@ fn log_attempt(
     let marks = step.marks();
     if let Some(ssh) = marks.ssh {
         let carrier = marks.carrier.filter(|_| outcome.is_none());
-        (plan.phases)(routes_line(&plan.machine, phase, Some(ssh), carrier, outcome));
+        let said = detail.and_then(ssh_stderr_of);
+        (plan.phases)(routes_line(&plan.machine, phase, Some(ssh), carrier, outcome, said));
     }
 }
 

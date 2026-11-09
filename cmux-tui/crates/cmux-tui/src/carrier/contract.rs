@@ -466,14 +466,28 @@ pub(super) fn routes_line(
     ssh: Option<&str>,
     carrier: Option<&str>,
     outcome: Option<Step>,
+    said: Option<&str>,
 ) -> String {
     let ssh = ssh.map_or_else(String::new, |ssh| format!(" ssh={ssh}"));
+    let said = said
+        .map(cmux_remote::provider::one_line)
+        .filter(|said| !said.is_empty())
+        .map_or_else(String::new, |said| format!(" ssh_stderr=\"{}\"", last_chars(&said)));
     format!(
-        "carrier.routes machine={machine} phase={}{ssh} carrier={} outcome={}\n",
+        "carrier.routes machine={machine} phase={}{ssh} carrier={} outcome={}{said}\n",
         phase.name(),
         carrier.unwrap_or("none"),
         outcome.map_or("ok", Step::error_code),
     )
+}
+
+/// The most of a captured ssh stderr line a `carrier.routes` line keeps:
+/// its end, where ssh says why it stopped.
+const MAX_SSH_STDERR_CHARS: usize = 240;
+
+fn last_chars(line: &str) -> String {
+    let kept: Vec<char> = line.chars().rev().take(MAX_SSH_STDERR_CHARS).collect();
+    kept.into_iter().rev().collect()
 }
 
 /// `--answer-fd`: 0 (stdin) or a descriptor past stderr, in decimal.

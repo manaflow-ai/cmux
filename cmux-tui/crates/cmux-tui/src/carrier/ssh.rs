@@ -183,6 +183,9 @@ pub(super) fn ssh_route(
         remote_session: REMOTE_SESSION.into(),
         remote_mux_socket: Some(REMOTE_MUX_SOCKET.into()),
         extra_args: args,
+        // The dial's stderr is a contract the probe reads: ssh's own words
+        // go into the link's error and the connect log instead.
+        capture_stderr: true,
         ..SshProviderConfig::default()
     };
     let provider = SshProvider::new(config).map_err(|_| Absent::Key)?;
@@ -285,20 +288,42 @@ fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// Writes `bytes` to `path` as a new 0600 file, never through a symlink:
 /// a fresh temporary beside it, then renamed over it.
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
     let folder = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
     private_dir(folder)?;
-    let temporary = folder.join(format!(
-        ".{}.{}-{}",
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    let renamed = write_new(&temporary, bytes).and_then(|()| std::fs::rename(&temporary, path));
+    let temporary =
+        temporary_beside(folder, path.file_name().and_then(|n| n.to_str()).unwrap_or("file"))?;
+    write_own(&temporary, bytes)?;
+    let renamed = std::fs::rename(&temporary, path);
     if renamed.is_err() {
         let _ = std::fs::remove_file(&temporary);
     }
     renamed
+}
+
+/// A temporary file name in `folder` for `stem` that no other write uses,
+/// in this process (a counter) or another (the pid and a random part).
+fn temporary_beside(folder: &Path, stem: &str) -> std::io::Result<PathBuf> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let mut nonce = [0_u8; 8];
+    getrandom::fill(&mut nonce).map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))?;
+    Ok(folder.join(format!(
+        ".{stem}.{}.{}.{:016x}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed),
+        u64::from_be_bytes(nonce)
+    )))
+}
+
+/// [`write_new`], removing the file again if it made it and the write
+/// failed; a file that was there already is never touched.
+fn write_own(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let written = write_new(path, bytes);
+    if let Err(error) = &written
+        && error.kind() != std::io::ErrorKind::AlreadyExists
+    {
+        let _ = std::fs::remove_file(path);
+    }
+    written
 }
 
 /// Writes the pin for `host:port` to `pin`, replacing any earlier one.
@@ -441,9 +466,9 @@ impl CarrierKey {
         getrandom::fill(seed.as_mut()).map_err(|_| invalid())?;
         getrandom::fill(&mut check).map_err(|_| invalid())?;
         let text = openssh_private_key(&seed, u32::from_be_bytes(check)).ok_or_else(invalid)?;
-        let made = state.join(format!(".id_ed25519.{}", std::process::id()));
-        let _ = std::fs::remove_file(&made);
-        write_new(&made, text.as_bytes())?;
+        // A name no other creation uses, so each removes only its own file.
+        let made = temporary_beside(state, "id_ed25519")?;
+        write_own(&made, text.as_bytes())?;
         // A link, not a rename: one that lost the race keeps the winner's key.
         let linked = std::fs::hard_link(&made, &path);
         let _ = std::fs::remove_file(&made);

@@ -1,13 +1,14 @@
 use std::fmt;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::Mutex;
+use tokio::io::AsyncReadExt as _;
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
+use tokio::sync::{Mutex, watch};
 
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
@@ -19,6 +20,13 @@ use crate::provider::{
 use crate::ssh_args::background_ssh_arguments;
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+/// How much of a captured ssh's stderr a link keeps: its last bytes.
+const STDERR_TAIL_BYTES: usize = 2048;
+/// How long a link that ended waits for ssh's last stderr words.
+const STDERR_SETTLE: Duration = Duration::from_millis(250);
+/// What a link's error says before a captured stderr tail, which follows
+/// in double quotes (the tail holds none): `ssh stderr: "<tail>"`.
+pub const SSH_STDERR_MARK: &str = "ssh stderr: ";
 
 /// `remote-probe` capability: `remote-link --mux-socket` attaches to that
 /// daemon socket. A remote without it (protocol 5 before 2026-10-10) ignores
@@ -44,6 +52,12 @@ pub struct SshProviderConfig {
     /// Coding-agent providers whose hooks `remote-link` installs on the host
     /// before it attaches (`cmux-tui agent hook install <provider>...`).
     pub agent_hooks: Vec<String>,
+    /// Capture each `ssh` run's stderr instead of passing it to this
+    /// process's: for a caller whose own stderr is a machine-read contract
+    /// (the Cloud carrier). The link keeps its last [`STDERR_TAIL_BYTES`],
+    /// as one line, and an ended link's error carries it after
+    /// [`SSH_STDERR_MARK`]. Off, ssh speaks to the person directly.
+    pub capture_stderr: bool,
 }
 
 impl Default for SshProviderConfig {
@@ -57,6 +71,7 @@ impl Default for SshProviderConfig {
             extra_args: Vec::new(),
             maximum_frame_bytes: 65_535,
             agent_hooks: Vec::new(),
+            capture_stderr: false,
         }
     }
 }
@@ -220,7 +235,7 @@ impl LinkGroup for SshLinkGroup {
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(if self.config.capture_stderr { Stdio::piped() } else { Stdio::inherit() })
             .kill_on_drop(true);
         let mut child = command
             .spawn()
@@ -233,13 +248,14 @@ impl LinkGroup for SshLinkGroup {
             .stdout
             .take()
             .ok_or_else(|| ProviderError::Transport("ssh stdout was not piped".into()))?;
+        let stderr = child.stderr.take().map(StderrTail::spawn);
         let inner = LengthDelimitedLink::new(
             self.description.clone(),
             self.config.maximum_frame_bytes,
             stdout,
             stdin,
         );
-        Ok(Box::new(SshProcessLink { inner, child: Mutex::new(Some(child)) }))
+        Ok(Box::new(SshProcessLink { inner, child: Mutex::new(Some(child)), stderr }))
     }
 
     async fn close(&self) -> Result<(), ProviderError> {
@@ -251,6 +267,105 @@ impl LinkGroup for SshLinkGroup {
 struct SshProcessLink {
     inner: LengthDelimitedLink<ChildStdout, ChildStdin>,
     child: Mutex<Option<Child>>,
+    /// The run's stderr, when the provider captures it.
+    stderr: Option<Arc<StderrTail>>,
+}
+
+/// The last [`STDERR_TAIL_BYTES`] an `ssh` run wrote to its stderr, read
+/// as it comes, so the pipe never fills and stalls the run.
+struct StderrTail {
+    bytes: StdMutex<std::collections::VecDeque<u8>>,
+    /// True once stderr closed (the run, its ProxyCommand and the remote
+    /// command all done with it).
+    done: watch::Sender<bool>,
+}
+
+impl StderrTail {
+    fn spawn(mut stderr: ChildStderr) -> Arc<Self> {
+        let tail = Arc::new(Self {
+            bytes: StdMutex::new(std::collections::VecDeque::with_capacity(STDERR_TAIL_BYTES)),
+            done: watch::channel(false).0,
+        });
+        let writer = tail.clone();
+        tokio::spawn(async move {
+            let mut chunk = [0_u8; 512];
+            loop {
+                match stderr.read(&mut chunk).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => writer.keep(chunk.get(..read).unwrap_or_default()),
+                }
+            }
+            writer.done.send_replace(true);
+        });
+        tail
+    }
+
+    fn keep(&self, read: &[u8]) {
+        let mut bytes = self.bytes.lock().unwrap_or_else(PoisonError::into_inner);
+        bytes.extend(read);
+        let over = bytes.len().saturating_sub(STDERR_TAIL_BYTES);
+        bytes.drain(..over);
+    }
+
+    /// The tail as one line, once stderr closed or [`STDERR_SETTLE`]
+    /// passed: `None` when ssh said nothing.
+    async fn settled(&self) -> Option<String> {
+        let mut done = self.done.subscribe();
+        let _ = tokio::time::timeout(STDERR_SETTLE, done.wait_for(|done| *done)).await;
+        let bytes: Vec<u8> =
+            self.bytes.lock().unwrap_or_else(PoisonError::into_inner).iter().copied().collect();
+        let line = one_line(&String::from_utf8_lossy(&bytes));
+        (!line.is_empty()).then_some(line)
+    }
+}
+
+/// `text` as one printable line: control characters and runs of
+/// whitespace become one space, `"` becomes `'` and `\` becomes `/`, so it
+/// sits inside a double-quoted log field as it is.
+pub fn one_line(text: &str) -> String {
+    let mut line = String::with_capacity(text.len());
+    for character in text.chars() {
+        let character = match character {
+            '"' => '\'',
+            '\\' => '/',
+            c if c.is_control() || c.is_whitespace() => ' ',
+            c => c,
+        };
+        if character == ' ' && (line.is_empty() || line.ends_with(' ')) {
+            continue;
+        }
+        line.push(character);
+    }
+    line.truncate(line.trim_end().len());
+    line
+}
+
+/// The captured ssh stderr an error's text carries (see
+/// [`SSH_STDERR_MARK`]), if any.
+pub fn ssh_stderr_of(detail: &str) -> Option<&str> {
+    let (_, rest) = detail.split_once(SSH_STDERR_MARK)?;
+    let rest = rest.strip_prefix('"')?;
+    rest.split_once('"').map(|(said, _)| said)
+}
+
+impl SshProcessLink {
+    /// An ended link's error, with what ssh said when it was captured.
+    async fn with_stderr(&self, error: Option<LinkError>) -> Option<LinkError> {
+        let said = match &self.stderr {
+            Some(stderr) => stderr.settled().await,
+            None => None,
+        };
+        match (said, error) {
+            (None, error) => error,
+            (Some(said), None | Some(LinkError::Closed)) => Some(LinkError::Transport(format!(
+                "the ssh link ended; {SSH_STDERR_MARK}\"{said}\""
+            ))),
+            (Some(said), Some(LinkError::Transport(detail))) => {
+                Some(LinkError::Transport(format!("{detail}; {SSH_STDERR_MARK}\"{said}\"")))
+            }
+            (Some(_), Some(error)) => Some(error),
+        }
+    }
 }
 
 impl fmt::Debug for SshProcessLink {
@@ -270,11 +385,22 @@ impl FrameLink for SshProcessLink {
     }
 
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
-        self.inner.send(frame).await
+        match self.inner.send(frame).await {
+            Ok(()) => Ok(()),
+            Err(error) if self.stderr.is_some() => {
+                Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
-        self.inner.receive().await
+        match self.inner.receive().await {
+            Ok(Some(frame)) => Ok(Some(frame)),
+            ended if self.stderr.is_none() => ended,
+            Ok(None) => self.with_stderr(None).await.map_or(Ok(None), Err),
+            Err(error) => Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed)),
+        }
     }
 
     async fn close(&self) -> Result<(), LinkError> {

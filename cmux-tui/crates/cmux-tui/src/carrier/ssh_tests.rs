@@ -425,21 +425,21 @@ fn an_ssh_route_s_failure_never_ends_the_dial_but_a_relay_handshake_refusal_does
 
 #[test]
 fn the_routes_line_is_its_own_marker_beside_the_pinned_lines() {
-    let line = routes_line(MACHINE, Phase::Connect, Some("no_tunnel"), Some("relay:0"), None);
+    let line = routes_line(MACHINE, Phase::Connect, Some("no_tunnel"), Some("relay:0"), None, None);
     assert_eq!(
         line,
         format!(
             "carrier.routes machine={MACHINE} phase=connect ssh=no_tunnel carrier=relay:0 outcome=ok\n"
         )
     );
-    let failed = routes_line(MACHINE, Phase::Reconnect, Some("on"), None, Some(Step::Relay));
+    let failed = routes_line(MACHINE, Phase::Reconnect, Some("on"), None, Some(Step::Relay), None);
     assert_eq!(
         failed,
         format!(
             "carrier.routes machine={MACHINE} phase=reconnect ssh=on carrier=none outcome=relay\n"
         )
     );
-    let resume = routes_line(MACHINE, Phase::Resume, None, Some("ssh:0"), None);
+    let resume = routes_line(MACHINE, Phase::Resume, None, Some("ssh:0"), None, None);
     assert_eq!(
         resume,
         format!("carrier.routes machine={MACHINE} phase=resume carrier=ssh:0 outcome=ok\n")
@@ -609,4 +609,89 @@ async fn a_route_s_group_closed_by_the_connection_is_replaced_not_reused() {
     assert!(!Arc::ptr_eq(&fresh, &as_dyn(&first)), "a closed group is never handed back");
     let cached = routes.connect(1, ssh_request(&route), AuthKind::Grant).await.unwrap();
     assert!(Arc::ptr_eq(&cached, &fresh), "and the fresh one is cached in its place");
+}
+
+/// Carrier keys made at once, in one process, all end as the one key: each
+/// creation's temporary file is its own, the losers of the link race load
+/// the winner's key, and no temporary file stays.
+#[test]
+fn concurrent_carrier_key_creations_agree_and_leave_no_temporary_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("ssh");
+    let start = Arc::new(std::sync::Barrier::new(8));
+    let made: Vec<String> = (0..8)
+        .map(|_| {
+            let (state, start) = (state.clone(), start.clone());
+            std::thread::spawn(move || {
+                start.wait();
+                CarrierKey::load_or_create(&state).unwrap().public_line
+            })
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .collect();
+    assert!(made.iter().all(|line| *line == made[0]), "{made:?}");
+    let names: Vec<_> = std::fs::read_dir(&state)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(names, ["id_ed25519"], "no temporary file stays");
+}
+
+/// A captured ssh's stderr never reaches this process's: what it said ends
+/// up, as one quoted line, in the link's error when the run exits.
+#[tokio::test]
+async fn a_captured_ssh_s_stderr_goes_into_the_link_error_as_one_line() {
+    use cmux_remote::link::FrameLink as _;
+    use cmux_remote::provider::{SshProvider, SshProviderConfig, TransportProvider as _};
+    let dir = tempfile::tempdir().unwrap();
+    let fake = dir.path().join("ssh");
+    std::fs::write(
+        &fake,
+        "#!/bin/sh\nprintf 'ssh: connect to host 10.20.0.7 port 22: Connection refused\\r\\n\\tkex \"x\" \\\\ junk\\n' >&2\nexit 255\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let provider = SshProvider::new(SshProviderConfig {
+        ssh_binary: fake.to_string_lossy().into_owned(),
+        capture_stderr: true,
+        ..SshProviderConfig::default()
+    })
+    .unwrap();
+    let group = provider
+        .connect(ConnectRequest {
+            endpoint: url::Url::parse("ssh://cmux@10.20.0.7:22").unwrap(),
+            session: SessionId([7; 16]),
+            lane_policy: LanePolicy::Auto,
+            routing: BTreeMap::new(),
+        })
+        .await
+        .unwrap();
+    let link = group.open(LinkRequest { lane: Lane::Interactive, generation: 0 }).await.unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(5), link.receive()).await.unwrap();
+    let Err(LinkError::Transport(detail)) = ended else { panic!("{ended:?}") };
+    let said = cmux_remote::provider::ssh_stderr_of(&detail).expect(&detail);
+    assert_eq!(said, "ssh: connect to host 10.20.0.7 port 22: Connection refused kex 'x' / junk");
+    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(said));
+    assert!(
+        line.ends_with(&format!(" outcome=relay ssh_stderr=\"{said}\"\n")),
+        "a quoted field last: {line}"
+    );
+    assert_eq!(line.matches('\n').count(), 1, "{line}");
+}
+
+#[test]
+fn a_stderr_tail_is_one_quoted_safe_line_and_only_its_end_is_logged() {
+    use cmux_remote::provider::{one_line, ssh_stderr_of};
+    assert_eq!(one_line("  a\r\n\tb \"c\" \\d\u{7}  "), "a b 'c' /d");
+    assert_eq!(ssh_stderr_of("x; ssh stderr: \"said it\"; relay: closed"), Some("said it"));
+    assert_eq!(ssh_stderr_of("no stderr here"), None);
+    let long = "y".repeat(300) + "end";
+    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(&long));
+    let field = line.split_once("ssh_stderr=\"").unwrap().1.trim_end_matches("\"\n");
+    assert_eq!(field.chars().count(), 240);
+    assert!(field.ends_with("yend"));
+    let quiet = routes_line(MACHINE, Phase::Resume, None, None, None, Some("  "));
+    assert!(!quiet.contains("ssh_stderr"), "{quiet}");
 }

@@ -625,6 +625,9 @@ pub struct SshWorld {
     /// While this file exists the fake ssh's links end, and new ones exit
     /// at once (the ssh carrier is down).
     pub ssh_cut: std::path::PathBuf,
+    /// While this file exists the fake ssh writes junk to its stderr and
+    /// exits 255, as ssh does when it cannot connect.
+    pub ssh_junk: std::path::PathBuf,
     /// Cuts every relay connection, and refuses new ones.
     pub cut: watch::Sender<bool>,
     _hub: std::os::unix::net::UnixListener,
@@ -660,6 +663,7 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
     let ssh_args = dir.path().join("ssh-args");
     let fake_ssh = dir.path().join("fake-ssh");
     let ssh_cut = dir.path().join("ssh-cut");
+    let ssh_junk = dir.path().join("ssh-junk");
     // sshd runs the key's forced command whatever the client asks; this
     // stand-in does the same, without the network or the ProxyCommand. The
     // link ends when `ssh_cut` appears (by SIGKILL, so it ends whatever
@@ -671,6 +675,8 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
             "#!/bin/sh\n\
              printf '%s\\n' \"$@\" >> '{args}'\n\
              [ -e '{cut}' ] && exit 255\n\
+             if [ -e '{junk}' ]; then printf 'ssh: connect to host {SSH_HOST} port 22: \
+             Connection refused\\r\\n{{\"ok\": \"junk\"}}\\n' >&2; exit 255; fi\n\
              exec 3<&0\n\
              '{BIN}' remote-link --stdio --session carrier-ssh --link-socket '{link}' <&3 &\n\
              child=$!\n\
@@ -681,6 +687,7 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
              wait \"$child\"\n",
             args = ssh_args.display(),
             cut = ssh_cut.display(),
+            junk = ssh_junk.display(),
             link = link.display(),
         ),
     )
@@ -751,6 +758,7 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
         fake_ssh,
         ssh_args,
         ssh_cut,
+        ssh_junk,
         cut,
         _hub: hub_listener,
         _link: link_server,
