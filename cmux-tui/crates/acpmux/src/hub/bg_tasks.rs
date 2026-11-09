@@ -223,7 +223,8 @@ impl Hub {
         };
         let profile = self.spawn_profile_for(meta, &profile, &defaults.env).await?;
         let at = Some((session.id.as_str(), meta.name.as_str()));
-        let cmd = crate::agent::harness_command(&meta.harness, &profile, &meta.cwd, None, at)
+        let cmd = crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
+            .await
             .map_err(|e| RpcError::internal(format!("{e:#}")))?;
         Ok(crate::agent::command_env(&cmd).into_iter().collect())
     }

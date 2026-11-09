@@ -1274,7 +1274,9 @@ that carries a credential (userinfo, or a key or token in its query) is cached b
 Claude, Codex and these harnesses wait for it the same way unless their profile sets it. So does a
 profile's `${env:X}` reference to a name the cache lacks. If the shell is slower than the wait, a
 missing base URL or reference refuses the start, naming the variable, rather than running on the
-default endpoint. Every spawn path waits (direct, agent host, pool, chat fork). The same list keeps these keys in the
+default endpoint. Only a name the child's final env plan takes counts: never one its route unsets
+(`codex-login`) or a remote-origin launch, whose env is cleared. Every spawn path builds its command
+through the same check (`agent::harness_command_ready`; chat forks call `login_env::await_child_env`). The same list keeps these keys in the
 daemon's own environment from Claude, Codex and every other agent (`agent/foreign_login.rs`). Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
 default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`

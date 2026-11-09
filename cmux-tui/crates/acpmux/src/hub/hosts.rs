@@ -1841,21 +1841,14 @@ impl Hub {
                 "machine environment changed; login env refresh failed",
             ));
         }
-        // As `agent.rs` spawns: provider keys and base URLs the cache holds by name only
-        // reach the snapshot from the login shell.
-        if !meta.remote_origin {
-            let family = crate::config::derive_family(&meta.harness, profile);
-            crate::login_env::provider_keys_before_spawn(&family, Some(&profile.env))
-                .await
-                .map_err(RpcError::internal)?;
-        }
-        let cmd = crate::agent::harness_command(
+        let cmd = crate::agent::harness_command_ready(
             &meta.harness,
             profile,
             &meta.cwd,
             command_line,
             Some((&session.id, &meta.name)),
         )
+        .await
         .map_err(internal)?;
         self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();

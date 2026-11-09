@@ -39,6 +39,49 @@ fn claude_name_args(
     if name.is_empty() || remote || own { Vec::new() } else { vec!["--name".into(), name.into()] }
 }
 
+/// `harness_command` for a spawn, the one every spawn path builds: when its
+/// final env plan takes a login value only the shell holds (a cached start),
+/// wait for the shell (at most `login_env::TIMEOUT`) and build it again with
+/// the read's values; a base URL or `${env:X}` it still lacks refuses the
+/// start (`login_env::ChildEnv`). A name the plan sets, unsets or never
+/// inherits (a route's unset, a remote-origin launch) never waits.
+pub(crate) async fn harness_command_ready(
+    name: &str,
+    profile: &HarnessProfile,
+    cwd: &std::path::Path,
+    command_line: Option<(String, Vec<String>)>,
+    session: Option<(&str, &str)>,
+) -> Result<Command> {
+    let family = crate::config::derive_family(name, profile);
+    let mut plan = crate::login_env::ChildEnv {
+        family: &family,
+        profile: Some(&profile.env),
+        remote: profile.env.get(REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1"),
+        explicit: None,
+    };
+    let deadline = tokio::time::Instant::now() + crate::login_env::TIMEOUT;
+    // Twice at most: a build that failed on a missing reference has no plan
+    // until the reference is here.
+    for _ in 0..2 {
+        let built = harness_command(name, profile, cwd, command_line.clone(), session);
+        plan.explicit = built.as_ref().ok().map(explicit_env);
+        if !crate::login_env::await_child_env(&plan, deadline).await.map_err(|e| anyhow!(e))? {
+            return built;
+        }
+    }
+    harness_command(name, profile, cwd, command_line, session)
+}
+
+/// The env changes `cmd` makes: a name it sets, or removes (`None`).
+pub(crate) fn explicit_env(cmd: &Command) -> Vec<(String, Option<String>)> {
+    cmd.as_std()
+        .get_envs()
+        .map(|(k, v)| {
+            (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()))
+        })
+        .collect()
+}
+
 /// The harness command line and environment, as acpmux runs it: the login
 /// environment, no nested-agent markers, the session's `ACPMUX_*` caller
 /// context, and the profile's env. Shared by direct children and hosts.

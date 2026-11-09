@@ -206,7 +206,7 @@ fn now_secs() -> u64 {
 /// One login shell read at a time: the startup read and a refresh never
 /// overlap, so the last cache written is the newest read.
 static IMPORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-/// Told when a login shell read ends, done or failed (`provider_keys_before_spawn`).
+/// Told when a login shell read ends, done or failed (`await_child_env`).
 static READ_ENDED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 /// Reads in a row when the startup files change during a read: one more
 /// read catches an edit made during the first.
@@ -244,31 +244,82 @@ pub async fn import() -> bool {
     changed
 }
 
-/// Before any local spawn, after `machine_env_fresh_before_spawn`: when the
-/// daemon started from the cache, which holds secret values by name only
-/// (`save_cache`), and the login shell has not answered since, wait for that
-/// read (at most `TIMEOUT`) if the spawn needs one of them
-/// (`reads_from_cache`). A plain base URL is cached by value, so only one that
-/// carries a credential (userinfo, a key or token in its query) waits. After
-/// the wait, a base URL or `${env:X}` reference still missing (the read
-/// failed or is slower than `TIMEOUT`) refuses the spawn, naming it: the
-/// agent never starts on its default endpoint. A missing provider key does
-/// not: the harness says which key it lacks. Every spawn path calls it:
-/// `agent.rs`, the pool, agent hosts and chat forks.
-pub async fn provider_keys_before_spawn(
-    family: &str,
-    profile: Option<&BTreeMap<String, String>>,
-) -> Result<(), String> {
-    if !ENABLED.load(Ordering::SeqCst) {
-        return Ok(());
+/// A child's final env plan, as far as the login shell goes: what it takes
+/// from the login env once its command is built (route set and unset, the
+/// remote policy, profile resolution, scrubs). Every spawn path waits on it
+/// (`await_child_env`; `agent::harness_command_ready` for harness commands),
+/// so none waits, or refuses, over a name its child never receives.
+pub(crate) struct ChildEnv<'a> {
+    pub family: &'a str,
+    /// The profile's env, unresolved: its `${env:X}` references and the
+    /// Bedrock and Vertex switches of the allow-list (`allowed_with`).
+    pub profile: Option<&'a BTreeMap<String, String>>,
+    /// The child starts from a cleared env and takes no login value but PATH
+    /// (`apply_remote_tokio`): a remote-origin launch.
+    pub remote: bool,
+    /// The command's explicit env changes as built: a name it sets (a
+    /// profile value) or removes (a route's `ACPMUX_ROUTE_UNSET`, another
+    /// harness's login) is never the login env's. `None` until it is built.
+    pub explicit: Option<Vec<(String, Option<String>)>>,
+}
+
+impl ChildEnv<'_> {
+    /// The profile's `${env:X}` names: resolved from the login env whatever
+    /// the plan, remote included (`reference_var`).
+    fn refs(&self) -> Vec<String> {
+        self.profile.map(crate::config::profiles::env_ref_names).unwrap_or_default()
     }
-    wait_while(|| provider_keys_pending(family, profile), TIMEOUT).await;
-    let missing: Vec<String> = missing_secret_names()
-        .into_iter()
-        .filter(|n| reads_from_cache(family, n, profile) && (endpoint(n) || referenced(n, profile)))
-        .collect();
+
+    /// Names the child receives from the login env whose values only the
+    /// shell holds now (a cached start: `save_cache` keeps secrets by name
+    /// only). A reference; or a name the plan neither sets nor removes, the
+    /// family's allow-list takes (`allowed_with`), and that is a provider key
+    /// of a multi-provider harness or a base URL. Claude's and Codex's own
+    /// keys stay with `Plan::wait`.
+    fn blocking(&self) -> Vec<String> {
+        let refs = self.refs();
+        missing_secret_names().into_iter().filter(|n| self.takes(n, &refs)).collect()
+    }
+
+    /// The child receives `name` from the login env, and it is one a start waits for (`blocking`).
+    fn takes(&self, name: &str, refs: &[String]) -> bool {
+        if refs.iter().any(|r| r == name) {
+            return true;
+        }
+        let Some(explicit) = &self.explicit else { return false };
+        !self.remote
+            && !explicit.iter().any(|(k, _)| k == name)
+            && PROVIDER_KEYS.contains(&name)
+            && allowed_with(name, "", Some(self.family), self.profile)
+            && (PROVIDER_FAMILIES.contains(&self.family) || endpoint(name))
+    }
+
+    /// The blocking names a start cannot go without: a base URL (else the
+    /// agent runs on its default endpoint) or a reference. A provider key it
+    /// lacks, the harness names itself.
+    fn refusing(&self) -> Vec<String> {
+        let refs = self.refs();
+        self.blocking().into_iter().filter(|n| endpoint(n) || refs.contains(n)).collect()
+    }
+}
+
+/// Before a child starts on `plan`: while it takes a login value only the
+/// shell holds and the shell has not answered since a cached start, wait
+/// for that read until `deadline` (`TIMEOUT` from the first build). True
+/// when the plan took such a value, so the caller builds the command again
+/// with the read's values. A base URL or reference still missing then (the
+/// read failed or is slower) refuses the start, naming it, never its value.
+pub(crate) async fn await_child_env(
+    plan: &ChildEnv<'_>,
+    deadline: tokio::time::Instant,
+) -> Result<bool, String> {
+    if !ENABLED.load(Ordering::SeqCst) || plan.blocking().is_empty() {
+        return Ok(false);
+    }
+    wait_until(|| outcome() == Outcome::Cached && !plan.blocking().is_empty(), deadline).await;
+    let missing = plan.refusing();
     if missing.is_empty() {
-        return Ok(());
+        return Ok(true);
     }
     Err(format!(
         "{} from the login shell is not available yet: the shell did not answer within {} s. \
@@ -278,41 +329,20 @@ pub async fn provider_keys_before_spawn(
     ))
 }
 
-/// The cache stands in for the shell, and a value the spawn gets from it is missing.
-fn provider_keys_pending(family: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
-    outcome() == Outcome::Cached
-        && missing_secret_names().iter().any(|n| reads_from_cache(family, n, profile))
-}
-
-/// The spawn gets `name` from the login shell: a `${env:name}` reference in
-/// the profile's env, or a provider key or base URL `family` takes
-/// (`PROVIDER_KEYS`; Claude, Codex and the rest only a base URL they read,
-/// their own keys wait with `Plan::wait`) that the profile does not set.
-fn reads_from_cache(family: &str, name: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
-    if referenced(name, profile) {
-        return true;
-    }
-    if !PROVIDER_KEYS.contains(&name) || profile.is_some_and(|env| env.contains_key(name)) {
-        return false;
-    }
-    PROVIDER_FAMILIES.contains(&family)
-        || (endpoint(name) && allowed_with(name, "", Some(family), profile))
-}
-
 /// A provider base URL (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`): the
 /// `PROVIDER_KEYS` names that are not secret by name.
 fn endpoint(name: &str) -> bool {
     PROVIDER_KEYS.contains(&name) && !is_secret(name, "")
 }
 
-/// The profile's env names `name` in a `${env:name}` reference.
-fn referenced(name: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
-    profile.is_some_and(|env| crate::config::profiles::env_ref_names(env).iter().any(|n| n == name))
+/// Wait while `pending`, each time until a login shell read ends, at most `limit` in all.
+#[cfg(test)]
+async fn wait_while(pending: impl Fn() -> bool, limit: Duration) {
+    wait_until(pending, tokio::time::Instant::now() + limit).await;
 }
 
-/// Wait while `pending`, each time until a login shell read ends, at most `limit` in all.
-async fn wait_while(pending: impl Fn() -> bool, limit: Duration) {
-    let deadline = tokio::time::Instant::now() + limit;
+/// Wait while `pending`, each time until a login shell read ends, until `deadline`.
+async fn wait_until(pending: impl Fn() -> bool, deadline: tokio::time::Instant) {
     loop {
         let ended = READ_ENDED.notified();
         tokio::pin!(ended);
@@ -1599,20 +1629,31 @@ mod machine_file_tests {
         assert_eq!(waited, std::time::Duration::from_millis(200), "it goes on when the read ends");
     }
 
-    /// Which names a spawn waits for after a cached start: a multi-provider
-    /// harness any provider key or base URL; Claude and Codex the base URL
-    /// they read, never a key (their own wait is `Plan::wait`); a name the
-    /// profile sets, never.
+    /// Which names a spawn waits for after a cached start, from its final env
+    /// plan: a multi-provider harness any provider key or base URL; Claude and
+    /// Codex the base URL they read, never a key (their own wait is
+    /// `Plan::wait`); a reference always; never a name the plan sets or
+    /// removes (a route's unset), nor anything on a remote-origin plan.
     #[test]
-    fn a_spawn_waits_only_for_values_it_gets_from_the_shell() {
-        use super::reads_from_cache;
+    fn a_spawn_waits_only_for_values_its_plan_takes_from_the_shell() {
+        use super::ChildEnv;
+        use std::collections::BTreeMap;
+        let plan = |family, profile, remote, explicit: &[(&str, Option<&str>)]| ChildEnv {
+            family,
+            profile,
+            remote,
+            explicit: Some(
+                explicit.iter().map(|(k, v)| (k.to_string(), v.map(str::to_owned))).collect(),
+            ),
+        };
+        let takes = |p: &ChildEnv, name: &str| p.takes(name, &p.refs());
         for family in ["opencode", "opencode-v2", "pi", "prime", "cmux-harness", "hermes"] {
             for key in ["OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL"] {
-                assert!(reads_from_cache(family, key, None), "{family} waits for {key}");
+                assert!(takes(&plan(family, None, false, &[]), key), "{family} waits for {key}");
             }
         }
-        assert!(reads_from_cache("claude", "ANTHROPIC_BASE_URL", None));
-        assert!(reads_from_cache("codex", "OPENAI_BASE_URL", None));
+        assert!(takes(&plan("claude", None, false, &[]), "ANTHROPIC_BASE_URL"));
+        assert!(takes(&plan("codex", None, false, &[]), "OPENAI_BASE_URL"));
         for (family, key) in [
             ("claude", "OPENAI_BASE_URL"),
             ("claude", "ANTHROPIC_API_KEY"),
@@ -1625,21 +1666,30 @@ mod machine_file_tests {
             ("deepseek", "OPENAI_BASE_URL"),
             ("opencode", "GITHUB_TOKEN"),
         ] {
-            assert!(!reads_from_cache(family, key, None), "{family} never waits for {key}");
+            assert!(!takes(&plan(family, None, false, &[]), key), "{family} never waits for {key}");
         }
-        let profile: std::collections::BTreeMap<String, String> =
-            [("ANTHROPIC_BASE_URL".to_owned(), "https://route.invalid".to_owned())].into();
-        assert!(!reads_from_cache("claude", "ANTHROPIC_BASE_URL", Some(&profile)));
-        assert!(!reads_from_cache("pi", "ANTHROPIC_BASE_URL", Some(&profile)));
-        // A `${env:X}` reference needs X from the shell, whatever the family or name.
-        let refs: std::collections::BTreeMap<String, String> = [
+        // A route that unsets it (codex-login), or a profile that sets it: never.
+        let unset = plan("codex", None, false, &[("OPENAI_BASE_URL", None)]);
+        assert!(!takes(&unset, "OPENAI_BASE_URL"));
+        let set = plan("claude", None, false, &[("ANTHROPIC_BASE_URL", Some("https://r.invalid"))]);
+        assert!(!takes(&set, "ANTHROPIC_BASE_URL"));
+        // A remote-origin plan takes no login value.
+        assert!(!takes(&plan("codex", None, true, &[]), "OPENAI_BASE_URL"));
+        assert!(!takes(&plan("pi", None, true, &[]), "OPENROUTER_API_KEY"));
+        // A `${env:X}` reference needs X, whatever the family, name or plan.
+        let refs: BTreeMap<String, String> = [
             ("ANTHROPIC_BASE_URL".to_owned(), "${env:ANTHROPIC_BASE_URL}".to_owned()),
             ("TEAM_HEADER".to_owned(), "Bearer ${env:TEAM_GATEWAY_TOKEN}".to_owned()),
         ]
         .into();
-        assert!(reads_from_cache("claude", "ANTHROPIC_BASE_URL", Some(&refs)));
-        assert!(reads_from_cache("codex", "TEAM_GATEWAY_TOKEN", Some(&refs)));
-        assert!(!reads_from_cache("codex", "OTHER_TOKEN", Some(&refs)));
+        let by_ref = plan("claude", Some(&refs), true, &[("ANTHROPIC_BASE_URL", Some("x"))]);
+        assert!(takes(&by_ref, "ANTHROPIC_BASE_URL"));
+        assert!(takes(&by_ref, "TEAM_GATEWAY_TOKEN"));
+        assert!(!takes(&by_ref, "OTHER_TOKEN"));
+        // Not built yet (a reference missing): only references.
+        let unbuilt = ChildEnv { explicit: None, ..plan("claude", Some(&refs), false, &[]) };
+        assert!(takes(&unbuilt, "TEAM_GATEWAY_TOKEN"));
+        assert!(!takes(&plan("pi", None, false, &[]), "GITHUB_TOKEN"));
     }
 
     /// A plain base URL is cached by value; one with a credential in its
