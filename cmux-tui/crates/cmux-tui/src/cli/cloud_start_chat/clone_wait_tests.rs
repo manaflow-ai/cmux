@@ -331,18 +331,25 @@ fn a_folder_that_is_there_while_the_clone_runs_is_not_ready_until_the_repo_step_
     fake.assert_clean();
 }
 
-/// The bootstrap files decide. No bootstrap: the folder being there is enough. The repository step
-/// cloned (or the whole bootstrap done) starts; a failed `status.json` wins over a `kept` repository
-/// and fails the start, as does any failed bootstrap.
+/// The bootstrap files decide, and the folder must be there. No bootstrap: the folder being there is
+/// enough. The repository step cloned (or the whole bootstrap done) starts. Review of #37248 at
+/// 83945375: a bootstrap whose setup script failed keeps no chat out of a folder that is there (a
+/// start that worked before this check); a failed repository step, or a failure with the folder
+/// missing, fails the start.
 #[test]
 fn the_bootstrap_files_decide_whether_the_folder_is_ready() {
+    let failed_repo = Some(r#"{"status":"failed"}"#);
     for (status, repo, folder, starts) in [
         (None, None, true, true),
         (Some(DONE), Some(CLONED), true, true),
         (Some(RUNNING), Some(CLONED), true, true),
-        (Some(FAILED_SCRIPT), Some(KEPT), true, false),
-        (Some(FAILED_SCRIPT), None, true, false),
-        (Some(FAILED_REPO), Some(r#"{"status":"failed"}"#), false, false),
+        (Some(FAILED_SCRIPT), Some(KEPT), true, true),
+        (Some(FAILED_SCRIPT), None, true, true),
+        (Some(FAILED_SCRIPT), None, false, false),
+        (Some(FAILED_REPO), failed_repo, false, false),
+        (Some(FAILED_REPO), failed_repo, true, false),
+        (Some(FAILED_REPO), None, true, false),
+        (Some(DONE), Some(CLONED), false, false),
     ] {
         let home = tempfile::tempdir().unwrap();
         let cwd = home.path().join("work/r");
@@ -364,6 +371,50 @@ fn the_bootstrap_files_decide_whether_the_folder_is_ready() {
                 panic!("{status:?} {repo:?} folder {folder}: {other:?} {:?}", fake.ran)
             }
         }
+        fake.assert_clean();
+    }
+}
+
+/// Review of #37248 at 83945375: the repository step's `cloned` is not the folder. A `--cwd` below the
+/// repository that a later bootstrap step makes is waited on until it is there.
+#[test]
+fn a_cloned_repository_without_the_asked_folder_waits_for_the_folder() {
+    let home = tempfile::tempdir().unwrap();
+    let cwd = home.path().join("work/r/app");
+    bootstrap(home.path(), RUNNING, Some(CLONED));
+    let mut fake = ShellFake::new(home.path());
+    let made = cwd.clone();
+    fake.after = Some((2, Box::new(move |_| std::fs::create_dir_all(&made).unwrap())));
+    let cwd = cwd.to_str().unwrap();
+    let Outcome::Done(answer) = run(&mut fake, &repo_start(cwd, "900")) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "ok");
+    // Two checks said busy (no folder yet), the third found it.
+    assert_eq!(fake.ran.len(), 7, "{:?}", fake.ran);
+    assert!(fake.ran[1..4].iter().all(|args| is_folder_check(args, cwd)), "{:?}", fake.ran);
+    assert!(is_start(&fake.ran[4]));
+    fake.assert_clean();
+}
+
+/// Review of #37248 at 33f2ccb6: a `status.json` whose state can't be read (malformed, or a state the
+/// bootstrap never writes) leaves it unknown whether the folder is ready, whatever the repository step
+/// says: asked again to the deadline, never a start.
+#[test]
+fn a_bootstrap_state_that_cannot_be_read_never_trusts_the_repository_step() {
+    for status in [r#"{"state":"paused"}"#, "not json", r#"{"exit_code":0}"#] {
+        let home = tempfile::tempdir().unwrap();
+        let cwd = home.path().join("work/r");
+        std::fs::create_dir_all(&cwd).unwrap();
+        bootstrap(home.path(), status, Some(CLONED));
+        let mut fake = ShellFake::new(home.path());
+        let Outcome::Failed { error, exit } =
+            run(&mut fake, &repo_start(cwd.to_str().unwrap(), "30"))
+        else {
+            panic!("{status}: {:?}", fake.ran)
+        };
+        assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{status}");
+        assert!(no_start(&fake.ran), "{status}: {:?}", fake.ran);
         fake.assert_clean();
     }
 }

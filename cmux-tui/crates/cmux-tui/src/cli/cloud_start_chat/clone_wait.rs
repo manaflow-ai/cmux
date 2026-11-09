@@ -10,12 +10,15 @@
 //! proves nothing while a bootstrap runs (`git clone` makes it before its checkout ends), so it is
 //! ready only when:
 //!
-//! - there is no bootstrap on the machine and the folder is there, or
-//! - the bootstrap did not fail, and its repository step says `cloned`, `updated` or `kept`, or the
-//!   whole bootstrap is `done`.
+//! - the folder is there, and
+//! - there is no bootstrap on the machine, or it is `starting`, `running` or `done` (a state it can't
+//!   read is not known) and its repository step says `cloned`, `updated` or `kept` or the whole
+//!   bootstrap is `done`, or it failed in a step other than the repository's (an optional setup
+//!   script that failed does not keep a chat out of a folder that is there).
 //!
-//! A failed bootstrap (`status.json` `failed`, whatever the repository says) fails the start with its
-//! status and log (`cloud.folder_missing`). A running bootstrap is waited on, on the machine, for at
+//! A bootstrap that failed with the folder missing, or whose repository step failed, fails the start
+//! with its status and log (`cloud.folder_missing`). A finished bootstrap with no folder is a typo like
+//! no bootstrap and no folder (below). A running bootstrap is waited on, on the machine, for at
 //! most [`SLICE_SECONDS`] per exec. Everything that may pass later (a busy, starting or unreachable
 //! machine, a timeout, an answer that can't be read) is asked again within the command's one
 //! [`Deadline`]: past it, or for an answer that comes back past it, the start answers [`out_of_time`].
@@ -65,28 +68,32 @@ pub(super) enum Folder {
     Cloning,
     /// Not known yet (an unknown state, an answer that can't be read): ask again after a pause.
     Again,
-    /// No bootstrap and no folder: missing on an old machine, asked again on a young one ([`YOUNG`]).
+    /// No folder and no bootstrap making it: missing on an old machine, asked again on a young one
+    /// ([`YOUNG`]).
     Absent,
-    /// The bootstrap failed; its status file.
+    /// The bootstrap failed (with the folder missing, or in its repository step); its status file.
     Missing(Value),
 }
 
 /// The script: waits up to `slice` seconds while the bootstrap runs, then prints one of `ready`,
-/// `busy`, `absent` (no bootstrap, no folder), `unknown`, or `ended` and the status file. `cwd` is one
+/// `busy`, `absent` (no folder, no bootstrap making it), `unknown`, or `ended` and the status file. `cwd` is one
 /// single-quoted shell word, whatever it holds.
 pub(super) fn script(cwd: &str, slice: u64) -> String {
     format!(
         "{GUEST_PRELUDE}dir={dir}; b=\"$HOME/{BOOTSTRAP}\"; \
          state() {{ sed -n 's/^{{\"state\":\"\\([a-z_]*\\)\".*/\\1/p' \"$b/status.json\" 2>/dev/null; }}; \
          repo() {{ sed -n 's/^{{\"status\":\"\\([a-z_]*\\)\".*/\\1/p' \"$b/repo-status.json\" 2>/dev/null; }}; \
-         ready() {{ s=$(state); [ \"$s\" = failed ] && return 1; \
+         repo_failed() {{ [ \"$(repo)\" = failed ] || grep -q '\"step\":\"repo\"' \"$b/status.json\" 2>/dev/null; }}; \
+         ready() {{ [ -d \"$dir\" ] || return 1; s=$(state); \
+         case \"$s\" in starting|running|done) ;; failed) ! repo_failed; return;; *) return 1;; esac; \
          case \"$(repo)\" in cloned|updated|kept) return 0;; esac; [ \"$s\" = done ]; }}; \
          busy() {{ case \"$(state)\" in starting|running) return 0;; esac; return 1; }}; \
          i=0; while [ -f \"$b/status.json\" ] && ! ready && busy && [ \"$i\" -lt {slice} ]; do sleep 1; i=$((i+1)); done; \
          if [ ! -f \"$b/status.json\" ]; then if [ -d \"$dir\" ]; then echo ready; else echo absent; fi; \
-         elif [ \"$(state)\" = failed ]; then echo ended; cat \"$b/status.json\"; \
          elif ready; then echo ready; \
+         elif [ \"$(state)\" = failed ]; then echo ended; cat \"$b/status.json\"; \
          elif busy; then echo busy; \
+         elif [ \"$(state)\" = done ]; then echo absent; \
          else echo unknown; fi",
         dir = shell_quote(cwd),
     )
