@@ -1094,6 +1094,7 @@ def test_pbx_list_ids_rejects_present_malformed_optional_lists() -> None:
 def test_macos_ios_package_closure_matches_current_desktop_graph() -> None:
     assert module.macos_ios_package_closure(ROOT) == frozenset(
         {
+            "Packages/iOS/CmuxConversation",
             "Packages/iOS/CmuxMobileDiagnostics",
             "Packages/iOS/CmuxMobilePairedMac",
             "Packages/iOS/CmuxMobileRPC",
