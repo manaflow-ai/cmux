@@ -1267,7 +1267,7 @@ fn finish_notification_effect(
                 mux,
                 idempotency_key,
                 "notification.create",
-                "an earlier attempt with this key has an indeterminate outcome",
+                crate::resource_api::EARLIER_ATTEMPT_CAUSE,
             );
             Err(indeterminate_error(idempotency_key, "notification.create"))
         }

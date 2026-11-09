@@ -220,6 +220,7 @@ fn resolve_local_open_preparation(
             ResourceEffectOutcome::Failure(error) => Err(error),
         },
         ResourceEffectPreparation::Indeterminate => {
+            mux.report_resource_effect_indeterminate(key, "session.open", EARLIER_ATTEMPT_CAUSE);
             Err(local_indeterminate_error(key, "session.open"))
         }
         ResourceEffectPreparation::Execute { .. } => {
@@ -237,7 +238,12 @@ fn resolve_local_open_preparation(
                     &outcome,
                     Some(&json!([])),
                 )
-                .map_err(|_| {
+                .map_err(|error| {
+                    mux.report_resource_effect_indeterminate(
+                        key,
+                        "session.open",
+                        &format!("the outcome commit failed: {error:#}"),
+                    );
                     let _ = mux.mark_resource_effect_indeterminate(key);
                     local_indeterminate_error(key, "session.open")
                 })?;
@@ -260,6 +266,11 @@ fn local_mutation_result(
         "replayed":replayed,
     }))
 }
+
+/// Cause logged when a request replays a key whose earlier attempt left an
+/// indeterminate outcome.
+pub(crate) const EARLIER_ATTEMPT_CAUSE: &str =
+    "an earlier attempt with this key has an indeterminate outcome";
 
 fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
     ResourceError::new(
@@ -1359,5 +1370,53 @@ mod tests {
         T: serde::de::DeserializeOwned,
     {
         serde_json::from_value(json!(format!("{prefix}_{value:032x}"))).unwrap()
+    }
+
+    #[test]
+    fn an_indeterminate_session_open_reports_its_cause_to_the_daemon_log() {
+        let mux = Mux::new_for_test("dev", SurfaceOptions::default());
+        let diagnostics = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        let context = mux.local_resource_context().unwrap();
+        let service = LocalResourceMachineService::new(Arc::downgrade(&mux));
+        let request = ResourceMachineRequest {
+            operation: ResourceOperation::SessionOpen,
+            selectors: ResourceSelectors {
+                machine: Some(context.machine_id.to_string()),
+                session: Some(context.session_id.to_string()),
+                ..Default::default()
+            },
+            fields: Map::new(),
+            idempotency_key: Some("session-open-cause".to_string()),
+        };
+        mux.reject_resource_effect_commits_for_test();
+
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+
+        let diagnostics = diagnostics.lock().unwrap().clone();
+        let reports = |cause: &str| {
+            diagnostics
+                .iter()
+                .filter(|message| {
+                    message.contains("session.open")
+                        && message.contains("session-open-cause")
+                        && message.contains(cause)
+                })
+                .count()
+        };
+        assert_eq!(
+            reports("injected outcome commit failure"),
+            1,
+            "the daemon log has no cause for the indeterminate open: {diagnostics:?}"
+        );
+        assert_eq!(
+            reports("an earlier attempt"),
+            1,
+            "the daemon log has no cause for the indeterminate replay: {diagnostics:?}"
+        );
     }
 }

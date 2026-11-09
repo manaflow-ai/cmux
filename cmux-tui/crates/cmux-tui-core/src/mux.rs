@@ -6969,6 +6969,21 @@ impl Mux {
         Ok(())
     }
 
+    /// Records why a resource effect's outcome is unknown. A
+    /// `mutation.indeterminate` response carries no cause, so this log line is
+    /// the only evidence of it. `cause` must not hold raw transport text that
+    /// can name private sockets or credentials.
+    pub(crate) fn report_resource_effect_indeterminate(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        cause: &str,
+    ) {
+        self.report_internal_diagnostic(format!(
+            "resource effect {operation} (idempotency key {idempotency_key}) is indeterminate: {cause}"
+        ));
+    }
+
     /// Sends a diagnostic to the frontend-owned sink without writing to a
     /// frontend terminal. One message is retained when startup races sink
     /// installation.
@@ -11241,6 +11256,11 @@ impl Mux {
             &outcome,
             Some(&deltas),
         ) {
+            self.report_resource_effect_indeterminate(
+                idempotency_key,
+                OPERATION,
+                &format!("the outcome commit failed: {error:#}"),
+            );
             let _ = self.mark_resource_effect_indeterminate(idempotency_key);
             return Err(error.context("notification effect commit failed"));
         }
