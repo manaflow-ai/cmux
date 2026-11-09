@@ -281,7 +281,7 @@ export function keptEvents(events: EventRecord[]): { start: number; events: Even
 /// with the whole run's text, its `seq` and `at` (the row the chat draws is named and timed by
 /// them), and `coalescedThrough` naming the run's last seq, so the chat reads on after it and a
 /// page that holds the run's chunks again adds none of them (direct.ts `mergeEventRecords`).
-function coalesceStreamed(events: EventRecord[]): EventRecord[] {
+export function coalesceStreamed(events: EventRecord[]): EventRecord[] {
   const out: EventRecord[] = [];
   let runKey: string | undefined;
   let texts: string[] = [];

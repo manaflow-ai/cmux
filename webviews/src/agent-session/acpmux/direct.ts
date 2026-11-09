@@ -1172,16 +1172,18 @@ export function settleOptimisticPrompt(
 }
 
 export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
-  const bySequence = new Map<number, EventRecord>();
-  for (const event of batches.flat()) {
-    // A kept tail's coalesced run stands for its chunks: the run's first chunk read again (an
-    // attach page, an older page) never takes its place, or the rest of the run's text is lost.
-    if (bySequence.get(event.seq)?.coalescedThrough !== undefined && event.coalescedThrough === undefined) continue;
-    bySequence.set(event.seq, event);
-  }
-  const merged = [...bySequence.values()].sort((left, right) => left.seq - right.seq);
-  if (!merged.some((event) => event.coalescedThrough !== undefined)) return merged;
-  // The run's other chunks, read again, are in it already: kept, they would draw its text twice.
+  const raw = new Map<number, EventRecord>();
+  const joined = new Map<number, EventRecord>();
+  for (const event of batches.flat()) (event.coalescedThrough === undefined ? raw : joined).set(event.seq, event);
+  if (joined.size === 0) return [...raw.values()].sort((left, right) => left.seq - right.seq);
+  // A kept tail's joined run of one message's chunks (tailCache.ts `keptEvents`) stands for its
+  // chunks until acpmux's own records of the run's start come: a page holds every record after its
+  // oldest, so it holds the whole run, which is the authority (a chunk the tail missed live is in
+  // it). A page that starts inside the run leaves the joined record in place, and its chunks inside
+  // the run are in it already: kept, they would draw its text twice.
+  const merged = [...raw.values(), ...[...joined.values()].filter((run) => !raw.has(run.seq))].sort(
+    (left, right) => left.seq - right.seq,
+  );
   let coveredThrough = -Infinity;
   return merged.filter((event) => {
     if (event.coalescedThrough !== undefined) {
