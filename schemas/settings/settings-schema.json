@@ -604,8 +604,6 @@
               "sidebar.controlsOnHover",
               "sidebar.minimal",
               "sidebar.style",
-              "sidebar.density",
-              "sidebar.textSize",
               "workspaceColors.indicatorStyle",
               "sidebar.minimalMode",
               "sidebar.side"
@@ -617,6 +615,21 @@
           },
           {
             "key" : "appearance.9",
+            "rows" : [
+              "sidebar.density",
+              "sidebar.textSize",
+              "sidebar.titleSize",
+              "sidebar.detailSize",
+              "sidebar.rowHeight",
+              "sidebar.rowPadding"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarSizes",
+              "text" : "Sidebar Sizes"
+            }
+          },
+          {
+            "key" : "appearance.10",
             "rows" : [
               "workspaces.newPlacement",
               "workspaces.autoName",
@@ -640,7 +653,7 @@
             }
           },
           {
-            "key" : "appearance.10",
+            "key" : "appearance.11",
             "rows" : [
               "sidebar.workspacesAsTabs",
               "sidebar.chromeGroups",
@@ -655,7 +668,7 @@
             }
           },
           {
-            "key" : "appearance.11",
+            "key" : "appearance.12",
             "rows" : [
               "sidebar.showSpaces",
               "sidebar.spacesPosition",
@@ -674,7 +687,7 @@
             }
           },
           {
-            "key" : "appearance.12",
+            "key" : "appearance.13",
             "rows" : [
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
@@ -692,7 +705,7 @@
             }
           },
           {
-            "key" : "appearance.13",
+            "key" : "appearance.14",
             "rows" : [
               "sidebar.hoverCards.groups.workspaceGroups",
               "sidebar.hoverCards.groups.tabGroups",
@@ -774,7 +787,7 @@
             }
           },
           {
-            "key" : "appearance.17",
+            "key" : "appearance.18",
             "rows" : [
               "appearance.surfaces.sidebar.color",
               "appearance.surfaces.sidebar.opacity",
@@ -793,7 +806,7 @@
             }
           },
           {
-            "key" : "appearance.18",
+            "key" : "appearance.19",
             "rows" : [
               "appearance.surfaces.diff.color",
               "appearance.surfaces.diff.opacity",
@@ -59965,6 +59978,7 @@
     {
       "accepts" : [
         "compact",
+        "normal",
         "comfortable",
         "expanded"
       ],
@@ -59977,6 +59991,13 @@
             "text" : "Compact"
           },
           "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.normal",
+            "text" : "Normal"
+          },
+          "value" : "normal"
         },
         {
           "title" : {
@@ -59996,7 +60017,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "compact",
+      "default" : "normal",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -60004,7 +60025,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Normal rows match the Codex app's sidebar. Compact rows are smaller and closer together. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -60012,6 +60033,7 @@
         "sidebar",
         "density",
         "expanded",
+        "normal",
         "compact",
         "comfortable",
         "rows",
@@ -60128,19 +60150,26 @@
     },
     {
       "accepts" : [
-        "default",
-        "large",
-        "larger"
+        "small",
+        "medium",
+        "large"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.default",
-            "text" : "Default"
+            "key" : "settings.choice.sidebarTextSmall",
+            "text" : "Small"
           },
-          "value" : "default"
+          "value" : "small"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarTextMedium",
+            "text" : "Medium"
+          },
+          "value" : "medium"
         },
         {
           "title" : {
@@ -60148,19 +60177,12 @@
             "text" : "Large"
           },
           "value" : "large"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.sidebarTextLarger",
-            "text" : "Larger"
-          },
-          "value" : "larger"
         }
       ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "default",
+      "default" : "small",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -60168,7 +60190,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.textSize.help",
-        "text" : "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."
+        "text" : "Sizes the sidebar's names, headers, icons and rows together. Small, the default, matches the Codex app's sidebar; Medium matches the ChatGPT app's."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.textSize",
@@ -60179,11 +60201,14 @@
         "font",
         "bigger",
         "larger",
+        "small",
+        "medium",
         "large",
         "zoom",
         "readable",
         "accessibility",
         "chatgpt",
+        "codex",
         "rows"
       ],
       "kind" : "choice",
@@ -60288,6 +60313,600 @@
       "title" : {
         "key" : "settings.sidebar.textSize",
         "text" : "Sidebar Text Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        9,
+        24,
+        16.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.titleSize.help",
+        "text" : "The size of workspace names in the sidebar, in points. Empty follows the density and text size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.titleSize",
+      "keywords" : [
+        "sidebar",
+        "title",
+        "name",
+        "text",
+        "font",
+        "size",
+        "custom",
+        "points"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "titleSize"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 24,
+        "min" : 9,
+        "placeholder" : 13,
+        "step" : 0.5,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -6,
+        39,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.titleSize"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.titleSize",
+        "text" : "Sidebar Title Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        8,
+        20,
+        14
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.detailSize.help",
+        "text" : "The size of the lines under workspace names and of listed tabs, in points. Empty follows the density and text size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.detailSize",
+      "keywords" : [
+        "sidebar",
+        "detail",
+        "subtitle",
+        "second line",
+        "tabs",
+        "text",
+        "font",
+        "size",
+        "custom",
+        "points"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "detailSize"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 20,
+        "min" : 8,
+        "placeholder" : 12,
+        "step" : 0.5,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -4,
+        32,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.detailSize"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.detailSize",
+        "text" : "Sidebar Detail Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        16,
+        56,
+        36
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.rowHeight.help",
+        "text" : "The height of a one-line sidebar row, in points. Rows sit 2 points apart. Empty follows the density and text size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.rowHeight",
+      "keywords" : [
+        "sidebar",
+        "row",
+        "height",
+        "spacing",
+        "taller",
+        "shorter",
+        "custom",
+        "points"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "rowHeight"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 56,
+        "min" : 16,
+        "placeholder" : 28,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        96,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.rowHeight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.rowHeight",
+        "text" : "Sidebar Row Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        24,
+        12
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.rowPadding.help",
+        "text" : "The space at the left and right of sidebar rows, in points. Empty follows the density."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.rowPadding",
+      "keywords" : [
+        "sidebar",
+        "row",
+        "padding",
+        "inset",
+        "margin",
+        "indent",
+        "custom",
+        "points"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "rowPadding"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 24,
+        "min" : 0,
+        "placeholder" : 8,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        48,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.rowPadding"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.rowPadding",
+        "text" : "Sidebar Row Padding"
       },
       "validation" : "portable"
     },

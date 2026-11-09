@@ -1,14 +1,21 @@
 public import CmuxNextDesignTokens
 public import CoreGraphics
 
-/// The sidebar's row tokens under `sidebar.density` and `sidebar.textSize` (cx-13w3), from the
-/// app's density tokens: the one place the sidebar's rows (SidebarDensityTokens) and its cards
+/// The sidebar's row tokens under `sidebar.density`, `sidebar.textSize` and the person's own sizes
+/// (cx-13w3): the one place the sidebar's rows (SidebarDensityTokens) and its cards
 /// (``SidebarCardMetrics``, the Updated card's page through ``WebTheme``) read row height, inset,
-/// corner and text size. Compact and Expanded keep the app tokens; Comfortable adds `space2` to a
-/// row and steps the inset from `space3` to `space4`. Pure, so a test lays out every density.
+/// corner and text size. Pure, so a test lays out every density.
+///
+/// Normal, the default, is the Codex desktop sidebar (https://github.com/manaflow-ai/cmux/issues/28793):
+/// 13 pt titles at weight 430, 12 pt details, a 28 pt row on a 30 pt pitch, an 8 pt inset. Compact is the
+/// sidebar from before it, kept exactly: the app's row, `Typography.body` and caption, a 6 pt inset.
+/// Comfortable is Normal with more room (`space2` taller rows, the wider icon box, bigger section gaps) on
+/// the grid's same 8 pt inset (leo-workspace design/grid.md). Expanded keeps Normal's
+/// one-line tokens. A custom size (`sidebar.titleSize`, `detailSize`, `rowHeight`, `rowPadding`) wins.
 public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     /// The app density's tokens the sidebar builds on.
     public struct Base: Equatable, Sendable {
+        /// The app's one-line sidebar row (`Metrics.sidebarRowHeight`): Compact's row.
         public var rowHeight: CGFloat
         public var space1: CGFloat
         public var space2: CGFloat
@@ -16,12 +23,25 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
         public var space4: CGFloat
         /// `Metrics.itemCornerRadius`: every row fill's corner.
         public var cornerRadius: CGFloat
-        /// The body and caption text sizes (`Typography.body`, `Typography.caption`).
+        /// The body and caption text sizes (`Typography.body`, `Typography.caption`): Compact's text.
         public var body: CGFloat
         public var caption: CGFloat
+        /// The list's Codex row (`Metrics.sidebarListRowHeight`) and text (`Typography.sidebarRow`,
+        /// `Typography.sidebarDetail`) every other density builds on.
+        public var listRowHeight: CGFloat
+        public var rowTitle: CGFloat
+        public var rowDetail: CGFloat
+        /// The person's own sizes, already scaled to the Interface Size; nil leaves each to the density.
+        public var customRowHeight: CGFloat?
+        public var customRowPadding: CGFloat?
+        public var customTitle: CGFloat?
+        public var customDetail: CGFloat?
 
+        /// The Codex sizes default to Compact's when not given, so a base built for Compact alone reads as before.
         public init(rowHeight: CGFloat, space1: CGFloat, space2: CGFloat, space3: CGFloat, space4: CGFloat,
-                    cornerRadius: CGFloat, body: CGFloat, caption: CGFloat) {
+                    cornerRadius: CGFloat, body: CGFloat, caption: CGFloat, listRowHeight: CGFloat? = nil,
+                    rowTitle: CGFloat? = nil, rowDetail: CGFloat? = nil, customRowHeight: CGFloat? = nil,
+                    customRowPadding: CGFloat? = nil, customTitle: CGFloat? = nil, customDetail: CGFloat? = nil) {
             self.rowHeight = rowHeight
             self.space1 = space1
             self.space2 = space2
@@ -30,6 +50,13 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
             self.cornerRadius = cornerRadius
             self.body = body
             self.caption = caption
+            self.listRowHeight = listRowHeight ?? rowHeight
+            self.rowTitle = rowTitle ?? body
+            self.rowDetail = rowDetail ?? caption
+            self.customRowHeight = customRowHeight
+            self.customRowPadding = customRowPadding
+            self.customTitle = customTitle
+            self.customDetail = customDetail
         }
     }
 
@@ -44,22 +71,33 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     }
 
     public var isComfortable: Bool { density == .comfortable }
+    /// Compact: the sidebar from before Normal, on the app's row and type.
+    public var isCompact: Bool { density == .compact }
+    /// The text size's steps over this density's sizes.
+    public var textSteps: SidebarTextSize.Steps { textSize.steps(compact: isCompact) }
     /// A comfortable row's extra height, plus the text size's.
-    public var extraHeight: CGFloat { (isComfortable ? base.space2 : 0) + textSize.rowStep }
-    /// A one-line workspace row, group header or band row.
-    public var rowHeight: CGFloat { base.rowHeight + extraHeight }
+    public var extraHeight: CGFloat { (isComfortable ? base.space2 : 0) + textSteps.row }
+    /// A one-line workspace row, group header or band row: `sidebar.rowHeight` when set.
+    public var rowHeight: CGFloat {
+        if let custom = base.customRowHeight { return custom }
+        return (isCompact ? base.rowHeight : base.listRowHeight) + extraHeight
+    }
     /// The tokens of the bands above the list (Home, pinned rows) and of the workspace hover card: at
-    /// Expanded, Comfortable's, since Expanded keeps the app's one-line row and grows only the list's
-    /// workspace rows by a detail line (pinned rows were too short, Lawrence 2026-11-04). Compact and
-    /// Comfortable keep their own.
+    /// Expanded, Comfortable's, since Expanded keeps the one-line row and grows only the list's
+    /// workspace rows by a detail line (pinned rows were too short, Lawrence 2026-11-04). Compact,
+    /// Normal and Comfortable keep their own.
     public var band: SidebarRowTokens {
         density == .expanded ? SidebarRowTokens(density: .comfortable, textSize: textSize, base: base) : self
     }
-    /// Rows inset from the sidebar edge, and their content from the row edge.
-    public var horizontalInset: CGFloat { isComfortable ? base.space4 : base.space3 }
-    /// A row title's and a detail line's text size.
-    public var titleSize: CGFloat { base.body + textSize.textStep }
-    public var captionSize: CGFloat { base.caption + textSize.textStep }
+    /// Rows inset from the sidebar edge, and their content from the row edge: `sidebar.rowPadding` when set;
+    /// else Codex's 8 pt `--padding-row-x` (the grid's comfortable inset too), 6 pt at Compact.
+    public var horizontalInset: CGFloat {
+        if let custom = base.customRowPadding { return custom }
+        return isCompact ? base.space3 : base.space4
+    }
+    /// A row title's and a detail line's text size: `sidebar.titleSize` / `sidebar.detailSize` when set.
+    public var titleSize: CGFloat { base.customTitle ?? ((isCompact ? base.body : base.rowTitle) + textSteps.text) }
+    public var captionSize: CGFloat { base.customDetail ?? ((isCompact ? base.caption : base.rowDetail) + textSteps.text) }
 
     /// The sidebar's cards at this density: the rows' inset and text, a title line's room above and
     /// below it as a row gives its text, a button one row tall less the rows' gap, the rows' corner
@@ -78,7 +116,13 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
         let sections = DesignSettings.shared.sidebarSections
         let base = Base(rowHeight: Metrics.sidebarRowHeight, space1: Metrics.space1, space2: Metrics.space2,
                         space3: Metrics.space3, space4: Metrics.space4, cornerRadius: Metrics.itemCornerRadius,
-                        body: Typography.body.pointSize, caption: Typography.caption.pointSize)
+                        body: Typography.body.pointSize, caption: Typography.caption.pointSize,
+                        listRowHeight: Metrics.sidebarListRowHeight, rowTitle: Typography.sidebarRow.pointSize,
+                        rowDetail: Typography.sidebarDetail.pointSize,
+                        customRowHeight: sections.rowHeight.map { Metrics.scale($0) },
+                        customRowPadding: sections.rowPadding.map { Metrics.scale($0) },
+                        customTitle: sections.titleSize.map { $0 * Typography.userScale },
+                        customDetail: sections.detailSize.map { $0 * Typography.userScale })
         return SidebarRowTokens(density: sections.density, textSize: sections.textSize, base: base)
     }
 }

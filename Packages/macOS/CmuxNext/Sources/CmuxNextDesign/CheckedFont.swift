@@ -63,10 +63,35 @@ enum CheckedFont {
 
     private static func fresh(_ design: Typography.Design, size: CGFloat, weight: NSFont.Weight) -> NSFont {
         switch design {
-        case .default: .systemFont(ofSize: size, weight: weight)
+        case .default: between(size: size, weight: weight) ?? .systemFont(ofSize: size, weight: weight)
         case .monospaced: .monospacedSystemFont(ofSize: size, weight: weight)
         case .monospacedDigit: .monospacedDigitSystemFont(ofSize: size, weight: weight)
         }
+    }
+
+    /// The named weights a weight between two of them is drawn from, with their CSS weights.
+    private static let namedWeights: [(weight: NSFont.Weight, css: CGFloat)] = [
+        (.regular, 400), (.medium, 500), (.semibold, 600), (.bold, 700),
+    ]
+    /// The `wght` variation axis's tag.
+    private static let weightAxis = NSNumber(value: 0x7767_6874 as UInt32)
+
+    /// A weight between two named ones (`TypeScale.sidebar`, the Codex sidebar's 430, issue 28793):
+    /// `systemFont(ofSize:weight:)` draws only the named faces and rounds such a weight up to the next
+    /// (430 drew as medium), so the system font's `wght` axis is set to the CSS weight the share of the
+    /// way between them. A font without the axis draws the lighter named face. Nil for a named weight.
+    static func between(size: CGFloat, weight: NSFont.Weight) -> NSFont? {
+        guard !namedWeights.contains(where: { $0.weight == weight }),
+              let high = namedWeights.firstIndex(where: { $0.weight.rawValue > weight.rawValue }), high > 0 else { return nil }
+        let (lower, upper) = (namedWeights[high - 1], namedWeights[high])
+        guard weight.rawValue > lower.weight.rawValue else { return nil }
+        let share = (weight.rawValue - lower.weight.rawValue) / (upper.weight.rawValue - lower.weight.rawValue)
+        let css = (lower.css + share * (upper.css - lower.css)).rounded()
+        let base = NSFont.systemFont(ofSize: size, weight: lower.weight)
+        let axes = CTFontCopyVariationAxes(base) as? [[CFString: Any]] ?? []
+        guard axes.contains(where: { ($0[kCTFontVariationAxisIdentifierKey] as? NSNumber) == weightAxis }) else { return base }
+        let descriptor = base.fontDescriptor.addingAttributes([.variation: [weightAxis: NSNumber(value: Double(css))]])
+        return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
     /// `font` as an optional, so a null reference from a non-optional

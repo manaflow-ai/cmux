@@ -43,6 +43,8 @@ extension SettingsController {
     public func runLaunchMigrations(marker: UserDefaults) async {
         // `app.quitBehavior: "end"` (first release) is now "end-keep-layout"; "ask" (the removed quit alert) goes.
         _ = try? await migrateLegacyQuitBehavior()
+        // The first `sidebar.textSize` values become their size, and a Compact pick the pass below once dropped comes back.
+        _ = try? await migrateLegacySidebarSizes()
         _ = try? await migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
         _ = try? await migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
         // Classic cmux keys next reads under another name (`ClassicSettingRename`).

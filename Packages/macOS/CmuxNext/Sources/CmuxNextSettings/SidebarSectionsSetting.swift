@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CoreGraphics
 
 /// Parses the sidebar section settings (`sidebar.*` in cmux.json). A
 /// missing key is its default; a bad value is the default plus a diagnostic.
@@ -74,7 +75,20 @@ public nonisolated enum SidebarSectionsSetting {
         result.priorityViewShown = flag(root, priority.shownPath, fallback: priority.shownDefault, &diagnostics)
         result.groupBy = ColumnLayoutSettings.choice(root, groupByPath, fallback: groupByDefault, diagnostics: &diagnostics)
         result.density = ColumnLayoutSettings.choice(root, densityPath, fallback: densityDefault, diagnostics: &diagnostics)
-        result.textSize = ColumnLayoutSettings.choice(root, textSizePath, fallback: textSizeDefault, diagnostics: &diagnostics)
+        result.textSize = textSizeDefault
+        if let value = root.value(at: textSizePath) {
+            // SidebarTextSize(setting:) also reads the first setting's "default" and "larger".
+            if let text = value.stringValue, let size = SidebarTextSize(setting: text) {
+                result.textSize = size
+            } else {
+                let choices = SidebarTextSize.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.textSize", message: "expected one of " + choices))
+            }
+        }
+        result.titleSize = size(root, titleSizePath, titleSizeRange, &diagnostics)
+        result.detailSize = size(root, detailSizePath, detailSizeRange, &diagnostics)
+        result.rowHeight = size(root, rowHeightPath, rowHeightRange, &diagnostics)
+        result.rowPadding = size(root, rowPaddingPath, rowPaddingRange, &diagnostics)
         result.style = ColumnLayoutSettings.choice(root, stylePath, fallback: styleDefault, diagnostics: &diagnostics)
         result.showChats = flag(root, showChatsPath, fallback: showChatsDefault, &diagnostics)
         return result
@@ -89,6 +103,18 @@ public nonisolated enum SidebarSectionsSetting {
         return flag
     }
 
+    /// A custom size in points at `path`: nil when absent, or (with a diagnostic) when it is not a number in `range`.
+    private static func size(_ root: JSONValue, _ path: [String], _ range: ClosedRange<Double>,
+                             _ diagnostics: inout [SettingsDiagnostic]) -> CGFloat? {
+        guard let value = root.value(at: path) else { return nil }
+        guard let number = value.doubleValue, range.contains(number) else {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."),
+                                                  message: "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound))"))
+            return nil
+        }
+        return CGFloat(number)
+    }
+
     private static func share(_ root: JSONValue, _ path: [String], _ name: String, fallback: Double, range: ClosedRange<Double>,
                               _ diagnostics: inout [SettingsDiagnostic]) -> Double {
         guard let value = root.value(at: path) else { return fallback }
@@ -98,5 +124,52 @@ public nonisolated enum SidebarSectionsSetting {
             return fallback
         }
         return number
+    }
+}
+
+extension SettingsController {
+    /// The record beside the file that marks ``migrateLegacySidebarSizes()`` ran on it, for every build on the Mac
+    /// (cmux-next.json is shared by NIGHTLY, RC and each tagged DEV build), and keeps what it wrote.
+    static let sidebarSizesMigratedRecordSuffix = "sidebar-sizes-migrated.json"
+
+    /// The first `sidebar.textSize` values (2026-10-30) as the size they look closest to: "default" is the Codex
+    /// size; "large" (one point up) and "larger" (the ChatGPT size) are Medium. The new Large took the raw "large",
+    /// so a "large" written before this pass would otherwise grow two steps (review of issue 28793's port).
+    nonisolated static let legacySidebarTextSizes: [String: SidebarTextSize] = ["default": .small, "large": .medium, "larger": .medium]
+
+    /// Once per settings file, before any build with Normal changes it: rewrites the first `sidebar.textSize`
+    /// values as their size (``legacySidebarTextSizes``), and puts back a `sidebar.density: "compact"` that
+    /// ``forgetStoredDefaults(marker:)`` dropped while Compact was the default, so a person who picked Compact keeps
+    /// it now that Normal is (its record beside the file lists what it dropped). A managed key gets no edit; a
+    /// density set since stays. The record goes beside the file first, so a later "large" keeps its new meaning even
+    /// if the write fails. Returns what it wrote, or nil when the pass already ran on this file.
+    @discardableResult
+    public func migrateLegacySidebarSizes() async throws -> [String: JSONValue]? {
+        let suffix = Self.sidebarSizesMigratedRecordSuffix
+        guard !(await file.hasRecordBeside(suffix: suffix)) else { return nil }
+        let root = try await file.document()
+        var writes: [(path: [String], value: JSONValue)] = []
+        let sizePath = SidebarSectionsSetting.textSizePath
+        if managedKeys[sizePath.joined(separator: ".")] == nil, let raw = root.value(at: sizePath)?.stringValue,
+           let size = Self.legacySidebarTextSizes[raw] {
+            writes.append((sizePath, .string(size.rawValue)))
+        }
+        let densityPath = SidebarSectionsSetting.densityPath, densityKey = densityPath.joined(separator: ".")
+        let compact = JSONValue.string(SidebarDensity.compact.rawValue)
+        if managedKeys[densityKey] == nil, root.value(at: densityPath) == nil,
+           let dropped = (try? await file.readBeside(suffix: Self.storedDefaultsForgottenRecordSuffix))
+               .flatMap({ try? JSONC.parse($0) })?["dropped"]?[densityKey], dropped == compact {
+            writes.append((densityPath, compact))
+        }
+        let wrote = Dictionary(uniqueKeysWithValues: writes.map { ($0.path.joined(separator: "."), $0.value) })
+        let record: JSONValue = .object([
+            "note": .string("cmux rewrote these sidebar settings once for the Normal density and the Small | Medium | Large text sizes."),
+            "wrote": .object(wrote),
+        ])
+        try await file.writeBeside(suffix: suffix, text: record.prettyText() + "\n")
+        guard !writes.isEmpty else { return [:] }
+        for write in writes { try await file.set(write.value, at: write.path) }
+        await reloadAfterWrite()
+        return wrote
     }
 }

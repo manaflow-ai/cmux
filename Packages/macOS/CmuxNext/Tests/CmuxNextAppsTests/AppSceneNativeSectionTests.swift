@@ -73,7 +73,7 @@ import Testing
         #expect(title.textColor == root.performWithTheme { Palette.textPrimary })
         // The text column starts where a workspace row's does: inset, icon column, the grid's gap.
         let iconColumn = max(tokens.isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox,
-                             Metrics.smallIconSize + tokens.textSize.glyphStep + Metrics.space2)
+                             Metrics.smallIconSize + tokens.textSteps.glyph + Metrics.space2)
         let textX = title.convert(NSPoint.zero, to: one).x
         #expect(abs(textX - (2 * tokens.horizontalInset + iconColumn + LayoutGrid.gap)) < 2.5)
     }

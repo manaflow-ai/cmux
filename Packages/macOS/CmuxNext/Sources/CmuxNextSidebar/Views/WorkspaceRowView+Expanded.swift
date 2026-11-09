@@ -64,7 +64,7 @@ extension WorkspaceRowView {
     func layoutTextLines(x: CGFloat, inset: CGFloat, titleWidth: CGFloat, width: CGFloat, head b: NSRect,
                          top: CGFloat, title th: CGFloat, line sh: CGFloat) {
         title.frame = NSRect(x: x + inset, y: top, width: titleWidth, height: th)
-        let lineWidth = isExpanded ? max(0, b.width - Metrics.space3 - x) : width
+        let lineWidth = isExpanded ? max(0, b.width - SidebarStyle.horizontalInset - x) : width
         // The second and meta lines stack under the title's line box, so a two-line row keeps a one-line row's room
         // below its last line (Leo 2026-10-20, `SidebarRowLineSpacingTests`). Stepping them by the title's capital
         // center instead put the second line about a point lower and ate that room.

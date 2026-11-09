@@ -29,8 +29,8 @@ import Testing
         }
     }
 
-    nonisolated static let columns = [SidebarStatesPlaygroundColumn(density: .compact, textSize: .standard),
-                          SidebarStatesPlaygroundColumn(density: .expanded, textSize: .larger)]
+    nonisolated static let columns = [SidebarStatesPlaygroundColumn(density: .compact, textSize: .small),
+                          SidebarStatesPlaygroundColumn(density: .expanded, textSize: .medium)]
 
     @Test func everyRequestedStateIsAPlaygroundRow() {
         let shown = Set(SidebarStatesPlaygroundState.allCases)

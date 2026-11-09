@@ -88,6 +88,8 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.focusRing"),
             // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384).
             GroupSpec(group: "settings.group.sidebar"),
+            // The sidebar's density, text size and the person's own sizes in one card (2026-11-02).
+            GroupSpec(keys: ["sidebar.density", "sidebar.textSize", "sidebar.titleSize", "sidebar.detailSize", "sidebar.rowHeight", "sidebar.rowPadding"], title: SettingsText.keyed("settings.pageGroup.sidebarSizes", "Sidebar Sizes")),
             GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
             // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.
             GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.floatOnHover"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),

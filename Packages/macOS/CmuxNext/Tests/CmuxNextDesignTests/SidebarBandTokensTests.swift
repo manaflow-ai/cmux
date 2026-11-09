@@ -12,7 +12,7 @@ import Testing
     static let base = SidebarRowTokens.Base(rowHeight: 24, space1: 2, space2: 4, space3: 6, space4: 8,
                                             cornerRadius: 6, body: 12, caption: 10.5)
 
-    static func tokens(_ density: SidebarDensity, _ text: SidebarTextSize = .standard) -> SidebarRowTokens {
+    static func tokens(_ density: SidebarDensity, _ text: SidebarTextSize = .small) -> SidebarRowTokens {
         SidebarRowTokens(density: density, textSize: text, base: base)
     }
 
@@ -37,6 +37,7 @@ import Testing
 
     @Test func expandedListRowsKeepTheAppRow() {
         #expect(Self.tokens(.expanded).rowHeight == 24)
-        #expect(Self.tokens(.expanded).horizontalInset == 6)
+        // Expanded keeps Normal's one-line tokens: the 8 pt Codex inset (Compact's is 6).
+        #expect(Self.tokens(.expanded).horizontalInset == 8)
     }
 }

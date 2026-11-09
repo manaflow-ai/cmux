@@ -23,7 +23,7 @@ nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
         self.faviconStyle = faviconStyle
     }
 
-    /// Every density at every text size: compact (default, large, larger), then comfortable, then expanded.
+    /// Every density at every text size: compact (small, medium, large), then normal, comfortable and expanded.
     static var all: [SidebarStatesPlaygroundColumn] {
         SidebarDensity.allCases.flatMap { density in SidebarTextSize.allCases.map { Self(density: density, textSize: $0) } }
     }
@@ -43,6 +43,7 @@ nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
     static func title(_ density: SidebarDensity) -> String {
         switch density {
         case .compact: String(localized: "sidebar.statesPlayground.density.compact", defaultValue: "Compact", bundle: .module)
+        case .normal: String(localized: "sidebar.statesPlayground.density.normal", defaultValue: "Normal", bundle: .module)
         case .comfortable:
             String(localized: "sidebar.statesPlayground.density.comfortable", defaultValue: "Comfortable", bundle: .module)
         case .expanded: String(localized: "sidebar.statesPlayground.density.expanded", defaultValue: "Expanded", bundle: .module)
@@ -67,9 +68,9 @@ nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
 
     static func title(_ size: SidebarTextSize) -> String {
         switch size {
-        case .standard: String(localized: "sidebar.statesPlayground.textSize.default", defaultValue: "Default text", bundle: .module)
+        case .small: String(localized: "sidebar.statesPlayground.textSize.small", defaultValue: "Small text", bundle: .module)
+        case .medium: String(localized: "sidebar.statesPlayground.textSize.medium", defaultValue: "Medium text", bundle: .module)
         case .large: String(localized: "sidebar.statesPlayground.textSize.large", defaultValue: "Large text", bundle: .module)
-        case .larger: String(localized: "sidebar.statesPlayground.textSize.larger", defaultValue: "Larger text", bundle: .module)
         }
     }
 }

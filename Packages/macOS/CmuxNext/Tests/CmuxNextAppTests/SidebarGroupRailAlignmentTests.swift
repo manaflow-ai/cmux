@@ -14,7 +14,7 @@ import Testing
         var minimal: SidebarMinimalMode
         var scenario: SidebarNestedFixture.Scenario
         /// `sidebar.textSize` (Lawrence msg 17752): the rail holds at every text size too.
-        var textSize: SidebarTextSize = .standard
+        var textSize: SidebarTextSize = .small
         var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(scenario.rawValue)/text-\(textSize.rawValue)" }
     }
 
@@ -29,7 +29,7 @@ import Testing
     }
 
     /// Runs `body` with the shared sidebar density, Minimal Mode and text size set, then puts them back.
-    static func with(_ density: SidebarDensity, _ minimal: SidebarMinimalMode, textSize: SidebarTextSize = .standard,
+    static func with(_ density: SidebarDensity, _ minimal: SidebarMinimalMode, textSize: SidebarTextSize = .small,
                      _ body: () throws -> Void) rethrows {
         let design = DesignSettings.shared
         let saved = design.sidebarSections

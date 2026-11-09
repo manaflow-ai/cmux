@@ -135,13 +135,24 @@ public actor CmuxConfigFile {
     }
 
     /// Writes `text` beside the file as `<file name>.<suffix>` (the record a launch migration keeps
-    /// of what it changed, so the person can see and undo it); nothing reads it back.
+    /// of what it changed, so the person can see and undo it), making the file's folder when it is missing.
     @discardableResult
     public func writeBeside(suffix: String, text: String) throws -> URL {
-        let url = self.url.resolvingSymlinksInPath()
-        let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
+        let record = recordURL(suffix: suffix)
+        try FileManager.checked.createDirectory(at: record.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(text.utf8).blockingWrite(to: record, options: .atomic)
         return record
+    }
+
+    /// The text of the record ``writeBeside(suffix:text:)`` left named `suffix`; nil when there is none.
+    public func readBeside(suffix: String) throws -> String? {
+        guard hasRecordBeside(suffix: suffix) else { return nil }
+        return try String(blockingContentsOf: recordURL(suffix: suffix), encoding: .utf8)
+    }
+
+    private func recordURL(suffix: String) -> URL {
+        let url = self.url.resolvingSymlinksInPath()
+        return url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
     }
 
     /// Whether ``writeBeside(suffix:text:)`` left a record named `suffix` beside the file (a regular

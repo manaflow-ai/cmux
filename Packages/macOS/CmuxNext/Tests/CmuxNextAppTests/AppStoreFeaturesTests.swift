@@ -282,12 +282,12 @@ import Testing
         #expect(settings.snapshot.sidebarSections.density == .comfortable)
         #expect(bridge.isOn(comfortable) && !bridge.isOn(expanded), "one density at a time")
         try await bridge.set(comfortable, on: false)
-        #expect(settings.snapshot.sidebarSections.density == .compact)
+        #expect(settings.snapshot.sidebarSections.density == .normal, "Remove goes back to the default, Normal")
         #expect(settings.fileRoot.value(at: comfortable.path) == nil)
 
         let catalog = ContextMenuCatalog.shared
         let ids = Set(catalog.referencedIDs(catalog.entries(for: .sidebarBackground)).map(\.rawValue))
-        #expect(ids.isSuperset(of: ["sidebar.density.compact", "sidebar.density.comfortable", "sidebar.density.expanded"]),
+        #expect(ids.isSuperset(of: ["sidebar.density.compact", "sidebar.density.normal", "sidebar.density.comfortable", "sidebar.density.expanded"]),
                 "the sidebar's menu offers the sidebar densities")
     }
 

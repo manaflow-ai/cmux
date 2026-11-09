@@ -26,17 +26,29 @@ enum SidebarStyle {
     static var iconBox: CGFloat { leadingGlyphSide + Metrics.space2 }
     /// A leading glyph drawn at a fixed side (a pin, a header's leading icon): the small icon size plus the
     /// `sidebar.textSize` step, so it grows with the text beside it. Trailing marks keep `Metrics.smallIconSize`.
-    static var leadingGlyphSide: CGFloat { Metrics.smallIconSize + SidebarDensityTokens.textSize.glyphStep }
+    static var leadingGlyphSide: CGFloat { Metrics.smallIconSize + SidebarDensityTokens.textSteps.glyph }
     /// A sidebar text style at the `sidebar.textSize` step (Lawrence msg 17752): `base`'s size plus
-    /// ``SidebarTextSize/textStep``, at `weight`. The default size returns `base` itself.
+    /// the density's ``SidebarTextSize/Steps/text``, at `weight`. The default size returns `base` itself.
     ///
     /// Row layout reads titles and details on every pass, so the font comes from `Typography.system`, which
     /// keeps one font per (design, size, weight) for the process (`CheckedFont`): no font object is made per row
     /// layout, and no sidebar cache is needed (a590's review). A text size or type scale change asks for a new size.
     static func sized(_ base: NSFont, weight: NSFont.Weight) -> NSFont {
-        let step = SidebarDensityTokens.textSize.textStep
+        let step = SidebarDensityTokens.textSteps.text
         guard step != 0 else { return base }
         return Typography.system(.default, size: base.pointSize + step, weight: weight)
+    }
+    /// A list text style: the person's exact `custom` size (points at Interface Size 100%, which still
+    /// scales it; the text size step does not apply) when set, else `base` at the `sidebar.textSize` step.
+    static func sized(_ base: NSFont, weight: NSFont.Weight, custom: CGFloat?) -> NSFont {
+        guard let custom else { return sized(base, weight: weight) }
+        return Typography.system(.default, size: custom * Typography.userScale, weight: weight)
+    }
+    /// The detail lines' text: `sidebar.detailSize` when set; Codex's 12 pt detail
+    /// (`Typography.sidebarDetail`), or the caption at Compact.
+    private static var detailFont: NSFont {
+        let base = SidebarDensityTokens.isCompact ? Typography.caption : Typography.sidebarDetail
+        return sized(base, weight: .regular, custom: SidebarDensityTokens.preferences.detailSize)
     }
     /// The center x of the one leading icon column (Leo 2026-10-28: "the alignment"), one `iconColumnBox` wide, in a row
     /// whose leading slot starts at `leading`. A band row's glyph (Home's) and a pinned row's pin center their ink here
@@ -164,11 +176,17 @@ enum SidebarStyle {
     /// edge does not park and come back on every small scroll.
     static var pruneMargin: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
 
-    /// Workspace titles: regular weight, read or unread, selected or not
-    /// (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
+    /// Workspace titles: the Codex sidebar's 13 pt at its 430 UI weight (issue 28793; Compact keeps
+    /// `Typography.body` at regular, `sidebar.titleSize` sets the size), not bold, read
+    /// or unread, selected or not (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
     /// and every title in the primary text color ("All titles primary"):
     /// unread shows by the badge, selection by the fill.
-    static var titleFont: NSFont { sized(Typography.body, weight: .regular) }
+    static var titleFont: NSFont {
+        let custom = SidebarDensityTokens.preferences.titleSize
+        return SidebarDensityTokens.isCompact
+            ? sized(Typography.body, weight: .regular, custom: custom)
+            : sized(Typography.sidebarRow, weight: TypeScale.sidebar, custom: custom)
+    }
     /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
     /// 16 pt the fade ended at a word gap and read as a hard cut.
     static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
@@ -176,7 +194,8 @@ enum SidebarStyle {
     static func titleFont(weight: NSFont.Weight) -> NSFont {
         Typography.system(.default, size: titleFont.pointSize, weight: weight)
     }
-    static var subtitleFont: NSFont { sized(Typography.caption, weight: .regular) }
+    /// A row's detail line: Codex's 12 pt secondary text.
+    static var subtitleFont: NSFont { detailFont }
     /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
     static var detailLineHeight: CGFloat {
         let font = subtitleFont

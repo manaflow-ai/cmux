@@ -1,5 +1,5 @@
-title: Bigger sidebar text
+title: Sidebar text in three sizes
 category: new
 action: openSettings | Open Settings
 
-Settings > Appearance > Sidebar Text Size makes the sidebar's names, headers, icons and rows bigger together, in two steps: Large and Larger. You can also set it from the command palette.
+Settings > Appearance > Sidebar Text Size sizes the sidebar's names, headers, icons and rows together: Small (the default), Medium, the size of the ChatGPT app's sidebar, and Large.

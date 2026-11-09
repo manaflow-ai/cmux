@@ -1,3 +1,5 @@
+public import CoreGraphics
+
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.pinnedBandsScroll` and
@@ -144,12 +146,19 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var groupPalette: GroupPalette = .glass
     /// `sidebar.groupGradient` (``GroupGradient``): the gradient the ``GroupPalette/gradient`` palette steps through.
     public var groupGradient: GroupGradient = .sunset
-    /// Compact (the default), comfortable or expanded workspace rows
+    /// Normal (the default, the Codex desktop sidebar), compact, comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
-    public var density: SidebarDensity = .compact
+    public var density: SidebarDensity = .normal
     /// How large the list's text, leading glyphs and rows are (`sidebar.textSize`, ``SidebarTextSize``):
-    /// the original size by default; Larger matches the ChatGPT app's sidebar.
-    public var textSize: SidebarTextSize = .standard
+    /// Small, the Codex desktop sidebar, by default; Medium is the ChatGPT app's sidebar.
+    public var textSize: SidebarTextSize = .small
+    /// The person's own sidebar sizes, in points at Interface Size 100%; nil (the default) leaves each to the
+    /// density and text size. `sidebar.titleSize` and `sidebar.detailSize` set the row title and detail line
+    /// (and listed tab) text; `sidebar.rowHeight` a one-line row; `sidebar.rowPadding` the rows' inset.
+    public var titleSize: CGFloat?
+    public var detailSize: CGFloat?
+    public var rowHeight: CGFloat?
+    public var rowPadding: CGFloat?
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// Off by default: a fresh profile's sidebar is pinned, its Settings and
     /// account band always shown; hover-reveal is opt-in (Leo 2026-10-11).

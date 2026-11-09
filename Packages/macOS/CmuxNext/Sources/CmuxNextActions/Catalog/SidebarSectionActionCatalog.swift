@@ -323,7 +323,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 111, folder: .group)])
             ),
-            // cx-13w3: compact (one line), comfortable (one line, taller) or expanded
+            // cx-13w3: compact (one line, small), normal (one line, the Codex sidebar; the default), comfortable (one line, taller) or expanded
             // (T3 Code / Codex style) workspace rows (`sidebar.density`); the sidebar background
             // menu owns these global controls, while the row's ⋮ keeps its pointer menu focused.
             // (Leo 2026-10-21: view toggles should not need the palette to find). The app density
@@ -335,7 +335,16 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 // palette row for "compact" (Lawrence 2026-10-20: two rows, and Enter did nothing).
                 surfaces: [.keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly),
-                                  menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact)],
+                                  menus: [p(.sidebarBackground, .view, 131, folder: .options, label: ObjectMenuLabels.densityCompact)],
+                                  palette: .exempt(.familyMember))
+            ),
+            // Normal, the default since 2026-11-02: the Codex desktop sidebar (issue 28793).
+            ActionDescriptor(
+                id: "sidebar.density.normal", title: t("action.sidebar.density.normal", "Sidebar Density: Normal"),
+                keywords: ["sidebar", "density", "normal", "default", "rows", "one line", "codex"], category: .sidebar,
+                symbol: "list.bullet.rectangle", surfaces: [.keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly),
+                                  menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityNormal)],
                                   palette: .exempt(.familyMember))
             ),
             ActionDescriptor(

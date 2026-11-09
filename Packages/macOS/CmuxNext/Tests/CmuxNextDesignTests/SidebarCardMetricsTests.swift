@@ -13,15 +13,17 @@ import Testing
 @Suite struct SidebarCardMetricsTests {
     /// The app's compact tokens: 24 pt rows, the 2/4/6/8 pt grid, 6 pt item corners, 12 pt body and
     /// 10.5 pt caption text.
+    /// With the list's Codex row and text (issue 28793): a 28 pt row, 13 pt titles and 12 pt details.
     static let base = SidebarRowTokens.Base(rowHeight: 24, space1: 2, space2: 4, space3: 6, space4: 8,
-                                            cornerRadius: 6, body: 12, caption: 10.5)
+                                            cornerRadius: 6, body: 12, caption: 10.5, listRowHeight: 28,
+                                            rowTitle: 13, rowDetail: 12)
 
-    static func card(_ density: SidebarDensity, _ text: SidebarTextSize = .standard) -> SidebarCardMetrics {
+    static func card(_ density: SidebarDensity, _ text: SidebarTextSize = .small) -> SidebarCardMetrics {
         SidebarRowTokens(density: density, textSize: text, base: base).card
     }
 
     @Test func compactIsAsTightAsARow() {
-        let rows = SidebarRowTokens(density: .compact, textSize: .standard, base: Self.base)
+        let rows = SidebarRowTokens(density: .compact, textSize: .small, base: Self.base)
         #expect(rows.rowHeight == 24)
         #expect(rows.horizontalInset == 6)
         let card = Self.card(.compact)
@@ -30,26 +32,54 @@ import Testing
     }
 
     @Test func comfortableTakesTheComfortableRowsRoom() {
-        let rows = SidebarRowTokens(density: .comfortable, textSize: .standard, base: Self.base)
-        #expect(rows.rowHeight == 28)
+        let rows = SidebarRowTokens(density: .comfortable, textSize: .small, base: Self.base)
+        #expect(rows.rowHeight == 32)
         #expect(rows.horizontalInset == 8)
-        #expect(Self.card(.comfortable) == SidebarCardMetrics(paddingX: 8, paddingY: 6, gap: 4, cornerRadius: 12, titleSize: 12,
-                                                              noteSize: 10.5, buttonHeight: 24, buttonPaddingX: 8, buttonRadius: 6,
-                                                              closeSide: 20))
+        #expect(Self.card(.comfortable) == SidebarCardMetrics(paddingX: 8, paddingY: 6, gap: 4, cornerRadius: 12, titleSize: 13,
+                                                              noteSize: 12, buttonHeight: 28, buttonPaddingX: 8, buttonRadius: 6,
+                                                              closeSide: 24))
     }
 
-    /// Expanded keeps the app tokens exactly, as its rows do (SidebarDensityTokens): only the rows grow a line.
-    @Test func expandedKeepsCompactsTokens() {
-        #expect(Self.card(.expanded) == Self.card(.compact))
+    /// Normal, the default, is the Codex sidebar's row (issue 28793), and the card takes its inset and text.
+    @Test func normalTakesTheCodexRow() {
+        let rows = SidebarRowTokens(density: .normal, textSize: .small, base: Self.base)
+        #expect(rows.rowHeight == 28)
+        #expect(rows.horizontalInset == 8)
+        #expect(Self.card(.normal) == SidebarCardMetrics(paddingX: 8, paddingY: 4, gap: 2, cornerRadius: 10, titleSize: 13,
+                                                         noteSize: 12, buttonHeight: 24, buttonPaddingX: 8, buttonRadius: 6,
+                                                         closeSide: 20))
+    }
+
+    /// Expanded keeps Normal's one-line tokens, as its rows do (SidebarDensityTokens): only the rows grow a line.
+    @Test func expandedKeepsNormalsTokens() {
+        #expect(Self.card(.expanded) == Self.card(.normal))
+    }
+
+    /// The person's own sizes win over the density and the text size.
+    @Test func customSizesWin() {
+        var base = Self.base
+        base.customRowHeight = 40
+        base.customRowPadding = 12
+        base.customTitle = 16
+        base.customDetail = 14
+        let card = SidebarRowTokens(density: .compact, textSize: .large, base: base).card
+        #expect(card.paddingX == 12)
+        #expect(card.titleSize == 16)
+        #expect(card.noteSize == 14)
+        #expect(card.buttonHeight == 36)
     }
 
     /// `sidebar.textSize` grows the card's text and button with the rows' text and height.
+    /// Compact's Medium is the first setting's Larger (14 pt on 29 pt rows); Normal's is the same size.
     @Test func textSizeGrowsTextAndButton() {
-        let card = Self.card(.compact, .large)
-        #expect(card.titleSize == 13)
-        #expect(card.noteSize == 11.5)
-        #expect(card.buttonHeight == 23)
+        let card = Self.card(.compact, .medium)
+        #expect(card.titleSize == 14)
+        #expect(card.noteSize == 12.5)
+        #expect(card.buttonHeight == 25)
         #expect(card.paddingY == 4)
+        let normal = Self.card(.normal, .medium)
+        #expect(normal.titleSize == 14)
+        #expect(normal.buttonHeight == 25)
     }
 
     /// The page is zoomed by the interface scale, so a CSS px is `pageZoom` points: the variables

@@ -12,7 +12,7 @@ import Testing
         var symbol: CGFloat
     }
 
-    private static func drawn(_ density: SidebarDensity, _ textSize: SidebarTextSize = .standard) -> Drawn {
+    private static func drawn(_ density: SidebarDensity, _ textSize: SidebarTextSize = .small) -> Drawn {
         let saved = DesignSettings.shared.sidebarSections.density, text = DesignSettings.shared.sidebarSections.textSize
         let interface = DesignSettings.shared.densityTokens
         DesignSettings.shared.sidebarSections.density = density

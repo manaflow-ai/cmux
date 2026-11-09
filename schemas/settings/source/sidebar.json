@@ -744,7 +744,7 @@
           },
           "help": {
             "key": "settings.sidebar.density.help",
-            "text": "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+            "text": "Normal rows match the Codex app's sidebar. Compact rows are smaller and closer together. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
           },
           "kind": "choice",
           "choices": [
@@ -753,6 +753,13 @@
               "title": {
                 "key": "settings.choice.compact",
                 "text": "Compact"
+              }
+            },
+            {
+              "value": "normal",
+              "title": {
+                "key": "settings.choice.normal",
+                "text": "Normal"
               }
             },
             {
@@ -770,11 +777,12 @@
               }
             }
           ],
-          "default": "compact",
+          "default": "normal",
           "keywords": [
             "sidebar",
             "density",
             "expanded",
+            "normal",
             "compact",
             "comfortable",
             "rows",
@@ -802,17 +810,23 @@
           },
           "help": {
             "key": "settings.sidebar.textSize.help",
-            "text": "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."
+            "text": "Sizes the sidebar's names, headers, icons and rows together. Small, the default, matches the Codex app's sidebar; Medium matches the ChatGPT app's."
           },
           "kind": "choice",
           "choices": [
             {
-              "value": "default",
+              "value": "small",
               "title": {
-                "key": "settings.choice.default",
-                "text": "Default"
-              },
-              "swift_case": "standard"
+                "key": "settings.choice.sidebarTextSmall",
+                "text": "Small"
+              }
+            },
+            {
+              "value": "medium",
+              "title": {
+                "key": "settings.choice.sidebarTextMedium",
+                "text": "Medium"
+              }
             },
             {
               "value": "large",
@@ -820,16 +834,9 @@
                 "key": "settings.choice.sidebarTextLarge",
                 "text": "Large"
               }
-            },
-            {
-              "value": "larger",
-              "title": {
-                "key": "settings.choice.sidebarTextLarger",
-                "text": "Larger"
-              }
             }
           ],
-          "default": "default",
+          "default": "small",
           "keywords": [
             "sidebar",
             "text",
@@ -837,11 +844,14 @@
             "font",
             "bigger",
             "larger",
+            "small",
+            "medium",
             "large",
             "zoom",
             "readable",
             "accessibility",
             "chatgpt",
+            "codex",
             "rows"
           ],
           "swift_enum": {
@@ -849,6 +859,162 @@
             "generated": false,
             "module": "CmuxNextDesign"
           },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          },
+          "note": "Older values still read: \"default\" as small and \"larger\" (the ChatGPT size) as medium (SidebarTextSize(setting:)); a launch pass rewrites them, and an older \"large\" (one point up), once per file (migrateLegacySidebarSizes)."
+        },
+        {
+          "key": "sidebar.titleSize",
+          "title": {
+            "key": "settings.sidebar.titleSize",
+            "text": "Sidebar Title Size"
+          },
+          "help": {
+            "key": "settings.sidebar.titleSize.help",
+            "text": "The size of workspace names in the sidebar, in points. Empty follows the density and text size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 9,
+            "max": 24,
+            "step": 0.5,
+            "unit": "points",
+            "placeholder": 13
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "title",
+            "name",
+            "text",
+            "font",
+            "size",
+            "custom",
+            "points"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          },
+          "note": "The person's own sidebar sizes (2026-11-02): points at Interface Size 100%; absent leaves each to the density and text size."
+        },
+        {
+          "key": "sidebar.detailSize",
+          "title": {
+            "key": "settings.sidebar.detailSize",
+            "text": "Sidebar Detail Size"
+          },
+          "help": {
+            "key": "settings.sidebar.detailSize.help",
+            "text": "The size of the lines under workspace names and of listed tabs, in points. Empty follows the density and text size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 8,
+            "max": 20,
+            "step": 0.5,
+            "unit": "points",
+            "placeholder": 12
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "detail",
+            "subtitle",
+            "second line",
+            "tabs",
+            "text",
+            "font",
+            "size",
+            "custom",
+            "points"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.rowHeight",
+          "title": {
+            "key": "settings.sidebar.rowHeight",
+            "text": "Sidebar Row Height"
+          },
+          "help": {
+            "key": "settings.sidebar.rowHeight.help",
+            "text": "The height of a one-line sidebar row, in points. Rows sit 2 points apart. Empty follows the density and text size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 16,
+            "max": 56,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 28
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "row",
+            "height",
+            "spacing",
+            "taller",
+            "shorter",
+            "custom",
+            "points"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.rowPadding",
+          "title": {
+            "key": "settings.sidebar.rowPadding",
+            "text": "Sidebar Row Padding"
+          },
+          "help": {
+            "key": "settings.sidebar.rowPadding.help",
+            "text": "The space at the left and right of sidebar rows, in points. Empty follows the density."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 8
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "row",
+            "padding",
+            "inset",
+            "margin",
+            "indent",
+            "custom",
+            "points"
+          ],
           "swift_owner": {
             "type": "SidebarSectionsSetting",
             "prefixed": true

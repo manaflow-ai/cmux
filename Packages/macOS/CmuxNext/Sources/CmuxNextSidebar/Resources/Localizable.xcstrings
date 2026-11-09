@@ -3806,6 +3806,137 @@
         }
       }
     },
+    "sidebar.statesPlayground.density.normal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عادي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normale rækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normale Zeilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filas normales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lignes normales"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ノーマル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធម្មតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보통"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normale rader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linhas normais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обычно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal satırlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звичайно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bình thường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正常"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正常"
+          }
+        }
+      }
+    },
     "sidebar.statesPlayground.density.comfortable": {
       "extractionState": "manual",
       "localizations": {
@@ -4068,133 +4199,133 @@
         }
       }
     },
-    "sidebar.statesPlayground.textSize.default": {
+    "sidebar.statesPlayground.textSize.small": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Default text"
+            "value": "Small text"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "النص الافتراضي"
+            "value": "نص صغير"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zadani tekst"
+            "value": "Mali tekst"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Standardtekst"
+            "value": "Lille tekst"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Standardtext"
+            "value": "Kleiner Text"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Texto predeterminado"
+            "value": "Texto pequeño"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Texte par défaut"
+            "value": "Petit texte"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Testo predefinito"
+            "value": "Testo piccolo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "標準の文字"
+            "value": "小さい文字"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អត្ថបទលំនាំដើម"
+            "value": "អត្ថបទតូច"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "기본 텍스트"
+            "value": "작은 텍스트"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Standardtekst"
+            "value": "Liten tekst"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Domyślny tekst"
+            "value": "Mały tekst"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Texto padrão"
+            "value": "Texto pequeno"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Обычный текст"
+            "value": "Мелкий текст"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ข้อความเริ่มต้น"
+            "value": "ข้อความเล็ก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Varsayılan metin"
+            "value": "Küçük metin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Звичайний текст"
+            "value": "Малий текст"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chữ mặc định"
+            "value": "Chữ nhỏ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "默认文字"
+            "value": "小号文字"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "預設文字"
+            "value": "小型文字"
           }
         }
       }
@@ -4330,133 +4461,133 @@
         }
       }
     },
-    "sidebar.statesPlayground.textSize.larger": {
+    "sidebar.statesPlayground.textSize.medium": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Larger text"
+            "value": "Medium text"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "نص أكبر"
+            "value": "نص متوسط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Veći tekst"
+            "value": "Srednji tekst"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Større tekst"
+            "value": "Mellem tekst"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Größerer Text"
+            "value": "Mittlerer Text"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Texto más grande"
+            "value": "Texto mediano"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Texte plus grand"
+            "value": "Texte moyen"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Testo più grande"
+            "value": "Testo medio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "さらに大きい文字"
+            "value": "中くらいの文字"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អត្ថបទធំជាង"
+            "value": "អត្ថបទមធ្យម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "더 큰 텍스트"
+            "value": "중간 텍스트"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Større tekst"
+            "value": "Middels tekst"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Większy tekst"
+            "value": "Średni tekst"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Texto maior"
+            "value": "Texto médio"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ещё крупнее"
+            "value": "Средний текст"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ข้อความใหญ่ขึ้น"
+            "value": "ข้อความขนาดกลาง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Daha büyük metin"
+            "value": "Orta metin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ще більший текст"
+            "value": "Середній текст"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chữ lớn hơn"
+            "value": "Chữ vừa"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "更大号文字"
+            "value": "中号文字"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "更大文字"
+            "value": "中型文字"
           }
         }
       }

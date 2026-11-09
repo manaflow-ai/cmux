@@ -85,10 +85,26 @@ extension SidebarSectionsSetting {
     public nonisolated static let styleDefault: SidebarLayoutStyle = .standard
     /// `sidebar.density`.
     public nonisolated static let densityPath = ["sidebar", "density"]
-    public nonisolated static let densityDefault: SidebarDensity = .compact
-    /// `sidebar.textSize`.
+    public nonisolated static let densityDefault: SidebarDensity = .normal
+    /// `sidebar.textSize`: Older values still read: "default" as small and "larger" (the ChatGPT size) as medium (SidebarTextSize(setting:)); a launch pass rewrites them, and an older "large" (one point up), once per file (migrateLegacySidebarSizes).
     public nonisolated static let textSizePath = ["sidebar", "textSize"]
-    public nonisolated static let textSizeDefault: SidebarTextSize = .standard
+    public nonisolated static let textSizeDefault: SidebarTextSize = .small
+    /// `sidebar.titleSize`: The person's own sidebar sizes (2026-11-02): points at Interface Size 100%; absent leaves each to the density and text size.
+    public nonisolated static let titleSizePath = ["sidebar", "titleSize"]
+    public nonisolated static let titleSizeRange: ClosedRange<Double> = 9...24
+    public nonisolated static let titleSizePlaceholder: Double = 13
+    /// `sidebar.detailSize`.
+    public nonisolated static let detailSizePath = ["sidebar", "detailSize"]
+    public nonisolated static let detailSizeRange: ClosedRange<Double> = 8...20
+    public nonisolated static let detailSizePlaceholder: Double = 12
+    /// `sidebar.rowHeight`.
+    public nonisolated static let rowHeightPath = ["sidebar", "rowHeight"]
+    public nonisolated static let rowHeightRange: ClosedRange<Double> = 16...56
+    public nonisolated static let rowHeightPlaceholder: Double = 28
+    /// `sidebar.rowPadding`.
+    public nonisolated static let rowPaddingPath = ["sidebar", "rowPadding"]
+    public nonisolated static let rowPaddingRange: ClosedRange<Double> = 0...24
+    public nonisolated static let rowPaddingPlaceholder: Double = 8
     /// `sidebar.detailedStatusIcons`.
     public nonisolated static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
     public nonisolated static let detailedStatusIconsDefault = false

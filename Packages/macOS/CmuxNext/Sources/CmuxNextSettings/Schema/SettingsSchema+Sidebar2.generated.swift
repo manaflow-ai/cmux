@@ -255,28 +255,73 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.density", "Sidebar Density"),
-                help: SettingsText.keyed("settings.sidebar.density.help", "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
+                help: SettingsText.keyed("settings.sidebar.density.help", "Normal rows match the Codex app's sidebar. Compact rows are smaller and closer together. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
                 kind: .choice([
                     SettingChoice(SidebarDensity.compact.rawValue, SettingsText.keyed("settings.choice.compact", "Compact")),
+                    SettingChoice(SidebarDensity.normal.rawValue, SettingsText.keyed("settings.choice.normal", "Normal")),
                     SettingChoice(SidebarDensity.comfortable.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
                     SettingChoice(SidebarDensity.expanded.rawValue, SettingsText.keyed("settings.choice.expanded", "Expanded")),
                 ]),
                 default: .string(SidebarSectionsSetting.densityDefault.rawValue),
-                keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"]
+                keywords: ["sidebar", "density", "expanded", "normal", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"]
             ),
             SettingDescriptor(
                 SidebarSectionsSetting.textSizePath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.textSize", "Sidebar Text Size"),
-                help: SettingsText.keyed("settings.sidebar.textSize.help", "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."),
+                help: SettingsText.keyed("settings.sidebar.textSize.help", "Sizes the sidebar's names, headers, icons and rows together. Small, the default, matches the Codex app's sidebar; Medium matches the ChatGPT app's."),
                 kind: .choice([
-                    SettingChoice(SidebarTextSize.standard.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
+                    SettingChoice(SidebarTextSize.small.rawValue, SettingsText.keyed("settings.choice.sidebarTextSmall", "Small")),
+                    SettingChoice(SidebarTextSize.medium.rawValue, SettingsText.keyed("settings.choice.sidebarTextMedium", "Medium")),
                     SettingChoice(SidebarTextSize.large.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarge", "Large")),
-                    SettingChoice(SidebarTextSize.larger.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarger", "Larger")),
                 ]),
                 default: .string(SidebarSectionsSetting.textSizeDefault.rawValue),
-                keywords: ["sidebar", "text", "size", "font", "bigger", "larger", "large", "zoom", "readable", "accessibility", "chatgpt", "rows"]
+                keywords: ["sidebar", "text", "size", "font", "bigger", "larger", "small", "medium", "large", "zoom", "readable", "accessibility", "chatgpt", "codex", "rows"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.titleSizePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.titleSize", "Sidebar Title Size"),
+                help: SettingsText.keyed("settings.sidebar.titleSize.help", "The size of workspace names in the sidebar, in points. Empty follows the density and text size."),
+                kind: .number(SettingNumber(SidebarSectionsSetting.titleSizeRange, step: 0.5, unit: .points, placeholder: SidebarSectionsSetting.titleSizePlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "title", "name", "text", "font", "size", "custom", "points"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.detailSizePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.detailSize", "Sidebar Detail Size"),
+                help: SettingsText.keyed("settings.sidebar.detailSize.help", "The size of the lines under workspace names and of listed tabs, in points. Empty follows the density and text size."),
+                kind: .number(SettingNumber(SidebarSectionsSetting.detailSizeRange, step: 0.5, unit: .points, placeholder: SidebarSectionsSetting.detailSizePlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "detail", "subtitle", "second line", "tabs", "text", "font", "size", "custom", "points"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.rowHeightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.rowHeight", "Sidebar Row Height"),
+                help: SettingsText.keyed("settings.sidebar.rowHeight.help", "The height of a one-line sidebar row, in points. Rows sit 2 points apart. Empty follows the density and text size."),
+                kind: .number(SettingNumber(SidebarSectionsSetting.rowHeightRange, step: 1, unit: .points, placeholder: SidebarSectionsSetting.rowHeightPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "row", "height", "spacing", "taller", "shorter", "custom", "points"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.rowPaddingPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.rowPadding", "Sidebar Row Padding"),
+                help: SettingsText.keyed("settings.sidebar.rowPadding.help", "The space at the left and right of sidebar rows, in points. Empty follows the density."),
+                kind: .number(SettingNumber(SidebarSectionsSetting.rowPaddingRange, step: 1, unit: .points, placeholder: SidebarSectionsSetting.rowPaddingPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "row", "padding", "inset", "margin", "indent", "custom", "points"]
             ),
             SettingDescriptor(
                 SidebarSectionsSetting.detailedStatusIconsPath,
@@ -331,58 +376,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showLocalMachineDefault),
                 keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderMemberCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
-                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderUnreadCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
-                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderBackgroundPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."),
-                kind: .choice([
-                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
-                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
-                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupPalettePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."),
-                kind: .choice([
-                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
-                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
-                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
-                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
-                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
-                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
-                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

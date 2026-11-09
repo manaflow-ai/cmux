@@ -102740,127 +102740,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبقى الصفوف المريحة في سطر واحد، لكنها أطول وحولها مساحة أكبر. تعرض الصفوف الموسَّعة حالة كل مساحة عمل أو مجلدها تحت اسمها، ومتى تغيّرت آخر مرة، وطلب السحب والكمبيوتر."
+            "value": "تطابق الصفوف العادية الشريط الجانبي لتطبيق Codex. الصفوف المضغوطة أصغر وأقرب إلى بعضها. تبقى الصفوف المريحة سطرًا واحدًا على صفوف أطول مع مساحة أكبر حولها. تعرض الصفوف الموسّعة حالة كل مساحة عمل أو مجلدها تحت اسمها، ومنذ متى تغيّرت، وطلب السحب والكمبيوتر."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prostrani redovi ostaju u jednom redu, ali su viši i imaju više prostora oko sebe. Prošireni redovi prikazuju status ili mapu svakog radnog prostora ispod naziva, prije koliko vremena se promijenio te pull request i računar."
+            "value": "Normalni redovi odgovaraju bočnoj traci aplikacije Codex. Kompaktni redovi su manji i bliže jedan drugom. Udobni redovi zadržavaju jedan red na višim redovima s više prostora oko sebe. Prošireni redovi prikazuju status ili mapu svakog radnog prostora ispod naziva, prije koliko vremena se promijenio te njegov pull request i računar."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Luftige rækker holder sig på én linje, men er højere og har mere plads omkring sig. Udvidede rækker viser hvert arbejdsområdes status eller mappe under navnet, hvor længe siden det blev ændret, samt pull request og computer."
+            "value": "Normale rækker svarer til sidepanelet i Codex-appen. Kompakte rækker er mindre og tættere. Komfortable rækker har én linje på højere rækker med mere plads omkring. Udvidede rækker viser hvert arbejdsområdes status eller mappe under navnet, hvor længe siden det ændrede sig, og dets pull request og computer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Großzügige Zeilen bleiben einzeilig, sind aber höher und haben mehr Abstand. Erweiterte Zeilen zeigen unter dem Namen den Status oder Ordner jedes Arbeitsbereichs, wie lange die letzte Änderung her ist, sowie Pull Request und Computer."
+            "value": "Normale Zeilen entsprechen der Seitenleiste der Codex-App. Kompakte Zeilen sind kleiner und enger. Komfortable Zeilen bleiben einzeilig, sind aber höher und haben mehr Abstand. Erweiterte Zeilen zeigen unter dem Namen den Status oder Ordner jedes Arbeitsbereichs, wann er sich zuletzt geändert hat, sowie seinen Pull Request und Computer."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+            "value": "Normal rows match the Codex app's sidebar. Compact rows are smaller and closer together. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las filas cómodas siguen en una línea, pero son más altas y tienen más espacio alrededor. Las filas ampliadas muestran bajo el nombre el estado o la carpeta de cada espacio de trabajo, cuánto hace que cambió, y su pull request y ordenador."
+            "value": "Las filas normales coinciden con la barra lateral de la app Codex. Las filas compactas son más pequeñas y están más juntas. Las filas cómodas mantienen una línea en filas más altas con más espacio alrededor. Las filas expandidas muestran bajo el nombre el estado o la carpeta de cada espacio de trabajo, hace cuánto cambió, y su pull request y ordenador."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les lignes confortables restent sur une ligne, mais sont plus hautes et plus aérées. Les lignes étendues affichent sous le nom l’état ou le dossier de chaque espace de travail, depuis quand il a changé, ainsi que sa pull request et son ordinateur."
+            "value": "Les lignes normales correspondent à la barre latérale de l’app Codex. Les lignes compactes sont plus petites et plus serrées. Les lignes confortables restent sur une ligne, plus hautes et plus aérées. Les lignes étendues affichent sous le nom l’état ou le dossier de chaque espace de travail, depuis quand il a changé, ainsi que sa pull request et son ordinateur."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le righe comode restano su una riga, ma sono più alte e con più spazio intorno. Le righe estese mostrano sotto il nome lo stato o la cartella di ogni area di lavoro, da quanto tempo è cambiata, la pull request e il computer."
+            "value": "Le righe normali corrispondono alla barra laterale dell’app Codex. Le righe compatte sono più piccole e ravvicinate. Le righe comode restano su una riga, più alte e con più spazio intorno. Le righe espanse mostrano sotto il nome lo stato o la cartella di ogni spazio di lavoro, da quanto è cambiato, la sua pull request e il computer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ゆったり表示では、1 行のまま行の高さと余白を広げます。拡張表示では、各ワークスペースの名前の下にステータスまたはフォルダ、最終変更からの経過時間、プルリクエストとコンピュータを表示します。"
+            "value": "ノーマルの行は Codex アプリのサイドバーと同じです。コンパクトの行はより小さく、間隔も狭くなります。快適の行は 1 行のまま高さと余白が広がります。展開の行は名前の下に各ワークスペースの状態やフォルダ、変更からの経過時間、プルリクエストとコンピュータを表示します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរធូរនៅតែមួយបន្ទាត់ ប៉ុន្តែខ្ពស់ជាង និងមានចន្លោះច្រើនជាងនៅជុំវិញ។ ជួរដែលពង្រីកបង្ហាញស្ថានភាព ឬថតនៃកន្លែងធ្វើការនីមួយៗនៅក្រោមឈ្មោះ រយៈពេលតាំងពីវាផ្លាស់ប្តូរ និង pull request និងកុំព្យូទ័រ។"
+            "value": "ជួរធម្មតាត្រូវនឹងរបារចំហៀងនៃកម្មវិធី Codex។ ជួរបង្រួមតូចជាង ហើយនៅជិតគ្នាជាង។ ជួរស្រួលនៅតែមួយបន្ទាត់ លើជួរខ្ពស់ជាង ដែលមានចន្លោះច្រើនជាង។ ជួរពង្រីកបង្ហាញស្ថានភាព ឬថតនៃកន្លែងធ្វើការនីមួយៗនៅក្រោមឈ្មោះ រយៈពេលតាំងពីវាផ្លាស់ប្ដូរ និង pull request និងកុំព្យូទ័ររបស់វា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "넉넉한 행은 한 줄을 유지하면서 높이와 주변 여백이 더 큽니다. 확장 행은 각 작업 공간의 이름 아래에 상태 또는 폴더, 마지막 변경 이후 경과 시간, 풀 리퀘스트와 컴퓨터를 표시합니다."
+            "value": "보통 행은 Codex 앱의 사이드바와 같습니다. 컴팩트 행은 더 작고 간격이 좁습니다. 편안한 행은 한 줄을 유지하면서 더 높고 여백이 넓습니다. 확장 행은 이름 아래에 각 워크스페이스의 상태나 폴더, 변경 후 경과 시간, 풀 리퀘스트와 컴퓨터를 표시합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Luftige rader holder seg på én linje, men er høyere og har mer plass rundt seg. Utvidede rader viser status eller mappe for hvert arbeidsområde under navnet, hvor lenge siden det ble endret, og pull request og datamaskin."
+            "value": "Normale rader tilsvarer sidefeltet i Codex-appen. Kompakte rader er mindre og tettere. Komfortable rader beholder én linje på høyere rader med mer plass rundt. Utvidede rader viser hvert arbeidsområdes status eller mappe under navnet, hvor lenge siden det endret seg, og pull requesten og datamaskinen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przestronne wiersze zostają w jednej linii, ale są wyższe i mają więcej miejsca wokół. Rozszerzone wiersze pokazują pod nazwą stan lub folder każdego obszaru roboczego, jak dawno się zmienił oraz pull request i komputer."
+            "value": "Normalne wiersze odpowiadają paskowi bocznemu aplikacji Codex. Kompaktowe wiersze są mniejsze i bliżej siebie. Wygodne wiersze zostają w jednej linii, ale są wyższe i mają więcej miejsca. Rozwinięte wiersze pokazują pod nazwą stan lub folder każdej przestrzeni roboczej, kiedy się zmieniła oraz jej pull request i komputer."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Linhas confortáveis continuam em uma linha, mas são mais altas e têm mais espaço ao redor. Linhas expandidas mostram abaixo do nome o status ou a pasta de cada espaço de trabalho, há quanto tempo mudou, e o pull request e o computador."
+            "value": "Linhas normais correspondem à barra lateral do app Codex. Linhas compactas são menores e mais próximas. Linhas confortáveis mantêm uma linha, mais altas e com mais espaço ao redor. Linhas expandidas mostram sob o nome o status ou a pasta de cada espaço de trabalho, há quanto tempo mudou, e seu pull request e computador."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Свободные строки остаются в одну строку, но они выше и с большими отступами. Развёрнутые строки показывают под названием статус или папку каждого рабочего пространства, как давно оно менялось, а также pull request и компьютер."
+            "value": "Обычные строки соответствуют боковой панели приложения Codex. Компактные строки меньше и ближе друг к другу. Удобные строки остаются однострочными, но выше и просторнее. Развёрнутые строки показывают под названием состояние или папку каждого рабочего пространства, как давно оно менялось, его pull request и компьютер."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แถวแบบกว้างขวางยังคงเป็นบรรทัดเดียว แต่สูงขึ้นและมีระยะห่างรอบๆ มากขึ้น แถวแบบขยายจะแสดงสถานะหรือโฟลเดอร์ของแต่ละพื้นที่ทำงานใต้ชื่อ เวลาที่เปลี่ยนแปลงล่าสุด รวมถึงพูลรีเควสต์และคอมพิวเตอร์"
+            "value": "แถวปกติมีขนาดเท่ากับแถบด้านข้างของแอป Codex แถวกะทัดรัดเล็กกว่าและชิดกันกว่า แถวสบายตายังคงเป็นบรรทัดเดียวแต่สูงขึ้นและมีพื้นที่รอบมากขึ้น แถวขยายแสดงสถานะหรือโฟลเดอร์ของแต่ละพื้นที่ทำงานใต้ชื่อ เวลาที่เปลี่ยนล่าสุด และ pull request กับคอมพิวเตอร์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rahat satırlar tek satırda kalır, ancak daha yüksektir ve çevrelerinde daha fazla boşluk vardır. Genişletilmiş satırlar, her çalışma alanının adının altında durumunu veya klasörünü, ne kadar önce değiştiğini, pull request'ini ve bilgisayarını gösterir."
+            "value": "Normal satırlar Codex uygulamasının kenar çubuğuyla aynıdır. Kompakt satırlar daha küçük ve birbirine daha yakındır. Rahat satırlar tek satır kalır, daha yüksek ve etrafında daha fazla boşluk vardır. Genişletilmiş satırlar her çalışma alanının durumunu veya klasörünü adının altında, ne zaman değiştiğini, pull request'ini ve bilgisayarını gösterir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Просторі рядки залишаються в один рядок, але вищі й мають більше місця навколо. Розгорнуті рядки показують під назвою стан або теку кожного робочого простору, як давно він змінювався, а також pull request і комп’ютер."
+            "value": "Звичайні рядки відповідають бічній панелі застосунку Codex. Компактні рядки менші й ближчі один до одного. Зручні рядки лишаються однорядковими, але вищі й просторіші. Розгорнуті рядки показують під назвою стан або папку кожного робочого простору, як давно він змінювався, його pull request і комп’ютер."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hàng thoáng vẫn giữ một dòng nhưng cao hơn và có nhiều khoảng trống xung quanh hơn. Hàng mở rộng hiển thị dưới tên trạng thái hoặc thư mục của mỗi không gian làm việc, thời gian kể từ lần thay đổi gần nhất, cùng pull request và máy tính."
+            "value": "Hàng bình thường khớp với thanh bên của ứng dụng Codex. Hàng gọn nhỏ hơn và gần nhau hơn. Hàng thoải mái vẫn một dòng nhưng cao hơn và rộng rãi hơn. Hàng mở rộng hiển thị trạng thái hoặc thư mục của mỗi không gian làm việc dưới tên, thời gian kể từ lần thay đổi, cùng pull request và máy tính của nó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "宽松的行仍为单行，但行高更高、四周留白更多。展开的行会在名称下方显示每个工作区的状态或文件夹、距上次更改的时间，以及拉取请求和电脑。"
+            "value": "正常行与 Codex 应用的边栏一致。紧凑行更小、更紧密。舒适行保持一行，但更高、四周更宽松。展开行在名称下显示每个工作区的状态或文件夹、距上次更改的时间，以及它的拉取请求和电脑。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "寬鬆的列仍為單行，但列高更高、四周留白更多。展開的列會在名稱下方顯示每個工作區的狀態或資料夾、距上次變更的時間，以及提取要求和電腦。"
+            "value": "正常列與 Codex App 的側邊欄一致。緊湊列更小、更緊密。舒適列保持一行，但更高、四周更寬鬆。展開列在名稱下顯示每個工作區的狀態或資料夾、距上次變更的時間，以及它的拉取要求和電腦。"
           }
         }
       }
@@ -207496,27 +207496,27 @@
     "settings.sidebar.textSize.help": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {"stringUnit": {"state": "needs_review", "value": "يكبّر الأسماء والعناوين والأيقونات والصفوف في الشريط الجانبي معًا. يطابق «أكبر» الشريط الجانبي لتطبيق ChatGPT."}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Povećava nazive, zaglavlja, ikone i redove bočne trake zajedno. „Veće” odgovara bočnoj traci aplikacije ChatGPT."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Gør sidepanelets navne, overskrifter, ikoner og rækker større sammen. Større svarer til sidepanelet i ChatGPT-appen."}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Vergrößert Namen, Überschriften, Symbole und Zeilen der Seitenleiste gemeinsam. „Größer“ entspricht der Seitenleiste der ChatGPT-App."}},
-        "en": {"stringUnit": {"state": "translated", "value": "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Agranda a la vez los nombres, encabezados, iconos y filas de la barra lateral. «Más grande» coincide con la barra lateral de la app de ChatGPT."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Agrandit ensemble les noms, en-têtes, icônes et lignes de la barre latérale. « Plus grand » correspond à la barre latérale de l’app ChatGPT."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Ingrandisce insieme nomi, intestazioni, icone e righe della barra laterale. «Più grande» corrisponde alla barra laterale dell'app ChatGPT."}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの名前、見出し、アイコン、行をまとめて大きくします。「さらに大きく」は ChatGPT アプリのサイドバーと同じ大きさです。"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ធ្វើឱ្យឈ្មោះ ក្បាល រូបតំណាង និងជួរនៃរបារចំហៀងធំជាងមុនជាមួយគ្នា។ «ធំជាង» ស្មើនឹងរបារចំហៀងនៃកម្មវិធី ChatGPT។"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바의 이름, 헤더, 아이콘, 행을 함께 키웁니다. \"더 크게\"는 ChatGPT 앱의 사이드바와 같은 크기입니다."}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Gjør navn, overskrifter, ikoner og rader i sidefeltet større samtidig. Større tilsvarer sidefeltet i ChatGPT-appen."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Powiększa jednocześnie nazwy, nagłówki, ikony i wiersze paska bocznego. „Większy” odpowiada paskowi bocznemu aplikacji ChatGPT."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aumenta juntos os nomes, cabeçalhos, ícones e linhas da barra lateral. “Maior” corresponde à barra lateral do app ChatGPT."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Увеличивает имена, заголовки, значки и строки боковой панели вместе. «Крупнее» совпадает с боковой панелью приложения ChatGPT."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ขยายชื่อ หัวข้อ ไอคอน และแถวในแถบด้านข้างไปพร้อมกัน \"ใหญ่ขึ้น\" มีขนาดเท่ากับแถบด้านข้างของแอป ChatGPT"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğundaki adları, başlıkları, simgeleri ve satırları birlikte büyütür. \"Daha büyük\", ChatGPT uygulamasının kenar çubuğuyla aynıdır."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Збільшує назви, заголовки, значки й рядки бічної панелі разом. «Більший» відповідає бічній панелі застосунку ChatGPT."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Phóng to cùng lúc tên, tiêu đề, biểu tượng và các hàng của thanh bên. \"Lớn hơn\" khớp với thanh bên của ứng dụng ChatGPT."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "同时放大边栏的名称、标题、图标和行。“更大”与 ChatGPT 应用的边栏一致。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "同時放大側邊欄的名稱、標題、圖示和列。「更大」與 ChatGPT App 的側邊欄一致。"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يضبط حجم الأسماء والعناوين والأيقونات والصفوف في الشريط الجانبي معًا. يطابق «صغير»، وهو الافتراضي، الشريط الجانبي لتطبيق Codex، ويطابق «متوسط» الشريط الجانبي لتطبيق ChatGPT."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Zajedno podešava veličinu naziva, zaglavlja, ikona i redova bočne trake. „Malo”, zadana veličina, odgovara bočnoj traci aplikacije Codex, a „Srednje” aplikacije ChatGPT."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Indstiller størrelsen på sidepanelets navne, overskrifter, ikoner og rækker samlet. Lille, standarden, svarer til sidepanelet i Codex-appen; Mellem svarer til ChatGPT-appens."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Legt die Größe von Namen, Überschriften, Symbolen und Zeilen der Seitenleiste gemeinsam fest. „Klein“, die Standardeinstellung, entspricht der Seitenleiste der Codex-App, „Mittel“ der der ChatGPT-App."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Sizes the sidebar's names, headers, icons and rows together. Small, the default, matches the Codex app's sidebar; Medium matches the ChatGPT app's."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ajusta a la vez el tamaño de los nombres, encabezados, iconos y filas de la barra lateral. «Pequeño», el predeterminado, coincide con la barra lateral de la app Codex; «Mediano», con la de la app ChatGPT."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Règle ensemble la taille des noms, en-têtes, icônes et lignes de la barre latérale. « Petit », la valeur par défaut, correspond à la barre latérale de l’app Codex ; « Moyen », à celle de l’app ChatGPT."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Regola insieme le dimensioni di nomi, intestazioni, icone e righe della barra laterale. «Piccolo», il valore predefinito, corrisponde alla barra laterale dell’app Codex; «Medio» a quella dell’app ChatGPT."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの名前、見出し、アイコン、行の大きさをまとめて設定します。デフォルトの「小」は Codex アプリのサイドバー、「中」は ChatGPT アプリのサイドバーと同じ大きさです。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កំណត់ទំហំឈ្មោះ ក្បាល រូបតំណាង និងជួរនៃរបារចំហៀងជាមួយគ្នា។ «តូច» ដែលជាលំនាំដើម ត្រូវនឹងរបារចំហៀងនៃកម្មវិធី Codex ហើយ «មធ្យម» ត្រូវនឹងកម្មវិធី ChatGPT។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바의 이름, 머리글, 아이콘, 행 크기를 함께 조정합니다. 기본값인 '작게'는 Codex 앱의 사이드바와, '보통'은 ChatGPT 앱의 사이드바와 같습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Angir størrelsen på navn, overskrifter, ikoner og rader i sidefeltet samlet. Liten, standarden, tilsvarer sidefeltet i Codex-appen; Middels tilsvarer ChatGPT-appens."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ustawia razem rozmiar nazw, nagłówków, ikon i wierszy paska bocznego. „Mały”, ustawienie domyślne, odpowiada paskowi bocznemu aplikacji Codex, a „Średni” aplikacji ChatGPT."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ajusta juntos o tamanho dos nomes, cabeçalhos, ícones e linhas da barra lateral. Pequeno, o padrão, corresponde à barra lateral do app Codex; Médio, à do app ChatGPT."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Задаёт размер названий, заголовков, значков и строк боковой панели вместе. «Мелкий», вариант по умолчанию, соответствует боковой панели приложения Codex, «Средний» — приложения ChatGPT."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปรับขนาดชื่อ หัวข้อ ไอคอน และแถวของแถบด้านข้างไปพร้อมกัน «เล็ก» ซึ่งเป็นค่าเริ่มต้น มีขนาดเท่ากับแถบด้านข้างของแอป Codex ส่วน «กลาง» เท่ากับแอป ChatGPT"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğundaki adların, başlıkların, simgelerin ve satırların boyutunu birlikte ayarlar. Varsayılan olan Küçük, Codex uygulamasının kenar çubuğuyla; Orta, ChatGPT uygulamasınınkiyle aynıdır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Задає розмір назв, заголовків, значків і рядків бічної панелі разом. «Дрібний», типовий варіант, відповідає бічній панелі застосунку Codex, «Середній» — застосунку ChatGPT."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đặt cỡ tên, tiêu đề, biểu tượng và hàng của thanh bên cùng lúc. Nhỏ, mặc định, khớp với thanh bên của ứng dụng Codex; Vừa khớp với ứng dụng ChatGPT."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "统一调整边栏的名称、标题、图标和行的大小。默认的“小”与 Codex 应用的边栏一致，“中”与 ChatGPT 应用的边栏一致。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "統一調整側邊欄的名稱、標題、圖示和列的大小。預設的「小」與 Codex App 的側邊欄一致，「中」與 ChatGPT App 的側邊欄一致。"}}
       }
     },
     "settings.choice.sidebarTextLarge": {
@@ -208493,6 +208493,292 @@
             "value": "對話在停止並等待你之前重試的次數。"
           }
         }
+      }
+    },
+    "settings.choice.sidebarTextSmall": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "صغير"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Malo"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lille"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Klein"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Small"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Pequeño"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Petit"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Piccolo"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "小"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "តូច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "작게"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Liten"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Mały"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pequeno"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Мелкий"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เล็ก"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Küçük"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Дрібний"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Nhỏ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "小"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "小"}}
+      }
+    },
+    "settings.choice.sidebarTextMedium": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "متوسط"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Srednje"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Mellem"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Mittel"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Medium"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mediano"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Moyen"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Medio"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "中"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មធ្យម"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "보통"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Middels"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Średni"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Médio"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Средний"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "กลาง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Orta"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Середній"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Vừa"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "中"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "中"}}
+      }
+    },
+    "settings.pageGroup.sidebarSizes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أحجام الشريط الجانبي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Veličine bočne trake"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sidepanelets størrelser"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Größen der Seitenleiste"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Sidebar Sizes"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tamaños de la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Tailles de la barre latérale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Dimensioni della barra laterale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーのサイズ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទំហំរបារចំហៀង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 크기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sidefeltstørrelser"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Rozmiary paska bocznego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tamanhos da barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Размеры боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขนาดแถบด้านข้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu boyutları"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Розміри бічної панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Kích thước thanh bên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏尺寸"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄尺寸"}}
+      }
+    },
+    "settings.sidebar.titleSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حجم عنوان الشريط الجانبي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Veličina naslova bočne trake"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Titelstørrelse i sidepanelet"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Titelgröße der Seitenleiste"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Sidebar Title Size"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tamaño de los títulos de la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Taille des titres de la barre latérale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Dimensione dei titoli della barra laterale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーのタイトルサイズ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទំហំចំណងជើងរបារចំហៀង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 제목 크기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tittelstørrelse i sidefeltet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Rozmiar tytułów paska bocznego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tamanho dos títulos da barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Размер заголовков боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขนาดชื่อในแถบด้านข้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu başlık boyutu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Розмір назв бічної панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cỡ tiêu đề thanh bên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏标题大小"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄標題大小"}}
+      }
+    },
+    "settings.sidebar.titleSize.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حجم أسماء مساحات العمل في الشريط الجانبي بالنقاط. اتركه فارغًا ليتبع الكثافة وحجم النص."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Veličina naziva radnih prostora u bočnoj traci, u tačkama. Prazno prati gustoću i veličinu teksta."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Størrelsen på arbejdsområdernes navne i sidepanelet, i punkter. Tom følger tætheden og tekststørrelsen."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Größe der Arbeitsbereichsnamen in der Seitenleiste, in Punkt. Leer folgt der Dichte und Textgröße."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The size of workspace names in the sidebar, in points. Empty follows the density and text size."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El tamaño de los nombres de los espacios de trabajo en la barra lateral, en puntos. Vacío sigue la densidad y el tamaño del texto."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La taille des noms d’espaces de travail dans la barre latérale, en points. Vide suit la densité et la taille du texte."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La dimensione dei nomi degli spazi di lavoro nella barra laterale, in punti. Vuoto segue la densità e la dimensione del testo."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーのワークスペース名の大きさ（ポイント）。空欄のときは密度と文字サイズに従います。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទំហំឈ្មោះកន្លែងធ្វើការក្នុងរបារចំហៀង គិតជាពិន្ទុ។ ទទេ តាមដង់ស៊ីតេ និងទំហំអក្សរ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바의 워크스페이스 이름 크기(포인트). 비워 두면 밀도와 텍스트 크기를 따릅니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Størrelsen på navnene til arbeidsområder i sidefeltet, i punkter. Tom følger tettheten og tekststørrelsen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Rozmiar nazw przestrzeni roboczych na pasku bocznym, w punktach. Puste pole odpowiada gęstości i rozmiarowi tekstu."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O tamanho dos nomes dos espaços de trabalho na barra lateral, em pontos. Vazio segue a densidade e o tamanho do texto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Размер названий рабочих пространств в боковой панели, в пунктах. Пустое поле следует плотности и размеру текста."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขนาดชื่อพื้นที่ทำงานในแถบด้านข้าง เป็นพอยต์ เว้นว่างไว้เพื่อใช้ตามความหนาแน่นและขนาดข้อความ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğundaki çalışma alanı adlarının boyutu, punto olarak. Boş bırakılırsa yoğunluğu ve metin boyutunu izler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Розмір назв робочих просторів на бічній панелі, у пунктах. Порожнє поле відповідає щільності й розміру тексту."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cỡ tên không gian làm việc trên thanh bên, tính bằng điểm. Để trống sẽ theo mật độ và cỡ chữ."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏中工作区名称的大小，以磅为单位。留空则跟随密度和文字大小。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄中工作區名稱的大小，以點為單位。留空則依照密度和文字大小。"}}
+      }
+    },
+    "settings.sidebar.detailSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حجم تفاصيل الشريط الجانبي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Veličina detalja bočne trake"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Detaljestørrelse i sidepanelet"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Detailgröße der Seitenleiste"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Sidebar Detail Size"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tamaño de los detalles de la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Taille des détails de la barre latérale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Dimensione dei dettagli della barra laterale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの詳細サイズ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទំហំព័ត៌មានលម្អិតរបារចំហៀង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 세부 정보 크기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Detaljstørrelse i sidefeltet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Rozmiar szczegółów paska bocznego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tamanho dos detalhes da barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Размер подробностей боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขนาดรายละเอียดในแถบด้านข้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu ayrıntı boyutu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Розмір подробиць бічної панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cỡ chi tiết thanh bên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏详情大小"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄詳細資訊大小"}}
+      }
+    },
+    "settings.sidebar.detailSize.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حجم الأسطر تحت أسماء مساحات العمل والتبويبات المدرجة بالنقاط. اتركه فارغًا ليتبع الكثافة وحجم النص."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Veličina redova ispod naziva radnih prostora i navedenih kartica, u tačkama. Prazno prati gustoću i veličinu teksta."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Størrelsen på linjerne under arbejdsområdernes navne og på viste faner, i punkter. Tom følger tætheden og tekststørrelsen."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Größe der Zeilen unter den Arbeitsbereichsnamen und der aufgelisteten Tabs, in Punkt. Leer folgt der Dichte und Textgröße."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The size of the lines under workspace names and of listed tabs, in points. Empty follows the density and text size."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El tamaño de las líneas bajo los nombres de los espacios de trabajo y de las pestañas listadas, en puntos. Vacío sigue la densidad y el tamaño del texto."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La taille des lignes sous les noms d’espaces de travail et des onglets listés, en points. Vide suit la densité et la taille du texte."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La dimensione delle righe sotto i nomi degli spazi di lavoro e delle schede elencate, in punti. Vuoto segue la densità e la dimensione del testo."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ワークスペース名の下の行と一覧のタブの大きさ（ポイント）。空欄のときは密度と文字サイズに従います。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទំហំបន្ទាត់នៅក្រោមឈ្មោះកន្លែងធ្វើការ និងផ្ទាំងដែលបានរាយ គិតជាពិន្ទុ។ ទទេ តាមដង់ស៊ីតេ និងទំហំអក្សរ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "워크스페이스 이름 아래 줄과 나열된 탭의 크기(포인트). 비워 두면 밀도와 텍스트 크기를 따릅니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Størrelsen på linjene under navnene til arbeidsområder og på oppførte faner, i punkter. Tom følger tettheten og tekststørrelsen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Rozmiar wierszy pod nazwami przestrzeni roboczych i wymienionych kart, w punktach. Puste pole odpowiada gęstości i rozmiarowi tekstu."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O tamanho das linhas sob os nomes dos espaços de trabalho e das abas listadas, em pontos. Vazio segue a densidade e o tamanho do texto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Размер строк под названиями рабочих пространств и перечисленных вкладок, в пунктах. Пустое поле следует плотности и размеру текста."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขนาดบรรทัดใต้ชื่อพื้นที่ทำงานและแท็บที่แสดงในรายการ เป็นพอยต์ เว้นว่างไว้เพื่อใช้ตามความหนาแน่นและขนาดข้อความ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Çalışma alanı adlarının altındaki satırların ve listelenen sekmelerin boyutu, punto olarak. Boş bırakılırsa yoğunluğu ve metin boyutunu izler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Розмір рядків під назвами робочих просторів і перелічених вкладок, у пунктах. Порожнє поле відповідає щільності й розміру тексту."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cỡ các dòng dưới tên không gian làm việc và các tab được liệt kê, tính bằng điểm. Để trống sẽ theo mật độ và cỡ chữ."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "工作区名称下方各行及所列标签页的大小，以磅为单位。留空则跟随密度和文字大小。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "工作區名稱下方各行及所列分頁的大小，以點為單位。留空則依照密度和文字大小。"}}
+      }
+    },
+    "settings.sidebar.rowHeight": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ارتفاع صف الشريط الجانبي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Visina reda bočne trake"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Rækkehøjde i sidepanelet"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zeilenhöhe der Seitenleiste"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Sidebar Row Height"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Altura de fila de la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Hauteur des lignes de la barre latérale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Altezza delle righe della barra laterale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの行の高さ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កម្ពស់ជួររបារចំហៀង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 행 높이"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Radhøyde i sidefeltet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wysokość wierszy paska bocznego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Altura das linhas da barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Высота строк боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ความสูงแถวในแถบด้านข้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu satır yüksekliği"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Висота рядків бічної панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chiều cao hàng thanh bên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏行高"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄列高"}}
+      }
+    },
+    "settings.sidebar.rowHeight.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ارتفاع صف الشريط الجانبي ذي السطر الواحد بالنقاط. تفصل بين الصفوف نقطتان. اتركه فارغًا ليتبع الكثافة وحجم النص."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Visina jednorednog reda bočne trake, u tačkama. Redovi su međusobno udaljeni 2 tačke. Prazno prati gustoću i veličinu teksta."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Højden på en række med én linje i sidepanelet, i punkter. Rækkerne har 2 punkters afstand. Tom følger tætheden og tekststørrelsen."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Höhe einer einzeiligen Zeile der Seitenleiste, in Punkt. Zeilen liegen 2 Punkt auseinander. Leer folgt der Dichte und Textgröße."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The height of a one-line sidebar row, in points. Rows sit 2 points apart. Empty follows the density and text size."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La altura de una fila de una línea de la barra lateral, en puntos. Las filas están separadas 2 puntos. Vacío sigue la densidad y el tamaño del texto."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La hauteur d’une ligne simple de la barre latérale, en points. Les lignes sont espacées de 2 points. Vide suit la densité et la taille du texte."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "L’altezza di una riga a una linea della barra laterale, in punti. Le righe distano 2 punti. Vuoto segue la densità e la dimensione del testo."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの 1 行の行の高さ（ポイント）。行の間隔は 2 ポイントです。空欄のときは密度と文字サイズに従います。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កម្ពស់ជួរមួយបន្ទាត់នៃរបារចំហៀង គិតជាពិន្ទុ។ ជួរនៅឃ្លាតគ្នា 2 ពិន្ទុ។ ទទេ តាមដង់ស៊ីតេ និងទំហំអក្សរ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 한 줄 행의 높이(포인트). 행 사이 간격은 2포인트입니다. 비워 두면 밀도와 텍스트 크기를 따릅니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Høyden på en rad med én linje i sidefeltet, i punkter. Radene står 2 punkter fra hverandre. Tom følger tettheten og tekststørrelsen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wysokość jednowierszowego wiersza paska bocznego, w punktach. Wiersze dzielą 2 punkty. Puste pole odpowiada gęstości i rozmiarowi tekstu."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A altura de uma linha simples da barra lateral, em pontos. As linhas ficam a 2 pontos uma da outra. Vazio segue a densidade e o tamanho do texto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Высота однострочной строки боковой панели, в пунктах. Строки отстоят друг от друга на 2 пункта. Пустое поле следует плотности и размеру текста."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ความสูงของแถวบรรทัดเดียวในแถบด้านข้าง เป็นพอยต์ แต่ละแถวห่างกัน 2 พอยต์ เว้นว่างไว้เพื่อใช้ตามความหนาแน่นและขนาดข้อความ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Tek satırlı bir kenar çubuğu satırının yüksekliği, punto olarak. Satırlar arasında 2 punto vardır. Boş bırakılırsa yoğunluğu ve metin boyutunu izler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Висота однорядкового рядка бічної панелі, у пунктах. Рядки розташовано за 2 пункти один від одного. Порожнє поле відповідає щільності й розміру тексту."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chiều cao của một hàng một dòng trên thanh bên, tính bằng điểm. Các hàng cách nhau 2 điểm. Để trống sẽ theo mật độ và cỡ chữ."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏单行行的高度，以磅为单位。行与行间隔 2 磅。留空则跟随密度和文字大小。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄單行列的高度，以點為單位。列與列間隔 2 點。留空則依照密度和文字大小。"}}
+      }
+    },
+    "settings.sidebar.rowPadding": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حشو صفوف الشريط الجانبي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Razmak redova bočne trake"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Rækkeafstand i sidepanelet"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zeilenabstand der Seitenleiste"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Sidebar Row Padding"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Margen de las filas de la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Marge des lignes de la barre latérale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Margine delle righe della barra laterale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの行の余白"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចន្លោះជួររបារចំហៀង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 행 여백"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Radmarg i sidefeltet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Margines wierszy paska bocznego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Margem das linhas da barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Отступы строк боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระยะขอบแถวในแถบด้านข้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu satır boşluğu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відступи рядків бічної панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lề hàng thanh bên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏行边距"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄列邊距"}}
+      }
+    },
+    "settings.sidebar.rowPadding.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المسافة على يسار صفوف الشريط الجانبي ويمينها بالنقاط. اتركه فارغًا ليتبع الكثافة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Razmak lijevo i desno od redova bočne trake, u tačkama. Prazno prati gustoću."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Afstanden til venstre og højre for rækkerne i sidepanelet, i punkter. Tom følger tætheden."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der Abstand links und rechts der Zeilen der Seitenleiste, in Punkt. Leer folgt der Dichte."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The space at the left and right of sidebar rows, in points. Empty follows the density."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El espacio a la izquierda y a la derecha de las filas de la barra lateral, en puntos. Vacío sigue la densidad."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "L’espace à gauche et à droite des lignes de la barre latérale, en points. Vide suit la densité."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Lo spazio a sinistra e a destra delle righe della barra laterale, in punti. Vuoto segue la densità."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの行の左右の余白（ポイント）。空欄のときは密度に従います。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចន្លោះនៅខាងឆ្វេង និងខាងស្ដាំនៃជួររបារចំហៀង គិតជាពិន្ទុ។ ទទេ តាមដង់ស៊ីតេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 행의 왼쪽과 오른쪽 여백(포인트). 비워 두면 밀도를 따릅니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Avstanden til venstre og høyre for radene i sidefeltet, i punkter. Tom følger tettheten."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odstęp po lewej i prawej stronie wierszy paska bocznego, w punktach. Puste pole odpowiada gęstości."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O espaço à esquerda e à direita das linhas da barra lateral, em pontos. Vazio segue a densidade."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Отступ слева и справа от строк боковой панели, в пунктах. Пустое поле следует плотности."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระยะห่างด้านซ้ายและขวาของแถวในแถบด้านข้าง เป็นพอยต์ เว้นว่างไว้เพื่อใช้ตามความหนาแน่น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu satırlarının solundaki ve sağındaki boşluk, punto olarak. Boş bırakılırsa yoğunluğu izler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відступ ліворуч і праворуч від рядків бічної панелі, у пунктах. Порожнє поле відповідає щільності."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khoảng trống bên trái và bên phải các hàng thanh bên, tính bằng điểm. Để trống sẽ theo mật độ."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏行左右两侧的间距，以磅为单位。留空则跟随密度。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄列左右兩側的間距，以點為單位。留空則依照密度。"}}
       }
     },
     "settings.cloud.agentsStartWithoutAsking": {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 619,
+  "count": 623,
   "sections": [
     {
       "id": "general",
@@ -3669,12 +3669,13 @@
         {
           "key": "sidebar.density",
           "title": "Sidebar Density",
-          "help": "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+          "help": "Normal rows match the Codex app's sidebar. Compact rows are smaller and closer together. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
           "kind": "choice",
-          "default": "compact",
+          "default": "normal",
           "group": "Sidebar",
           "values": [
             "compact",
+            "normal",
             "comfortable",
             "expanded"
           ]
@@ -3686,6 +3687,19 @@
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.detailSize",
+          "title": "Sidebar Detail Size",
+          "help": "The size of the lines under workspace names and of listed tabs, in points. Empty follows the density and text size.",
+          "kind": "number",
+          "default": null,
+          "group": "Sidebar",
+          "range": {
+            "min": 8,
+            "max": 20,
+            "unit": "points"
+          }
         },
         {
           "key": "sidebar.floatOnHover",
@@ -4035,6 +4049,32 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.rowHeight",
+          "title": "Sidebar Row Height",
+          "help": "The height of a one-line sidebar row, in points. Rows sit 2 points apart. Empty follows the density and text size.",
+          "kind": "number",
+          "default": null,
+          "group": "Sidebar",
+          "range": {
+            "min": 16,
+            "max": 56,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "sidebar.rowPadding",
+          "title": "Sidebar Row Padding",
+          "help": "The space at the left and right of sidebar rows, in points. Empty follows the density.",
+          "kind": "number",
+          "default": null,
+          "group": "Sidebar",
+          "range": {
+            "min": 0,
+            "max": 24,
+            "unit": "points"
+          }
+        },
+        {
           "key": "sidebar.sectionLook",
           "title": "Section Look",
           "help": "How the sections above and below the workspace list draw.",
@@ -4208,15 +4248,28 @@
         {
           "key": "sidebar.textSize",
           "title": "Sidebar Text Size",
-          "help": "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+          "help": "Sizes the sidebar's names, headers, icons and rows together. Small, the default, matches the Codex app's sidebar; Medium matches the ChatGPT app's.",
           "kind": "choice",
-          "default": "default",
+          "default": "small",
           "group": "Sidebar",
           "values": [
-            "default",
-            "large",
-            "larger"
+            "small",
+            "medium",
+            "large"
           ]
+        },
+        {
+          "key": "sidebar.titleSize",
+          "title": "Sidebar Title Size",
+          "help": "The size of workspace names in the sidebar, in points. Empty follows the density and text size.",
+          "kind": "number",
+          "default": null,
+          "group": "Sidebar",
+          "range": {
+            "min": 9,
+            "max": 24,
+            "unit": "points"
+          }
         },
         {
           "key": "sidebar.topBandMaxShare",

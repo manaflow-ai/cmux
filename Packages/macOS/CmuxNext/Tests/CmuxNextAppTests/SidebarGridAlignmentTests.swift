@@ -61,7 +61,8 @@ import Testing
         Self.withDensity(c.comfortable) {
             let origin = CGFloat((c.comfortable ? 8 : 6) + c.depth * 7)
             let width = CGFloat(320) - origin - SidebarStyle.horizontalInset
-            let height = Metrics.sidebarRowHeight + (c.comfortable ? Metrics.space2 : 0)
+            // Comfortable is the list's Codex row plus `space2` (issue 28793); Compact the app's row.
+            let height = c.comfortable ? Metrics.sidebarListRowHeight + Metrics.space2 : Metrics.sidebarRowHeight
             let icon: CGFloat = c.comfortable ? 20 : 16
             #expect(abs(SidebarStyle.horizontalInset - (c.comfortable ? 8 : 6)) <= 0.5)
             #expect(SidebarStyle.rowEdgeGap == SidebarStyle.horizontalInset)
@@ -314,14 +315,15 @@ extension SidebarGridAlignmentTests {
     @Test(arguments: [false, true])
     func densityFontsAndControlTargetsStayAtBase(comfortable: Bool) throws {
         try Self.withDensity(comfortable) {
-            let height: CGFloat = comfortable ? 28 : 24
+            let height: CGFloat = comfortable ? 32 : 24
             #expect(SidebarDensityTokens.rowHeight == height)
             #expect(SidebarDensityTokens.headerHeight == (comfortable ? 26 : 22))
             #expect(SidebarStyle.rowEdgeGap == (comfortable ? 8 : 6))
             #expect(SidebarStyle.controlSize == Metrics.iconSize + Metrics.space2)
             #expect(SidebarStyle.trailingSlotSide == SidebarStyle.controlSize)
-            #expect(SidebarStyle.titleFont == Typography.body)
-            #expect(SidebarStyle.subtitleFont == Typography.caption)
+            // Compact keeps the app's body and caption; Comfortable takes Normal's Codex text (issue 28793).
+            #expect(SidebarStyle.titleFont.pointSize == (comfortable ? Typography.sidebarRow : Typography.body).pointSize)
+            #expect(SidebarStyle.subtitleFont.pointSize == (comfortable ? Typography.sidebarDetail : Typography.caption).pointSize)
             let c = Case(kind: .workspace, comfortable: comfortable, depth: 0, marks: 1)
             let workspace = try #require(Self.view(c, width: 312, height: height) as? WorkspaceRowView)
             workspace.isHovered = true

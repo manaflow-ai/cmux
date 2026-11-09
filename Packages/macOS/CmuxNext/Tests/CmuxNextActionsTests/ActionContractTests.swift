@@ -60,7 +60,7 @@ import Testing
                 "import.card", "import.list", "import.suggest",
                 "machine.joined.check", "machine.joined.revoke", "machine.joined.rotate",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
-                "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]
+                "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "sidebar.density.normal", "toggleTabAudioMute"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
                "paletteKey.submitAlternate", "paletteKey.openActions", "paletteKey.closeActions", "paletteKey.toggleActions",
                "paletteKey.escape", "paletteKey.enterRow", "paletteKey.leaveLevel", "paletteKey.back",

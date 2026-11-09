@@ -264,7 +264,7 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.disableMinimalMode", defaultValue: "Disable Minimal Mode", bundle: .module),
                 keywords: ["sidebar", "compact", "minimal", "simple", "dense"], category: .sidebar, symbol: "rectangle.expand.vertical",
                 surfaces: [.palette, .contextMenu], cliName: "sidebar disable-minimal-mode",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.sidebarBackground, .view, 131, folder: .options)])
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.sidebarBackground, .view, 130, folder: .options)])
             ),
         ]
     }

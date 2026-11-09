@@ -24,7 +24,7 @@ struct AppSceneRowMetrics: Equatable {
     /// The leading icon column: the grid's icon box (16 compact, 20 comfortable), wider when the text size grows the glyph.
     var iconColumn: CGFloat {
         max(tokens.isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox,
-            smallIconSize + tokens.textSize.glyphStep + tokens.base.space2)
+            smallIconSize + tokens.textSteps.glyph + tokens.base.space2)
     }
     /// A leading glyph's side beside the title (cap height matched to the text).
     var glyphSide: CGFloat { .iconRowSize(forLabelPointSize: tokens.titleSize) }
@@ -33,18 +33,23 @@ struct AppSceneRowMetrics: Equatable {
     /// The trailing content's end, in a section `width` wide.
     func trailingX(width: CGFloat) -> CGFloat { width - 2 * inset }
 
-    /// A row title, regular (medium while unread), at the sidebar text size.
+    /// Compact at its own text size with no custom sizes: the app's body and caption, as before Normal.
+    private var compactBase: Bool { tokens.isCompact && tokens.textSteps.text == 0 }
+
+    /// A row title (medium while unread) at the built-in rows' size and weight: the sidebar's 430 weight
+    /// (`TypeScale.sidebar`) from Normal up, regular at Compact (issue 28793).
     @MainActor
     func titleFont(emphasized: Bool = false) -> NSFont {
-        let weight: NSFont.Weight = emphasized ? .medium : .regular
-        if tokens.textSize.textStep == 0 { return emphasized ? Typography.bodyEmphasized : Typography.body }
+        if compactBase, tokens.base.customTitle == nil { return emphasized ? Typography.bodyEmphasized : Typography.body }
+        let weight: NSFont.Weight = emphasized ? .medium : tokens.isCompact ? .regular : TypeScale.sidebar
         return Typography.system(.default, size: tokens.titleSize, weight: weight)
     }
 
     /// A row's detail line.
     @MainActor
     var captionFont: NSFont {
-        tokens.textSize.textStep == 0 ? Typography.caption : Typography.system(.default, size: tokens.captionSize, weight: .regular)
+        compactBase && tokens.base.customDetail == nil
+            ? Typography.caption : Typography.system(.default, size: tokens.captionSize, weight: .regular)
     }
 
     /// A row's height: one line, or one line plus the detail line's height (as a workspace row with a detail line).
