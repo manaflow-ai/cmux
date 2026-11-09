@@ -630,6 +630,7 @@ cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
 cmux settings unset <path> [--confirm]
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
+            [--timeout <duration>] [--until <name>|<prefix>*] [--match <path>=<value>]...
 ```
 
 `settings set` parses the value as JSON when it parses, else as a string.
@@ -638,7 +639,9 @@ cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats
 Mac on a native sheet and waits for the answer with no client deadline; a
 declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 `cmux settings set <path> -- --confirm` sets the string "--confirm".
-`events` streams JSON lines until interrupted.
+`events` streams JSON lines until interrupted, or until `--timeout` (exit 124,
+with a last `{"type":"timeout","timed_out":true}` line in JSON modes); with
+`--until`/`--match` it prints the first matching event and exits 0.
 
 `action run -` reads app actions from stdin, a JSON array or one JSON object
 per line of `action.run` params (`{"action": "newColumn", "target": "pane:…",

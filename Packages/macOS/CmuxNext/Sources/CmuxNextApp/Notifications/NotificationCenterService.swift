@@ -305,7 +305,7 @@ final class NotificationCenterService {
     func open(surface: SurfaceID?) {
         guard let services, let surface, let located = locate(surface: surface, in: services.daemon.store) else { return }
         let context = AppActionContext(services: services)
-        context.reveal(located)
+        context.reveal(located); services.agentTabs.existingView(located.tab.id)?.focusAsk()
         interacted(.open, tabID: located.tab.id)
     }
 

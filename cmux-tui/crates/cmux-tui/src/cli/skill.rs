@@ -155,10 +155,33 @@ pub(super) const RECIPES: &[Recipe] = &[
                (for a dialog: kind permission, state blocked, msg).",
     },
     Recipe {
+        ask: "Tell me when that agent is idle. / Wait until the workspace exists, then go on.",
+        commands: &[
+            "cmux --json agents events --until agent.state --match state=idle --match terminal_id=<term> --timeout 10m",
+            "cmux --json agents events --until workspace.changed --match name=<name> --timeout 30s",
+        ],
+        read: "--until names the event (agents events: KIND.CHANGE such as agent.state, \
+               dialog.opened; events: the app's name; a trailing * is a prefix) and \
+               --match PATH=VALUE checks its fields. It prints only that event and exits 0, \
+               or `timed_out: true` and exits 124. Start it before the action, or pass \
+               --after so events already past count; always pass --timeout.",
+    },
+    Recipe {
         ask: "Stop it. / Press Ctrl-C. / Answer the dialog with Escape.",
         commands: &["cmux terminal <term> keys ctrl+c", "cmux terminal <term> keys escape"],
         read: "keys sends named keys (`enter`, `escape`, `tab`, `up`, `ctrl+c`, ...). To type \
                text without Enter: `cmux terminal <term> write --text '...'`.",
+    },
+    Recipe {
+        ask: "Find the workspace called api. / Which workspaces are in ~/src/app?",
+        commands: &[
+            "cmux --json workspace list --name api",
+            "cmux --json workspace list --cwd ~/src/app",
+            "cmux --json terminal list --cwd ~/src/app",
+        ],
+        read: "--name keeps exact names (two workspaces may share one, which a `name:api` \
+               selector refuses as ambiguous); --cwd keeps the workspaces with a terminal in \
+               that folder or below it. No match is `[]`, exit 0. pane list takes both flags.",
     },
     Recipe {
         ask: "Zoom that pane. / Rename this workspace. / Open a new screen called api.",

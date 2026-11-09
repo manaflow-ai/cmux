@@ -1107,6 +1107,25 @@ class GatewayRoute(unittest.TestCase):
         lines = self.run_main(self.light(True, True), **rerun)
         self.assertEqual((lines["fleet_jobs"], lines["gateway_runner"], lines["gateway_attempt"]), ("", "", ""))
 
+    def test_the_pr_app_compile_takes_an_idle_gateway_before_the_quiet_period_ends(self):
+        # Leo, 2026-11-08: the Linux checks start at once and only the Mac jobs wait. cmux-next.yml's
+        # app-compile-placement judges the app compile's gateway at once; macos-placement places the Mac
+        # jobs after the PR quiet period from its own reading.
+        early = {"PLACEMENT": "app-compile", "GITHUB_RUN_ATTEMPT": "1", "GATEWAY_LABEL": LIGHT_SIDE,
+                 "GATEWAY_JOBS": "app-compile-fleet"}
+        lines = self.run_main(self.light(True, False), **early)
+        self.assertEqual(lines, {"gateway_runner": LIGHT_SIDE, "gateway_attempt": "1"})
+        # A busy light gateway spills to an idle std side runner, as gateway_route() does.
+        self.assertEqual(placement.app_compile_gateway(early, self.light(True) + self.std(False))[0], SIDE)
+        for why, values, runners in (
+                ("no idle gateway runner", early, self.light(True, True)),
+                ("runners unread", early, None),
+                ("a re-run", {**early, "GITHUB_RUN_ATTEMPT": "2"}, self.light(False)),
+                ("no gateway variable", {**early, "GATEWAY_LABEL": ""}, self.light(False))):
+            with self.subTest(why=why):
+                self.assertEqual(placement.app_compile_gateway(values, runners)[0], "")
+        self.assertEqual(self.run_main(self.light(True, True), **early), {"gateway_runner": "", "gateway_attempt": ""})
+
     def test_a_rerun_lists_no_fleet_job(self):
         self.assertEqual(placement.fleet_gateway(self.fleet_placed("fast-tier"), {}, self.light(False, False), "")
                          .fleet_jobs, ())
