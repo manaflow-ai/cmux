@@ -317,6 +317,60 @@ class GalleryRenderPlanTests(unittest.TestCase):
         self.tool = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.tool)
 
+    def picture(self, width, height, marks, filtered=False):
+        """An RGB PNG of a dark stage with light squares at (x, y, size); `filtered` encodes every row
+        with a different PNG filter, as Chromium's encoder may."""
+        import struct, zlib
+        rows = [bytearray(b"\x20\x20\x20" * width) for _ in range(height)]
+        for x0, y0, size in marks:
+            for y in range(y0, y0 + size):
+                rows[y][x0 * 3:(x0 + size) * 3] = b"\xe0\xe0\xe0" * size
+        if not filtered:
+            return self.tool.png_write(width, height, 3, rows)
+        raw, prior = b"", bytearray(width * 3)
+        for y, row in enumerate(rows):
+            kind, out = y % 5, bytearray()
+            for i, value in enumerate(row):
+                left = row[i - 3] if i >= 3 else 0
+                up, corner = prior[i], prior[i - 3] if i >= 3 else 0
+                guess = left + up - corner
+                pa, pb, pc = abs(guess - left), abs(guess - up), abs(guess - corner)
+                paeth = left if pa <= pb and pa <= pc else up if pb <= pc else corner
+                out.append((value - [0, left, up, (left + up) >> 1, paeth][kind]) & 255)
+            raw += bytes([kind]) + bytes(out)
+            prior = row
+        chunk = lambda k, b: struct.pack(">I", len(b)) + k + b + struct.pack(">I", zlib.crc32(k + b))
+        return (self.tool.PNG + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+    def test_png_read_undoes_every_row_filter(self):
+        width, height, channels, rows = self.tool.png_read(self.picture(40, 30, [(5, 6, 4)], filtered=True))
+        self.assertEqual((width, height, channels), (40, 30, 3))
+        self.assertEqual(self.tool.content_box(width, height, channels, rows), (5, 6, 9, 10))
+
+    def test_a_pair_is_cropped_to_one_box_with_a_margin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            after, before = os.path.join(tmp, "after.png"), os.path.join(tmp, "before.png")
+            with open(after, "wb") as f:
+                f.write(self.picture(200, 120, [(40, 50, 10)]))
+            with open(before, "wb") as f:
+                f.write(self.picture(200, 120, [(60, 40, 10)]))
+            from pathlib import Path
+            out = self.tool.crop_pictures([Path(after), Path(before)], Path(tmp) / "cropped")
+            sizes = [self.tool.png_read(p.read_bytes())[:2] for p in out]
+        # Union (40, 40)-(70, 60), plus 32 each side: (8, 8)-(102, 92).
+        self.assertEqual(sizes, [(94, 84), (94, 84)])
+
+    def test_an_empty_or_odd_picture_is_kept_as_it_is(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            from pathlib import Path
+            blank = Path(tmp) / "blank.png"
+            blank.write_bytes(self.picture(50, 50, []))
+            self.assertEqual(self.tool.crop_pictures([blank], Path(tmp) / "c"), [blank])
+            webp = Path(tmp) / "x.webp"
+            webp.write_bytes(b"RIFF\0\0\0\0WEBPVP8 ")
+            self.assertEqual(self.tool.crop_pictures([webp], Path(tmp) / "c"), [webp])
+
     def test_manifest_keeps_one_dark_case_per_state_and_names_the_missing(self):
         case = lambda entry, variant, scheme: {"id": f"{entry}--{variant}--{scheme}", "path_or_url": "frame.html",
                                                "params": {"entry": entry, "variant": variant, "colorScheme": scheme}}

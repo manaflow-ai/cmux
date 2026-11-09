@@ -8,6 +8,7 @@ pub mod client;
 pub mod connection;
 pub mod crypto;
 pub mod daemon;
+pub mod first_dial;
 pub mod grant;
 pub mod http;
 pub mod identity;
