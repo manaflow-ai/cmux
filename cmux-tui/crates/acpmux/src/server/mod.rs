@@ -2167,7 +2167,6 @@ mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
 mod bg_tasks;
-mod run_elsewhere;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
@@ -2178,6 +2177,7 @@ mod outbound;
 mod plan_build;
 mod project_new;
 mod review_queue;
+mod run_elsewhere;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,

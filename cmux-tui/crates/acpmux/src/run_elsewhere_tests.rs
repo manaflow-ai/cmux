@@ -79,7 +79,8 @@ async fn a_secret_in_a_file_git_quotes_the_name_of_is_still_flagged() {
     }
     let plan = plan(&work).await.unwrap();
     for name in ["config\"local.txt", "back\\slash.txt", "tab\there.txt", "caf\u{e9}.txt"] {
-        let file = plan.files.iter().find(|f| f.path == name).unwrap_or_else(|| panic!("{name} listed"));
+        let file =
+            plan.files.iter().find(|f| f.path == name).unwrap_or_else(|| panic!("{name} listed"));
         assert!(file.secret, "{name} is flagged");
     }
 }
