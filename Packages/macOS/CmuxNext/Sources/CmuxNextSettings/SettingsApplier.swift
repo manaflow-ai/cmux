@@ -67,11 +67,14 @@ public final class SettingsApplier {
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
+        let pageDeveloperTools = AppPageDevToolsSetting().value(in: snapshot.root)
+        if design.pageDeveloperTools != pageDeveloperTools { design.pageDeveloperTools = pageDeveloperTools }
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
+        if design.hoverCardDelayIsSet != snapshot.hoverCards.delayIsSet { design.hoverCardDelayIsSet = snapshot.hoverCards.delayIsSet }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
         if design.workspaceHoverCard != workspaceHoverCard { design.workspaceHoverCard = workspaceHoverCard }
         let groupHoverCard = snapshot.hoverCards.groupCardOptions

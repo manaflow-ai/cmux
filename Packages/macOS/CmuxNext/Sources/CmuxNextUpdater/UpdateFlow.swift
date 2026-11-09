@@ -25,6 +25,11 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// 2026-10-20: "if there is a background check for updates, it should
     /// not be visible to the user").
     public private(set) var userAsked = false
+    /// The person started this download (Update, Download, an install click, Attempt Update): only
+    /// then does its progress show (``card(downloadsAutomatically:)``). A download that follows a check
+    /// by itself, the person's check included, stays quiet until it is staged (Lawrence 2026-11-07: "i
+    /// think i enabled auto updates but it was automatically downloading updates just now").
+    public private(set) var downloadAsked = false
     /// The person's request waits for its check to start: the next
     /// ``UpdateIndicatorPhase/checking`` is theirs. A check that starts
     /// without one is a scheduled check.
@@ -36,6 +41,12 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         switch event {
         case .sparkle(let next):
             return sparkleMoved(to: next)
+        case .attemptRequested:
+            // Attempt Update with nothing found yet: a fresh check that downloads and installs at once.
+            downloadAsked = true
+            userAsked = true
+            askPending = phase != .checking
+            return []
         case .checkRequested:
             userAsked = true
             // Joining a check that already runs needs no new start.
@@ -53,11 +64,13 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
                 // Installs once staged; the check or the download's progress shows meanwhile.
                 installRequested = true
                 userAsked = true
+                downloadAsked = true
                 return []
             case .available:
                 // Downloads, shows its progress, installs once staged.
                 installRequested = true
                 userAsked = true
+                downloadAsked = true
                 return [.download]
             case .hidden, .installing, .note:
                 return []
@@ -70,6 +83,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             // enabling it to auto install and restart is... interesting").
             guard case .available = phase else { return [] }
             userAsked = true
+            downloadAsked = true
             if preferences.oneClickInstall { installRequested = true }
             return [.download]
         case .quitRequested:
@@ -107,6 +121,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         switch next {
         case .ready:
             userAsked = false
+            downloadAsked = false
             return installIfStaged()
         case .installing:
             // A person who watched the check and download on the notice card
@@ -117,11 +132,13 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             // The flow ended, failed or was cancelled: a held click does not
             // carry over to a later update.
             installRequested = false
+            downloadAsked = false
             return []
         case .available:
             // A click held while the check ran: download now, install once staged.
             guard installRequested else { return [] }
             userAsked = true
+            downloadAsked = true
             return [.download]
         case .checking, .downloading:
             return []
@@ -161,7 +178,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         guard userAsked else { return nil }
         switch phase {
         case .checking: return .checking
-        case .downloading(let transfer): return .downloading(transfer)
+        case .downloading(let transfer): return downloadAsked ? .downloading(transfer) : nil
         case .installing: return .installing
         case .note(let note): return .note(note)
         case .hidden, .available, .ready: return nil

@@ -3,6 +3,7 @@
 //! after that whole turn (`queue.rs` `queue_slot`, `Session::turn_claimed`).
 
 use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 const WAIT: Duration = Duration::from_secs(20);
@@ -133,6 +134,51 @@ async fn exact_prompt_stop_fences_admission_before_turn_without_stopping_next_pe
         Control::Local,
     );
     assert!(hub.start_turn(&session, None, false, false, turn).is_err());
+    hub.shutdown_all().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn race_guard_refuses_prompt_cancelled_at_final_acceptance_fence() {
+    let (hub, session) = chat().await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let active = std::sync::Arc::new(AtomicBool::new(true));
+    let guard_active = active.clone();
+    let opts = PromptOptions {
+        prompt_id: Some("race-cancel-fence".into()),
+        race_guard: Some(std::sync::Arc::new(move || {
+            if guard_active.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err(RpcError::invalid_params("race cancelled")
+                    .with_data(json!({"reason": "race.cancelled"})))
+            }
+        })),
+        ..PromptOptions::default()
+    };
+    let pending = {
+        let hub = hub.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            hub.prompt_with(
+                &session,
+                vec![json!({"type":"text","text":"must not reach agent"})],
+                "race-test",
+                false,
+                opts,
+            )
+            .await
+        })
+    };
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    active.store(false, Ordering::SeqCst);
+    release.send(()).unwrap();
+    let result = tokio::time::timeout(WAIT, pending).await.unwrap().unwrap();
+    assert!(result.is_err(), "cancelled race prompt was accepted: {result:?}");
+    assert!(!hub.events(&session.id, 0, 10_000).unwrap().iter().any(|event| {
+        event.kind == "user_message" && event.msg["promptId"] == "race-cancel-fence"
+    }));
     hub.shutdown_all().await;
 }
 

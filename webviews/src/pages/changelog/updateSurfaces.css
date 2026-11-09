@@ -372,6 +372,23 @@
   height: var(--composer-material-height);
   padding: 0 var(--wn-side);
 }
+/* The same room on all four sides of the words (Lawrence 2026-11-07, "feels like too much padding on
+   top"): centred with their line boxes' leading, the title's capitals sat further from the top than
+   the note's baseline from the bottom. Each line is trimmed to its capitals and its baseline, and the
+   lines stand the side inset in from the top and the bottom, the space between them taking the rest
+   of the composer's box. Lines clip only sideways, so a trimmed line's descenders still show. */
+@supports (text-box: trim-both cap alphabetic) {
+  .wn-updated:not([data-placement="button"]) .wn-card-rest {
+    justify-content: space-between;
+    padding-block: var(--wn-side);
+  }
+  .wn-updated:not([data-placement="button"]) :is(.wn-card-head > *, .wn-card-rest > p) {
+    text-box: trim-both cap alphabetic;
+  }
+  .wn-updated:not([data-placement="button"]) :is(.wn-card-title, .wn-card-rest > p) {
+    overflow: clip visible;
+  }
+}
 /* The look before (gallery): the button under the note, as tall as its rows. */
 .wn-updated[data-placement="button"] .wn-card-rest {
   height: auto;
@@ -457,15 +474,56 @@
 @media (prefers-reduced-motion: reduce) {
   .wn-preview { transition: none !important; }
 }
-.wn-preview-list {
+/* What's New and the changes (Lawrence 2026-11-07, "this ui is very bad": every line was cut with
+   an ellipsis and the last row was dimmed). The body is laid out at its natural height while the
+   preview is closed (the card measures it); open, it is the preview's height and the list scrolls in
+   what is left under What's New. */
+.wn-preview-body {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.wn-updated[data-preview="open"] .wn-preview-body { max-height: var(--wn-preview-h, none); }
+.wn-preview-head {
+  flex: none;
+  display: flex;
+  padding: 0 var(--wn-side) calc(var(--grid-base, 4px) * 2);
+}
+.wn-preview-whatsnew {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--wn-note);
+  letter-spacing: var(--text-detail--letter-spacing);
+  color: var(--page-text-2);
+  cursor: default;
+  transition: color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.wn-preview-whatsnew:hover { color: var(--page-text); }
+.wn-preview-whatsnew:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+.wn-preview-list {
+  flex: 1 1 auto;
+  min-height: 0;
   box-sizing: border-box;
-  max-height: var(--wn-preview-max, 264px);
   margin: 0;
   padding: var(--grid-base, 4px);
   list-style: none;
   overflow-y: auto;
   overscroll-behavior: contain;
+  box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--composer-material-edge);
+}
+/* More rows than fit show the scrollbar, never a fade over the last row (the dimmed row of
+   Lawrence's shot was the card scroller's 28 px edge fade). */
+.wn-preview-list[data-cmux-card-scroll] {
+  -webkit-mask: none !important;
+  mask: none !important;
+}
+.wn-preview-list[data-cmux-card-scroll]:is([data-cmux-more-above], [data-cmux-more-below])::-webkit-scrollbar-thumb {
+  background-color: var(--cmux-scroller-thumb);
 }
 .wn-preview-row {
   display: flex;
@@ -484,14 +542,62 @@
 }
 .wn-preview-row:hover { background: var(--page-hover); }
 .wn-preview-row:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
+/* A change's title wraps onto a second line, and its detail too, instead of being cut at the card's
+   edge; only a title longer than two lines ends in an ellipsis. */
 .wn-preview-title,
 .wn-preview-detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
 }
 .wn-preview-title { font-size: var(--wn-title); }
 .wn-preview-detail { color: var(--page-text-2); font-size: var(--wn-note); letter-spacing: var(--text-detail--letter-spacing); }
+/* The titles layout: the changes are their titles alone, on up to three lines. */
+.wn-updated[data-layout="titles"] .wn-preview-title { -webkit-line-clamp: 3; }
+.wn-updated[data-layout="titles"] .wn-preview-detail { display: none; }
+
+/* The card's header (Lawrence 2026-11-07: "a clear hierarchy: a header, then the items"): its title
+   line ("Updated to Nightly", the x beside it), then, open, the full version in the note's place and
+   height, then What's New; the changes under a hairline. */
+.wn-card-version {
+  display: block;
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--wn-note);
+  line-height: 1.3;
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.wn-updated[data-preview="open"]:has(.wn-card-version) .wn-card-note { display: none; }
+/* The header leads the open panel (`header`, `titles`): at the bottom slot the card's lines go to
+   the panel's top and the changes follow; at the top place they already lead. The panel opens on the
+   card's curve with the host's native glass (Leo 2026-11-08), the header riding its top edge, and
+   its rows fade in. */
+.wn-updated:is([data-layout="header"], [data-layout="titles"])[data-preview="open"] { flex-direction: column-reverse; }
+.wn-updated:is([data-layout="header"], [data-layout="titles"]) .wn-preview { justify-content: flex-start; }
+.wn-updated:is([data-layout="header"], [data-layout="titles"])[data-preview="open"] .wn-preview {
+  box-shadow: none !important;
+}
+:root:not([data-cmux-motion="off"]) .wn-updated:is([data-layout="header"], [data-layout="titles"])[data-preview="open"] .wn-preview-list {
+  animation: wn-preview-rows-in var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-preview-list { animation: none !important; }
+}
+@keyframes wn-preview-rows-in {
+  from { opacity: 0; }
+}
+/* The header kept at the card's resting edge (`header-bottom`): What's New next to it, under the
+   changes, and the hairline above What's New. */
+.wn-updated[data-layout="header-bottom"]:not([data-anchor="top"]) .wn-preview-head { order: 1; padding-block: calc(var(--grid-base, 4px) * 2) var(--grid-base, 4px); }
+.wn-updated[data-layout="header-bottom"]:not([data-anchor="top"]) .wn-preview-list { box-shadow: none; }
+.wn-updated[data-layout="header-bottom"]:not([data-anchor="top"]) .wn-preview-head { box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--composer-material-edge); }
 .wn-card-link:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 
 /* The card's drag (updatedCardDrag.ts, Leo 2026-11-07: "drag that up to the top if you wanted
@@ -509,3 +615,175 @@
 .wn-updated[data-anchor="top"][data-preview="open"] .wn-preview {
   box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--composer-material-edge);
 }
+
+/* The Updated card's changes beside the sidebar (UpdatedNotes.tsx, `#/surface/updated-notes`, the
+   shipped look; Lawrence 2026-11-07, on the list that grew up over the sidebar: "i dont like how it
+   expands upwards, also it looks very bad"). In the app's hover card window, whose glass the host
+   draws: a calm header (what the app updated to and What's New on one line, the full version under
+   it), a hairline, then each change, its title whole on as many lines as it needs and a quiet
+   detail under it. The section scrolls inside the popover (surface.css). */
+.wn-notes {
+  box-sizing: border-box;
+  padding: var(--ds-space-3) var(--ds-space-1) var(--ds-space-1);
+  overflow-y: auto;
+  color: var(--page-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.wn-notes-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--ds-space-3);
+  align-items: baseline;
+  padding: 0 var(--ds-space-2) var(--ds-space-2);
+  border-bottom: 1px solid var(--page-separator);
+}
+.wn-notes-title {
+  min-width: 0;
+  font-weight: var(--weight-emphasis);
+  overflow-wrap: anywhere;
+}
+.wn-notes-whatsnew {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+  cursor: default;
+}
+.wn-notes-whatsnew:hover { color: var(--page-text); }
+.wn-notes-version {
+  grid-column: 1 / -1;
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.wn-notes-list {
+  list-style: none;
+  margin: var(--ds-space-1) 0 0;
+  padding: 0;
+}
+.wn-notes-row {
+  display: grid;
+  gap: 0;
+  width: 100%;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-notes-row:hover { background: var(--page-hover); }
+.wn-notes-row-title {
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.wn-notes-row-detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+}
+.wn-notes[data-titles] .wn-notes-list { margin-top: var(--ds-space-1); }
+/* The changes under What's New's areas (Leo 2026-11-08: "the sections should be more obvious what's
+   what"): each area's glyph, name and count as What's New heads it (SheetPage's cls-area-head), so a
+   click that opens the page lands under a header that reads the same. */
+.wn-notes-section + .wn-notes-section { margin-top: var(--ds-space-2); }
+.wn-notes-area {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1);
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.wn-notes-area-icon {
+  display: inline-flex;
+  color: var(--cmux-accent, currentColor);
+}
+.wn-notes-area-icon svg { width: 14px; height: 14px; }
+.wn-notes-area-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wn-notes-area-count {
+  color: var(--page-text-3, var(--page-text-2));
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+/* One change is one pill (Leo: "distinguishing which row does what is unclear"): its title and detail
+   light together, with a gap between pills. */
+.wn-notes-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--grid-base, 4px) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wn-notes-row { padding-block: var(--ds-space-2); }
+/* Rows divided by hairlines instead of gaps (gallery variant). */
+.wn-notes-list[data-look="divided"] .wn-notes-rows { gap: 0; }
+.wn-notes-list[data-look="divided"] .wn-notes-rows > li + li { border-top: 1px solid var(--page-separator); }
+.wn-notes-list[data-look="divided"] .wn-notes-row { border-radius: 0; }
+/* How many changes are below while some are (Leo: "unclear whether you can even scroll down and why
+   you should"): a quiet pill held at the popover's bottom edge. */
+.wn-notes-more {
+  position: sticky;
+  bottom: var(--ds-space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  width: fit-content;
+  margin: var(--ds-space-1) var(--ds-space-2) 0 auto;
+  padding: calc(var(--grid-base, 4px) / 2) var(--ds-space-2);
+  border-radius: 999px;
+  background: var(--composer-material-tint, var(--page-hover));
+  box-shadow: var(--composer-material-ring, none);
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+:is(.wn-notes-whatsnew, .wn-notes-row, .wn-card-seenew):focus-visible {
+  outline: 2px solid var(--cmux-accent, currentColor);
+  outline-offset: 2px;
+}
+/* The `quiet` look: the card's second line is See What's New, in the note's place and size. */
+.wn-card-seenew {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.wn-card-seenew:hover { color: var(--page-text); }
+/* The `version` look: the full version is the card's second line at rest. */
+.wn-card[data-mode="version"] .wn-card-version { margin: 0; }
+/* No faded last row (Lawrence 2026-11-07: a dimmed row read as disabled): the scrollbar marks more. */
+.wn-notes[data-cmux-card-scroll] { -webkit-mask: none !important; mask: none !important; }

@@ -29,7 +29,7 @@ pub(super) const SESSION: &str = "acp_session_1";
 pub(super) struct FakeAcpmux {
     directory: PathBuf,
     pub(super) socket: PathBuf,
-    frames: Receiver<Value>,
+    pub(super) frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
     current: Option<UnixStream>,
     transfer_blocked: Arc<Mutex<HashSet<String>>>,
@@ -170,6 +170,33 @@ pub(super) struct Fixture {
     /// most [`WAIT`], or until its sender is gone).
     pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
+    pub(super) phone: Option<PhoneFloor>,
+}
+
+/// The fake's Cloud mobile floor: whether it reports one, the family a new session runs, and
+/// the session's mode (`session/set_mode` changes it, unless `stuck`).
+#[derive(Clone)]
+pub(super) struct PhoneFloor {
+    pub(super) strict: bool,
+    pub(super) family: &'static str,
+    pub(super) mode: Arc<Mutex<String>>,
+    pub(super) stuck: bool,
+    /// When set, the start's first `_acpmux/web_modes` (the table, before any session) waits
+    /// for one message on it (at most [`WAIT`], or until its sender is gone).
+    pub(super) table_gate: Option<Arc<Mutex<Receiver<()>>>>,
+}
+
+impl PhoneFloor {
+    /// acpmux's `Hub::cloud_mobile_mode_asks` for a Claude or Codex bridge session.
+    fn asks(&self) -> bool {
+        let mode = self.mode.lock().unwrap();
+        match self.family {
+            "claude" => matches!(mode.as_str(), "default" | "plan"),
+            "codex" => mode.as_str() == "ask",
+            _ => false,
+        }
+    }
 }
 
 fn serve(
@@ -188,6 +215,44 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "_acpmux/web_modes" if fixture.phone.is_some() => {
+                let phone = fixture.phone.as_ref().unwrap();
+                if params.get("sessionId").is_none()
+                    && let Some(gate) = &phone.table_gate
+                {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
+                // acpmux's own table: Codex and opencode are refused Web families, and a Codex
+                // bridge session holds to the phone floor only through `cloudMobileAsks`.
+                let mut table = json!({
+                    "families": {"claude": ["default", "plan"]},
+                    "refusedFamilies": ["codex", "opencode"],
+                    "session": {"family": phone.family, "mode": phone.mode.lock().unwrap().clone(),
+                                "cloudMobileAsks": phone.asks()},
+                });
+                if phone.strict {
+                    table["cloudMobileStrictFloor"] = json!(1);
+                } else {
+                    table["session"].as_object_mut().unwrap().remove("cloudMobileAsks");
+                }
+                Some(table)
+            }
+            // acpmux's catalog lists every family it runs, opencode included, so a family with
+            // no phone mode resolves and is refused by the phone floor, not the catalog.
+            "_acpmux/harnesses" if fixture.phone.is_some() => Some(json!({
+                "defaultHarness": fixture.phone.as_ref().unwrap().family,
+                "families": {"claude": {}, "codex": {}, "opencode": {}},
+                "harnesses": {},
+            })),
+            "session/set_mode" if fixture.phone.is_some() => {
+                let phone = fixture.phone.as_ref().unwrap();
+                if !phone.stuck {
+                    *phone.mode.lock().unwrap() =
+                        params["modeId"].as_str().unwrap_or_default().to_owned();
+                }
+                Some(json!({}))
+            }
+            "_acpmux/kill" => Some(json!({})),
             "_acpmux/web_modes" if fixture.start_folder_trusted.is_some() => Some(json!({
                 "families": {"claude": ["default"]}, "refusedFamilies": [],
                 "session": {"family": "claude", "mode": "default"},
@@ -278,6 +343,15 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            // A fork through turn 7 makes a copy acpmux then refuses to tag (side chat tests).
+            "acp.session.fork" => Some(json!({"sessionId":
+                if params["throughSeq"] == json!(7) { "acp_untaggable" } else { "acp_side_1" }})),
+            "_acpmux/side" if params["sessionId"] == json!("acp_untaggable") => {
+                Some(json!({FAKE_ERROR: "no chat with that id"}))
+            }
+            "_acpmux/side" => {
+                Some(json!({"sessionId": params["sessionId"], "tags": {"side": params["chat"]}}))
+            }
             "_acpmux/context" | "_acpmux/context_override" => Some(json!({
                 "sessionId": params["sessionId"],
                 "parts": [{"source": "cmux", "text": "Read early.", "tokens": 3}],
@@ -321,7 +395,7 @@ fn serve(
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
                 }
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
-                    "sessionId": SESSION, "promptId": params["_meta"]["acpmux"]["promptId"],
+                    "sessionId": params["sessionId"], "promptId": params["_meta"]["acpmux"]["promptId"],
                     "turnId": "turn_1", "queued": false}});
                 writeln!(writer, "{accepted}").unwrap();
                 None
@@ -697,6 +771,7 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":13,"cmd":"agent-session-context","surface":surface,"op":"get"}),
         json!({"id":14,"cmd":"agent-session-context","surface":surface,"op":"set",
                "scope":"user","text":"Read early."}),
+        json!({"id":15,"cmd":"agent-session-side","surface":surface,"live":true}),
     ]
 }
 
@@ -1545,4 +1620,108 @@ fn a_permission_of_another_session_is_not_answerable() {
                                       "permission_id":"perm_other","option_id":"allow"}));
     assert_code(&reply, "agent_session.unknown_permission");
     fake.no_frame();
+}
+
+// MARK: Side chat
+
+/// New side chat and `/side [prompt]` of a Cloud chat (agent_session_side.rs): acpmux on the
+/// chat's machine forks the tab's own session, tags the fork its side chat and prompts it there.
+#[test]
+fn a_side_chat_forks_the_pinned_session_tags_it_and_prompts_it() {
+    let fake = FakeAcpmux::start("side");
+    let mux = mux_with(&fake, "asa-side");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "side");
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-side","surface":surface,"live":true})),
+        "agent_session.not_attached",
+    );
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    // A finished chat forks through its turn; with no prompt, none is sent.
+    let reply =
+        client.request(json!({"cmd":"agent-session-side","surface":surface,"through_seq":4}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["data"], json!({"sessionId": "acp_side_1", "prompted": false}));
+    let fork = fake.frame();
+    assert_eq!(fork["method"], json!("acp.session.fork"));
+    assert_eq!(fork["params"], json!({"sessionId": SESSION, "throughSeq": 4}));
+    let tag = fake.frame();
+    assert_eq!(tag["method"], json!("_acpmux/side"));
+    assert_eq!(tag["params"], json!({"sessionId": "acp_side_1", "chat": SESSION}));
+    fake.no_frame();
+    // A working chat forks as it is now, and `/side <prompt>` prompts the side chat, not the chat.
+    let reply = client.request(json!({"cmd":"agent-session-side","surface":surface,"live":true,
+                                      "prompt":"Try it in Rust","prompt_id":"side-p1"}));
+    assert_eq!(reply["data"], json!({"sessionId": "acp_side_1", "prompted": true}), "{reply}");
+    assert_eq!(fake.frame()["params"], json!({"sessionId": SESSION, "live": true}));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/side"));
+    let prompt = fake.frame();
+    assert_eq!(prompt["method"], json!("session/prompt"));
+    assert_eq!(
+        prompt["params"],
+        json!({"sessionId": "acp_side_1", "prompt": [{"type": "text", "text": "Try it in Rust"}],
+               "_meta": {"acpmux": {"promptId": "side-p1"}}})
+    );
+    fake.no_frame();
+    // A fork acpmux would not tag is taken back: no untagged copy stays in the lists.
+    let reply =
+        client.request(json!({"cmd":"agent-session-side","surface":surface,"through_seq":7}));
+    assert_code(&reply, "agent_session.refused");
+    let _ = fake.frame();
+    let _ = fake.frame();
+    let kill = fake.frame();
+    assert_eq!(kill["method"], json!("_acpmux/kill"));
+    assert_eq!(
+        kill["params"],
+        json!({"sessionId": "acp_untaggable", "purge": true, "cancelFork": true})
+    );
+    for bad in [
+        json!({"cmd":"agent-session-side","surface":surface}),
+        json!({"cmd":"agent-session-side","surface":surface,"through_seq":0}),
+        json!({"cmd":"agent-session-side","surface":surface,"through_seq":4,"live":true}),
+        json!({"cmd":"agent-session-side","surface":surface,"live":true,"prompt":"hi"}),
+        json!({"cmd":"agent-session-side","surface":surface,"live":true,"prompt":" ","prompt_id":"p"}),
+        json!({"cmd":"agent-session-side","surface":surface,"live":true,"sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-side","surface":surface,"live":true,"cwd":"/"}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
+}
+
+/// A phone on the Cloud carrier keeps its asking policy in a side chat, as in the chat itself
+/// (`agent-session-prompt`): the daemon marks the side chat's first prompt `via: cloud-mobile`.
+#[test]
+fn a_phones_side_chat_prompt_keeps_the_phones_asking_policy() {
+    let fake = FakeAcpmux::start("side-phone");
+    let mux = mux_with(&fake, "asa-side-phone");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "side-phone");
+    assert_eq!(client.request(json!({"cmd":"carrier-role","vmk":"owner"}))["ok"], json!(true));
+    let info = client.request(json!({"cmd":"set-client-info","kind":"ios",
+        "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}));
+    assert_eq!(info["ok"], json!(true), "{info}");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let reply = client.request(json!({"cmd":"agent-session-side","surface":surface,"live":true,
+                                      "prompt":"Try it in Rust","prompt_id":"side-p2"}));
+    assert_eq!(reply["data"], json!({"sessionId": "acp_side_1", "prompted": true}), "{reply}");
+    let _ = fake.frame();
+    let _ = fake.frame();
+    let prompt = fake.frame();
+    assert_eq!(prompt["method"], json!("session/prompt"));
+    assert_eq!(prompt["params"]["sessionId"], json!("acp_side_1"));
+    assert_eq!(
+        prompt["params"]["_meta"],
+        json!({"acpmux": {"promptId": "side-p2", "via": "cloud-mobile"}})
+    );
 }

@@ -47,3 +47,16 @@ pub fn open(cfg: &SessionCfg) -> Res<Box<dyn Desktop>> {
     #[cfg(target_os = "macos")]
     return Ok(Box::new(crate::mac::MacDesktop::open(cfg)?));
 }
+
+/// The frame rate cap when neither `--max-fps` nor the viewer names one: macOS, the captured
+/// display's refresh rate (120 on a 120 Hz panel), or 60 when it reads 0 or cannot be read; Linux,
+/// 60 for the virtual X display.
+pub fn default_max_fps(display: &str) -> u32 {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = display;
+        60
+    }
+    #[cfg(target_os = "macos")]
+    return crate::mac::capture::refresh_fps(display);
+}
