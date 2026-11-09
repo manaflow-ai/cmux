@@ -136,6 +136,7 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
   // (backend inference/free.ts, Router.ts): they are rate limits, waiting helps.
   for (const message of [
     'unexpected status 429 Too Many Requests: {"error":{"code":"free.rate","message":"too many requests; wait a moment","type":"insufficient_quota"}}',
+    '{"error":{"code":"free.rate","message":"too many requests; wait a moment","type":"insufficient_quota"}}',
     '{"error":{"code":"free.rate","message":"too many requests from this network","type":"insufficient_quota"}}',
     '{"error":{"code":"inference.daily_limit","message":"this team reached its daily request limit here","type":"insufficient_quota"}}',
   ])

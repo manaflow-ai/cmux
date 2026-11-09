@@ -238,7 +238,9 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
 /// the message says which one does; undefined when it names none.
 function cloudSignIn(message: string): { command?: string } | undefined {
   if (ADC_AUTH_EXPIRED.test(message) || (ADC_REFRESH.test(message) && ADC_WORDS.test(message)))
+    // l10n-allow: a shell command the person runs, never translated.
     return { command: "gcloud auth application-default login" };
+  // l10n-allow: a shell command the person runs, never translated.
   if (AWS_AUTH_EXPIRED.test(message)) return AWS_SSO.test(message) ? { command: "aws sso login" } : {};
   return undefined;
 }
