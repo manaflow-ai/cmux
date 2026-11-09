@@ -279,8 +279,26 @@ test("a quiet working chat whose acpmux holds nothing newer keeps its connection
     run.live().touch(run.target, { status: "running", indicator: "working" });
     run.live().emit(run.target, { mux: "turn_started" });
     await time.advance(100);
-    // The model thinks for half an hour without a word; the stream is fine.
-    await time.advance(30 * 60_000);
+    // DIAG: which path gives the socket up, if any.
+    const calls: string[] = [];
+    const inner = run.client as unknown as Record<string, (...args: unknown[]) => unknown>;
+    for (const name of ["daemonGone", "recoverStall", "quietCheck", "checkStall", "probeDaemon"]) {
+      const original = inner[name]!.bind(run.client);
+      inner[name] = (...args: unknown[]) => {
+        calls.push(`${name}@${Date.now() - Date.UTC(2026, 10, 8, 14, 0, 0)}`);
+        return original(...args);
+      };
+    }
+    const errors: string[] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
+    try {
+      // The model thinks for half an hour without a word; the stream is fine.
+      await time.advance(30 * 60_000);
+    } finally {
+      console.error = error;
+    }
+    console.log(`SELF_HEAL_DIAG sockets=${run.sockets()} calls=${calls.join(",")} errors=${JSON.stringify(errors)}`);
     expect(run.sockets()).toBe(1);
   } finally {
     run.client.close();
