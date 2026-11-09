@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42579267459",
+  "recorded_at": "2026-11-09T07:27:34Z",
+  "reason": "cmux-tui bf59ff282146 changes the image's cmux-tui (pinned b26315734acc)",
+  "dry_run": false,
+  "cmux_tui": "bf59ff282146c83f6624a58e9e624467733cd879",
+  "fixes": [
+    {
+      "sha": "7a5fe27267b21ea781bb3f47f08e5dcc95556423",
+      "mergedAt": "2026-11-08T23:07:41-08:00",
+      "subject": "Chat widgets slice 1: agents send widget parts, Home draws them natively"
+    },
+    {
+      "sha": "2937bf610c5db88ef1fa10c8136199db680b5076",
+      "mergedAt": "2026-11-08T23:07:41-08:00",
+      "subject": "Chat widgets spec and red tests for widget parts"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T07:27:34Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
