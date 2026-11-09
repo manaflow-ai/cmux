@@ -113,7 +113,7 @@ mod tests {
         assert_eq!(shown["installed_helper"], "/home/u/.local/share/cmux-tui/bin/cmux-tui-hook");
         assert_eq!(
             with_pane_helper(status.clone(), PaneHelper::Outside, english),
-            (status.clone(), false),
+            (status, false),
             "no pane helper: unchanged"
         );
     }
