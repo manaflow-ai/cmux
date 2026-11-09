@@ -86,11 +86,11 @@ fn is_server(s: &str) -> bool {
 
 /// `turn: [{addr, username, password}, ..]`; a malformed entry is skipped.
 fn turn_relays(object: &serde_json::Map<String, Value>) -> Vec<TurnName> {
-    let credential = |v: &Value, key: &str| {
+    fn credential<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
         v.get(key)
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty() && s.len() <= MAX_TURN_CREDENTIAL)
-    };
+    }
     object
         .get("turn")
         .and_then(Value::as_array)
