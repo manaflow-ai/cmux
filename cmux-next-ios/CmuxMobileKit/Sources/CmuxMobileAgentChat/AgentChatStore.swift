@@ -862,6 +862,11 @@ public final class AgentChatStore {
             sentAttachments[promptId] = nil
         case .queued(let text, let promptId, _):
             reached(promptId)
+            // A steer that lost a stop race waits in the queue now (the Mac's `dropDeferredSteer`):
+            // it is drawn there, not also in the turn it missed.
+            if let last = turns.indices.last {
+                turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
+            }
             queue.append(QueuedPrompt(id: promptId, text: text))
         case .dequeued(let promptId):
             queue.removeAll { $0.id == promptId }

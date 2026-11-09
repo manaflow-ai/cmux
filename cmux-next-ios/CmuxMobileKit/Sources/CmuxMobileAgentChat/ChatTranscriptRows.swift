@@ -186,7 +186,7 @@ final class ChatTranscriptBuilder {
     private func assignSenderTones(_ turns: [AgentTurn]) {
         var added = false
         for turn in turns {
-            for message in turn.incoming?.messages ?? [] {
+            for message in Self.incomingMessages(turn) {
                 guard let id = message.senderID, senderFirstSeen[id] == nil else { continue }
                 senderFirstSeen[id] = turn.promptAt.timeIntervalSince1970
                 added = true
@@ -196,9 +196,18 @@ final class ChatTranscriptBuilder {
         senderTones = tones.assign(senderFirstSeen.map { AgentTones.Agent(id: $0.key, startedAt: $0.value) })
     }
 
+    /// Other agents' messages in `turn`: its prompt's card, then the cards steered into it.
+    private static func incomingMessages(_ turn: AgentTurn) -> [AgentIncoming.Message] {
+        var out = turn.incoming?.messages ?? []
+        for case .steer(let steered) in turn.items {
+            out += steered.incoming?.messages ?? []
+        }
+        return out
+    }
+
     private func turnTones(_ turn: AgentTurn) -> [String: Int] {
         var out: [String: Int] = [:]
-        for message in turn.incoming?.messages ?? [] {
+        for message in Self.incomingMessages(turn) {
             if let id = message.senderID, let tone = senderTones[id] { out[id] = tone }
         }
         return out
