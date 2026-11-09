@@ -355,6 +355,13 @@ impl HttpHub {
             let status = response.status().as_u16();
             if self.credential.as_deref() == Some("join") {
                 if status == 401 {
+                    // A rotation since this request left: the retired credential's 401 says
+                    // nothing about the one on disk now, which is tried once before the relay
+                    // ends. Only a 401 on the current credential is a revoke.
+                    let now = crate::cli::cloud_join::read_join_credential(&self.origin).ok();
+                    if !retry && rotated_since(token.as_str(), now.as_deref()) {
+                        continue;
+                    }
                     let _ = crate::cli::cloud_join::record_auth_result(token.as_str(), true, false);
                     return Err(HubError::refused("revoked: run machine add again"));
                 }
@@ -381,6 +388,11 @@ impl HttpHub {
         }
         Err(HubError::unavailable("the hub refused two tokens"))
     }
+}
+
+/// Whether the joined credential on disk (`now`) replaced the one a refused request sent.
+fn rotated_since(sent: &str, now: Option<&str>) -> bool {
+    now.is_some_and(|now| now != sent)
 }
 
 /// The hub's error codes this client acts on or names in a log (the contract leaves `code` a free
@@ -684,6 +696,16 @@ mod tests {
             assert!(error.refused);
             assert_eq!(error.message, expected);
         }
+    }
+
+    #[test]
+    fn a_401_on_a_credential_rotated_since_is_tried_again_with_the_new_one() {
+        // A heartbeat sent with the old credential, answered 401 after the rotation saved the new.
+        assert!(rotated_since("cmm_old", Some("cmm_new")));
+        // The credential on disk is the one refused: a revoke.
+        assert!(!rotated_since("cmm_new", Some("cmm_new")));
+        // No credential on disk (left, or revoked): nothing to try.
+        assert!(!rotated_since("cmm_old", None));
     }
 
     #[test]

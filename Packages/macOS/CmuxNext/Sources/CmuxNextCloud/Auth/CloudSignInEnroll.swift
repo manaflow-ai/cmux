@@ -13,11 +13,14 @@ import os
 ///   Mac as it was.
 /// - Signed out: `_acpmux/machine_leave_if_auto`, which leaves only a join signing in made. A Mac
 ///   joined with a pair code or a join line stays joined. acpmux marks the leave before it acts and
-///   finishes one cut short at its next start, before its relay. A leave acpmux did not answer (it
-///   was restarting) is kept, that one only, and sent again when the app's acpmux connection comes
-///   back (``acpmuxReturned()``); a sign-in drops it. Signed out at launch asks again, for a sign-out
-///   whose request never reached acpmux before the app quit.
-/// - Another person: the leave, then the enroll.
+///   finishes one cut short at its next start, before its relay. Signed out at launch asks again,
+///   for a sign-out whose request never reached acpmux before the app quit.
+/// - A leave or an enroll acpmux did not answer (it was restarting) is sent again, for whoever is
+///   signed in then, when the app's acpmux connection comes back (``acpmuxReturned()``): signed out,
+///   the leave; signed in, the enroll.
+/// - Another person: the leave, then the enroll. acpmux keeps the last person's leave itself: an
+///   enroll that finds the last person's sign-in join finishes that leave first, and a revoke their
+///   hub did not answer stays on disk until it does.
 ///
 /// Event-driven (an ``ObservationStream`` of the signed-in person); its only wait is the retry's
 /// ``Backoff``.
@@ -45,10 +48,10 @@ public final class CloudSignInEnroll {
     private var current: String?
     /// Whether the session has been read once since launch.
     private var decided = false
-    /// A sign-out's leave acpmux did not answer: sent again when acpmux is back, while signed out.
-    private(set) var leavePending = false
-    /// A leave is waiting on acpmux now; `returnedMeanwhile`: the connection came back while it waited.
-    private var leaving = false
+    /// A leave or an enroll acpmux did not answer: the current person's is sent when acpmux is back.
+    private(set) var resendPending = false
+    /// A request is waiting on acpmux now; `returnedMeanwhile`: the connection came back while it waited.
+    private var waiting = false
     private var returnedMeanwhile = false
     /// The work for the changes so far, one after another.
     private var work: Task<Void, Never>?
@@ -60,8 +63,9 @@ public final class CloudSignInEnroll {
         self.init(person: { [weak auth] in
             guard let auth, !auth.isRestoring else { return .restoring }
             guard auth.isSignedIn else { return .signedOut }
-            // Signed in with no user read yet is no person yet.
-            return auth.user.map { .signedIn($0.id) } ?? .restoring
+            // Signed in with no user read yet is no person yet. The platform id: a machine record
+            // names its person by it, never by the Stack id.
+            return auth.platformUserID.map { .signedIn($0) } ?? .restoring
         }, accessToken: { [weak auth] in try? await auth?.tokens().access }, hub: hub, buildTag: buildTag, call: call)
     }
 
@@ -89,18 +93,18 @@ public final class CloudSignInEnroll {
         }
     }
 
-    /// The app's acpmux connection is up again (a restarted daemon answers): a sign-out's leave it did not
-    /// answer is sent once more, after any change still running, unless a sign-in came since.
+    /// The app's acpmux connection is up again (a restarted daemon answers): a leave or enroll it did not
+    /// answer is sent once more, after any change still running, for whoever is signed in by then.
     public func acpmuxReturned() {
-        if leaving { returnedMeanwhile = true }
-        guard leavePending, current == nil else { return }
-        leavePending = false
+        if waiting { returnedMeanwhile = true }
+        guard resendPending else { return }
+        resendPending = false
         let before = work
-        // task-owner: the one pending leave, after the changes before it; ends with it.
+        // task-owner: the one resend, after the changes before it; ends with it.
         work = Task { [weak self] in
             await before?.value
-            guard let self, current == nil else { return }
-            await leaveIfAuto()
+            guard let self else { return }
+            if let current { await enroll(userId: current) } else { await leaveIfAuto() }
         }
     }
 
@@ -118,8 +122,8 @@ public final class CloudSignInEnroll {
         // At launch, signed out: a sign-out whose leave never reached acpmux is asked again.
         let leave = decided ? current != nil : next == nil
         decided = true
-        // Signed in again: a leave not answered yet is not wanted any more.
-        if next != nil { leavePending = false }
+        // This change sends its own requests: a resend still pending is not wanted any more.
+        resendPending = false
         current = next
         let before = work
         // task-owner: one change's leave and enroll, after the previous change's; ends with them.
@@ -131,19 +135,26 @@ public final class CloudSignInEnroll {
         }
     }
 
-    private func leaveIfAuto() async {
-        leaving = true
+    /// One request to acpmux; no reply marks a resend for when acpmux is back (``acpmuxReturned()``).
+    private func send(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
+        waiting = true
         returnedMeanwhile = false
-        let reply = await call("_acpmux/machine_leave_if_auto", [:])
-        leaving = false
-        // No reply (acpmux restarting): kept, and sent again when acpmux is back (``acpmuxReturned()``),
-        // unless signed in by then. A leave acpmux took and did not finish (`kept: busy`) it finishes
-        // at its next start.
-        if reply == nil, current == nil {
-            leavePending = true
+        let reply = await call(method, params)
+        waiting = false
+        guard reply != nil else {
+            resendPending = true
             // Back before this attempt gave up: no later return comes for it, so it goes again now.
             if returnedMeanwhile { acpmuxReturned() }
+            return nil
         }
+        // Answered: the current person's request reached acpmux, which keeps what is left to do.
+        resendPending = false
+        return reply
+    }
+
+    private func leaveIfAuto() async {
+        // A leave acpmux took and did not finish (`kept: busy`) it finishes at its next start.
+        let reply = await send("_acpmux/machine_leave_if_auto", [:])
         let kept = (reply?["kept"] as? String) ?? (reply == nil ? "no answer" : "")
         Self.log.info("sign-out leave: left=\((reply?["left"] as? Bool) ?? false, privacy: .public) kept=\(kept, privacy: .public)")
     }
@@ -161,7 +172,7 @@ public final class CloudSignInEnroll {
             var params: [String: Any] = extraParams
             params["accessToken"] = access
             params["userId"] = userId
-            let outcome = await call("_acpmux/machine_enroll", params)?["outcome"] as? String
+            let outcome = await send("_acpmux/machine_enroll", params)?["outcome"] as? String
             Self.log.info("sign-in enroll: \(outcome ?? "no answer", privacy: .public)")
             // No acpmux yet, or the hub did not answer: once more. Anything else is final.
             if outcome != nil, outcome != "unavailable" { return }
