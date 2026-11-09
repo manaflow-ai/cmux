@@ -8,6 +8,7 @@ import {
   SETUP_SCRIPT_BYTES,
   storedEnvironment,
   validateEnvironment,
+  withRowIds,
   type CloudEnvironment,
   type EnvironmentClient,
   type EnvironmentDraft,
@@ -114,9 +115,12 @@ export class EnvironmentStore {
   };
   section = (section: EnvironmentSection) => this.set({ section });
   edit = (patch: Partial<EnvironmentDraft>) => {
-    if (!this.state.draft || this.state.saving) return;
+    const { draft } = this.state;
+    if (!draft || this.state.saving) return;
     ++this.draftRevision;
-    this.set({ draft: { ...this.state.draft, ...patch }, error: undefined });
+    if (patch.secrets) patch = { ...patch, secrets: withRowIds(patch.secrets, draft.secrets) };
+    if (patch.variables) patch = { ...patch, variables: withRowIds(patch.variables, draft.variables) };
+    this.set({ draft: { ...draft, ...patch }, error: undefined });
   };
   error = (error: EnvironmentState["error"]) => this.set({ error });
   async derive() {
