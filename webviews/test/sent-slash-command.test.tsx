@@ -96,9 +96,17 @@ test("as in the composer, a built-in command counts only as the prompt's first w
   expect(await bubble("`/compact` is code")).toEqual([]);
 });
 
-test("a Markdown prompt led by a command lights it, never a later mid-prompt one", async () => {
+test("a Markdown prompt led by a command lights it; a later built-in of another name stays plain", async () => {
   expect(await bubble("/goal fix `foo` and **ship** it, then /compact")).toEqual(["/goal"]);
   expect(host.querySelector(".cv-user__bubble code")?.textContent).toBe("foo");
+});
+
+test("a prompt with an inspector pick still lights the command it starts with", async () => {
+  const { UI_PICK_HEADER } = await import("../src/agent-session/acpmux/composer/uiPickModel");
+  const pick = `UI: span\n\`\`\`\n${UI_PICK_HEADER}\nselector: span\n\`\`\``;
+  expect(await bubble(`/goal fix this\n${pick}`)).toEqual(["/goal"]);
+  expect(await bubble(`${pick}\n/goal fix this`)).toEqual(["/goal"]);
+  expect(await bubble(`fix this\n${pick}\n/goal`)).toEqual([]);
 });
 
 test("the split reads the lead word against every command, later words against skills only", async () => {

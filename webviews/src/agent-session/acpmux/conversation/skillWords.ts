@@ -37,7 +37,8 @@ export function skillWords(commands: readonly SlashCommand[] | undefined): Skill
   for (const command of commands) {
     const description = goesAsText(command) ? command.description.trim() : "";
     if (goesAsText(command)) words.set(shownName(command), description);
-    if (!leading.has(shownName(command))) leading.set(shownName(command), description);
+    // A skill and a built-in of one shown name: the skill's description, as the composer's tooltip.
+    if (goesAsText(command) || !leading.has(shownName(command))) leading.set(shownName(command), description);
   }
   return { ...skillCatalog(commands), words, leading };
 }

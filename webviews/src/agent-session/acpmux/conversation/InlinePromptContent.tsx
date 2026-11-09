@@ -43,7 +43,9 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   const body = useMemo(() => drawnBody(parts, join), [parts, join]);
   // The typed part the prompt starts with, past attachments placed before it (as send reads the
   // prompt's first word): its first word draws as a command when it names one (PromptTyped `lead`).
-  const firstWords = body.findIndex((part) => part.kind === "text" || part.kind === "pasted");
+  const firstWords = body.findIndex(
+    (part) => part.kind === "pasted" || (part.kind === "text" && part.text.trim() !== ""),
+  );
   const firstTyped = body[firstWords]?.kind === "text" ? firstWords : -1;
   return (
     <PromptText

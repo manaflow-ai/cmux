@@ -60,8 +60,8 @@ export default agentPaneEntry({
         commands,
       }),
     },
-    plainBefore: {
-      note: "Before: a command that is not the first word stays plain, as in the composer (please /compact now, /nope).",
+    notFirstWord: {
+      note: "A command that is not the first word stays plain, as in the composer (please /compact now, /nope).",
       snapshot: chat([user("please /compact now", 4), assistant("Compacting.", 3), user("/nope is no command", 1)], {
         harness: "claude",
         commands,

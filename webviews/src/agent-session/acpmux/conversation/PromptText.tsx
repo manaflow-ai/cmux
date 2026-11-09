@@ -316,12 +316,11 @@ export function PromptTyped({
   // The Markdown renderer reads skills by name in its own text runs: the command the prompt starts
   // with joins them for this prompt (a later mid-prompt `/name` of it lights too, the cost of a
   // renderer that does not know where the prompt starts).
-  const first = useMemo(() => (lead && isPromptMarkdown(text) ? leadCommand(show(text), allCommands) : undefined), [
-    lead,
-    text,
-    show,
-    allCommands,
-  ]);
+  const first = useMemo(
+    () =>
+      lead && !plain && !isHugePrompt(text) && isPromptMarkdown(text) ? leadCommand(shown, allCommands) : undefined,
+    [lead, plain, text, shown, allCommands],
+  );
   const markdownSkills = useMemo(
     () => (first && !skills.has(first.word) ? new Map(skills).set(first.word, first.description) : skills),
     [first, skills],
@@ -335,7 +334,16 @@ export function PromptTyped({
       <SentUIPicks
         segments={picks}
         slot={slot}
-        typed={(part) => <PromptTyped text={part} show={show} plain={plain} />}
+        // The prompt's first words are in its first text segment with any: a pick before it is an
+        // attachment placed in the text, which the composer's first word skips too.
+        typed={(part, index) => (
+          <PromptTyped
+            text={part}
+            show={show}
+            plain={plain}
+            lead={lead && index === picks.findIndex((segment) => segment.kind === "text" && segment.text.trim())}
+          />
+        )}
       />
     );
   if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{plainWithForeignFiles(shown)}</span>;
