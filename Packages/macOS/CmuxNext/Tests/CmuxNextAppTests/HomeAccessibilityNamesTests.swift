@@ -71,6 +71,16 @@ import Testing
             return "  \(node.path) [\(node.label)] \(String(describing: type(of: node.element))) id=\(node.identifier) frame=\(frame)"
         }
         print("a11y-dump \(scene): \(lines.count) controls\n\(lines.joined(separator: "\n"))")
+        var scrollers: [String] = []
+        func visit(_ view: NSView) {
+            if let scroller = view as? NSScroller {
+                let scroll = scroller.enclosingScrollView
+                scrollers.append("  \(String(describing: type(of: scroller))) hidden=\(scroller.isHiddenOrHasHiddenAncestor) in \(scroll.map { String(describing: type(of: $0)) } ?? "-") of \(scroll?.documentView.map { String(describing: type(of: $0)) } ?? "-")")
+            }
+            view.subviews.forEach(visit)
+        }
+        if let content = (root as? NSWindow)?.contentView ?? root as? NSView { visit(content) }
+        print("a11y-scrollers \(scene):\n\(scrollers.joined(separator: "\n"))")
     }
 
     private static func wait(_ limit: Duration = .seconds(10), until done: () -> Bool) async {
