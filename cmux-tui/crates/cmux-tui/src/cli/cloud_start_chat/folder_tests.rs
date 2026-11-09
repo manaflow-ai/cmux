@@ -10,7 +10,7 @@ fn parse_refuses_what_start_session_would() {
         vec!["--prompt", "  "],
         vec!["--prompt", "x", "--cwd", "relative"],
         vec!["--prompt", "x", "--agent", "Claude Code"],
-        vec!["--prompt", "x", "--name", "a", "--target", "machine:b"],
+        vec!["--prompt", "x", "--name", "a", "--target", "machine:vm-b"],
         vec!["--prompt", "x", "--timeout", "soon"],
         vec!["--prompt", "x", "--bogus"],
         vec!["--prompt"],
