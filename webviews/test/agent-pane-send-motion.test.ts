@@ -156,6 +156,9 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
       await page.locator(".cv-user__bubble", { hasText: line }).waitFor();
       await page.getByRole("button", { name: "Stop" }).waitFor({ state: "detached", timeout: 30_000 });
     }
+    // The last turn's end folds its work (turnEndFold.ts) and the rows glide on nothing else meanwhile:
+    // the measured send comes once it has settled, as a reader's next prompt does.
+    await page.waitForFunction(() => !document.querySelector(".acpmux-thread")?.hasAttribute("data-turn-end-folding"));
     await page.evaluate(() =>
       Object.assign(window, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 2000 }),
     );
