@@ -80,7 +80,7 @@ export type AcpmuxDebug = {
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
   /** Opens a mock session of `turns` heavy turns (or `light` ones, two rows each, opened whole) through the real client (loadDebug.ts). */
-  loadSeed(turns?: number, options?: { light?: boolean }): Promise<Record<string, unknown>>;
+  loadSeed(turns?: number, options?: { light?: boolean; images_every?: number }): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */

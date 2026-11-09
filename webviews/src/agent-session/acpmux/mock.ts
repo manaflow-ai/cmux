@@ -134,6 +134,10 @@ const commands = [
   },
 ];
 /// The one empty session a recorded MockScript replays into.
+/// The screenshot a seeded load prompt sent (`seedLoadSession` `imagesEvery`): a wide window grab.
+const LOAD_SHOT =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><rect width="1600" height="1000" fill="#345"/></svg>';
+
 const scriptSession = {
   sessionId,
   title: "Mock session",
@@ -389,7 +393,9 @@ export class MockAcpmuxSocket {
   ///
   /// `light` turns are a prompt and a one-line reply each (two rows), and the session opens whole
   /// (attach ignores its page caps), so a bench can open a chat of an exact length in rows.
-  seedLoadSession(turns: number, light = false): string {
+  /// `imagesEvery`: every Nth prompt sent a screenshot (a sent image in its row, read through
+  /// `_acpmux/attachment`); 0, none.
+  seedLoadSession(turns: number, light = false, imagesEvery = 0): string {
     const now = Date.now();
     const id = `load-session-${this.sessions.length + 1}`;
     const created = {
@@ -400,7 +406,13 @@ export class MockAcpmuxSocket {
     };
     for (let turn = 0; turn < turns; turn += 1) {
       const at = now - (turns - turn) * 60_000;
-      for (const step of light ? lightTurn(turn) : loadTurn(turn)) this.record(id, step, at);
+      for (const step of light ? lightTurn(turn) : loadTurn(turn)) {
+        if (imagesEvery > 0 && turn % imagesEvery === 0 && "mux" in step && step.mux === "user_message") {
+          const image = `load-shot-${id}-${turn}`;
+          this.promptImages.set(image, { mimeType: "image/svg+xml", data: btoa(LOAD_SHOT) });
+          this.record(id, { ...step, msg: { ...step.msg, images: [{ id: image, mimeType: "image/svg+xml", name: "shot.svg" }] } }, at);
+        } else this.record(id, step, at);
+      }
     }
     if (light) this.openWhole.add(id);
     this.sessions.push(created);

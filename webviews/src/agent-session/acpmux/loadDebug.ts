@@ -42,13 +42,18 @@ function afterRender(): Promise<number> {
 export async function loadSeed(
   host: { selectSession(sessionId: string): void; rowCount(): number },
   turns: number,
-  options: { light?: boolean } = {},
+  /// `images_every`: every Nth prompt sent a screenshot, shown in its row.
+  options: { light?: boolean; images_every?: number } = {},
 ): Promise<Record<string, unknown>> {
   const mock = MockAcpmuxSocket.live;
   if (!mock) return { error: "the pane is not on the mock daemon (run the app with --showcase)" };
   acpmuxPerf.enable();
   const started = performance.now();
-  const session = mock.seedLoadSession(Math.max(1, Math.floor(turns)), options.light === true);
+  const session = mock.seedLoadSession(
+    Math.max(1, Math.floor(turns)),
+    options.light === true,
+    Math.max(0, Math.floor(options.images_every ?? 0)),
+  );
   const seeded = performance.now();
   host.selectSession(session);
   // The transcript is in once its row count stops growing. Each frame also reads what is on
@@ -228,8 +233,10 @@ export type LoadTickOptions = {
   /// Scroll speed in points per second, and how far up it goes before it turns back, in viewports.
   scroll_speed?: number;
   scroll_depth?: number;
-  /// What scrolls: the transcript (`chat`, the default) or Session Info's own body (`session-info`).
-  scroll_target?: "chat" | "session-info";
+  /// What scrolls: the transcript (`chat`, the default), Session Info's own body (`session-info`), or
+  /// the reader's own pointer (`pointer`: the caller's wheel and hover drive the transcript, and the
+  /// run writes no scroll position).
+  scroll_target?: "chat" | "session-info" | "pointer";
   /// Text each output line ends with (` see #12`: a `#N` the pane reads out of the output, so each
   /// update draws through the pane, liveToolOutput.ts).
   line_suffix?: string;
@@ -271,6 +278,7 @@ export async function loadTick(
   if (!transcript) return { error: "no transcript" };
   const panel = document.querySelector<HTMLElement>("aside.acpmux-session-info");
   const panelTarget = options.scroll_target === "session-info";
+  const pointerTarget = options.scroll_target === "pointer";
   const scroller = panelTarget ? panel?.querySelector<HTMLElement>(".acpmux-session-info__body") : transcript;
   if (!scroller) return { error: "no Session Info body to scroll" };
   if (panelTarget && scroller.scrollHeight <= scroller.clientHeight)
@@ -280,8 +288,8 @@ export async function loadTick(
   const speed = Math.max(0, options.scroll_speed ?? 2400);
   const depth = Math.max(0.5, options.scroll_depth ?? 12);
   const initial = new Set(host.rowIds());
-  const requested = panelTarget ? () => true : userScrollIntent(scroller).request();
-  scroller.scrollTop = scroller.scrollHeight;
+  const requested = panelTarget || pointerTarget ? () => true : userScrollIntent(scroller).request();
+  if (!pointerTarget) scroller.scrollTop = scroller.scrollHeight;
   for (let index = 0; index < 30; index += 1) await frame();
   acpmuxPerf.resetRenders();
   // DOM changes in the panel over the run, and how many of them were the scroll mark (scrollers.ts
@@ -333,7 +341,7 @@ export async function loadTick(
       }
     }
     previous = now;
-    if (requested()) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
+    if (!pointerTarget && requested()) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
   }
   const elapsed = (performance.now() - started) / 1000;
   const ticked = await ticking;
@@ -388,7 +396,7 @@ export async function loadTick(
     renders: Object.fromEntries(acpmuxPerf.renders),
     seconds: round2(elapsed),
     frames,
-    scroll_target: panelTarget ? "session-info" : "chat",
+    scroll_target: options.scroll_target ?? "chat",
     still: stillReport,
     scrolled_px: Math.round(span),
     session_info: sessionInfo,
