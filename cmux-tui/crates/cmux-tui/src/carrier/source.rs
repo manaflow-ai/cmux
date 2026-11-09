@@ -175,7 +175,7 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for CarrierRoutes {
             .dialers
             .get(index)
             .ok_or_else(|| ProviderError::Configuration("the carrier has no such route".into()))?;
-        eprintln!("G4TRACE routes connect index={index} ssh={}", dialer.is_ssh());
+        { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} routes connect index={index} ssh={}", std::time::SystemTime::now(), dialer.is_ssh()); } };
         let group = match (dialer.is_ssh(), self.cached(index)) {
             (false, Some(group)) => group,
             _ => {
@@ -189,7 +189,7 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for CarrierRoutes {
                 group
             }
         };
-        eprintln!("G4TRACE routes connect done index={index}");
+        { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} routes connect done index={index}", std::time::SystemTime::now()); } };
         self.current.set(dialer.name());
         Ok(group)
     }

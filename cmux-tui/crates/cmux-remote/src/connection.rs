@@ -1122,7 +1122,7 @@ impl ClientConnection {
         let mut in_burst = 0_u32;
         let mut delay = policy.initial_delay;
         let mut group = self.group.read().await.clone();
-        eprintln!("G4TRACE recovery start deadline={:?}", recovery_deadline.map(|d| d.saturating_duration_since(tokio::time::Instant::now())));
+        { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} recovery start deadline={:?}", std::time::SystemTime::now(), recovery_deadline.map(|d| d.saturating_duration_since(tokio::time::Instant::now()))); } };
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
@@ -1130,9 +1130,9 @@ impl ClientConnection {
             if recovery_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
                 return Err(ConnectionError::ReconnectDeadlineExceeded { attempts: attempt });
             }
-            eprintln!("G4TRACE loop top attempt={attempt}");
+            { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} loop top attempt={attempt}", std::time::SystemTime::now()); } };
             self.spend_redial_token(recovery_deadline, attempt, close_state).await?;
-            eprintln!("G4TRACE token spent");
+            { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} token spent", std::time::SystemTime::now()); } };
             attempt = attempt.saturating_add(1);
             in_burst = in_burst.saturating_add(1);
             self.set_diagnostics_state(ConnectionState::Reconnecting);
@@ -1169,7 +1169,7 @@ impl ClientConnection {
                     },
                 ),
             };
-            eprintln!("G4TRACE reconnect_once ended ok={}", result.is_ok());
+            { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} reconnect_once ended ok={}", std::time::SystemTime::now(), result.is_ok()); } };
             if self.closed.load(Ordering::Acquire) && result.is_ok() {
                 return Err(ConnectionError::Closed);
             }
@@ -1218,7 +1218,7 @@ impl ClientConnection {
                                 }
                             } => next,
                         };
-                        eprintln!("G4TRACE next_group some={}", next.is_some());
+                        { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} next_group some={}", std::time::SystemTime::now(), next.is_some()); } };
                         if let Some(next) = next {
                             group = next;
                         }
@@ -1238,7 +1238,7 @@ impl ClientConnection {
                         policy.retry_delay(delay)
                     };
                     let wait = remaining(wait);
-                    eprintln!("G4TRACE wait {wait:?} parking={parking}");
+                    { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} wait {wait:?} parking={parking}", std::time::SystemTime::now()); } };
                     // Any change seen before this wait counts: an action
                     // while a redial was in flight still wakes the park.
                     let woken = tokio::select! {

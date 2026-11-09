@@ -459,9 +459,9 @@ impl SshRoute {
         if self.authorized_at(now_unix()) {
             return Ok(());
         }
-        eprintln!("G4TRACE authorize lock wait");
+        { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} authorize lock wait", std::time::SystemTime::now()); } };
         let _one = self.authorizing.lock().await;
-        eprintln!("G4TRACE authorize lock held");
+        { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} authorize lock held", std::time::SystemTime::now()); } };
         if self.authorized_at(now_unix()) {
             return Ok(());
         }
@@ -470,7 +470,7 @@ impl SshRoute {
             .ssh_endpoint(&self.machine, &self.public_key)
             .await
             .map_err(|e| ProviderError::Transport(format!("carrier ssh key: {}", e.detail)))?;
-        eprintln!("G4TRACE authorize endpoint answered");
+        { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} authorize endpoint answered", std::time::SystemTime::now()); } };
         let candidate = &self.candidate;
         if endpoint.host != candidate.host
             || endpoint.port != candidate.port
@@ -531,11 +531,11 @@ impl LinkGroup for SshGroup {
         self.inner.transport_snapshot().await
     }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
-        eprintln!("G4TRACE ssh open start");
+        { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} ssh open start", std::time::SystemTime::now()); } };
         self.route.authorize().await?;
-        eprintln!("G4TRACE ssh open authorized");
+        { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} ssh open authorized", std::time::SystemTime::now()); } };
         let link = self.inner.open(request).await;
-        eprintln!("G4TRACE ssh open done ok={}", link.is_ok());
+        { use std::io::Write as _; if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/g4trace.log") { let _ = writeln!(f, "G4TRACE {:?} ssh open done ok={}", std::time::SystemTime::now(), link.is_ok()); } };
         link
     }
     async fn close(&self) -> Result<(), ProviderError> {
