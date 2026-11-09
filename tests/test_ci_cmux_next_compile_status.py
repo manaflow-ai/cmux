@@ -25,7 +25,7 @@ REPO = "manaflow-ai/cmux"
 # A curl that answers the compile-check read from $REPLY (exit 22, curl's --fail code, when it is
 # missing: a 404) and appends every status post's body to $POSTS.
 FAKE_CURL = r'''#!/usr/bin/env bash
-out="" body="" url="" retry=0 delay=1
+out="" body="" url="" retry=0 delay=1 all=""
 while (($#)); do
   case "$1" in
     -o) out="$2"; shift 2 ;;
@@ -33,6 +33,7 @@ while (($#)); do
     --max-time) echo "max-time $2" >> "$READS.opts"; shift 2 ;;
     --retry) retry="$2"; shift 2 ;;
     --retry-delay) delay="$2"; shift 2 ;;
+    --retry-all-errors) all=1; shift ;;
     -X|-H|--connect-timeout|--retry-max-time) shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
@@ -40,6 +41,11 @@ while (($#)); do
 done
 if [[ "$url" == */statuses/* ]]; then
   [[ -n "${POST_FAILS:-}" ]] && exit 22
+  # No connection: curl leaves -o alone.
+  [[ -n "${NO_CONNECTION_STATE:-}" && "$body" == *"\"state\":\"$NO_CONNECTION_STATE\""* ]] \
+    && { echo "curl: (7) Failed to connect to api.github.com port 443" >&2; exit 7; }
+  # curl retries a 403 only with --retry-all-errors: GitHub's refusal is not a transient error to it.
+  [[ -n "$all" ]] || retry=0
   # GitHub refuses a post whose state is $REFUSE_STATE, or every post for its first $REFUSE_SECONDS.
   refused() {
     [[ -n "${REFUSE_STATE:-}" && "$body" == *"\"state\":\"$REFUSE_STATE\""* ]] && return 0
@@ -53,6 +59,7 @@ if [[ "$url" == */statuses/* ]]; then
     t=$((t + delay))
   done
   [[ -n "$out" ]] && printf '%s' "$REFUSAL" > "$out"
+  echo "curl: (22) The requested URL returned error: 403" >&2
   printf '%s' "$REFUSAL" >> "$REFUSALS"
   exit 22
 fi
@@ -184,6 +191,24 @@ class StatusMapping(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertEqual([post["state"] for post in posts], ["pending"])
         self.assertIn("secondary rate limit", self.output)
+        # curl's own error lines stay out of the job's error lines (base_red_excuse.py reads `error:` lines).
+        self.assertFalse([line for line in self.output.splitlines() if line.startswith("curl:")], self.output)
+
+    def test_every_post_refused_is_a_red_job_that_says_why(self):
+        code, posts, _ = self.run_step(self.reply("pass"), REFUSE_SECONDS="300")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(posts, [])
+        self.assertIn("secondary rate limit", self.output)
+
+    def test_a_post_with_no_connection_does_not_repeat_an_older_reason(self):
+        # The pending post was refused; the success post never reached GitHub, so GitHub's message is not its reason.
+        code, posts, _ = self.run_step(self.reply("pass"), REFUSE_STATE="pending", NO_CONNECTION_STATE="success")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(posts, [])
+        success_lines = [line for line in self.output.splitlines() if "success post" in line]
+        self.assertTrue(success_lines, self.output)
+        self.assertNotIn("secondary rate limit", success_lines[0])
+        self.assertIn("Failed to connect", success_lines[0])
 
     def test_the_script_never_sleeps(self):
         self.assertNotIn("sleep", step_script())
