@@ -77,6 +77,19 @@ public nonisolated enum CLIInstallReport: Equatable, Sendable {
         }
     }
 
+    /// Home's Set Up cmux row for `check`, offering exactly what ``launchOffer(_:)`` offers: "installed" (this
+    /// app's CLI runs), "missing" (Install, which repoints a dangling link and replaces nothing), "other" (another
+    /// cmux app's CLI: Replace), "fromImage" (this app runs from its disk image: nothing until it runs from
+    /// Applications) or "foreign" (a `cmux` that is no cmux app's, or one inside an app bundle: never touched).
+    public static func setupRow(_ check: CLIPathCheck) -> String {
+        // The image check comes first: a link to this app's CLI while it runs from its disk image dangles once
+        // the image is ejected, so the row is not done yet.
+        if check.appRunsFromImage { return "fromImage" }
+        if check.status == .thisApp { return "installed" }
+        guard let offer = launchOffer(check) else { return "foreign" }
+        return offer.button == .replace ? "other" : "missing"
+    }
+
     public var message: String {
         switch self {
         case .installed(let path):

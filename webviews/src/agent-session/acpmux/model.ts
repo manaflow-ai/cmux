@@ -3342,6 +3342,11 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
 /// scrollbar drag that moves several viewports a frame) also mounts each view the next `steps`
 /// frames reach, with a margin for uneven frames: the rows between them and the capped lead are
 /// never on screen, so they are not built (cx-j33s4).
+/// A moving scroll within the cap also keeps `trail` px behind the view mounted: the rows the
+/// reader just passed, already drawn. Dropping them the moment they left the view made a quick
+/// reversal (up and down fast) scroll the compositor into bare background for a frame before its
+/// commit drew them again (Leo, 2026-11-08: "hard cutoffs where there's no text at all"). A fling
+/// past the cap skips it: the rows behind a jump were never mounted, and building them costs a frame.
 export function scrollLeadRanges(
   layoutModel: TranscriptLayout,
   scrollTop: number,
@@ -3349,10 +3354,15 @@ export function scrollLeadRanges(
   viewportHeight: number,
   steps: number,
   maxLead: number,
+  trail = 0,
 ): RowRange[] {
   const lead = Math.min(Math.abs(delta) * steps, maxLead);
+  if (Math.abs(delta) * steps <= maxLead) {
+    const behind = delta === 0 ? 0 : trail;
+    const top = delta < 0 ? scrollTop - lead : scrollTop - behind;
+    return [visibleLayoutRange(layoutModel, top, viewportHeight + lead + behind)];
+  }
   const ranges = [visibleLayoutRange(layoutModel, delta < 0 ? scrollTop - lead : scrollTop, viewportHeight + lead)];
-  if (Math.abs(delta) * steps <= maxLead) return ranges;
   const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
   for (let step = 1; step <= steps; step += 1)
     ranges.push(visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin));

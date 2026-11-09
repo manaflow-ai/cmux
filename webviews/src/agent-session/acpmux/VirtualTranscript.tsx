@@ -777,6 +777,10 @@ const DRAWN_SEARCH_ROWS = 64;
 
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 
+/// Viewports of just-passed rows kept mounted behind a moving scroll (scrollLeadRanges `trail`), so a
+/// quick reversal finds them drawn.
+const SCROLL_TRAIL_VIEWPORTS = 1;
+
 /// Viewports of rows kept mounted either side of the reader, built between frames.
 const WARM_VIEWPORTS = 1;
 
@@ -2854,6 +2858,7 @@ function TranscriptView({
     height,
     SCROLL_LEAD_STEPS,
     height * MAX_SCROLL_LEAD_VIEWPORTS,
+    height * SCROLL_TRAIL_VIEWPORTS,
   );
   // The run of mounted rows the reader sees.
   const view = visibleLayoutRange(layout, shownTop, height);
