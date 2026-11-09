@@ -182,3 +182,62 @@ fn the_setting_is_off_by_default() {
         Some(std::time::Duration::from_secs(7 * 86_400))
     );
 }
+
+#[tokio::test]
+async fn a_rehydrate_on_any_path_drops_the_preview() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        chat(&*store, "old", 2, 3);
+        store.flush().unwrap();
+    }
+    let (_, hub) = open(&root.0);
+    let session = hub.resolve("old").unwrap();
+    hub.cold_archive_request(session.clone(), true).await.unwrap();
+    assert!(session.meta().cold.is_some());
+    // A read straight through the store, not the hub's open: the turn summary's.
+    assert_eq!(hub.history(&session, 10).len(), 3);
+    assert!(!hub.store.is_cold("old"));
+    // The hook queued it; the worker (or this call) drops the preview.
+    hub.settle_rehydrated();
+    assert!(session.meta().cold.is_none());
+    assert!(hub.session_summary(&session).get("coldArchive").is_none());
+    hub.shutdown_all().await;
+    drop(hub);
+    let (_, hub) = open(&root.0);
+    assert!(hub.resolve("old").unwrap().meta().cold.is_none(), "session.json has no preview");
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn a_preview_left_by_a_crash_goes_at_the_next_start() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let records = {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        let records = chat(&*store, "old", 2, 3);
+        store.flush().unwrap();
+        records
+    };
+    let (_, hub) = open(&root.0);
+    hub.cold_archive_request(hub.resolve("old").unwrap(), true).await.unwrap();
+    hub.shutdown_all().await;
+    drop(hub);
+    // The log comes back with no hub to drop the preview: a crash right after a rehydrate.
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        assert!(store.rehydrate("old").unwrap());
+        assert!(store.load("old").unwrap().unwrap().cold.is_some());
+        store.flush().unwrap();
+    }
+    let (_, hub) = open(&root.0);
+    hub.load_logs();
+    let session = hub.resolve("old").unwrap();
+    assert!(session.meta().cold.is_none());
+    assert!(hub.session_log_loaded(&session));
+    assert_eq!(hub.events("old", 0, 100).unwrap(), records);
+    hub.shutdown_all().await;
+}

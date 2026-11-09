@@ -131,6 +131,8 @@ impl Hub {
         self.wake_start_retries();
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
+        // So does the cold archive's preview worker (`cold_archive.rs`).
+        self.cold_wake.notify_one();
         let sessions = self.sessions();
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts

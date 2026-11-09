@@ -65,8 +65,9 @@ impl Hub {
         let _ready = LogsReady(&self.logs_ready);
         let mut sessions = self.sessions();
         // A cold-archived chat's log is not read (`cold_archive.rs`): it holds nothing to restore,
-        // and a read would bring it back. Its first open reads it.
-        sessions.retain(|s| s.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.is_none());
+        // and a read would bring it back. Its first open reads it. A preview whose log is back
+        // (a crash between the rehydrate and its preview's drop) goes now, and the log is read.
+        sessions.retain(|s| !self.cold_at_start(s));
         sessions.sort_by_cached_key(|s| {
             let m = s.meta();
             (m.status == SessionStatus::Closed, std::cmp::Reverse(m.updated_at))

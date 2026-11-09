@@ -743,6 +743,10 @@ pub struct Hub {
     pub(super) clone_boot: std::sync::OnceLock<String>,
     /// A chat closed: wakes the log retention worker (`retention.rs`).
     pub(super) retention_wake: Arc<Notify>,
+    /// Chats whose log the store brought back from its cold archive, whose preview is not dropped
+    /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
+    pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
+    pub(super) cold_wake: Arc<Notify>,
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
@@ -1112,6 +1116,8 @@ impl Hub {
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
+            cold_rehydrated: Default::default(),
+            cold_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
@@ -1227,6 +1233,7 @@ impl Hub {
             hub.refresh_web_modes(&c);
         }
         hub.recover_staged_replacements();
+        hub.watch_rehydrates();
         if loading {
             hub.logs_ready.send_replace(false);
             hub.adoption_ready.send_replace(false);
@@ -1243,6 +1250,7 @@ impl Hub {
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
+            hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();
                 hub.bg_notify_resume();

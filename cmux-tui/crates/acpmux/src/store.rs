@@ -21,7 +21,7 @@ pub use compact::{CompactMode, Compaction, Staged};
 mod deferred;
 pub use deferred::{Deferral, Keep};
 mod cold;
-pub use cold::{COLD_FILE, ColdStats, StagedCold};
+pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
@@ -1083,6 +1083,11 @@ pub trait Store: Send + Sync {
     fn is_cold(&self, _id: &str) -> bool {
         false
     }
+    /// Called with a chat's id each time its log comes back from its cold archive, on any path
+    /// (a read, an append, a fork's history): the hub drops the chat's preview
+    /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
+    /// own that a store caller may hold. Set once.
+    fn on_rehydrate(&self, _hook: RehydrateHook) {}
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1209,6 +1214,8 @@ pub struct LocalStore {
     /// Held by a cold archive's commit and by a rehydrate (`store/cold.rs`), always after the
     /// writers' lock when both are taken: two reads of an archived chat rehydrate it once.
     cold: Mutex<()>,
+    /// [`Store::on_rehydrate`].
+    rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
 }
 
 /// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
@@ -1259,6 +1266,7 @@ impl LocalStore {
             sync_failed: Default::default(),
             unlisted: Default::default(),
             cold: Default::default(),
+            rehydrate_hook: Default::default(),
         })
     }
 
@@ -1820,6 +1828,10 @@ impl Store for LocalStore {
 
     fn is_cold(&self, id: &str) -> bool {
         LocalStore::is_cold(self, id)
+    }
+
+    fn on_rehydrate(&self, hook: RehydrateHook) {
+        let _ = self.rehydrate_hook.set(hook);
     }
 
     fn seal(&self) {

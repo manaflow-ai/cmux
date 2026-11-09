@@ -185,6 +185,76 @@ impl Hub {
         Ok(back || had)
     }
 
+    /// Installs the store's rehydrate hook: the chat's id goes in `cold_rehydrated` and the
+    /// worker wakes. The hook runs inside the store's locks (an append's, a read's), so it takes
+    /// only that set's lock, which nothing else holds across a call.
+    pub(super) fn watch_rehydrates(&self) {
+        let (set, wake) = (self.cold_rehydrated.clone(), self.cold_wake.clone());
+        self.store.on_rehydrate(Arc::new(move |id: &str| {
+            set.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned());
+            wake.notify_one();
+        }));
+    }
+
+    /// Drops the preview of every chat the store brought back since the last call, in memory and
+    /// in `session.json`. How many it dropped.
+    pub(crate) fn settle_rehydrated(&self) -> usize {
+        let ids =
+            std::mem::take(&mut *self.cold_rehydrated.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut dropped = 0;
+        for id in ids {
+            let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned();
+            let Some(session) = live else { continue };
+            // A chat with a preview is never archived again until the preview goes
+            // (`coldable`), so one still cold here was not brought back after all.
+            if self.store.is_cold(&id) {
+                continue;
+            }
+            let had = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.take().is_some();
+            if had {
+                self.save_meta(&session);
+                dropped += 1;
+            }
+        }
+        dropped
+    }
+
+    /// The worker that drops a rehydrated chat's preview (`settle_rehydrated`), one per daemon:
+    /// it waits on the hook's wake, holds the hub weakly, and ends when the daemon shuts down (its
+    /// stop condition: the shutdown wakes it, `shutdown_sessions`) or the hub is gone.
+    pub(super) fn rehydrate_worker(self: &Arc<Self>) {
+        let hub = Arc::downgrade(self);
+        let wake = self.cold_wake.clone();
+        tokio::spawn(async move {
+            loop {
+                wake.notified().await;
+                let Some(hub) = hub.upgrade() else { return };
+                if hub.shutting_down() {
+                    return;
+                }
+                let h = hub.clone();
+                drop(hub);
+                if let Err(e) = tokio::task::spawn_blocking(move || h.settle_rehydrated()).await {
+                    tracing::warn!("cold archive: drop rehydrated previews: {e}");
+                }
+            }
+        });
+    }
+
+    /// At the daemon's start (`load_logs`): whether `session` is archived, one look at the disk
+    /// for a chat with a preview and none for any other. A preview whose log is back is dropped.
+    pub(super) fn cold_at_start(&self, session: &Session) -> bool {
+        if session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.is_none() {
+            return false;
+        }
+        if self.store.is_cold(&session.id) {
+            return true;
+        }
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold = None;
+        self.save_meta(session);
+        false
+    }
+
     /// [`Self::rehydrate_chat`] for a chat about to be read, when its metadata says it is
     /// archived; a failure is logged, and the read that follows fails on its own.
     pub(super) fn warm_chat(&self, session: &Session) {

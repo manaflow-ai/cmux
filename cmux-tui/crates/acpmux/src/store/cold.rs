@@ -51,6 +51,9 @@ const LEVEL: i32 = 19;
 /// The longest header or trailer line read back.
 const LINE_MAX: u64 = 4 * 1024 * 1024;
 
+/// [`Store::on_rehydrate`]'s hook.
+pub type RehydrateHook = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+
 /// What archiving a log saved.
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -389,6 +392,9 @@ impl LocalStore {
         std::fs::remove_file(&archive)?;
         sync_directory(&dir)?;
         let _ = std::fs::remove_dir_all(&aside);
+        if let Some(hook) = self.rehydrate_hook.get() {
+            hook(id);
+        }
         tracing::info!(
             session = %id,
             bytes = header.files.iter().map(|e| e.len).sum::<u64>(),
