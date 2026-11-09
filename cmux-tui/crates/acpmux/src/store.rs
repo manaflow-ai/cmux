@@ -1366,6 +1366,32 @@ struct StatusOnly {
     status: SessionStatus,
 }
 
+/// The event logs' write budget per kind (`cmux_tui_platform::write_budget`): a kind past 8 MiB
+/// or 20,000 records an hour, or one whose records mostly repeat, is a writer to fix.
+static EVENT_LOG_BUDGET: std::sync::LazyLock<cmux_tui_platform::write_budget::WriteBudget> =
+    std::sync::LazyLock::new(|| {
+        cmux_tui_platform::write_budget::WriteBudget::new(
+            "acpmux event log",
+            cmux_tui_platform::write_budget::WriteLimits {
+                bytes: 8 << 20,
+                records: 20_000,
+                repeat_percent: 50,
+                repeat_floor: 200,
+            },
+        )
+    });
+
+/// Counts `record`, `bytes` on disk, against [`EVENT_LOG_BUDGET`] where budgets count (debug
+/// builds, tests, `CMUX_WRITE_BUDGET=1`), and warns once a kind is over.
+fn note_write_budget(record: &EventRecord, bytes: usize) {
+    if !cmux_tui_platform::write_budget::WriteBudget::enabled() {
+        return;
+    }
+    if let Some(warning) = EVENT_LOG_BUDGET.note(&record.kind, bytes, &record.msg, now_ms()) {
+        tracing::warn!("{warning}");
+    }
+}
+
 impl LocalStore {
     /// One whole serialized record (`line` ends with its newline) at the end of `id`'s log: the
     /// body of [`Store::append`], and the journal store's write of a journaled line
@@ -1539,6 +1565,7 @@ impl Store for LocalStore {
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
+        note_write_budget(record, line.len());
         self.append_line(id, line.as_bytes())
     }
 

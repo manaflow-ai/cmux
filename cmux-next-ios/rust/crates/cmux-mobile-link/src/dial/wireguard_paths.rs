@@ -263,7 +263,13 @@ impl Paths {
             tracing::debug!(route = ?self.route_of(id), "WireGuard route went quiet; sending on every route");
             let _ = self.selector.on_silence(id);
         }
-        if chosen_quiet {
+        // The path we sent on lost its standing in this poll, by silence or
+        // by a lost probe. Above about 250 ms of RTT the probe's 1 s timeout
+        // comes before the silence deadline (four round trips and an
+        // unanswered probe), so a lost probe is how such a path turns
+        // suspect, and the fallback needs the same fresh answers.
+        let left_current = current.is_some() && self.selector.current() != current;
+        if chosen_quiet || left_current {
             // The other paths were last heard up to a 30 s probe ago, and the
             // cut that silenced the chosen one may have taken them too (one
             // Wi-Fi carries the LAN and the routed address): probe them all
@@ -408,6 +414,55 @@ mod tests {
         assert_eq!(seen, vec![lan, relay], "never moves to the stale tailnet path");
         let relay_after = now.duration_since(cut);
         assert!(relay_after <= std::time::Duration::from_secs(5), "relay after {relay_after:?}");
+    }
+
+    #[test]
+    fn a_slow_route_that_loses_a_probe_probes_the_others_at_once() {
+        let ms = std::time::Duration::from_millis;
+        let mut paths = paths_on(lan_table());
+        let lan = udp("192.168.1.30:4100");
+        let tailnet = udp("100.80.2.3:4100");
+        let relay = turn("203.0.113.9:4100");
+        paths.sync(&[
+            Wanted { route: lan, relayed: false },
+            Wanted { route: tailnet, relayed: false },
+            Wanted { route: relay, relayed: true },
+        ]);
+        // A 400 ms path: four round trips of silence outlast the 1 s probe
+        // timeout, so the chosen path turns suspect by a lost probe.
+        let mut now = answer_all(&mut paths, Instant::now(), ms(400));
+        assert_eq!(paths.current(), Some(lan));
+        let mut refreshed = None;
+        let mut suspect_at = None;
+        for _ in 0..1000 {
+            now += ms(10);
+            let due = paths.poll(now);
+            if suspect_at.is_none() && paths.suspect() {
+                suspect_at = Some(now);
+            }
+            let others: Vec<_> = due
+                .pings
+                .iter()
+                .filter(|(id, _)| paths.route_of(*id) != Some(lan))
+                .map(|(id, _)| *id)
+                .collect();
+            if let Some(at) = suspect_at
+                && refreshed.is_none()
+                && others.len() == 2
+            {
+                refreshed = Some(now.duration_since(at));
+            }
+            // Nothing answers: the LAN is cut.
+            if refreshed.is_some() {
+                break;
+            }
+        }
+        let at = suspect_at.expect("the slow chosen path turns suspect");
+        let refreshed = refreshed.expect("the other paths are probed after the chosen one turns suspect");
+        assert!(
+            refreshed <= ms(20),
+            "others probed {refreshed:?} after suspicion at {at:?}, not at their 30 s turn"
+        );
     }
 
     #[test]

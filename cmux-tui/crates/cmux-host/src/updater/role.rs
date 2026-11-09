@@ -177,9 +177,9 @@ pub(super) fn hold_if_paused(
     handled: &AtomicU64,
     now: (i128, u64),
 ) -> bool {
-    let seq = watch.pause_seq();
-    let counted = seq > handled.fetch_max(seq, Ordering::SeqCst);
-    if !counted && !watch.waking(now.0) {
+    let seen = watch.seen();
+    let counted = seen.pauses > handled.fetch_max(seen.pauses, Ordering::SeqCst);
+    if !counted && !seen.waking(now.0) {
         return false;
     }
     super::gate::hold_connects(paths, now.1);
@@ -205,6 +205,43 @@ pub(super) fn flip_look(
         log("a snapshot restore: no flip during the connect hold");
     }
     paused || restored
+}
+
+/// The pause and restore looks one check makes: the record it reads, the
+/// pause count it handled and its last `realtime - boottime`.
+pub(super) struct Looks<'a> {
+    pub(super) watch: &'a crate::agent::PauseWatch,
+    pub(super) handled: &'a AtomicU64,
+    pub(super) offset: &'a Mutex<Option<i128>>,
+}
+
+impl Looks<'static> {
+    /// The service's worker: the supervisor's own watch, kept across steps.
+    fn worker() -> Looks<'static> {
+        Looks { watch: &crate::agent::PAUSES, handled: &HANDLED, offset: &CLOCK_OFFSET }
+    }
+}
+
+/// The looks of a check outside the service's process (the operator's
+/// `cmux host update check`): the record the service's watch writes
+/// ([`super::PAUSE_FILE`]), read again at every look, with this check's own
+/// pause count and restore look, both taken at its start.
+pub(super) struct OtherLook {
+    watch: crate::agent::PauseWatch,
+    handled: AtomicU64,
+    offset: Mutex<Option<i128>>,
+}
+
+impl OtherLook {
+    pub(super) fn start(paths: &Paths, offset_now: i128) -> OtherLook {
+        let watch = crate::agent::PauseWatch::load(&paths.at(super::PAUSE_FILE));
+        let handled = AtomicU64::new(watch.pause_seq());
+        OtherLook { watch, handled, offset: Mutex::new(Some(offset_now)) }
+    }
+
+    pub(super) fn looks(&self) -> Looks<'_> {
+        Looks { watch: &self.watch, handled: &self.handled, offset: &self.offset }
+    }
 }
 
 /// [`wait`], then the pause look over it ([`hold_if_paused`]).
@@ -443,8 +480,17 @@ pub fn check(paths: &Paths) -> Outcome {
     let Some(_lock) = Lock::take(paths, false) else {
         return Outcome::Failed("another update check runs".to_owned());
     };
+    // The service's own watch; in another process (the operator's check), the
+    // record that watch writes, with this check's own count and restore look.
+    let other;
+    let looks = if crate::agent::PAUSES.has_looked() {
+        Looks::worker()
+    } else {
+        other = OtherLook::start(paths, crate::linux::realtime_minus_boottime_ns());
+        other.looks()
+    };
     let outcome =
-        check_step(paths, &crate::agent::PAUSES, &HANDLED, &clocks, || check_inner(paths));
+        check_step(paths, looks.watch, looks.handled, &clocks, || check_inner(paths, &looks));
     let mut state = load_state(paths);
     let line = outcome.line();
     if state.last.as_deref() != Some(line.as_str()) {
@@ -474,7 +520,7 @@ pub(super) fn check_step(
     outcome
 }
 
-fn check_inner(paths: &Paths) -> Outcome {
+fn check_inner(paths: &Paths, looks: &Looks<'_>) -> Outcome {
     if let Some(why) = off_reason(paths) {
         return Outcome::Off(why);
     }
@@ -538,11 +584,11 @@ fn check_inner(paths: &Paths) -> Outcome {
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
     // A stop during this check (its download, its busy look) holds its flip.
     {
-        let mut last = CLOCK_OFFSET.lock().unwrap_or_else(|e| e.into_inner());
+        let mut last = looks.offset.lock().unwrap_or_else(|e| e.into_inner());
         flip_look(
             paths,
-            &crate::agent::PAUSES,
-            &HANDLED,
+            looks.watch,
+            looks.handled,
             &mut last,
             crate::linux::realtime_minus_boottime_ns(),
             clocks(),
@@ -556,6 +602,9 @@ fn check_inner(paths: &Paths) -> Outcome {
         clear_pending(paths);
         return outcome;
     }
+    // The pause count read again right before the gate, which then sees the
+    // hold a pause found since the look above starts.
+    hold_if_paused(paths, looks.watch, looks.handled, clocks());
     // The connect hold's last look, the flip and the queued restarts run
     // inside the gate (`Gate::run`, shared with every process): a bind or a new session that
     // takes the hold before the restart is seen here, and one after waits.
@@ -1127,6 +1176,11 @@ pub fn verb(args: &[String]) -> u8 {
             println!("{}", outcome.json());
             if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
         }
+        // The guard reads no pause record: its rollback flips past the connect
+        // hold on purpose (`rollback` runs the gate with `honor_hold` false,
+        // #37280: keeping a build that never proved itself is worse than a
+        // restart) and waits only for attached carrier sessions, so a pause's
+        // hold could not change what it does.
         ["guard", "--to", to] => {
             let Ok(to) = to.parse::<u64>() else { return 2 };
             let Some(pending) = load_pending(&paths).filter(|p| p.to == to) else { return 0 };
