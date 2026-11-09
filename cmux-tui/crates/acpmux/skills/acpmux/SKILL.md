@@ -22,7 +22,8 @@ When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
 To message another session from a chat, use the `send` tool
-(`mcp__acpmux__send`, or `cmux.acpmux_send` in a cmux_exec script), not
+(`mcp__acpmux__send`, `mcp__cmux__acpmux_send` when cmux lists every tool, or
+`cmux.acpmux_send` in a cmux_exec script), not
 `acpmux send` in Bash ("Messages between agents" below). For the rest, run
 the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute path that runs it, also
 inside cmux. Use it in place of `acpmux` in every command, as in
@@ -165,7 +166,8 @@ output says `queued behind …`.
 ### Messages between agents
 
 In a chat with acpmux's MCP tools, message with the `send` tool
-(`mcp__acpmux__send`; `cmux.acpmux_send` in a cmux_exec script), not
+(`mcp__acpmux__send`; `mcp__cmux__acpmux_send` when cmux lists every tool;
+`cmux.acpmux_send` in a cmux_exec script), not
 `acpmux send` in Bash: one call, or `messages` for several, with `file`,
 `attach`, `class`, `pr`, `notice` and `supersede`, through the same outbox as
 `send --no-wait`. The CLI is for shells and scripts.
