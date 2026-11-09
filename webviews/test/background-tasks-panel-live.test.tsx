@@ -539,3 +539,63 @@ test("a reply that stops streaming without a new version redraws as settled", as
   expect(container.querySelector("[data-row-id]")!.innerHTML).toBe(fresh.querySelector("[data-row-id]")!.innerHTML);
   await act(async () => freshRoot.unmount());
 });
+
+// Streaming can draw fewer blocks with no row removed: two work rows with one call each are two lines,
+// and the second's next call folds them into one run (subagentTranscriptModel.ts transcriptBlocks).
+// That is not a transcript cut short, so the window the reader opened on stays where it is.
+test("work rows that fold into one run as a call arrives keep an anchored window in place", async () => {
+  const container = installDom();
+  const call = (id: string) => ({
+    kind: "tool" as const,
+    text: id,
+    tool: { id, title: id, kind: "execute", status: "completed" },
+  });
+  const tail = (second: boolean): AcpmuxRow[] => [
+    { id: "w0", version: 1, at: 500, kind: "activity", items: [call("c0")] },
+    {
+      id: "w1",
+      version: second ? 2 : 1,
+      at: 501,
+      kind: "activity",
+      items: second ? [{ kind: "thought", text: "…" }, call("c1")] : [{ kind: "thought", text: "…" }],
+    },
+  ];
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(<SubagentTranscript rows={[...rows(500), ...tail(false)]} running anchor="r20" />),
+  );
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+  await act(async () => root!.render(<SubagentTranscript rows={[...rows(500), ...tail(true)]} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+});
+
+// A transcript cut short (rows removed) still takes its window again from the rows that are left.
+test("a transcript cut short under an anchored window takes the newest window", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={rows(500)} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+  await act(async () => root!.render(<SubagentTranscript rows={rows(300)} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r299"]')).not.toBeNull();
+  expect(container.querySelectorAll("[data-row-id]").length).toBe(WINDOW);
+});
+
+// A row removed while the block count holds (a run of two rows cut to one lone call: one block either
+// way) is still a transcript cut short: the window is taken again from the rows that are left.
+test("a row removed from a folded run under an anchored window takes the newest window", async () => {
+  const container = installDom();
+  const call = (id: string) => ({
+    kind: "tool" as const,
+    text: id,
+    tool: { id, title: id, kind: "execute", status: "completed" },
+  });
+  const w0: AcpmuxRow = { id: "w0", version: 1, at: 500, kind: "activity", items: [call("c0")] };
+  const w1: AcpmuxRow = { id: "w1", version: 1, at: 501, kind: "activity", items: [call("c1")] };
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={[...rows(500), w0, w1]} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+  // The same 501 blocks before (500 replies, then the run w0+w1) and after (500 replies, then w0 alone).
+  await act(async () => root!.render(<SubagentTranscript rows={[...rows(500), w0]} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).toBeNull();
+  expect(container.querySelector('[data-row-id="w0"]')).not.toBeNull();
+});

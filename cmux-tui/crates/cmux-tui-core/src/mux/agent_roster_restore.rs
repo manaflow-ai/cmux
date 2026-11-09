@@ -26,12 +26,22 @@ pub(super) struct RestoredAgentRoster {
     pub(super) host: AgentRosterHost,
     /// A non-fatal startup problem for the frontend diagnostic sink.
     pub(super) diagnostic: Option<String>,
+    /// The roster is stale (migrated from an older reducer version, or empty
+    /// from the head): the roster's owner folds the whole journal again in
+    /// the background and replaces it (`agent_roster_rebuild.rs`).
+    pub(super) rebuild: bool,
 }
 
 /// Restore the roster from its persisted snapshot and fold the journal tail
-/// committed after the cursor. A reducer-version mismatch, a snapshot that
-/// does not parse, or unreadable reducer state discards the snapshot and
-/// re-folds from the journal head. Deltas produced here are dropped
+/// committed after the cursor. A snapshot that does not parse, or unreadable
+/// reducer state, discards the snapshot and re-folds from the journal head.
+/// A reducer-version mismatch does not: the start never folds the journal
+/// from its first record for a bump (26 min on a 59 GB registry, 2026-11-08).
+/// It serves the old snapshot through [`AgentRoster::migrate`] from its own
+/// cursor, or an empty roster from the head when the old format no longer
+/// restores, marked stale, and the roster's owner rebuilds it from the whole
+/// journal in the background. A migrated roster can be wrong until then:
+/// every bump so far fixed the fold's logic. Deltas produced here are dropped
 /// deliberately: their projection commits and change broadcasts already
 /// happened when the events first committed, and the durable projection
 /// restores itself independently.
@@ -47,6 +57,10 @@ pub(super) fn restore_agent_roster(
         problems.push("its snapshot was unreadable".to_owned());
         Some((0, 0, String::new()))
     });
+    let head = registry.session_journal_head()?;
+    // A stale roster an earlier start served and did not finish rebuilding.
+    let pending = registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).ok().flatten();
+    let mut rebuild_from = pending;
     let (mut host, mut needs_repair) = match state {
         Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
             match AgentRoster::restore(&snapshot) {
@@ -57,22 +71,42 @@ pub(super) fn restore_agent_roster(
                 None => (AgentRosterHost::default(), true),
             }
         }
-        Some(_) => (AgentRosterHost::default(), true),
+        Some((version, cursor, snapshot)) => {
+            rebuild_from = Some(version);
+            match AgentRoster::migrate(version, &snapshot) {
+                Some(roster) if cursor <= head => {
+                    eprintln!(
+                        "cmux-tui: agent roster reducer version {version} -> \
+                         {AGENT_ROSTER_REDUCER_VERSION}: serving the migrated snapshot while it \
+                         rebuilds in the background"
+                    );
+                    (AgentRosterHost { roster, cursor }, true)
+                }
+                _ => {
+                    eprintln!(
+                        "cmux-tui: agent roster reducer version {version} -> \
+                         {AGENT_ROSTER_REDUCER_VERSION}: the old snapshot does not restore; \
+                         serving live events while it rebuilds in the background"
+                    );
+                    (AgentRosterHost { roster: AgentRoster::default(), cursor: head }, true)
+                }
+            }
+        }
         None => (AgentRosterHost::default(), false),
     };
     // A cursor beyond the current journal head cannot describe a retained
     // snapshot boundary. Treat it like any other rejected checkpoint so a
     // metadata write or journal repair cannot make startup fail permanently.
-    if host.cursor > 0 {
-        let journal_head = registry.session_journal_head()?;
-        if host.cursor > journal_head {
-            host = AgentRosterHost::default();
-            needs_repair = true;
-        }
+    if host.cursor > head {
+        host = AgentRosterHost::default();
+        needs_repair = true;
     }
     let started_at = host.cursor;
+    // A fold from the first record is itself the rebuild.
+    if started_at == 0 {
+        rebuild_from = None;
+    }
     let mut skipped = Vec::new();
-    let head = registry.session_journal_head()?;
     loop {
         if host.cursor >= head {
             break;
@@ -118,32 +152,57 @@ pub(super) fn restore_agent_roster(
         neutralize_live_claims(registry, &mut host, &skipped);
         problems.push(skipped_ranges_problem(&skipped));
     }
-    if needs_repair || host.cursor != started_at {
-        // The in-memory roster is already correct. A failed write only means
-        // the next start folds this tail again.
-        if registry
-            .put_journal_reducer_state(
+    // A migrated snapshot is saved together with its stale mark, in one
+    // transaction: saved at the current version without it, the snapshot
+    // would pass for the current reducer's fold at every later start. When
+    // that save fails, the old version's state stays, and the next start
+    // migrates it again. An earlier start's mark still stands, so a later
+    // save of the stale roster needs none; the mark goes with the save of a
+    // full fold.
+    let first_mark = rebuild_from.filter(|_| pending.is_none());
+    let finished = pending.is_some() && rebuild_from.is_none();
+    if needs_repair || finished || first_mark.is_some() || host.cursor != started_at {
+        // The in-memory roster is already what this start serves. A failed
+        // write only means the next start folds this tail again.
+        let snapshot = host.roster.snapshot().to_string();
+        let saved = if finished {
+            registry.finish_journal_reducer_rebuild(
                 AGENT_ROSTER_REDUCER_ID,
                 AGENT_ROSTER_REDUCER_VERSION,
                 host.cursor,
-                &host.roster.snapshot().to_string(),
+                &snapshot,
             )
-            .is_err()
-        {
+        } else if let Some(from_version) = first_mark {
+            registry.start_journal_reducer_rebuild(
+                AGENT_ROSTER_REDUCER_ID,
+                from_version,
+                AGENT_ROSTER_REDUCER_VERSION,
+                host.cursor,
+                &snapshot,
+            )
+        } else {
+            registry.put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                host.cursor,
+                &snapshot,
+            )
+        };
+        if saved.is_err() {
             eprintln!("cmux-tui: persisting the restored agent roster failed");
             problems.push("its snapshot was not saved".to_owned());
         }
     }
     let diagnostic = (!problems.is_empty())
         .then(|| format!("agent roster restored with problems: {}", problems.join("; ")));
-    Ok(RestoredAgentRoster { host, diagnostic })
+    Ok(RestoredAgentRoster { host, diagnostic, rebuild: rebuild_from.is_some() })
 }
 
 /// Entries whose terminal has records in a skipped range may be stale: the
 /// range can hold the event that ended their live state. The subject index
 /// names those terminals without decoding the range; if it cannot be read,
 /// every live entry is treated as affected.
-fn neutralize_live_claims(
+pub(super) fn neutralize_live_claims(
     registry: &WorkspaceRegistry,
     host: &mut AgentRosterHost,
     skipped: &[SkippedJournalRange],
@@ -171,7 +230,7 @@ fn neutralize_live_claims(
     }
 }
 
-fn describe_range(skip: &SkippedJournalRange) -> String {
+pub(super) fn describe_range(skip: &SkippedJournalRange) -> String {
     let range = if skip.start_sequence == skip.end_sequence {
         format!("sequence {}", skip.start_sequence)
     } else {
@@ -183,7 +242,7 @@ fn describe_range(skip: &SkippedJournalRange) -> String {
     }
 }
 
-fn skipped_ranges_problem(skipped: &[SkippedJournalRange]) -> String {
+pub(super) fn skipped_ranges_problem(skipped: &[SkippedJournalRange]) -> String {
     let mut listed = skipped
         .iter()
         .take(LISTED_SKIPPED_RANGES)

@@ -258,6 +258,11 @@ extension WorkspaceRowView {
             audioSlot.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
             trailing = columns.trailingEdge(before: audioSlot.frame)
         }
+        if !driveIndicator.isHidden {
+            let size = CGSize(width: driveIndicator.preferredWidth, height: driveIndicator.preferredHeight)
+            driveIndicator.frame = columns.trailingFrame(before: trailing, centerY: cy, size: size)
+            trailing = columns.trailingEdge(before: driveIndicator.frame)
+        }
         if !presenceDots.isHidden {
             let w = presenceDots.preferredWidth
             presenceDots.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: isExpanded ? th : b.height))
@@ -288,7 +293,13 @@ extension WorkspaceRowView {
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
         let fade = SidebarStyle.titleFadeWidth
-        let warningStart = usageWarningMark.isHidden ? nil : usageWarningMark.frame.minX
+        // The drive indicator never gives way to the hover controls (it is a button the person came to press):
+        // while they show it sits just left of them, as the usage warning does.
+        if !driveIndicator.isHidden, let overlayStart, driveIndicator.frame.maxX > overlayStart - Metrics.space1 {
+            driveIndicator.frame.origin.x = overlayStart - Metrics.space1 - driveIndicator.frame.width
+        }
+        let warningStart = [usageWarningMark.isHidden ? nil : usageWarningMark.frame.minX,
+                            driveIndicator.isHidden ? nil : driveIndicator.frame.minX].compactMap { $0 }.min()
         // The text and marks give way to the controls and to the badge beside them.
         let coverStart = overlayStart.map { min($0, warningStart ?? $0) }
         title.setTrailingOcclusion(coverStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)

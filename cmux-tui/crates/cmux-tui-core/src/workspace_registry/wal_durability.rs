@@ -247,6 +247,14 @@ impl WalDurability {
         }
     }
 
+    /// Commits made and no caller has asked to flush yet: an idle daemon
+    /// leaves them in the WAL until a request flushes it.
+    #[cfg(test)]
+    pub(crate) fn unrequested_commits(&self) -> u64 {
+        let state = self.shared.state.lock().recover_poison();
+        state.committed.saturating_sub(state.requested)
+    }
+
     /// Flush every commit made so far, soon, on the syncer thread. Callers
     /// ask once their request is answered (the server's reply funnel) or
     /// once a background batch committed (the journal writer).
