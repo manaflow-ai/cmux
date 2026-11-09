@@ -10,6 +10,7 @@ import {
   NO_HOST_CAPABILITIES,
   overflowMenuItems,
   sourceMenuModel,
+  type PlainEnglishPill,
   toolbarPillButtons,
   type OverflowCapabilities,
   type OverflowMenuItemId,
@@ -94,6 +95,8 @@ export function DiffPill({
   onReload,
   onSetLayout,
   onSetOption,
+  onTogglePlainEnglish,
+  plainEnglish,
   state,
 }: {
   /** Which "..." rows this host and source can apply (toolbar-model.ts); none by default. */
@@ -105,6 +108,9 @@ export function DiffPill({
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
   onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
+  /** Plain English's button; none leaves it out. */
+  plainEnglish?: PlainEnglishPill;
+  onTogglePlainEnglish?: () => void;
   state: AppState;
 }) {
   const onButton = (id: PillButtonId) => {
@@ -129,6 +135,9 @@ export function DiffPill({
         return;
       case "files":
         dispatch({ type: "set-files-visible", visible: !state.filesVisible });
+        return;
+      case "plainEnglish":
+        onTogglePlainEnglish?.();
         return;
     }
   };
@@ -162,7 +171,7 @@ export function DiffPill({
   };
   return (
     <FloatingToolbar
-      buttons={toolbarPillButtons(state)}
+      buttons={toolbarPillButtons(state, plainEnglish)}
       label={label}
       menuItems={overflowMenuItems(state.options, capabilities, state.whitespaceHidden)}
       menuOpen={state.optionsOpen}
