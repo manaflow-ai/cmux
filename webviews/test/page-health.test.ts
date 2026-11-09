@@ -100,6 +100,29 @@ test("the host's save keeps a focused draft, and the next load puts it back", ()
   second.dom.window.close();
 });
 
+test("an edit to a prefilled field comes back over the text the page loaded", () => {
+  const html = `<textarea id="note" data-cmux-restore-draft>from the server</textarea>`;
+  const first = page(html);
+  const field = first.dom.window.document.querySelector("textarea")!;
+  field.value = "from the server, edited";
+  field.focus();
+  const kept = captureState(first.dom.window.document);
+  expect(kept.draft).toMatchObject({ text: "from the server, edited", base: "from the server" });
+  first.dom.window.close();
+
+  const second = page(html);
+  restoreState(second.dom.window.document, kept);
+  expect(second.dom.window.document.querySelector("textarea")!.value).toBe("from the server, edited");
+  second.dom.window.close();
+
+  // Text the person typed since the load is theirs: the kept edit never replaces it.
+  const third = page(html);
+  third.dom.window.document.querySelector("textarea")!.value = "typed after the reload";
+  restoreState(third.dom.window.document, kept);
+  expect(third.dom.window.document.querySelector("textarea")!.value).toBe("typed after the reload");
+  third.dom.window.close();
+});
+
 test("a field that did not opt in is never captured or restored (a document editor saves what it is given)", () => {
   const first = page(`<textarea id="source"></textarea>`);
   const field = first.dom.window.document.querySelector("textarea")!;
