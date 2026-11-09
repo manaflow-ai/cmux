@@ -48,7 +48,7 @@ export interface ChiefEditorService {
   /** A real hello turn on the harness (`doctor {id, prompt: true}`). */
   checkBackend(id: string): Promise<HomeChiefDoctor>;
   /** Removes a backend this editor added whose check never passed (the form closed or started
-   * over); the host removes only one it added. */
+   * over). Only where the host serves it: Settings' `cmux.settings.agents.run`; Home has none. */
   removeBackend?(id: string): Promise<void>;
 }
 
@@ -281,8 +281,9 @@ export class ChiefHost {
     return parseDoctor(await this.host.call("cmux.chief.backend.doctor", { id, prompt: true }));
   }
 
+  /** Settings' own remove (`cmux.settings.agents.run`), which the Settings page serves. */
   async removeBackend(id: string): Promise<void> {
-    await this.host.call("cmux.chief.backend.remove", { id });
+    await this.host.call("cmux.settings.agents.run", { action: "remove", id });
   }
 }
 

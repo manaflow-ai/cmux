@@ -135,6 +135,19 @@ test("History reads chief.profile.history, newest first, who made each revision"
   expect(parseHistory({})).toEqual([]);
 });
 
+test("Settings' Chief editor removes an unsaved brought backend through Settings' own remove; Home's has none", async () => {
+  const { client: host, sent } = client({ "cmux.settings.agents.run": { id: "acme", backup: "acme-1.toml" } });
+  const editor = new HostChiefEditor(
+    new ChiefHost(host),
+    () => {},
+    () => {},
+  );
+  await editor.removeBackend("acme");
+  expect(sent).toEqual([{ op: "cmux.settings.agents.run", params: { action: "remove", id: "acme" } }]);
+  const { sheets } = await homeSheets();
+  expect("removeBackend" in sheets.chiefEditor()).toBe(false);
+});
+
 test("a brought backend is added through the host and checked with a real hello turn", async () => {
   const { client: host, sent } = client({
     "cmux.chief.backend.add": { id: "acme" },

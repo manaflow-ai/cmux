@@ -413,7 +413,6 @@ export class MockSettingsProvider {
         await this.agents.endpoint.holdAdd;
         return this.agents.addEndpoint(params);
       },
-      "cmux.chief.backend.remove": (params) => this.agents.run({ action: "remove", id: String(params.id ?? "") }),
       "cmux.chief.backend.doctor": async () => {
         await this.agents.endpoint.holdDoctor;
         return this.agents.endpoint.doctor;
@@ -621,7 +620,6 @@ export class MockSettingsProvider {
       "cmux.chief.backend.list",
       "cmux.chief.backend.add",
       "cmux.chief.backend.doctor",
-      "cmux.chief.backend.remove",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
       "cmux.settings.devices.state",

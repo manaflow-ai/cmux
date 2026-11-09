@@ -12,12 +12,13 @@ import Foundation
 /// - `list`: `{harnesses: _acpmux/harnesses, models: _acpmux/models | null}`.
 /// - `add {kind, name, id?, replace?, command, args | baseUrl, model, apiKey?}`, on a click only, passed to acpmux's
 ///   add (`replace` only when it names the same id; acpmux refuses an id it has before any key is stored). `{id}`.
-/// - `doctor {id}`: `_acpmux/harness/doctor {id, prompt: true}`, `{ok, steps}`. `remove {id}`: only an id added here.
+/// - `doctor {id}`: `_acpmux/harness/doctor {id, prompt: true}`, `{ok, steps}`.
 @MainActor
 final class ChiefBackendPageRoute: PageProvider {
     nonisolated static let prefix = "cmux.chief.backend."
+
     private let center: AgentHarnessCenter
-    private var spentGesture: TimeInterval?, added: Set<String> = []
+    private var spentGesture: TimeInterval?
 
     init(center: AgentHarnessCenter) { self.center = center }
 
@@ -25,18 +26,17 @@ final class ChiefBackendPageRoute: PageProvider {
         do {
             switch op {
             case Self.prefix + "list":
+                let harnesses = try await center.harnessList()
                 // An acpmux without the model probe still lists its harnesses.
-                return ["harnesses": try await center.harnessList(), "models": (try? await center.models()) ?? .null]
+                let models = (try? await center.models()) ?? .null
+                return ["harnesses": harnesses, "models": models]
             case Self.prefix + "add":
                 guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
                     throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
                 }
                 spentGesture = event
                 let backend = try BroughtChiefBackend(params)
-                return ["id": .string(added.insert(try await add(backend)).memberAfterInsert)]
-            case Self.prefix + "remove":
-                guard let id = params["id"]?.stringValue, added.remove(id) != nil else { throw PageError.invalidParams("not added here") }
-                return try await center.remove(id: id)
+                return ["id": .string(try await add(backend))]
             case Self.prefix + "doctor":
                 guard let id = params["id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("id is required") }
                 return try await center.doctor(id: id)
