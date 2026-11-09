@@ -47,7 +47,7 @@ fn refusal(code: i64, reason: &str, message: &str) -> RpcError {
 
 /// What the session's log says about the withdrawn prompt.
 #[derive(Default)]
-struct Found {
+pub(crate) struct Found {
     prompt_id: String,
     turn_id: String,
     provenance: Option<Value>,
@@ -371,7 +371,7 @@ impl Hub {
 
     /// The first prompt the log holds under `id` (its provenance `msgId` when `by_msg`, else its
     /// `promptId`) and what became of it.
-    fn find_withdrawn(&self, session: &Session, by_msg: bool, id: &str) -> Option<Found> {
+    pub(crate) fn find_withdrawn(&self, session: &Session, by_msg: bool, id: &str) -> Option<Found> {
         let mut found: Option<Found> = None;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
             if let Some(f) = found.as_mut() {

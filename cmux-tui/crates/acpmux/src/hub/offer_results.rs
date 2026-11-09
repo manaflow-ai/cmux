@@ -32,7 +32,7 @@ use std::sync::Arc;
 const MAX_REPLY_CHARS: usize = 4000;
 
 /// The accepted offer that started a chat, from its parent's log.
-struct Started {
+pub(super) struct Started {
     offer_id: String,
     title: String,
     /// The parent has the result already.
@@ -94,7 +94,7 @@ impl Hub {
     }
 
     /// The accepted offer of `parent` that started chat `child`, if any.
-    fn started_by_offer(&self, parent: &Session, child: &str) -> Option<Started> {
+    pub(super) fn started_by_offer(&self, parent: &Session, child: &str) -> Option<Started> {
         let mut titles: HashMap<String, String> = HashMap::new();
         let mut started: Option<Started> = None;
         let text = |e: &EventRecord, key: &str| {

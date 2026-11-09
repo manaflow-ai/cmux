@@ -1326,7 +1326,7 @@ impl Hub {
     /// continues held: back through the earlier attempts at `root` to the turn the connection
     /// first cut. A failed attempt writes no record of its own when the prompts behind it were
     /// already held, so its continuation finds them on the turn before.
-    fn held_by(&self, session: &Session, root: &str, cut_turn: &str) -> Vec<String> {
+    pub(super) fn held_by(&self, session: &Session, root: &str, cut_turn: &str) -> Vec<String> {
         let mut paused: HashMap<String, Vec<String>> = HashMap::new();
         // An attempt's turn, and the turn it continues.
         let mut continues: HashMap<String, String> = HashMap::new();
