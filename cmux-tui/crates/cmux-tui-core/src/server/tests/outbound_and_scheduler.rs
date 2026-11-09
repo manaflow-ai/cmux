@@ -468,7 +468,7 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();
@@ -477,9 +477,13 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     );
     // Any registry use records a hold at its call site.
     let _ = mux.registry_identity();
-    let stats =
-        handle_command(&mux, unix_client, Command::ServerStats { include: None }, &test_writer())
-            .unwrap();
+    let stats = handle_command(
+        &mux,
+        unix_client,
+        Command::ServerStats { include: None, restore_progress: false },
+        &test_writer(),
+    )
+    .unwrap();
     assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
     assert!(stats["uptime_ms"].is_u64());
     let lock = &stats["registry_lock"];
@@ -491,7 +495,7 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     let error = handle_command(
         &mux,
         websocket_client,
-        Command::ServerStats { include: None },
+        Command::ServerStats { include: None, restore_progress: false },
         &test_writer(),
     )
     .expect_err("remote clients must not receive internal server stats");

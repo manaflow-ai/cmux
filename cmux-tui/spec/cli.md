@@ -318,15 +318,17 @@ Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
 The owner binds its local socket before it restores its session (registry,
 terminal host adoption). While it restores, the socket accepts connections
-and answers `identify` at once with `lifecycle_ready: false` and, with
-`revisions: true`, `restore`: `phase` (`registry_open`, `schema`,
+and answers an `identify` with `restore_progress: true` at once:
+`lifecycle_ready: false`, empty `registry_id` and `generation`, and
+`restore`: `phase` (`registry_open`, `schema`,
 `migrations`, `integrity`, `snapshot`, `agent_roster`, `mux_build`,
 `browsers`, `host_adoption`, `reconcile`, `finish`), `done` and `total` (null
 when the phase does not count; `agent_roster` counts journal rows),
 `elapsed_ms` and `last_advance_ms` (when the restore last moved, in ms since it
-began: a restore that hangs keeps it while `elapsed_ms` grows). `server-stats`
-fails with `server.restoring` and the same `restore` in `error_details`. A
-connection's first other request is held unanswered; when the restore ends,
+began: a restore that hangs keeps it while `elapsed_ms` grows). A
+`server-stats` with `restore_progress: true` fails with `server.restoring`
+and the same `restore` in `error_details`. A connection's first other
+request (an `identify` without the flag included) is held unanswered; when the restore ends,
 every held connection is served by the normal protocol handler, from that
 request on. `identify` then reports `lifecycle_ready: false` until the owner
 finishes startup. `server ensure --restore-progress` adds the owner's

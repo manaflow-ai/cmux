@@ -80,9 +80,9 @@ pub(super) fn identify(
 /// `identify` while the owner restores its session (server/restoring.rs):
 /// no session exists yet, so the fields that name one are empty
 /// (`registry_id`, `generation`) or zero (the revisions), and
-/// `lifecycle_ready` is false. Every field the reply always has is there, so
-/// a strict decoder of the default reply still reads it. With `revisions`,
+/// `lifecycle_ready` is false. Every field the reply always has is there, and
 /// `restore` says what the restore does now (`crate::restore_progress`).
+/// Only a client that asks gets it (`restore_progress: true`).
 pub(super) fn restoring_identify(session: &str, revisions: bool) -> Value {
     let (build_id, cli_path) = super::daemon_build::identify_build_fields();
     let mut identity = json!({
@@ -107,8 +107,8 @@ pub(super) fn restoring_identify(session: &str, revisions: bool) -> Value {
     });
     if revisions {
         insert_revision_fields(&mut identity);
-        identity.insert("restore", crate::restore_progress::RestoreProgress::global().to_json());
     }
+    identity.insert("restore", crate::restore_progress::RestoreProgress::global().to_json());
     identity
 }
 

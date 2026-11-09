@@ -587,7 +587,7 @@ fn identify_and_ping_return_build_metadata() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();
@@ -601,7 +601,7 @@ fn identify_and_ping_return_build_metadata() {
     let revisions = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: true },
+        Command::Identify { machine_metadata: false, revisions: true, restore_progress: false },
         &test_writer(),
     )
     .unwrap();
@@ -642,7 +642,7 @@ fn lifecycle_ready_identity_advertises_new_public_protocol() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();

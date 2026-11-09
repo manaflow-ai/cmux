@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "aeadf39add6a73fa8d298962efa4725e3e308c1d0f186269452d0eb60415eef5";
+pub const ir_sha256 = "7306a13192d31482563191c00af9e61cb0b82d395c63972ea00ea5a015ed207d";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6442,10 +6442,12 @@ pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeI
 
 pub const IdentifyRequest = struct {
     machine_metadata: ?bool = null,
+    restore_progress: ?bool = null,
     revisions: ?bool = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "machine_metadata",
+        "restore_progress",
         "revisions",
     };
 };
@@ -6460,6 +6462,7 @@ pub fn identify(client: anytype, request: IdentifyRequest) !wire.Decoded(Identif
             .capability = null,
             .fields = &.{
                 .{ .name = "machine_metadata", .since = 12, .capability = "machine-identity-v1" },
+                .{ .name = "restore_progress", .since = 12, .capability = null },
                 .{ .name = "revisions", .since = 12, .capability = null },
             },
         },
@@ -8823,6 +8826,11 @@ pub fn sendKey(client: anytype, request: SendKeyRequest) !wire.Decoded(SendKeyRe
 
 pub const ServerStatsRequest = struct {
     include: wire.Field([]const []const u8) = .absent,
+    restore_progress: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "restore_progress",
+    };
 };
 
 pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(ServerStatsResult) {
@@ -8833,6 +8841,9 @@ pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(S
             .authority = "local-admin",
             .since = 12,
             .capability = "server-stats-v1",
+            .fields = &.{
+                .{ .name = "restore_progress", .since = 12, .capability = null },
+            },
         },
         request,
     );

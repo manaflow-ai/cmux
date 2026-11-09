@@ -626,7 +626,7 @@ impl StopWait<'_> {
                 let request = json!({
                     "id": format!("stop-wait-{id}"),
                     "cmd": "identify",
-                    "revisions": true,
+                    "restore_progress": true,
                 });
                 let sent = writeln!(connection.get_mut(), "{request}")
                     .and_then(|()| connection.get_mut().flush());

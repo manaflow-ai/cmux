@@ -100,7 +100,7 @@ fn dispatch_command(
         command @ (Command::SetTerminalCommandHistory(_)
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
-        Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::ServerStats { include, .. } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::RemoteHostStatus => remote_host_command::status(mux, client),
         Command::RemoteHostCall { method, params } => {
@@ -114,7 +114,7 @@ fn dispatch_command(
             )
         }
         Command::RemoteHostApp => remote_host_command::app(mux, client),
-        Command::Identify { machine_metadata, revisions } => {
+        Command::Identify { machine_metadata, revisions, .. } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout, restart } => {

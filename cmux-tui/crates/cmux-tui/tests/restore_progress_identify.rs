@@ -118,8 +118,12 @@ impl Client {
     /// no answer came within `wait`.
     fn identify(&mut self, id: u64, wait: Duration) -> (Option<Value>, Duration) {
         let asked = Instant::now();
-        writeln!(self.0.get_mut(), "{}", json!({"id": id, "cmd": "identify", "revisions": true}))
-            .unwrap();
+        writeln!(
+            self.0.get_mut(),
+            "{}",
+            json!({"id": id, "cmd": "identify", "restore_progress": true})
+        )
+        .unwrap();
         self.0.get_ref().set_read_timeout(Some(wait)).unwrap();
         let mut line = String::new();
         let answer = match self.0.read_line(&mut line) {
@@ -186,6 +190,13 @@ fn identify_reports_the_restore_while_the_owner_restores() {
     assert_eq!(identity["restore"]["phase"], "registry_open", "{first}");
     assert!(identity["restore"]["elapsed_ms"].is_u64(), "{first}");
     assert!(identity["restore"]["last_advance_ms"].is_u64(), "{first}");
+    // A client that does not ask for the restore's progress expects the
+    // session's identity: its identify waits for the restore, as before.
+    let mut plain = Client::connect(&fixture.socket);
+    writeln!(plain.0.get_mut(), "{}", json!({"id": 1, "cmd": "identify"})).unwrap();
+    plain.0.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+    let mut early = String::new();
+    assert!(plain.0.read_line(&mut early).is_err(), "answered before the restore: {early}");
 
     // Let the restore run into the slowed agent roster step, then watch it advance.
     std::thread::sleep(Duration::from_secs(2));
@@ -242,6 +253,13 @@ fn identify_reports_the_restore_while_the_owner_restores() {
     assert_eq!(identity["pid"].as_u64(), Some(pid), "{ready}");
     assert!(identity["generation"].as_str().is_some_and(|g| !g.is_empty()), "{ready}");
     assert!(identity.get("restore").is_none(), "a ready owner reports no restore: {ready}");
+    plain.0.get_ref().set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut line = String::new();
+    plain.0.read_line(&mut line).unwrap();
+    let plain_identity: Value = serde_json::from_str(&line).unwrap();
+    // The restored session's own answer (served from the attach on).
+    assert!(plain_identity["data"].get("restore").is_none(), "{plain_identity}");
+    assert!(plain_identity["data"]["generation"].as_str().is_some_and(|g| !g.is_empty()));
     let status = fixture.command("status").output().unwrap();
     assert!(status.status.success(), "status: {}", String::from_utf8_lossy(&status.stderr));
 }

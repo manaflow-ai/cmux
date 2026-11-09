@@ -305,7 +305,7 @@ impl PendingIdentify {
     fn send(socket: &std::path::Path) -> Option<Self> {
         let stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
         let mut client = Self(std::io::BufReader::new(stream));
-        client.ask(serde_json::json!({"id": 1, "cmd": "identify", "revisions": true}))?;
+        client.ask(serde_json::json!({"id": 1, "cmd": "identify", "restore_progress": true}))?;
         Some(client)
     }
 

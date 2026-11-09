@@ -3,12 +3,14 @@
 //! An owner binds its session socket before the heavy restore (registry
 //! load, terminal host adoption), so the socket names the one live owner for
 //! the whole restore. Until the restored `Mux` is attached, the owner answers
-//! `identify` and `server-stats` on its own (`lifecycle_ready: false`, and
-//! what the restore does now: `crate::restore_progress`), and parks a
-//! connection at its first other request; on attach each parked one goes to
-//! the normal protocol handler, which reads that request first. A client
+//! `identify` and `server-stats` that ask for it (`restore_progress: true`)
+//! on its own (`lifecycle_ready: false`, and what the restore does now:
+//! `crate::restore_progress`), and parks a connection at its first other
+//! request; on attach each parked one goes to the normal protocol handler,
+//! which reads that request first. A client
 //! that connects as soon as the socket file exists is served exactly as
-//! before, only later. `server ensure` reads `lifecycle_ready: false` as a
+//! before, only later; so is one that does not ask for the restore's
+//! progress (it expects the session's identity). `server ensure` asks, and reads `lifecycle_ready: false` as a
 //! live owner that is still starting and waits for it, instead of seeing no
 //! owner, killing it, or starting a second one; with the restore's progress
 //! a client can also tell a long restore that advances from one that hangs
@@ -289,9 +291,15 @@ impl Drop for RestoringServer {
 }
 
 /// The reply to one request line while the owner restores, or None when it
-/// waits for the session: `identify` and `server-stats` only.
+/// waits for the session: `identify` and `server-stats` that ask for it
+/// (`restore_progress: true`). A client that does not ask expects the
+/// restored session's answer (its capabilities, its generation), so it waits
+/// for it as before.
 fn restoring_answer(session: &str, line: &[u8]) -> Option<Value> {
     let request: Value = serde_json::from_slice(line).ok()?;
+    if request.get("restore_progress").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
     let id = request.get("id").cloned().unwrap_or(Value::Null);
     match request.get("cmd")?.as_str()? {
         "identify" => {
@@ -440,7 +448,7 @@ mod tests {
         client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let mut writer = client.try_clone().unwrap();
         let mut reader = BufReader::new(client);
-        writeln!(writer, r#"{{"id":"a","cmd":"identify","revisions":true}}"#).unwrap();
+        writeln!(writer, r#"{{"id":"a","cmd":"identify","restore_progress":true}}"#).unwrap();
         let mut line = String::new();
         reader.read_line(&mut line).unwrap();
         let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
@@ -451,16 +459,18 @@ mod tests {
         assert_eq!(identity["lifecycle_ready"], false, "{reply}");
         assert!(identity["restore"]["phase"].is_string(), "{reply}");
         assert!(identity["restore"]["last_advance_ms"].is_u64(), "{reply}");
+        assert!(identity.get("api_revision").is_none(), "{reply}");
 
         // `server-stats` says why it has no counters yet.
-        writeln!(writer, r#"{{"id":"s","cmd":"server-stats"}}"#).unwrap();
+        writeln!(writer, r#"{{"id":"s","cmd":"server-stats","restore_progress":true}}"#).unwrap();
         line.clear();
         reader.read_line(&mut line).unwrap();
         let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(reply["error_code"], "server.restoring", "{reply}");
         assert!(reply["error_details"]["restore"]["phase"].is_string(), "{reply}");
 
-        let ping = r#"{"id":"p","cmd":"ping"}"#;
+        // An identify that does not ask waits for the session, as before.
+        let ping = r#"{"id":"p","cmd":"identify"}"#;
         writeln!(writer, "{ping}").unwrap();
         let mut stream = parked(&slot).expect("the ping parked the connection");
         let mut replayed = vec![0_u8; ping.len() + 1];

@@ -24059,6 +24059,11 @@ Result<Json> Codec<IdentifyRequest>::encode(const IdentifyRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_metadata", std::move(encoded).value());
     }
+    if (value.restore_progress) {
+        auto encoded = encode_value(*value.restore_progress);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("restore_progress", std::move(encoded).value());
+    }
     if (value.revisions) {
         auto encoded = encode_value(*value.revisions);
         if (!encoded) return std::move(encoded).error();
@@ -24076,6 +24081,12 @@ Result<IdentifyRequest> Codec<IdentifyRequest>::decode(const Json& value) {
         auto decoded = decode_value<bool>(*field_machine_metadata);
         if (!decoded) return std::move(decoded).error();
         result.machine_metadata = std::move(decoded).value();
+    }
+    const Json* field_restore_progress = value.find("restore_progress");
+    if (field_restore_progress) {
+        auto decoded = decode_value<bool>(*field_restore_progress);
+        if (!decoded) return std::move(decoded).error();
+        result.restore_progress = std::move(decoded).value();
     }
     const Json* field_revisions = value.find("revisions");
     if (field_revisions) {
@@ -30825,6 +30836,11 @@ Result<Json> Codec<ServerStatsRequest>::encode(const ServerStatsRequest& value) 
         if (!encoded) return std::move(encoded).error();
         object.emplace("include", std::move(encoded).value());
     }
+    if (value.restore_progress) {
+        auto encoded = encode_value(*value.restore_progress);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("restore_progress", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -30841,6 +30857,12 @@ Result<ServerStatsRequest> Codec<ServerStatsRequest>::decode(const Json& value) 
             if (!decoded) return std::move(decoded).error();
             result.include = Field<std::vector<std::string>>(std::move(decoded).value());
         }
+    }
+    const Json* field_restore_progress = value.find("restore_progress");
+    if (field_restore_progress) {
+        auto decoded = decode_value<bool>(*field_restore_progress);
+        if (!decoded) return std::move(decoded).error();
+        result.restore_progress = std::move(decoded).value();
     }
     return result;
 }
@@ -43781,8 +43803,9 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand107FieldRequirements{{
     {"by", 12U, "shared-sizing-v1"},
     {"surface", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand126FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand126FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
+    {"restore_progress", 12U, ""},
     {"revisions", 12U, ""},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand155FieldRequirements{{
@@ -43892,6 +43915,9 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand225FieldRequirements{{
     {"paste", 7U, ""},
     {"submit", 0U, "send-expect-agent-v1"},
     {"terminal_id", 0U, "terminal-input-while-creating-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand227FieldRequirements{{
+    {"restore_progress", 12U, ""},
 }};
 constexpr std::array<CommandFieldRequirement, 9> kCommand230FieldRequirements{{
     {"api_revision", 12U, ""},
@@ -44190,7 +44216,7 @@ constexpr std::array<CommandMetadata, 295> kCommands{{
     {"select-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand225FieldRequirements)},
     {"send-key", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"server-stats", "local-admin", 12U, "server-stats-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"server-stats", "local-admin", 12U, "server-stats-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand227FieldRequirements)},
     {"set-attach-visibility", "frontend", 12U, "attach-visibility-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand230FieldRequirements)},

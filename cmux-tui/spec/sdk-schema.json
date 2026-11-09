@@ -2273,7 +2273,7 @@
      "nullable": false,
      "since": 12,
      "constraints": [
-      "Only with identify {revisions: true}, and only while the owner restores its session (lifecycle_ready false): what the restore does now. A restore that advances moves last_advance_ms; one that hangs keeps it while elapsed_ms grows."
+      "Only with identify {restore_progress: true}, and only while the owner restores its session (lifecycle_ready false): what the restore does now. A restore that advances moves last_advance_ms; one that hangs keeps it while elapsed_ms grows."
      ]
     },
     "launch_snapshot_path": {
@@ -10239,6 +10239,19 @@
       "constraints": [
        "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
       ]
+     },
+     "restore_progress": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "constraints": [
+       "Answered while the owner restores its session too, at once, with lifecycle_ready false, placeholder session fields (registry_id and generation empty, revisions 0) and restore. Without it a restoring owner holds the request until the restore ends. A ready owner ignores it."
+      ]
      }
     },
     "additional_properties": false
@@ -17465,6 +17478,19 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "restore_progress": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "constraints": [
+       "While the owner restores its session: refused at once with error_code server.restoring and error_details {lifecycle_ready: false, restore}, instead of held until the restore ends. A ready owner ignores it."
+      ]
      }
     },
     "additional_properties": false
