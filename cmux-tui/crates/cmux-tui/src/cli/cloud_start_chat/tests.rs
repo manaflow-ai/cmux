@@ -863,6 +863,90 @@ fn a_session_that_stops_answering_fails_at_once() {
     assert_eq!(fake.ran.len(), 4);
 }
 
+/// A `cloud exec` the Cloud API did not answer in time, as the app reports it (production probe 2026-11-08 19:06Z).
+fn unanswered() -> Ran {
+    Ran {
+        code: 1,
+        stdout: String::new(),
+        stderr: json!({"code": "daemon_error", "data": {"action": "cloudExec"},
+                       "message": "exec on Cloud machine: cmux Cloud didn't answer in time. Try again; if it \
+                                   keeps happening, run `cmux cloud diagnostics`."})
+        .to_string(),
+    }
+}
+
+const SENT: &str = "@@history\n{\"turns\":[]}\n@@send\nqueued for delivery d-1\n@@exit 0\n";
+const REPLIED: &str = "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+                       @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n@@lastexit 0\n";
+
+/// A read of the running turn only reads, so one the Cloud API did not answer is asked again, and the reply that
+/// comes is the answer; the answer counts the reads that went unanswered.
+#[test]
+fn an_unanswered_read_of_the_turn_is_asked_again() {
+    let mut fake =
+        Fake::new(vec![signed_in(), started(), exec_out(SENT), unanswered(), exec_out(REPLIED)]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["unanswered_reads"], 1);
+    assert_eq!(fake.ran.len(), 5, "{:?}", fake.ran);
+    // The read asked again is the same read, and the prompt was sent once.
+    assert_eq!(fake.ran[3], fake.ran[4]);
+    assert_eq!(fake.ran.iter().filter(|ran| ran[5].contains("acp send")).count(), 1);
+    assert_eq!(fake.paused, NOT_STARTED_PAUSE);
+}
+
+/// READ_TRIES unanswered reads in a row are the machine not answering; a read the machine answers in between
+/// starts the count again.
+#[test]
+fn reads_unanswered_read_tries_times_in_a_row_are_chat_unreachable() {
+    let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"running\"}]}\n";
+    let mut answers = vec![signed_in(), started(), exec_out(SENT), unanswered(), exec_out(running)];
+    answers.extend((0..READ_TRIES).map(|_| unanswered()));
+    let mut fake = Fake::new(answers);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.unreachable"), 1), "{error}");
+    assert!(error["message"].as_str().unwrap().contains("didn't answer in time"), "{error}");
+    assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
+    assert_eq!(fake.ran.len(), 5 + READ_TRIES as usize, "{:?}", fake.ran);
+}
+
+/// A read refused because the machine stopped, is gone or is not the caller's, or for its length, fails at once:
+/// another read would be refused the same way.
+#[test]
+fn a_read_refused_for_the_machine_fails_at_once() {
+    for code in ["vm_not_running", "vm_not_found", "vm_forbidden", "vm_command_too_large"] {
+        let refused = Ran {
+            code: 1,
+            stdout: String::new(),
+            stderr: json!({"code": code, "message": "no"}).to_string(),
+        };
+        let mut fake = Fake::new(vec![signed_in(), started(), exec_out(SENT), refused]);
+        let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+        else {
+            panic!("{code}: {:?}", fake.ran)
+        };
+        assert_eq!(error["code"], "chat.unreachable", "{code}");
+        assert_eq!(fake.ran.len(), 4, "{code}: {:?}", fake.ran);
+    }
+}
+
+/// An unanswered read with no time left fails: no read again past `--timeout`.
+#[test]
+fn an_unanswered_read_past_the_deadline_fails() {
+    let mut fake = Fake::new(vec![signed_in(), started(), exec_out(SENT), unanswered()]);
+    // The list, the start, the send and the read take 20 s of the 20.
+    let asked =
+        request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", "20"]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "chat.unreachable", "{error}");
+    assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
+}
+
 /// A machine here: `cloud exec` runs its script with bash in a home of its own, whose
 /// `~/.cmux/bin/cmux-tui` keeps what `acp send` reads; every other step answers from a queue.
 /// `command_cap` refuses a longer command as the cmux API does (nothing of it runs).

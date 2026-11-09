@@ -1219,6 +1219,8 @@ fn wait_turn(
     mut answer: Value,
     deadline: Deadline,
 ) -> Outcome {
+    // The reads in a row the Cloud API did not answer: a read only reads, so it is asked again.
+    let mut unanswered = 0;
     loop {
         // Each wait is bounded by exec's own limit and by what is left of `--timeout`, in whole seconds: with
         // less than one left (the steps before spent it), no wait past the deadline.
@@ -1234,8 +1236,20 @@ fn wait_turn(
         );
         let polled = match exec(runner, machine_id, &poll) {
             Ok(stdout) => stdout,
+            Err(error)
+                if read_again(&error)
+                    && unanswered + 1 < READ_TRIES
+                    && !deadline.passed(runner) =>
+            {
+                unanswered += 1;
+                answer.set("unanswered_reads", json!(unanswered));
+                let pause = deadline.bound(runner, NOT_STARTED_PAUSE);
+                runner.pause(pause);
+                continue;
+            }
             Err(error) => return sent_failure(error, answer),
         };
+        unanswered = 0;
         let polled = sections(&polled);
         let turn = last_turn(polled.get("history")).filter(|turn| turn.seq > baseline);
         if let Some(turn) = turn.as_ref().filter(|turn| turn.ended) {
@@ -1616,6 +1630,19 @@ fn prompt_file(name: &str) -> String {
         .map(|ch| if ch.is_ascii_alphanumeric() || "-_.".contains(ch) { ch } else { '_' })
         .collect();
     format!("f=\"$HOME/.cmux/prompts/\"{}; ", shell_quote(&format!("{name}.prompt")))
+}
+
+/// The reads of a running turn ([`wait_turn`]'s `cloud exec`) in a row that may go unanswered before the chat is
+/// `chat.unreachable`. A read only reads (`acp wait`, `acp history`, `acp last`), so it is asked again: one slow
+/// answer of the Cloud API is not a lost chat (production probe 2026-11-08 19:06Z, run 42511607383: "cmux Cloud
+/// didn't answer in time" on the first read, the machine `connected` and `ready`, the prompt queued).
+const READ_TRIES: u32 = 3;
+
+/// Whether a read of a running turn that failed with `error` may be asked again: not when the machine is gone,
+/// stopped or not the caller's, nor when the command was too long (another read would be refused the same way).
+fn read_again(error: &Value) -> bool {
+    let code = at(error, "code").as_str().unwrap_or_default();
+    !matches!(code, "vm_not_running" | "vm_not_found" | "vm_forbidden") && !command_too_long(error)
 }
 
 /// Whether a `cloud exec` was refused before its command started: the machine busy, stopped or
