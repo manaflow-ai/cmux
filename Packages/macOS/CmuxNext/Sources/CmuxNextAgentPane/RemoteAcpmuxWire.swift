@@ -370,13 +370,15 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             let side = try await client.side(throughSeq: request.throughSeq, prompt: request.prompt,
                                              promptID: UUID().uuidString.lowercased())
             // The daemon's answer, never the page's: under the tab's host and the daemon's own.
-            await MainActor.run {
-                let links = RemoteAgentSessionLinks.shared
-                links.noteFork(side, parent: parent, host: linksHost)
-                if let alias { links.noteFork(side, parent: parent, host: alias) }
-            }
+            await Self.noteSide(side, parent: parent, hosts: [linksHost] + (alias.map { [$0] } ?? []))
             return Self.json(["sessionId": side])
         }
+    }
+
+    /// Notes a side chat the daemon opened as `parent`'s child under each of `hosts` (two writes to
+    /// the links store, before the page asks the host to open it).
+    @MainActor private static func noteSide(_ side: String, parent: String, hosts: [String?]) {
+        for host in hosts { RemoteAgentSessionLinks.shared.noteFork(side, parent: parent, host: host) }
     }
 
     public func cancel(code: Int, reason: String) {
