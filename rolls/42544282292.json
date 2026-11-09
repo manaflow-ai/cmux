@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42544282292",
+  "recorded_at": "2026-11-09T01:25:15Z",
+  "reason": "cmux-tui 2e29878f327c changes the image's cmux-tui (pinned ef3fe8db6e2b)",
+  "dry_run": false,
+  "cmux_tui": "2e29878f327c9dfe712fc0141550d3d20eedb941",
+  "fixes": [
+    {
+      "sha": "2e29878f327c9dfe712fc0141550d3d20eedb941",
+      "mergedAt": "2026-11-08T16:54:59-08:00",
+      "subject": "repo hold: never mark a head that has a project .mcp.json (#39000)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T01:25:15Z",
+    "snapshot_id": "sh-bc2fa7f6019b45b08cee84e1740fc783",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42544282292): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "45a7519cc846b1073a18b6c599bf38a863998724",
+    "image": "cloud-native-auto-2e29878f-42544282292-1",
+    "revision": "ci-42544282292-1",
+    "at": "2026-11-09T01:25:15Z"
+  },
+  "rolled_back": false
+}
