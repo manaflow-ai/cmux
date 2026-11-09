@@ -71,6 +71,42 @@ extension MainPaneGutterSuites {
             }
         }
 
+        /// Two strip columns and a right dock: the edge between the columns and the dock's edge draw the split's
+        /// thin line at rest; the strip's last column edge parts nothing and draws none. Hovered, a column edge
+        /// widens to its edge line as before.
+        @Test func columnAndDockEdgesDrawTheSameFaintLineAtRest() {
+            with(snapshot()) {
+                _ = NSApplication.shared
+                let provider = Panes()
+                let layout = ScreenLayout.columns([
+                    LayoutColumn(id: "c1", width: 0.4, root: .leaf("p1")),
+                    LayoutColumn(id: "c2", width: 0.4, root: .leaf("p2")),
+                    LayoutColumn(id: "dock", width: 0.2, root: .leaf("chat"), dock: DockColumn(edge: .right)),
+                ])
+                let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
+                let view = LayoutRootView(model: model, contentProvider: provider)
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 800), styleMask: [.borderless],
+                                      backing: .buffered, defer: true)
+                defer { window.closeAfterTest() }
+                window.contentView = view
+                view.layoutSubtreeIfNeeded()
+                let screen = view.screenViews["s"]
+                let between = screen?.dividerViews[.columnEdge(ColumnID("c1"))]
+                let last = screen?.dividerViews[.columnEdge(ColumnID("c2"))]
+                let dock = screen?.dividerViews[.columnEdge(ColumnID("dock"))]
+                #expect(between?.isLineVisible == true, "the edge between two columns shows its line at rest")
+                #expect(dock?.isLineVisible == true, "the dock's edge shows its line at rest")
+                #expect(last?.isLineVisible == false, "the strip's last edge parts nothing")
+                if let between {
+                    between.layoutSubtreeIfNeeded()
+                    #expect(abs(between.lineFrameInSuperview.width - between.lineThickness) < 0.001, "as thin as a split's line")
+                    between.setHovered(true)
+                    between.layoutSubtreeIfNeeded()
+                    #expect(between.lineFrameInSuperview.width >= LayoutStyle.columnEdgeLineThickness(dividerThickness: between.lineThickness) - 0.001)
+                }
+            }
+        }
+
         @Test func aChosenStyleOrSeparationStillHidesThem() {
             let looks: [[String: JSONValue]] = [
                 ["appearance": .object(["chromeStyle": .string("flat-sidebar-line")])],

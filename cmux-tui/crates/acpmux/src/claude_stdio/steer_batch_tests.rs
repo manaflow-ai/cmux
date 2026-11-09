@@ -372,6 +372,31 @@ async fn a_refused_drop_leaves_each_line_as_it_was() {
     assert_eq!(texts, ["first", "second", "third"]);
 }
 
+/// Review of #37203: Claude Code that refuses the drop a withdraw asked for (`cancel_async_message`
+/// unsupported) is not asked to drop a line again: the withdraw takes nothing back, and the next
+/// message goes in as its own line, as after a refused rebatch.
+#[tokio::test]
+async fn a_refused_withdraw_drop_is_not_asked_again() {
+    let (t, mut q) = stepping().await;
+    for (id, sender) in [(2, "lane-a"), (3, "codex-lane")] {
+        write(&t, &mut q, &from(id, sender, &format!("text {id}"))).await;
+        q.settle(&t).await;
+    }
+    let Outbound::Lines(lines) = t.outbound(&withdraw(8, "p3")).await else {
+        panic!("a batched message was refused at once")
+    };
+    q.take(lines);
+    let drop = q.drops.remove(0);
+    let refused = json!({"type": "control_response", "response": {"subtype": "error", "request_id": drop["request_id"], "error": "Unsupported control request subtype: cancel_async_message"}});
+    let answers = t.inbound(&refused).await;
+    assert_eq!(answer(&answers, 8).unwrap().unwrap()["withdrawn"], false, "{answers:?}");
+    q.take(t.take_stdin_replies().await);
+    write(&t, &mut q, &from(4, "lane-c", "text 4")).await;
+    assert!(q.drops.is_empty(), "asked to drop again: {:#?}", q.drops);
+    assert_eq!(q.waiting.len(), 2, "{:#?}", q.waiting.iter().map(text_of).collect::<Vec<_>>());
+    assert_eq!(text_of(&q.waiting[1]), "text 4");
+}
+
 /// The answer was lost while messages were held for a drop: each held message is answered too,
 /// so no send waits forever.
 #[tokio::test]

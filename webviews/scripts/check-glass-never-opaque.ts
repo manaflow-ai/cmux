@@ -493,15 +493,10 @@ export const OVERLAY_ALLOWED = new Map<string, string>([
 // Each fails as stale once its fill is glass, so the entry goes with the fix.
 export const OVERLAY_PENDING = new Map<string, string>([
   ["pages/settings/styles.css .menus-move-picker", "Settings' Menus move picker paints the solid popup surface"],
-  ["pages/cloud/styles.css .cloud-create-sheet", "Cloud's create sheet paints the elevated surface"],
   ["pages/home-channels/ledger.css .lg-sheet", "the ledger's side sheet paints its solid surface"],
   [
     "pages/home-channels/ledger.css .lg-palette.ui-dialog, .lg-palette",
     "the ledger's palette dialog paints the solid popup surface",
-  ],
-  [
-    "pages/home-channels/ledger.css .lg-form.ui-dialog, .lg-form",
-    "the ledger's form dialog paints the solid popup surface",
   ],
   ["pages/markdown/styles.css .cmux-comment-card", "the Markdown viewer's comment card paints the elevated surface"],
   ["ui/ui.css .ui-sheet", "the shared sheet paints --ui-surface, not the glass"],

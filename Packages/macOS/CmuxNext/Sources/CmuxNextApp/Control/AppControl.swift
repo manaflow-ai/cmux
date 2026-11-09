@@ -8,7 +8,6 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
-import CmuxNextImportCards
 import CmuxNextMacScreen
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -130,9 +129,10 @@ final class AppControl {
         ])
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
-        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract), and the import note's capture stand-in.
-        service.router.register([budget.method(registry: registry), .mainActor("debug.import_note") { call in .value(ImportSuggestionsCenter.shared.debugImportNote(call.params)) }])
+        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
+        service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
+        service.router.register([services.chiefPetMini.debugMethod()])  // debug.chief_pet: the pet and its reply box for captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
@@ -246,11 +246,10 @@ final class AppControl {
                 // `gallery: sidebar|tabs|none` shows the card kinds over fixture data (HoverCardGallery).
                 return .value(.object((HoverCardGallery.show(call.params["gallery"]?.stringValue) ?? services.hoverCards.report).mapValues(JSONValue.string)))
             },
-            // Pane chrome alignment: tab pill gaps, border, first terminal cell.
-            .mainActor("debug.pane_chrome") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(DebugPaneChrome.report(services: services))
-            },
+            // Pane chrome alignment (tab pill gaps, border, first terminal cell), and the window top's lines (TopAlignmentProbe).
+            .mainActor("debug.pane_chrome") { [weak services] _ in .value(services.map { DebugPaneChrome.report(services: $0) } ?? .null) },
+            .mainActor("debug.top_alignment") { [weak services] _ in
+                .value(services?.windows.controllers.first?.window.flatMap { JSONValue(foundation: TopAlignmentProbe(window: $0).report()) } ?? .null) },
             // Docked columns, the strip range and its scrollbar; `pane` +
             // `dock` changes a column (plans/cmux-next/dock-column.md).
             .mainActor("debug.dock") { [weak services] call in
@@ -507,7 +506,7 @@ final class AppControl {
                 guard let services else { return .null }
                 return await DebugFilePages.run(call.params, services)
             },
-            // The quit sheet (Quit and the local terminals).
+            // The quit (Quit and the local terminals), and its failure alert.
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
             },

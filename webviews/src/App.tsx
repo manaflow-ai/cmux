@@ -92,7 +92,7 @@ import {
   useDiffFileOpen,
   type DiffLineClick,
 } from "./diff-viewer/openFile";
-import { diffFingerprintReader, useDiffFreshness } from "./diff-viewer/freshness";
+import { diffFingerprintReader, useDiffFreshness, usePrecomputedFingerprint } from "./diff-viewer/freshness";
 import { diffPageClient, type DiffPageConfig } from "./diff/page";
 import { reportFirstHunk } from "./diff-viewer/openTiming";
 import { GitToolbarButtons, GitWriteBar } from "./agent-session/acpmux/changes/GitActions";
@@ -211,6 +211,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
     bridgeAvailable,
+    canSend: payload.commentsSend === true,
     dispatch,
     latestState,
     repoRoot: commentRepoRoot,
@@ -429,11 +430,16 @@ export function App({ config, initialStatus }: ConfigProps) {
   usePendingReplacement(payload, label, dispatch, transport);
   // A diff the host precomputed (an agent's turn ended): its fingerprint is the freshness baseline,
   // and when the files changed since, the new diff replaces it with the reader kept in place.
-  const [precomputedFingerprint, setPrecomputedFingerprint] = useState<string>();
+  // Each precompute gets its own id, so a later one with the same fingerprint still gets its first check.
+  const [precomputed, setPrecomputed] = usePrecomputedFingerprint();
   const replaceAnchor = useRef<ReturnType<KindOrderHandlers["anchor"]>>(null);
+  // The session on screen while a reconcile streams its replacement: kept open (previews and full
+  // files read it) until the new diff commits, and the one shown again if the reconcile fails.
+  const retainedSessionRef = useRef<ActiveDiffSession | null>(null);
   const renderHooks = useRef<RenderDiffHooks>({});
   renderHooks.current = {
-    prepared: setPrecomputedFingerprint,
+    retained: retainedSessionRef,
+    prepared: setPrecomputed,
     beforeReplace: () => {
       replaceAnchor.current = kindOrderHandlers.current.anchor();
     },
@@ -815,7 +821,15 @@ export function App({ config, initialStatus }: ConfigProps) {
     () => latestState.current.draft == null && !commitOpenRef.current,
     () => refreshRef.current(),
     setMachineUnavailable,
-    { fingerprint: precomputedFingerprint, reconcile: () => dispatch({ type: "reconcile" }) },
+    {
+      fingerprint: precomputed?.fingerprint,
+      id: precomputed?.id,
+      reconcile: () => {
+        retainedSessionRef.current = activeSessionRef.current;
+        dispatch({ type: "reconcile" });
+      },
+      failedGeneration: state.reconcileFailedGeneration,
+    },
   );
 
   return (
@@ -942,9 +956,11 @@ export function App({ config, initialStatus }: ConfigProps) {
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
+          commentsSendState={comments.sendState}
           hasDraft={state.draft != null}
           label={label}
           onSelectComment={selectCommentEntry}
+          onSendComments={comments.canSend ? comments.send : undefined}
           onActivateItem={activateTreeFile}
           onSelectItem={scrollToItem}
           onToggleViewedPath={toggleViewedPath}

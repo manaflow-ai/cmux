@@ -103,10 +103,10 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 cliName: "app toggle-full-screen", mainMenu: .window
             ),
             // Quit and the local terminals (user decision 2026-09-30): the
-            // terminals run in cmux-tui and outlive the app. Quit asks while
-            // local terminals exist (setting `app.quitBehavior`); a scripted
-            // run never asks and takes `--keep-sessions`, `--end-sessions` (keeps
-            // the layout) or `--end-everything`.
+            // terminals run in cmux-tui and outlive the app. Quit never asks
+            // (Leo 2026-11-05): it keeps them running or applies the setting
+            // `app.quitBehavior`; `--keep-sessions`, `--end-sessions` (keeps
+            // the layout) and `--end-everything`, or the actions below, choose.
             ActionDescriptor(
                 id: "quit", title: String(localized: "action.quit", defaultValue: "Quit cmux", bundle: .module),
                 keywords: ["exit", "close"], defaultShortcut: Shortcut("q", modifiers: [.command]), category: .window,

@@ -42,6 +42,8 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
+    (f"{ACPMUX}/chatSnapshot/live.ts", "visibilitychange"): "writes the chat's drawn copy for the "
+    "next launch as the page hides (`chat.snapshot.put`, a write, not a read)",
     (f"{ACPMUX}/snapshotCache.ts", "visibilitychange"): "writes the reload copy as the page hides "
     "(sessionStorage, a write, not a read)",
     (f"{ACPMUX}/VirtualTranscript.tsx", "visibilitychange"): "forgets the rows still entering when "
@@ -60,6 +62,10 @@ ALLOWED_LISTENERS = {
     "holds back from its throttled store write when the page hides; a write, reads no data",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
+    (f"{ACPMUX}/subagents/traySeen.ts", "visibilitychange"): "pauses the composer hat's linger "
+    "clock while the page is hidden (trayLinger.ts); reads no data",
+    (f"{ACPMUX}/subagents/traySeen.ts", "focus"): "pauses the composer hat's linger clock while "
+    "the window is not focused, resumes it on focus; reads no data",
     (f"{ACPMUX}/avatars/AnimatedAvatar.tsx", "visibilitychange"): "stops the avatar's own CSS "
     "frame animation while the page hides; reads no data",
     (f"{ACPMUX}/subagents/SubagentGroup.tsx", "visibilitychange"): "`useNow` rests the running "

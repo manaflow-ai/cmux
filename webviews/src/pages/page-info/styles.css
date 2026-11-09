@@ -1,0 +1,10 @@
+/* The bubble's glass is the native panel's; the page draws only the rows over it. */
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+}
+
+#root {
+  display: block;
+}

@@ -48,7 +48,7 @@ extension WindowController {
     /// top row and every strip under it measure once more, in this turn.
     private func fullScreenTransitionDidEnd() {
         (window as? ShellWindow)?.isLeavingFullScreen = false
-        root.needsLayout = true
+        root.applyMainPane() // a fullscreen window has no lit rim to leave room for (`Metrics.windowEdgeInset`)
         root.layoutSubtreeIfNeeded()
         relayoutTopRowStrips()
     }

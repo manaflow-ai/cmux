@@ -71,7 +71,8 @@
       "agent": "settable",
       "why": "Sidebar control visibility (looks only)",
       "keys": [
-        "sidebar.controlsOnHover"
+        "sidebar.controlsOnHover",
+        "sidebar.floatOnHover"
       ]
     },
     {
@@ -80,6 +81,8 @@
         "sidebar.groupHeader.memberCount",
         "sidebar.groupHeader.unreadCount",
         "sidebar.groupHeader.background",
+        "sidebar.groupPalette",
+        "sidebar.groupGradient",
         "sidebar.numbering",
         "sidebar.cmd9",
         "sidebar.stepping",
@@ -114,8 +117,7 @@
     {
       "agent": "settable",
       "keys": [
-        "newTerminal.opensWorkspace",
-        "tabs.cmdWClosesPinnedTabs"
+        "newTerminal.opensWorkspace"
       ]
     },
     {
@@ -195,6 +197,13 @@
         "appearance.theme",
         "appearance.appTheme",
         "appearance.accent"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Cosmetic icon preference; the reserved Neko value currently falls back to default artwork",
+      "keys": [
+        "appearance.iconTheme"
       ]
     },
     {
@@ -462,10 +471,18 @@
     },
     {
       "agent": "settable",
-      "why": "Where the docked Chief sits and where its links open (layout choices, like pane placement).",
+      "why": "Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
       "keys": [
         "home.chiefDock.edge",
+        "home.chiefPanel.style",
         "home.chiefDock.openBeside"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
+      "keys": [
+        "home.chiefPanel.seesScreen"
       ]
     },
     {
@@ -480,6 +497,13 @@
       "why": "Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.",
       "keys": [
         "agentPane.newChatsIn"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.",
+      "keys": [
+        "chat.on"
       ]
     },
     {
@@ -712,6 +736,9 @@
         "agentPane.display.pinnedPlan",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
+        "agentPane.display.senderIcon.lead",
+        "agentPane.display.senderIcon.badge",
+        "agentPane.display.senderIcon.corner",
         "agentPane.display.font.preset",
         "agentPane.display.font.ui",
         "agentPane.display.font.size",
@@ -822,6 +849,7 @@
         "agentPane.showContextUsage",
         "agentPane.composerRing",
         "agentPane.showDictation",
+        "agentPane.dictationSource",
         "agentPane.spellChecking",
         "agentPane.attachmentView",
         "agentPane.showMachineLoadWarnings"
@@ -885,6 +913,13 @@
       "keys": [
         "cloud.newWorkspacesInCloud",
         "cloud.newWorkspaceFolder"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.",
+      "keys": [
+        "agentPane.dictationShortcut"
       ]
     },
     {
@@ -958,6 +993,14 @@
         "workspaces.freeing.idleMinutes",
         "workspaces.freeing.agents",
         "workspaces.freeing.runningCommands"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.",
+      "keys": [
+        "agents.hiddenChats.discard",
+        "agents.hiddenChats.discardAfterMinutes"
       ]
     },
     {
@@ -1068,6 +1111,13 @@
       ]
     },
     {
+      "agent": "settable",
+      "why": "Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.",
+      "keys": [
+        "browser.openPullRequestsInGitHubPage"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.",
       "keys": [
@@ -1079,6 +1129,13 @@
       "why": "On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).",
       "keys": [
         "browser.import.enabled"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "On, cmux keeps reading the source browser's cookies after an import: only the person turns that on.",
+      "keys": [
+        "browser.import.cookieSync"
       ]
     },
     {
@@ -1208,6 +1265,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
+      "keys": [
+        "developerTools.appPages"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, a key is taken from every other app system-wide.",
       "keys": [
         "app.globalHotKey",
@@ -1307,7 +1371,8 @@
       "agent": "userOnly",
       "why": "Battery and sleep are the person's call: an agent must not keep the Mac up for itself.",
       "keys": [
-        "sessions.keepAwake"
+        "sessions.keepAwake",
+        "sessions.keepAwakeForCommands"
       ]
     },
     {
@@ -1329,6 +1394,13 @@
       "why": "On, every agent gets tools that start child chats: the person turns that on.",
       "keys": [
         "sessions.promptSuggestions"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Claude's and Codex's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.",
+      "keys": [
+        "agents.promptSuggestions"
       ]
     },
     {
@@ -1365,6 +1437,14 @@
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
         "agents.autoRetry.attempts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "keys": [
+        "agents.cacheCompact.enabled",
+        "agents.cacheCompact.minContextPercent"
       ]
     },
     {
@@ -1432,6 +1512,13 @@
       "why": "cmux Remote: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "keys": [
+        "remote.ultraMode"
       ]
     },
     {

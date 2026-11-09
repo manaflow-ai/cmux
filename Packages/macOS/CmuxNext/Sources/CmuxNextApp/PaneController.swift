@@ -14,6 +14,7 @@ import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
 import CmuxNextFocus
+import CmuxNextWakeups
 
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
 /// content. Tab selection is client-local (`WindowState.selection`); every
@@ -39,6 +40,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingDock = PendingDockChats() // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created or reopened here, selected once the daemon reports it (`selectWhenReported*`).
     var pendingSelect = PendingTabSelect()
+    let placements = WorkLine<ActionWorkFailure?>() // this pane's new tabs' moves into their slots, in press order: each reads its slot after the last (NewTabSlot)
     private var observation: Task<Void, Never>?
     /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
     private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
@@ -49,7 +51,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
     private var presentedReport = PresentedContentReport() // what this pane last reported as presented to focus
     private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`stripIsStale`)
-    private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
@@ -223,7 +224,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             let page = services.cache.existingBrowser(tab.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(tab.id), title: title, subtitle: page?.url?.absoluteString,
-                                    icon: .icon(.browser))
+                                    icon: .browser)
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
             browserIcon(key: tab.id, recordFavicon: nil).apply(to: &item)
             local.append(item)
@@ -292,7 +293,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if tab.kind == .remoteTerminal {
             // Its terminal runs on another machine: that machine's name.
             (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
-            item.icon = .icon(.terminal)
+            item.icon = .terminal
         } else if tab.kind != .browser {
             (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
@@ -315,7 +316,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url, known: (tab, incognito)).apply(to: &item)
             item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
         }
-        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
+        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon)); if let sub = SubagentTabTitles.shared.facts(ofTab: tab.id) { item.showSubagent(state: sub.state.rawValue, since: sub.since, model: sub.model, spins: DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs) }
         return item
     }
 
@@ -336,7 +337,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         snapshotHidesStrip = snapshot.hidesStrip
         view.showStrip(hidden: snapshot.hidesStrip || presentsPage, vertical: presentsPage ? nil : snapshot.verticalTabs)
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
-        if stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed }
+        if stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed; view.needsLayout = true } // the indicator (PaneContentView+ZoomIndicator)
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items {
             stripModel.tabs = snapshot.items
@@ -349,8 +350,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Members of a collapsed group are hidden: a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
         let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: hidden,
-                                                openers: services.cache.pageRequests.openers.closeRelations(among: pane.tabs, last: &closeTabs))
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: hidden)
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)
@@ -543,8 +543,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// `key`'s live content, if its surface or page exists.
     func existingContent(for key: String) -> TabContent? {
         if let entry = services.cache.existingTerminal(key) { return .terminal(entry) }
-        if let view = services.agentTabs.existingView(key) { return .agent(view) }
-        if let notice = services.agentTabs.notices[services.agentTabs.resolve(key)] { return .notice(notice) }
+        if let view = services.agentTabs.existingView(key, machine: daemon.machineID) { return .agent(view) }
+        if let notice = services.agentTabs.notices[services.agentTabs.tabKey(key, machine: daemon.machineID)] { return .notice(notice) }
         if let view = services.pages.existingView(key) { return .page(view) }
         if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
         if let home = services.home.existingTabView(key) { return .conversation(home) }
@@ -631,7 +631,7 @@ extension PaneController {
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? (tab.title.isEmpty ? nil : tab.title)
                 ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(id), title: title, subtitle: page?.url?.absoluteString ?? tab.url,
-                                    icon: .icon(.browser))
+                                    icon: .browser)
             item.isDormant = services.cache.dormantTabs.contains(id)
             let image = services.browserFavicon(key: id, recordFavicon: tab.faviconURL)
             let url = page?.url ?? tab.url.flatMap(URL.init(string:))

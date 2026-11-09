@@ -44,7 +44,7 @@ public final class SidebarView: NSView {
         let button = SidebarStyle.toolbarButtonSize
         let accessory = titlebarAccessory == nil ? 0 : button + Metrics.space2
         let priority = priorityButton.isHidden ? 0 : button + Metrics.space1
-        return titlebarLeadingX + accessory + priority + button + Metrics.space3
+        return titlebarLeadingX + accessory + priority + button + SidebarStyle.titlebarPlusTrailingInset
     }
 
     /// The reserve or the row's buttons changed: lay the row out again and give the model the
@@ -123,6 +123,8 @@ public final class SidebarView: NSView {
     let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
     /// The card slot's height as the list lays out: springs when a card comes or goes.
     let cardSlotMotion = SidebarCardSlotMotion()
+    /// The room the Updated card takes at the list's top once it is dragged there, on the same spring.
+    let topCardMotion = SidebarCardSlotMotion()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -155,7 +157,10 @@ public final class SidebarView: NSView {
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
+        list.hoverOccluded = { [weak self] point in self?.updatedCardView.covers(windowPoint: point) == true }
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
+        // The tab row's New Tab + (Leo 2026-11-07: one size class for both, in the middle of the two).
+        newButton.drawsAddGlyph = true
         newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
@@ -308,6 +313,8 @@ public final class SidebarView: NSView {
 
         addSubview(footer)
         footer.addSubview(profileBar)
+        // A switcher menu keeps the strip revealed while it is open, as the + menu does.
+        profileBar.onMenuOpenChange = { [weak self] open in self?.chromeMenuOpenChanged(open) }
         searchButton.setAccessibilityIdentifier("cmux.sidebar.search")
         searchButton.onPress = { [weak self] in
             guard let self else { return }
@@ -358,9 +365,11 @@ public final class SidebarView: NSView {
         // Every control in the row centers on the traffic lights' line (the
         // tabs and the toolbar band do too); the row's middle without them.
         let button = SidebarStyle.toolbarButtonSize
-        let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
+        let rowMidY = window.flatMap(Self.titlebarRowMidY(in:)).map { convert(CGPoint(x: 0, y: $0), from: nil).y } ?? titlebarHeight / 2
         let x = titlebarLeadingX
-        let buttonY = (rowMidY - button / 2).rounded()
+        // On the device pixel grid, not whole points: the top row's line can sit on a half point (#38054).
+        let pixels = max(window?.backingScaleFactor ?? 2, 1)
+        let buttonY = ((rowMidY - button / 2) * pixels).rounded() / pixels
         let trailing = b.width - Metrics.space3
         // The + and its chooser chevron are one split button: the + first, the narrow chevron
         // segment right after it, touching. The chevron is the optional extra (the +'s right-click
@@ -375,7 +384,12 @@ public final class SidebarView: NSView {
         // workspace titlebar dropdowns at all"): without it the + stands alone and its right-click menu holds the chooser.
         let showsChevron = design.sidebarSections.showNewWorkspaceChooser && pairMinX >= x
         newWorkspaceOptionsButton.isHidden = !showsChevron
-        newButton.frame = NSRect(x: trailing - button - (showsChevron ? segment : 0), y: buttonY, width: button, height: button)
+        // The + alone centers on the trailing column, the rows' status marks' and footer Search's one x (Leo
+        // 2026-11-07: "the top of the sidebar with the subsequent elements below (workspaces and their notification
+        // symbols, then the search icon)"); with its chooser segment the pair keeps the row's trailing inset.
+        let plusX = showsChevron ? trailing - button - segment
+            : SidebarStyle.trailingColumnFrame(sidebarWidth: b.width, centerY: rowMidY, side: button).minX
+        newButton.frame = NSRect(x: plusX, y: buttonY, width: button, height: button)
         newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.maxX, y: buttonY, width: segment, height: button)
         joinSplitButtonCorners(showsChevron)
         let titlebarButtonsMinX = layoutPriorityButton(before: newButton.frame)
@@ -419,16 +433,20 @@ public final class SidebarView: NSView {
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height(width: b.width)
         // The Updated card after a relaunch takes its room in the frame it shows (Leo 2026-11-04).
         let landsAtOnce = cardSlot.updatedLandsAtOnce
-        let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self, snaps: landsAtOnce)
+        // The Updated card dragged to the top takes its room there; the bottom slot's closes (Leo 2026-11-07).
+        let atTop = cardSlot.updatedAtTop
+        let updateHeight = cardSlotMotion.height(toward: atTop ? 0 : slotHeight, in: self, snaps: landsAtOnce)
+        let topCardHeight = topCardMotion.height(toward: atTop ? slotHeight : 0, in: self, snaps: landsAtOnce)
         if landsAtOnce { updatedCardView.landed() }
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let priorityHeight = layoutPriority(top: y + spacesHeight, width: b.width)
-        let listFrame = layoutBands(top: y + spacesHeight + priorityHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
+        let listTop = y + spacesHeight + priorityHeight
+        let listFrame = layoutBands(top: listTop + topCardHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
-        cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: slotHeight)
+        cardSlot.place(above: footer.frame.minY, top: listTop, width: b.width, slotHeight: slotHeight, in: self)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)

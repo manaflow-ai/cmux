@@ -1,7 +1,17 @@
-//! The Linux [`Platform`]: one epoll set over the clock-set timerfd,
-//! rtnetlink, inotify on `/run/cmux` and `/etc/cmux`, a signalfd, three
-//! one-shot timerfds (re-arm, backoff, stop deadline) and the session
-//! host's pidfd.
+//! The Linux [`Platform`]: one epoll set over the clock-set timerfd, the
+//! pause watch's socket, rtnetlink, inotify on `/run/cmux` and `/etc/cmux`,
+//! a signalfd, three one-shot timerfds (re-arm, backoff, stop deadline) and
+//! the session host's pidfd.
+//!
+//! A resume reaches the agent one of two ways. Where a pause stops the boot
+//! clock, the realtime set after it moves `realtime - boottime`
+//! ([`crate::agent::clock_set_wake`]). Where the boot clock keeps running
+//! through a pause (Freestyle: every machine reports the same boot time for
+//! days, across many pauses), nothing moves against it, so the pause watch
+//! thread looks at the boot clock every [`PAUSE_TICK`] and reports a sleep
+//! that ended more than [`crate::agent::PAUSE_GAP`] late
+//! ([`crate::agent::paused_for`]). [`ResumeOnce`] keeps a resume both see
+//! to one `Resumed`.
 
 pub mod fds;
 pub mod identity;
@@ -15,10 +25,10 @@ use std::net::IpAddr;
 use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::process::Child;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
-use crate::agent::{Exit, Platform, Wake};
+use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, paused_for};
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
     AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
@@ -43,6 +53,7 @@ const T_DAEMON: u64 = 8;
 const T_RETRY: u64 = 9;
 const T_ANNOUNCE: u64 = 10;
 const T_IDENTITY: u64 = 11;
+const T_PAUSE: u64 = 12;
 
 struct Daemon {
     pid: u32,
@@ -76,6 +87,13 @@ pub struct LinuxPlatform {
     /// `realtime - boottime` when the clock was last armed or set: how far a
     /// clock set moved realtime tells a resume from a sync.
     clock_offset_ns: i128,
+    /// The pause watch's reports: one datagram (the stopped milliseconds,
+    /// little-endian `u64`) per pause.
+    pause: UnixDatagram,
+    /// The pause watch thread ends within a tick of this being dropped.
+    _pause_alive: Arc<()>,
+    /// Keeps a resume seen by both the clock set and the pause watch to one.
+    resume_once: ResumeOnce,
     netlink: Netlink,
     inotify: Inotify,
     wd_run: i32,
@@ -118,8 +136,10 @@ impl LinuxPlatform {
         let wd_etc = inotify.watch_dir(&paths.at(ETC_DIR))?;
         // The Cloud role writes carrier.json at its bind, which can come
         // after this start: make its dir (0700, as the role does) so the
-        // watch is there first.
-        let wd_state = carrier_dir(paths).and_then(|dir| inotify.watch_dir(&dir).ok());
+        // watch is there first. Its removal is watched too: a session host
+        // started with the route must lose it when the file goes.
+        let wd_state =
+            carrier_dir(paths).and_then(|dir| inotify.watch_dir_with_removals(&dir).ok());
         let config_watch =
             match cfg.server_config.as_deref().map(|p| paths.at(&p.to_string_lossy())) {
                 Some(file) => match file.parent().filter(|dir| dir.is_dir()) {
@@ -142,11 +162,25 @@ impl LinuxPlatform {
         } else {
             None
         };
+        // After the signalfd blocked its signals: the thread inherits the mask.
+        let (pause, pause_tx) = UnixDatagram::pair()?;
+        pause.set_nonblocking(true)?;
+        let pause_alive = Arc::new(());
+        // The record reaches the processes that flip outside this one (the
+        // operator's `cmux host update check`), on a machine with the updater.
+        let pause_file = paths.at(crate::updater::PAUSE_FILE);
+        if paths.is_system_root() && pause_file.parent().is_some_and(std::path::Path::is_dir) {
+            crate::agent::PAUSES.persist_to(pause_file);
+        }
+        spawn_pause_watch(Arc::downgrade(&pause_alive), pause_tx)?;
         let platform = Self {
             epoll: Epoll::new()?,
             clock: TimerFd::new(Clock::Realtime)?,
             clock_armed: false,
             clock_offset_ns: realtime_minus_boottime_ns(),
+            pause,
+            _pause_alive: pause_alive,
+            resume_once: ResumeOnce::default(),
             netlink: Netlink::new()?,
             inotify,
             wd_run,
@@ -171,6 +205,7 @@ impl LinuxPlatform {
         };
         let e = &platform.epoll;
         e.add(platform.clock.raw(), T_CLOCK)?;
+        e.add(std::os::fd::AsRawFd::as_raw_fd(&platform.pause), T_PAUSE)?;
         e.add(platform.netlink.raw(), T_NET)?;
         e.add(platform.inotify.raw(), T_INOTIFY)?;
         e.add(platform.signals.raw(), T_SIGNAL)?;
@@ -269,7 +304,7 @@ impl LinuxPlatform {
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
         let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
-        let carrier = carrier_args(&paths, &layout.bin);
+        let carrier = carrier_args(&paths, &host_entry(&self.cfg)?);
         spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
@@ -339,10 +374,7 @@ impl LinuxPlatform {
     }
 
     fn rekey(&mut self, id: &str) -> io::Result<Option<Input>> {
-        let mut argv = self.cfg.self_argv.clone();
-        if argv.is_empty() {
-            argv.push(std::env::current_exe()?.display().to_string());
-        }
+        let mut argv = host_entry(&self.cfg)?;
         let program = argv.remove(0);
         argv.extend([
             "rekey".to_owned(),
@@ -512,17 +544,55 @@ fn interface_addresses() -> Vec<(String, IpAddr)> {
     out
 }
 
-/// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. A snapshot restore
-/// stops the boot clock while the machine is stopped, so this grows by the
-/// stopped time once realtime is set again; a sync moves it only by drift.
-fn realtime_minus_boottime_ns() -> i128 {
-    fn read(clock: libc::clockid_t) -> i128 {
-        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-        // SAFETY: `ts` is a valid, writable timespec for the call.
-        unsafe { libc::clock_gettime(clock, &mut ts) };
-        i128::from(ts.tv_sec) * 1_000_000_000 + i128::from(ts.tv_nsec)
-    }
-    read(libc::CLOCK_REALTIME) - read(libc::CLOCK_BOOTTIME)
+/// `clock` in nanoseconds.
+fn clock_ns(clock: libc::clockid_t) -> i128 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid, writable timespec for the call.
+    unsafe { libc::clock_gettime(clock, &mut ts) };
+    i128::from(ts.tv_sec) * 1_000_000_000 + i128::from(ts.tv_nsec)
+}
+
+/// `CLOCK_BOOTTIME` in nanoseconds: the clock the pause watch reads.
+pub(crate) fn boottime_ns() -> i128 {
+    clock_ns(libc::CLOCK_BOOTTIME)
+}
+
+/// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. Where a snapshot
+/// restore stops the boot clock while the machine is stopped, this grows by
+/// the stopped time once realtime is set again; a sync moves it only by
+/// drift. Where the boot clock keeps running through a pause (Freestyle), it
+/// does not move at a resume: the pause watch finds those.
+pub(crate) fn realtime_minus_boottime_ns() -> i128 {
+    clock_ns(libc::CLOCK_REALTIME) - clock_ns(libc::CLOCK_BOOTTIME)
+}
+
+/// The pause watch: a thread that sleeps [`PAUSE_TICK`] at a time and sends
+/// `tx` the stopped milliseconds of every sleep the boot clock says ended
+/// far past its tick. It never wakes the agent otherwise, and ends within a
+/// tick of `alive`'s platform being dropped, or when `tx`'s peer is gone. It
+/// sleeps on its own thread so a busy agent thread (a metadata read, a
+/// role's stop) never looks like a pause.
+fn spawn_pause_watch(alive: Weak<()>, tx: UnixDatagram) -> io::Result<()> {
+    std::thread::Builder::new().name("cmux-host-pause-watch".to_owned()).spawn(move || {
+        loop {
+            let before = clock_ns(libc::CLOCK_BOOTTIME);
+            std::thread::sleep(PAUSE_TICK);
+            if alive.strong_count() == 0 {
+                return;
+            }
+            let after = clock_ns(libc::CLOCK_BOOTTIME);
+            let found = paused_for(before, after);
+            // Before the report: a flip that looks now already sees it.
+            crate::agent::PAUSES.looked(after, found.is_some());
+            if let Some(stopped) = found {
+                let ms = u64::try_from(stopped.as_millis()).unwrap_or(u64::MAX);
+                if tx.send(&ms.to_le_bytes()).is_err() {
+                    return;
+                }
+            }
+        }
+    })?;
+    Ok(())
 }
 
 impl Platform for LinuxPlatform {
@@ -548,9 +618,38 @@ impl Platform for LinuxPlatform {
                         self.clock.drain();
                         self.arm_clock();
                         let offset = realtime_minus_boottime_ns();
-                        let wake = crate::agent::clock_set_wake(self.clock_offset_ns, offset);
+                        let mut wake = crate::agent::clock_set_wake(self.clock_offset_ns, offset);
                         self.clock_offset_ns = offset;
+                        if wake == Wake::ClockSet {
+                            crate::agent::PAUSES.found();
+                        }
+                        if wake == Wake::ClockSet
+                            && !self
+                                .resume_once
+                                .first(ResumeSource::ClockSet, clock_ns(libc::CLOCK_REALTIME))
+                        {
+                            wake = Wake::ClockAdjusted;
+                        }
                         wakes.push(wake);
+                    }
+                    T_PAUSE => {
+                        let mut buf = [0_u8; 8];
+                        let mut paused = false;
+                        while let Ok(8) = self.pause.recv(&mut buf) {
+                            let ms = u64::from_le_bytes(buf);
+                            eprintln!(
+                                "cmux-host: the machine resumed: its boot clock ran {} s past the pause watch's tick",
+                                ms / 1000
+                            );
+                            paused = true;
+                        }
+                        if paused
+                            && self
+                                .resume_once
+                                .first(ResumeSource::PauseWatch, clock_ns(libc::CLOCK_REALTIME))
+                        {
+                            wakes.push(Wake::Paused);
+                        }
                     }
                     T_NET => {
                         // Act only when the set of global addresses changed:
@@ -675,11 +774,16 @@ impl Platform for LinuxPlatform {
         Some(pid)
     }
 
+    /// Whether the running session host's route differs from carrier.json's.
+    /// Called on every carrier.json write and removal: it also rewrites the
+    /// grant config ([`carrier_args`]), so a rotated keyset reaches the
+    /// running host's verifier without a respawn, and a removed file
+    /// respawns the host without the carrier flags.
     fn carrier_changed(&mut self) -> bool {
-        let Some(bin) = self.layout().ok().map(|layout| layout.bin.clone()) else {
+        let Ok(host) = host_entry(&self.cfg) else {
             return false;
         };
-        let want = carrier_args(&self.cfg.paths, &bin);
+        let want = carrier_args(&self.cfg.paths, &host);
         self.daemon.as_ref().is_some_and(|daemon| daemon.carrier != want)
     }
 
@@ -785,10 +889,24 @@ fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntr
 /// others may write it. Empty without the file; a refused file is logged
 /// and gives no carrier. With it, the session host's grant config
 /// ([`crate::carrier_entry::GRANT_CONFIG_FILE`], 0644, public fields only)
-/// is written first, so a session host started with these flags finds it;
-/// a newer keyset in it is picked up by the running host at its next
-/// unknown kid.
-fn carrier_args(paths: &crate::config::Paths, bin: &std::path::Path) -> Vec<String> {
+/// is written first (temp file, then rename), so a session host started
+/// with these flags finds it. Each carrier.json change writes it again, and
+/// the running host's verifier re-reads it at the first grant signed by a
+/// kid it does not hold (a rotated keyset, `cloud/carrier_keyset.rs`).
+/// The command that runs this supervisor's verbs, the program first: the
+/// `cmux host` it was started as (`[<current>/bin/cmux, host]`), else this
+/// executable (the standalone `cmux-host`, whose verbs need no noun).
+fn host_entry(cfg: &Config) -> io::Result<Vec<String>> {
+    if cfg.self_argv.is_empty() {
+        Ok(vec![std::env::current_exe()?.display().to_string()])
+    } else {
+        Ok(cfg.self_argv.clone())
+    }
+}
+
+/// The session host's carrier flags; `host` is [`host_entry`], whose
+/// `cloud carrier-ticket` is the ticket command.
+fn carrier_args(paths: &crate::config::Paths, host: &[String]) -> Vec<String> {
     use crate::carrier_entry::GRANT_CONFIG_FILE;
     let Some(file) = carrier_file(paths) else { return Vec::new() };
     let grant_config = paths.at(GRANT_CONFIG_FILE);
@@ -797,7 +915,7 @@ fn carrier_args(paths: &crate::config::Paths, bin: &std::path::Path) -> Vec<Stri
         eprintln!("cmux-host: {}: {e}; carrier off", grant_config.display());
         return Vec::new();
     }
-    file.route.args(bin, &grant_config)
+    file.route.args(host, &grant_config)
 }
 
 fn carrier_file(paths: &crate::config::Paths) -> Option<crate::carrier_entry::CarrierFile> {
@@ -868,42 +986,91 @@ mod carrier_file_tests {
     /// With carrier.json, the session host's flags name its grant config,
     /// written first with only the public fields (0644); without it, no
     /// flags and no file.
-    #[test]
-    fn the_carrier_flags_come_with_a_public_grant_config() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = Paths::new(dir.path());
-        let bin = std::path::Path::new("/home/cmux/.cmux/bin/cmux-tui");
-        assert!(carrier_args(&paths, bin).is_empty());
-        assert!(!paths.at(GRANT_CONFIG_FILE).exists());
-        let carrier = serde_json::json!({
+    fn carrier(kid: &str) -> serde_json::Value {
+        serde_json::json!({
             "relay": "relay+do://relay.cmux.dev",
             "machine": "vm_0123456789abcdefghij",
             "slot": "AAAAAAAAAAAAAAAAAAAAAA",
             "team": "team_0123456789abcdefghij",
             "issuer": "cmux:cloud:production",
-            "keyset": {"version": "0123456789abcdef", "keys": {"k1": {
-                "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": "k1",
+            "keyset": {"version": "0123456789abcdef", "keys": {kid: {
+                "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": kid,
                 "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             }}},
-        });
+        })
+    }
+
+    fn write_carrier(paths: &Paths, carrier: &serde_json::Value) {
         let file = paths.at(CARRIER_FILE);
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         std::fs::write(&file, carrier.to_string()).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn grant_config(paths: &Paths) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(paths.at(GRANT_CONFIG_FILE)).unwrap())
+            .unwrap()
+    }
+
+    #[test]
+    fn the_carrier_flags_come_with_a_public_grant_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
+        assert!(carrier_args(&paths, bin).is_empty());
+        assert!(!paths.at(GRANT_CONFIG_FILE).exists());
+        let carrier = carrier("k1");
+        write_carrier(&paths, &carrier);
         let args = carrier_args(&paths, bin);
         let grant = paths.at(GRANT_CONFIG_FILE);
         let at = args.iter().position(|arg| arg == "--carrier-grant-config").unwrap();
         assert_eq!(args[at + 1], grant.display().to_string());
-        let written: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&grant).unwrap()).unwrap();
         assert_eq!(
-            written,
+            grant_config(&paths),
             serde_json::json!({
                 "issuer": carrier["issuer"], "machine": carrier["machine"],
                 "team": carrier["team"], "keyset": carrier["keyset"],
             })
         );
         assert_eq!(std::fs::metadata(&grant).unwrap().permissions().mode() & 0o777, 0o644);
+    }
+
+    /// A rotated keyset in carrier.json rewrites the grant config the running
+    /// host's verifier re-reads, with the same flags: no respawn.
+    #[test]
+    fn a_rotated_keyset_rewrites_the_grant_config_with_the_same_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
+        write_carrier(&paths, &carrier("k1"));
+        let before = carrier_args(&paths, bin);
+        let rotated = carrier("k2");
+        write_carrier(&paths, &rotated);
+        assert_eq!(carrier_args(&paths, bin), before);
+        assert_eq!(grant_config(&paths)["keyset"], rotated["keyset"]);
+    }
+
+    /// Removing carrier.json wakes the supervisor's watch (it is a change
+    /// of route, to none) and leaves no carrier flags for the respawn.
+    #[test]
+    fn a_removed_carrier_json_wakes_the_watch_and_drops_the_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
+        write_carrier(&paths, &carrier("k1"));
+        assert!(!carrier_args(&paths, bin).is_empty());
+        let inotify = crate::linux::fds::Inotify::new().unwrap();
+        let state = paths.at(CARRIER_FILE).parent().unwrap().to_path_buf();
+        let wd = inotify.watch_dir_with_removals(&state).unwrap();
+        std::fs::remove_file(paths.at(CARRIER_FILE)).unwrap();
+        let events = inotify.read_events().unwrap();
+        assert!(
+            events.iter().any(|e| e.wd == wd
+                && e.name == crate::carrier_entry::CARRIER_FILE_NAME
+                && e.mask & libc::IN_DELETE != 0),
+            "no removal event"
+        );
+        assert!(carrier_args(&paths, bin).is_empty());
     }
 
     /// carrier.json counts only as a regular file owned by the agent's uid

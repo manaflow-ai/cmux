@@ -23,6 +23,16 @@
    (--ds-glass-menu-blur), in plain glass and under the lens alike. Chromium over the window glass
    lays it over the theme surface as well (glass.css), so there it is near solid. Reduce
    Transparency still makes it the solid popup surface (glass.css, !important). */
+/* On the App's menu glass (ui/glass/hostGlass.ts; Leo, 2026-11-06: "the model picker ... is this
+   actually glass"): the chat under it blurs in place and the page lays a 40% veil of the theme surface
+   on the App's glass, so the rows still never read the chat through them (gallery ui.host-glass
+   model-*: 0% let the wallpaper's color into the row text, 70% read as solid again). Only the model
+   menus: the composer's (its placement class, or the column picker, .acpmux-cols), their submenus and
+   Retry with; the other quick menus (Open In, a queued message's, a machine's) keep the plain menu glass. */
+.ui-popup.ui-glass.acpmux-quick-menu:is([class*="acpmux-quick-placement-"], .acpmux-quick-submenu, .acpmux-retry-menu),
+.ui-glass.acpmux-cols {
+  --host-glass-fill: color-mix(in srgb, var(--glass-surface) 40%, transparent);
+}
 .ui-popup.ui-glass.acpmux-quick-menu,
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .ui-popup.ui-glass.acpmux-quick-menu {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--surface-text-min, 92%), transparent);
@@ -881,3 +891,6 @@
   place-items: center;
   color: var(--agent-muted);
 }
+/* The model chip's right-click menu host (ModelPicker.tsx): no box of its own, so the chip's button
+   lays out in the chip as it did without it. */
+.acpmux-model-chip-menu { display: contents; }

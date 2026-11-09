@@ -29,7 +29,7 @@ nonisolated enum ObjectMenuLabels {
     static var moveToWindow: String { text("menu.object.moveToWindow", "Move to Window…") }
     static var moveToSpace: String { text("menu.object.moveToSpace", "Move to Space…") }
 
-    // A group's own menu, in the group editor's words (SidebarGroupEditorControls).
+    // A group's own menu, in the group editor's words (GroupEditorStrings).
     static var renameGroup: String { text("menu.group.rename", "Rename Group…") }
     static var toggleGroupCollapsed: String { text("menu.group.toggleCollapsed", "Collapse/Expand Group") }
     static var ungroup: String { text("menu.group.ungroup", "Ungroup") }

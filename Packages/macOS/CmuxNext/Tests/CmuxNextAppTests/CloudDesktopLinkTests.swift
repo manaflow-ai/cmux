@@ -3,14 +3,15 @@ import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+@testable import CmuxNextDaemonService
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions
 import CmuxNextSettings
 import Foundation
 import Testing
 
-/// Open Desktop on a Cloud machine that reports a desktop: the `cmux-rd` stream over the owner's
-/// Native link (`link.dial`, service `desktop`, no token), opened watching, with Take over.
+/// Open Desktop on a Cloud machine that reports a desktop: the `cmux-rd` stream over the carrier
+/// (`cmux carrier dial --service desktop`, CloudCarrierDialTests; no token in the hello), opened watching, with Take over.
 @MainActor
 @Suite struct CloudDesktopLinkTests {
     private static let host = "host_0123456789abcdefghij"
@@ -32,18 +33,6 @@ import Testing
             guard frame.count > 5 else { return nil }
             return (try? JSONSerialization.jsonObject(with: frame.dropFirst(5))) as? [String: Any]
         }
-    }
-
-    @Test func theDialIsServiceDesktopThroughTheLinkSocket() throws {
-        let dial = try #require(CloudDesktopLinkDial(host: Self.host, linkSocket: "/tmp/cmux-link-abc.sock"))
-        #expect(dial.arguments == ["link", "dial", "--host", Self.host, "--service", "desktop", "--socket", "/tmp/cmux-link-abc.sock"])
-        #expect(CloudDesktopLinkDial.service == "desktop")
-        #expect(CloudDesktopLinkDial(host: "vm-1", linkSocket: "/tmp/s") == nil, "a link host id, never a machine id")
-        #expect(CloudDesktopLinkDial(host: Self.host, linkSocket: "relative.sock") == nil)
-        #expect(CloudDesktopLinkDial(host: "host_../../etc/passwd0000", linkSocket: "/tmp/s") == nil)
-        let info = Data(#"{"machine":"vm-1","host":"host_0123456789abcdefghij","epoch":1,"state":"running"}"#.utf8)
-        #expect(CloudDesktopLinkDial(connectInfo: info, linkSocket: "/tmp/cmux-link-abc.sock") == dial)
-        #expect(CloudDesktopLinkDial(connectInfo: info, linkSocket: nil) == nil, "no running link, no dial")
     }
 
     @Test func theHelloCarriesNoToken() throws {
@@ -72,47 +61,62 @@ import Testing
         transport.stop()
     }
 
-    /// The dial runs the bundled CLI's `link dial`: here a stand-in that answers the dial line on
-    /// stderr and echoes its argv as the stream.
-    @Test func theDialRunsLinkDialWithServiceDesktop() async throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cdl-\(UUID().uuidString.prefix(8))")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let cli = folder.appendingPathComponent("cmux-tui")
-        try "#!/bin/sh\nprintf '{\"ok\":true,\"path_state\":\"tunnel\",\"relay_available\":false}\\n' >&2\nprintf '%s ' \"$@\"\n"
-            .write(to: cli, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
-        let dial = try #require(CloudDesktopLinkDial(host: Self.host, linkSocket: "/tmp/cmux-link-abc.sock"))
-        let stream = try await dial.open(cli: cli)
-        var bytes = Data()
-        while let chunk = await stream.read() { bytes.append(chunk) }
-        stream.close()
-        #expect(String(decoding: bytes, as: UTF8.self) == "link dial --host \(Self.host) --service desktop --socket /tmp/cmux-link-abc.sock ")
+    /// A classic machine that declares a desktop (once the noVNC page's) is refused with the Cloud error before
+    /// any workspace opens; so is any viewer but `rd`.
+    @Test func openDesktopOnAClassicMachineFailsUpFront() throws {
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-classic")
+        session.machine = CloudMachine(id: "vm-classic", status: .running, displayName: "Classic VM",
+                                       capabilities: CloudMachine.Capabilities(exec: true, desktop: true))
+        let context = AppActionContext(services: services)
+        #expect(throws: ActionFailure(message: CloudStrings.desktopUnavailable(session.machine.title))) {
+            try CloudHandlers.openDesktop(session, context)
+        }
+        #expect(throws: ActionFailure(message: CloudStrings.desktopUnavailable(session.machine.title))) {
+            try CloudHandlers.openDesktop(session, context, viewer: "web")
+        }
     }
 
-    @Test func aRefusedDialThrows() async throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cdl-\(UUID().uuidString.prefix(8))")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let cli = folder.appendingPathComponent("cmux-tui")
-        try "#!/bin/sh\nprintf '{\"ok\":false,\"error_code\":\"not_authorized\"}\\n' >&2\n".write(to: cli, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
-        let dial = try #require(CloudDesktopLinkDial(host: Self.host, linkSocket: "/tmp/cmux-link-abc.sock"))
-        await #expect(throws: DaemonError.self) { _ = try await dial.open(cli: cli) }
+    /// The phone is never offered a Cloud desktop: it has no carrier route to one yet.
+    @Test func thePhoneIsOfferedNoCloudDesktop() async {
+        let services = MachineIconTests.services()
+        #expect(await services.phoneCloudLinks().desktops == false)
     }
 
-    @Test func openDesktopDefaultsAndGateFollowTheDesktopCapability() {
+    /// Open Desktop has only the carrier viewer: a classic machine (no carrier route), or a cmux-next one
+    /// that serves no desktop, is refused up front instead of opening a blank tab.
+    @Test func openDesktopNeedsTheCarrierDesktop() throws {
         let desktop = CloudMachine(id: "vm-1", capabilities: CloudMachine.Capabilities(exec: true, desktop: true))
         let none = CloudMachine(id: "vm-2", capabilities: CloudMachine.Capabilities(exec: true))
         let undeclared = CloudMachine(id: "vm-3")
-        #expect(desktop.defaultDesktopViewer == "rd")
-        #expect(none.defaultDesktopViewer == "web")
-        #expect(undeclared.defaultDesktopViewer == "web", "a record with no capabilities keeps noVNC")
+        #expect(!desktop.opensCarrierDesktop, "a classic machine has no carrier route")
+        #expect(!undeclared.opensCarrierDesktop)
+        var next = desktop
+        next.provider = "cmux-next"
+        #expect(!next.opensCarrierDesktop, "a declared desktop capability is not the record's `desktop`")
+        next.servesDesktop = true
+        #expect(next.opensCarrierDesktop)
+        next.createdBy = "user_00000000000000000002"
+        #expect(next.opensCarrierDesktop, "the carrier refuses a teammate (service_refused), not the app")
         #expect(desktop.allows(.desktop))
         #expect(!none.allows(.desktop), "Open Desktop is refused and hidden")
-        #expect(undeclared.allows(.desktop), "an older record keeps its noVNC desktop")
-        let platform = CloudMachine.Capabilities(names: ["exec", "desktop", "agent_session"])
-        #expect(platform.desktop, "the app server's name list says desktop")
+        #expect(undeclared.allows(.desktop))
+        let platform = try #require(CloudMachine(next: .object(["id": .string("vm-4"), "provider_operations": .array([.string("exec"), .string("desktop"), .string("agent_session")])])))
+        #expect(platform.capabilities.desktop, "the app server's name list says desktop")
+    }
+
+    /// A Cloud session's daemon connection waits out the carrier's dial of a cold machine (180 s): the
+    /// handshake and the first-connect deadline get the carrier's deadline plus slack, not 30 s and 10 s.
+    @Test func aCarrierConnectionWaitsOutAColdDial() async {
+        #expect(CloudCarrierDial.handshakeDeadline == .seconds(182))
+        let daemon = DaemonService(machineID: "cloud:vm-cold")
+        daemon.start(remote: { throw CancellationError() }, handshake: CloudCarrierDial.handshakeDeadline)
+        #expect(daemon.startupDeadline == .seconds(182))
+        await daemon.shutdownConnectionAndWait()
+        let local = DaemonService(machineID: "cloud:vm-plain")
+        local.start(remote: { throw CancellationError() })
+        #expect(local.startupDeadline == DaemonStartup.shared.defaultDeadline)
+        await local.shutdownConnectionAndWait()
     }
 
     /// The page session opens a Cloud desktop watching; Take over makes the next session's
@@ -249,6 +253,7 @@ import Testing
         let live = try await row("tab_state_live")
         #expect(live["viewer"]?.stringValue == "rd")
         #expect(live["connected"]?.boolValue == false, "no frame path yet: connecting")
+        #expect(live["session"]?.objectValue?["end_reason"] == CmuxNextSettings.JSONValue.null, "a live session has no end reason")
         #expect(live["control"]?.stringValue == "agent")
         #expect(session.selectMode(.control))
         #expect(try await row("tab_state_live")["control"]?.stringValue == "person")

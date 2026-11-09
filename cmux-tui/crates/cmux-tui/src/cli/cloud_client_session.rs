@@ -27,7 +27,7 @@ use cmux_cloud_client::machine::{Machine, Scope};
 use serde_json::{Value, json};
 
 use super::{OutputMode, UsageError};
-pub(super) use cmux_cloud_api::session::secure_origin;
+pub(crate) use cmux_cloud_api::session::secure_origin;
 use cmux_cloud_api::session::{
     ExecAnswer, IDENTITY_HEADER, Session, TEAM_HEADER, exec_answer, known_code, mint_session,
     redact, valid_machine,

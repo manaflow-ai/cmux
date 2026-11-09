@@ -255,6 +255,7 @@ fn a_chief_turn_keeps_coordinator_tools_but_not_background_tasks() {
     std::fs::create_dir_all(session.path().join(".claude")).unwrap();
     let kept = [
         "acpmux_send",
+        "acpmux_send_status",
         "acpmux_ls",
         "acpmux_last",
         "acpmux_info",

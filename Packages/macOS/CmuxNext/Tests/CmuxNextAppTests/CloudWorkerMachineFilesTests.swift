@@ -134,23 +134,6 @@ struct CloudWorkerMachineFilesTests {
             == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
     }
 
-    /// The Codex broker on a Worker machine asks its link's owner answer, never `/api/vm`'s attach
-    /// answer or record (a Worker machine has no row there).
-    @Test func theCodexBrokerOnAWorkerMachineNeverAsksTheClassicRoutes() async throws {
-        let machine = "vm_aaaaaaaaaaaaaaaaaaaa", scope = CloudCodexBrokerScope(userID: "u1", teamID: "team-1")
-        WorkerAPI.seen = []
-        let refused = CloudCodexBrokerTarget(api: worker(), machineID: machine, scope: scope,
-                                             callerOwnsVM: { false }, isLive: { true })
-        #expect(try await refused.capability().ownerVM == false)
-        #expect(try await refused.isLive())
-        #expect(WorkerAPI.seen.isEmpty)
-
-        let owned = CloudCodexBrokerTarget(api: worker(), machineID: machine, scope: scope,
-                                           callerOwnsVM: { true }, isLive: { true })
-        #expect(try await owned.capability().ownerVM)
-        #expect(WorkerAPI.seen.map(\.url) == ["https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec"])
-    }
-
     /// Claude credential recovery on a Worker machine: its exec runs as `cmux`, so a root 0600
     /// staging file (what the file route writes) can't be read by the installer, and every transfer
     /// failed. The folder is made `cmux`'s own 0700 one first, and the file goes in 0644.

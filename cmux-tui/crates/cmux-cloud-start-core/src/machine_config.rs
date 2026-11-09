@@ -109,7 +109,7 @@ pub fn start_command(request: &str) -> String {
         r#"py=$(command -v python3) && "$py" -I -c 'import tomllib' 2>/dev/null || { echo "the machine has no python3 with tomllib (3.11 or later)" >&2; exit 1; }"#.to_owned(),
         // Owned now: this request becomes complete (and visible to a running applier) only here.
         r#"as_u mv -f "$d/requests/$r.pending" "$d/requests/$r.json""#.to_owned(),
-        r#"if ! as_u flock -n "$d/lock" true; then echo running; exit 0; fi"#.to_owned(),
+        r#"if ! as_u flock -w 5 "$d/lock" true; then echo running; exit 0; fi"#.to_owned(),
         format!(
             r#"if command -v systemd-run >/dev/null 2>&1 && {{ root systemctl reset-failed {UNIT} 2>/dev/null || true; root systemd-run --quiet --collect --unit={UNIT} --property=KillMode=control-group --uid="$u" --gid="$u" --setenv=HOME="$h" --working-directory="$h" "$py" -I "$d/apply"; }}; then :; else command -v setsid >/dev/null 2>&1 || {{ echo "the machine has neither a working systemd-run nor setsid to start the applier" >&2; exit 1; }}; as_u env HOME="$h" setsid nohup "$py" -I "$d/apply" >/dev/null 2>&1 </dev/null & fi"#
         ),

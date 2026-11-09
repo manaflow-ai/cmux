@@ -31,17 +31,17 @@ struct CloudIdlePauseTests {
 
     @Test func theRecordCarriesWhyItIsPausedAndItsIdleTimeout() throws {
         let data = Data(#"{"id":"vm-1","status":"paused","pauseReason":"idle","idlePauseMinutes":30}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         #expect(machine.pauseReason == .idle)
         #expect(machine.idlePauseMinutes == 30)
-        let user = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-2","status":"paused","pauseReason":"user","idlePauseMinutes":0}"#.utf8))
+        let user = try CloudMachine.classic(Data(#"{"id":"vm-2","status":"paused","pauseReason":"user","idlePauseMinutes":0}"#.utf8))
         #expect(user.pauseReason == .user)
         #expect(user.idlePauseMinutes == 0)
     }
 
     @Test func theRecordCarriesIdlePauseDiagnosticsForMachineStatus() throws {
         let data = Data(#"{"id":"vm-diag","status":"running","idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         let idle = try #require(machine.idlePause)
         #expect(idle.minutes == 30)
         #expect(idle.lastCheckedAt == 1_700_000_000_000)
@@ -96,10 +96,10 @@ struct CloudIdlePauseTests {
     }
 
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {
-        let old = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
+        let old = try CloudMachine.classic(Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
         #expect(old.pauseReason == nil)
         #expect(old.idlePauseMinutes == nil)
-        let odd = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-odd","status":"paused","pauseReason":"billing","idlePauseMinutes":"x"}"#.utf8))
+        let odd = try CloudMachine.classic(Data(#"{"id":"vm-odd","status":"paused","pauseReason":"billing","idlePauseMinutes":"x"}"#.utf8))
         #expect(odd.pauseReason == nil)
         #expect(odd.idlePauseMinutes == nil)
     }

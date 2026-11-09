@@ -48,6 +48,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     let events: AsyncStream<TerminalIOEvent>
+    var uploadsPasteboardFiles: Bool { fileTransfer.isRemote }
+    private let fileTransfer: TerminalFileTransfer
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
     /// The target's surface id for the typing probe (0: not resolved at init, a terminal still being made).
@@ -68,9 +70,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          creatingInput: CreatingTerminalInput? = nil,
+         uploadsPasteboardFiles: Bool = false,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
+        let fileTransfer = TerminalFileTransfer(target: target.attachment, gate: gate, isRemote: uploadsPasteboardFiles,
+                                                policyBlocked: policyBlocked, endpoint: endpoint)
+        self.fileTransfer = fileTransfer
         probeSurface = target.attachment.surface.rawValue
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
@@ -80,11 +86,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             // A view with no gate attaches to a terminal that already runs: a restore.
             restoring: gate == nil,
             opener: { size in
-                var attachment = target.attachment
-                if let gate {
-                    guard let resolved = await gate.value() else { throw CancellationError() }
-                    attachment = resolved
-                }
+                let attachment = try await fileTransfer.target()
                 #if DEBUG
                 try await DebugSlowAttach.shared.beforeAttach(surface: String(surface))
                 #endif
@@ -92,7 +94,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,
-                                                    images: Self.attachImages,
                                                     device: await Self.sizingDevice.value)
             },
             onFailure: { error in
@@ -103,7 +104,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             },
             observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil,
             cursorDefault: target.cursorDefault,
-            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed); if policyBlocked() { throw CancellationError() } },
+            backoffDelay: { failed in try await TerminalAttachment.reattachBackoff(afterFailures: failed); if policyBlocked() { throw CancellationError() } },
             // Marked where the grid really goes to the PTY: the machine sends nothing for a resize
             // without a live link, while hidden, or of the size it already holds.
             onGridSent: burstTrace.map { trace -> TerminalAttachDriver<TerminalAttachment>.GridSent in
@@ -161,6 +162,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.input(data)
     }
 
+    func pasteFiles(_ pasteboard: TerminalFilePaste) async throws {
+        try await fileTransfer.paste(files: pasteboard.files, imageData: pasteboard.image?.data,
+                                     imageMIME: pasteboard.image?.mime)
+    }
+
     /// Focus takes geometry back after another client sized the terminal,
     /// or re-attaches a disconnected view.
     func focusGained() async {
@@ -193,7 +199,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     /// Takes the view's grid in the caller's turn (`TerminalIO.resizeOnMain`) and sends it now
     /// (`ResizeCoordinator.submitNow`): the view's `TerminalGridReporter` already let at most one grid
-    /// per 25 ms window go, and a second wait for the coordinator's next frame added one refresh to every
+    /// per display refresh go, and a second wait for the coordinator's next frame added one refresh to every
     /// grid of a key resize (T-KEYS 4). The echo rule and a full screen transition's hold still apply.
     @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool {
         guard cols > 0, rows > 0 else { return true }
@@ -245,15 +251,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.processRevived()
     }
 
-    /// Backoff before the `failed + 1`th re-attach in a row, 30 s after 8 doublings: spaces the view's own
-    /// retries and the event-started ones after them. A view turned off by its organization stops after it (the caller).
-    nonisolated static func reattachBackoff(afterFailures failed: Int) async throws {
-        var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
-        for _ in 1..<min(max(1, failed), 8) { _ = backoff.next() }
-        // concurrency-allow: async sleep on the attach task, only before a re-attach that follows a failed one
-        try await backoff.wait(owner: "terminal.reattach")
-    }
-
     /// Ends the attachment (or cancels the attach in flight). The terminal
     /// keeps running in the daemon.
     @MainActor func close() {
@@ -271,8 +268,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     static let attachSnapshotVersion: UInt16? = TerminalSession.snapshotVersion == 0 ? nil : TerminalSession.snapshotVersion
     /// The surface restores local-history READYs (S2c).
     static let attachLocalHistory = TerminalSession.restoresLocalHistory
-    /// The surface applies Kitty image replays (S3k).
-    static let attachImages = TerminalSession.appliesKittyReplay
 
     static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
         switch step {
@@ -320,7 +315,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     private static func snapshotPhase(_ frame: TerminalSnapshotFrame) -> TerminalSnapshotPhase {
-        if frame.phase == .images { return .images(skipped: frame.skippedImages ?? 0) }
         guard frame.phase == .ready else { return .history }
         guard let check = frame.localHistory, let cols = frame.cols, let rows = frame.rows else { return .ready }
         return .readyLocalHistory(TerminalLocalHistory(columns: cols, rows: rows, historyRows: check.rows, digest: check.digest))

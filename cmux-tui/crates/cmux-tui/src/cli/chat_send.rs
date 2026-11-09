@@ -183,9 +183,11 @@ pub(super) fn parse(words: &[String], send_verb: bool) -> Result<Parsed, UsageEr
             "--prompt" | "-p" => set(&mut text, take()?, "the prompt")?,
             "--timeout" => {
                 let seconds = take()?;
-                let seconds = seconds.parse::<u64>().map_err(|_| {
-                    UsageError::new(format!("--timeout takes seconds, not {seconds}"))
-                })?;
+                // As `cloud start-chat` takes it: whole seconds, more than none.
+                let seconds =
+                    seconds.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(
+                        || UsageError::new(format!("--timeout takes seconds, not {seconds}")),
+                    )?;
                 send.timeout = Some(Duration::from_secs(seconds));
             }
             "--" => {
@@ -302,7 +304,7 @@ fn sessions(topology: &Value) -> &[Value] {
 }
 
 /// The app's topology (`snapshot.get`), or why it could not be read.
-fn topology(global: &GlobalArgs) -> Result<Value, Value> {
+pub(super) fn topology(global: &GlobalArgs) -> Result<Value, Value> {
     let read =
         super::mcp::agent_app(global, "snapshot.get", json!({}), super::app::READ_TIMEOUT, None)?;
     read.get("topology").cloned().ok_or(read)

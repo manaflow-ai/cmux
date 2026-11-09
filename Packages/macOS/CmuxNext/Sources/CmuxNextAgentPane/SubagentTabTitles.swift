@@ -19,6 +19,8 @@ public final class SubagentTabTitles {
     /// The name of each subagent pane's tab, by tab id.
     private var tabs: [String: String] = [:]
     private var tabTones: [String: Int] = [:]
+    /// The state of the subagent each subagent pane's tab shows, by tab id (``showFacts(_:inTab:)``).
+    private var tabFacts: [String: SubagentTabFacts] = [:]
 
     public init() {}
 
@@ -39,6 +41,7 @@ public final class SubagentTabTitles {
     public func bind(_ agent: String, of session: String, toTab tab: String, isOpen: (String) -> Bool = { _ in true }) {
         tabs = tabs.filter { isOpen($0.key) }
         tabTones = tabTones.filter { isOpen($0.key) }
+        tabFacts = tabFacts.filter { isOpen($0.key) }
         tabs[tab] = names[Self.key(session, agent)]
         tabTones[tab] = tones[Self.key(session, agent)]
     }
@@ -54,6 +57,16 @@ public final class SubagentTabTitles {
         }
         tabTones[tab] = AgentIdentityTone.valid(tone)
     }
+
+    /// Tab `tab` now shows a subagent in state `facts`, or (nil) its chat again. Leo, 2026-11-07, on a
+    /// finished subagent's tab that read "Working · 4m" like its chat: "is this your sub-agent, or is
+    /// this literally just a duplicate of you?"
+    public func showFacts(_ facts: SubagentTabFacts?, inTab tab: String) {
+        if tabFacts[tab] != facts { tabFacts[tab] = facts }
+    }
+
+    /// The state of the subagent tab `tab` shows, nil for any other tab and while it shows its chat.
+    public func facts(ofTab tab: String) -> SubagentTabFacts? { tabFacts[tab] }
 
     /// The name tab `tab` shows as a subagent's pane, nil for any other tab.
     public func title(ofTab tab: String) -> String? {

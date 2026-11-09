@@ -642,7 +642,6 @@ def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
         "schemas/settings/settings-schema.json",
         "web/data/model-catalog/snapshot.json",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
     ):
         assert want in outside, want
     assert any(path.startswith("release-notes/next/highlights/") for path in outside)
@@ -4500,7 +4499,13 @@ exit 65
                 fixture.write_text(content)
                 fixture.chmod(0o755)
             (root / "cmux-compile-admission.txt").write_text("unable to open dependencies file\n")
+            # The step sources the fleet-cache retry and the CAS classifier; no fleet socket here, so local cache.
+            for relative in ("scripts/ci/lib/fleet-cache-fallback.sh", "scripts/ci/fleet-compilation-cache.sh",
+                             "scripts/cmux-next/lib/compilation-cache.sh"):
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / relative, root / relative)
             env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}",
+                       CMUX_FLEET_CAS_SOCKET=str(root / "absent.sock"),
                        RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(root / "outputs"),
                        CMUX_COMPILE_ADMISSION_DERIVED_DATA=str(root / "dd"),
                        CMUX_COMPILE_ADMISSION_CAS=str(root / "cas"),

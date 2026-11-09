@@ -46,7 +46,7 @@ public import AppKit
                 let row = commands?.item(.openChat(chat.id), title: chat.title)
                     ?? NSMenuItem(title: chat.title, action: nil, keyEquivalent: "")
                 row.image = chatImage(chat)
-                row.toolTip = chat.title
+                row.toolTip = chat.title // tooltip-native-allow: an NSMenuItem (commands.item returns one), native to menus
                 menu.addItem(row)
             case .command(let command, let title, let symbol):
                 let row = commands?.item(command, title: title) ?? NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -69,6 +69,15 @@ public import AppKit
                 if let title { row.title = title }
                 row.image = Self.symbol(symbol, label: row.title)
                 if id == "showMainWindow", state.showsGlobalKey { showGlobalKey(on: row) }
+                menu.addItem(row)
+            case .setting(let title, let key, let symbol):
+                guard let row = registry.makeMenuItem(for: "openSettings") else { continue }
+                row.title = title
+                row.image = Self.symbol(symbol, label: title)
+                row.representedObject = ActionMenuPayload(id: "openSettings", target: nil, arguments: ["setting": .string(key)])
+                row.keyEquivalent = ""
+                // Its own id: Settings… keeps `cmux.action.openSettings` for accessibility clients.
+                row.identifier = NSUserInterfaceItemIdentifier("cmux.setting.\(key)")
                 menu.addItem(row)
             }
         }

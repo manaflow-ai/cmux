@@ -8,7 +8,7 @@
 /// Verbs the app still answers that `cmux cloud --help` no longer lists: the
 /// old spelling of a `cmux machine` verb (cmuxterm-hq docs/naming.md).
 /// `cmux cloud <verb> --help` still describes each and names the new one.
-const HIDDEN: &[(&str, &str)] = &[("new-machine", "cmux machine new")];
+const HIDDEN: &[(&str, &str)] = &[("new-machine", "cmux vm new")];
 
 /// The CLI's own Cloud verb, not an app action: start a chat and send it a prompt
 /// (cloud_start_chat.rs).
@@ -143,19 +143,13 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "start-session",
-                "({target} | --name NAME) --agent AGENT [--cwd DIR]",
+                "({target} | --name NAME) --agent AGENT [--cwd DIR | --from-folder PATH]",
                 "Start an agent session (claude, codex, ...) there",
                 "エージェントセッション（claude、codex など）を開始",
             ),
             verb(
-                "relay-chat",
-                "{target} --agent AGENT --prompt TEXT [--cwd DIR] [--prompt-id ID]",
-                "Send a prompt over the machine's relay and answer when the turn ends",
-                "マシンのリレー経由でプロンプトを送り、ターンの終了時に応答を返す",
-            ),
-            verb(
                 "open-desktop",
-                "{target} [--viewer rd|web]",
+                "{target} [--viewer rd]",
                 "Show the machine's desktop in a new workspace",
                 "マシンのデスクトップを新しいワークスペースに表示",
             ),
@@ -164,12 +158,6 @@ const GROUPS: &[Group] = &[
                 "{target} [--focus]",
                 "Set up git and GitHub on the machine",
                 "マシンに git と GitHub を設定",
-            ),
-            verb(
-                "enroll-machine",
-                "{target} [--ssh-key FILE] [--name HOST]",
-                "Make it an ssh host and acpmux peer of this Mac",
-                "この Mac の ssh ホストと acpmux ピアにする",
             ),
             verb(
                 "apply-machine-config",
@@ -418,10 +406,11 @@ USAGE
   cmux cloud <action> --help
 
 These actions run through the cmux app, signed in (`cmux login`).
-An action on one machine needs --target machine:MACHINE_ID, even with one
-machine: `cmux cloud list-machines` prints each machine's target. Without the
-app (CI, a headless agent), `cmux machine --help` talks to the cmux VM API
-directly.
+The everyday verbs take the VM's name or id, or nothing when you have one VM:
+  cmux cloud ls | status | pause | resume | rm | resize | fork | rename [NAME|ID]
+The others take --target machine:MACHINE_ID: `cmux cloud ls` prints each
+machine's target. Without the app (CI, a headless agent), `cmux machine --help`
+talks to the cmux VM API directly.
 
 QUICK START
   Start a Cloud chat, send it a prompt and print the reply, in one command
@@ -434,12 +423,13 @@ QUICK START
   cmux chat send SESSION_ID 'next prompt' --wait
 
   Machines:
-  cmux cloud list-machines --json
-  cmux machine new --size small --json
+  cmux cloud ls --json
+  cmux vm new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
-  cmux cloud pause-machine --target machine:MACHINE_ID
-  cmux cloud resume-machine --target machine:MACHINE_ID
-  cmux cloud kill-machine --target machine:MACHINE_ID --confirm
+  cmux cloud status dev
+  cmux cloud pause dev
+  cmux cloud resume dev
+  cmux cloud rm dev --confirm
 ";
 
 const INTRO_JA: &str = "\
@@ -448,9 +438,11 @@ const INTRO_JA: &str = "\
   cmux cloud <アクション> --help
 
 これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux login`）。
-特定のマシンを操作するアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
-各マシンの target は `cmux cloud list-machines` で確認できます。アプリなしで使う場合
-（CI、画面のないエージェント）は、`cmux machine --help` で cmux VM API を直接使えます。
+よく使う動詞は VM の名前か ID を取ります。VM が 1 台なら省略できます:
+  cmux cloud ls | status | pause | resume | rm | resize | fork | rename [名前|ID]
+ほかのアクションは --target machine:MACHINE_ID を取ります。各マシンの target は
+`cmux cloud ls` で確認できます。アプリなしで使う場合（CI、画面のないエージェント）は、
+`cmux machine --help` で cmux VM API を直接使えます。
 
 クイックスタート
   Cloud チャットを開始し、プロンプトを送り、返信を表示する（1 コマンド。
@@ -463,12 +455,13 @@ const INTRO_JA: &str = "\
   cmux chat send SESSION_ID 'next prompt' --wait
 
   マシン:
-  cmux cloud list-machines --json
-  cmux machine new --size small --json
+  cmux cloud ls --json
+  cmux vm new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
-  cmux cloud pause-machine --target machine:MACHINE_ID
-  cmux cloud resume-machine --target machine:MACHINE_ID
-  cmux cloud kill-machine --target machine:MACHINE_ID --confirm
+  cmux cloud status dev
+  cmux cloud pause dev
+  cmux cloud resume dev
+  cmux cloud rm dev --confirm
 ";
 
 const OUTRO_EN: &str = "\
@@ -515,7 +508,9 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
-usage: cmux cloud start-chat --prompt TEXT [--agent AGENT] [--cwd DIR]
+usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT]
+                             [--cwd DIR | --from-folder PATH]
+                             [--login pass|machine|none] [--environment ENV]
                              [--name MACHINE | --target machine:MACHINE_ID]
                              [--wait] [--timeout SECONDS] [--json]
 
@@ -524,23 +519,40 @@ The chat opens as a tab in the machine's workspace in the cmux app.
 This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
 older name; both run the same start.
 
-  --prompt TEXT      What to send (`-` reads it from stdin)
-  -- TEXT            The same, read as text even when it starts with `-`
+  --prompt TEXT      What to send (`-` reads it from stdin). Without it the
+                     chat starts and nothing is sent; the answer has ready_ms
+                     and follow_up.send for the first message
+  -- TEXT            The same as --prompt, read as text even when it starts
+                     with `-`
   --agent AGENT      claude (default), codex, ...
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
+  --from-folder PATH A folder on this Mac (absolute), copied to the machine as
+                     the composer's Cloud start copies one; the chat starts
+                     in the copy. Never home, the disk's root or a credential
+                     folder; not with --cwd. The same command again on the
+                     same machine reuses the finished copy.
+  --login pass|machine|none
+                     The agent's login there: yours from this Mac, the
+                     machine's own, or none (default: the machine's login or
+                     your earlier choice)
   --name MACHINE     Use the machine with this name, or create it
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)
                      Neither: create a new small machine with a new name
-  --wait             Wait for the turn to end and print the reply
+  --environment ENV  Boot the new machine in this Cloud environment (its
+                     env_ id or its name); not with --target
+  --wait             Wait for the turn to end and print the reply (no
+                     prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
-plus reply with --wait, and new_machine: true when this run made the machine.
+plus reply with --wait, or sent: false and ready_ms with no prompt, and
+new_machine: true when this run made the machine.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
+  cmux cloud start-chat --agent codex --login machine --json
 
 FOLLOW-UPS (SESSION_ID from the answer)
   cmux chat send SESSION_ID 'next prompt' --wait

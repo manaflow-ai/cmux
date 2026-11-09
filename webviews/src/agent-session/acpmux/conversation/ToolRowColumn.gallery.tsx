@@ -13,7 +13,8 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ToolVerbColumn } from "./ToolVerb";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Look = "before" | "column" | "fixed" | "tall-fade";
 type Props = { look: Look; mode: "light" | "dark" };

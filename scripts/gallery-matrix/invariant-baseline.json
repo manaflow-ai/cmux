@@ -672,7 +672,7 @@
     ],
     "agent-pane.composer#agent-home-path": [],
     "agent-pane.composer#attach-screenshot": [],
-    "agent-pane.composer#attach-screenshot-too-large": [],
+    "agent-pane.composer#attach-screenshot-oversized": [],
     "agent-pane.composer#attach-window-cancelled": [],
     "agent-pane.composer#attachment-failed": [],
     "agent-pane.composer#attachment-inline-caret": [],
@@ -3339,7 +3339,7 @@
     ],
     "pages.home-channels#switcher-empty": [],
     "pages.home-channels#switcher-filtered": [
-      "menu-fit:\"ConversationsRReviewer9:00 AM##design8:0\""
+      "menu-fit:\"Conversations##release9:21 AMRReviewer9:\""
     ],
     "pages.home-channels#teammates": [],
     "pages.home-channels#thread": [],

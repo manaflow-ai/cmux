@@ -4,6 +4,7 @@ import CmuxMobileDesign
 import CmuxScreenKit
 import CmuxScreenKitUI
 public import SwiftUI
+import CmuxSpinner
 
 private let theme = CmuxMobileTheme.standard
 
@@ -69,7 +70,7 @@ public struct ScreenSharingPage: View {
         case .idle, .starting:
             Section {
                 HStack(spacing: 12) {
-                    ProgressView()
+                    CmuxSpinner()
                     Text("Connecting to your devices…").foregroundStyle(theme.colors.label2)
                 }
             }

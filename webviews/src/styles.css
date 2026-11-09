@@ -95,8 +95,10 @@ html {
   background: var(--cmux-diff-viewer-bg);
 }
 /* A chat that shares the native tab row leaves that row's background visible behind its tools.
-   The page still owns the background below the row; only the offered strip is transparent. */
-html:has(.acpmux-shell[data-tab-row]) {
+   The page still owns the background below the row; only the offered strip is transparent. The root mark is
+   set by the shell (header/tabRow.ts useTabRowRoot), never read through `html:has()`, which a streamed chunk
+   re-checks for every node it inserts. */
+:root[data-acpmux-tab-row] {
   background: transparent !important;
 }
 /* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts), so
@@ -518,7 +520,7 @@ body {
   border-radius: 50%;
   border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
   border-top-color: var(--cmux-diff-fg);
-  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
 }
 /* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
 @media (prefers-reduced-motion: reduce) {
@@ -1295,7 +1297,7 @@ body[data-loading="true"] #status::before {
   border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
   border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
   border-radius: 50%;
-  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
@@ -1320,9 +1322,34 @@ body[data-loading="true"] #status::before {
 #comments-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-height: 30px;
   padding: 0 10px;
   color: var(--cmux-diff-text-muted);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+/* Send to agent: a compact accent button at the header's end. Both labels share one grid cell, so
+   the button keeps the wider one's width and the header never moves when it starts sending. */
+#comments-send {
+  display: inline-grid;
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--cmux-diff-ui-font-size);
+  white-space: nowrap;
+}
+#comments-send > span {
+  grid-area: 1 / 1;
+  text-align: center;
+}
+#comments-send > span[aria-hidden="true"] {
+  visibility: hidden;
+}
+#comments-send-error {
+  display: block;
+  padding: 0 12px 8px;
+  color: var(--cmux-diff-deletion-fg);
   font-size: var(--cmux-diff-ui-font-size);
 }
 #comments-list {
@@ -1476,11 +1503,16 @@ body[data-loading="true"] #status::before {
   display: inline-flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity var(--cmux-motion-quick) ease;
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 .comment-card:hover .comment-card-actions,
 .comment-card:focus-within .comment-card-actions {
   opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.comment-card:has(:focus-visible) .comment-card-actions {
+  transition: none;
 }
 .comment-card-action {
   padding: 1px 6px;

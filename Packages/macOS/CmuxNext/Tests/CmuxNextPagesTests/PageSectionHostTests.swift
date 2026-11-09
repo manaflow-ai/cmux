@@ -1,10 +1,11 @@
 import AppKit
 @testable import CmuxNextPages
+import CmuxNextTestSupport
 import Testing
 
 /// A sidebar section's page host says when the section shows and hides, including when the sidebar
 /// hides a view around it (the right sidebar hides the section's outer host view, never this one).
-@MainActor @Suite struct PageSectionHostTests {
+@MainActor @Suite(.closesItsWindows) struct PageSectionHostTests {
     final class Log { var shown: [Bool] = [] }
 
     static func mounted() -> (NSWindow, outer: NSView, host: PageSectionHost, log: Log) {

@@ -57,9 +57,11 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY);
         capabilities.push(AGENT_SESSION_FORK_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -81,6 +83,11 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
+        // A phone's channel (hostd's `cloud-acpmux`) is enforced here: the carrier's signed
+        // owner role (carrier_role.rs), the phone floor on its start (agent_session_start.rs)
+        // and on every prompt (acpmux, `via: cloud-mobile`), and the adapter's commands only
+        // (phone_carrier.rs). cmux-next-ios/SECURITY.md, hq#8003.
+        capabilities.push(agent_session_attach::CLOUD_MOBILE_CHAT_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_owner_cloud_start() {
@@ -151,6 +158,8 @@ fn always_identified() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
     #[cfg(unix)]
+    capabilities.push(crate::apps::PROVIDER_CHANGED_CAPABILITY);
+    #[cfg(unix)]
     capabilities.push(client_registry::machine_catalog::CAPABILITY);
     #[cfg(unix)]
     capabilities.push(cloud_api::CAPABILITY);
@@ -207,13 +216,17 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
+            && *capability != crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    capabilities.retain(|capability| *capability != crate::image_paste::CAPABILITY);
+    capabilities.retain(|capability| {
+        *capability != crate::image_paste::CAPABILITY
+            && *capability != crate::image_paste::FILE_CAPABILITY
+    });
     capabilities.sort_unstable();
     capabilities.dedup();
     capabilities
@@ -229,6 +242,7 @@ pub(super) fn advertised_capabilities(
         crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
         split_kind::SPLIT_CLIENT_SPLIT_ID_CAPABILITY,
+        split_kind::SPLIT_BEFORE_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
@@ -273,7 +287,6 @@ pub(super) fn advertised_capabilities(
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
-        terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
         CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -285,6 +298,7 @@ pub(super) fn advertised_capabilities(
         MACHINE_LISTENING_TCP_CAPABILITY,
         TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
+        DAEMON_SHUTDOWN_RESTART_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
@@ -306,6 +320,10 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_STATUS_CAPABILITY,
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
         WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY,
+        WORKSPACE_CREATED_BY_CAPABILITY,
+        TERMINAL_READ_UNWRAP_CAPABILITY,
+        TERMINAL_WAIT_NEW_CAPABILITY,
+        TERMINAL_EXIT_STATUS_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
@@ -393,7 +411,10 @@ pub(super) fn advertised_capabilities(
         crate::state::palette_usage_store::CAPABILITY,
         crate::state::stash_store::CAPABILITY,
         crate::state::stash_store::WORKSPACES_CAPABILITY,
+        crate::state::classic_import_router::CAPABILITY,
         crate::state::conductor_import_router::CAPABILITY,
+        crate::resource_router::palette_rank::CAPABILITY,
+        crate::resource_router::palette_rank::BATCH_CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
@@ -422,6 +443,8 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::WORKTREE_CAPABILITY,
         crate::git_ops::WORKTREE_APPLY_CAPABILITY,
         crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
+        crate::git_ops::DIFF_COMMENTS_CAPABILITY,
+        crate::git_ops::WORKTREE_SETUP_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
@@ -436,7 +459,7 @@ pub(super) fn advertised_capabilities(
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    capabilities.push(crate::image_paste::CAPABILITY);
+    capabilities.extend([crate::image_paste::CAPABILITY, crate::image_paste::FILE_CAPABILITY]);
     capabilities.extend(crate::apps::advertised_capabilities());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());

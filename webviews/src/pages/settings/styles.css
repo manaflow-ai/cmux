@@ -883,6 +883,14 @@ mark {
   border-radius: 50%;
 }
 
+/* Settings > Privacy and Security > Shared Links' `table` layout (gallery
+   settings.shared-links-layouts): the kind and both dates each in a column. */
+.shared-links-table .row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, auto) auto;
+  align-items: center;
+}
+
 .host-footer,
 .host-actions {
   display: flex;
@@ -1789,6 +1797,11 @@ mark {
   font-size: var(--density-caption);
 }
 
+/* Text Size: a normal settings row under the tiles. */
+.density-rows {
+  margin-top: var(--grid-gap);
+}
+
 .density-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2042,12 +2055,19 @@ button.menu-disclosure {
 .menu-row-actions {
   display: inline-flex;
   opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 
 .menu-row:hover .menu-row-actions,
 .menu-row:focus-within .menu-row-actions,
 .menu-row:has([data-popup-open]) .menu-row-actions {
   opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.menu-row:has(:focus-visible) .menu-row-actions {
+  transition: none;
 }
 
 .menu-separator .menu-separator-line {
@@ -2178,4 +2198,55 @@ button.menu-disclosure {
 .button.app-update-prominent:not(.ui-btn) {
   border-color: transparent;
   background: var(--accent-soft);
+}
+
+/* Settings > Personalization (PersonalizationCard): a jump bar pinned to the top of the content over
+ * the parts, each a titled run of its home category's card or rows, with More in … on its right. */
+.personalization-jump {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: fit-content;
+  margin: 0 0 var(--ds-space-5);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-drop);
+}
+
+.personalization-jump-link[aria-current] {
+  background: var(--accent-soft);
+}
+
+.personalization-part {
+  scroll-margin-top: calc(var(--grid-row) * 2);
+  margin-bottom: var(--ds-space-6);
+}
+
+.personalization-part-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 var(--ds-space-3);
+}
+
+.personalization-part-title {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  color: var(--text);
+}
+
+.personalization-more {
+  color: var(--muted-text);
+}
+
+.personalization-more-links {
+  display: flex;
+  gap: 4px;
 }

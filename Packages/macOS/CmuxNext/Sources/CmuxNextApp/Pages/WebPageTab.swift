@@ -79,10 +79,10 @@ extension WebPageTab {
     @discardableResult
     static func registerGitHub(_ services: AppServices) -> WebPageTab {
         if let tab = services.pages.provider(.github) as? WebPageTab { return tab }
-        let tab = WebPageTab(.github, symbol: "arrow.triangle.pull", title: GitHubPageProvider.title) { [weak services] _, route in
+        let tab = WebPageTab(.github, symbol: "arrow.triangle.pull", icon: .gitPullrequest, title: GitHubPageProvider.title) { [weak services, checks = GitHubChecksCache()] _, route in
             guard let services else { return nil }
             let opener = services.linkOpener
-            let provider = GitHubPageProvider(diffReader: { await AgentChatPullRequestReader().diff(url: $0) }, localDiff: GitHubLocalDiff { [git = services.agentGit.local] in try? await git.read("git.diff", params: $0) }, openWeb: { url, view in
+            let provider = GitHubPageProvider(diffReader: { await AgentChatPullRequestReader().diff(url: $0) }, localDiff: GitHubLocalDiff { [git = services.agentGit.local] in try? await git.read("git.diff", params: $0) }, checks: checks, openWeb: { url, view in
                 // Open on GitHub: the web page, as the chat's own card opens it (the GitHub tab of that pull request, if any).
                 opener.openWeb(url, from: view.flatMap(opener.source(containing:)), background: false, reusesTab: true)
             }, openDiff: { [weak services] text, link, file, view in
@@ -96,17 +96,16 @@ extension WebPageTab {
             provider.onShown = { [weak services] url, content in (services?.pages.provider(.github) as? WebPageTab)?.onShown?(url, content) }
             return page
         }
+        LinkRouter.shared.gitHubPage = { GitHubLink.clickOpensPage($0, routing: LinkRouter.shared.routing()) }
+        LinkRouter.shared.openGitHubPage = { [weak services] url, source in services.flatMap { s in s.linkOpener.source(tab: source).flatMap { openGitHub(url, from: $0, services: s, explicit: true) } } ?? false }
         services.pages.register(tab)
         return tab
     }
 
-    /// Opens `url` in the GitHub page when it is a pull request link the native page shows
-    /// (``GitHubLink``), the switch is on and the link rule sends it to a cmux tab; nil leaves it to
-    /// its web page. `source`: the chat's pane.
-    static func openGitHub(_ url: URL, from source: PaneController, services: AppServices) -> Bool? {
-        guard GitHubViewerTunables.nativePullRequests.value, let link = GitHubLink(url),
-              LinkRouter.shared.target(for: url) == .cmuxBrowser, LinkRouter.shared.routing().browserEnabled,
-              source.daemon.supports(DaemonCapability.pageTabs.rawValue), case .connected = source.daemon.store.connectionState else { return nil }
+    /// Opens `url` in the GitHub page when ``GitHubLink/page(for:routing:explicit:native:)`` takes it (`explicit`: a chat link
+    /// menu's row, whatever `browser.openPullRequestsInGitHubPage`); nil leaves it to its web page. `source`: the chat's pane.
+    static func openGitHub(_ url: URL, from source: PaneController, services: AppServices, explicit: Bool = false) -> Bool? {
+        guard let link = GitHubLink.page(for: url, routing: LinkRouter.shared.routing(), explicit: explicit), source.daemon.supports(DaemonCapability.pageTabs.rawValue), case .connected = source.daemon.store.connectionState else { return nil }
         if link.files {
             // A pull request's Files tab (Session Info's View diff): its diff beside the chat, else that web page.
             GitHubPageProvider.openFiles(link, openDiff: { [weak source, weak services] text in

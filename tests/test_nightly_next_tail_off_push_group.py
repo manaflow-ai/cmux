@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""What follows the nightly-next feed runs in the run that published, from one record.
+"""A nightly-next loop run holds the push group through the GitHub release, then dispatches the rest of its tail.
 
-nightly-next is one loop (Leo, 2026-11-06): one run at a time builds, signs, publishes and then runs
-the GitHub release, deltas, dSYMs, release notes, reel and PR comments, and the push group's newest
-pushed head runs next. A separately dispatched tail run (cmux#37030) took the nightly mini beside the
-next push run (run 42244796779 waited 36 min behind one). So published-build hands the run's own
-jobs' record (scripts/ci/nightly_published_build.py) to the tail jobs on every track; it still reads
-an older push run's post-publication dispatch from that run's checked artifact.
+nightly-next is one loop (Leo, 2026-11-06: "when it finishes, it starts another one, like the latest one
+at that present moment"). A loop run (a push, or the loop's retry) builds, signs, publishes, and writes the
+GitHub release's names, body and tag, which the next run's decide reads (published_sha). Then the run ends:
+dispatch-published-in uploads the published build's record (scripts/ci/nightly_published_build.py) and
+dispatches a run-scoped nightly.yml run (nightly_next_post_publish), whose published-build checks that run
+and hands the record to the deltas, notes, reel and PR comments. Holding the group through that whole tail
+made the newest head wait about 79 min per cycle (172 of 198 push runs replaced in 26 h, 2026-11-07).
+published-build's run_tail is false only in a loop run, so main, RC and manual runs keep the tail in-run.
 """
 from __future__ import annotations
 
@@ -25,8 +27,15 @@ WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 SCRIPT = ROOT / "scripts" / "ci" / "nightly_published_build.py"
 TEXT = WORKFLOW.read_text()
 JOBS = yaml.safe_load(TEXT)["jobs"]
-TAIL = ("publish-nightly-next-github", "keep-published-dsyms", "build-nightly-deltas", "generate-nightly-deltas", "republish-nightly-deltas",
+# The loop run keeps the GitHub release (the next decide reads its body and tag) and the dSYMs; the rest of the
+# tail runs where run_tail is true: the dispatched run, or main's, RC's and manual runs' own run.
+LOOP_RUN_TAIL = ("publish-nightly-next-github", "keep-published-dsyms")
+# publish-release-notes and publish-nightly-reel follow sign-release-notes, so they gate through it.
+DISPATCHED_TAIL = ("build-nightly-deltas", "generate-nightly-deltas", "republish-nightly-deltas", "sign-release-notes",
+                   "published-in", "close-nightly-failure-issue")
+TAIL = (*LOOP_RUN_TAIL, "build-nightly-deltas", "generate-nightly-deltas", "republish-nightly-deltas",
         "sign-release-notes", "publish-release-notes", "publish-nightly-reel", "published-in")
+RUN_TAIL = "needs.published-build.outputs.run_tail == 'true'"
 PUSH_RUN_JOBS = ("decide", "publish-nightly", "build-nightly-app", "resolve-nightly-cmux-tui-client")
 # Artifacts the tail reads from the run that published (the tail run makes the deltas and the notes itself).
 CROSS_RUN = {
@@ -102,8 +111,61 @@ for name, steps in CROSS_RUN.items():
                 or "github.token" not in str(with_.get("github-token", "")):
             failures.append(f"{name}: {step_name!r} must download from the published build's run")
 
-if "dispatch-published-in" in JOBS or re.search(r"-f nightly_next_post_publish=", TEXT):
-    failures.append("no job may dispatch a separate tail run: the tail runs in the loop's own run")
+# run_tail: false only in a loop run (a push, or the loop's retry) that published itself.
+run_tail = str(((source or {}).get("outputs") or {}).get("run_tail", ""))
+for term in ("steps.record.outputs.cross_run == 'true'", "steps.record.outputs.track != 'nightly-next'",
+             "github.event_name != 'push' && inputs.nightly_next_loop_retry == ''"):
+    if term not in run_tail:
+        failures.append(f"published-build's run_tail must be false only in a loop run ({term})")
+for name in LOOP_RUN_TAIL:
+    cond = str(JOBS.get(name, {}).get("if", ""))
+    if "needs.published-build.outputs.cross_run != 'true'" not in cond:
+        failures.append(f"{name} runs in the loop run that published, never again in its dispatched tail (cross_run)")
+    if "run_tail" in cond:
+        failures.append(f"{name} must stay in the loop run: the next decide reads the release it writes")
+for name in DISPATCHED_TAIL:
+    if RUN_TAIL not in str(JOBS.get(name, {}).get("if", "")):
+        failures.append(f"{name} must run only where the tail runs ({RUN_TAIL}), not in a loop run")
+for name, after in (("publish-release-notes", "sign-release-notes"), ("publish-nightly-reel", "publish-release-notes")):
+    if after not in needs(name) or f"needs.{after}.result == 'success'" not in str(JOBS.get(name, {}).get("if", "")):
+        failures.append(f"{name} must follow {after}, so it runs only where the tail runs")
+
+dispatch = JOBS.get("dispatch-published-in")
+if dispatch is None:
+    failures.append("no dispatch-published-in job sends a loop run's tail to its own run")
+else:
+    for job in ("published-build", "publish-nightly-next-github", "publish-nightly"):
+        if job not in needs("dispatch-published-in"):
+            failures.append(f"dispatch-published-in must need {job}: the push group ends at the GitHub release")
+    for name in (*DISPATCHED_TAIL, "keep-published-dsyms", "publish-release-notes", "publish-nightly-reel"):
+        if name in needs("dispatch-published-in"):
+            failures.append(f"dispatch-published-in must not wait for {name}: it runs in the dispatched run")
+    dispatch_if = str(dispatch.get("if", ""))
+    for term in ("!cancelled()", "needs.published-build.result == 'success'",
+                 "needs.published-build.outputs.run_tail != 'true'"):
+        if term not in dispatch_if:
+            failures.append(f"dispatch-published-in must dispatch only from a loop run that published ({term})")
+    if (dispatch.get("permissions") or {}).get("actions") != "write":
+        failures.append("dispatch-published-in dispatches nightly.yml: it needs actions: write")
+    body = job_text("dispatch-published-in")
+    if "nightly_published_build.py pack" not in body or "NEEDS: ${{ toJSON(needs) }}" not in body:
+        failures.append("dispatch-published-in must send the record from nightly_published_build.py pack")
+    steps = dispatch.get("steps", [])
+    upload_at = next((i for i, s in enumerate(steps) if "upload-artifact" in str(s.get("uses", ""))
+                      and str((s.get("with") or {}).get("name", "")) == "nightly-published-build-${{ github.run_attempt }}"),
+                     None)
+    ask = [(i, str(s.get("run", ""))) for i, s in enumerate(steps) if "gh workflow run" in str(s.get("run", ""))]
+    if upload_at is None or not ask or upload_at > ask[0][0]:
+        failures.append("dispatch-published-in must upload the record (nightly-published-build-<attempt>) "
+                        "before it dispatches")
+    for _, run in ask:
+        if "nightly.yml" not in run or re.findall(r"-f (\w+)=", run) != ["nightly_next_post_publish"]:
+            failures.append("dispatch-published-in must dispatch nightly.yml with only -f nightly_next_post_publish=")
+    runs_on = str(dispatch.get("runs-on", ""))
+    if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
+        failures.append("dispatch-published-in runs on the nightly mini, as published-build")
+if TEXT.count("-f nightly_next_post_publish=") > 1:
+    failures.append("only dispatch-published-in dispatches a tail run")
 if "fromJSON(inputs.nightly_next_post_publish)" in TEXT:
     failures.append("no job may read the dispatch input's fields: they are unchecked (use published-build's outputs)")
 if "needs.published-build.outputs.resolve_build_sha" not in job_text("published-in"):
@@ -111,15 +173,15 @@ if "needs.published-build.outputs.resolve_build_sha" not in job_text("published-
 if "needs.published-build.outputs.comment == 'true'" not in str(JOBS.get("published-in", {}).get("if", "")):
     failures.append("published-in must comment only on a new build of the run that published (comment)")
 report = JOBS.get("report-nightly-failure", {})
-if "published-build" not in needs("report-nightly-failure"):
-    failures.append("report-nightly-failure must see the tail jobs")
-if "results['published-build']" not in job_text("report-nightly-failure"):
-    failures.append("report-nightly-failure must count skipped notes only in the run that ran the tail")
+if "published-build" not in needs("report-nightly-failure") or "dispatch-published-in" not in needs("report-nightly-failure"):
+    failures.append("report-nightly-failure must see the tail jobs and a failed dispatch")
+if "results['published-build']?.outputs?.run_tail === 'true'" not in job_text("report-nightly-failure"):
+    failures.append("report-nightly-failure must count skipped notes only in the run that ran the tail (run_tail)")
 if "needs.published-build.result == 'success'" not in str(JOBS.get("close-nightly-failure-issue", {}).get("if", "")):
     failures.append("close-nightly-failure-issue must close only in the run that ran the tail")
 
 # A job with a permissions block gets nothing it does not list, so a checkout needs contents: read.
-for name in ("published-build", *TAIL):
+for name in ("dispatch-published-in", "published-build", *TAIL):
     job = JOBS.get(name) or {}
     perms = job.get("permissions")
     checks_out = any("actions/checkout@" in str(step.get("uses", "")) for step in job.get("steps") or [])
@@ -203,7 +265,7 @@ if SCRIPT.exists():
         if (code == 0) != (field is None):
             failures.append(f"check-source must accept only a nightly.yml push run on nightly-next here "
                             f"({field or 'the real run'} gave {code})")
-    # Manual builds, unsigned resumes, continuations and republishes on nightly-next dispatch the tail too.
+    # The loop's retry (nightly_next_loop_retry) is a workflow_dispatch run, and it dispatches its tail too.
     (work / "run.json").write_text(json.dumps({**good_run, "event": "workflow_dispatch"}))
     code, _, _ = run("check-source", {**source_env, "SOURCE_RUN_FILE": str(work / "run.json")})
     if code != 0:
@@ -245,6 +307,6 @@ else:
     failures.append("scripts/ci/nightly_published_build.py is missing")
 
 if failures:
-    print("FAIL: nightly-next tail in the loop's run\n  " + "\n  ".join(failures))
+    print("FAIL: nightly-next tail off the push group after the GitHub release\n  " + "\n  ".join(failures))
     sys.exit(1)
-print("PASS: nightly-next tail in the loop's run")
+print("PASS: nightly-next tail off the push group after the GitHub release")

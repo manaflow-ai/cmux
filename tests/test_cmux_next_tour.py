@@ -69,6 +69,12 @@ def answer(connection):
             result = {"error": os.environ["FAKE_SNAPSHOT_ERROR"]}
         elif method == "debug.fixture_page":
             result = {"ok": params.get("set") != "missing", "set": params.get("set")}
+        elif method == "debug.palette.capture" and params.get("path", "").endswith("-collect-blank.png"):
+            result = {"query": "api"}
+        elif method == "debug.palette.capture":
+            with open(params["path"], "wb") as image:
+                image.write(b"\x89PNG\r\n\x1a\n" + b"1" * 32)
+            result = {"path": params["path"], "query": "api"}
         elif method == "debug.window_snapshot":
             with open(params["path"], "wb") as image:
                 image.write(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
@@ -507,6 +513,50 @@ class AppWindowCaptureTests(unittest.TestCase):
         step = manifest["steps"][1]
         self.assertEqual(step["status"], "failed", step)
         self.assertIn("ok: false", step["detail"])
+
+    def test_a_collect_step_keeps_the_image_its_rpc_writes(self) -> None:
+        capture = {"method": "debug.palette.capture", "params": {"path": "{collect}"}}
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 1.2},
+            {"title": "Palette", "rpc": capture, "collect": "sidebar-order.png", "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        step = manifest["steps"][1]
+        self.assertEqual(step["status"], "ok", step)
+        self.assertIn({"kind": "collected", "shot": "shots/02-collect-sidebar-order.png"}, step["windows"])
+        self.assertTrue((self.root / "out/demo/shots/02-collect-sidebar-order.png").is_file())
+        requests = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        sent = [r["params"]["path"] for r in requests if r["method"] == "debug.palette.capture"]
+        self.assertEqual(sent, [str(self.root / "out/demo/shots/02-collect-sidebar-order.png")])
+
+    def test_a_collect_step_whose_rpc_writes_nothing_fails(self) -> None:
+        capture = {"method": "debug.palette.capture", "params": {"path": "{collect}"}}
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 1.2},
+            {"title": "Palette", "rpc": capture, "collect": "blank.png", "wait": 0},
+        ]}), encoding="utf-8")
+        _, manifest = self.run_tour()
+        step = manifest["steps"][1]
+        self.assertEqual(step["status"], "failed", step)
+        self.assertIn("wrote no image", step["detail"])
+
+    def test_collect_needs_a_file_name_and_an_rpc_that_names_it(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        capture = {"method": "debug.palette.capture", "params": {"path": "{collect}"}}
+        for step, message in (
+            ({"collect": "../x.png", "rpc": capture}, "lowercase file name"),
+            ({"collect": "Shot.PNG", "rpc": capture}, "lowercase file name"),
+            ({"collect": "x.png"}, "needs an `rpc`"),
+            ({"collect": "x.png", "rpc": {"method": "debug.palette.capture", "params": {"path": "/tmp/x.png"}}},
+             "needs an `rpc`"),
+        ):
+            with self.subTest(step=step):
+                self.tour.write_text(json.dumps({"title": "Demo", "steps": [{"title": "Bad", **step}]}),
+                                     encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, message):
+                    tour.load_tour(self.tour)
 
 
 # The app with a floating panel open: `debug.window_list` names its windows,

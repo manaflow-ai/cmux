@@ -10,10 +10,15 @@ export interface MachinesState {
   unavailable?: boolean;
   /** The row whose native menu is open: its controls stay shown and its button lit. */
   menuOpen?: string;
+  /** The joined row whose Remove question is open. */
+  confirmRemove?: string;
+  /** Rows the person removed: they leave the list in the frame of the click, before the host answers.
+   * A row comes back only if the host refused (its caption then says so). */
+  removed: ReadonlySet<string>;
 }
 
 export class MachinesStore {
-  private state: MachinesState = {};
+  private state: MachinesState = { removed: new Set() };
   private readonly listeners = new Set<() => void>();
   /** Bumped by every snapshot that lands, so a read that started before it is dropped. */
   private version = 0;
@@ -61,10 +66,39 @@ export class MachinesStore {
     }
   }
 
-  /** Shows `snapshot` (the host's newest). */
+  /** Shows `snapshot` (the host's newest). A removed row it no longer lists as joined is done: gone,
+   * or (a joined machine this app also runs) back as a plain machine row with the same id. */
   land(snapshot: MachinesSnapshot): void {
     this.version += 1;
-    this.set({ ...this.state, snapshot });
+    const joined = new Set(snapshot.rows.filter((row) => row.joined).map((row) => row.id));
+    const removed = new Set([...this.state.removed].filter((id) => joined.has(id)));
+    this.set({ ...this.state, snapshot, removed });
+  }
+
+  /** Asks before Remove (the page's own dialog). */
+  askRemove(row: string): void {
+    this.set({ ...this.state, confirmRemove: row });
+  }
+
+  cancelRemove(): void {
+    this.set({ ...this.state, confirmRemove: undefined });
+  }
+
+  /** Remove, confirmed: the row leaves now; the host revokes it and takes it off every list. A refusal
+   * brings it back. */
+  async remove(row: string): Promise<void> {
+    const removed = new Set(this.state.removed).add(row);
+    this.set({ ...this.state, confirmRemove: undefined, removed });
+    let ok = false;
+    try {
+      ok = (await this.client?.call<{ removed?: boolean }>(MachinesOps.remove, { row }))?.removed === true;
+    } catch {
+      ok = false;
+    }
+    if (ok) return;
+    const back = new Set(this.state.removed);
+    back.delete(row);
+    this.set({ ...this.state, removed: back });
   }
 
   newWorkspace(machine: string): void {

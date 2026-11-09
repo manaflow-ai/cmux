@@ -294,11 +294,15 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
                 body = json.loads(raw or b"{}")
             except ValueError:
                 body = {}
+            # A body that is not a JSON object (compressed, cut short) reads as {}: it offers no tools and gets the
+            # side reply, so the row says so, with the bytes that came and their content-encoding.
+            unread = bool(raw) and not (isinstance(body, dict) and body)
             if not isinstance(body, dict):
                 body = {}
             path = self.path.split("?")[0]
             row = {"method": "POST", "path": path, "model": body.get("model"), "stream": bool(body.get("stream")),
-                   "cred_sha256": credential_sha256(self.headers), "tools": tool_names(body)}
+                   "cred_sha256": credential_sha256(self.headers), "tools": tool_names(body),
+                   **({"unread_body": len(raw), "encoding": self.headers.get("content-encoding") or ""} if unread else {})}
             if path.endswith("/messages/count_tokens"):
                 stub.log({"protocol": "anthropic", **row})
                 return self._json(200, {"input_tokens": 10})

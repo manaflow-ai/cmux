@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextPages
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,8 @@ import Testing
 /// The page's controls there must keep their clicks, and AppKit cannot see them, so the page
 /// reports a drag or double-click on its row's background and the window takes it in the top row
 /// of a top page only (``PageTitleRowPress``).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
+        .closesItsWindows)
 struct TopPageTitlebarDragTests {
     @Test(arguments: [InternalPageID.importHistory, .stats])
     func aTopPagesTitleRowMovesTheWindowAndItsControlsKeepTheirPress(_ id: InternalPageID) async throws {
@@ -45,7 +47,7 @@ struct TopPageTitlebarDragTests {
 }
 
 /// The title row rule without an app: a pane above a page answers for its own top row.
-@MainActor @Suite struct TitleRowHostPaneTests {
+@MainActor @Suite(.closesItsWindows) struct TitleRowHostPaneTests {
     /// A page in a pane tab sits under the pane's tab strip: its top is no title row.
     @Test func aPageInAPaneDoesNotMoveTheWindow() throws {
         do {

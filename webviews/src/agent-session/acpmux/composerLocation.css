@@ -235,7 +235,7 @@
    "yeah chatgpt codex has nicer ways to deal with stuff"). A chip without its name keeps its icon,
    its tooltip and its accessible name. test/composer-location-strip.test.ts holds each step.
    Without a branch (a new chat with no project, as on a fresh home):
-   - Another machine (Where "Another machine", Machine "gpu-box" and its dot): all named from 396 px,
+   - Remote (Where "Remote", Machine "gpu-box" and its dot): all named from 396 px,
      Where named from 340 px.
    - This Mac and Cloud (no Machine chip beside Where since cmux NEXT's Cloud is one pick), and the
      one combined control (a started chat's, the combined and cloud-toggle arms): named from 238 px.
@@ -463,7 +463,8 @@
 }
 /* The trailing glyphs, Send (and Stop in its slot) and the mic, one size and one line weight in
    both looks and on New Tab (newtab/screen.css restates the tokens). */
-:is(.acpmux-composer, .nt-composer) :is(.acpmux-send, .acpmux-mic) > .acpmux-icon {
+:is(.acpmux-composer, .nt-composer) :is(.acpmux-send, .acpmux-mic) > .acpmux-icon,
+:is(.acpmux-composer, .nt-composer) .acpmux-send > .acpmux-send-layer > .acpmux-icon {
   width: var(--acpmux-composer-trail-glyph);
   height: var(--acpmux-composer-trail-glyph);
   stroke-width: var(--acpmux-composer-trail-stroke);
@@ -600,25 +601,15 @@
    plainFooter): Claude Code desktop's footer, text at rest. Neither look draws a pill at rest
    (styles.css); a chip draws no fill or ring until it is hovered, keyboard-focused, pressed or
    open. The model's name
-   (any form of it) is muted like effort and the mode, the model's brand mark is hidden (chevrons
-   stay), and Plan when on is accent text only. The mode keeps its symbol beside its label, as
-   Codex's "(!) Full access" (Leo 2026-10-21: "symbol plus its label"). Hover, keyboard focus and an
-   open menu draw the row's wash. Once the row's fit steps (composerRowFit.ts: the composer's
-   container queries, or data-fit-model / data-fit-access when a label is too long for its step)
-   take the model's name or the mode's label away, its mark or symbol alone shows, so neither chip
-   is ever a bare chevron. The widths are COMPOSER_FIT_STEPS modelMark (370) and
-   accessLabelHidden (420); the quiet row (the plain look) has no width steps (below), so there only
-   data-fit-model brings the model's mark back (the mode's symbol always shows). With the plain footer
-   off the row draws the mark as the one row always did. test/composer-footer-plain.test.ts measures it. */
+   (any form of it) is muted like effort and the mode, and Plan when on is accent text only. The
+   model keeps its provider's logo left of its name (cmux#38053: Claude's for Claude models, OpenAI's
+   for Codex and GPT) in its brand colors, as the model menu draws it, and the mode keeps its symbol
+   beside its label, Codex's "(!) Full access" (Leo 2026-10-21: "symbol plus its label"). Hover,
+   keyboard focus and an open menu draw the row's wash. Once the row's fit steps (composerRowFit.ts:
+   the composer's container queries, or data-fit-model / data-fit-access when a label is too long for
+   its step) take the model's name or the mode's label away, its mark or symbol alone shows, so
+   neither chip is ever a bare chevron. test/composer-footer-plain.test.ts measures it. */
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
-@container composer (width > 370px) {
-  :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
-    display: none;
-  }
-}
-.acpmux-composer-foot[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
-  display: none;
-}
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
   background: var(--acpmux-row-hover);
@@ -729,6 +720,13 @@
   visibility: hidden;
   pointer-events: none;
 }
+/* A chip with its logo hidden (modelChipIcon.ts): its shortest name is its icon form, so a row at
+   its icon step still names the model. It comes after the hiders above, which it must beat. */
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="icon"] [data-fit-part="model"][data-fit-forms~="icon"] {
+  position: static;
+  visibility: visible;
+  pointer-events: auto;
+}
 /* The width steps below skip the plain quiet row only: ComposerFoot draws the same
    `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks and marks only the plain one
    `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one row
@@ -782,7 +780,8 @@
 @container composer (max-width: 297px) {
   .nt-pickers .acpmux-chips > .acpmux-model { flex: none; min-width: 0; }
   .nt-pickers .acpmux-model .acpmux-picker-button { position: relative; overflow: clip; }
-  .nt-pickers .acpmux-model :is([data-fit-part="model"], .acpmux-model-name) {
+  /* A chip whose logo is hidden (modelChipIcon.ts) keeps its name's fit forms: no mark to stand for it. */
+  .nt-pickers .acpmux-model:not([data-chip-icon="off"]) :is([data-fit-part="model"], .acpmux-model-name) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -995,10 +994,17 @@
    carry here; left on, its side hairlines stood in the gap above the card's top corners. */
 :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip::after { content: none; }
 :root[data-top-strip="plain"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
-:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+/* Focus paints only (Leo, 2026-11-06: "I click into a chat and I refocus it, like it does a little jump
+   and a hop"): the focused selector restates the queue's paint over the focused rim rule, never its
+   margin or padding, which stay with the unfocused selectors and the strip rule after them. Carried
+   here, they outranked that rule's margin-bottom: 0 and the focused composer grew 4 px
+   (chat-focus-paints-only.test.ts). */
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue {
   margin: 0 var(--acpmux-top-strip-edge) var(--acpmux-strip-gap);
   padding: 0;
+}
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -1074,11 +1080,14 @@
 :root[data-top-strip="tray"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
 /* A started chat's queue is the tray: the same inset, tuck, corners, fill and edge. Over a new
    chat's strip it is the tray's top, flush on the strip. */
+/* Focus paints only, as in plain above: margin and padding stay off the focused selector. */
+:root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue {
+  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
+}
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue,
 :root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   --acpmux-composer-tray: var(--acpmux-top-tray);
-  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
-  padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
   border-radius: 14px 14px 0 0;
   background: var(--acpmux-queue-fill);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge);
@@ -1516,8 +1525,10 @@
    "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud; every machine is a list of
    its own (Machines…). No section headers and no second lines; each of the first nine machines ends
    with its ⌥⌘ digit, then the current one's check. */
-/* Its floor beats the folder popover's own rules, whose classes it carries. */
-.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 220px; }
+/* Its floor beats the folder popover's own rules, whose classes it carries: the location menus'
+   200 px, so This Mac, Cloud and Remote (its longest row now This Mac with its ⌥⌘ digit) are no
+   wider than their fullest row needs (gallery invariants.ts `menu-fit`). */
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 200px; }
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
    inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is
@@ -1541,9 +1552,20 @@
 .acpmux-folder-popover.acpmux-env-popover.acpmux-env-highlight-auto .acpmux-menu-item[data-highlighted] {
   background: transparent;
 }
-/* A short list has no search field: the field stays, unseen, for the arrows, Return and Escape. */
+/* A short list has no search field: the field stays, unseen, for the arrows, Return and Escape.
+   It sits in the popup's corner at a hairline, inside its box (still a real, focusable field): at its static place (after the popup's
+   5 px padding) with the visible field's min-width of 100% it reached 5 px past the popup's right
+   edge, and focusing it on open scrolled the popup (overflow: hidden still scrolls to a focused
+   field) 5 px sideways, so every row's highlight touched the left edge and stood 10 px off the
+   right (Leo, 2026-11-07, of the New Tab machine menu: "it's just not centered";
+   test/newtab-machine-menu.test.ts). */
 .acpmux-env-popover.acpmux-env-searchless .acpmux-location-search {
   position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  width: var(--cmux-hairline);
+  min-width: 0;
+  height: var(--cmux-hairline);
   margin: 0;
   padding: 0;
   border: 0;
@@ -1700,3 +1722,42 @@
 .acpmux-extra-folder-remove { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; color: var(--agent-muted); }
 .acpmux-extra-folder-remove:hover,
 .acpmux-extra-folder-remove:focus-visible { color: var(--agent-text); }
+
+/* A row the data adds or drops while the environment list is open (rowPresence.ts): its height and
+   opacity move together in one transition, never a pop (Leo, 2026-11-07: "we want to have, like,
+   some sort of nice, comfortable transition"). The list opens with its final rows, so this runs
+   only for a real change; Reduce Motion and the app's motion switch drop it (the row is there or
+   gone in one frame). A leaving row is disabled while it goes. */
+/* The row's whole box moves: its vertical padding goes with its height (the row is border-box,
+   so a max-height of 0 alone left its 5 px above and below, and the row's removal after the
+   motion was a 10 px jump; #37858). Its last frame is 0 tall, padding included, so removing it
+   moves nothing (test/newtab-machine-menu.test.ts). */
+@keyframes acpmux-env-row-in {
+  from { min-height: 0; max-height: 0; padding-block: 0; opacity: 0; }
+  to { max-height: var(--ui-row-height); opacity: 1; }
+}
+@keyframes acpmux-env-row-out {
+  from { max-height: var(--ui-row-height); opacity: 1; }
+  to { min-height: 0; max-height: 0; padding-block: 0; opacity: 0; }
+}
+.acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion="leave"]) { pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion]) { overflow: hidden; }
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion="enter"]) {
+    animation: acpmux-env-row-in var(--agent-motion-move) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion="leave"]) {
+    animation: acpmux-env-row-out var(--agent-motion-move) var(--agent-ease-out, ease-out) both;
+  }
+}
+/* A row whose words change in place (the Cloud row when the app answers signed out): the new
+   words fade in over the same row, which keeps its height. */
+@keyframes acpmux-env-row-swap {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-env-popover [data-row-motion="swap"] .acpmux-menu-label {
+    animation: acpmux-env-row-swap var(--agent-motion-move) var(--agent-ease-out, ease-out) both;
+  }
+}

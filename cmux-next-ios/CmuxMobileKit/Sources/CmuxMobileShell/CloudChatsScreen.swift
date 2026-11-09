@@ -3,6 +3,7 @@ import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileNotifications
+import CmuxSpinner
 import SwiftUI
 
 /// Native navigation over the paired Mac's Cloud directory. Chat rendering and
@@ -44,7 +45,7 @@ struct CloudChatsScreen: View {
                     }
                 }
                 if loading {
-                    ProgressView("Loading Cloud chats…")
+                    CmuxSpinner(label: Text("Loading Cloud chats…"))
                 } else if let error {
                     Text(error).foregroundStyle(.secondary)
                     Button("Retry") { refresh += 1 }
@@ -173,7 +174,7 @@ private struct CloudMachineChatsScreen: View {
                     Label("Couldn't connect", systemImage: "cloud")
                 } actions: { RetryButton { refresh += 1 } }
             } else {
-                ProgressView("Connecting…")
+                CmuxSpinner(label: Text("Connecting…"))
             }
         }
         .navigationTitle(machine.name)
@@ -210,7 +211,7 @@ private struct CloudMachineChatsScreen: View {
                 self.error = "Couldn't connect. Try again."
             }
         }
-        .overlay { if starting { ProgressView("Starting chat…") } }
+        .overlay { if starting { CmuxSpinner(label: Text("Starting chat…")) } }
         .onChange(of: relay?.hub.isReady, initial: true) { _, ready in
             guard ready == true, !openedPreferred, let preferredSession,
                   relay?.hub.sessions[preferredSession]?.peer == nil,

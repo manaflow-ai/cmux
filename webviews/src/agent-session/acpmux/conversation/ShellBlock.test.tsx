@@ -18,7 +18,8 @@ await mock.module("./shellHighlight", () => ({
   },
 }));
 const { ShellBlock } = await import("./ShellBlock");
-const { Lines, OUTPUT_LINE_WINDOW } = await import("./BlockParts");
+const { Lines } = await import("./BlockParts");
+const { OUTPUT_LINE_WINDOW } = await import("./blockPartsModel");
 
 const { shellTokens, MAX_HIGHLIGHTED_COMMAND } = highlight;
 

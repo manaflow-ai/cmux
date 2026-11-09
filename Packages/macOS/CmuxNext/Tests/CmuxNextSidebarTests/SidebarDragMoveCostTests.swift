@@ -3,16 +3,18 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// What one drag move costs the main thread, as `SidebarListView.updateDrag` runs it: the base layout, the drop
-/// resolve in the shared Rust reducer (`DropResolver.resolveDrag`) and the probe's base y (`DropResolver.baseY`).
+/// What one drag move costs the main thread, as `SidebarListView.updateDrag` runs it: the check that the drag's base
+/// layout and drop rules still hold (`SidebarListView.dragBase`, made once per drag), the drop resolve in the shared
+/// Rust reducer (`DropResolver.DragRules`) and the probe's base y (`DropResolver.baseY`).
 /// Leo 2026-11-06: rendering paths "we measured as being better in swift than in rust bc our apis or whatever were
 /// adding overhead... but tbh i feel like we can potentially do better there". A move crosses into Rust; the
 /// crossing must not grow with the rows the sidebar holds.
 ///
 /// The harness lists `count` workspaces in groups of 10 in one machine section and sweeps a lifted card from the
 /// top of the list to the bottom in 200 moves. It prints, per size, the median and p95 of one move and of each part
-/// (`DRAG-MOVE-COST` lines). This is the baseline: a move here still lays the list out and sends every row to Rust as
-/// JSON, so it only reports. The drag handle's Swift switch adds the scaling check (5,000 rows at most 4 times 50).
+/// (`DRAG-MOVE-COST` lines).
+/// Before the drag handle each move laid the list out and sent every row to Rust as JSON (rows=5000: about 100 times
+/// the cost of rows=50); now a move at 5,000 rows must cost at most 4 times one at 50.
 @MainActor @Suite(.serialized) struct SidebarDragMoveCostTests {
     static let sizes = [50, 200, 1000, 5000]
     static let moves = 200
@@ -56,15 +58,22 @@ import Testing
         let payload = DragPayload.workspaces([WorkspaceID("dc-0")])
         let height = SidebarLayout.make(sections: sections, metrics: metrics, options: options).totalHeight
         var cost = Cost()
+        let key = SidebarDragBaseKey(content: 1, reloads: 1, width: 260, metrics: metrics, ungroupedFirst: false)
+        let base = SidebarLayout.make(sections: sections, metrics: metrics, options: options)
+        var made: (key: SidebarDragBaseKey, layout: SidebarLayout, rules: DropResolver.DragRules?)? = (key, base,
+            DropResolver.DragRules(payload: payload, base: base, sections: sections))
         for step in 0..<moves {
             let centre = height * CGFloat(step) / CGFloat(moves)
-            var base = SidebarLayout.empty
+            var rules: DropResolver.DragRules?
             var resolved: (target: DropTarget?, probe: DropResolver.DragProbe)?
             let move = microseconds {
-                cost.layout.append(microseconds { base = SidebarLayout.make(sections: sections, metrics: metrics, options: options) })
+                cost.layout.append(microseconds {
+                    let now = SidebarDragBaseKey(content: 1, reloads: 1, width: 260, metrics: metrics, ungroupedFirst: false)
+                    if made?.key != now { made = nil }
+                    rules = made?.rules
+                })
                 cost.resolve.append(microseconds {
-                    resolved = DropResolver.resolveDrag(centreY: centre, leadingY: centre + 14, gapY: nil, gapHeight: 28, payload: payload,
-                                                        base: base, sections: sections)
+                    resolved = rules?.resolve(centreY: centre, leadingY: centre + 14, gapY: nil, gapHeight: 28)
                 })
                 cost.baseY.append(microseconds { _ = DropResolver.baseY(forDisplayY: centre, gapY: nil, gapHeight: 28) })
             }
@@ -82,6 +91,7 @@ import Testing
             medians[count] = cost.median
             print("DRAG-MOVE-COST rows=\(count) \(cost)")
         }
-        #expect(medians.count == Self.sizes.count)
+        let small = medians[50] ?? 0, large = medians[5000] ?? .infinity
+        #expect(large <= max(small, 1) * 4, "a drag move at 5,000 rows costs \(large)us, at 50 rows \(small)us")
     }
 }

@@ -519,7 +519,12 @@ export function Combobox({
         ) : (
           <Autocomplete.Portal container={container}>
             <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-              <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
+              <Autocomplete.Popup
+                ref={host ? setPopup : undefined}
+                className="ui-popup ui-glass ui-combobox-popup"
+                data-host-glass="menu"
+                data-host-glass-cover=""
+              >
                 {list}
               </Autocomplete.Popup>
             </Autocomplete.Positioner>

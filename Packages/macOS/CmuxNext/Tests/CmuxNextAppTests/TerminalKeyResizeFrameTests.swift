@@ -101,7 +101,7 @@ struct TerminalKeyResizeFrameTests {
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
         #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame stretched: \(stretched.prefix(8))")
         #expect(landed.isEmpty, "after the landing a terminal does not show its pane's size: \(landed)")
-        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes)")
+        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes)")
         let ends = Self.ptyEndsAtItsViewsGrid(screen)
         #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
         #expect(changes.allSatisfy { $0 > 3 }, "a terminal took a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
@@ -209,7 +209,7 @@ struct TerminalKeyResizeFrameTests {
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
         let grids = screen.ios[0].resizes.suffix(resizes[0]).map { "\($0.columns)x\($0.rows)" }
         let windows = Self.coalescingWindows(since: pressed)
-        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes) (p1: \(grids))")
+        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes) (p1: \(grids))")
         let ends = Self.ptyEndsAtItsViewsGrid(screen)
         #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
     }
@@ -336,7 +336,7 @@ struct TerminalKeyResizeFrameTests {
         #expect(unshown.isEmpty, "\(unshown.count) frames' sizes never showed their own frames: \(unshown.prefix(6))")
         #expect(rested.isEmpty, "after the landing: \(rested)")
         let windows = Self.coalescingWindows(since: pressed)
-        #expect(resizes.allSatisfy { $0 <= windows }, "the presses resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes)")
+        #expect(resizes.allSatisfy { $0 <= windows }, "the presses resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes)")
     }
 
     /// One terminal after a frame's sizes landed: its surface's frame and its area (host points: the host's area under
@@ -466,7 +466,10 @@ struct TerminalKeyResizeFrameTests {
         var ios: [ScriptedTerminalIO] = []
         private let drew: Bool
 
-        init(axis: SplitAxis = .horizontal, announcesGrids: Bool = false) async throws {
+        /// `redraws`: each terminal's program answers each grid its PTY gets with this output, a few ms later
+        /// (``AnnouncingTerminalIO``; needs `announcesGrids`).
+        init(axis: SplitAxis = .horizontal, announcesGrids: Bool = false,
+             redraws: (@Sendable (_ cols: Int, _ rows: Int) -> Data)? = nil) async throws {
             _ = NSApplication.shared
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
@@ -488,7 +491,7 @@ struct TerminalKeyResizeFrameTests {
             let text = Array(repeating: line, count: 400).joined(separator: "\r\n")
             for pane: PaneID in ["p1", "p2"] {
                 let io = ScriptedTerminalIO()
-                let owner: any TerminalIO = announcesGrids ? AnnouncingTerminalIO(io) : io
+                let owner: any TerminalIO = announcesGrids ? AnnouncingTerminalIO(io, redraws: redraws) : io
                 let session = TerminalSession(io: owner)
                 ios.append(io)
                 guard session.surfaceView.surface != nil, let content = provider.views[pane] else {
@@ -520,11 +523,12 @@ struct TerminalKeyResizeFrameTests {
 
     static func text(_ size: CGSize) -> String { "\(size.width)x\(size.height)" }
 
-    /// The most grids one terminal's PTY may get from `start` to now under m18's coalescing: one per 25 ms window
-    /// (``TerminalGridReportCoalescer/defaultInterval``) begun in that time, plus the landing's flush.
+    /// The most grids one terminal's PTY may get from `start` to now under m18's coalescing: one per display refresh
+    /// (RESIZE P0 6: a window ends at the next refresh; 120 Hz, the fastest a fleet display runs, so the bound holds at
+    /// any rate) begun in that time, plus the landing's flush.
     static func coalescingWindows(since start: ContinuousClock.Instant) -> Int {
         let ms = Self.ms(start.duration(to: .now))
-        return Int((ms / 25).rounded(.up)) + 1
+        return Int((ms / (1000.0 / 120)).rounded(.up)) + 1
     }
 
     /// The terminals whose PTY's last grid (as their IO recorded it) is not the grid their view fits now.
@@ -576,6 +580,14 @@ struct TerminalKeyResizeFrameTests {
         return (moving, elapsed)
     }
 
+    /// Commits for one display refresh of wall-clock time (1/120 s): a person's drag moves at most once per refresh, and
+    /// the hold for a program's redraw is bounded in refreshes (``TerminalFramePresenter/resizeHoldTicks``), so a stepped
+    /// drag frame takes a refresh of time, not one commit.
+    static func refreshOfTime() async {
+        let until = ContinuousClock.now.advanced(by: .microseconds(8_333))
+        repeat { await commit() } while ContinuousClock.now < until
+    }
+
     /// Commits until `done` holds for `screen`, checked before each commit (at most `seconds`); whether it held.
     static func commits(_ screen: PaneScreen, seconds: Int = 10, until done: (PaneScreen) -> Bool) async -> Bool {
         let deadline = ContinuousClock.now.advanced(by: .seconds(seconds))
@@ -612,9 +624,20 @@ struct TerminalKeyResizeFrameTests {
 /// mirror and clips or pads its lines; the mirror never reflows on its own.
 nonisolated final class AnnouncingTerminalIO: TerminalIO {
     let scripted: ScriptedTerminalIO
+    /// The program's redraw at the grid its PTY has (a full-screen program's answer to SIGWINCH), sent
+    /// ``redrawDelay`` after the announcement; nil: the program prints nothing.
+    let redraws: (@Sendable (_ cols: Int, _ rows: Int) -> Data)?
+    /// A program's output parsed about 3 ms after the send (P0 9, cmux21).
+    static let redrawDelay: Duration = .milliseconds(3)
+    /// The PTY's newest grid and whether a redraw is due (RESIZE P0 14). A real program redraws once per SIGWINCH it
+    /// reads, at the grid `TIOCGWINSZ` gives it then (the newest), in order: it never draws an older grid after a newer
+    /// one. One redraw task per terminal, which draws the newest grid when it runs, does the same; a detached task per
+    /// grid did not (two resizes less than ``redrawDelay`` apart could deliver the older grid's picture last).
+    private let redraw = Mutex<(cols: Int, rows: Int, due: Bool)>((0, 0, false))
 
-    init(_ scripted: ScriptedTerminalIO) {
+    init(_ scripted: ScriptedTerminalIO, redraws: (@Sendable (_ cols: Int, _ rows: Int) -> Data)? = nil) {
         self.scripted = scripted
+        self.redraws = redraws
     }
 
     var events: AsyncStream<TerminalIOEvent> { scripted.events }
@@ -626,7 +649,27 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
 
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
         await scripted.resize(cols: cols, rows: rows, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
-        scripted.send(.resize(cols: cols, rows: rows))
+        guard let redraws else {
+            scripted.send(.resize(cols: cols, rows: rows))
+            return
+        }
+        // The announcement and the newest grid under the redraw's lock, so a redraw goes either before this grid's
+        // announcement at the older grid or after it at this one.
+        let startsRedraw = redraw.withLock { state in
+            scripted.send(.resize(cols: cols, rows: rows))
+            let starts = !state.due
+            state = (cols, rows, true)
+            return starts
+        }
+        guard startsRedraw else { return } // the redraw that is due draws this grid, the newest
+        Task.detached { [self] in
+            try? await Task.sleep(for: Self.redrawDelay)
+            // The grid and the send under one lock: a resize announced after this reads starts the next redraw.
+            redraw.withLock { state in
+                state.due = false
+                scripted.send(.output(redraws(state.cols, state.rows)))
+            }
+        }
     }
 
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { true }

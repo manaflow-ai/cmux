@@ -26,7 +26,7 @@ public final class TitlebarBandButton: ClickableButton {
         didSet { badgeLabel.stringValue = badge ?? ""; badgeLabel.isHidden = badge == nil; needsLayout = true }
     }
     /// The glyph's point size, read at layout so density changes apply live; nil draws at
-    /// `Metrics.smallIconSize` (a split button's menu indicator draws smaller).
+    /// `Metrics.toolbarSymbolPointSize`, the top controls' one size (a split button's menu indicator draws smaller).
     public var symbolPointSize: (() -> CGFloat)? {
         didSet { renderedIconSize = 0; renderSymbol() }
     }
@@ -91,12 +91,13 @@ public final class TitlebarBandButton: ClickableButton {
     }
 
     private func renderSymbol() {
-        let size = symbolPointSize?() ?? Metrics.smallIconSize
+        let size = symbolPointSize?() ?? Metrics.toolbarSymbolPointSize
         guard size != renderedIconSize else { return }
         renderedIconSize = size
         image = customImage?(symbol, size)
+            ?? NSImage.packOverride(forSymbol: symbol, pointSize: size)
             ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: Metrics.toolbarSymbolWeight))
     }
 
     private func applyText() {

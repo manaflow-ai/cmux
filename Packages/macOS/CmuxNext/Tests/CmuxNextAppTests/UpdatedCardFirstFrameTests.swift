@@ -37,8 +37,8 @@ struct UpdatedCardFirstFrameTests {
     }
 
     static let card = SidebarUpdatedCard(title: "Updated", whatsNewTitle: "See What's New", dismissLabel: "Close")
-    static let key = "cmux.sidebar.updatedCard.height"
-    static let widthsKey = "cmux.sidebar.updatedCard.heights"
+    static let key = SidebarUpdatedCardHost.rememberedHeightKey
+    static let widthsKey = SidebarUpdatedCardHost.rememberedHeightsKey
 
     static func forget() {
         UserDefaults.standard.removeObject(forKey: key)

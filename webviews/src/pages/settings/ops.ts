@@ -807,6 +807,56 @@ export type CloudEnvironmentsRun =
   | { action: "build"; id: string }
   | { action: "delete"; id: string };
 
+/** Settings > Server > This Mac on Your Tailnet: acpmux's embedded tailnet node as `_acpmux/tailnet/*`
+ * answers it (cmux-tui acpmux tailnet/embedded.rs `Snapshot::to_json`), relayed unchanged by the app on
+ * its person connection. */
+export type TailnetState = {
+  /** `stopped`, `starting`, `needs_login`, `needs_machine_auth`, `running` or `error` (or another
+   * backend state, shown as signed out). */
+  state: string;
+  /** The sign-in page while `needs_login`; only the person's own connection is sent it. */
+  browse_to_url?: string;
+  /** This Mac's MagicDNS name while running. */
+  dns_name?: string;
+  ips?: string[];
+  /** acpmux's own text for the last failure. */
+  error?: string;
+};
+
+/** Settings > Privacy and Security > Shared Links (`cmux.settings.shares.list`): this Mac's daemon's
+ * chat shares as `agent-session-share-list` answers them (cmux-tui server/agent_session_shares.rs),
+ * and each chat's tab title by surface number. Times are milliseconds since the epoch. */
+export type ShareGuestWire = {
+  guest_id: string;
+  name: string;
+  joined_at: number;
+  /** `active`, `kicked` or `left`. */
+  state: string;
+  account?: string;
+  role?: string;
+};
+export type ShareInviteeWire = { account: string; role: string; invited_at: number; state: string };
+export type ShareWire = {
+  share_id: string;
+  /** `provisioning`, `active`, `revoked`, `expired` or `closed`. */
+  state: string;
+  session: string;
+  surface: number;
+  created_at: number;
+  expires_at: number;
+  uses_left: number;
+  invite_url?: string | null;
+  guests: ShareGuestWire[];
+  invitees?: ShareInviteeWire[];
+};
+export type SharesState = {
+  /** False when this Mac's daemon is not connected: the card says so instead of listing. */
+  available: boolean;
+  shares?: ShareWire[];
+  /** A chat's tab title by its surface number; a chat with no open tab has none. */
+  titles?: Record<string, string>;
+};
+
 /** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on
  * the device hub, Mac Screen access to this Mac, relays and the access history. The host sends
  * every text localized; the page draws and forwards each gesture (`cmux.settings.devices.run`). */
@@ -1140,6 +1190,18 @@ export type SettingsOps = {
   "cmux.settings.environments.state": [Record<string, never>, CloudEnvironmentsState];
   /** Native: one Cloud Environments gesture; Build and Delete ask natively first; a failure answers `error`. */
   "cmux.settings.environments.run": [CloudEnvironmentsRun, { error?: string | null }];
+  /** Native: this Mac's tailnet node; null when acpmux has no tailnet or did not take the person's proof. */
+  "cmux.settings.tailnet.state": [Record<string, never>, TailnetState | null];
+  /** Native, the person's click: starts the node; a saved login resumes, else it reports `needs_login`. */
+  "cmux.settings.tailnet.start": [Record<string, never>, TailnetState | null];
+  /** Native, the person's click: a fresh sign-in page for a running node that is not signed in. */
+  "cmux.settings.tailnet.login": [Record<string, never>, TailnetState | null];
+  /** Native, the person's click: signs the node out and closes its listeners. */
+  "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
+  /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
+  "cmux.settings.shares.list": [Record<string, never>, SharesState];
+  /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
+  "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */

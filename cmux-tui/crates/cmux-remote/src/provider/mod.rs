@@ -44,7 +44,8 @@ pub use iroh_config::{
 };
 pub use relay::{
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
-    RelayProvider, register_relay_daemon, register_relay_daemon_with_credentials,
+    RelayIncoming, RelayProvider, register_relay_daemon, register_relay_daemon_with_credentials,
+    spawn_relay_daemon_registration,
 };
 pub use ssh::{
     REMOTE_LINK_MUX_SOCKET_CAPABILITY, REMOTE_LINK_STRICT_FLAGS_CAPABILITY, SshProvider,

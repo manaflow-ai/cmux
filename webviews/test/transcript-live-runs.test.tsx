@@ -1,7 +1,8 @@
-// Codex-style tool runs while a turn runs (cx-ncc.108): the Codex desktop app never lets a running
-// turn's tool calls pile up as a list. Each run folds into one summary line ("Read 2 files and ran a
-// command") that opens to its calls, the latest run too as its calls finish; the call in flight
-// leaves the run for the turn's live line, which names it and replaces itself as calls go by.
+// Codex-style tool runs while a turn runs (cx-ncc.108): a running turn keeps each run's calls in
+// sight, as they arrive, and nothing folds until the turn ends (cmux#38339); the ended turn folds
+// each run into one summary line ("Read 2 files and ran a command") that opens to its calls. The
+// call in flight leaves the run for the turn's live line, which names it and replaces itself as
+// calls go by.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -35,9 +36,8 @@ const live = [
   run("commands", [call("git log", "execute"), call("wc -l retry.py", "execute", "in_progress")]),
 ];
 
-/// The text each drawn activity row shows, by row id.
-function drawnRuns(): Record<string, string> {
-  const shaped = turnView(live, new Set(), { working: true });
+/// The text each drawn activity row shows, by row id: of the running turn, or of `shaped`.
+function drawnRuns(shaped: AcpmuxRow[] = turnView(live, new Set(), { working: true })): Record<string, string> {
   return Object.fromEntries(
     shaped
       .filter((entry) => entry.kind === "activity")
@@ -51,11 +51,21 @@ function drawnRuns(): Record<string, string> {
   );
 }
 
-test("a run that text followed reads as one summary line", () => {
+test("a running turn's run that text followed keeps its calls in sight; ended, it reads as one summary line", () => {
   const reads = drawnRuns().reads!;
-  expect(reads).toContain("Read 2 files and ran a command");
-  expect(reads).not.toContain("README.md");
-  expect(reads).not.toContain("ls src");
+  expect(reads).not.toContain("Read 2 files and ran a command");
+  expect(reads).toContain("README.md");
+  expect(reads).toContain("ls src");
+  const ended = [
+    ...live.slice(0, 4),
+    run("commands", [call("git log", "execute"), call("wc", "execute")]),
+    text("done"),
+    row("s", "turnSummary", { status: "completed", toolCount: 5 }),
+  ];
+  const folded = drawnRuns(turnView(ended, new Set(["worked-u", "worked-between"]))).reads!;
+  expect(folded).toContain("Read 2 files and ran a command");
+  expect(folded).not.toContain("README.md");
+  expect(folded).not.toContain("ls src");
 });
 
 test("the call in flight leaves the run for the live line", () => {
@@ -75,10 +85,10 @@ test("a thought still coming leaves the latest run; earlier ones stay", () => {
     run("latest", [call("git log", "execute"), thought("Now I should check")]),
   ];
   const shaped = turnView(rows, new Set(), { working: true });
-  // The latest run's one finished step moves up to the live line (turns.ts liftedStep), so the run
-  // draws nothing of its own and the thought never shows in it.
-  expect(shaped.find((entry) => entry.id === "latest")).toBeUndefined();
-  expect(shaped.find((entry) => entry.kind === "thinking")).toMatchObject({ doing: "git log", doingDone: true });
+  // The latest run keeps its finished step, and the thought still coming stays out of it; the live
+  // line reads Thinking the moment the call completed (Leo, 2026-11-07).
+  expect(shaped.find((entry) => entry.id === "latest")!.items!.map((item) => item.kind)).toEqual(["tool"]);
+  expect(shaped.find((entry) => entry.kind === "thinking")!.doing).toBeUndefined();
   expect(shaped.find((entry) => entry.id === "first")!.items).toHaveLength(3);
 });
 

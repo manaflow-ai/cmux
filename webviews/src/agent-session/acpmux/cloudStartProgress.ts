@@ -40,6 +40,8 @@ export type CloudStartProgress = {
   message?: string;
   /// A stable host refusal code, used to attach recovery to the matching failure.
   code?: string;
+  /// The start waits on the person's browser sign-in (`cloud.signIn`): the card says so, not "starting".
+  signingIn?: true;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
   agent?: string;
   /// No project: nothing is copied, so the card shows no copy step.
@@ -159,6 +161,7 @@ export function cloudStartBegun(
   cwd: string | undefined,
   agent?: string,
   home?: boolean,
+  signingIn?: boolean,
 ): CloudStartProgress {
   const folder = cwd?.replace(/\/+$/, "").split("/").pop();
   return {
@@ -168,7 +171,19 @@ export function cloudStartBegun(
     ...(folder ? { folder } : {}),
     ...(agent ? { agent } : {}),
     ...(home ? { home: true } : {}),
+    ...(signingIn ? { signingIn: true } : {}),
   };
+}
+
+/// Start `key`'s sign-in came back signed in and the start goes on: the card leaves its waiting for
+/// sign-in state for the normal start. Another start, or one not waiting on a sign-in, is unchanged.
+export function cloudStartSignedIn(
+  current: CloudStartProgress | undefined,
+  key: string,
+): CloudStartProgress | undefined {
+  if (current?.key !== key || !current.signingIn) return current;
+  const { signingIn: _signedIn, ...started } = current;
+  return started;
 }
 
 /// Text the card shows from the host: one line, at most `max` characters.
@@ -400,10 +415,10 @@ export function cloudStartEnded(
   // code, never the host's generic "The app refused the agent connection." (cloudRefusalText).
   const refusedHere = answer.code.startsWith("transport.") || REFUSED_HERE.has(answer.code);
   const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
-  // A start that ended asks nothing more.
-  const { ask: _ask, ...rest } = current;
+  // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
+  const { signingIn: _signingIn, ask: _ask, ...ended } = current;
   return {
-    ...rest,
+    ...ended,
     state: "failed",
     code: answer.code,
     ...(message ? { message } : {}),

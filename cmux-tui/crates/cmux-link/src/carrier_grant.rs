@@ -17,11 +17,18 @@
 //! | `jti` | 16 random bytes, base64url |
 //! | `iat`, `exp` | NumericDate seconds, `0 < exp - iat <= 300` |
 //! | `vmk` | optional: `owner` when the person owns the machine, else `team` or absent |
+//! | `chats` | optional: the acpmux sessions a teammate may reach, 1 to [`MAX_GRANT_CHATS`] names |
+//! | `name` | optional: the person's display name, 1 to [`MAX_NAME_CHARS`] printable characters |
 //!
 //! `vmk` follows the link token's convention ([`VmKind`]): absent never means
 //! owner, and an explicit `null` or another value is malformed. Only an
 //! owner's grant reaches the machine's owner-only services (the desktop
 //! socket, cmux-remote's `local-socket`).
+//!
+//! `chats` and `name` are for the acpmux service (cmux-remote's `acpmux`
+//! bridge): a teammate's grant reaches only the chats it names, and acpmux
+//! shows `name` (or `sub` without one) as the author of their prompts. Like
+//! `vmk`, an explicit `null` is malformed; an owner's grant needs neither.
 //!
 //! The verifier checks the signature, every claim, that `nk` names the key
 //! that just finished the Noise handshake, and that the `jti` was not spent.
@@ -60,8 +67,10 @@ pub const GRANT_TYP: &str = "cmux-carrier+jwt";
 /// The longest a grant may live (`exp - iat`), in seconds.
 pub const MAX_GRANT_LIFETIME_SECS: u64 = 300;
 
-/// The longest grant this verifier reads.
-pub const MAX_GRANT_BYTES: usize = 4096;
+/// The longest grant this verifier reads: room for [`MAX_GRANT_CHATS`]
+/// chats of 128 bytes and a [`MAX_NAME_CHARS`] name of 4-byte characters,
+/// base64url-encoded, within cmux-remote's 16 KiB handshake payload.
+pub const MAX_GRANT_BYTES: usize = 16 * 1024 - 2 * 1024;
 
 /// The most service names a grant may carry.
 pub const MAX_GRANT_SERVICES: usize = 16;
@@ -69,6 +78,12 @@ pub const MAX_GRANT_SERVICES: usize = 16;
 /// The most unexpired spent grants held; past it new grants are refused
 /// (never evict a live `jti`).
 pub const MAX_SPENT_GRANTS: usize = 4096;
+
+/// The most acpmux sessions a grant's `chats` may name.
+pub const MAX_GRANT_CHATS: usize = 64;
+
+/// The longest display `name`, in characters (acpmux's author name limit).
+pub const MAX_NAME_CHARS: usize = 64;
 
 /// The most handshakes one grant may admit: one per physical lane link of
 /// one new session (cmux-remote has four lanes).
@@ -88,6 +103,11 @@ pub struct CarrierGrant {
     pub expires_at: u64,
     /// `vmk` as signed; `None` when the grant has none.
     pub vm_kind: Option<VmKind>,
+    /// `chats` as signed: the acpmux sessions a teammate may reach; `None`
+    /// when the grant has none.
+    pub chats: Option<Vec<String>>,
+    /// `name` as signed: the person's display name, if the grant has one.
+    pub name: Option<String>,
 }
 
 impl CarrierGrant {
@@ -111,6 +131,10 @@ struct Claims {
     exp: u64,
     #[serde(default, deserialize_with = "present_vm_kind")]
     vmk: Option<VmKind>,
+    #[serde(default, deserialize_with = "present")]
+    chats: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "present")]
+    name: Option<String>,
 }
 
 /// A missing `vmk` is `None`; a present one must be a signed role (an
@@ -119,6 +143,14 @@ fn present_vm_kind<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<VmKind>, D::Error> {
     VmKind::deserialize(deserializer).map(Some)
+}
+
+/// A missing claim is `None`; a present one must have its type (an explicit
+/// `null` is malformed).
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(deserializer).map(Some)
 }
 
 struct Spent {
@@ -237,6 +269,19 @@ impl CarrierGrantVerifier {
         noise_key: &[u8; 32],
         link_group: [u8; 32],
     ) -> Result<CarrierGrant, TokenRefusal> {
+        self.verify_with(token, noise_key, link_group, |_| true)
+    }
+
+    /// [`Self::verify`], with the caller's own last check: a grant `accept`
+    /// refuses (one naming no service this daemon serves) is refused as
+    /// `no_known_service` before its `jti` is spent.
+    pub fn verify_with(
+        &self,
+        token: &str,
+        noise_key: &[u8; 32],
+        link_group: [u8; 32],
+        accept: impl FnOnce(&CarrierGrant) -> bool,
+    ) -> Result<CarrierGrant, TokenRefusal> {
         use TokenRefused::{Expired, Invalid};
         let no = TokenRefusal::new;
         if token.is_empty() || token.len() > MAX_GRANT_BYTES {
@@ -268,6 +313,15 @@ impl CarrierGrantVerifier {
             (c.iat > now, "iat_in_future"),
             (c.exp <= c.iat || c.exp - c.iat > MAX_GRANT_LIFETIME_SECS, "lifetime"),
             (!valid_jti(&c.jti), "jti"),
+            (
+                c.chats.as_ref().is_some_and(|chats| {
+                    chats.is_empty()
+                        || chats.len() > MAX_GRANT_CHATS
+                        || !chats.iter().all(|chat| name(chat))
+                }),
+                "chats",
+            ),
+            (c.name.as_deref().is_some_and(|value| !display_name(value)), "name"),
         ];
         if let Some(reason) = checks.iter().find_map(|(failed, reason)| failed.then_some(*reason)) {
             return Err(no(Invalid, reason));
@@ -283,6 +337,18 @@ impl CarrierGrantVerifier {
             || !c.svc.iter().all(|service| name(service))
         {
             return Err(no(Invalid, "services"));
+        }
+        let grant = CarrierGrant {
+            team: c.team,
+            subject: c.sub,
+            services: c.svc,
+            expires_at: c.exp,
+            vm_kind: c.vmk,
+            chats: c.chats,
+            name: c.name,
+        };
+        if !accept(&grant) {
+            return Err(no(Invalid, "no_known_service"));
         }
         state.spent.retain(|_, spent| spent.exp > now);
         match state.spent.get_mut(&c.jti) {
@@ -302,7 +368,7 @@ impl CarrierGrantVerifier {
                 state.spent.insert(
                     c.jti,
                     Spent {
-                        exp: c.exp,
+                        exp: grant.expires_at,
                         noise_key: *noise_key,
                         link_group,
                         presentations: 1,
@@ -311,13 +377,7 @@ impl CarrierGrantVerifier {
                 );
             }
         }
-        Ok(CarrierGrant {
-            team: c.team,
-            subject: c.sub,
-            services: c.svc,
-            expires_at: c.exp,
-            vm_kind: c.vmk,
-        })
+        Ok(grant)
     }
 
     /// The session `link_group` was presenting for has registered: the
@@ -342,6 +402,15 @@ pub fn noise_key_digest(noise_key: &[u8; 32]) -> String {
 fn name(value: &str) -> bool {
     (1..=128).contains(&value.len())
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+
+/// A display name: 1 to [`MAX_NAME_CHARS`] characters, none of them a
+/// control or bidirectional formatting character, and not only spaces.
+fn display_name(value: &str) -> bool {
+    let bidi = |c: char| matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
+    (1..=MAX_NAME_CHARS).contains(&value.chars().count())
+        && !value.chars().any(|c| c.is_control() || bidi(c))
+        && !value.trim().is_empty()
 }
 
 #[cfg(test)]

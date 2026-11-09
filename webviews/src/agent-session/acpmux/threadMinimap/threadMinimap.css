@@ -332,10 +332,12 @@
   top: 0;
   left: 0;
   z-index: var(--layer-tooltip);
+  /* As wide as its words, up to the arm's widest (card.experiment.ts, set inline by PreviewCard), so a
+     long prompt or reply uses the room beside the rail instead of wrapping in a narrow column. The rail
+     origin is at most 52px in; keep another 12px clear at the far edge. */
   width: fit-content;
-  /* The existing rail origin is at most 52px in; keep another 12px clear at the far edge. */
-  min-width: min(240px, calc(100vw - 64px));
-  max-width: min(360px, calc(100vw - 64px));
+  min-width: min(280px, calc(100vw - 64px));
+  max-width: min(var(--acpmux-minimap-card-max, 520px), calc(100vw - 64px));
   isolation: isolate;
   will-change: transform;
   box-sizing: border-box;
@@ -376,9 +378,11 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* The prompt is the card's title: one line, cut with an ellipsis, the emphasis weight. Only the title
+   is emphasized; the reply under it is regular weight (Leo, 2026-11-07: "First off, it's all bold"). */
 .acpmux-minimap__title {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--ds-space-2);
   min-height: var(--ds-control-compact);
   font-weight: var(--weight-emphasis);
@@ -387,11 +391,8 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  white-space: pre-line;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 /* A prompt not loaded yet (a pending tick): a blank line where its words go, at the line's height, so
    the card is its usual size and nothing moves when they arrive. */
@@ -423,6 +424,7 @@
 .acpmux-minimap__bookmark.ui-button.ui-btn[aria-pressed="true"] {
   color: var(--agent-text);
 }
+/* The reply under the title, set apart from it: the card's regular weight, muted, its first lines. */
 .acpmux-minimap__reply {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -432,11 +434,31 @@
   color: var(--agent-muted);
   line-height: var(--text-title--line-height);
 }
+/* A prompt's card shows the arm's lines (card.experiment.ts). Its max-height is the same lines, so
+   opening the card is one max-height transition from them to the open lines, never a jump. */
 .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
-  height: auto;
-  /* Callers provide the measured body line height so a capped reply never exposes a partial row. */
-  max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, var(--text-title--line-height)));
-  min-height: var(--acpmux-minimap-reply-line-height, var(--text-title--line-height));
+  -webkit-line-clamp: var(--acpmux-minimap-reply-lines, 5);
+  max-height: calc(var(--acpmux-minimap-reply-lines, 5) * var(--text-title--line-height));
+  transition: max-height var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+/* Open (the pointer moved from the rail into the card): more of the reply, up to the arm's open lines,
+   and it scrolls inside past them. The card grows down from where it was (PreviewCard `openTop`). */
+.acpmux-minimap__card[data-open] .acpmux-minimap__reply {
+  display: block;
+  -webkit-line-clamp: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  max-height: calc(var(--acpmux-minimap-reply-open-lines, 14) * var(--text-title--line-height));
+}
+:root[data-cmux-motion="off"] .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply,
+:root[data-cmux-motion="reduced"] .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
+    transition: none;
+  }
 }
 .acpmux-minimap__metadata {
   display: flex;

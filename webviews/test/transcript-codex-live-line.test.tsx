@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture commands and replies, not shipped UI.
 // The running turn as the Codex app draws it (Leo 2026-10-20, stack-224..226.png): finished runs
-// fold, and ONE live line at the bottom of the turn is replaced in place by each step: Thinking
+// keep their calls in sight until the turn ends (cmux#38339), and ONE live line at the bottom of the turn is replaced in place by each step: Thinking
 // (shimmer) -> Running <short label> 13s -> Thinking. It is the turn's one live block: no "Working
 // for" over the turn's work (Leo 2026-10-21, on nightly 3a63d6d: a "Working for 18s" header at the
 // top, then tool rows, then a separate "Thinking" far below, past his steers).
@@ -9,7 +9,7 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { shortCommand } from "../src/agent-session/acpmux/conversation/shortCommand";
@@ -53,7 +53,7 @@ test("before any output the turn is one Thinking line, timed from the prompt", (
   expect(shaped.at(-1)!.untimed).toBeUndefined();
 });
 
-test("a call in flight is the live line at the bottom, under the folded runs, with no line over the turn", () => {
+test("a call in flight is the live line at the bottom, under the open runs, with no line over the turn", () => {
   const shaped = codex([
     row("u", "user"),
     row("a", "assistant", { text: "On it." }),
@@ -62,10 +62,10 @@ test("a call in flight is the live line at the bottom, under the folded runs, wi
   expect(kinds(shaped)).toEqual(["user", "assistant", "activity", THINKING]);
   const line = shaped.at(-1)!;
   expect(line).toMatchObject({ id: "thinking-live", doing: "bun test src/net", doingShell: true });
-  // The run holds only the finished call, folded.
+  // The run holds only the finished call, in sight: nothing folds until the turn ends (cmux#38339).
   const run = shaped.find((entry) => entry.id === "run")!;
   expect(run.items?.map((item) => item.tool?.id)).toEqual(["git log"]);
-  expect(run.foldRun).toBe(true);
+  expect(run.foldRun).toBe(false);
   expect(shaped.some((entry) => entry.kind === WORKING)).toBe(false);
 });
 
@@ -149,8 +149,9 @@ test("a command Claude is still writing reads Writing a command, with no Ctrl-B"
 
 // Leo, 2026-11-01, on "Ran grep …" over a separate "Thinking 15s": "this should be replacing the
 // thinking area and its shimmer across things", "it should just keep going", "and shouldn't
-// flicker". Between calls the line holds the latest step, finished, instead of going back to Thinking.
-test("each step replaces the line in place: Ran, Running, Ran, one id throughout", () => {
+// flicker". Since Leo, 2026-11-07 ("Why don't we just immediately switch to the thinking?"), a call
+// that completed gives the line back to Thinking at once; the call stays in its run.
+test("each step replaces the line in place: Thinking, Running, Thinking, one id throughout", () => {
   const user = row("u", "user");
   const thinking = codex([user, row("run", "activity", { items: [call("git log"), thought("Now the tests")] })]);
   const running = codex([user, row("run", "activity", { items: [call("git log"), call("bun test", "in_progress")] })]);
@@ -158,11 +159,11 @@ test("each step replaces the line in place: Ran, Running, Ran, one id throughout
   const lines = [thinking, running, after].map((shaped) => shaped.filter((entry) => entry.kind === THINKING));
   expect(lines.map((line) => line.length)).toEqual([1, 1, 1]);
   expect(lines.map((line) => line[0]!.id)).toEqual(["thinking-live", "thinking-live", "thinking-live"]);
-  expect(lines.map((line) => line[0]!.doing)).toEqual(["git log", "bun test", "bun test"]);
-  expect(lines.map((line) => line[0]!.doingDone)).toEqual([true, undefined, true]);
-  // The step the line names is not drawn a second time over it.
-  expect(callIds(thinking)).toEqual([]);
-  expect(callIds(after)).toEqual(["git log"]);
+  expect(lines.map((line) => line[0]!.doing)).toEqual([undefined, "bun test", undefined]);
+  expect(lines.map((line) => line[0]!.doingDone)).toEqual([undefined, undefined, undefined]);
+  // A finished call stays in its run; only the call in flight leaves it for the line.
+  expect(callIds(thinking)).toEqual(["git log"]);
+  expect(callIds(after)).toEqual(["git log", "bun test"]);
   // No running row stacks up in the run.
   expect(running.find((entry) => entry.id === "run")!.items).toHaveLength(1);
 });
@@ -239,25 +240,37 @@ test("shortCommand drops environment set in front of the command, quoted values 
   expect(shortCommand("A=1 B='x y' bun test src")).toBe("bun test src");
 });
 
-test("two runs with only a short note between them draw as one run, the note folded in", () => {
-  const shaped = codex([
+test("two runs with only a short note between them stay apart while the turn runs, and draw as one run, the note folded in, once it ends", () => {
+  const working = [
     row("u", "user"),
     row("r1", "activity", { items: [call("acpmux ls"), call("gh pr list")] }),
     row("n", "assistant", { text: "Relay the decisions, then answer." }),
     row("r2", "activity", { items: [call("gh pr view 1"), call("acpmux send", "in_progress")] }),
-  ]);
-  expect(kinds(shaped)).toEqual(["user", "activity", THINKING]);
-  const run = shaped.find((entry) => entry.kind === "activity")!;
+  ];
+  // While it runs, nothing regroups: the note stays its own row between the runs (cmux#38339).
+  const shaped = codex(working);
+  expect(kinds(shaped)).toEqual(["user", "activity", "assistant", "activity", THINKING]);
+  expect(shaped.at(-1)!.doing).toBe("acpmux send");
+  // Ended, the opened "Worked for" joins them into one run with the note among its calls.
+  const ended = [
+    ...working.slice(0, 3),
+    row("r2", "activity", { items: [call("gh pr view 1"), call("acpmux send")] }),
+    row("ans", "assistant", { text: "Done: the decisions are relayed." }),
+    row("s", "turnSummary", { status: "completed", toolCount: 4 }),
+  ];
+  const open = turnView(ended, new Set(["worked-u"]));
+  expect(kinds(open)).toEqual(["user", "worked", "activity", "assistant", "turnSummary"]);
+  const run = open.find((entry) => entry.kind === "activity")!;
   expect(run.id).toBe("r1");
   expect(run.items?.map((item) => item.tool?.id ?? item.text)).toEqual([
     "acpmux ls",
     "gh pr list",
     "Relay the decisions, then answer.",
     "gh pr view 1",
+    "acpmux send",
   ]);
   const html = renderToStaticMarkup(<ToolRows row={{ ...run, foldRun: false }} />);
   expect(html).toContain('<p class="cv-tool-note">Relay the decisions, then answer.</p>');
-  expect(shaped.at(-1)!.doing).toBe("acpmux send");
 });
 
 test("a long note, or one with code, stays its own paragraph between the runs", () => {
@@ -269,9 +282,9 @@ test("a long note, or one with code, stays its own paragraph between the runs", 
       row("n", "assistant", { text }),
       row("r2", "activity", { items: [call("b")] }),
     ]);
-    // The second run's one call is the live line's ("Ran b"), not a row over it.
-    expect(kinds(shaped)).toEqual(["user", "activity", "assistant", THINKING]);
-    expect(shaped.at(-1)).toMatchObject({ doing: "b", doingDone: true });
+    // The second run keeps its finished call; the live line reads Thinking under it.
+    expect(kinds(shaped)).toEqual(["user", "activity", "assistant", "activity", THINKING]);
+    expect(shaped.at(-1)!.doing).toBeUndefined();
   }
 });
 
@@ -304,8 +317,10 @@ test("Find and a shell's count reach every row a merged run absorbed", async () 
   expect(open[merged]!.joined).toEqual(["x", "n", "y"]);
   for (const id of ["x", "n", "y"]) expect(findRowIndex(open, id)).toBe(merged);
   expect(isRevealRow(open[merged]!, { rowId: "y", card: false })).toBe(true);
+  // While the turn runs the note is a row of its own (cmux#38339): Find lands on it.
   const live = codex(rows.slice(0, 4));
-  expect(findRowIndex(live, "n")).toBe(live.findIndex((entry) => entry.id === "x"));
+  expect(findRowIndex(live, "n")).toBe(live.findIndex((entry) => entry.id === "n"));
+  expect(findRowIndex(live, "n")).toBeGreaterThanOrEqual(0);
 });
 
 test("shortCommand splits only outside quotes", () => {
@@ -404,15 +419,17 @@ test("a call that takes no input keeps its row in an ended turn", () => {
   expect(callIds(ended)).toEqual(["mcp"]);
 });
 
-test("a run a short note joined to an earlier one still gives its last call to the line", () => {
+test("a run a short note joined to an earlier one keeps its finished calls; the line reads Thinking", () => {
   const shaped = codex([
     row("u", "user"),
     row("r1", "activity", { items: [call("git log")] }),
     row("n", "assistant", { text: "Now the diff." }),
     row("r2", "activity", { items: [call("git diff")] }),
   ]);
-  expect(shaped.at(-1)).toMatchObject({ kind: THINKING, doing: "git diff", doingDone: true });
-  expect(callIds(shaped)).toEqual(["git log"]);
+  expect(shaped.at(-1)).toMatchObject({ kind: THINKING });
+  expect(shaped.at(-1)!.doing).toBeUndefined();
+  // The short note joins the run as its text, between the two calls.
+  expect(callIds(shaped).filter(Boolean)).toEqual(["git log", "git diff"]);
 });
 
 test("with a todo list the activity line names the plan's step and no call leaves its run", () => {

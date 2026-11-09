@@ -7,18 +7,12 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-  type MouseEvent,
-  type PointerEvent,
-} from "react";
+import { memo, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
+import { useCountedRender } from "../perfRender";
+import { useStableProps } from "../stableProps";
 import {
   activityCue,
   morphIntoTab,
@@ -36,7 +30,11 @@ import { useHeaderFold } from "./headerOverflow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
-import { tooltipProps, useShortcut } from "../shortcuts";
+import type { NativeRowNeedsYou } from "./nativeRowTools";
+import type { NeedsYouItem } from "../needsYou/model";
+import { newKinds, type HeaderControls, type NewKind } from "./headerTrio";
+import { HeaderNewButton } from "./HeaderNewButton";
+import { useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import {
   Menu,
@@ -52,7 +50,10 @@ import {
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
-import { useWorktree, WorktreePill } from "./WorktreePill";
+import { WorktreePill } from "./WorktreePill";
+import { useWorktree } from "./worktreePillModel";
+import { useWorktreeOps } from "./worktreeOps";
+import { usePullRequestOps } from "./pullRequestOps";
 import type { MergeResult } from "./PullRequestMerge";
 import {
   QUICK_ACTION_DEFAULTS,
@@ -65,94 +66,33 @@ import {
   type QuickActionId,
   type QuickActionMode,
 } from "./quickActions";
+import {
+  HEADER_GLYPH,
+  type ChatMenuItem,
+  menuGroups,
+  type ChatMenuChild,
+  menuKeycap,
+  menuItemForShortcut,
+} from "./chatHeaderToolsModel";
+import { tooltipProps } from "../shortcuts";
 
-/// Every header button's glyph (header.css): Claude Code desktop's top strip draws one size for all of
-/// them, the Needs you inbox and Session Info toggle included.
-export const HEADER_GLYPH = 16;
-
-export { HEADER_ACTIONS } from "./headerActions";
-
-export type ChatMenuItem =
-  | "separator"
-  | {
-      key: string;
-      label: string;
-      icon: string;
-      /// An app action id whose keycap the row shows.
-      shortcutAction?: string;
-      /// A letter that picks the row while the menu is open (Rename R, Fork F). It is never drawn: a
-      /// bare letter on the row's right reads as meaningless (design/menus.md, Leo 2026-10-31).
-      accelerator?: string;
-      disabled?: boolean;
-      onSelect?: (event?: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => void;
-      children?: ChatMenuChild[];
-    };
-
-/// The menu's groups in order, the empty ones dropped, with a separator between each two.
-export const menuGroups = (...groups: ChatMenuItem[][]): ChatMenuItem[] =>
-  groups.filter((group) => group.length > 0).flatMap((group, index) => (index ? ["separator", ...group] : group));
-
-/// A submenu row: its label, and the keycap of `shortcutAction` when it has one. A row with `checked`
-/// is one of a choice (the rows next to it with `checked` too), drawn with a check on the picked one;
-/// `separatorBefore` draws a line above the row.
-export type ChatMenuChild = {
-  key: string;
-  label: string;
-  disabled?: boolean;
-  shortcutAction?: string;
-  accelerator?: string;
-  checked?: boolean;
-  /// A row that is on or off on its own (Transcript view's Wrap lines), drawn with a check when on.
-  on?: boolean;
-  separatorBefore?: boolean;
-  onSelect: () => void;
-};
-
-/// Modifier glyphs a drawn menu keycap must carry, as in ⌘N or ⇧⌘I.
-const MODIFIER_GLYPHS = /[⌘⌥⌃⇧]/;
-
-/// The keycap a menu row may draw: a real shortcut with a modifier, never a bare letter (a bare
-/// letter only works while the menu is open, so it reads as meaningless on the row's right).
-export function menuKeycap(shortcut: string | undefined): string | undefined {
-  return shortcut && MODIFIER_GLYPHS.test(shortcut) ? shortcut : undefined;
+/// The header's tools, drawn again only when what the pane hands them changes. The pane renders on
+/// every snapshot it draws and builds the header's callbacks, its native row's options, the Needs you
+/// button and the menu inline, so the header rendered on each pane render with nothing in it changed
+/// (bench/delta-renders.bench.ts). Its props go through
+/// stableProps.ts: a callback is a stable function that calls the pane's newest one, an option object
+/// or element with the same parts is the one given before. The menu's rows and the summary button are
+/// read while the header renders, so they are read here on each pane render and hand over a change.
+/// `chat` names the chat the props are for: on a switch every callback is new, so a menu kept open
+/// across it runs the chat it opened for (through that chat's guardedChatMenu), never the new one's.
+export function ChatHeaderTools({ chat, ...props }: ChatHeaderToolsProps & { chat?: string }) {
+  const stable = useStableProps(props, { menu: [[]], summary: [[true], [false]] }, chat);
+  return <ChatHeaderToolsMemo {...stable} />;
 }
 
-type ShortcutMenuItem = Exclude<ChatMenuItem, "separator"> | ChatMenuChild;
+type ChatHeaderToolsProps = Parameters<typeof ChatHeaderToolsView>[0];
 
-export function menuItemForShortcut(
-  items: readonly (ChatMenuItem | ChatMenuChild)[],
-  key: string,
-): ShortcutMenuItem | undefined {
-  const normalized = key.length === 1 ? key.toUpperCase() : "";
-  if (!normalized) return undefined;
-  return items.find(
-    (item): item is ShortcutMenuItem => item !== "separator" && item.accelerator?.toUpperCase() === normalized,
-  );
-}
-
-/** A popup may outlive the selected chat until React commits the new view. Its callbacks must
- * remain bound to the chat that opened it, including submenu callbacks. */
-export function guardedChatMenu(items: ChatMenuItem[], current: () => boolean): ChatMenuItem[] {
-  // The selection event goes through: Fork's Option-click opens its destination chooser (forkMenu.ts).
-  const guard =
-    <E,>(run: (event?: E) => void) =>
-    (event?: E) => {
-      if (current()) run(event);
-    };
-  return items.map((item) =>
-    item === "separator"
-      ? item
-      : {
-          ...item,
-          ...(item.onSelect && { onSelect: guard(item.onSelect) }),
-          ...(item.children && {
-            children: item.children.map((child) => ({ ...child, onSelect: guard(child.onSelect) })),
-          }),
-        },
-  );
-}
-
-export function ChatHeaderTools({
+function ChatHeaderToolsView({
   onTerminal,
   onSplitDown,
   onBrowser,
@@ -180,7 +120,11 @@ export function ChatHeaderTools({
   onRemoveWorktree,
   sessionInfo,
   inbox,
+  inboxRelevant = true,
+  newButton,
+  controls,
   nativeRowTools,
+  nativeNeedsYou,
   working = false,
   motion,
 }: {
@@ -236,22 +180,59 @@ export function ChatHeaderTools({
   /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
   /// the first of the top-right icons.
   inbox?: ReactNode;
+  /// Whether the inbox has open asks: the three controls draw it only then (headerTrio.ts).
+  inboxRelevant?: boolean;
+  /// The three controls' New button (headerTrio.ts): which kinds the chat can make now, and making one.
+  newButton?: { available: Partial<Record<NewKind, boolean>>; make: (kind: NewKind) => void };
+  /// The layout, when the gallery picks one; else the App's (`agentChat.headerControls`).
+  controls?: HeaderControls;
   /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
   nativeRowTools?: NativeRowToolsHost;
+  /// Needs You's native menu data; the web inbox remains the source while native tools are off.
+  nativeNeedsYou?: NativeRowNeedsYou;
   /// The chat's turn runs: with a motion style, Changes carries the activity dot (headerMotion.ts).
   working?: boolean;
   /// The motion style, when the gallery picks one; else the App's (`agentChat.headerMotion`).
   motion?: HeaderMotionStyle;
 }) {
+  // Debug measurement (acpmuxPerf): the header's committed renders (perf.ts `renders`).
+  useCountedRender("header");
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
-  const { lit, pullRequest, headerMotion } = useHeaderState();
+  const { lit, pullRequest, headerControls, headerMotion } = useHeaderState();
   const style = motion ?? headerMotion;
   const actions = useQuickActions();
   const worktree = useWorktree(folder, readStatus, statusKey);
+  const worktreeOps = useWorktreeOps(worktree, folder, onApplyWorktree, onRemoveWorktree);
+  const pullRequestOps = usePullRequestOps(pullRequest, onMergePullRequest);
+  const nativeNeedsYouMenu = nativeNeedsYou?.nativeMenu === true;
+  const [needsYouFailure, setNeedsYouFailure] = useState<NativeRowNeedsYou["failure"]>();
+  const nativeNeedsYouForTools = nativeNeedsYouMenu
+    ? {
+        ...nativeNeedsYou,
+        failure: needsYouFailure,
+        actions: {
+          ...nativeNeedsYou.actions,
+          answer: async (...args: Parameters<NativeRowNeedsYou["actions"]["answer"]>) => {
+            setNeedsYouFailure(undefined);
+            return nativeNeedsYou.actions.answer(...args);
+          },
+          ask: async (...args: Parameters<NativeRowNeedsYou["actions"]["ask"]>) => {
+            setNeedsYouFailure(undefined);
+            return nativeNeedsYou.actions.ask(...args);
+          },
+        },
+        onFailure: (item: NeedsYouItem, action: "answer" | "ask", error: unknown) =>
+          setNeedsYouFailure({
+            itemId: item.id,
+            action,
+            ...(error instanceof Error && error.message ? { reason: error.message } : {}),
+          }),
+      }
+    : undefined;
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
@@ -395,9 +376,17 @@ export function ChatHeaderTools({
               menu: chatMenu.items,
             },
             runMenu: chatMenu.invoke,
+            // The chat menu is reserved before the variable check and ask lists spend the budget.
+            menuPriority: "fixed" as const,
           },
         ]
       : [],
+    extras: {
+      worktree: worktree ? { value: worktree, ops: worktreeOps } : undefined,
+      pullRequest: pullRequest && pullRequestChip !== false ? { value: pullRequest, ops: pullRequestOps } : undefined,
+      needsYou: nativeNeedsYouForTools,
+    },
+    t,
   });
   const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
     terminal: terminalKey,
@@ -405,11 +394,18 @@ export function ChatHeaderTools({
     browser: browserKey,
     changes: changesKey,
   };
+  // The three controls (headerTrio.ts): "...", the panel toggle and New, on the web row only. The quick
+  // actions wait in "..."; Terminal, Browser and [+] are New's.
+  const trio = (controls ?? headerControls) === "trio" && !native && tabTools && newButton !== undefined;
   // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
   const toolsRef = useRef<HTMLDivElement>(null);
-  const webButtons = !native && tabTools && actions.length > 0;
+  const webButtons = !native && !trio && tabTools && actions.length > 0;
   const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
-  live.current.overflow = webButtons && fold > 0 ? tools.slice(tools.length - fold) : [];
+  live.current.overflow = trio
+    ? tools.filter((tool) => tool.id !== "terminal" && tool.id !== "browser" && tool.id !== "newTab")
+    : webButtons && fold > 0
+      ? tools.slice(tools.length - fold)
+      : [];
   const shown = webButtons ? tools.slice(0, tools.length - fold) : [];
   const shownIds = shown.map((tool) => tool.id);
   // Motion styles (headerMotion.ts): `still`, the default, adds nothing to the buttons.
@@ -423,8 +419,10 @@ export function ChatHeaderTools({
     clearTimeout(intent.current);
     setPreview(undefined);
   };
+  // With every quick action folded the group is not rendered: an empty group still took a gap in the row.
   const buttons =
     webButtons &&
+    shown.length > 0 &&
     shown.map((tool) => {
       const shortcut = tool.title ? undefined : shortcuts[tool.id];
       return (
@@ -472,6 +470,39 @@ export function ChatHeaderTools({
         </button>
       );
     });
+  const chatMenuButton = (
+    <ChatMenu
+      items={rows}
+      disabled={chatRows.length === 0}
+      onOpen={onMenuOpen}
+      nativeOpen={
+        native && chatMenu
+          ? (row) =>
+              nativeRowTools!.callNative("pane.tabRowTools.openMenu", {
+                id: "chat-menu",
+                ...(row ? { menuItemId: row } : {}),
+              })
+          : undefined
+      }
+      expand={expand}
+      onExpanded={onExpanded}
+    />
+  );
+  if (trio)
+    return (
+      <div ref={toolsRef} className="acpmux-header-tools" data-header-controls="trio" onPointerEnter={onPointerEnter}>
+        {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
+        {pullRequest && pullRequestChip !== false && (
+          <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+        )}
+        {/* Needs You only with open asks: an alert, not a fourth control. */}
+        {inboxRelevant && inbox}
+        {chatMenuButton}
+        {sessionInfo}
+        {typeof summary === "function" ? summary(false) : summary}
+        <HeaderNewButton kinds={newKinds(newButton.available)} make={newButton.make} />
+      </div>
+    );
   return (
     <div
       ref={toolsRef}
@@ -483,14 +514,16 @@ export function ChatHeaderTools({
       data-activity-on={cue?.on}
     >
       {preview && <HeaderToolPreview target={preview} />}
-      {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
-      {pullRequest && pullRequestChip !== false && (
-        <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+      {!native && worktree && (
+        <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+      )}
+      {!native && pullRequest && pullRequestChip !== false && (
+        <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {!native && sessionInfo}
       {typeof summary === "function" ? summary(native) : !native && summary}
-      {inbox}
+      {(!native || !nativeNeedsYouMenu) && inbox}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
@@ -518,22 +551,7 @@ export function ChatHeaderTools({
           )}
         </div>
       ) : null}
-      <ChatMenu
-        items={rows}
-        disabled={chatRows.length === 0}
-        onOpen={onMenuOpen}
-        nativeOpen={
-          native && chatMenu
-            ? (row) =>
-                nativeRowTools!.callNative("pane.tabRowTools.openMenu", {
-                  id: "chat-menu",
-                  ...(row ? { menuItemId: row } : {}),
-                })
-            : undefined
-        }
-        expand={expand}
-        onExpanded={onExpanded}
-      />
+      {chatMenuButton}
     </div>
   );
 }
@@ -780,8 +798,16 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const registeredShortcut = useShortcut(item.shortcutAction ?? "");
   const shortcut = menuKeycap(registeredShortcut);
   return (
-    <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
-      <Icon name={item.icon} size={14} />
+    <MenuItem
+      className={item.destructive ? "acpmux-chat-menu-item ui-menu-item-destructive" : "acpmux-chat-menu-item"}
+      disabled={item.disabled}
+      onSelect={item.onSelect}
+    >
+      {item.image ? (
+        <img className="acpmux-chat-menu-image" src={item.image} alt="" width={14} height={14} />
+      ) : (
+        <Icon name={item.icon} size={14} />
+      )}
       <span className="acpmux-chat-menu-label">{item.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>
@@ -863,3 +889,5 @@ function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
     </MenuItem>
   );
 }
+
+const ChatHeaderToolsMemo = memo(ChatHeaderToolsView);

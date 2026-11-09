@@ -15,7 +15,9 @@
 // which floats over the pane.
 // Text the element cuts off shows in full, wrapping in the same compact bubble.
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
+import { PointerMotion } from "./pointerMotion";
 import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
+import { onPopupInsetChange, popupInsetOf } from "./popupInset";
 export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
 
 /// A scrolling row must settle before its tooltip opens under a resting pointer.
@@ -85,7 +87,8 @@ export function tooltipPosition(
       return { left: Math.round(left), top: Math.round(top) };
     }
   }
-  const below = anchor.top + anchor.height + gap;
+  // Below an anchor above the bounds' top (a header control over an open Find bar) starts at that top.
+  const below = Math.max(minTop, anchor.top + anchor.height + gap);
   const above = anchor.top - gap - size.height;
   const top =
     side !== "bottom"
@@ -118,7 +121,9 @@ function drawnBox(element: Element, box: DOMRect): Box {
 /// Where a tooltip for `element` stays (`tooltipPosition`'s `bounds`): its nearest ancestor that
 /// scrolls (the window for an element in a popup, whose tooltip may leave the popup, or outside any
 /// scroller), cut to the window and below a `data-tooltip-covered` band across its top that the
-/// element is not in.
+/// element is not in, and below an open Find bar (ui/popupInset.ts), the top layer of its pane: a
+/// timestamp's tooltip under it flips below its row (Leo 2026-11-07: "we don't want it to be
+/// coverable by other sorts of things. Like, for example, these hover previews").
 function boundsOf(element: Element, view: { width: number; height: number }): Box | undefined {
   const doc = element.ownerDocument;
   const win = doc.defaultView;
@@ -145,6 +150,9 @@ function boundsOf(element: Element, view: { width: number; height: number }): Bo
     if (box.top <= area.top + 1 && box.bottom > area.top && box.left < area.right && box.right > area.left)
       area.top = box.bottom;
   }
+  // The bar's own controls keep their tooltips' usual place.
+  const findBar = popupInsetOf("findBar");
+  if (findBar > area.top && !element.closest(".acpmux-find")) area.top = Math.min(findBar, area.bottom);
   const width = area.right - area.left;
   const height = area.bottom - area.top;
   return width > 0 && height > 0 ? { left: area.left, top: area.top, width, height } : undefined;
@@ -366,9 +374,20 @@ export function installTooltips(
   let quiet: ReturnType<typeof setTimeout> | undefined;
   // The element under the pointer while a scroll is under way.
   let pending: Element | undefined;
+  // An element that came under a still pointer (the page laid out again): it waits for the pointer to move.
+  const motion = new PointerMotion();
+  let still: Element | undefined;
   const onOver = (event: PointerEvent) => {
     if (event.pointerType && event.pointerType !== "mouse") return;
     const element = (event.target as Element | null)?.closest?.("[title], [data-tooltip]") ?? undefined;
+    if (element && element !== target && !motion.arrived(event)) {
+      still = element;
+      return;
+    }
+    over(element);
+  };
+  const over = (element: Element | undefined) => {
+    still = undefined;
     if (quiet !== undefined) {
       pending = element;
       return;
@@ -385,9 +404,16 @@ export function installTooltips(
     target = element;
     intent.hover(element);
   };
+  const onMove = (event: PointerEvent) => {
+    if (!motion.moved(event) || !still) return;
+    const element = still;
+    still = undefined;
+    if (element.isConnected && element.contains(event.target as Node | null)) over(element);
+  };
   const onOut = (event: PointerEvent) => {
     // Leaving the element (not moving onto one of its children) hides it.
     const into = event.relatedTarget as Node | null;
+    if (still && !still.contains(into)) still = undefined;
     if (target && !target.contains(into)) hide();
     if (pending && !pending.contains(into)) pending = undefined;
   };
@@ -419,15 +445,20 @@ export function installTooltips(
     }, SCROLL_QUIET);
   };
   doc.addEventListener("pointerover", onOver);
+  doc.addEventListener("pointermove", onMove, true);
   doc.addEventListener("pointerout", onOut);
   doc.addEventListener("pointerdown", dismiss, true);
   doc.addEventListener("keydown", dismiss, true);
   doc.addEventListener("scroll", onScroll, true);
   win.addEventListener("blur", dismiss);
+  // Find's bar opening (or anything new covering the page's top) takes away a tooltip under it.
+  const unwatchInset = onPopupInsetChange(dismiss);
   return () => {
+    unwatchInset();
     dismiss();
     intent.dispose();
     doc.removeEventListener("pointerover", onOver);
+    doc.removeEventListener("pointermove", onMove, true);
     doc.removeEventListener("pointerout", onOut);
     doc.removeEventListener("pointerdown", dismiss, true);
     doc.removeEventListener("keydown", dismiss, true);

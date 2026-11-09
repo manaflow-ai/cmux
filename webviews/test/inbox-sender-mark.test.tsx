@@ -60,8 +60,8 @@ afterAll(() => {
 
 const { createRoot } = await import("react-dom/client");
 const { InboxNoticeCard } = await import("../src/agent-session/acpmux/conversation/InboxNoticeCard");
-const { senderHarness } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
-const { groupSender } = await import("../src/agent-session/acpmux/conversation/MessageGroupHead");
+const { senderHarness } = await import("../src/agent-session/acpmux/conversation/incomingMessageCardModel");
+const { groupSender } = await import("../src/agent-session/acpmux/conversation/messageGroupHeadModel");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
 
 const entry = (fields: Partial<AcpmuxSessionEntry> & { sessionId: string }) =>

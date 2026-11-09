@@ -1,0 +1,136 @@
+{
+ "title": "A subagent's tab beside its chat (Leo 2026-11-07: no close button, and the chat's menu on right-click): hovered while it spins it shows the close X in the spinner's slot, and its right-click opens the tab menu. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/subagent-tab-close-menu.json",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Open a main workspace",
+   "cmux": [
+    "action",
+    "run",
+    "newTab",
+    "--name",
+    "Right column",
+    "--focus",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Open a chat",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Wait for the chat page",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "Start the chat's session (the showcase mock answers)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Start the subagents"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "2 subagents start (debug seed_rows fixture \"subagents\", agents 2)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "subagents",
+     "count": 1,
+     "agents": 2
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Open subagent 1's pane as a click on its tray line does (focused)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 1,
+     "focus": true
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "No tab strip lies under a Chromium page window outside its holes",
+   "rpc": {
+    "method": "debug.pane_chrome",
+    "params": {}
+   },
+   "shot": false,
+   "optional": "records each pane's strip_under_page",
+   "expect": {
+    "method": "debug.pane_chrome",
+    "fields": {
+     "windows.0.panes.0.strip_under_page": [],
+     "windows.0.panes.1.strip_under_page": [],
+     "windows.0.panes.2.strip_under_page": []
+    }
+   }
+  },
+  {
+   "title": "A turn runs on the chat, so the subagent's tab (the chat's session) shows its spinner",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Check on the auditor"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "The pointer on the subagent's tab: the close X takes the spinner's slot",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "move",
+     "x": 780,
+     "y": 15
+    }
+   },
+   "wait": 0.5
+  },
+  {
+   "title": "Right-click the subagent's tab (a right-button mouse event through the window, as a person's): the tab menu, with Close Tab",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "click",
+     "button": "right",
+     "x": 780,
+     "y": 15
+    }
+   },
+   "wait": 1.5
+  }
+ ]
+}

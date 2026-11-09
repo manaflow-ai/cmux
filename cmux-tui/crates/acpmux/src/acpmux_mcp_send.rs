@@ -196,12 +196,14 @@ impl Target {
     }
 }
 
-/// `send`'s entry: the first shape when the call names one session, else the batch.
-pub(super) async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
+/// `send`'s entry: the first shape when the call names one session, else the batch. `sub` is
+/// the Claude Code subagent whose call this is (`subagent_call.rs`): each message names it as
+/// its sender, so the replies that come back as reports reach it, not its lead.
+pub(super) async fn send(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Value {
     if args.get("messages").is_none() && arg(args, "tag").is_none() {
-        return send_one(daemon, args).await;
+        return send_one(daemon, args, sub).await;
     }
-    send_batch(daemon, args).await
+    send_batch(daemon, args, sub).await
 }
 
 /// The items of a call: `messages`, each over the top-level defaults, or the call itself.
@@ -430,7 +432,7 @@ pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<Messag
 
 /// `send` with one session (the first shape): its result fields, text and errors are the ones
 /// this tool always gave; only `file` and `supersede` are new.
-async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
+async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Value {
     if arg(args, "to").is_none()
         || (args.get("text").and_then(Value::as_str).is_none()
             && arg(args, "file").is_none()
@@ -452,7 +454,7 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
         Err(e) => return refusal(e),
     };
     let target = Target { index: 0, to: to.clone(), key: key.clone(), tag: None, text, file, item };
-    let (prompt, queued) = match queue(daemon, &target).await {
+    let (prompt, queued) = match queue(daemon, &target, sub).await {
         Ok(sent) => sent,
         Err(e) => {
             return match relay(&target, &e).await {
@@ -495,7 +497,7 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
 
 /// `send` with `messages` or `tag`: every item's recipients, then the messages, a row per
 /// recipient; an item that names no one is one row with its error.
-async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
+async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Value {
     let items = match items(args) {
         Ok(items) => items,
         Err(e) => return error_result(e),
@@ -555,7 +557,7 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
     let deadline = now.checked_add(STATUS_WAIT).unwrap_or(now);
     let sent = futures::future::join_all(chains.into_iter().map(|chain| {
         in_order(&targets, chain, deadline, move |target, wait| async move {
-            match queue(daemon, target).await {
+            match queue(daemon, target, sub).await {
                 Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
                 Err(e) => match relay(target, &e).await {
                     Some(row) => row,
@@ -790,9 +792,17 @@ pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
     })
 }
 
-/// Hand one message to the outbox (`_acpmux/send_queue`).
-async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value)> {
+/// Hand one message to the outbox (`_acpmux/send_queue`), from subagent `sub` when one sends it.
+async fn queue(
+    daemon: &Arc<Client>,
+    target: &Target,
+    sub: Option<&Value>,
+) -> Result<(PromptId, Value)> {
     let mut prompt = PromptId::new(None);
+    prompt.subagent = sub.cloned();
+    // Outside an acpmux session, where this server's MCP client or harness says it came from
+    // (`sender_harness.rs`): self-reported, shown beside the message.
+    prompt.sender_harness = crate::sender_harness::of_this_mcp_server();
     prompt.class = target.item.class.clone();
     prompt.pr = target.item.pr;
     prompt.thread = target.item.thread.clone();
@@ -906,8 +916,8 @@ fn sent_line(row: &Value) -> String {
         _ => {
             return format!(
                 "On its way to {to} (delivery {delivery}, promptId {prompt_id}): this daemon keeps \
-delivering it, retrying while the target is slow or its peer is down. Do not send it again; info \
-{to} shows it once it arrives."
+delivering it, retrying while the target is slow or its peer is down. Do not send it again; \
+send_status with this deliveryId says where it is."
             );
         }
     };

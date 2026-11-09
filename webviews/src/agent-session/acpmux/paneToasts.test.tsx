@@ -9,7 +9,7 @@ import { JSDOM } from "jsdom";
 import { createNoticeQueue } from "../../ui/NoticeStack";
 import type { AcpmuxActivity } from "./model";
 import { resetSessionRefs, senderRef, setSessionRefResolver } from "./conversation/sessionRefs";
-import { resetTranscriptDisclosure } from "./conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./conversation/transcriptDisclosureModel";
 import { WhoElseCard } from "./conversation/WhoElseCard";
 import { whoElseCall, WHO_ELSE_SCHEMA } from "./conversation/whoElseCalls";
 import { paneNotices } from "./paneToasts";

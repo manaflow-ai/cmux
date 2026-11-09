@@ -7,7 +7,8 @@
 //! - The run summary pagers: the reply-key lookups in batches, the local and
 //!   Cloud `before_started_at` cursors, and the run steps' `after` cursor.
 //! - The chunked attachment transfer: which pieces an upload sends, in which
-//!   chunks, with what progress; when a chunked read ends or fails.
+//!   chunks, with what progress (each chunk computed on demand, so a plan
+//!   takes constant memory); when a chunked read ends or fails.
 //! - A run step's tool, normalized (the Chief's `tell` and `spawn` envelopes,
 //!   `_meta.cmux.sender`), and a message part's plain text.
 //! - The inbox op values (`inbox.pin`, `inbox.mark_unread`, `inbox.mute`).
@@ -189,13 +190,58 @@ pub fn run_steps_next(has_more: bool, cursor: u64, keys: &[u64]) -> Option<u64> 
 
 // ---- Attachments ----
 
-/// One piece of an upload: the variant, its declared size and its chunks.
-#[derive(Debug, Clone, PartialEq)]
+/// One piece of an upload: the variant, its declared size, and the bytes
+/// of the pieces before it (its chunks' progress counts them). Its chunks
+/// are computed on demand ([`UploadPiece::chunk`]), so a plan takes the same
+/// memory for any size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UploadPiece {
     pub variant: &'static str,
     pub size: u64,
-    /// `(offset, length, progress after it)`.
-    pub chunks: Vec<(u64, u64, f64)>,
+    pub sent_before: u64,
+}
+
+/// One chunk of a piece: where it starts, how long it is, and the upload's
+/// progress once it is sent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UploadChunk {
+    pub offset: u64,
+    pub length: u64,
+    pub progress: f64,
+}
+
+/// An upload's pieces and the bytes of all of them (`total`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadPlan {
+    pub total: u64,
+    pub pieces: Vec<UploadPiece>,
+}
+
+impl UploadPiece {
+    /// How many chunks of [`ATTACHMENT_CHUNK_BYTES`] the piece sends.
+    pub fn chunk_count(&self) -> u64 {
+        self.size.div_ceil(ATTACHMENT_CHUNK_BYTES)
+    }
+
+    /// Chunk `index` of the piece, or `None` past its last one. Progress is
+    /// the fraction of `total` sent once this chunk is, capped below 1 until
+    /// the commit answers.
+    pub fn chunk(&self, index: u64, total: u64) -> Option<UploadChunk> {
+        if index >= self.chunk_count() {
+            return None;
+        }
+        // index < chunk_count, so offset < size and nothing overflows.
+        let offset = index * ATTACHMENT_CHUNK_BYTES;
+        let length = ATTACHMENT_CHUNK_BYTES.min(self.size - offset);
+        let sent = self.sent_before.saturating_add(offset + length);
+        let progress = UPLOAD_PROGRESS_CAP.min(sent as f64 / total.max(1) as f64);
+        Some(UploadChunk { offset, length, progress })
+    }
+
+    /// Every chunk of the piece, in order, one at a time.
+    pub fn chunks(&self, total: u64) -> impl Iterator<Item = UploadChunk> + '_ {
+        (0..self.chunk_count()).filter_map(move |index| self.chunk(index, total))
+    }
 }
 
 fn byte_count(value: Option<&Value>) -> Option<u64> {
@@ -204,21 +250,22 @@ fn byte_count(value: Option<&Value>) -> Option<u64> {
 
 /// The pieces an upload sends after `begin`: `needs` (absent: the original
 /// only), each from its own file, in chunks of [`ATTACHMENT_CHUNK_BYTES`] up
-/// to its declared size. Progress is the fraction of all pieces' bytes sent,
-/// capped below 1 until the commit answers. A piece read shorter than its
-/// declared size ends at its EOF and the commit refuses it (`incomplete`).
-/// Sizes whose sum does not fit in a `u64` are refused as invalid.
+/// to its declared size. A piece read shorter than its declared size ends at
+/// its EOF and the commit refuses it (`incomplete`). Sizes whose sum does not
+/// fit in a `u64` are refused as invalid; any size up to that plans in
+/// constant memory.
 pub fn upload_plan(
     attachment: &Value,
     needs: Option<&[String]>,
     has_poster_file: bool,
     has_preview_file: bool,
-) -> Result<Vec<UploadPiece>, RuleReject> {
+) -> Result<UploadPlan, RuleReject> {
     let original = ["original".to_string()];
     let needs = needs.unwrap_or(&original);
-    let mut sized: Vec<(&'static str, u64)> = Vec::with_capacity(needs.len());
+    let mut pieces = Vec::with_capacity(needs.len());
+    let mut total = 0u64;
     for variant in needs {
-        sized.push(match variant.as_str() {
+        let (variant, size) = match variant.as_str() {
             "original" => ("original", byte_count(Some(attachment)).ok_or(RuleReject::Invalid)?),
             "poster" => {
                 let size = byte_count(attachment.get("poster")).filter(|_| has_poster_file);
@@ -229,32 +276,11 @@ pub fn upload_plan(
                 ("preview", size.ok_or(RuleReject::PreviewNeeded)?)
             }
             _ => return Err(RuleReject::UnknownPiece),
-        });
+        };
+        pieces.push(UploadPiece { variant, size, sent_before: total });
+        total = total.checked_add(size).ok_or(RuleReject::Invalid)?;
     }
-    let total = sized
-        .iter()
-        .try_fold(0u64, |sum, (_, size)| sum.checked_add(*size))
-        .ok_or(RuleReject::Invalid)?
-        .max(1) as f64;
-    let mut sent = 0u64;
-    Ok(sized
-        .into_iter()
-        .map(|(variant, size)| {
-            let mut chunks = Vec::new();
-            let mut offset = 0;
-            while offset < size {
-                let length = ATTACHMENT_CHUNK_BYTES.min(size - offset);
-                offset += length;
-                sent += length;
-                chunks.push((
-                    offset - length,
-                    length,
-                    UPLOAD_PROGRESS_CAP.min(sent as f64 / total),
-                ));
-            }
-            UploadPiece { variant, size, chunks }
-        })
-        .collect())
+    Ok(UploadPlan { total, pieces })
 }
 
 /// After one chunked read reply: the next offset, or None when the owner's
@@ -483,26 +509,37 @@ pub fn call(op: &str, request: &Value) -> Option<Result<Value, RuleReject>> {
             let attachment = field(request, "attachment").ok_or(RuleReject::Invalid)?;
             let needs =
                 field(request, "needs").map(|_| string_list(request, "needs")).transpose()?;
-            let pieces = upload_plan(
+            let plan = upload_plan(
                 attachment,
                 needs.as_deref(),
                 flag(request, "has_poster_file"),
                 flag(request, "has_preview_file"),
             )?;
-            let pieces: Vec<Value> = pieces
-                .into_iter()
+            let pieces: Vec<Value> = plan
+                .pieces
+                .iter()
                 .map(|piece| {
-                    let chunks: Vec<Value> = piece
-                        .chunks
-                        .iter()
-                        .map(|(offset, length, progress)| {
-                            json!({ "offset": offset, "length": length, "progress": progress })
-                        })
-                        .collect();
-                    json!({ "variant": piece.variant, "size": piece.size, "chunks": chunks })
+                    json!({ "variant": piece.variant, "size": piece.size,
+                            "sent_before": piece.sent_before, "chunk_count": piece.chunk_count() })
                 })
                 .collect();
-            Ok(json!({ "pieces": pieces }))
+            Ok(
+                json!({ "total": plan.total, "chunk_bytes": ATTACHMENT_CHUNK_BYTES, "pieces": pieces }),
+            )
+        })(),
+        "upload_chunk" => (|| {
+            let size = optional_u64(request, "size")?.ok_or(RuleReject::Invalid)?;
+            let sent_before = optional_u64(request, "sent_before")?.unwrap_or(0);
+            let total = optional_u64(request, "total")?.ok_or(RuleReject::Invalid)?;
+            let index = optional_u64(request, "index")?.ok_or(RuleReject::Invalid)?;
+            if sent_before.checked_add(size).is_none_or(|end| end > total) {
+                return Err(RuleReject::Invalid);
+            }
+            let piece = UploadPiece { variant: "", size, sent_before };
+            let chunk = piece.chunk(index, total).ok_or(RuleReject::Invalid)?;
+            Ok(
+                json!({ "offset": chunk.offset, "length": chunk.length, "progress": chunk.progress }),
+            )
         })(),
         "read_next" => (|| {
             let offset = optional_u64(request, "offset")?.unwrap_or(0);

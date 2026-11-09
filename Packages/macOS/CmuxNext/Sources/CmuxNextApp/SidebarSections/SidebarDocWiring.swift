@@ -28,7 +28,7 @@ extension SidebarDocument {
         self.store = store
         // A new workspace lists at the daemon's slot until its item comes: below the active window's current one (none on Home: first).
         docSections.newRowsPlace = { [weak services] in
-            switch services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback {
+            switch services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementDefault {
             case .top: .first
             case .bottom: .last
             case .afterCurrent: services?.windows.active.flatMap { $0.state.page == nil ? $0.state.workspaceID : nil }.map(SidebarDocSections.NewRowsPlace.below) ?? .first

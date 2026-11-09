@@ -5,6 +5,12 @@ cmux checkout and the app you're using right now changes as you save: no build, 
 windows, chats and terminals stay where they are. It works in every cmux build, in WebKit and in
 Chromium, and it's on by default.
 
+`cmux live` and **Live Web Reload** are one feature, not one for Swift and one for React. `cmux live`
+(or **Edit cmux Live…**) is how you start and stop it; **Live Web Reload** in Settings > General is
+the switch that lets the app load what `cmux live` serves. Plain `cmux live start` is the React web
+UI. Swift (`--swift`), the daemon's Rust (`--rust`) and Chromium (`--chromium`) are flags of the same
+command, below.
+
 ## Start in 30 seconds
 
 ```sh
@@ -17,6 +23,8 @@ button is at the end of Settings > General.
 
 Now edit anything under `webviews/src/` and save. Open pages and chats reload once onto your
 code, then every save shows up in about a second, keeping each page's state (React Fast Refresh).
+Each save is also linted for the performance mistakes past fixes removed, and a finding shows in the
+page's console ([modding-kit.md](modding-kit.md)).
 
 Done for now?
 
@@ -195,15 +203,25 @@ chat with no folder runs in, so its Home chats see your Home chats' files) and `
 - A web-only PR is patched in: the side instance opens and `web-overlay.sh follow` serves the PR's
   web UI to it, with no build. Later pushes and edits hot-reload.
 - A PR that changes only CI, tests or docs is reported as nothing to try.
-- A PR that changes the daemon, Swift, a resource or a manifest needs a new binary: the script says
+- A PR that changes the daemon or CLI (Rust in cmux-tui or acpmux) swaps the PR's daemon into the
+  side instance, with no app build: the copy keeps your app's Swift and web, and its daemon hands
+  off to the PR's build as in [`cmux live start --rust`](#the-daemons-rust-live), terminals kept
+  (`scripts/cmux-next/hot-apply.py apply --branch`). The binary is the one CI published for the PR
+  head's cmux-tui tree (a same-repo PR's push publishes it; 35 of 40 sampled daemon PRs had it),
+  else the `bin/cmux` of the PR's fleet dev build. A PR that also changes web UI gets that patched
+  in too. It takes the dev build instead when the PR changes Rust the app links through FFI, or
+  when your app was built after the PR branched and has Rust the branch lacks.
+- A PR that changes Swift, a resource or a manifest needs a new binary: the script says
   why (a stored property, a changed signature, a new type in an existing file, and so on), requests the fleet dev build
   tagged `pr-<N>`, waits for it and opens that build as the side instance. `--no-build` stops at
   the verdict.
 
-`--here` patches your running app instead (web-only PRs) and, for a rebuild, only says where the
-build is. The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs,
-about half of the ones that touch the app changed only web code or nothing in the app, so they
-need no new binary.
+`--here` patches your running app instead (web and daemon PRs; `hot-apply.py rollback` puts your
+daemon back) and, for a rebuild, only says where the build is. The rules are in
+`scripts/cmux-next/live_apply.py`. Of the last 1,000 NEXT PRs (#36100 to #37575), 675 touch the
+app; try-pr puts 42% of those into a nightly with no build (105 web, 181 daemon), up from 16% when
+only web went in live (`scripts/measure/try-pr-live-share.py`). 26 more change Rust the app links,
+79 are Swift a live code build takes, and 284 need the dev build.
 
 A Swift change confined to function bodies can also skip the build when `--from` names a live code build
 ([live-code.md](live-code.md)) and `--live-code` its reload log:
@@ -261,7 +279,10 @@ scripts/cmux-next/web-overlay.sh install-app <app>      # the web bundles of any
 
 Both install the built agent pane, pages and viewers as an overlay in
 `~/Library/Application Support/cmux-next/web-overlay`, and the app reloads when the install
-finishes. `manifest.json` there records the commit they came from.
+finishes. `manifest.json` there records the commit they came from and the page bridge they need
+(`abi`, from `webviews/src/web-abi.json`). The app serves the overlay only when that `abi` is its
+own, the rule it already applies to web updates: an overlay for another bridge would call host ops
+the app lacks, so the app keeps its own pages and `web-overlay.sh status` prints `refused by <app>`.
 
 ### A shared slot
 
@@ -471,6 +492,32 @@ A web update never runs over your own dev server or overlay. A page loads from, 
 Only NIGHTLY bundles take web updates; Debug builds keep the developer's own pages. The plan is in
 [web-ota.md](../../plans/cmux-next/web-ota.md).
 
+## Runtime perf budgets
+
+Every page the dev server serves (`cmux live`, `bun run dev`, the agent pane's own dev server)
+runs a few runtime budgets while you use it. When your change breaks one, the page's console (Web
+Inspector, or Chrome DevTools in Chromium) shows one warning, once per place:
+
+```
+[cmux perf budget] dom-breadth: 1000 children over the budget of 300 children at ul.projects. Fix: render the visible window: VirtualList (src/ui/VirtualList.tsx) or Combobox virtualRows (src/ui/Combobox.tsx); ...
+```
+
+| Class | Fires when | Fix |
+|---|---|---|
+| `layout-shift` | Something moved 8 px or more after it painted with no input, or many small moves add up past a 0.01 shift score in a second (Chromium) | Reserve the final size before the first paint, or move it with a transform |
+| `dom-breadth` | One element has more than 300 element children: a list drawn whole | `ui/VirtualList.tsx`, or `virtualRows` on `ui/Combobox.tsx` |
+| `live-intervals` | More than 20 `setInterval` handles are live; names the call site holding most | The page clock: `subscribePageSecond`, `usePageNow`, `visibleInterval` (`ui/pageClock.ts`) |
+| `long-frame` | A frame takes over 50 ms; names the longest script (Chromium) | Do less per frame: render the visible window, defer off-screen work |
+| `react-commit` | A React root commits more than 120 times in a second, or renders for more than 16 ms in one update | Re-render only what changed: a streamed item reads its own value, batch to one commit a frame |
+| `still-surface` | A surface marked `data-perf-still` (the agent pane's composer and the hat over it) has its nodes or attributes rewritten in more than 6 of the last 10 seconds with no key or pointer input: a clock tick or another chat's event draws it again | Memoize it on what it shows (`composer/composerView.ts`); a ticking value is a leaf of its own (`subagents/Elapsed.tsx`) |
+
+The page's load and the second after each hot update are not budgeted for shifts, frames and
+commits. Mark an element that must stay wide with `data-perf-budget-allow="<why>"`. Turn the
+budgets off for a page with `?perf-budgets=off` or `localStorage["cmux.perfBudgets"] = "off"`, or
+for the whole server with `CMUX_PERF_BUDGETS=off`. Tests set `window.__cmuxPerfBudgets = { mode:
+"collect" }` (or `"throw"`) before the page loads and read `window.__cmuxPerfBudgetsHandle.violations`.
+Built bundles carry none of this. The code is `webviews/src/devkit/perfBudgets.ts`.
+
 ## Troubleshooting
 
 | Symptom | Check |
@@ -481,6 +528,8 @@ Only NIGHTLY bundles take web updates; Debug builds keep the developer's own pag
 | You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |
 | You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **Live Web Reload** off (`cmux settings set updates.liveWebReload false`). |
 | Nothing changes, and `status` says the server runs | `cmux settings get updates.liveWebReload` says `true`. The app's commit includes this change (older NIGHTLYs also needed Debug Settings > Pages > Live web reload on). |
+| `status` says `refused by <app>` | The overlay was built for another page bridge (`abi` in its `manifest.json`, from `webviews/src/web-abi.json`) than the app has, so the app serves its own pages instead of calling host ops it lacks. Build the overlay from a tree at the app's ABI (near its `CMUXCommit`), or run a build of that tree. A web update is refused the same way. |
+| A page's React content goes blank, or a page shows another page or its HTML | The dev server answered a file it does not have (a bundled page's chunk, a page newer than your checkout) with the diff viewer's `index.html`. A server from a checkout with this change answers cmux a 404 there, and the app serves the bundled copy: pull, then `cmux live start` again. Serve a tree near the app's commit, so every page the app opens is in it. A page drawn as its HTML source in Chromium is fixed in apps from #37247 on. |
 | Unstyled pages with no override running | Not the live loop. With no `web-dev.json`, the app serves its bundled files unchanged. Report it with the app's commit. |
 
 The design and its edge cases are in [web-live-reload.md](../../plans/cmux-next/web-live-reload.md).
@@ -498,5 +547,3 @@ None of this has shipped yet. Each step will be its own small PR:
 3. **Reload what Swift can.** A change that only touches what a page reads from its host (strings,
    the settings schema, theme tokens) would reload the pages that use it. Native code still needs
    a build, which would come through the per-user update channel in the plan.
-4. **No bridge skew.** An overlay or web update built for a newer page bridge than the app has would
-   be refused, with the reason in `status`, so a page never calls a host op the app lacks.

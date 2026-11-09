@@ -178,6 +178,12 @@ pub enum ResourceOperation {
     ConversationDraft,
     #[serde(rename = "conversation.events")]
     ConversationEvents,
+    #[serde(rename = "diff.comments.delete")]
+    DiffCommentsDelete,
+    #[serde(rename = "diff.comments.list")]
+    DiffCommentsList,
+    #[serde(rename = "diff.comments.save")]
+    DiffCommentsSave,
     #[serde(rename = "git.branches")]
     GitBranches,
     #[serde(rename = "git.commit")]
@@ -198,6 +204,8 @@ pub enum ResourceOperation {
     GitWorktreeApply,
     #[serde(rename = "git.worktree.remove")]
     GitWorktreeRemove,
+    #[serde(rename = "git.worktree.setup")]
+    GitWorktreeSetup,
     #[serde(rename = "history.entries.list")]
     HistoryEntriesList,
     #[serde(rename = "history.entries.remove")]
@@ -536,6 +544,8 @@ pub enum ResourceOperation {
     PaletteUsageHide,
     #[serde(rename = "palette_usage.forget")]
     PaletteUsageForget,
+    #[serde(rename = "palette.rank")]
+    PaletteRank,
     #[serde(rename = "stash.create")]
     StashCreate,
     #[serde(rename = "stash.list")]
@@ -546,22 +556,14 @@ pub enum ResourceOperation {
     StashDelete,
     #[serde(rename = "stash.import")]
     StashImport,
+    #[serde(rename = "classic_import.plan")]
+    ClassicImportPlan,
+    #[serde(rename = "classic_import.record")]
+    ClassicImportRecord,
     #[serde(rename = "conductor_import.plan")]
     ConductorImportPlan,
     #[serde(rename = "conductor_import.record")]
     ConductorImportRecord,
-    #[serde(rename = "cloud.vm.resize")]
-    CloudVmResize,
-    #[serde(rename = "cloud.vm.snapshot")]
-    CloudVmSnapshot,
-    #[serde(rename = "cloud.vm.snapshots")]
-    CloudVmSnapshots,
-    #[serde(rename = "cloud.vm.delete_snapshot")]
-    CloudVmDeleteSnapshot,
-    #[serde(rename = "cloud.vm.restore")]
-    CloudVmRestore,
-    #[serde(rename = "cloud.vm.fork")]
-    CloudVmFork,
     #[serde(rename = "cloud.vm.scp_endpoint")]
     CloudVmScpEndpoint,
     #[serde(rename = "cloud.vm.tunnel_enroll")]
@@ -953,7 +955,10 @@ impl Selector {
         if value.contains('_') || is_reserved_selector_token(value) {
             return Err(ResourceError::validation_invalid(
                 None,
-                "reserved or ambiguous names must use the name: prefix",
+                format!(
+                    "{value} is not an id, and a name with _ or a command word needs the \
+                     name: prefix: pass name:{value}"
+                ),
             ));
         }
         Ok(Self::Name(value.to_string()))
@@ -990,17 +995,17 @@ fn is_registered_public_id(value: &str) -> bool {
         && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// Why `value` looks like a public id but is not one (a digit too few or
-/// many, uppercase), with where real ids come from; `None` when it does not
-/// look like an id. An agent that copies an id wrong gets this instead of
-/// the name rules.
+/// Why `value`, which starts with a public id prefix (`term_`, `ws_`, ...),
+/// is not an id (wrong length, uppercase or other characters), with where
+/// real ids come from; `None` for a value without such a prefix. An agent
+/// that copies an id wrong gets this instead of the name rules.
 fn mistyped_id_reason(value: &str) -> Option<String> {
     let (prefix, payload) = value.rsplit_once('_')?;
     let (_, scope) = PUBLIC_ID_PREFIXES.iter().find(|(known, _)| *known == prefix)?;
-    if payload.is_empty() || !payload.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
-    }
-    let shape = if payload.len() == 32 {
+    let hex = payload.bytes().all(|byte| byte.is_ascii_hexdigit());
+    let shape = if !hex || payload.is_empty() {
+        format!("an id is {prefix}_ and 32 hex digits (0-9 and a-f, lowercase)")
+    } else if payload.len() == 32 {
         format!("ids are lowercase: {prefix}_ and 32 hex digits in lowercase")
     } else {
         format!("an id is {prefix}_ and 32 hex digits, and this one has {}", payload.len())

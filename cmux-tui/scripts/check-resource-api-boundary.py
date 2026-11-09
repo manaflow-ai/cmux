@@ -1201,6 +1201,20 @@ def _validate_catalog_type(
                 # cmux-conductor-import crate (plan::Plan) and passed
                 # through unchanged; the app that confirms it reads it.
                 "types.ConductorImportPlanResult.fields.plan.value",
+                # The move from classic cmux: the source, decision, plan and
+                # preview are the cmux-classic-import crate's (source::Source,
+                # plan::Decision, plan::Plan, plan::Preview), passed through
+                # unchanged; the app that makes the workspaces reads them, and
+                # begin hands the plan's source back as it was read.
+                "types.ClassicImportPlanResult.fields.source.value",
+                "types.ClassicImportPlanResult.fields.decision.value",
+                "types.ClassicImportPlanResult.fields.plan.value",
+                "types.ClassicImportPlanResult.fields.preview.value",
+                "operations.classic_import.record.params.fields.source",
+                # A diff review comment is the diff page's own object, kept
+                # until it is sent to the agent; the daemon stamps only id,
+                # createdAt and updatedAt (diff-comments-v1).
+                "types.DiffComment.values",
             }
             is_explicit_extra = (
                 context.startswith("types.")
@@ -2089,7 +2103,10 @@ def _operation_catalog(
                 "shell",
                 "focus",
                 "placement",
+                "created_by",
             }
+            or create_fields.get("created_by", {}).get("required") is not False
+            or create_fields.get("created_by", {}).get("type", {}).get("kind") != "object"
             or create_fields.get("placement", {}).get("required") is not False
             or create_fields.get("placement", {}).get("type")
             != {"kind": "enum", "values": ["top", "after_current", "bottom"]}
@@ -2126,7 +2143,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, placement, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, placement, created_by, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 

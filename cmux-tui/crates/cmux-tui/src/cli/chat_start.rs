@@ -6,8 +6,8 @@
 //! One flag, `--on`, whose value decides the kind of target, so it is learned once for every verb
 //! that runs something somewhere:
 //!
-//! - no `--on` (and no `CMUX_ON`), or `--on here`: right here, as `cmux agents chat new`
-//!   starts it (a chat tab in the app, in this machine's acpmux);
+//! - no `--on` (and no `CMUX_ON` and no `chat.on` setting), or `--on here`: right here, as
+//!   `cmux agents chat new` starts it (a chat tab in the app, in this machine's acpmux);
 //! - `--on vm`: my Cloud VM: my one VM (or the one running of several), a new one when I have
 //!   none (`my_vm`);
 //! - `--on cloud`: cmux Cloud decides where it runs (Leo, 2026-11-07: "in the future, the cloud
@@ -22,10 +22,14 @@
 //!   run agent chats or one not running is refused before anything starts. Nothing here keeps a
 //!   device list of its own.
 //!
-//! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does. A refusal says
-//! what to run next. `cloud`, `here`, `vm` and `vm:…` are selectors, never device names: a device called
-//! "cloud" is reached by its id.
+//! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does, and the app's
+//! `chat.on` setting (`cmux config set on cloud`) when both are: `--on` > `CMUX_ON` > `chat.on` >
+//! here ([`pick_target`]). The setting is read from the app (`settings.get`) only then, with a
+//! short deadline; no app (CI, a headless VM) is here. A refusal says what to run next. `cloud`,
+//! `here`, `vm` and `vm:…` are selectors, never device names: a device called "cloud" is reached
+//! by its id.
 
+use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use cmux::{CallKind, ChatTarget, ChatTargetRefusal};
@@ -35,28 +39,49 @@ use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 /// This command's flags that take the next word as their value.
-const TAKES_VALUE: &[&str] =
-    &["--on", "--prompt", "-p", "--agent", "--harness", "--model", "--cwd", "--name", "--timeout"];
+const TAKES_VALUE: &[&str] = &[
+    "--on",
+    "--prompt",
+    "-p",
+    "--agent",
+    "--harness",
+    "--model",
+    "--cwd",
+    "--name",
+    "--timeout",
+    "--attach",
+];
 
-/// `--wait` and `--no-wait` take no value in `cmux chat …` and `cloud|vm start-chat` (unlike
+/// `--wait` and `--no-wait` take no value in `cmux chat …` and `cloud start-chat` (unlike
 /// `terminal send --wait none`), so the global scan reads the word after them as its own:
-/// `cmux chat send S --wait -- --json` keeps `--` and sends "--json".
+/// `cmux chat send S --wait -- --json` keeps `--` and sends "--json". (`vm start-chat` is
+/// refused for `cmux chat --on vm:…`, vm.rs.)
 pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
     let ours = match command {
         [scope, ..] if scope == "chat" => true,
-        [scope, verb, ..] => matches!(scope.as_str(), "cloud" | "vm") && verb == "start-chat",
+        [scope, verb, ..] => scope == "cloud" && verb == "start-chat",
         _ => false,
     };
     ours && matches!(flag, "--wait" | "--no-wait")
 }
 
-/// The `chat` verbs other modules own (chief/chat_scope.rs and the app's `chat …` actions).
-const OTHER_VERBS: &[&str] = &["send", "read", "wait", "list", "create", "replies", "colors"];
+/// The `chat` verbs other modules own (chief/chat_scope.rs, chat_cd.rs and the app's `chat …` actions).
+pub(super) const OTHER_VERBS: &[&str] =
+    &["send", "cd", "read", "wait", "list", "create", "replies", "colors"];
 
 /// The environment variable that names the target when `--on` is absent.
 pub(super) const TARGET_ENV: &str = "CMUX_ON";
 
+/// The app setting that names the target when `--on` and `CMUX_ON` are both absent
+/// (`cmux config set on TARGET` writes it; settings.rs reads `on` as this key).
+pub(super) const TARGET_SETTING: &str = "chat.on";
+
+/// How long the `chat.on` read may take: an app that does not answer by then is no setting.
+// timeout: an app that does not answer counts as no setting; the chat still starts.
+const SETTING_TIMEOUT: Duration = Duration::from_millis(1500);
+
 /// How long the catalog read may take.
+// timeout: a daemon that never answers the catalog read fails the start with an error.
 const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What a refusal says to run next.
@@ -65,7 +90,8 @@ const LIST_VMS: &str = "run `cmux vm list-machines` for your VMs, or use --on vm
 
 pub(super) const USAGE: &str = "\
 usage: cmux chat [--on TARGET] [--agent AGENT] [--model MODEL] [--cwd DIR]
-                 [--name NAME] [--wait] [--timeout SECONDS] [--json] [[--prompt] TEXT]
+                 [--name NAME] [--attach FILE]... [--wait] [--timeout SECONDS] [--json]
+                 [[--prompt] TEXT]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -77,8 +103,14 @@ Starts an agent chat, right here unless --on names another target:
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
                      it must be yours, running, and run agent chats
   CMUX_ON=TARGET names the target when --on is absent.
+  `cmux config set on TARGET` saves a default target (the chat.on setting),
+  used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
 
   --agent AGENT      claude (default), codex, ...
+  --attach FILE      A file the first prompt carries; repeat for more (a chat here).
+                     Any type and size: small files go inline, larger ones are uploaded
+                     to the chat first. A missing or unreadable file starts nothing
+                     and exits non-zero (attach.not_found, not_a_file, unreadable)
   --model MODEL      The agent's model (a chat here)
   --cwd DIR          The chat's folder (absolute)
   --name NAME        The chat's name (a chat here)
@@ -93,6 +125,8 @@ EXAMPLES
   cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 Messages to a chat: cmux chat send|read|wait|list (`cmux chat send --help`).
+Another folder or repository for a Cloud chat: cmux chat cd SESSION DIR|--repo REPO
+(`cmux chat cd --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
 ambiguous_device, unknown_vm, which_vm, vm_starting, not_permitted, unavailable,
 signed_out, no_route).
@@ -102,13 +136,15 @@ Exit codes: 0 ok, 1 refused, 2 bad arguments.
 /// A parsed `cmux chat …` start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Start {
-    /// `--on`'s value, else `CMUX_ON`'s; None is here.
+    /// `--on`'s value, else `CMUX_ON`'s, else the `chat.on` setting's; None is here.
     pub on: Option<String>,
     pub agent: Option<String>,
     pub model: Option<String>,
     pub cwd: Option<String>,
     pub name: Option<String>,
     pub prompt: Option<String>,
+    /// `--attach` files for the first prompt (a chat here; a Cloud chat refuses them).
+    pub attach: Vec<String>,
     pub wait: bool,
     pub timeout: Option<String>,
 }
@@ -138,7 +174,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
     let rest = start_words(rest)?;
     let words = cloud_start_chat::lift_output_of(rest, &mut global.output, TAKES_VALUE);
-    let start = match parse(&words, std::env::var(TARGET_ENV).ok()) {
+    let env = std::env::var(TARGET_ENV).ok();
+    let start = match parse_with(&words, env, || setting_target(&global)) {
         Ok(Parsed::Help) => {
             print!("{USAGE}");
             return Some(0);
@@ -160,8 +197,20 @@ fn start_words(rest: &[String]) -> Option<&[String]> {
 }
 
 /// The words after `chat` (or `chat new`); `env_target` is `CMUX_ON`, read when `--on` is
-/// absent (an empty one is unset).
+/// absent (an empty one is unset). No setting is read: [`parse_with`] reads one. Tests only: the
+/// CLI runs [`parse_with`].
+#[cfg(test)]
 pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Parsed, UsageError> {
+    parse_with(words, env_target, || None)
+}
+
+/// [`parse`], with `setting` the `chat.on` read, called only when neither `--on` nor `CMUX_ON`
+/// names a target (and never for `--help`).
+pub(super) fn parse_with(
+    words: &[String],
+    env_target: Option<String>,
+    setting: impl FnOnce() -> Option<String>,
+) -> Result<Parsed, UsageError> {
     let mut start = Start {
         on: None,
         agent: None,
@@ -169,6 +218,7 @@ pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Pars
         cwd: None,
         name: None,
         prompt: None,
+        attach: Vec::new(),
         wait: false,
         timeout: None,
     };
@@ -225,6 +275,7 @@ pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Pars
             "--model" => start.model = Some(value()?),
             "--cwd" => start.cwd = Some(value()?),
             "--name" => start.name = Some(value()?),
+            "--attach" => start.attach.push(value()?),
             "--timeout" => start.timeout = Some(value()?),
             "--wait" => start.wait = true,
             "--no-wait" => start.wait = false,
@@ -232,13 +283,67 @@ pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Pars
         }
         index += 1;
     }
-    if start.on.is_none() {
-        start.on = env_target.map(|target| target.trim().to_owned()).filter(|t| !t.is_empty());
-    }
+    start.on = pick_target(start.on.take(), env_target, setting);
     if start.on.as_deref() == Some("vm:") {
         return Err(UsageError::new("--on vm: needs new, or a VM's id or name"));
     }
     Ok(Parsed::Run(start))
+}
+
+/// The chat's target: `--on` (`flag`), else `CMUX_ON` (`env`), else the `chat.on` setting, else
+/// None (here). A blank value is unset. `setting` is called only when the first two are unset, so
+/// the app is asked only then.
+pub(super) fn pick_target(
+    flag: Option<String>,
+    env: Option<String>,
+    setting: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    let given = |value: Option<String>| {
+        value.map(|target| target.trim().to_owned()).filter(|target| !target.is_empty())
+    };
+    given(flag).or_else(|| given(env)).or_else(|| given(setting()))
+}
+
+/// The app's `chat.on` value (`settings.get`, as `cmux settings get chat.on` reads it), or None:
+/// no app, an app that does not answer within [`SETTING_TIMEOUT`], an unset key or a value that
+/// is not a string. The `--socket` kind probe and the read share that one deadline.
+fn setting_target(global: &GlobalArgs) -> Option<String> {
+    let deadline = std::time::Instant::now().checked_add(SETTING_TIMEOUT)?;
+    let left = || {
+        deadline.checked_duration_since(std::time::Instant::now()).filter(|left| !left.is_zero())
+    };
+    let mut stream = setting_stream(
+        || super::app::connect_command_within(global, Some(SETTING_TIMEOUT)),
+        || super::app::socket_path(global).and_then(|path| super::app::connect(&path)),
+    )?;
+    let left = left()?;
+    stream.set_write_timeout(Some(left)).ok()?;
+    let answer = super::app::exchange_within(
+        &mut stream,
+        "settings.get",
+        json!({ "path": TARGET_SETTING }),
+        left,
+    )
+    .ok()?
+    .ok()?;
+    answer.get("value").and_then(Value::as_str).map(str::to_owned)
+}
+
+/// The app to read `chat.on` from: the one `--app-socket`, `--socket` or the environment names
+/// (`named`, [`super::app::connect_command`]), or, when `--socket` names a daemon
+/// (`socket.wrong_kind`), the app that owns it (`owner`, [`super::app::socket_path`]), which is
+/// the app the chat itself reaches. Any other failure reads nothing.
+fn setting_stream(
+    named: impl FnOnce() -> Result<UnixStream, Value>,
+    owner: impl FnOnce() -> Result<UnixStream, String>,
+) -> Option<UnixStream> {
+    match named() {
+        Ok(stream) => Some(stream),
+        Err(error) if error.get("code").and_then(Value::as_str) == Some("socket.wrong_kind") => {
+            owner().ok()
+        }
+        Err(_) => None,
+    }
 }
 
 fn set_prompt(slot: &mut Option<String>, text: String) -> Result<(), UsageError> {
@@ -589,6 +694,8 @@ pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>
             words.extend([flag.to_owned(), value.clone()]);
         }
     }
+    // Inline, so a path that starts with `-` stays a path.
+    words.extend(start.attach.iter().map(|file| format!("--attach={file}")));
     if let Some(prompt) = &start.prompt {
         let prompt =
             if prompt == "-" { read_stdin().map_err(UsageError::new)? } else { prompt.clone() };
@@ -602,6 +709,13 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     if start.model.is_some() || start.name.is_some() {
         return Err(UsageError::new(
             "--model and --name name a chat here; a Cloud chat takes --agent, --cwd and --prompt",
+        ));
+    }
+    // Refused, never dropped: a Cloud chat's first prompt is text only (`cloud start-chat`).
+    if !start.attach.is_empty() {
+        return Err(UsageError::new(
+            "--attach sends files with a chat here; a Cloud chat's first prompt is text only, so \
+             nothing was started (put the files in the VM's folder, or start the chat here)",
         ));
     }
     let Some(prompt) = &start.prompt else {

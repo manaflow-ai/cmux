@@ -17,7 +17,7 @@ runbook for doing it, and the plan for machines it cannot reach.
 
 `cmux host run`'s `updater` role (`cmux-tui/crates/cmux-host/src/updater`)
 reads the signed channel `https://files.cmux.com/cmux-tui/channels/cloud-machine.json`
-30 s after it starts, on every resume and every five minutes. CI moves the
+30 s after it starts, on every resume and every minute. CI moves the
 channel to every feat-cmux-next push whose cmux-tui build is published
 (`point-machine-channel` in `cmux-tui-artifacts.yml`; signed with the web update
 key, which never leaves CI). When the channel names another build, the machine

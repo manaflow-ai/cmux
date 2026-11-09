@@ -1434,9 +1434,12 @@ extension ChatRow {
         switch kind {
         case .sessionStart: return 46
         case .prompt(let text, let attachments, _, _):
-            return lines(text) * perLine + 22 + (attachments.isEmpty ? 0 : 156)
-        case .incoming(let incoming, _):
-            return incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40
+            // A reply's leading quote draws as its own block, 6 above the reply (UserBubble).
+            let drawn = NextStepAsk.replyQuote(text).map { (lines($0.quote) + lines($0.body)) * perLine + 6 } ?? lines(text) * perLine
+            return drawn + 22 + (attachments.isEmpty ? 0 : 156)
+        case .incoming(let incoming, let attachments, _):
+            return (incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40)
+                + (attachments.isEmpty ? 0 : 156)
         case .block(_, let block):
             switch block.kind {
             case .heading: return 30

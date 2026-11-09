@@ -17,6 +17,11 @@
   --agent-motion-out: var(--cmux-motion-quick, 80ms);
   /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
   --agent-motion-move: var(--cmux-motion-standard, 180ms);
+  /* A sent prompt's one motion: its room, its bubble and the thread's rise (the scale's send step;
+     shared/theme.ts scales it as the host scaled the move step). */
+  --agent-motion-send: var(--cmux-motion-send, 265ms);
+  --agent-motion-send-fade: var(--agent-motion-send);
+  --agent-ease-send: var(--cmux-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }
@@ -263,6 +268,29 @@
     --glass-backdrop: var(--glass-material-backdrop);
   }
 }
+/* In a dark theme the material's light on the input box is half the shared material's (Leo
+   2026-11-07, "super duper prominent glass"): at full strength its 48% white top line and the
+   blurred band under it drew a bright frame round the card, the loudest edge in the pane.
+   --acpmux-composer-glint scales the top-lit line, its return along the bottom and the sheen. A
+   light theme keeps them: white light on a near-white card is the faint highlight it should be,
+   and halving it would uncover the dark hairline along the top instead. The glass's tint, frost
+   and depth are unchanged, and appearance.borders none (--glass-rim 0) still clears the light.
+   Other glass surfaces keep the shared material (glass.css). */
+.acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --acpmux-composer-glint: 0.5;
+  --glass-material-specular: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(95% * var(--glass-rim)), transparent),
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(48% * var(--glass-rim) * var(--acpmux-composer-glint)), transparent)
+  );
+  --glass-material-return: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(60% * var(--glass-rim)), transparent),
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(16% * var(--glass-rim) * var(--acpmux-composer-glint)), transparent)
+  );
+  --glass-material-sheen: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(34% * var(--glass-rim)), transparent),
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(7% * var(--glass-rim) * var(--acpmux-composer-glint)), transparent)
+  );
+}
 /* In the dock no transcript row is ever under the card (conversation.css masks rows out under the
    bottom stack), so Chromium's underlay (glass.css, "CHROMIUM OVER THE WINDOW GLASS"), which is
    there to hide crisp text under floating glass, hid only the wallpaper: at 70% under the card's own
@@ -338,6 +366,69 @@
    prompt's placeholder say "Press Esc again to stop". */
 .acpmux-composer-bar .acpmux-send.acpmux-cancel[data-escape-armed] {
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+}
+
+/* Send and Stop's morph (composer/SendSlotGlyph.tsx, experiment send-stop-morph): while the slot
+   turns, the old glyph and the new one stand in the button's one grid cell, so its 28 px box never
+   moves. One run on the structural step; under Reduce Motion or motion off the copy is never drawn
+   and these rules play nothing. */
+.acpmux-send > .acpmux-send-layer {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.acpmux-send > .acpmux-send-layer[data-send-layer="out"] {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"]) .acpmux-send > .acpmux-send-layer {
+    animation-duration: var(--agent-motion-move, 180ms);
+    animation-timing-function: var(--agent-ease-out);
+    animation-fill-mode: both;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="scale"][data-send-layer="in"] {
+    animation-name: acpmux-send-scale-in;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="scale"][data-send-layer="out"] {
+    animation-name: acpmux-send-scale-out;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="rotate"][data-send-layer="in"] {
+    animation-name: acpmux-send-rotate-in;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="rotate"][data-send-layer="out"] {
+    animation-name: acpmux-send-rotate-out;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="blur"][data-send-layer="in"] {
+    animation-name: acpmux-send-blur-in;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="blur"][data-send-layer="out"] {
+    animation-name: acpmux-send-blur-out;
+  }
+}
+@keyframes acpmux-send-scale-in {
+  from { opacity: 0; transform: scale(0.7); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes acpmux-send-scale-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.7); }
+}
+@keyframes acpmux-send-rotate-in {
+  from { opacity: 0; transform: rotate(-90deg) scale(0.7); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes acpmux-send-rotate-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: rotate(90deg) scale(0.7); }
+}
+@keyframes acpmux-send-blur-in {
+  from { opacity: 0; filter: blur(3px); }
+  to { opacity: 1; filter: none; }
+}
+@keyframes acpmux-send-blur-out {
+  from { opacity: 1; filter: none; }
+  to { opacity: 0; filter: blur(3px); }
 }
 
 /* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's dimmed
@@ -471,13 +562,17 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    brighter (Leo 2026-10-21: "a subtle hairline border that brightens slightly on focus"; before it
    the ring flashed, 10-19, and then drew nothing): a focused composer, the chat's and the New
    Tab's, its strip and its queue keep the one-device-pixel rim and take
-   --acpmux-composer-edge-focus, 28% text where the resting edge is 18%. No ring, no glow, no wider
+   --acpmux-composer-edge-focus, 22% text where the resting edge is 18%. No ring, no glow, no wider
    line, nothing moves. Over art the glass card's top-lit rim stays as it rests. The prompt itself
-   draws no ring (desktop.css, cx-ncc.57). A page that is not the key one rests (below). */
+   draws no ring (desktop.css, cx-ncc.57). A page that is not the key one rests (below).
+   The step was 28% until Leo found the focused frame too loud (2026-11-07: "the border on the
+   composer, like it being this, like super duper prominent glass, I feel like is sort of strange"):
+   22% still reads as a brighten beside a resting card, without outlining it (gallery
+   agent-pane.composer-rim). */
 .acpmux-composer,
 .nt-composer,
 .nt-box {
-  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 28%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg, var(--acpmux-base)));
 }
 /* Under Increase Contrast the resting edge is already the full text color, so 28% would dim it on
    focus: keep the resting edge there (the shared ring below marks a focused box). */

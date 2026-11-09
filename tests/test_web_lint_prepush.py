@@ -149,11 +149,13 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/cmux-next/push_range.py",
             "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/github_release_download.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
+            "scripts/merge-insertions.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -1364,6 +1366,34 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(argv[-2:], ["vp", "lint"])
         self.assertEqual((env["GOMAXPROCS"], env["NODE_OPTIONS"]), ("3", "--max-old-space-size=1024"))
         self.assertEqual(env["GOMEMLIMIT"], lint.HEAVY_GOMEMLIMIT)
+
+    def test_a_bun_preload_in_bun_options_never_breaks_bun_install(self):
+        # A shell profile exported BUN_OPTIONS="--preload PATH" (a Claude Code preload). Bun reads the space form
+        # as a script path, so `bun install` failed with 'Script not found "install"' and the hook refused every
+        # push touching web code. Each tool the hook starts gets the `--preload=PATH` form, which means the same.
+        lint = load_lint(self.repo)
+        preload = self.root / "preload.js"
+        preload.write_text("globalThis.__preloaded = true;\n")
+        given = f"--smol --preload {preload} -r {preload} --require {preload} --import {preload} --preload=/kept.js"
+        for ci in ("", "true"):
+            with mock.patch.object(lint.subprocess, "run") as run, \
+                    mock.patch.dict(os.environ, {"GITHUB_ACTIONS": ci, "CI": "", "BUN_OPTIONS": given}):
+                lint.spawn(["bun", "install"], self.repo, None)
+            self.assertEqual(run.call_args.kwargs["env"]["BUN_OPTIONS"],
+                             f"--smol --preload={preload} --preload={preload} --require={preload} "
+                             f"--import={preload} --preload=/kept.js", ci)
+        bun = shutil.which("bun")
+        if not bun:
+            return
+        package = self.root / "bun-options-package"
+        package.mkdir()
+        (package / "package.json").write_text('{"name": "bun-options-fixture"}\n')
+        env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", str(self.root)),
+               "BUN_OPTIONS": f"--preload {preload}"}
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CI": ""}):
+            installed = lint.spawn([bun, "install", "--no-save"], package, env)
+        self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+        self.assertNotIn("Script not found", installed.stderr)
 
 
 # cmux-tui/frontends/web imports `cmux` from file:../../bindings/typescript, whose exports point at a

@@ -35,9 +35,22 @@
 # cu-driver-eval.sh bench=: bench=preflight (the default) or bench=run, condition=background|foreground,
 # reps= runs per task, tasks=A,B, and waive=REGEX[;REGEX] (no spaces) for preflight checks that fit
 # only the bench's own builds. Its artifact and exit status are cu-driver-eval's, as for input-ab.
+#
+# suite=arena base_url=... runs the computer-use arena (cu-driver-eval/arena/README.md): every engine
+# (arms=cmux-cua,cua-driver-0.38.0,cu-fast,cu-rewrite,chief-desktop) with every harness model
+# (harness=claude:claude-opus-5-5,codex:gpt-6-astra) on its task suite (arena_tasks=a,b; all by
+# default), reps= runs per task. The engines that exist only as open PRs are built on this worker
+# first, at the commits pins.json arena.engines names (or cu_fast=SHA cu_rewrite=SHA
+# chief_desktop=SHA), and copied into the guest with the pinned Claude Code and Codex. budget_s=
+# is the step's --timeout, so the guest's run ends in time for its results to come back.
+#
+# suite=latency runs the per-call latency bench (cu-bench/README.md) in the same guest, on the same
+# engines the arena assembles (arms=, cu_fast=, cu_rewrite=), with no model and no route: reps=
+# rounds of every op against Calculator.
 set -uo pipefail
 started_at=$(date +%s)
 base_url="" suite=probe reps=3 drivers="cmux-cua,cua-driver-0.38.0" bench=preflight condition=background tasks="" waive=""
+arms="" harness="" arena_tasks="" cu_fast="" cu_rewrite="" chief_desktop="" budget_s=7200
 for arg in "$@"; do
   case "$arg" in
     base_url=*) base_url="${arg#base_url=}" ;;
@@ -48,10 +61,20 @@ for arg in "$@"; do
     condition=*) condition="${arg#condition=}" ;;
     tasks=*) tasks="${arg#tasks=}" ;;
     waive=*) waive="${arg#waive=}" ;;
+    arms=*) arms="${arg#arms=}" ;;
+    harness=*) harness="${arg#harness=}" ;;
+    arena_tasks=*) arena_tasks="${arg#arena_tasks=}" ;;
+    cu_fast=*) cu_fast="${arg#cu_fast=}" ;;
+    cu_rewrite=*) cu_rewrite="${arg#cu_rewrite=}" ;;
+    chief_desktop=*) chief_desktop="${arg#chief_desktop=}" ;;
+    budget_s=*) budget_s="${arg#budget_s=}" ;;
     *) echo "cu-driver-bench.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-[[ "$suite" == probe || "$suite" == input-ab || "$suite" == route || "$suite" == bench-v2 ]] || { echo "cu-driver-bench.sh: suite= is probe, input-ab, route or bench-v2" >&2; exit 2; }
+[[ "$suite" == probe || "$suite" == input-ab || "$suite" == route || "$suite" == bench-v2 || "$suite" == arena || "$suite" == latency ]] || { echo "cu-driver-bench.sh: suite= is probe, input-ab, route, bench-v2, arena or latency" >&2; exit 2; }
+[[ "$arms" =~ ^[a-z0-9.,-]*$ && "$arena_tasks" =~ ^[a-z0-9,-]*$ && "$harness" =~ ^[a-z0-9.,:-]*$ ]] || { echo "cu-driver-bench.sh: arms=, arena_tasks= and harness= are comma lists" >&2; exit 2; }
+for sha in "$cu_fast" "$cu_rewrite" "$chief_desktop"; do [[ -z "$sha" || "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "cu-driver-bench.sh: an engine commit is a full sha" >&2; exit 2; }; done
+[[ "$budget_s" =~ ^[0-9]{4,5}$ ]] || { echo "cu-driver-bench.sh: budget_s= is the step's timeout in seconds" >&2; exit 2; }
 [[ "$bench" == preflight || "$bench" == run ]] || { echo "cu-driver-bench.sh: bench= is preflight or run" >&2; exit 2; }
 [[ "$condition" == background || "$condition" == foreground ]] || { echo "cu-driver-bench.sh: condition= is background or foreground" >&2; exit 2; }
 [[ "$tasks" =~ ^[A-Z0-9,-]*$ ]] || { echo "cu-driver-bench.sh: tasks= is a comma list of task ids" >&2; exit 2; }
@@ -60,7 +83,7 @@ done
 [[ "$drivers" =~ ^[a-z0-9.,-]*$ ]] || { echo "cu-driver-bench.sh: drivers= is a comma list of names" >&2; exit 2; }
 [[ -z "$base_url" || "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: base_url=http://HOST[:PORT]" >&2; exit 2; }
 # The guest reaches the route through a TCP forward to a plain http:// URL on its own loopback.
-[[ ( "$suite" != route && "$suite" != bench-v2 ) || "$base_url" =~ ^http://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: suite=$suite needs base_url=http://HOST[:PORT]" >&2; exit 2; }
+[[ ( "$suite" != route && "$suite" != bench-v2 && "$suite" != arena ) || "$base_url" =~ ^http://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: suite=$suite needs base_url=http://HOST[:PORT]" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 here="$root/scripts/measure/cu-driver-eval"
@@ -92,7 +115,7 @@ EOF
   cat "$out/vm.json"
   tar -czf "$root/artifacts/cu-driver-bench.tgz" -C "$root/artifacts" cu-driver-bench
   # input-ab's artifact is cu-driver-eval.tgz; a run stopped before the A/B still leaves one.
-  if [[ ( "$suite" == input-ab || "$suite" == bench-v2 ) && ! -d "$root/artifacts/cu-driver-eval" ]]; then
+  if [[ ( "$suite" == input-ab || "$suite" == bench-v2 || "$suite" == arena || "$suite" == latency ) && ! -d "$root/artifacts/cu-driver-eval" ]]; then
     mkdir -p "$root/artifacts/cu-driver-eval"
     cp "$out/vm.json" "$root/artifacts/cu-driver-eval/"
     tar -czf "$root/artifacts/cu-driver-eval.tgz" -C "$root/artifacts" cu-driver-eval
@@ -108,6 +131,19 @@ if [[ -n "$base_url" ]]; then
     finish "this worker does not reach the model route (no HTTP answer in 5 s)"
     exit 4
   fi
+fi
+
+engines_out="$lume_home/arena/engines"
+if [[ "$suite" == arena || "$suite" == latency ]]; then
+  # The engines that are open PRs, built here (Xcode and Rust live on the worker, not the guest).
+  note "STAGE engines"
+  rm -rf "$engines_out"
+  mkdir -p "$engines_out" "$lume_home/arena/cache"
+  specs=()
+  [[ ",$arms," == *,cu-fast,* ]] && specs+=("cu-fast=${cu_fast:-$(pin arena engines cu-fast)}")
+  [[ ",$arms," == *,cu-rewrite,* ]] && specs+=("cu-rewrite=${cu_rewrite:-$(pin arena engines cu-rewrite)}")
+  [[ ",$arms," == *,chief-desktop,* ]] && specs+=("chief-desktop=${chief_desktop:-$(pin arena engines chief-desktop)}")
+  (( ${#specs[@]} )) && bash "$here/arena/build-engines.sh" "$engines_out" "$lume_home/arena/cache" "${specs[@]}" 2>&1 | tee "$out/engines.log"
 fi
 
 note "STAGE lume"
@@ -298,7 +334,7 @@ f.setdefault(sys.argv[2], {})[sys.argv[3]] = value
 print(json.dumps(f))' "$facts" "$@")
 }
 
-if [[ "$suite" == route || "$suite" == bench-v2 ]]; then
+if [[ "$suite" == route || "$suite" == bench-v2 || "$suite" == arena ]]; then
   note "STAGE route"
   # The guest's 127.0.0.1:4016 becomes the route, through this worker. Only this ssh is killed on exit.
   route_hostport=${base_url#http://}
@@ -315,10 +351,13 @@ if [[ "$suite" == route || "$suite" == bench-v2 ]]; then
   done
   [[ $forwarded == 1 ]] || { cat "$out/forward.log"; finish "the forward of the route into the guest did not come up (forward.log)"; exit 4; }
   # The pinned Claude Code, fetched once into the worker's cache and copied in, where the bench expects it.
-  cc_version=$(pin claude_code version) cc_sum=$(pin claude_code sha256)
+  # The arena pins its own Claude Code (one that knows the models it runs); the bench keeps the bench's.
+  cc_pin=(claude_code)
+  [[ "$suite" == arena ]] && cc_pin=(arena claude_code)
+  cc_version=$(pin "${cc_pin[@]}" version) cc_sum=$(pin "${cc_pin[@]}" sha256)
   cc_bin="$lume_home/bin/claude-$cc_sum"
   if [[ "$(shasum -a 256 "$cc_bin" 2>/dev/null | awk '{print $1}')" != "$cc_sum" ]]; then
-    curl -fsSL --retry 3 -o "$cc_bin.part" "$(pin claude_code url)" && mv "$cc_bin.part" "$cc_bin"
+    curl -fsSL --retry 3 -o "$cc_bin.part" "$(pin "${cc_pin[@]}" url)" && mv "$cc_bin.part" "$cc_bin"
   fi
   [[ "$(shasum -a 256 "$cc_bin" 2>/dev/null | awk '{print $1}')" == "$cc_sum" ]] || { rm -f "$cc_bin"; finish "could not fetch the pinned Claude Code"; exit 4; }
   guest 'sudo -n mkdir -p /opt/homebrew/bin && sudo -n chown "$(id -un)" /opt/homebrew/bin && cat >/opt/homebrew/bin/claude && chmod 755 /opt/homebrew/bin/claude' <"$cc_bin" ||
@@ -349,6 +388,22 @@ if [[ "$suite" == route || "$suite" == bench-v2 ]]; then
   setfact route answered "$([[ $answered == 1 ]] && echo true || echo false)"
   [[ $answered == 1 ]] || { head -c 2000 "$out/route-probe.txt"; finish "the guest's claude -p did not answer through the route (route-probe.txt)"; exit 4; }
   note "the guest's Claude Code $cc_version answered through the route"
+  if [[ "$suite" == arena && ",$harness," == *,codex:* ]]; then
+    # The pinned Codex, its native binaries; its route is given per run on the command line (arena.py).
+    codex_sum=$(pin arena codex sha256)
+    codex_tgz="$lume_home/bin/codex-$codex_sum.tar.gz"
+    if [[ "$(shasum -a 256 "$codex_tgz" 2>/dev/null | awk '{print $1}')" != "$codex_sum" ]]; then
+      curl -fsSL --retry 3 -o "$codex_tgz.part" "$(pin arena codex url)" && mv "$codex_tgz.part" "$codex_tgz"
+    fi
+    [[ "$(shasum -a 256 "$codex_tgz" 2>/dev/null | awk '{print $1}')" == "$codex_sum" ]] || { rm -f "$codex_tgz"; finish "could not fetch the pinned Codex"; exit 4; }
+    # codex finds its code-mode host next to itself, as npm lays them out.
+    for codex_bin in codex codex-code-mode-host; do
+      tar -xzOf "$codex_tgz" "$(pin arena codex bin_dir)/$codex_bin" |
+        guest "cat >/opt/homebrew/bin/$codex_bin && chmod 755 /opt/homebrew/bin/$codex_bin && (codesign -v /opt/homebrew/bin/$codex_bin 2>/dev/null || codesign -s - -f /opt/homebrew/bin/$codex_bin)" ||
+        { finish "could not copy $codex_bin into the guest"; exit 4; }
+    done
+    setfact route codex "$(guest_n '/opt/homebrew/bin/codex --version' 2>/dev/null | head -1)"
+  fi
   if [[ "$suite" == route ]]; then
     finish
     exit 0
@@ -361,19 +416,35 @@ rev=$(git rev-parse HEAD)
 # Quoted for the guest's shell: a waive= regex may hold ; | ( or *.
 eval_args=""
 [[ "$suite" == bench-v2 ]] && eval_args=$(printf ' %q' electron=0 "bench=$bench" "condition=$condition" "tasks=$tasks" "waive=$waive")
-git archive "$rev" scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/build-cmux-cua.sh skills/cmux-cua |
+# The arena stops starting trials in time to write its summary: the step's budget, less what the boot
+# took, the guest's setup (about 10 minutes) and the 5 minutes the results need to come back.
+arena_budget=$(( started_at + budget_s - 300 - 600 - $(date +%s) ))
+[[ "$suite" == arena ]] && eval_args=$(printf ' %q' electron=0 arena=run "arms=$arms" "harness=$harness" "arena_tasks=$arena_tasks" "arena_budget=$arena_budget")
+[[ "$suite" == latency ]] && eval_args=$(printf ' %q' electron=0 arena=latency "arms=$arms" "reps=$reps" "arena_budget=$arena_budget")
+git archive "$rev" scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/measure/cu-bench scripts/build-cmux-cua.sh skills/cmux-cua |
   guest 'rm -rf ~/cu-eval && mkdir -p ~/cu-eval && tar -x -C ~/cu-eval' || { finish "could not copy the A/B into the guest"; exit 4; }
+if [[ ( "$suite" == arena || "$suite" == latency ) && -d "$engines_out" ]]; then
+  tar -c -C "$engines_out" . | guest 'mkdir -p ~/cu-eval/engines && tar -x -C ~/cu-eval/engines' || { finish "could not copy the engines into the guest"; exit 4; }
+fi
 guest_n "bash ~/cu-eval/scripts/measure/cu-driver-eval/guest-start.sh $rev $reps '$drivers'$eval_args" >"$out/start.log" 2>&1 ||
   { cat "$out/start.log"; finish "could not start the A/B in the guest's session (start.log)"; exit 4; }
 cat "$out/start.log"
 note "the A/B is running in the guest"
 finished=0
-# Up to 90 minutes for its builds, downloads and trials, ending 5 minutes before the step's
-# 7200 s budget runs out (a first pull and the boot spend some of it), so the results still come back.
-deadline=$(( started_at + 6900 ))
-(( deadline > $(date +%s) + 5400 )) && deadline=$(( $(date +%s) + 5400 ))
+# Up to 90 minutes for its builds, downloads and trials (the arena: until its budget_s), ending 5
+# minutes before the step's budget runs out (a first pull and the boot spend some of it), so the
+# results still come back.
+deadline=$(( started_at + budget_s - 300 ))
+[[ "$suite" != arena ]] && (( deadline > $(date +%s) + 5400 )) && deadline=$(( $(date +%s) + 5400 ))
+# A progress line every 5 minutes: the guest's eval.log stays in the guest until it ends, and the
+# controller stops a measurement that prints nothing for 45 minutes (CMUX_CI_MEASURE_SILENT_MAX).
+next_progress=$(( $(date +%s) + 300 ))
 while (( $(date +%s) < deadline )); do
   guest_n 'test -f ~/cu-eval/eval.status' 2>/dev/null && { finished=1; break; }
+  if (( $(date +%s) >= next_progress )); then
+    next_progress=$(( $(date +%s) + 300 ))
+    note "still running: $(guest_n 'n=$(wc -l <~/cu-eval/artifacts/cu-driver-eval/arena/trials.jsonl 2>/dev/null || echo 0); echo "$n trials; $(tail -1 ~/cu-eval/eval.log 2>/dev/null | cut -c1-160)"' 2>/dev/null)"
+  fi
   sleep 10
 done
 guest_n 'cat ~/cu-eval/eval.log' >"$out/eval.log" 2>/dev/null
