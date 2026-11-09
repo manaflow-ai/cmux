@@ -58,7 +58,6 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
   // (conversation.css: --acpmux-find-x, --acpmux-find-y and --acpmux-find-width on the scroller),
   // measured before paint and again when the bar narrows, the pane resizes, or Session Info moves it
   // (its reach is a style on the shell, SessionInfo.tsx SESSION_INFO_CLEAR).
-  const bar = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = bar.current;
     const scroller = node?.closest<HTMLElement>(".acpmux-scroll");
