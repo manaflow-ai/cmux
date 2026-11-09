@@ -370,7 +370,6 @@ fn serve(
             "_acpmux/btw" if params["question"] == json!("old acpmux") => {
                 Some(json!({"sessionId": "acp_side", "model": null, "readOnly": "mode"}))
             }
-            "_acpmux/kill" => Some(json!({"sessionId": params["sessionId"], "purged": true})),
             "_acpmux/btw" => Some(json!({"text": "It flaked on a timeout."})),
             // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
             "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
