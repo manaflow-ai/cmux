@@ -312,6 +312,11 @@ UI_FONT_CHECK = "UI font (the system font, schemas/type-scale/ui-font-pin.json)"
 UI_FONT_SCRIPT = SCRIPTS + "/check-ui-font.py"
 # check-ui-font.py's stop on a read outside its INPUTS (Tree.covered).
 UI_FONT_GUARD = "which is not in INPUTS"
+# A guard stop is a defect of the check, not a violation the push adds: its own name, header and hint (review of
+# #39859: under CMUX_NEXT_CHECKS_SKIP_REASON it printed the Font-order trailer hint, which cannot fix it).
+UI_FONT_STOP_CHECK = "UI font check could not run (check-ui-font.py read a file outside its INPUTS)"
+UI_FONT_STOP_HINT = ("prepush-gate: the UI font check stopped before it judged this push: add the path to INPUTS in "
+                     "scripts/cmux-next/check-ui-font.py (CMUX_NEXT_CHECKS_SKIP_REASON does not skip it).")
 
 # The What's New highlights (release-notes/next/WRITING.md), judged by the release-notary job's own validator.
 HIGHLIGHTS_CHECK = "What's New highlights (scripts/whats-new/validate.py, the release-notary test)"
@@ -1719,7 +1724,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
     if only is None or "ui-font" in only:
         fresh = ui_font(repo, base, head, trusted_scripts)
-        reserved += [(UI_FONT_CHECK, fresh)] if fresh else []
+        stopped = [line for line in fresh if UI_FONT_GUARD in line]
+        if stopped:
+            reserved.append((UI_FONT_STOP_CHECK, stopped))
+        elif fresh:
+            reserved.append((UI_FONT_CHECK, fresh))
     if only is None or "conflicts" in only:
         markers = conflict_markers(repo, base, head)
         if markers:
@@ -2307,7 +2316,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0
     skip = os.environ.get("CMUX_NEXT_CHECKS_SKIP_REASON", "").strip()
-    print_findings(found_any, "prepush-gate: this push adds violations:")
+    if all(name == UI_FONT_STOP_CHECK for name, _ in found_any):
+        print_findings(found_any, "prepush-gate: a check could not run:")
+    else:
+        print_findings(found_any, "prepush-gate: this push adds violations:")
     if skip and any(name == CONFLICT_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CONFLICT_CHECK}: finish the merge "
               "(keep one side of each hunk), then push.")
@@ -2320,6 +2332,11 @@ def main(argv: list[str] | None = None) -> int:
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
+    elif any(name == UI_FONT_STOP_CHECK for name, _ in found_any):
+        print(UI_FONT_STOP_HINT)
+        if not any(name != UI_FONT_STOP_CHECK for name, _ in found_any):
+            print(f"prepush-gate: push refused ({elapsed:.1f}s)")
+            return 1
     elif skip and any(name == UI_FONT_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {UI_FONT_CHECK}. The UI font changes only "
               "on the user's order, quoted in a `Font-order: <the user's words>` commit trailer.")

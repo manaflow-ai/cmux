@@ -65,8 +65,29 @@ finish() {
 trap finish EXIT
 # A signal must reach finish as a failure: on a fatal SIGTERM or SIGINT bash runs the EXIT trap with $? of the last
 # command (0), and a hook stopped in the middle of a check printed "pre-push: passed" (review of #39787).
-trap 'exit 143' TERM
-trap 'exit 130' INT
+# Each check runs through run_check: in the background, then `wait`. Bash runs a trap only after a foreground command
+# ends, so `kill <hook pid>` left the hook waiting on its check (review of #39859); a trapped signal ends `wait` at
+# once. Bash starts a background command with SIGINT ignored (and bash 3.2 cannot undo that in the subshell), so
+# run_check execs the check through the trusted Python with SIGINT back to its default: a terminal's Ctrl-C still
+# reaches the check and everything it started, as when it ran in the foreground. The trap sends the check SIGTERM.
+CHECK_PID=""
+on_signal() {
+    if [[ -n "$CHECK_PID" ]]; then
+        kill -TERM "$CHECK_PID" 2>/dev/null || true
+    fi
+    exit "$1"
+}
+trap 'on_signal 143' TERM
+trap 'on_signal 130' INT
+run_check() {  # run_check CMD...: CMD with the pushed refs on stdin; returns its exit status
+    "$PYTHON3_BIN" -I -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execvp(sys.argv[1], sys.argv[1:])' \
+        "$@" < "$REFS_FILE" &
+    CHECK_PID=$!
+    local status=0
+    wait "$CHECK_PID" || status=$?
+    CHECK_PID=""
+    return "$status"
+}
 printf '%s\n' "$PUSHED_REFS" > "$REFS_FILE"
 
 # A delete-only push passes here (header). Each line is `<local ref> <local sha> <remote ref> <remote sha>`;
@@ -125,7 +146,7 @@ if [[ -n "$EXTRAS" ]]; then
             exit 1
         fi
         EXTRA_STATUS=0
-        "$EXTRA" "$@" < "$REFS_FILE" || EXTRA_STATUS=$?
+        run_check "$EXTRA" "$@" || EXTRA_STATUS=$?
         if (( EXTRA_STATUS != 0 )); then
             echo "pre-push: cmux.prePushExtra $EXTRA refused the push (exit $EXTRA_STATUS)." >&2
             exit "$EXTRA_STATUS"
@@ -138,8 +159,8 @@ fi
 REFRESH="$HOOK_DIR/refresh_checks.py"
 phase checks-refresh
 if [[ -f "$REFRESH" ]]; then
-    "$PYTHON3_BIN" -I "$REFRESH" --hook-dir "$HOOK_DIR" --repo "$REPO_ROOT" \
-        --remote-url "${2:-}" < "$REFS_FILE" || true
+    run_check "$PYTHON3_BIN" -I "$REFRESH" --hook-dir "$HOOK_DIR" --repo "$REPO_ROOT" \
+        --remote-url "${2:-}" || true
 fi
 
 WEB_LINT="$HOOK_DIR/web_lint_prepush.py"
@@ -149,12 +170,12 @@ WEB_LINT="$HOOK_DIR/web_lint_prepush.py"
 FAST_TIER="$CHECKS/prepush_fast_tier.py"
 phase fast-tier
 if [[ -f "$FAST_TIER" ]]; then
-    "$PYTHON3_BIN" -I "$FAST_TIER" --repo "$REPO_ROOT" --remote "$PUSHED_REMOTE" < "$REFS_FILE"
+    run_check "$PYTHON3_BIN" -I "$FAST_TIER" --repo "$REPO_ROOT" --remote "$PUSHED_REMOTE"
 fi
 phase web-lint
 if [[ -f "$WEB_LINT" ]]; then
-    "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT" \
-        --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS" < "$REFS_FILE"
+    run_check "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT" \
+        --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS"
 else
     echo "pre-push: web lint helper is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
@@ -164,8 +185,8 @@ GATE="$HOOK_DIR/cmux_next_prepush_gate.py"
 phase cmux-next-gate
 if [[ -f "$GATE" ]]; then
     # The remote's URL ($2): the compile trailer rule applies only to a push to manaflow-ai/cmux's feat-cmux-next.
-    CMUX_PREPUSH_REMOTE_URL="${2:-}" "$PYTHON3_BIN" -I "$GATE" --pre-push \
-        --repo "$REPO_ROOT" --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS" < "$REFS_FILE"
+    run_check env CMUX_PREPUSH_REMOTE_URL="${2:-}" "$PYTHON3_BIN" -I "$GATE" --pre-push \
+        --repo "$REPO_ROOT" --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS"
 else
     echo "pre-push: cmux-next checks gate is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
@@ -175,7 +196,7 @@ fi
 BASE_MERGE_WARNING="$HOOK_DIR/base_merge_warning.py"
 phase base-merge-warning
 if [[ -f "$BASE_MERGE_WARNING" ]]; then
-    "$PYTHON3_BIN" -I "$BASE_MERGE_WARNING" --pre-push --repo "$REPO_ROOT" < "$REFS_FILE" || true
+    run_check "$PYTHON3_BIN" -I "$BASE_MERGE_WARNING" --pre-push --repo "$REPO_ROOT" || true
 fi
 
 phase ""
