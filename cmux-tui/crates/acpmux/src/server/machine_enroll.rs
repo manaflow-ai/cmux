@@ -3,6 +3,10 @@
 //! The daemon runs the enroll itself so the mesh relay starts live when the machine joins, with
 //! no restart (a never-joined daemon started none). The access token arrives in the request's
 //! params on the local socket only, and goes only into the hub requests: never a log line.
+//!
+//! Every change of the join on this daemon (the start's leave and relay, an enroll, a leave,
+//! shutdown) holds `Hub::join_transition` throughout, and reads config.json's relay once it
+//! holds it: none starts or stops a relay on what it read before another changed the join.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -14,6 +18,8 @@ use zeroize::Zeroizing;
 use super::{Conn, Origin};
 use crate::cli::cloud_join::{EnrollOutcome, EnrollRequest, LeaveOutcome};
 use crate::hub::Hub;
+use crate::mesh_http::MeshRelayConfig;
+use crate::no_panic::LockExt;
 use crate::rpc::RpcError;
 
 /// The local app's socket only: never a peer, a phone or a web page. And only the person
@@ -47,25 +53,52 @@ pub(super) async fn enroll(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
     };
     let request =
         EnrollRequest { hub: text("hub"), user_id: text("userId"), build_tag: text("buildTag") };
-    let outcome = crate::cli::cloud_join::enroll_self(request, access).await;
-    tracing::info!(?outcome, "sign-in enroll");
-    let relay = match outcome {
-        EnrollOutcome::Joined | EnrollOutcome::AlreadyJoined => Some(start_relay(hub).await),
-        _ => None,
-    };
+    let (outcome, relay) =
+        enroll_transition(hub, crate::cli::cloud_join::enroll_self(request, access), || {
+            relay_on_disk(hub)
+        })
+        .await;
     Ok(json!({"outcome": outcome, "relay": relay}))
 }
 
-/// Starts the mesh relay the join wrote into config.json, unless one is running.
-async fn start_relay(hub: &Arc<Hub>) -> &'static str {
+/// A sign-in's enroll (`enroll`) with the join transition held, then the relay as config.json
+/// says once it is done (`on_disk`).
+async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>>>(
+    hub: &Arc<Hub>,
+    enroll: impl Future<Output = EnrollOutcome>,
+    on_disk: impl FnOnce() -> D,
+) -> (EnrollOutcome, Option<&'static str>) {
+    let _join = hub.join_transition.lock().await;
+    let outcome = enroll.await;
+    tracing::info!(?outcome, "sign-in enroll");
+    let relay = match outcome {
+        EnrollOutcome::Joined | EnrollOutcome::AlreadyJoined => {
+            Some(reconcile_relay(hub, on_disk().await).await)
+        }
+        _ => None,
+    };
+    (outcome, relay)
+}
+
+/// config.json's `meshRelay` now; the one this daemon loaded when config.json cannot be read.
+async fn relay_on_disk(hub: &Arc<Hub>) -> Option<MeshRelayConfig> {
+    match tokio::task::spawn_blocking(crate::config::Config::load).await {
+        Ok(Ok(config)) => config.mesh_relay,
+        _ => hub.config.read().await.mesh_relay.clone(),
+    }
+}
+
+/// Makes the running relay what config.json says (`on_disk`), with the join transition held:
+/// started when it names one and none runs, stopped (with its hub client) when it names none.
+async fn reconcile_relay(hub: &Arc<Hub>, on_disk: Option<MeshRelayConfig>) -> &'static str {
+    let Some(relay) = on_disk else {
+        stop_joined(hub).await;
+        return "off";
+    };
     let mut slot = hub.mesh_relay.lock().await;
     if slot.as_ref().is_some_and(|relay| !relay.is_finished()) {
         return "running";
     }
-    let Ok(Ok(config)) = tokio::task::spawn_blocking(crate::config::Config::load).await else {
-        return "off";
-    };
-    let Some(relay) = config.mesh_relay else { return "off" };
     start_relay_with(hub, &mut slot, relay).await
 }
 
@@ -89,17 +122,27 @@ async fn start_relay_with(
 /// `_acpmux/machine_leave_if_auto {}` -> `{left, kept?, hub?}`: leaves only a join signing in made.
 pub(super) async fn leave_if_auto(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcError> {
     local(conn, crate::rpc::method::MUX_MACHINE_LEAVE_IF_AUTO)?;
-    let outcome = crate::cli::cloud_join::leave_if_auto().await;
+    let outcome = leave_transition(hub, crate::cli::cloud_join::leave_if_auto()).await;
+    serde_json::to_value(outcome).map_err(|e| RpcError::internal(e.to_string()))
+}
+
+/// A sign-out's leave (`leave`) with the join transition held, then what it stops here.
+async fn leave_transition(
+    hub: &Arc<Hub>,
+    leave: impl Future<Output = LeaveOutcome>,
+) -> LeaveOutcome {
+    let _join = hub.join_transition.lock().await;
+    let outcome = leave.await;
     tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave");
     after_leave(hub, &outcome).await;
-    serde_json::to_value(outcome).map_err(|e| RpcError::internal(e.to_string()))
+    outcome
 }
 
 /// What a sign-out's leave stops on this daemon: the hub carrier whenever the join went, and the
 /// relay only when the leave removed the join's from config.json. A relay the person set up, or
 /// another hub's, which the leave keeps on disk, keeps running here too, and sends keep its hub
-/// client.
-async fn after_leave(hub: &Arc<Hub>, outcome: &crate::cli::cloud_join::LeaveOutcome) {
+/// client. The caller holds the join transition.
+async fn after_leave(hub: &Arc<Hub>, outcome: &LeaveOutcome) {
     if !outcome.left {
         return;
     }
@@ -136,66 +179,107 @@ pub(crate) fn stop_carrier(_hub: &Hub) -> bool {
     false
 }
 
-/// The relay and, with `carrier` (the daemon's loopback WebSocket address; None for a copied
-/// home), the hub carrier, both from the join in config.json.
-async fn start_joined(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
-    *hub.mesh_relay.lock().await = crate::server::mesh_relay::start_configured(hub).await;
+/// Starts the hub carrier on the relay config.json names, with `carrier` (the daemon's loopback
+/// WebSocket address; None for a copied home), unless one runs. The caller holds the join
+/// transition.
+async fn start_carrier(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
     #[cfg(feature = "hub-carrier")]
-    if carrier.is_some() {
+    if carrier.is_some() && hub.hub_carrier_serve.lock_or_recover().is_none() {
         crate::hub_carrier::start_kept(hub, carrier).await;
     }
     #[cfg(not(feature = "hub-carrier"))]
-    let _ = carrier;
+    let _ = (hub, carrier);
 }
 
-/// The daemon start's mesh relay and hub carrier ([`start_joined`]). A sign-out's leave the last
-/// run did not finish (its mark, or its cleanup's `removing` mark) is finished first, off the
-/// start's path, and neither starts unless the machine stayed joined: a revoked machine never
-/// registers its carrier again.
+/// The daemon start's mesh relay and hub carrier. A sign-out's leave the last run did not finish
+/// (its mark, or its cleanup's `removing` mark) is finished first, off the start's path; then the
+/// relay is what config.json says, and the carrier starts only if the machine stayed joined: a
+/// revoked machine never registers its carrier again. The join transition is taken before this
+/// returns and held until both are settled, so an enroll or leave asked meanwhile waits for it,
+/// then acts on what it left; its task is kept on the hub (`Hub::join_start`).
 pub(crate) async fn start_joined_at_start(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
+    let join = Arc::clone(&hub.join_transition).lock_owned().await;
     let pending = crate::cli::cloud_join::leave_pending();
-    // task-owner: the leave's task ends with the leave and maybe the start (the leave waits at
-    // most for the join lock and the hub's bounded answer); nothing waits for it.
-    let _leave = at_start(
+    let hub_for_disk = Arc::clone(hub);
+    let task = at_start(
         hub,
+        join,
         pending,
         crate::cli::cloud_join::finish_leave_at_start(),
-        move |hub: Arc<Hub>, joined: bool| -> BoxFuture<'static, ()> {
-            Box::pin(async move {
-                start_joined(&hub, carrier.filter(|_| joined)).await;
-            })
+        move || async move { relay_on_disk(&hub_for_disk).await },
+        move |hub: Arc<Hub>| -> BoxFuture<'static, ()> {
+            Box::pin(async move { start_carrier(&hub, carrier).await })
         },
     )
     .await;
+    *hub.join_start.lock_or_recover() = task;
 }
 
-/// [`start_joined_at_start`]'s order: with no leave `pending`, `start` now; with one, `finish`
-/// it in a task first, then `start` (its `joined` says whether the machine stayed joined: the
-/// carrier starts only then, while a relay the person set up, which the leave kept, starts
-/// either way), or stop all the join started. The task's handle, when there is one.
-async fn at_start(
+/// [`start_joined_at_start`]'s order, holding `join` throughout: with no leave `pending`, the
+/// relay config.json names (`on_disk`) and the `carrier` now; with one, `finish` it in a task
+/// first, then the relay as config.json says then and the carrier only if the machine stayed
+/// joined, or nothing while the leave is not finished.
+async fn at_start<D: Future<Output = Option<MeshRelayConfig>> + Send + 'static>(
     hub: &Arc<Hub>,
+    join: tokio::sync::OwnedMutexGuard<()>,
     pending: bool,
     finish: impl Future<Output = Option<LeaveOutcome>> + Send + 'static,
-    start: impl FnOnce(Arc<Hub>, bool) -> BoxFuture<'static, ()> + Send + 'static,
+    on_disk: impl FnOnce() -> D + Send + 'static,
+    carrier: impl FnOnce(Arc<Hub>) -> BoxFuture<'static, ()> + Send + 'static,
 ) -> Option<tokio::task::JoinHandle<()>> {
     if !pending {
-        start(Arc::clone(hub), true).await;
+        reconcile_relay(hub, on_disk().await).await;
+        carrier(Arc::clone(hub)).await;
+        drop(join);
         return None;
     }
     let hub = Arc::clone(hub);
-    // task-owner: one leave and maybe the relay and carrier start; ends with them.
+    // task-owner: one leave and maybe the relay and carrier start, holding the join transition;
+    // kept on `Hub::join_start`, and ended by shutdown. The leave waits at most for the join
+    // lock and the hub's bounded answer.
     Some(tokio::spawn(async move {
-        let Some(outcome) = finish.await else {
-            return start(hub, true).await;
-        };
-        tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave at start");
-        if crate::cli::cloud_join::relay_may_start(&outcome) {
-            start(hub, !outcome.left).await;
-        } else if outcome.left {
-            stop_joined(&hub).await;
+        let _join = join;
+        match finish.await {
+            Some(outcome) if !crate::cli::cloud_join::relay_may_start(&outcome) => {
+                tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave at start");
+                // Left with the join's relay: stopped. Not finished: nothing changes now.
+                if outcome.left {
+                    stop_joined(&hub).await;
+                }
+            }
+            outcome => {
+                let joined = outcome.as_ref().is_none_or(|outcome| !outcome.left);
+                if let Some(outcome) = outcome {
+                    tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave at start");
+                }
+                reconcile_relay(&hub, on_disk().await).await;
+                if joined {
+                    carrier(hub).await;
+                }
+            }
         }
     }))
+}
+
+/// Shutdown's end of the join: the start's task, if it still runs, is ended, and the relay is
+/// stopped with the join transition held, so nothing starts one after. An enroll or leave in
+/// flight is waited for a bounded time.
+pub(crate) async fn stop_at_shutdown(hub: &Arc<Hub>) {
+    let start = hub.join_start.lock_or_recover().take();
+    if let Some(start) = start {
+        start.abort();
+        let _ = start.await;
+    }
+    // timeout: an enroll's hub calls are bounded, but shutdown does not wait on them for long.
+    let _join = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        Arc::clone(&hub.join_transition).lock_owned(),
+    )
+    .await;
+    let relay = hub.mesh_relay.lock().await.take();
+    if let Some(relay) = relay {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
+    }
 }
 
 #[cfg(test)]
@@ -203,9 +287,12 @@ mod tests {
     //! A local connection that did not prove the person (a shell, the CLI, an agent) is refused
     //! both RPCs before anything runs: no hub request, no join or leave on disk. And what a join
     //! starts on this daemon (the relay, the hub client sends use, the carrier) a leave stops,
-    //! a later enroll replaces, and a start with a leave pending holds until the leave.
-    use super::{BoxFuture, LeaveOutcome};
+    //! a later enroll replaces, and a start with a leave pending holds until the leave, as does
+    //! every enroll or leave asked meanwhile.
+    use super::BoxFuture;
+    use crate::cli::cloud_join::{EnrollOutcome, LeaveOutcome};
     use crate::config::{Config, StoreMode};
+    use crate::mesh_http::MeshRelayConfig;
     use crate::rpc::{Message, method};
     use serde_json::{Value, json};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -325,7 +412,6 @@ mod tests {
     /// going through it; one that removed the join's relay stops it.
     #[tokio::test]
     async fn a_sign_out_that_keeps_the_persons_relay_leaves_it_running() {
-        use crate::cli::cloud_join::LeaveOutcome;
         let hub = memory_hub();
         let (own, seen) = recording_hub().await;
         let mut slot = hub.mesh_relay.lock().await;
@@ -344,6 +430,131 @@ mod tests {
         super::after_leave(&hub, &removed).await;
         assert!(hub.mesh_relay.lock().await.is_none());
         assert!(hub.mesh.get().is_none());
+    }
+
+    /// A stand-in for config.json's `meshRelay`, as the transitions read it.
+    type Disk = Arc<Mutex<Option<MeshRelayConfig>>>;
+
+    fn read(
+        disk: &Disk,
+    ) -> impl FnOnce() -> std::future::Ready<Option<MeshRelayConfig>> + Send + 'static {
+        let disk = Arc::clone(disk);
+        move || std::future::ready(disk.lock().unwrap().clone())
+    }
+
+    async fn relay_runs(hub: &crate::hub::Hub) -> bool {
+        hub.mesh_relay.lock().await.as_ref().is_some_and(|relay| !relay.is_finished())
+    }
+
+    /// Lets every task that can run, run.
+    async fn settle() {
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// A sign-in asked while the start finishes a leave waits for it, then starts the relay its
+    /// join wrote: the start's stop never lands after it.
+    #[tokio::test]
+    async fn a_sign_in_during_the_start_leave_ends_with_the_relay_running() {
+        let hub = memory_hub();
+        let (relay, _seen) = recording_hub().await;
+        let disk: Disk = Arc::new(Mutex::new(None));
+        let (release, gate) = tokio::sync::oneshot::channel::<()>();
+        let join = Arc::clone(&hub.join_transition).lock_owned().await;
+        let start = super::at_start(
+            &hub,
+            join,
+            true,
+            async move {
+                let _ = gate.await;
+                Some(LeaveOutcome {
+                    left: true,
+                    kept: None,
+                    hub: Some("revoked"),
+                    relay_removed: true,
+                })
+            },
+            read(&disk),
+            carrier_mark(&Arc::new(AtomicBool::new(false))),
+        )
+        .await
+        .expect("a pending leave runs in a task");
+        let sign_in = {
+            let (hub, disk, written) = (Arc::clone(&hub), Arc::clone(&disk), read(&disk));
+            // task-owner: the test's sign-in; awaited below.
+            tokio::spawn(async move {
+                let enroll = async move {
+                    *disk.lock().unwrap() = Some(relay);
+                    EnrollOutcome::Joined
+                };
+                super::enroll_transition(&hub, enroll, written).await
+            })
+        };
+        settle().await;
+        assert!(!sign_in.is_finished(), "the enroll waits for the start's leave");
+        assert!(disk.lock().unwrap().is_none());
+        let _ = release.send(());
+        start.await.unwrap();
+        assert_eq!(sign_in.await.unwrap(), (EnrollOutcome::Joined, Some("started")));
+        assert!(relay_runs(&hub).await, "the new join's relay runs");
+        assert!(hub.mesh.get().is_some());
+        super::stop_joined(&hub).await;
+    }
+
+    /// A sign-out asked while the start brings up the relay waits for it, then stops it: the
+    /// start's relay never comes back after the sign-out.
+    #[tokio::test]
+    async fn a_sign_out_during_the_start_ends_with_no_relay() {
+        let hub = memory_hub();
+        let (relay, _seen) = recording_hub().await;
+        let disk: Disk = Arc::new(Mutex::new(Some(relay)));
+        let (release, gate) = tokio::sync::oneshot::channel::<()>();
+        let join = Arc::clone(&hub.join_transition).lock_owned().await;
+        let start = super::at_start(
+            &hub,
+            join,
+            true,
+            async move {
+                let _ = gate.await;
+                Some(LeaveOutcome {
+                    left: false,
+                    kept: Some("signedIn"),
+                    hub: None,
+                    relay_removed: false,
+                })
+            },
+            read(&disk),
+            carrier_mark(&Arc::new(AtomicBool::new(false))),
+        )
+        .await
+        .expect("a pending leave runs in a task");
+        let sign_out = {
+            let (hub, disk) = (Arc::clone(&hub), Arc::clone(&disk));
+            // task-owner: the test's sign-out; awaited below.
+            tokio::spawn(async move {
+                let leave = async move {
+                    *disk.lock().unwrap() = None;
+                    LeaveOutcome {
+                        left: true,
+                        kept: None,
+                        hub: Some("revoked"),
+                        relay_removed: true,
+                    }
+                };
+                super::leave_transition(&hub, leave).await
+            })
+        };
+        settle().await;
+        assert!(!sign_out.is_finished(), "the leave waits for the start");
+        assert!(disk.lock().unwrap().is_some());
+        let _ = release.send(());
+        start.await.unwrap();
+        assert!(sign_out.await.unwrap().left);
+        assert!(!relay_runs(&hub).await, "no relay after the sign-out");
+        assert!(hub.mesh_relay.lock().await.is_none());
+        assert!(hub.mesh.get().is_none());
+        assert!(hub.config.read().await.mesh_relay.is_none());
     }
 
     /// A leave clears the hub client sends go through, and a later enroll on another hub's origin
@@ -374,67 +585,77 @@ mod tests {
         super::stop_joined(&hub).await;
     }
 
+    /// A carrier start that only says it ran.
+    fn carrier_mark(
+        started: &Arc<AtomicBool>,
+    ) -> impl FnOnce(Arc<crate::hub::Hub>) -> BoxFuture<'static, ()> + Send + 'static {
+        let mark = Arc::clone(started);
+        move |_| -> BoxFuture<'static, ()> {
+            Box::pin(async move {
+                mark.store(true, Ordering::SeqCst);
+            })
+        }
+    }
+
+    /// The start with a leave pending that ends as `outcome` once `gate` opens, config.json's
+    /// relay then being `disk`'s; whether it started the carrier.
+    async fn start_after_leave(
+        hub: &Arc<crate::hub::Hub>,
+        outcome: LeaveOutcome,
+        disk: &Disk,
+        gate: tokio::sync::oneshot::Receiver<()>,
+    ) -> (tokio::task::JoinHandle<()>, Arc<AtomicBool>) {
+        let carrier = Arc::new(AtomicBool::new(false));
+        let join = Arc::clone(&hub.join_transition).lock_owned().await;
+        let task = super::at_start(
+            hub,
+            join,
+            true,
+            async move {
+                let _ = gate.await;
+                Some(outcome)
+            },
+            read(disk),
+            carrier_mark(&carrier),
+        )
+        .await
+        .expect("a pending leave runs in a task");
+        (task, carrier)
+    }
+
     /// A leave the last run did not finish holds the start: the relay and carrier start only
-    /// after it, and only if the machine stayed joined.
+    /// after it, and neither when the machine left with the join's relay.
     #[tokio::test]
     async fn a_pending_leave_that_leaves_starts_nothing_at_start() {
         let hub = memory_hub();
-        let started = Arc::new(AtomicBool::new(false));
-        let mark = Arc::clone(&started);
-        let (left, finish) = tokio::sync::oneshot::channel::<()>();
-        let task = super::at_start(
-            &hub,
-            true,
-            async move {
-                let _ = finish.await;
-                Some(LeaveOutcome {
-                    left: true,
-                    kept: None,
-                    hub: Some("revoked"),
-                    relay_removed: true,
-                })
-            },
-            move |_, _| -> BoxFuture<'static, ()> {
-                Box::pin(async move {
-                    mark.store(true, Ordering::SeqCst);
-                })
-            },
-        )
-        .await
-        .expect("a pending leave runs in a task");
-        assert!(!started.load(Ordering::SeqCst), "nothing starts before the leave");
-        let _ = left.send(());
+        let disk: Disk = Arc::new(Mutex::new(None));
+        let (release, gate) = tokio::sync::oneshot::channel::<()>();
+        let left =
+            LeaveOutcome { left: true, kept: None, hub: Some("revoked"), relay_removed: true };
+        let (task, carrier) = start_after_leave(&hub, left, &disk, gate).await;
+        settle().await;
+        assert!(!carrier.load(Ordering::SeqCst), "nothing starts before the leave");
+        let _ = release.send(());
         task.await.unwrap();
-        assert!(!started.load(Ordering::SeqCst), "a machine that left starts nothing");
+        assert!(!carrier.load(Ordering::SeqCst), "a machine that left starts no carrier");
+        assert!(!relay_runs(&hub).await, "nor a relay");
     }
 
-    /// The same order when the leave kept the join (a sign-in since): it starts after the leave.
+    /// The same order when the leave kept the join (a sign-in since): both start after it.
     #[tokio::test]
     async fn a_pending_leave_that_keeps_the_join_starts_it_after() {
         let hub = memory_hub();
-        let started = Arc::new(AtomicBool::new(false));
-        let mark = Arc::clone(&started);
-        let task = super::at_start(
-            &hub,
-            true,
-            async {
-                Some(LeaveOutcome {
-                    left: false,
-                    kept: Some("signedIn"),
-                    hub: None,
-                    relay_removed: false,
-                })
-            },
-            move |_, _| -> BoxFuture<'static, ()> {
-                Box::pin(async move {
-                    mark.store(true, Ordering::SeqCst);
-                })
-            },
-        )
-        .await
-        .expect("a pending leave runs in a task");
+        let (relay, _seen) = recording_hub().await;
+        let disk: Disk = Arc::new(Mutex::new(Some(relay)));
+        let (release, gate) = tokio::sync::oneshot::channel::<()>();
+        let kept =
+            LeaveOutcome { left: false, kept: Some("signedIn"), hub: None, relay_removed: false };
+        let (task, carrier) = start_after_leave(&hub, kept, &disk, gate).await;
+        let _ = release.send(());
         task.await.unwrap();
-        assert!(started.load(Ordering::SeqCst));
+        assert!(carrier.load(Ordering::SeqCst));
+        assert!(relay_runs(&hub).await);
+        super::stop_joined(&hub).await;
     }
 
     /// A leave at start that left the join but kept the person's relay in config.json starts
@@ -442,29 +663,17 @@ mod tests {
     #[tokio::test]
     async fn a_pending_leave_that_keeps_the_persons_relay_starts_it_without_the_carrier() {
         let hub = memory_hub();
-        let started = Arc::new(Mutex::new(None));
-        let mark = Arc::clone(&started);
-        let task = super::at_start(
-            &hub,
-            true,
-            async {
-                Some(LeaveOutcome {
-                    left: true,
-                    kept: None,
-                    hub: Some("revoked"),
-                    relay_removed: false,
-                })
-            },
-            move |_, joined| -> BoxFuture<'static, ()> {
-                Box::pin(async move {
-                    *mark.lock().unwrap() = Some(joined);
-                })
-            },
-        )
-        .await
-        .expect("a pending leave runs in a task");
+        let (relay, _seen) = recording_hub().await;
+        let disk: Disk = Arc::new(Mutex::new(Some(relay)));
+        let (release, gate) = tokio::sync::oneshot::channel::<()>();
+        let left =
+            LeaveOutcome { left: true, kept: None, hub: Some("revoked"), relay_removed: false };
+        let (task, carrier) = start_after_leave(&hub, left, &disk, gate).await;
+        let _ = release.send(());
         task.await.unwrap();
-        assert_eq!(*started.lock().unwrap(), Some(false), "the relay starts, the carrier not");
+        assert!(relay_runs(&hub).await, "the person's relay starts");
+        assert!(!carrier.load(Ordering::SeqCst), "the carrier does not");
+        super::stop_joined(&hub).await;
     }
 
     /// A leave's cleanup (sign-out, or a leave finished at start) stops the hub carrier the
