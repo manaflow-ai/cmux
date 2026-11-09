@@ -45,12 +45,30 @@ export default settingsPageEntry({
       "On a team, Connect on Slack first asks who may use it: Only You (checked) or Your Team.",
       [{ selector: '[data-connector="slack"] [data-connector-action="connect"]', action: "click" }],
     ),
-    "confirm-disconnect": variant(base, "Disconnect asks inline first; the stored sign-in is deleted at once.", [
-      {
-        selector: '[data-connection="conn_aaaaaaaaaaaaaaaaaaaa"] [data-connector-action="disconnect"]',
-        action: "click",
-      },
-    ]),
+    details: variant(
+      base,
+      "Each connected row has one neutral Details control; Disconnect lives in the open details.",
+      [
+        {
+          selector: '[data-connection="conn_aaaaaaaaaaaaaaaaaaaa"] [data-connector-action="details"]',
+          action: "click",
+        },
+      ],
+    ),
+    "confirm-disconnect": variant(
+      base,
+      "Disconnect, in the open details, asks first; the stored sign-in is deleted at once.",
+      [
+        {
+          selector: '[data-connection="conn_aaaaaaaaaaaaaaaaaaaa"] [data-connector-action="details"]',
+          action: "click",
+        },
+        {
+          selector: '[data-connection="conn_aaaaaaaaaaaaaaaaaaaa"] [data-connector-action="disconnect"]',
+          action: "click",
+        },
+      ],
+    ),
     "signed-out": variant({ available: true, signedIn: false }, "Signed out: one line pointing to Accounts."),
     unavailable: variant({ available: false }, "A preview build: no platform, one line."),
   },

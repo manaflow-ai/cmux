@@ -67,6 +67,8 @@ test("on a team, Connect asks who may use it, Only You first, and connects as ch
     ["private", true],
     ["team", false],
   ]);
+  // Connect is disabled while it asks, so the question takes focus (and is scrolled into view).
+  expect(document.activeElement).toBe(radios[0]!);
   await click(radios[1]!);
   await click(button('[data-connector-action="confirmConnect"]'));
   await settle();
@@ -86,8 +88,31 @@ test("with no team, Connect goes straight to the provider as Only You", async ()
   expect(page!.provider.connectorRuns).toEqual([{ action: "connect", provider: "gmail", sharing: "private" }]);
 });
 
+test("rows carry one neutral Details control; Disconnect is only in the open connection's details", async () => {
+  await open();
+  expect(card().querySelectorAll('[data-connector-action="disconnect"]').length).toBe(0);
+  expect(card().querySelectorAll('[data-connection] [data-connector-action="details"]').length).toBe(2);
+  await click(button('[data-connection="conn_bbbbbbbbbbbbbbbbbbbb"] [data-connector-action="details"]'));
+  await settle();
+  expect(card().querySelectorAll('[data-connector-action="disconnect"]').length).toBe(1);
+  expect(
+    button('[data-connection="conn_bbbbbbbbbbbbbbbbbbbb"] [data-connector-action="details"]').getAttribute(
+      "aria-expanded",
+    ),
+  ).toBe("true");
+  // Opening another closes the first.
+  await click(button('[data-connection="conn_aaaaaaaaaaaaaaaaaaaa"] [data-connector-action="details"]'));
+  await settle();
+  expect(card().querySelectorAll("[data-connection-details]").length).toBe(1);
+  expect(
+    card().querySelector('[data-connection="conn_aaaaaaaaaaaaaaaaaaaa"] [data-connection-details]'),
+  ).not.toBeNull();
+});
+
 test("Disconnect asks first, then removes the connection", async () => {
   await open();
+  await click(button('[data-connection="conn_aaaaaaaaaaaaaaaaaaaa"] [data-connector-action="details"]'));
+  await settle();
   await click(button('[data-connection="conn_aaaaaaaaaaaaaaaaaaaa"] [data-connector-action="disconnect"]'));
   await settle();
   expect(page!.provider.connectorRuns).toEqual([]);

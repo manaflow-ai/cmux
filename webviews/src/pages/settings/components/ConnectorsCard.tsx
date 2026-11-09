@@ -6,7 +6,7 @@
 // provider's own page approves a connection in the browser, and the list is read again when the
 // page comes back to the front. Disconnect asks first, inline. It does not poll.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
 import { GitHubMark } from "../../../agent-session/acpmux/conversation/icons";
@@ -157,6 +157,8 @@ export function ConnectorsList({
 }) {
   const [asking, setAsking] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  // The connection whose details are open: Disconnect lives there, not on every row.
+  const [open, setOpen] = useState<string | null>(null);
   const connect = (provider: string) => (team ? setAsking(provider) : onConnect(provider, "private"));
   const connectButton = (row: AvailableRow) =>
     row.configured ? (
@@ -174,38 +176,72 @@ export function ConnectorsList({
         {t("settingsPage.connectors.notSetUp")}
       </span>
     );
-  const disconnectControl = (row: ConnectedRow) =>
-    confirming === row.id ? (
-      <span className="accounts-buttons">
-        <Button
-          danger
-          className="button"
-          data-connector-action="confirmDisconnect"
-          disabled={busy}
-          onClick={() => {
-            setConfirming(null);
-            onDisconnect(row);
-          }}
-        >
-          {t("settingsPage.connectors.disconnect")}
-        </Button>
-        <Button className="button" onClick={() => setConfirming(null)}>
-          {t("settingsPage.cancel")}
-        </Button>
-      </span>
-    ) : (
-      <Button
-        danger
-        variant="ghost"
-        className="button"
-        data-connector-action="disconnect"
-        aria-label={t("settingsPage.connectors.disconnectProvider", row.name)}
-        disabled={busy || !row.canDisconnect}
-        title={row.canDisconnect ? undefined : t("settingsPage.connectors.notYours")}
-        onClick={() => setConfirming(row.id)}
-      >
-        {t("settingsPage.connectors.disconnect")}
-      </Button>
+  const detailsToggle = (row: ConnectedRow) => (
+    <Button
+      className="button"
+      data-connector-action="details"
+      aria-expanded={open === row.id}
+      aria-label={t("settingsPage.connectors.detailsProvider", row.name)}
+      onClick={() => {
+        setConfirming(null);
+        setOpen(open === row.id ? null : row.id);
+      }}
+    >
+      {t(open === row.id ? "settingsPage.connectors.hideDetails" : "settingsPage.connectors.details")}
+    </Button>
+  );
+  // The open connection's details: who may use it, then Disconnect (asked first), or why it is not theirs.
+  const details = (row: ConnectedRow) =>
+    open === row.id && (
+      <div className="accounts-body" data-connection-details="">
+        <span className="row-help">
+          {t(
+            row.sharing === "team"
+              ? "settingsPage.connectors.sharingTeamHelp"
+              : "settingsPage.connectors.sharingPrivateHelp",
+          )}
+        </span>
+        {!row.canDisconnect ? (
+          <span className="row-help">{t("settingsPage.connectors.notYours")}</span>
+        ) : confirming === row.id ? (
+          <>
+            <output className="row-help" data-connector-confirm="">
+              {t("settingsPage.connectors.disconnectConfirm")}
+            </output>
+            <span className="accounts-buttons">
+              <Button
+                danger
+                className="button"
+                data-connector-action="confirmDisconnect"
+                disabled={busy}
+                onClick={() => {
+                  setConfirming(null);
+                  setOpen(null);
+                  onDisconnect(row);
+                }}
+              >
+                {t("settingsPage.connectors.disconnect")}
+              </Button>
+              <Button className="button" onClick={() => setConfirming(null)}>
+                {t("settingsPage.cancel")}
+              </Button>
+            </span>
+          </>
+        ) : (
+          <span className="accounts-buttons">
+            <Button
+              danger
+              className="button"
+              data-connector-action="disconnect"
+              aria-label={t("settingsPage.connectors.disconnectProvider", row.name)}
+              disabled={busy}
+              onClick={() => setConfirming(row.id)}
+            >
+              {t("settingsPage.connectors.disconnect")}
+            </Button>
+          </span>
+        )}
+      </div>
     );
   const sharingForm = (row: AvailableRow) =>
     asking === row.provider && (
@@ -219,13 +255,6 @@ export function ConnectorsList({
         onCancel={() => setAsking(null)}
       />
     );
-  const confirmLine = (row: ConnectedRow) =>
-    confirming === row.id && (
-      <output className="row-help" data-connector-confirm="">
-        {t("settingsPage.connectors.disconnectConfirm")}
-      </output>
-    );
-
   if (layout === "tiles") {
     return (
       <div className="connectors-tiles">
@@ -245,9 +274,9 @@ export function ConnectorsList({
                 ? connectedDetail(item.row)
                 : t(`settingsPage.connectors.about.${item.row.provider}`)}
             </div>
-            {item.kind === "connected" ? confirmLine(item.row) : sharingForm(item.row)}
+            {item.kind === "connected" ? details(item.row) : sharingForm(item.row)}
             <div className="row-control">
-              {item.kind === "connected" ? disconnectControl(item.row) : connectButton(item.row)}
+              {item.kind === "connected" ? detailsToggle(item.row) : connectButton(item.row)}
             </div>
           </div>
         ))}
@@ -270,10 +299,10 @@ export function ConnectorsList({
           <div className="row-help" data-connection-detail="">
             {connectedDetail(row)}
           </div>
-          {confirmLine(row)}
         </div>
-        <div className="row-control">{disconnectControl(row)}</div>
+        <div className="row-control">{detailsToggle(row)}</div>
       </div>
+      {details(row)}
     </div>
   );
   const availableRow = (row: AvailableRow) => (
@@ -342,8 +371,15 @@ function SharingChoice({
   const [sharing, setSharing] = useState<Sharing>("private");
   const group = useId();
   const label = t("settingsPage.connectors.whoTitle", name);
+  const form = useRef<HTMLDivElement>(null);
+  // Opened by Connect, which it disables: scroll it into view (no animation) and put focus on the
+  // checked choice, so the question is never off screen or behind a dead button.
+  useEffect(() => {
+    form.current?.scrollIntoView?.({ block: "nearest" });
+    form.current?.querySelector<HTMLInputElement>("input:checked")?.focus({ preventScroll: true });
+  }, []);
   return (
-    <div className="accounts-form" data-connector-sharing="">
+    <div className="accounts-form" data-connector-sharing="" ref={form}>
       <ChoiceGroup label={label} busy={busy} onSubmit={() => onSubmit(sharing)} onCancel={onCancel}>
         <div className="row-title">{label}</div>
         {(["private", "team"] as const).map((value) => (
