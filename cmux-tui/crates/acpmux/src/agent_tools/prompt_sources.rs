@@ -19,10 +19,10 @@ pub const BASE_INSTRUCTIONS: &str = "These tools drive the cmux terminal app and
     In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
     path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
 
-pub const CODE_MODE_INSTRUCTIONS: &str = "This chat runs in cmux: a terminal, tab or workspace \
-    the person asks for (\"on my right\", \"a new workspace\") is a cmux one, made and run with \
-    these tools, not your own shell. cmux tools run through cmux_exec scripts; its \
-    description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
+/// It does not open with "This chat runs in cmux": `cmux_exec`'s description, always loaded,
+/// says that once.
+pub const CODE_MODE_INSTRUCTIONS: &str = "cmux tools run through cmux_exec scripts; its \
+    description lists the common ones and what \"a terminal\" or \"this workspace\" means here. Selectors take a public id (ws_…, pane_…, tab_…, \
     term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
     also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
     other cmux servers (cua_*: computer use on Mac \

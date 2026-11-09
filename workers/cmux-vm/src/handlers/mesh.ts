@@ -1060,6 +1060,11 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
           mesh.value,
           Effect.gen(function* () {
             const principal = caller.value;
+            // A redeemed code runs as its creator without the creator's required labels (codeEnrollDevice rebuilds the
+            // principal from created_by alone), so a labelled key (service or agent) never makes one: fail closed.
+            if (principal.requiredLabels !== undefined) {
+              return yield* Effect.fail(new Forbidden({ message: "A credential confined to labels cannot create enrollment codes" }));
+            }
             const store = yield* MeshStore;
             const config = yield* MeshConfig;
             const started = yield* Clock.currentTimeMillis;

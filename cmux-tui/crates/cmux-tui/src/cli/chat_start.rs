@@ -76,9 +76,11 @@ pub(super) const TARGET_ENV: &str = "CMUX_ON";
 pub(super) const TARGET_SETTING: &str = "chat.on";
 
 /// How long the `chat.on` read may take: an app that does not answer by then is no setting.
+// timeout: an app that does not answer counts as no setting; the chat still starts.
 const SETTING_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// How long the catalog read may take.
+// timeout: a daemon that never answers the catalog read fails the start with an error.
 const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What a refusal says to run next.

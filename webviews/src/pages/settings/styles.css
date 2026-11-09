@@ -1797,6 +1797,11 @@ mark {
   font-size: var(--density-caption);
 }
 
+/* Text Size: a normal settings row under the tiles. */
+.density-rows {
+  margin-top: var(--grid-gap);
+}
+
 .density-actions {
   display: flex;
   flex-wrap: wrap;

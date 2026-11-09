@@ -19,7 +19,15 @@
 //!   key is the key of the session that delivered the SYN, never one looked
 //!   up from the source address.
 //!
-//! A peer's route follows its latest authenticated datagram.
+//! A peer can be reached at several addresses (its LAN, a Thunderbolt
+//! Bridge, its tailnet address): the configured route and candidates,
+//! every address it sent an authenticated datagram from, and the addresses
+//! it advertises inside the session. The mesh probes each one inside the
+//! session and picks with the shared path selector, as a
+//! [`crate::Multipath`] does: a Thunderbolt Bridge beats the LAN, the LAN
+//! beats a routed address, and a chosen path that goes quiet costs about
+//! two silence windows before datagrams go on every proven path
+//! ([`crate::mesh_paths`]).
 
 use std::fmt;
 use std::io;
@@ -33,6 +41,7 @@ use zeroize::Zeroizing;
 
 use crate::config::InterfaceAddress;
 use crate::error::WgError;
+use crate::mesh_paths::{MeshPathView, PeerCandidate};
 use crate::mesh_route::PeerRoute;
 use crate::stream::WgStream;
 
@@ -75,6 +84,10 @@ pub struct WgPeer {
     /// the peer's first authenticated datagram; every later one moves it
     /// (roaming). A UDP endpoint converts with `Some(address.into())`.
     pub route: Option<PeerRoute>,
+    /// More addresses the peer may be reached at (every address a pairing
+    /// knows for it). Each one is probed inside the session, and the path
+    /// selector picks among them and the route.
+    pub candidates: Vec<PeerCandidate>,
     /// Seconds between keepalives that hold NAT mappings open.
     pub persistent_keepalive: Option<u16>,
 }
@@ -88,6 +101,7 @@ impl fmt::Debug for WgPeer {
             .field("preshared_key", &self.preshared_key.as_ref().map(|_| "<set>"))
             .field("allowed_ips", &self.allowed_ips)
             .field("route", &self.route)
+            .field("candidates", &self.candidates)
             .field("persistent_keepalive", &self.persistent_keepalive)
             .finish()
     }
@@ -99,6 +113,7 @@ pub(crate) type MeshAccepted = (WgStream, Option<[u8; 32]>);
 pub(crate) enum MeshCommand {
     AddPeer { peer: WgPeer, retired: bool, reply: oneshot::Sender<Result<(), WgError>> },
     RemovePeer { public_key: [u8; 32], reply: oneshot::Sender<bool> },
+    PeerPaths { public_key: [u8; 32], reply: oneshot::Sender<Option<Vec<MeshPathView>>> },
     Connect { remote: SocketAddr, reply: oneshot::Sender<Result<WgStream, WgError>> },
     Listen { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<MeshAccepted>, WgError>> },
     // `WgMesh::close`: deliver what was written, then stop, by the deadline.
@@ -187,6 +202,17 @@ impl WgMesh {
     pub async fn remove_peer(&self, public_key: [u8; 32]) -> Result<bool, WgError> {
         let (reply, answer) = oneshot::channel();
         self.send(MeshCommand::RemovePeer { public_key, reply }).await?;
+        answer.await.map_err(|_| WgError::Shutdown)
+    }
+
+    /// The paths the mesh holds to a peer and which one carries it now, or
+    /// `None` for a key that is not a peer.
+    pub async fn peer_paths(
+        &self,
+        public_key: [u8; 32],
+    ) -> Result<Option<Vec<MeshPathView>>, WgError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(MeshCommand::PeerPaths { public_key, reply }).await?;
         answer.await.map_err(|_| WgError::Shutdown)
     }
 

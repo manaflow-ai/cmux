@@ -22,7 +22,8 @@ use anyhow::{Context, Result, anyhow, ensure};
 use base64::Engine;
 use cmux_link::key_holder::{KeyHolder, KeyHolderError};
 use cmux_wg::{
-    InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
+    InterfaceAddress, IpNetwork, PeerCandidate, WgMesh, WgMeshConfig, WgMeshListener, WgPeer,
+    WgStream,
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::{TcpStream, UdpSocket};
@@ -193,14 +194,25 @@ impl Transport {
                     && !peer.address.ip().is_multicast(),
                 "invalid WireGuard peer service address"
             );
-            let mut endpoints = tokio::time::timeout(
+            let endpoints = tokio::time::timeout(
                 CONNECT_BOUND,
                 tokio::net::lookup_host(peer.endpoint.as_str()),
             )
             .await
             .context("WireGuard endpoint lookup timed out")??;
-            let endpoint = endpoints
-                .find(|a| a.is_ipv4() == local.is_ipv4() && a.port() != 0)
+            // Every address the name resolves to is a path: the mesh probes
+            // each one and the path selector picks (LAN before routed).
+            let mut usable: Vec<SocketAddr> = Vec::new();
+            for address in endpoints {
+                if address.is_ipv4() == local.is_ipv4()
+                    && address.port() != 0
+                    && !usable.contains(&address)
+                {
+                    usable.push(address);
+                }
+            }
+            let endpoint = *usable
+                .first()
                 .context("WireGuard endpoint has no address matching the UDP socket family")?;
             mesh.add_peer(WgPeer {
                 public_key,
@@ -210,6 +222,7 @@ impl Transport {
                     host_prefix(peer.address.ip()),
                 )?],
                 route: Some(endpoint.into()),
+                candidates: usable.into_iter().map(PeerCandidate::from).collect(),
                 persistent_keepalive: None,
             })
             .await?;

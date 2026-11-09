@@ -202,6 +202,7 @@ async fn a_replayed_initiation_to_the_current_key_is_not_answered() {
         preshared_key: None,
         allowed_ips: vec![host(overlay(2))],
         route: None,
+        candidates: Vec::new(),
         persistent_keepalive: None,
     };
     within(a.mesh.add_peer_on_retired_key(b)).await.unwrap();
