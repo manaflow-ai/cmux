@@ -336,7 +336,7 @@ extension PaneController {
         // Focus follows only a move this client's user started (CLI and
         // agents never change this client's focus unless they ask).
         if target !== self, ActionRunScope.viewChangeAllowed() { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
-        TabMoves.move(tab, to: target.pane, index: index, services: services) { [weak self, weak target] ok in
+        TabMoves.move(tab, to: target.pane, index: index, services: services, from: self) { [weak self, weak target] ok in
             guard !ok else { return StripOrder.settle([self, target]) }
             self?.resyncStrip()
             target?.resyncStrip()
