@@ -48,8 +48,9 @@ export interface SetupStep {
   detail: string;
   /** The row's one button; absent once done (the slot keeps its room). */
   action?: { label: string; run: SetupAction };
-  /** A quieter second button (classic's Not Now, the next agent); it stays while the row is busy. */
-  secondary?: { label: string; run: SetupAction };
+  /** A quieter second button (classic's Not Now, the next agent); it stays while the row is busy, greyed
+   * (`disabled`) when it waits on the run in flight. */
+  secondary?: { label: string; run: SetupAction; disabled?: boolean };
   /** An action is running (an install): the slot shows a spinner. */
   busy?: boolean;
 }
@@ -94,23 +95,28 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   const lead = leadAgent(state.agents);
   const ready = state.agents.find((agent) => agent.state === "signedIn");
   // Every agent stays one click away: the lead gets the row's button, the next one a quieter one,
-  // so a failed or slow install of one never hides the other.
+  // so a failed or slow install of one never hides the other. Installs run one at a time, so while
+  // one runs the next agent's Install waits, greyed, with the row saying so.
   const other =
     ready === undefined ? state.agents.find((agent) => agent !== lead && agent.state !== "installing") : undefined;
+  const installing = state.agents.find((agent) => agent.state === "installing");
+  const waits = installing !== undefined && other !== undefined && other.state !== "signedOut";
   steps.push({
     id: "agents",
     done: ready !== undefined,
     title: t("home.setup.agents"),
     detail: ready
       ? format("home.setup.agents.ready", ready.name)
-      : lead?.state === "failed"
-        ? format("home.setup.agents.failed", lead.name)
-        : names,
+      : waits
+        ? format("home.setup.agents.after", other.name, installing.name)
+        : lead?.state === "failed"
+          ? format("home.setup.agents.failed", lead.name)
+          : names,
     busy: lead?.state === "installing",
     ...(ready === undefined &&
       lead !== undefined &&
       lead.state !== "installing" && { action: agentAction(lead, strings) }),
-    ...(other !== undefined && { secondary: agentAction(other, strings) }),
+    ...(other !== undefined && { secondary: { ...agentAction(other, strings), ...(waits && { disabled: true }) } }),
   });
   if (state.history) {
     const { done } = state.history;

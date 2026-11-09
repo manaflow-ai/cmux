@@ -217,6 +217,20 @@ import Testing
         while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
+    /// `--skip-onboarding` or `CMUX_NEXT_SKIP_ONBOARDING=1` (UI tests, captures): no card, even one still
+    /// pending from an earlier launch, and the pending state survives for the next launch that does not skip.
+    @Test func skippingOnboardingHidesAPendingCardWithoutEndingIt() throws {
+        let defaults = try defaults()
+        #expect(!FirstRunSetup(defaults: defaults, skipsOnboarding: true).begin(isFirstRun: true, replacedKeys: Self.replaced))
+        #expect(defaults.string(forKey: FirstRunSetup.stateKey) == nil, "a skipped launch starts nothing")
+        #expect(FirstRunSetup(defaults: defaults).begin(isFirstRun: true, replacedKeys: Self.replaced))
+
+        let skipped = FirstRunSetup(defaults: defaults, skipsOnboarding: true)
+        #expect(!skipped.shows)
+        #expect(defaults.string(forKey: FirstRunSetup.stateKey) == "pending")
+        #expect(FirstRunSetup(defaults: defaults).shows, "the next launch that does not skip shows it again")
+    }
+
     /// VoiceOver presses the Agents window's Chromium page but not the card's WebKit one (manaflow-ai/cmux#37809).
     @Test func withVoiceOverAFirstRunShowsTheAgentsWindowNotTheCard() throws {
         let defaults = try defaults()

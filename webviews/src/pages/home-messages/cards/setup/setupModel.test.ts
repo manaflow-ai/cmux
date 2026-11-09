@@ -69,6 +69,9 @@ describe("setupSteps", () => {
     for (const state of ["installing", "failed"] as const) {
       const row = setupSteps({ ...fresh, agents: [{ ...fresh.agents[0]!, state }, fresh.agents[1]!] }, strings)[0]!;
       expect(row.secondary?.run).toEqual({ kind: "installAgent", id: "codex" });
+      // Installs run one at a time: while Claude Code installs, Codex's waits, greyed, and the row says so.
+      expect(row.secondary?.disabled === true).toBe(state === "installing");
+      if (state === "installing") expect(row.detail).toBe("Codex installs after Claude Code");
     }
     const both = setupSteps(
       { ...fresh, agents: fresh.agents.map((agent) => ({ ...agent, state: "installing" as const })) },

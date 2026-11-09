@@ -119,7 +119,7 @@ function Trailing({
       ) : (
         <>
           {secondary && (
-            <Button variant="ghost" size="sm" onClick={() => onAction(secondary.run)}>
+            <Button variant="ghost" size="sm" disabled={secondary.disabled} onClick={() => onAction(secondary.run)}>
               {secondary.label}
             </Button>
           )}
