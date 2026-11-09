@@ -80,6 +80,15 @@ impl State {
         let mut state: State =
             text.and_then(|t| serde_json::from_slice(t).ok()).unwrap_or_default();
         state.version = STATE_VERSION;
+        // A base URL saved by an older pull is never given to an agent: every
+        // reader of the state sees it waiting for its store delete
+        // (`vault::scrub_rerouting` at load, else the next pull).
+        let rerouting: Vec<String> =
+            state.env.keys().filter(|n| super::rerouting(n)).cloned().collect();
+        for name in rerouting {
+            state.env.remove(&name);
+            state.pending_delete.insert(name);
+        }
         state
     }
 

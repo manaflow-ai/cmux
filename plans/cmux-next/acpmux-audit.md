@@ -1,5 +1,7 @@
 # acpmux performance audit (rules D1-D8, A1-A3)
 
+New notices to PL-acpmux go in [acpmux-audit/](acpmux-audit/), one file per change named `YYYY-MM-DD-<slug>.md` (from 2026-11-09, so that parallel PRs do not conflict here); this file keeps the older ones.
+
 Status: audit landed 2026-10-23 (session cmux-4f, PL-acpmux); fixes in progress in the same
 session (the lead moved acpmux ownership here: nobody in cmux-b6 owns acpmux code). Rules and
 targets: [perf-lead.md](perf-lead.md), "Daemon and acpmux targets". Every acpmux op < 2 ms p95
@@ -367,3 +369,14 @@ From tui-parity bench round 4, friction 6-10 (owner W5-S). CLI only; no daemon c
   `createdBy`, and `subsession.startedBy` is a sub-session's parent (flagged to the lead).
 - Guide: a complete private-daemon recipe (unset every `ACPMUX_*` and `CLAUDE_CODE_MESSAGING_*`,
   an absolute acpmux path, `defaults claude prefer=claude-sr2,claude` for a new home).
+
+## Notice to PL-acpmux: the Chief reads an agent's ACPMUX_BIN wrapper (2026-11-09)
+
+F3 of #39020 (owner W5-S), PR #39552. An agent's `ACPMUX_BIN` can be acpmux's wrapper script
+(`cli_caller::bin_choice`, `BinChoice::Wrapper`: a host prefix with no `acpmux` alias). A Chief
+started from that agent's shell inherits it, and its socket peer check compared the daemon with
+the script. `optchat-chief` `acpmux_wrapper.rs` now reads the exact wrapper shape and checks the
+peer against the binary it runs. The wrapper text is now a contract: a change to its shape in
+`cli_caller.rs` must change `acpmux_wrapper.rs` too (the `BinChoice::Wrapper` doc says so).
+Next (F3b): the Swift app's `ACPMUX_BIN` override and `mux/host` `acpmux-daemon.ts` must not
+take the wrapper as the daemon binary either.
