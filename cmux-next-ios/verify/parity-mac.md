@@ -452,6 +452,7 @@ test, fmt and clippy on rbx.
 | "Switch to split diff" / "Switch to unified diff", "Word wrap" | **Diff options**: Unified / Split, Wrap, Hide Whitespace | works (fixed) | Word-level marks on both (`intraline.ts`, `WordDiff.mark`). Fixed: Hide Whitespace after Expand could index past the end. code-checked; live pending |
 | "New" / "Deleted" badges, renames, "Binary file not shown", untracked skipped | A / M badges | partial | ACP diffs carry no delete, rename or binary; those come with git scopes. |
 | "Stage", "Unstage", "Create PR", "Undo", "Open in editor" | Copy Path, Copy Line, Copy with Line Number | not from a phone | Read-only on the phone. |
+| Line comments and "Send to agent" (`diff.comments.list` / `save` / `delete` / `send`: the session host keeps a worktree's review comments and hands them to the chat as one turn, for a chat on any machine) | — | missing | The phone's diff viewer shows a chat's tool diffs and keeps no comments. A phone version would save comments through the Mac's link and send them with `diff.comments.send`, which hands them to the chat's acpmux session as one prompt keyed by the request (a resend runs once). The phone makes no `diff.*` calls today; adding them to its lane is a #13742 decision first, as for `git.*`. Follow-up. |
 
 ### 3. Chief
 

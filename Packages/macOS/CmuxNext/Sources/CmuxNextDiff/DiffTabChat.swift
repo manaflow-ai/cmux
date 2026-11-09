@@ -1,32 +1,44 @@
 public import CmuxNextAgentPane
+public import CmuxNextDaemonService
 import Foundation
 
-/// The chat on this Mac that opened a diff tab (hq #7563): Send to agent hands it the tab's review
-/// comments as one prompt, through acpmux (``AcpmuxReplySender``, the Feed's reply path).
+/// The chat that opened a diff tab (hq #7563): Send to agent hands it the tab's review comments as
+/// one prompt. The tab's session host, on the chat's own machine, takes them with
+/// `diff.comments.send`; a host from before that op reaches only a chat on this Mac, through this
+/// Mac's acpmux (``AcpmuxReplySender``, the Feed's reply path).
 public struct DiffTabChat: Sendable {
-    /// The chat's acpmux session.
+    /// The chat's acpmux session id on the machine that runs it.
     public let session: String
-    /// Delivers `(text, promptID)`; true when the chat took it. A resend with the same prompt id
-    /// is delivered once.
-    let deliver: @Sendable (String, String) async -> Bool
+    /// Delivers `(text, promptID)` through this Mac's acpmux; true when the chat took it. A resend
+    /// with the same prompt id is delivered once. Nil when the tab's session host sends.
+    let deliver: (@Sendable (String, String) async -> Bool)?
 
-    public init(session: String, deliver: @escaping @Sendable (String, String) async -> Bool) {
+    public init(session: String, deliver: (@Sendable (String, String) async -> Bool)? = nil) {
         self.session = session
         self.deliver = deliver
     }
 
-    /// The tab's chat when it runs on this Mac (`isLocal`), sent to through `replies`: this Mac's
-    /// acpmux cannot reach a chat on another machine, so that tab keeps its comments and offers no
-    /// send. Nil without a session.
-    public static func local(session: String?, isLocal: Bool, replies: AcpmuxReplySender,
-                             environment: AcpmuxEnvironment?) -> DiffTabChat? {
-        guard isLocal, let session, !session.isEmpty else { return nil }
+    /// The chat whose acpmux session id is `session` (the id the chat's machine bound to its tab,
+    /// `bind-conversation-tab-session`), for a diff tab whose session host is `link`'s: the chat's
+    /// own machine (`DiffPageService.gitLink(for:)`).
+    public static func of(session: String?, on link: AgentPaneGitLink, replies: AcpmuxReplySender,
+                          environment: AcpmuxEnvironment?) -> DiffTabChat? {
+        of(session: session, hostSends: link.sendsDiffComments, isLocal: link.isLocal, replies: replies, environment: environment)
+    }
+
+    /// The tab's chat: sent to by its session host when that host answers `diff.comments.send`
+    /// (`hostSends`), on any machine; otherwise only when it runs on this Mac (`isLocal`), through
+    /// `replies`, since this Mac's acpmux cannot reach a chat on another machine. Nil without a
+    /// session, or for another machine's chat whose host cannot send.
+    public static func of(session: String?, hostSends: Bool, isLocal: Bool, replies: AcpmuxReplySender,
+                          environment: AcpmuxEnvironment?) -> DiffTabChat? {
+        guard let session, !session.isEmpty else { return nil }
+        if hostSends { return DiffTabChat(session: session) }
+        guard isLocal else { return nil }
         return DiffTabChat(session: session) { text, promptID in
             await replies.send(session: session, text: text, promptID: promptID, environment: environment)
         }
     }
-
-    func send(_ text: String, promptID: String) async -> Bool { await deliver(text, promptID) }
 }
 
 /// Why `DiffPageService.open(folder:source:in:focus:)` opened nothing.

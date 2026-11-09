@@ -62,6 +62,7 @@
     "creation-attempt-keys-v1",
     "creation-receipts-v1",
     "detached-terminals-v1",
+    "diff-comments-send-v1",
     "dock-column-role-v1",
     "dock-column-split-down-v1",
     "dock-columns-v1",

@@ -14,6 +14,11 @@ public protocol DiffCommentsStoring: AnyObject {
     /// `diff.comments.delete {root, ids, versions}` → `{deleted, ids}`: a comment `versions` names
     /// goes only while its `updatedAt` is still that version, checked under the host's lock.
     func deleteComments(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue
+    /// `diff.comments.send {root, acp_session, ids, versions, text}` → `{sent, cleared}`: `text` to
+    /// the acpmux session `acpSession` of the host's machine as one prompt whose id is `key`, then
+    /// the comments still at `versions` leave the store. A resend under the same key runs once.
+    func sendComments(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
+                      text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue
 }
 
 /// The diff tab's review comments (hq #7563): `cmux.diff.comments {method, params}` carries the
@@ -23,7 +28,7 @@ public protocol DiffCommentsStoring: AnyObject {
 /// - `comments.send {repoRoot, ids, versions, text}`: `text` (every comment as one prompt) to the
 ///   chat that opened the tab, then those comments leave the store unless edited since
 ///   (`versions`: each id's `updatedAt` as sent); answers `{sent, cleared}`. It needs a real click or key, and the
-///   page's opid is the prompt's id, so a resend is delivered once.
+///   page's opid is the prompt's id and the session host's idempotency key, so a resend is delivered once.
 /// Viewed files and prefs have their own ops (DiffPageProvider+Stores.swift); the page uses those.
 extension DiffPageProvider {
     static let commentsOp = "cmux.diff.comments"
@@ -78,16 +83,45 @@ extension DiffPageProvider {
             throw PageError(code: "cmux.diff.no_chat", message: "No chat owns this diff")
         }
         let promptID = context.opid ?? UUID().uuidString
-        guard await chat.send(text, promptID: promptID) else {
+        let versions = params["versions"]?.objectValue ?? [:]
+        guard let deliver = chat.deliver else {
+            // The session host hands the prompt to the chat on its own machine and clears the
+            // comments in one keyed op.
+            let sent: JSONValue
+            do {
+                sent = try await store.sendComments(root: root, acpSession: chat.session, ids: ids, versions: versions,
+                                                    text: text, key: promptID)
+            } catch {
+                throw Self.sendError(error) ?? (remote ? remoteError(error) : Self.pageError(error))
+            }
+            return ["sent": sent["sent"] ?? .number(Double(ids.count)), "cleared": sent["cleared"] ?? .array([])]
+        }
+        guard await deliver(text, promptID) else {
             throw PageError(code: "cmux.diff.send_failed", message: "The chat did not take the comments")
         }
         // The chat has them: they leave the store, except one edited since the page sent it (its
         // `updatedAt` moved on), which stays for the next send. The host checks each version and
         // deletes in one step under its lock. A failed delete leaves them listed, never lost.
-        let versions = params["versions"]?.objectValue ?? [:]
         let deleted = try await store.deleteComments(root: root, ids: ids, versions: versions, key: promptID + "-clear")
         let cleared = deleted["ids"]?.arrayValue ?? []
         return ["sent": .number(Double(ids.count)), "cleared": .array(cleared)]
+    }
+
+    /// The page's error for a send the session host refused: `cmux.diff.send_failed` when nothing
+    /// went to the chat (no such session there, or acpmux refused), and a retryable
+    /// `cmux.diff.send_unsettled` when the chat may have it. The page keeps the batch either way and
+    /// sends it again under the same opid, which the host runs once. Nil for any other failure.
+    static func sendError(_ failure: AgentPaneGitFailure) -> PageError? {
+        guard failure.code == "operation.failed",
+              let reason = failure.details.flatMap({ try? JSONValue.parse($0) })?["reason"]?.stringValue else { return nil }
+        switch reason {
+        case "no_session", "send_failed":
+            return PageError(code: "cmux.diff.send_failed", message: "The chat did not take the comments")
+        case "send_unsettled":
+            return PageError(code: "cmux.diff.send_unsettled", message: "The chat may have taken the comments", retryable: true)
+        default:
+            return nil
+        }
     }
 
     /// The tab's repository root: a page names only its own.
@@ -123,6 +157,14 @@ extension DiffAgentGit: DiffCommentsStoring {
         var params: [String: JSONValue] = ["root": .string(root), "ids": .array(ids.map(JSONValue.string))]
         if !versions.isEmpty { params["versions"] = .object(versions) }
         return try await mutate("diff.comments.delete", .object(params), key: key)
+    }
+
+    public func sendComments(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
+                             text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        var params: [String: JSONValue] = ["root": .string(root), "acp_session": .string(acpSession),
+                                           "ids": .array(ids.map(JSONValue.string)), "text": .string(text)]
+        if !versions.isEmpty { params["versions"] = .object(versions) }
+        return try await mutate("diff.comments.send", .object(params), key: key)
     }
 
     private func mutate(_ operation: String, _ params: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
