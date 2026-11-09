@@ -684,9 +684,11 @@ impl Supervisor {
                 }
                 // A stop cancels a read in flight: the hub stops and the
                 // supervisor ends `Stopped`, never `Failed`.
+                // A clone: the read borrows `self` while the stop is watched.
+                let mut stop = self.stop.clone();
                 let read = tokio::select! {
                     read = self.refresh(&client, &identity, &tunnel) => read,
-                    _ = self.stop.wait_for(|stop| *stop) => {
+                    _ = stop.wait_for(|stop| *stop) => {
                         hub.stop().await;
                         return HubEnd::Stopped;
                     }
@@ -735,9 +737,12 @@ impl Supervisor {
                     tunnel = fresh;
                 }
                 // The hub ended: read the tunnel before starting another.
-                None => match tokio::select! {
-                    read = self.refresh(&client, &identity, &tunnel) => read,
-                    _ = self.stop.wait_for(|stop| *stop) => return HubEnd::Stopped,
+                None => match {
+                    let mut stop = self.stop.clone();
+                    tokio::select! {
+                        read = self.refresh(&client, &identity, &tunnel) => read,
+                        _ = stop.wait_for(|stop| *stop) => return HubEnd::Stopped,
+                    }
                 } {
                     Ok(fresh) => tunnel = fresh,
                     Err(Miss::Reattach(_) | Miss::NoMesh(_)) => return HubEnd::Reattach,
