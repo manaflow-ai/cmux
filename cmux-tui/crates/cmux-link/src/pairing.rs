@@ -92,14 +92,16 @@ impl Pairings {
         Ok(pairings)
     }
 
-    /// Hold the pairing file's write lock: `flock` on `<file>.lock` next to
+    /// Hold the pairing file's write lock: `flock` on `.<file>.lock` next to
     /// it, shared by every process. Every read, change and save of the file
     /// runs under it ([`Pairings::update`]), as does moving the file aside.
     pub fn lock(path: &Path) -> io::Result<PairingsLock> {
         let name = path.file_name().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "the pairing file has no name")
         })?;
-        let mut lock_name = name.to_os_string();
+        // Hidden, and outside the names install archives take (`peers.<install>.json`).
+        let mut lock_name = std::ffi::OsString::from(".");
+        lock_name.push(name);
         lock_name.push(".lock");
         let mut options = std::fs::OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
