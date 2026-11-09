@@ -35,7 +35,12 @@ function fakeDaemon(prompts: Record<string, unknown>[], refuse = 0, refusal?: st
         return { events: [], hasMore: false, lastSeq: 0 };
       case "session/prompt":
         prompts.push(params);
-        return { stopReason: "end_turn" };
+        // A steer went into a turn already running on the machine (one the page had not seen).
+        return {
+          stopReason: (params._meta as { acpmux?: { steer?: boolean } } | undefined)?.acpmux?.steer
+            ? "steered"
+            : "end_turn",
+        };
       default:
         return null;
     }
@@ -215,4 +220,15 @@ test("a prompt refused before acpmux took it, back in the composer, frees its tu
   await chat.send("first", [], "p-16", () => undefined).catch(() => undefined);
   await chat.send("first", [], "p-17", () => undefined);
   expect(prompts.map(promptIdOf)).toEqual(["handoff-4-p-16", "handoff-4-p-17"]);
+});
+
+// That steer can go into a turn already running on the machine, which the page had not seen: it
+// starts no turn, so the hand-off turn it claimed is the next prompt's (review follow-up F1).
+test("a steer that went into a running turn leaves its hand-off turn to the next prompt", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts);
+  chat.handoffTurn = async () => 6;
+  await chat.send("steer it", [], "p-7", undefined, undefined, true);
+  await chat.send("next", [], "p-8");
+  expect(prompts.map(promptIdOf)).toEqual(["handoff-6-p-7", "handoff-6-p-8"]);
 });
