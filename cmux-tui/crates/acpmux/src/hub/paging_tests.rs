@@ -687,3 +687,50 @@ fn a_subagent_page_parses_only_its_subagents_lines() {
     assert_eq!(rest.events.iter().map(|r| r.seq).collect::<Vec<_>>(), want[10..].to_vec());
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// A subagent pane's read of an old subagent as the chat grows (the PR's Performance table): run
+/// with `cargo test -p acpmux --release --lib -- --ignored --nocapture subagent_page_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn subagent_page_perf() {
+    for later in [2_000usize, 20_000, 100_000] {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-subagent-perf-{}", uuid::Uuid::now_v7()));
+        let sessions = root.join("sessions");
+        let mut seq = 0;
+        {
+            let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+            writer.save(&meta("c")).unwrap();
+            for n in 0..40 {
+                seq += 1;
+                writer
+                    .append("c", &update_of(seq, (n % 2 == 1).then_some("sub-old"), "early"))
+                    .unwrap();
+            }
+            // About 1 KB a line, as a busy chat's updates are.
+            let text = "x".repeat(900);
+            for n in 0..later {
+                seq += 1;
+                let sub = (n % 7 == 0).then_some("sub-new");
+                writer.append("c", &update_of(seq, sub, &text)).unwrap();
+            }
+        }
+        let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+        let filter = transcript(true).of_subagent(Some("sub-old"));
+        let mut runs = Vec::new();
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            let page = hub
+                .events_page("c", 0, None, OPEN_LIMIT, Some(256 * 1024), false, &filter)
+                .unwrap();
+            runs.push(started.elapsed().as_secs_f64() * 1000.0);
+            assert_eq!(page.events.len(), 20);
+        }
+        runs.sort_by(f64::total_cmp);
+        println!(
+            "subagent page after {later} later lines: median {:.1} ms (min {:.1})",
+            runs[2], runs[0]
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
