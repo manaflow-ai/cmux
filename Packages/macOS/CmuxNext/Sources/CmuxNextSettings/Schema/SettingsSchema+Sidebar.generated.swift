@@ -86,7 +86,7 @@ extension SidebarSectionsSetting {
     /// `sidebar.density`.
     public nonisolated static let densityPath = ["sidebar", "density"]
     public nonisolated static let densityDefault: SidebarDensity = .normal
-    /// `sidebar.textSize`: Older values still read: "default" as small and "larger" (the ChatGPT size) as medium (SidebarTextSize(setting:), migrateLegacySidebarTextSize).
+    /// `sidebar.textSize`: Older values still read: "default" as small and "larger" (the ChatGPT size) as medium (SidebarTextSize(setting:)); a launch pass rewrites them, and an older "large" (one point up), once per file (migrateLegacySidebarSizes).
     public nonisolated static let textSizePath = ["sidebar", "textSize"]
     public nonisolated static let textSizeDefault: SidebarTextSize = .small
     /// `sidebar.titleSize`: The person's own sidebar sizes (2026-11-02): points at Interface Size 100%; absent leaves each to the density and text size.

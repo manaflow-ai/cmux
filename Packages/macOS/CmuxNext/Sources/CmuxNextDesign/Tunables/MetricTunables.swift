@@ -23,8 +23,6 @@ public nonisolated struct MetricTunable: Sendable {
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
     @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key, token: token, glyph: glyph))) }
-    /// The value without a Debug Settings override (density, custom density token and cmux.json override).
-    @MainActor public var densityValue: CGFloat { Metrics.scale(Metrics.pick(compactValue, comfortable, key, token: token, glyph: glyph)) }
     /// The compact value in effect: `tight` under Compact tabs, else `compact`.
     @MainActor var compactValue: CGFloat { tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact }
     public var descriptor: TunableDescriptor { tunable.descriptor }

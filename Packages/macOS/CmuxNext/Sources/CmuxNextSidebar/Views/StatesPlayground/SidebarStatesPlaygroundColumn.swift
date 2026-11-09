@@ -68,9 +68,9 @@ nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
 
     static func title(_ size: SidebarTextSize) -> String {
         switch size {
-        case .small: String(localized: "sidebar.statesPlayground.textSize.default", defaultValue: "Default text", bundle: .module)
-        case .medium: String(localized: "sidebar.statesPlayground.textSize.large", defaultValue: "Large text", bundle: .module)
-        case .large: String(localized: "sidebar.statesPlayground.textSize.larger", defaultValue: "Larger text", bundle: .module)
+        case .small: String(localized: "sidebar.statesPlayground.textSize.small", defaultValue: "Small text", bundle: .module)
+        case .medium: String(localized: "sidebar.statesPlayground.textSize.medium", defaultValue: "Medium text", bundle: .module)
+        case .large: String(localized: "sidebar.statesPlayground.textSize.large", defaultValue: "Large text", bundle: .module)
         }
     }
 }

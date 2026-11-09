@@ -863,7 +863,7 @@
             "type": "SidebarSectionsSetting",
             "prefixed": true
           },
-          "note": "Older values still read: \"default\" as small and \"larger\" (the ChatGPT size) as medium (SidebarTextSize(setting:), migrateLegacySidebarTextSize)."
+          "note": "Older values still read: \"default\" as small and \"larger\" (the ChatGPT size) as medium (SidebarTextSize(setting:)); a launch pass rewrites them, and an older \"large\" (one point up), once per file (migrateLegacySidebarSizes)."
         },
         {
           "key": "sidebar.titleSize",

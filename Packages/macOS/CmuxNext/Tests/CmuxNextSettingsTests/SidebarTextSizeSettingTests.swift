@@ -100,36 +100,76 @@ struct SidebarTextSizeSettingTests {
     }
 }
 
-/// The first setting's values ("default", "larger") are rewritten once at launch as the size they read as,
-/// so Settings and the palette show the chosen size checked (review of issue 28793's port).
+/// The first setting's values ("default", "large", "larger") are rewritten once per settings file as the size they look
+/// closest to, and a Compact pick that the stored-defaults pass dropped while Compact was the default comes back, so an
+/// upgrade keeps each person's sidebar (review of issue 28793's port).
 @MainActor @Suite(.serialized) struct SidebarTextSizeMigrationTests {
-    private static func controller(_ json: String) throws -> (SettingsController, URL) {
+    private static func controller(_ json: String, forgotten: String? = nil) throws -> (SettingsController, URL) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-sidebar-text-size-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data(json.utf8).write(to: url)
+        if let forgotten {
+            try Data(forgotten.utf8).write(to: home.appending(path: "cmux-next.json.\(SettingsController.storedDefaultsForgottenRecordSuffix)"))
+        }
         let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         return (settings, home)
     }
 
-    @Test(arguments: [("default", "small"), ("larger", "medium")])
+    @Test(arguments: [("default", "small"), ("large", "medium"), ("larger", "medium")])
     func theFirstSettingsValuesBecomeTheirSize(old: String, new: String) async throws {
         let (settings, home) = try Self.controller(#"{ "sidebar": { "textSize": "\#(old)" } }"#)
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
-        #expect(try await settings.migrateLegacySidebarTextSize())
+        #expect(try await settings.migrateLegacySidebarSizes() == ["sidebar.textSize": .string(new)])
         #expect(settings.snapshot.root.value(at: SidebarSectionsSetting.textSizePath) == .string(new))
         #expect(settings.snapshot.sidebarSections.textSize.rawValue == new)
-        #expect(try await settings.migrateLegacySidebarTextSize() == false, "once")
+        #expect(try await settings.migrateLegacySidebarSizes() == nil, "once")
     }
 
-    @Test(arguments: ["small", "large", "nonsense"])
+    /// After the pass, "large" is the new Large: a later run (another build on the same file) leaves it.
+    @Test func aLargeWrittenAfterThePassKeepsItsMeaning() async throws {
+        let (settings, home) = try Self.controller(#"{ "sidebar": { "textSize": "small" } }"#)
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        #expect(try await settings.migrateLegacySidebarSizes() == [:])
+        try await settings.set(.string("large"), at: SidebarSectionsSetting.textSizePath)
+        #expect(try await settings.migrateLegacySidebarSizes() == nil)
+        #expect(settings.snapshot.root.value(at: SidebarSectionsSetting.textSizePath) == .string("large"))
+        #expect(settings.snapshot.sidebarSections.textSize == .large)
+    }
+
+    @Test(arguments: ["small", "medium", "nonsense"])
     func otherValuesAreLeft(value: String) async throws {
         let (settings, home) = try Self.controller(#"{ "sidebar": { "textSize": "\#(value)" } }"#)
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
-        #expect(try await settings.migrateLegacySidebarTextSize() == false)
+        #expect(try await settings.migrateLegacySidebarSizes() == [:])
         #expect(settings.snapshot.root.value(at: SidebarSectionsSetting.textSizePath) == .string(value))
+    }
+
+    private static let droppedCompact = #"{ "dropped": { "sidebar.density": "compact" }, "kept": {}, "before": "" }"#
+
+    @Test func aCompactPickTheDefaultsPassDroppedComesBack() async throws {
+        let (settings, home) = try Self.controller("{}", forgotten: Self.droppedCompact)
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        #expect(settings.snapshot.sidebarSections.density == .normal)
+        #expect(try await settings.migrateLegacySidebarSizes() == ["sidebar.density": .string("compact")])
+        #expect(settings.snapshot.sidebarSections.density == .compact)
+    }
+
+    /// A density set since the drop, or no Compact in the record, stays as it is.
+    @Test(arguments: [(#"{ "sidebar": { "density": "comfortable" } }"#, droppedCompact),
+                      ("{}", #"{ "dropped": { "sidebar.textSize": "default" }, "kept": {}, "before": "" }"#),
+                      ("{}", nil)] as [(String, String?)])
+    func otherDensitiesAreLeft(json: String, forgotten: String?) async throws {
+        let (settings, home) = try Self.controller(json, forgotten: forgotten)
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        let before = settings.snapshot.sidebarSections.density
+        #expect(try await settings.migrateLegacySidebarSizes() == [:])
+        #expect(settings.snapshot.sidebarSections.density == before)
     }
 }
