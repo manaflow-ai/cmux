@@ -170,7 +170,8 @@ public actor DaemonClient {
     /// while several are unanswered (the daemon handles a connection's lines
     /// in order).
     public func submit(_ cmd: String, params: [String: Any] = [:],
-                       deadline: Duration = DaemonClient.defaultDeadline) async throws -> String {
+                       deadline: Duration = DaemonClient.defaultDeadline,
+                       closeChannelOnCancel: Bool = true) async throws -> String {
         start()
         let id = nextRequestID()
         let line = try line(id: id, cmd: cmd, params: params)
@@ -183,7 +184,11 @@ public actor DaemonClient {
             try await LinkDeadline.run(timeout: deadline,
                                        timeoutError: LinkError(code: "write_timeout", message: "The Mac didn't answer. Retry."),
                                        operation: { try await channel.send(line) },
-                                       onCancel: { await channel.close(code: "timeout", reason: "write interrupted") })
+                                       onCancel: {
+                                           if closeChannelOnCancel {
+                                               await channel.close(code: "timeout", reason: "write interrupted")
+                                           }
+                                       })
         } catch {
             discard(id)
             throw error

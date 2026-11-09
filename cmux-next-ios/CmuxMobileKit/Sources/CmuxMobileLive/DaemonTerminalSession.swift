@@ -1120,7 +1120,10 @@ public final class DaemonTerminalSession: TerminalSession {
                 guard !Task.isCancelled, self?.tailProbeStillDue(mark: mark, target: target) == true else { return }
                 var ids: [String] = []
                 for _ in 0..<3 where !Task.isCancelled {
-                    guard let id = try? await target.submit("ping") else { break }
+                    // Disarming a probe is ordinary progress, not a failed write:
+                    // cancellation must not close a healthy channel while its ping
+                    // write is still awaiting the link.
+                    guard let id = try? await target.submit("ping", closeChannelOnCancel: false) else { break }
                     ids.append(id)
                 }
                 // Collect the replies so none is left waiting in the client

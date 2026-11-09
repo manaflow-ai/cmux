@@ -401,6 +401,34 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(count("send") == 1)
     }
 
+    /// An input ACK can disarm a probe while that probe's ping write is still
+    /// blocked in the link. Cancelling that probe must preserve the healthy
+    /// channel so the next keystroke can use it.
+    @Test(.timeLimit(.minutes(1))) func anInputAckDisarmsABlockedProbeWithoutClosingTheChannel() async throws {
+        let channel = ProbeCancellationChannel()
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: channel)
+        }
+        session.tailProbeDelay = .milliseconds(20)
+        session.start { _ in }
+        defer {
+            session.stop()
+            channel.releasePing()
+        }
+        try await waitUntil { session.isAttached }
+
+        session.send(Data("a".utf8))
+        var started = channel.pingStarted.makeAsyncIterator()
+        _ = await started.next()
+        channel.releaseInputAck()
+        try await waitUntil { session.inputsInFlight == 0 }
+        #expect(!channel.closed)
+
+        session.send(Data("b".utf8))
+        try await waitUntil { channel.inputCount >= 2 }
+        #expect(!channel.closed)
+    }
+
     @Test func anAnsweredSendSendsNoTailProbe() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }
@@ -991,6 +1019,76 @@ final class GatedChannel: LinkChannel, @unchecked Sendable {
     }
     func receive() async throws -> Data? { try await inner.receive() }
     func close(code: String, reason: String) async { await inner.close(code: code, reason: reason) }
+}
+
+/// A daemon channel that holds the first input reply and blocks the probe's
+/// ping write. It lets the regression deliver the input ACK while cancellation
+/// is inside `DaemonClient.submit("ping")`.
+final class ProbeCancellationChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let daemon = FakeTerminalDaemon()
+    private let lock = NSLock()
+    private let stream: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private var iterator: AsyncStream<Data>.Iterator
+    private let pingGate: AsyncStream<Void>.Continuation
+    private let pingRelease: AsyncStream<Void>.Continuation
+    private let pingReleaseStream: AsyncStream<Void>
+    let pingStarted: AsyncStream<Void>
+    private var heldInputID: String?
+    private var count = 0
+    private(set) var closed = false
+
+    var inputCount: Int { lock.withLock { count } }
+
+    init() {
+        (stream, continuation) = AsyncStream.makeStream()
+        iterator = stream.makeAsyncIterator()
+        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
+        pingStarted = started
+        pingGate = startedContinuation
+        let (releaseStream, releaseContinuation) = AsyncStream<Void>.makeStream()
+        pingRelease = releaseContinuation
+        pingReleaseStream = releaseStream
+        daemon.unansweredSends = true
+    }
+
+    func send(_ data: Data) async throws {
+        for line in data.split(separator: 0x0A) {
+            let lineData = Data(line)
+            guard let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let command = object["cmd"] as? String else { continue }
+            if command == "ping" {
+                pingGate.yield(())
+                var release = pingReleaseStream.makeAsyncIterator()
+                _ = await release.next()
+                continue
+            }
+            if command == "send" {
+                lock.withLock {
+                    count += 1
+                    if heldInputID == nil { heldInputID = object["id"] as? String }
+                }
+            }
+            for reply in daemon.respond("daemon", lineData) { continuation.yield(reply) }
+        }
+    }
+
+    func receive() async throws -> Data? { await iterator.next() }
+
+    func releaseInputAck() {
+        let id = lock.withLock { heldInputID }
+        guard let id else { return }
+        daemon.unansweredSends = false
+        continuation.yield(FakeTerminalDaemon.line(["id": id, "ok": true, "data": [:]]))
+    }
+
+    func releasePing() { pingRelease.yield(()) }
+
+    func close(code: String, reason: String) async {
+        lock.withLock { closed = true }
+        continuation.finish()
+    }
 }
 
 final class ChannelLog: @unchecked Sendable {
