@@ -1671,6 +1671,9 @@ impl Hub {
             super::fallback_start::say_fallback(e);
         }
         let git = super::turn_git::turn_git(session).await;
+        // The lines its edits wrote, for a diff's hover (`attribution.rs`).
+        let head = git.get("gitHead").and_then(Value::as_str);
+        self.record_turn_attribution(session, turn_id, head).await;
         // The end is written from here with no wait, under the shutdown's lock: a shutdown that
         // settled the turn meanwhile wrote its end (Quit Everything) or handed it on, and its
         // sweep finds this one either written or still to settle (`shutdown.rs` `settle_ends`).

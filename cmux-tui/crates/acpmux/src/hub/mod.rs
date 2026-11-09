@@ -292,6 +292,7 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+mod attribution;
 mod review_brief;
 pub(crate) mod review_queue;
 mod touched;
@@ -674,6 +675,8 @@ pub struct Hub {
     pub models_fanouts: std::sync::atomic::AtomicUsize,
     /// The sessions that may hold an ask, and those with pull requests (`review_queue.rs`).
     pub(crate) review_index: review_queue::Index,
+    /// Which chat wrote which lines, recorded as turns end (`attribution.rs`).
+    pub(crate) attribution_index: StdMutex<crate::attribution::Index>,
     /// The approvals audit trail (`audit_log.rs`).
     pub(crate) audit: audit_log::AuditLog,
     pub shutdown: Notify,
@@ -1112,6 +1115,7 @@ impl Hub {
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),
+            attribution_index: Default::default(),
             audit,
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
@@ -1697,6 +1701,7 @@ impl Hub {
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             touch_queue: StdMutex::new(Default::default()),
+            turn_edits: StdMutex::new(Default::default()),
             overlaps_told: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),

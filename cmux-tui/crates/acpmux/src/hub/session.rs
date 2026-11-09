@@ -443,6 +443,8 @@ pub struct Session {
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
     /// Files its tool calls just edited, for the who-else notice (`touched.rs`).
     pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
+    /// The running turn's edit tool calls, recorded when it ends (`attribution.rs`).
+    pub(super) turn_edits: StdMutex<crate::attribution::TurnEdits>,
     /// The sessions it was told share its files, once each (`touched.rs`).
     pub(super) overlaps_told: StdMutex<std::collections::HashSet<String>>,
     /// Its agent's `start_session` tool calls that run, with their input (`lineage.rs`).
