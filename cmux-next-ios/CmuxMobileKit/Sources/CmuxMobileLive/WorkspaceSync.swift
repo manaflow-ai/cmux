@@ -85,7 +85,9 @@ public final class WorkspaceSync {
     /// activity seen yet".
     public func bind(_ channel: (any LinkChannel)?, macID: String, cached: [Workspace] = []) async {
         stopUpdates()
+        let oldClient = client
         client = nil
+        if let oldClient { await oldClient.close() }
         connectionSerial += 1
         activity = [:]
         titles = [:]
@@ -141,6 +143,9 @@ public final class WorkspaceSync {
     /// when the setup answers arrive.
     public func bind(_ prepared: Prepared, macID: String, cached: [Workspace] = []) async {
         stopUpdates()
+        let oldClient = client
+        client = nil
+        if let oldClient, oldClient !== prepared.client { await oldClient.close() }
         initializing = true
         projection = WorkspaceProjection()
         let projection = projection
@@ -163,10 +168,16 @@ public final class WorkspaceSync {
         }
         let replies = await prepared.replies.value
         // Bound again meanwhile (another link or Mac): this answer is stale.
-        guard self.client === client else { return }
+        guard self.client === client else {
+            await closeFailedClient(client)
+            return
+        }
         do {
             let setup = try await Task.detached { try Self.decodeSetup(replies.map { $0.map(\.data) }) }.value
-            guard self.client === client else { return }
+            guard self.client === client else {
+                await closeFailedClient(client)
+                return
+            }
             identity = setup.identity
             // A reconnect's list counts a prompt only by its own time (a turn already running
             // when the link came back is not a new prompt at the moment it is seen).
@@ -179,7 +190,10 @@ public final class WorkspaceSync {
             let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
                                                   previous: known.isEmpty ? cached : known,
                                                   agents: agents, activity: activity, arrangement: arrangement)
-            guard self.client === client else { return }
+            guard self.client === client else {
+                await closeFailedClient(client)
+                return
+            }
             // Setup subscribed before its list. Replay every setup event;
             // reply arrival is not a watermark for the captured snapshot.
             discardBeforeSnapshot()
@@ -194,7 +208,11 @@ public final class WorkspaceSync {
                 await refresh()
             }
         } catch {
-            guard self.client === client else { return }
+            guard self.client === client else {
+                await closeFailedClient(client)
+                return
+            }
+            await closeFailedClient(client)
             initializing = false
             lastError = LinkController.reason(error)
             log.error("daemon bind failed: \(String(describing: error), privacy: .public)")
@@ -228,6 +246,19 @@ public final class WorkspaceSync {
         pendingChanged = false
         initializing = false
         dirty = false
+    }
+
+    /// Setup can fail after the client has started its reader. Clear the
+    /// current owner before awaiting close so a retry cannot inherit the
+    /// failed reader or its queued events.
+    private func closeFailedClient(_ candidate: DaemonClient) async {
+        if self.client === candidate {
+            self.client = nil
+            eventTask?.cancel()
+            eventTask = nil
+            initializing = false
+        }
+        await candidate.close()
     }
 
     private func receive(_ event: DaemonEvent, sequence: UInt64, from client: DaemonClient) {

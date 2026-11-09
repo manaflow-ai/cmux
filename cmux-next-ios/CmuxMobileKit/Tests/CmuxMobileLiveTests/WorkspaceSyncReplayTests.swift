@@ -220,6 +220,7 @@ import Testing
         await sync.bind(channel, macID: "mac")
         #expect(sync.tree == nil)
         #expect(sync.lastError != nil)
+        #expect(channel.isClosed, "a failed setup closes its reader before a retry")
 
         // A complete delta must trigger baseline recovery rather than silently
         // constructing a partial tree after the setup failed.
@@ -286,6 +287,7 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
     var listWorkspaceRequests: Int { lock.withLock { listCount } }
     var listPersonalRequests: Int { lock.withLock { personalCount } }
     var sidebarLayoutRequests: Int { lock.withLock { layoutCount } }
+    var isClosed: Bool { lock.withLock { closed } }
 
     func replaceSnapshot(_ body: String) { lock.withLock { snapshotBody = body } }
 
