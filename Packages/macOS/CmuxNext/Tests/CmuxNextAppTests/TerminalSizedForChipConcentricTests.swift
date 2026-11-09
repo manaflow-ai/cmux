@@ -56,4 +56,17 @@ import Testing
         #expect(button.layer?.cornerRadius == max(0, chipRadius - trailing),
                 "Take over radius \(button.layer?.cornerRadius ?? -1), chip \(chipRadius) less gap \(trailing)")
     }
+
+    /// The rule in numbers: each radius is the one around it less the gap, never below 0 or past half the chip.
+    @Test(arguments: [
+        (pane: CGFloat(10), inset: CGFloat(6), height: CGFloat(24), gap: CGFloat(3), chip: CGFloat(4), button: CGFloat(1)),
+        (pane: 12, inset: 6, height: 24, gap: 3, chip: 6, button: 3),
+        (pane: 4, inset: 6, height: 24, gap: 3, chip: 0, button: 0),
+        (pane: 40, inset: 6, height: 24, gap: 3, chip: 12, button: 9),
+    ])
+    func radiiNestByTheGap(_ c: (pane: CGFloat, inset: CGFloat, height: CGFloat, gap: CGFloat, chip: CGFloat, button: CGFloat)) {
+        let radii = TerminalSizedForChip.cornerRadii(paneCornerRadius: c.pane, chipInset: c.inset, chipHeight: c.height, buttonGap: c.gap)
+        #expect(radii.chip == c.chip)
+        #expect(radii.button == c.button)
+    }
 }
