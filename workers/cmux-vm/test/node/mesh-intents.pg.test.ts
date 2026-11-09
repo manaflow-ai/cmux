@@ -15,6 +15,7 @@ import meshM3 from "../../migrations/0006_cmux_vm_mesh_m3.sql?raw";
 import deviceIntents from "../../migrations/0018_cmux_vm_mesh_device_intents.sql?raw";
 import { INTENT_STALE_CLAIM_MS, INTENT_TOMBSTONE_MS, RECONCILE_LEASE_MS, absenceIsFinal, intentState, sqlDeviceIntents, type DeviceIntentStore } from "../../src/db/mesh-intents.ts";
 import { MeshStore, sqlMeshStoreLayer, type MeshDeviceRow } from "../../src/db/mesh.ts";
+import { sweepableTunnelDevices } from "../../src/db/orphans.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { newDeviceId, newMeshId, newTunnelId, TenantId } from "../../src/lib/ids.ts";
 
@@ -174,6 +175,43 @@ describe("mesh device intents", () => {
     expect(await openOf(meshId, "i-15")).toEqual([]);
     expect(await claim(meshId, "i-15", newDeviceId(), later(INTENT_TOMBSTONE_MS))).toBe(false);
     expect(await claim(meshId, "i-15", newDeviceId(), later(INTENT_TOMBSTONE_MS + 2))).toBe(true);
+  });
+
+  it("never commits a resolved attempt, so a tunnel that lands after its resolution backs no device", async () => {
+    const meshId = newMeshId();
+    const device = newDeviceId();
+    await claim(meshId, "i-16", device, at);
+    expect(await run(store.markAttemptSent(keyOf(meshId, "i-16", device), at))).toBe(true);
+    await run(store.resolveAttempt(keyOf(meshId, "i-16", device), later(1)));
+    expect(await run(store.commitDeviceIntent(A, "i-16", deviceRow(meshId, device), later(2)))).toBe(false);
+    expect(await devicesOf()).toEqual([]);
+  });
+
+  it("names for the tunnel sweep only devices with no live row whose attempt is resolved or whose intent is revoked", async () => {
+    const meshId = newMeshId();
+    const sweepable = async (owners: ReadonlyArray<{ tenantId: string; deviceId: string }>) =>
+      [...(await Effect.runPromise(Effect.provide(sweepableTunnelDevices(owners), Layer.succeed(SqlClient, {
+        query: (operation, text, params) =>
+          Effect.tryPromise({ try: async () => (await pg.query(text, [...params])).rows, catch: (cause) => new StoreError({ operation, cause }) }),
+      }))))].sort();
+    const resolved = newDeviceId();
+    await claim(meshId, "s-1", resolved, at);
+    await run(store.resolveAttempt(keyOf(meshId, "s-1", resolved), later(1)));
+    const open = newDeviceId();
+    await claim(meshId, "s-2", open, at);
+    const revokedOpen = newDeviceId();
+    await claim(meshId, "s-3", revokedOpen, at);
+    await revokeAs(meshId, "s-3", later(1));
+    const live = newDeviceId();
+    await claim(meshId, "s-4", live, at);
+    await run(store.commitDeviceIntent(A, "s-4", deviceRow(meshId, live), later(1)));
+    await revokeAs(meshId, "s-4", later(2));
+    const noIntent = newDeviceId();
+    const asked = [resolved, open, revokedOpen, live, noIntent].map((deviceId) => ({ tenantId: A, deviceId }));
+    expect(await sweepable(asked)).toEqual([resolved, revokedOpen].sort());
+    // The tenant is part of the match: another tenant's name for the same device names nothing.
+    expect(await sweepable([{ tenantId: "team_other", deviceId: resolved }])).toEqual([]);
+    expect(await sweepable([])).toEqual([]);
   });
 
   it("keeps a tombstone 7 days, written before any enroll or by a device's delete", async () => {

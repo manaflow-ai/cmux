@@ -53,6 +53,8 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   let commitFailures = 0;
   /** The next N intent revocations by a device's delete fail. */
   let intentOfDeviceFailures = 0;
+  /** The next N releases of a deleted device's commit fail. */
+  let releaseCommitFailures = 0;
   /** While set, the next read of an intent's open attempts waits for this promise after it read them. */
   let attemptsReadHold: { readonly reached: () => void; readonly gate: Promise<void> } | null = null;
   /** While set, the next successful reconcile compare-and-set waits for this promise after it wrote. */
@@ -80,6 +82,13 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
           return Effect.fail(new StoreError({ operation: "intent.revokeOfDevice", cause: "injected" }));
         }
         return inner.revokeIntentOfDevice(...args);
+      },
+      releaseCommitOfDevice: (...args: Parameters<typeof inner.releaseCommitOfDevice>) => {
+        if (releaseCommitFailures > 0) {
+          releaseCommitFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "intent.releaseCommitOfDevice", cause: "injected" }));
+        }
+        return inner.releaseCommitOfDevice(...args);
       },
       beginReconcile: (...args: Parameters<typeof inner.beginReconcile>) =>
         inner.beginReconcile(...args).pipe(
@@ -290,6 +299,9 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       const minted = tunnel.clientPublicKey === null || state.mintKey ? "bWludGVkLXByaXZhdGUta2V5LTMyLWJ5dGVzLWxvbmch" : "";
       return json(tunnelBody(tunnel, minted));
     }
+    if (path === "/v5/tunnels" && method === "GET") {
+      return json({ tunnels: [...tunnels.values()].reverse().map((tunnel) => tunnelBody(tunnel, "")), totalCount: tunnels.size });
+    }
     const rotateMatch = /^\/v5\/tunnels\/([^/]+)\/rotate-key$/u.exec(path);
     if (rotateMatch !== null && method === "POST") {
       const id = decodeURIComponent(rotateMatch[1] ?? "");
@@ -458,6 +470,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     /** The next `times` intent revocations by a device's delete fail. */
     failIntentOfDeviceRevokes(times: number) {
       intentOfDeviceFailures = times;
+    },
+    /** The next `times` releases of a deleted device's commit fail. */
+    failReleaseCommits(times: number) {
+      releaseCommitFailures = times;
     },
     /** The next `times` intent commits fail after the provider created the tunnel. */
     failIntentCommits(times: number) {

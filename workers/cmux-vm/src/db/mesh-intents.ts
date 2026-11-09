@@ -14,7 +14,10 @@
  * who may not.
  *
  * Each attempt keeps its own row (numbered by `seq` within its intent), so a later claim never hides an earlier
- * attempt's tunnel. An attempt is resolved only once nothing it made can be live; a claim's age never resolves it.
+ * attempt's tunnel. An attempt is resolved once nothing it made is known to be live; a claim's age never resolves it. A
+ * resolved attempt never commits: the commit takes the attempt's row lock and needs it unresolved, so a resolution and
+ * a commit are ordered, and a tunnel that lands after its attempt was resolved backs no device (the tunnel orphan sweep
+ * deletes it).
  *
  * Reconciling is itself a claim: `beginReconcile` writes a reconcile token, the highest attempt seq it fences, and a
  * lease (RECONCILE_LEASE_MS, renewed per step) onto the intent row. While the token is live no new claim is taken
@@ -36,9 +39,11 @@ export const INTENT_TOMBSTONE_MS = 7 * 24 * 3_600_000;
  */
 export const INTENT_STALE_CLAIM_MS = 10 * 60_000;
 /**
- * A provider create sent this long ago whose tunnel the provider does not have will never land (the Worker aborts the
- * request after 10 s; this is the bound the VM orphan sweep uses for a provider create to land). Before it, a lookup
- * that finds nothing proves nothing and the revoke answers 503.
+ * How long after a provider create was sent a revoke that finds no tunnel at its slug keeps answering 503. Past it the
+ * attempt is resolved and the revoke answers 200. This is when a revoke may answer, not a proof that nothing landed: a
+ * create the provider processes later still makes its tunnel, and the tunnel orphan sweep
+ * (src/upstream/orphan-sweep.ts) deletes every tunnel at a device slug whose attempt is resolved or whose intent is
+ * revoked. A resolved attempt never commits (`commitDeviceIntent`), so such a tunnel never backs a device.
  */
 export const INTENT_SEND_GRACE_MS = 15 * 60_000;
 /** A reconcile token's lease; each reconcile step renews it, and a lapsed one may be taken over. */
@@ -490,10 +495,15 @@ export const sqlDeviceIntents = (sql: SqlClientService): DeviceIntentStore => ({
     sql
       .query(
         "intent.commit",
-        `WITH committed AS (
+        `WITH unresolved AS (
+           -- The attempt's row lock orders the commit with a resolution: a resolved attempt never commits.
+           SELECT 1 FROM cmux_vm.mesh_device_intent_attempts
+            WHERE tenant_id = $2 AND mesh_cmux_id = $3 AND intent_id = $11 AND device_cmux_id = $1 AND resolved_at IS NULL
+           FOR UPDATE),
+         committed AS (
            UPDATE cmux_vm.mesh_device_intents SET committed_at = $10::timestamptz
             WHERE tenant_id = $2 AND mesh_cmux_id = $3 AND intent_id = $11 AND device_cmux_id = $1
-              AND committed_at IS NULL AND revoked_at IS NULL
+              AND committed_at IS NULL AND revoked_at IS NULL AND EXISTS (SELECT 1 FROM unresolved)
            RETURNING 1),
          inserted AS (
            INSERT INTO cmux_vm.mesh_devices (device_cmux_id, tenant_id, mesh_cmux_id, tunnel_cmux_id, name, wg_public_key, install_public_key, created_by, created_at)
@@ -691,6 +701,8 @@ export const memoryDeviceIntents = (
       Effect.sync(() => {
         const row = find(tenantId, device.meshId, intentId);
         if (row === undefined || row.deviceId !== device.deviceId || row.committedAt !== null || row.revokedAt !== null) return false;
+        const attempt = findAttempt({ tenantId, meshId: device.meshId, intentId, deviceId: device.deviceId });
+        if (attempt === undefined || attempt.resolvedAt !== null) return false;
         row.committedAt = at;
         recordDevice(tenantId, device);
         return true;

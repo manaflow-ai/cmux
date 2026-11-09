@@ -980,8 +980,11 @@ const reconcileLost = () => new ServiceUnavailable({ message: "Another reconcile
  * can neither send nor commit any more. Each step first renews the lease, and every write carries the token and the
  * fence, so a reconcile whose lease lapsed writes nothing. One that never sent is resolved under its row lock. One that
  * sent is looked up at the provider by the slug its create used: a tunnel found there is deleted (a failed delete is a
- * 503), and none found resolves it only when the provider answered its create or its send can no longer land
- * (`INTENT_SEND_GRACE_MS`); before that it stays pending. Only this attempt's own ownership rows are marked deleted.
+ * 503), and none found resolves it only when the provider answered its create or `INTENT_SEND_GRACE_MS` passed since
+ * it sent; before that it stays pending. Past the grace this is when the revoke may answer, not proof that nothing will
+ * land: a tunnel that lands later is the tunnel orphan sweep's (src/upstream/orphan-sweep.ts), and a resolved attempt
+ * never commits. Only this attempt's own ownership rows are marked deleted, and a revoked intent's commit of the
+ * device is released.
  */
 const reconcileAttempt = <C, M>(
   caller: Named<C, Principal>,
@@ -1035,6 +1038,10 @@ const reconcileAttempt = <C, M>(
       ownership.markDeleted(tenantId, "tunnel", current.tunnelId, at),
       store.markDeviceDeleted(tenantId, current.deviceId, at),
     ]).pipe(Effect.catchAll(dependencyDown("mesh.resolveAttempt")));
+    // The device is hidden and its tunnel gone: a revoked intent's commit of it is released here too. A device delete
+    // whose release failed after it hid the device leaves the attempt open and the intent committed, and this is the
+    // retry that ends both (the release resolves the device's attempts in the same statement).
+    yield* store.releaseCommitOfDevice(tenantId, current.deviceId, at).pipe(Effect.catchAll(dependencyDown("mesh.releaseCommitOfDevice")));
     const resolved = yield* store.resolveFencedAttempt(key, token, false, at).pipe(Effect.catchAll(dependencyDown("mesh.resolveFencedAttempt")));
     if (!resolved) {
       const settled = yield* store.findAttempt(key).pipe(Effect.catchAll(dependencyDown("mesh.findAttempt")));

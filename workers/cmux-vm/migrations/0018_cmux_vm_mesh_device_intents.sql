@@ -14,12 +14,15 @@
 -- attempt claimed after it began, and no claim is taken while the lease runs.
 --
 -- mesh_device_intent_attempts keeps one row per create attempt, never overwritten by a later one. An attempt is
--- resolved (resolved_at) only once nothing it made can be live: it never sent its provider create, the provider
+-- resolved (resolved_at) once nothing it made is known to be live: it never sent its provider create, the provider
 -- refused that create outright, or its tunnel's delete was confirmed (also when found at the provider by its slug
 -- after a lost reply), or the provider has no tunnel at its slug and either answered its create or was sent it more
--- than 15 minutes ago. sent_at is set, under the attempt's row lock, just before the provider create; an unsent
--- attempt is resolved by setting resolved_at under the same lock, so it can never send after that. A revoke answers
--- its final 200 only when every attempt of the intent is resolved.
+-- than 15 minutes ago. The 15 minutes only decide when a revoke may answer: a create the provider processes later
+-- still makes its tunnel, and the Worker's tunnel orphan sweep deletes every tunnel at a device slug whose attempt is
+-- resolved or whose intent is revoked. A resolved attempt never commits (the commit locks its row and needs it
+-- unresolved), so such a tunnel never backs a device. sent_at is set, under the attempt's row lock, just before the
+-- provider create; an unsent attempt is resolved by setting resolved_at under the same lock, so it can never send
+-- after that. A revoke answers its final 200 only when every attempt of the intent is resolved.
 --
 -- Apply through the versioned migration runner before deploying code; grant the Worker SELECT, INSERT and UPDATE on
 -- the first two tables and SELECT, INSERT and DELETE on mesh_device_intent_nonces through the operator role

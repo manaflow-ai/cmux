@@ -5,11 +5,12 @@
  * deletes the tunnel it made. Each create attempt keeps its own row until its tunnel is confirmed gone (found at the
  * provider by its slug when a reply was lost), and the revoke's 200 waits for every one of them.
  */
-import { Schema } from "effect";
+import { Effect, Redacted, Schema } from "effect";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 import { enrollBody, makeInstallKey, type InstallKey } from "../support/mesh-signing.ts";
+import { sweepOrphanTunnels, type TunnelOwner } from "../../src/upstream/orphan-sweep.ts";
 
 const A = "team_alpha";
 const KEY_1 = btoa("a".repeat(32));
@@ -425,6 +426,87 @@ it("releases a deleted device's commit, so the intent stays revoked but no longe
   const row = h.mesh.store.deviceIntents().find((intent) => intent.intentId === "released-intent");
   expect([row?.committedAt, row?.deviceId, row?.revokedAt === null]).toEqual([null, null, false]);
   expect(h.mesh.store.deviceIntentAttempts().filter((attempt) => attempt.intentId === "released-intent" && attempt.resolvedAt === null)).toHaveLength(0);
+});
+
+/** The tunnel sweep (src/upstream/orphan-sweep.ts) against the fake provider, with the rule of src/db/orphans.ts over the memory store. */
+const sweepTunnels = () =>
+  Effect.runPromise(
+    sweepOrphanTunnels(
+      { baseUrl: "https://upstream.test", apiKey: Redacted.make("upstream-test-key"), environment: "local",
+        fetch: async (request) => (await h.mesh.upstream(request)) ?? new Response(null, { status: 500 }) },
+      {
+        dryRun: false,
+        sweepable: (owners: ReadonlyArray<TunnelOwner>) =>
+          Effect.sync(() => {
+            const store = h.mesh.store;
+            const found: Set<string> = new Set();
+            for (const owner of owners) {
+              if (store.devices.some((row) => row.deviceId === owner.deviceId && row.deletedAt === null)) continue;
+              const done = store.deviceIntentAttempts().some((attempt) =>
+                attempt.tenantId === owner.tenantId && attempt.deviceId === owner.deviceId &&
+                (attempt.resolvedAt !== null || store.deviceIntents().some((intent) =>
+                  intent.tenantId === owner.tenantId && intent.meshId === attempt.meshId && intent.intentId === attempt.intentId && intent.revokedAt !== null)));
+              if (done) found.add(owner.deviceId);
+            }
+            const sweepable: ReadonlySet<string> = found;
+            return sweepable;
+          }),
+      },
+    ),
+  );
+
+it("sweeps the tunnel of a create that landed after its attempt was resolved, its reply lost", async () => {
+  const { admin, mesh } = await setup();
+  const kept = Schema.decodeUnknownSync(Enrolled)(await (await enroll(admin, mesh, "kept-intent")).json());
+  const release = h.mesh.holdTunnelLanding();
+  h.mesh.loseTunnelReplies(1);
+  const pending = enroll(admin, mesh, "late-intent", KEY_2);
+  await h.mesh.tunnelCreateHeld();
+  expect((await revoke(admin, mesh, "late-intent")).status).toBe(503);
+  // Past the send grace with no tunnel at the slug, the revoke resolves the attempt and answers 200.
+  for (const attempt of h.mesh.store.deviceIntentAttempts()) {
+    if (attempt.intentId !== "late-intent" || attempt.sentAt === null) continue;
+    attempt.sentAt = new Date(attempt.sentAt.getTime() - 16 * 60_000);
+  }
+  expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(admin, mesh, "late-intent")).json())).toEqual({ deleted: false });
+  // The provider processes the create after all, and its reply is lost: nothing left running knows the tunnel.
+  release();
+  expect((await pending).status).toBe(503);
+  expect(liveTunnels()).toBe(2);
+  const report = await sweepTunnels();
+  expect([report.listed, report.orphans.length, report.deleted.length, report.failed]).toEqual([2, 1, 1, []]);
+  // The live device's tunnel stays; only the late one is gone.
+  expect(liveTunnels()).toBe(1);
+  expect((await h.request(`/v1/devices/${kept.device.id}`, bearer(admin))).status).toBe(200);
+  expect((await sweepTunnels()).deleted).toEqual([]);
+});
+
+it("never sweeps the tunnel of an attempt still open, or a device enrolled without an intent", async () => {
+  const { admin, mesh } = await setup();
+  h.mesh.loseTunnelReplies(1);
+  expect((await enroll(admin, mesh, "open-intent")).status).toBe(503);
+  const plain = await h.request(`/v1/meshes/${mesh}/devices`, bearer(admin), { method: "POST", body: await enrollBody(install, mesh, { name: "mac", wgPublicKey: KEY_2 }) });
+  expect(plain.status).toBe(201);
+  expect(liveTunnels()).toBe(2);
+  expect((await sweepTunnels()).orphans).toEqual([]);
+  expect(liveTunnels()).toBe(2);
+});
+
+it("releases the commit in the revoke's reconcile when the device delete failed after it hid the device", async () => {
+  const { admin, mesh } = await setup();
+  const { device } = Schema.decodeUnknownSync(Enrolled)(await (await enroll(admin, mesh, "release-fault")).json());
+  h.mesh.failReleaseCommits(1);
+  expect((await h.request(`/v1/devices/${device.id}`, bearer(admin), { method: "DELETE" })).status).toBe(503);
+  // Hidden and its tunnel gone, but the revoked intent still reads committed and its attempt open.
+  expect((await h.request(`/v1/devices/${device.id}`, bearer(admin))).status).toBe(404);
+  expect(liveTunnels()).toBe(0);
+  const before = h.mesh.store.deviceIntents().find((intent) => intent.intentId === "release-fault");
+  expect([before?.committedAt === null, before?.revokedAt === null]).toEqual([false, false]);
+  const revoked = await revoke(admin, mesh, "release-fault");
+  expect(revoked.status).toBe(200);
+  const row = h.mesh.store.deviceIntents().find((intent) => intent.intentId === "release-fault");
+  expect([row?.committedAt, row?.deviceId, row?.revokedAt === null]).toEqual([null, null, false]);
+  expect(h.mesh.store.deviceIntentAttempts().filter((attempt) => attempt.intentId === "release-fault" && attempt.resolvedAt === null)).toHaveLength(0);
 });
 
 it("refuses a malformed intentId", async () => {
