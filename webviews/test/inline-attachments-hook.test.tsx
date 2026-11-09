@@ -613,9 +613,16 @@ test("Keep as .txt on a node-less pasted chip survives an undo", async () => {
   await settle();
   expect(nodes()).toEqual([]);
   expect(controls.attachments().map((chip) => chip.id)).toEqual([PASTED.id]);
-  // Later than the editor's undo grouping (500 ms), as a person's click is: its own undo step.
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 650)));
-  await act(async () => controls.keepAsFile(PASTED.id));
+  // Later than the editor's undo grouping (500 ms, read from each transaction's Date.now), as a
+  // person's click is: its own undo step. The clock moves on instead of the test waiting.
+  const realNow = Date.now;
+  const later = realNow() + 1000;
+  Date.now = () => later;
+  try {
+    await act(async () => controls.keepAsFile(PASTED.id));
+  } finally {
+    Date.now = realNow;
+  }
   for (let turn = 0; turn < 3; turn++) await settle();
   expect(nodes()).toEqual(["kept-txt"]);
   expect(controls.attachments().map((chip) => chip.id)).toEqual(["kept-txt"]);
