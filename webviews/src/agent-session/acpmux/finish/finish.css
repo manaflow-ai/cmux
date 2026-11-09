@@ -32,18 +32,16 @@
   opacity: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) {
-    /* The check draws in on the settle, holds, then gives the chevron back as the label's tint fades. */
-    & .cv-finish-check {
-      stroke-dasharray: 1;
-      animation: cv-finish-draw var(--cmux-finish-short) var(--cmux-ease-settle) both; /* motion-allow: a one-shot finish moment, gated above */
-    }
-    & .cv-worked[data-finish] > .cv-worked__label {
-      animation: cv-finish-tint var(--cmux-finish-short) var(--cmux-ease-out) both; /* motion-allow: one-shot, gated above */
-    }
-    & .cv-worked[data-finish] > .cv-worked__chevron {
-      animation: cv-finish-chevron var(--cmux-finish-short) linear both; /* motion-allow: one-shot, gated above */
-    }
+  /* The check draws in on the settle, holds, then gives the chevron back as the label's tint fades. */
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-finish-check {
+    stroke-dasharray: 1;
+    animation: cv-finish-draw var(--cmux-finish-short) var(--cmux-ease-settle) both; /* motion-allow: a one-shot finish moment, gated above */
+  }
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-worked[data-finish] > .cv-worked__label {
+    animation: cv-finish-tint var(--cmux-finish-short) var(--cmux-ease-out) both; /* motion-allow: one-shot, gated above */
+  }
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-worked[data-finish] > .cv-worked__chevron {
+    animation: cv-finish-chevron var(--cmux-finish-short) linear both; /* motion-allow: one-shot, gated above */
   }
 }
 @keyframes cv-finish-draw {
@@ -94,17 +92,15 @@
   background: var(--agent-status-success);
 }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) {
-    & .acpmux-header-pr[data-finish="ci"]::after {
-      animation: acpmux-finish-ring var(--cmux-finish-short) var(--cmux-ease-settle) both; /* motion-allow: one-shot, gated above */
-    }
-    & .acpmux-header-pr[data-finish="merged"] {
-      animation: acpmux-finish-merged var(--cmux-finish-merged) var(--cmux-ease-out) both; /* motion-allow: one-shot, gated above */
-    }
-    /* Each dot flies out along its own angle (--a) and fades; together they end by 900 ms. */
-    & .acpmux-finish-burst > i {
-      animation: acpmux-finish-dot var(--cmux-finish-burst) var(--cmux-ease-settle) both; /* motion-allow: one-shot, gated above */
-    }
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-header-pr[data-finish="ci"]::after {
+    animation: acpmux-finish-ring var(--cmux-finish-short) var(--cmux-ease-settle) both; /* motion-allow: one-shot, gated above */
+  }
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-header-pr[data-finish="merged"] {
+    animation: acpmux-finish-merged var(--cmux-finish-merged) var(--cmux-ease-out) both; /* motion-allow: one-shot, gated above */
+  }
+  /* Each dot flies out along its own angle (--a) and fades; together they end by 900 ms. */
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-finish-burst > i {
+    animation: acpmux-finish-dot var(--cmux-finish-burst) var(--cmux-ease-settle) both; /* motion-allow: one-shot, gated above */
   }
 }
 @keyframes acpmux-finish-ring {
