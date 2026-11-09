@@ -257,10 +257,10 @@ test("a run whose groups the reader closed one by one stays closed when the turn
   await open(container, /^Ran 2 commands and read 2 files$/);
   // The running turn draws the run's groups, open from the run's line; the reader closes each.
   await update(<ToolRows row={{ ...run("r1", calls), foldRun: false }} sessionId="one-by-one" />);
-  expect(groupLines(container)).toEqual({ "group:execute:c1": true, "group:read:c3": true });
-  await click(container, 'button[data-tool-group="group:execute:c1"]');
-  await click(container, 'button[data-tool-group="group:read:c3"]');
-  expect(groupLines(container)).toEqual({ "group:execute:c1": false, "group:read:c3": false });
+  expect(groupLines(container)).toEqual({ "group:commands:c1": true, "group:reads:c3": true });
+  await click(container, 'button[data-tool-group="group:commands:c1"]');
+  await click(container, 'button[data-tool-group="group:reads:c3"]');
+  expect(groupLines(container)).toEqual({ "group:commands:c1": false, "group:reads:c3": false });
   // The turn ends: its work folds under the run's line again, closed as the reader left its groups.
   await update(<ToolRows row={{ ...run("r1", calls), version: 99 }} sessionId="one-by-one" />);
   expect(lines(container)).toEqual([{ text: "Ran 2 commands and read 2 files", open: false }]);
@@ -270,9 +270,9 @@ test("a steered turn's open run line stays closed over groups the reader closed 
   const calls = [command("c1", "git pull"), command("c2", "git status"), read("c3", "a.md"), read("c4", "b.md")];
   // The running turn keeps its calls in sight in their groups, open (turns.ts codexRuns).
   const container = await mount(<ToolRows row={{ ...run("r1", calls), foldRun: false }} sessionId="steered" />);
-  expect(groupLines(container)).toEqual({ "group:execute:c1": true, "group:read:c3": true });
-  await click(container, 'button[data-tool-group="group:execute:c1"]');
-  await click(container, 'button[data-tool-group="group:read:c3"]');
+  expect(groupLines(container)).toEqual({ "group:commands:c1": true, "group:reads:c3": true });
+  await click(container, 'button[data-tool-group="group:commands:c1"]');
+  await click(container, 'button[data-tool-group="group:reads:c3"]');
   // A steered turn's opened Worked for draws its run lines open (`runOpen`), but not over the reader's choice.
   await update(<ToolRows row={{ ...run("r1", calls), version: 99, runOpen: true }} sessionId="steered" />);
   expect(lines(container)).toEqual([{ text: "Ran 2 commands and read 2 files", open: false }]);
@@ -280,18 +280,19 @@ test("a steered turn's open run line stays closed over groups the reader closed 
 
 test("a run line the reader closed stays closed when the run splits back into groups", async () => {
   const two = [command("c1", "git pull"), command("c2", "git status")];
-  const three = [...two, read("c3", "notes.md")];
+  const three = [...two, read("c3", "a.md"), read("c4", "b.md")];
   const container = await mount(<ToolRows row={run("r1", two)} sessionId="split" />);
   await open(container, /^Ran 2 commands$/);
-  // A read joins: the group grows into a run, open where the reader opened the group; they close it.
+  // Reads join: the group grows into a run, open where the reader opened the group; they close it.
   await update(<ToolRows row={run("r1", three)} sessionId="split" />);
-  const runLine = lineNamed(container, /^Ran 2 commands and read a file$/)!;
+  const runLine = lineNamed(container, /^Ran 2 commands and read 2 files$/)!;
   expect(runLine.getAttribute("aria-expanded")).toBe("true");
   await act(async () => runLine.click());
   expect(runLine.getAttribute("aria-expanded")).toBe("false");
-  // A call still running unfolds the run into its groups: each stays closed, the read's too.
+  // A call still running unfolds the run into its groups: each stays closed, the reads' too, which
+  // the reader never opened on its own.
   await update(<ToolRows row={{ ...run("r1", three), foldRun: false }} sessionId="split" />);
-  expect(groupLines(container)).toEqual({ "group:execute:c1": false, "group:read:c3": false });
+  expect(groupLines(container)).toEqual({ "group:commands:c1": false, "group:reads:c3": false });
 });
 
 test("a run keeps its open state when Find shows a hidden discovery call at its start", async () => {
@@ -343,5 +344,5 @@ test("an edits group keeps its own state when an opened run line splits into gro
   await open(container, /^Edited/);
   // A call still running unfolds the run: the commands open with the run's line, the edit stays closed.
   await update(<ToolRows row={{ ...run("r1", items), foldRun: false }} sessionId="edits-split" />);
-  expect(groupLines(container)).toEqual({ "group:edits:e1": false, "group:execute:c1": true });
+  expect(groupLines(container)).toEqual({ "group:edits:e1": false, "group:commands:c1": true });
 });
