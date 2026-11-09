@@ -101,5 +101,8 @@ mod tests {
         std::os::unix::fs::symlink("..", root.join("app/.claude")).unwrap();
         assert!(head_allowed(root, &[]), "a folder off the head is not read");
         assert!(!head_allowed(root, &[Path::new("app")]), "a subpath folder's harness folder");
+        std::fs::remove_file(root.join("app/.claude")).unwrap();
+        std::os::unix::fs::symlink("app", root.join(".claude")).unwrap();
+        assert!(!head_allowed(root, &[Path::new("app")]), "a root harness folder linked to the subpath");
     }
 }

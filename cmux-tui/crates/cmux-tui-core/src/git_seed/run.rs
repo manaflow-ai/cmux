@@ -45,24 +45,26 @@ pub(super) fn fill_unfinished(folder: &Path) -> bool {
     std::fs::symlink_metadata(folder.join(".git").join(FILLING)).is_ok()
 }
 
-/// The head's non-cone patterns, in the order sparse-checkout's cone mode writes them: the
-/// root's files, its harness folders whole, then each subpath folder's own files and its
-/// harness folders (a later pattern wins, so each folder re-includes what its parent's
-/// `!.../*/` left out).
+/// The head's non-cone patterns: the root's files, then each subpath folder's own files
+/// (each re-includes what its parent's `!.../*/` left out), then every head folder's harness
+/// folders whole. A folder is judged by the last pattern that matches the folder itself, and
+/// `/.claude/` matches only `.claude`: with a subpath inside it (`.claude/skills/task`),
+/// `!/.claude/*/` would leave `.claude/rules/` out. So each harness folder also gets
+/// `/.claude/**`, which matches every folder below it, after every exclusion.
 pub(super) fn head_patterns(head: &HeadFirst) -> String {
     let mut patterns = String::from("/*\n!/*/\n");
+    let mut folders = vec![String::new()];
     let mut at = String::new();
-    let harness = |patterns: &mut String, at: &str| {
-        for dir in cmux_git::harness_head::HEAD_DIRS {
-            patterns.push_str(&format!("{at}/{dir}/\n"));
-        }
-    };
-    harness(&mut patterns, &at);
     for part in &head.subpath {
         at.push('/');
         at.push_str(part);
         patterns.push_str(&format!("{at}/\n!{at}/*/\n"));
-        harness(&mut patterns, &at);
+        folders.push(at.clone());
+    }
+    for folder in &folders {
+        for dir in cmux_git::harness_head::HEAD_DIRS {
+            patterns.push_str(&format!("{folder}/{dir}/\n{folder}/{dir}/**\n"));
+        }
     }
     patterns
 }

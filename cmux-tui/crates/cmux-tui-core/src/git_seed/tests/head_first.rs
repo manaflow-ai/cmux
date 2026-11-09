@@ -212,3 +212,46 @@ fn a_harness_folder_linked_to_a_folder_is_never_marked() {
     assert_eq!(state(&folder), state(&world.mac));
     whole(&folder);
 }
+
+/// Review F1 (cmux#39018, 7373781): a subpath inside a harness folder keeps the rest of
+/// that folder in the head (`/.claude/**` after the subpath's exclusions).
+#[test]
+fn a_subpath_inside_a_harness_folder_keeps_the_whole_harness_folder() {
+    let world = World::new("head-in-harness");
+    write(&world.mac.join(".claude/rules/project.md"), "rules\n");
+    write(&world.mac.join(".claude/skills/task/SKILL.md"), "task\n");
+    write(&world.mac.join(".claude/skills/task/deep/more.md"), "more\n");
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    let params = head_params(&world, &folder, &snapshot, Some(".claude/skills/task"));
+    let (service, job, release) = held_at_head(&world, &params, &folder);
+    assert_eq!(status(&service, &job)["head_ready"], true);
+    assert_eq!(read(&folder.join(".claude/rules/project.md")), "rules\n");
+    assert_eq!(read(&folder.join(".claude/skills/task/SKILL.md")), "task\n");
+    assert_eq!(read(&folder.join(".claude/skills/task/deep/more.md")), "more\n");
+    drop(release);
+    assert_eq!(wait(&service, &job)["state"], "done");
+    assert_eq!(state(&folder), state(&world.mac));
+    whole(&folder);
+}
+
+/// Review F2 (cmux#39018, 7373781): `.claude -> app` with the chat in `app` resolves, but
+/// `app/rules/` is not in the head, so the head is never marked.
+#[test]
+fn a_harness_folder_linked_to_the_subpath_is_never_marked() {
+    let world = World::new("head-link-sub");
+    write(&world.mac.join("app/rules/project.md"), "rules\n");
+    std::os::unix::fs::symlink("app", world.mac.join(".claude")).unwrap();
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    let params = head_params(&world, &folder, &snapshot, Some("app"));
+    let (service, job, release) = held_at_head(&world, &params, &folder);
+    assert!(!folder.join("app/rules").exists(), "outside the head");
+    assert!(status(&service, &job)["head_ready"].is_null());
+    assert!(matches!(probe(&folder).unwrap(), Probe::Syncing), "a start waits");
+    drop(release);
+    assert_eq!(wait(&service, &job)["state"], "done");
+    assert_eq!(read(&folder.join(".claude/rules/project.md")), "rules\n");
+    assert_eq!(state(&folder), state(&world.mac));
+    whole(&folder);
+}
