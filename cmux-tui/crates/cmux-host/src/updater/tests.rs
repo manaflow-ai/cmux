@@ -691,7 +691,7 @@ fn another_process_keeps_its_own_restore_look() {
         3_600 * SECOND_NS,
         at(5),
     ));
-    assert_eq!(gate::Gate::new(&paths).held_left(at(5).1), Some(role::CONNECT_HOLD));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(5).1).unwrap(), Some(role::CONNECT_HOLD));
 }
 
 /// Review F2 of #39049: a pause the watch found after the previous wait's
@@ -1177,5 +1177,5 @@ fn a_pause_published_during_the_read_still_holds() {
         role::hold_if_paused(&paths, &watch, &handled, at(181)),
         "a pause published during the read was missed"
     );
-    assert_eq!(gate::Gate::new(&paths).held_left(at(181).1), Some(role::CONNECT_HOLD));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(181).1).unwrap(), Some(role::CONNECT_HOLD));
 }
