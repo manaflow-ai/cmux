@@ -278,6 +278,9 @@ extension SidebarListViewComponents {
             block.clipsToBounds = false
             raiseForFlight(block)
             let serial = raiseForFlight(item)
+            // The flight reads the title's pen and the pin's frame now: a new item lays its parts out on its slot first,
+            // as an unpin's row does (`unpinFlight`); the display pass would only do it after the flight read them.
+            Motion.withoutAnimation { item.layoutSubtreeIfNeeded() }
             flights.append(SidebarPinFlight(view: item, start: start, title: titleOffset(of: item, from: source), glyph: item.pinGlyph,
                                             serial: serial, revealed: revealOpeningBlock(block, keeping: item)))
         }
