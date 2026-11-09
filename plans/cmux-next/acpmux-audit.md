@@ -270,3 +270,25 @@ changed, with no process scanning (`plans/cmux-next/pty-holder.md` section 4):
   that runs an old or foreign CLI), not a forgery, as the trust boundary in `owner_terminal`
   says. A person who runs an old CLI at their terminal is now unverified until they update.
 - Tests: `tests/caller_declared_cli.rs` (real binary and a raw old client; red first).
+- After review (claude-17-review-w5s, BLOCK at 2131886f): the same rule now holds for team
+  messaging (`server/team.rs`: send, inbox and `may_read`), the person's standalone workflow runs
+  (`server/workflow_runs.rs`: list, check, pause, start) and another chat's inbox, through
+  `Conn::unproven_agent` (no proven session, and maybe an agent behind it). An old CLI that proved
+  no session gets the one `caller.old_client` refusal everywhere (`Conn::refusal`); a proven agent
+  on an old CLI is refused as any agent. `acpmux stdio` adds the caller declaration and, in a
+  session, the caller token to the editor's `initialize` (`cli/stdio.rs` `declare_caller`).
+- The owner control of the test sends with the CLI's terminal hello: on the macOS runner, which
+  runs below a harness, the CLI names that harness (`sender_harness.rs`) and its send is no
+  person's. The daemon rule is the same on both systems.
+- N5 (an owner started from an agent's shell keeps `ACPMUX_SESSION_TOKEN`, so the person's CLI in
+  its terminals declares `agent`): fixed by W5-R #39027 (`startup_env.rs` drops every
+  `ACPMUX_SESSION_*`), not duplicated here.
+- Decision for PL-acpmux (review N6): an `owner_terminal` send is still stamped
+  `origin {actor: person, verified: true}` (`prompt_provenance.rs` `marked`), though nothing proves
+  it: same-uid socket trust and the client's own declaration only. An agent that types into the
+  person's terminal, or a raw client that declares `terminal`, makes the same record. Proposal:
+  stamp `verified: false, basis: "same_uid_socket"` for it, and keep `verified: true` for the
+  proven person (`hub/person.rs`). PL-acpmux decides; W5-S did not change it.
+- Follow-ups, not in this change: `own_bin` keeps a Linux `current_exe()` that reads
+  `"... (deleted)"` after an in-place update (N4: filter on `exists()`); `acpmux-move` and
+  `acpmux-transfer` raw clients declare nothing (N8; they send no prompt as the person today).
