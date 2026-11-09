@@ -92,7 +92,10 @@ impl WorkspaceRegistry {
                    SELECT source_sequence FROM journal_checkpoints
                    ORDER BY source_sequence DESC LIMIT 1 OFFSET ?1)
                ORDER BY source_sequence ASC LIMIT ?2)",
-            params![(JOURNAL_CHECKPOINTS_KEPT - 1) as i64, JOURNAL_CHECKPOINT_PRUNE_BATCH as i64],
+            params![
+                JOURNAL_CHECKPOINT_OLDEST_KEPT_OFFSET as i64,
+                JOURNAL_CHECKPOINT_PRUNE_BATCH as i64
+            ],
         )?;
         Ok(deleted)
     }

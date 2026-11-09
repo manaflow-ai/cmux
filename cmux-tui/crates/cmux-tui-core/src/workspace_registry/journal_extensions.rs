@@ -30,6 +30,8 @@ pub(crate) const JOURNAL_LIST_MAX_ITEMS: usize = 4096;
 /// The newest checkpoints always kept. The `journal_checkpoints_keep_recent`
 /// trigger repeats this number; keep the two equal.
 pub(crate) const JOURNAL_CHECKPOINTS_KEPT: usize = 16;
+/// The newest checkpoint the prune keeps, counting from 0.
+const JOURNAL_CHECKPOINT_OLDEST_KEPT_OFFSET: usize = JOURNAL_CHECKPOINTS_KEPT - 1;
 /// The most checkpoints one maintenance tick deletes.
 pub(crate) const JOURNAL_CHECKPOINT_PRUNE_BATCH: usize = 64;
 
