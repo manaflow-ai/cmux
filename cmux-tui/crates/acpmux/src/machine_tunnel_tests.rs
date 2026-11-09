@@ -30,7 +30,7 @@ struct Platform {
 
 /// A platform that answers each request with `answer`, after `hold` (when given) is notified.
 /// A status of 0 closes the connection with no answer: a request the platform took whose
-/// answer was lost.
+/// answer was lost. A string reply is sent as its raw text: a body that need not be JSON.
 async fn platform(
     key_dir: std::path::PathBuf,
     hold: Option<Arc<Notify>>,
@@ -88,7 +88,10 @@ async fn platform(
                 drop(stream);
                 continue;
             }
-            let text = reply.to_string();
+            let text = match reply {
+                Value::String(raw) => raw,
+                reply => reply.to_string(),
+            };
             let response = format!(
                 "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
                 text.len()
@@ -331,6 +334,51 @@ async fn a_gateway_failure_is_indeterminate_and_keeps_the_candidate() {
         assert_eq!(reason(&error), "indeterminate", "{status}");
         assert_eq!(public_of(dir.path()), old);
         assert!(pending_public(dir.path()).is_some(), "{status}");
+    }
+}
+
+/// A success whose answer names no key (not JSON, cut short, or without `wgPublicKey`) may
+/// still mean the platform took the candidate: it is kept, and the next rekey sends it again.
+#[tokio::test]
+async fn a_success_whose_answer_names_no_key_keeps_the_candidate() {
+    for body in
+        [json!("<html>ok</html>"), json!("{\"wgPublicKey\":"), json!({"machineId": "machine_1"})]
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let old_bytes = {
+            public_of(dir.path());
+            std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap()
+        };
+        let answered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = answered.clone();
+        let first = body.clone();
+        let platform = platform(dir.path().into(), None, move |seen| {
+            if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                (200, first.clone())
+            } else {
+                takes_the_key(seen)
+            }
+        })
+        .await;
+        let target = machine(&platform.origin);
+        let rekeys = tokio::sync::Mutex::new(());
+        let error = rekey_once(&rekeys, &target, dir.path(), None, TOKEN, |_| {
+            panic!("an unsettled rekey records no key")
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(reason(&error), "indeterminate", "{body}");
+        assert_eq!(error.data.as_ref().unwrap()["retryable"], true);
+        assert_eq!(std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap(), old_bytes);
+        let candidate = pending_public(dir.path()).expect("the candidate is kept");
+        let answer =
+            rekey_once(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(())).await.unwrap();
+        let seen = platform.seen.lock().unwrap().clone();
+        assert_eq!(sent_key(&seen[0]), candidate);
+        assert_eq!(sent_key(&seen[1]), candidate, "the retry sends the same candidate");
+        assert_eq!(answer["wgPublicKey"], candidate.as_str());
+        assert_eq!(public_of(dir.path()), candidate);
+        assert!(pending_public(dir.path()).is_none());
     }
 }
 
