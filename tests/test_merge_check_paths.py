@@ -392,23 +392,26 @@ class CheckPathGate(unittest.TestCase):
             run(api)
         self.assertEqual(len(api.dispatched), 1)
 
-    def test_an_unknown_mergeable_state_is_read_again_a_bounded_number_of_times(self):
+    def test_an_unknown_mergeable_state_goes_on_at_once_with_no_re_read(self):
+        # UNKNOWN is no evidence of a conflict, and the gate never polls for it: one read per dispatch, no wait
+        # before the dispatch (the 40s are the run's own two polls).
         landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
-        api = FakeApi([status(OLD), status(TIP, at="2026-10-21T14:12:00Z")], compares=landed,
-                      mergeables=("UNKNOWN", "UNKNOWN", "MERGEABLE"))
-        run(api)
-        self.assertEqual(api.mergeable_reads, 3)
-        self.assertEqual(len(api.dispatched), 1)
-        api = FakeApi([status(OLD), status(TIP, at="2026-10-21T14:12:00Z")], compares=landed,
+        api = FakeApi([status(OLD), status(OLD), status(TIP, at="2026-10-21T14:12:00Z")], compares=landed,
                       mergeables=("UNKNOWN",))
-        (checked, _), err = run(api)
-        self.assertEqual(api.mergeable_reads, 3)
+        (checked, waited), err = run(api)
+        self.assertEqual(checked, "check paths (fast gates rerun on the current tip)")
+        self.assertEqual(api.mergeable_reads, 1)
         self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(waited, 40)
         self.assertIn("still computing", err)
-        api = FakeApi([status(OLD)], compares=landed, mergeables=("UNKNOWN", "CONFLICTING"))
+
+    def test_an_unknown_state_that_turns_conflicting_refuses_before_the_rerun(self):
+        api = MovingTipApi(moves=1)
+        api.mergeables = ["UNKNOWN", "CONFLICTING"]
         with self.assertRaisesRegex(gate.Refused, "conflicting: rebase"):
             run(api)
-        self.assertEqual(api.dispatched, [])
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(api.mergeable_reads, 2)
 
     def test_check_only_dispatches_nothing(self):
         landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}

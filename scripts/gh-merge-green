@@ -429,9 +429,9 @@ fi
 # A pull request GitHub reports as conflicting cannot merge, and every fast-gates run of it is red:
 # refuse before any gate waits or dispatches (2026-11-09: the #39027 try spent 4m39s and dispatched
 # the fast gates, then gh pr merge refused "the merge commit cannot be cleanly created"). GitHub
-# computes the state lazily: UNKNOWN is read again a bounded number of times
-# (merge_check_paths.py --conflicts-only), then the gates go on; the check-path gate reads it again
-# before each dispatch, and gh pr merge refuses a real conflict.
+# computes the state lazily: UNKNOWN is no evidence of a conflict, so the gates go on at once (no
+# re-read loop); the check-path gate reads it again before each dispatch, and gh pr merge refuses a
+# real conflict.
 mergeable=$(jq -r '"\(.mergeable // "")\t\(.mergeStateStatus // "")"' <<<"$pr_json" 2>/dev/null || true)
 case "$mergeable" in
   CONFLICTING*|*DIRTY)
@@ -440,18 +440,7 @@ case "$mergeable" in
       'merge or rebase the base into the pull request (scripts/merge-main.sh), push, and retry'
     ;;
   UNKNOWN*)
-    conflict_err=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-conflict.XXXXXX")
-    tmp_files+=("$conflict_err")
-    conflict_status=0
-    python3 "$script_dir/ci/merge_check_paths.py" "$repo" "$num" "$sha" --conflicts-only \
-      --interval "${GH_MERGE_GREEN_CHECK_PATHS_INTERVAL:-20}" >/dev/null 2>"$conflict_err" || conflict_status=$?
-    sed -n '/^note: /p' "$conflict_err" >&2
-    [ "$conflict_status" -ne 3 ] || refuse_rate_limited "reading whether $ref merges cleanly: $(sed 's/^rate-limited: //' "$conflict_err")"
-    if [ "$conflict_status" -ne 0 ]; then
-      refuse \
-        "not merged: $(sed '/^note: /d' "$conflict_err")" \
-        'merge or rebase the base into the pull request (scripts/merge-main.sh), push, and retry'
-    fi
+    echo "note: GitHub is still computing whether $ref merges cleanly; going on (gh pr merge refuses a conflict)" >&2
     ;;
 esac
 if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1; then

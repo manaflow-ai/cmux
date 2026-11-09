@@ -1129,24 +1129,25 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(events.read_text().splitlines(), ["dispatch"])
             self.assertIn("conflicting: rebase", result.stderr)
 
-    def test_an_unknown_mergeable_state_is_read_again_and_then_decides(self):
-        # GitHub computes it lazily: UNKNOWN is read again a bounded number of times; a conflict then refuses.
+    def test_an_unknown_state_that_turns_conflicting_refuses_before_the_rerun(self):
+        # UNKNOWN goes on at once; the read before the next dispatch sees the conflict and refuses with no rerun.
+        newer = "e" * 40
         with tempfile.TemporaryDirectory() as directory:
             marker, events = Path(directory) / "merged", Path(directory) / "events"
             result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
                                      event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
-                                     fast_gates_after=(MERGED_SHA, "success"), tip_sha=MERGED_SHA,
-                                     compare=self.LANDED,
+                                     fast_gates_runs=[(MERGED_SHA, "success"), (newer, "success")],
+                                     tip_shas=[MERGED_SHA, newer], compare=self.LANDED,
                                      pr_fields={"mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN"},
                                      mergeable_reads=[(None, "unknown"), (False, "dirty")])
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
-            self.assertFalse(events.exists() and events.read_text().strip())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch"])
             self.assertIn("conflicting: rebase", result.stderr)
 
-    def test_a_mergeable_state_still_unknown_after_the_reads_goes_on(self):
-        # UNKNOWN is no evidence of a conflict: after the bounded reads the gate goes on, and gh pr merge still
-        # refuses a real conflict.
+    def test_an_unknown_mergeable_state_goes_on_at_once_with_no_re_read(self):
+        # UNKNOWN is no evidence of a conflict, and gh-merge-green never polls for it: the gates go on at once, the
+        # check-path gate reads it once per dispatch, and gh pr merge still refuses a real conflict.
         with tempfile.TemporaryDirectory() as directory:
             marker, events = Path(directory) / "merged", Path(directory) / "events"
             result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
@@ -1156,9 +1157,11 @@ class InstalledHelperRegression(unittest.TestCase):
                                      pr_fields={"mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN"},
                                      mergeable_reads=[(None, "unknown")])
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(events.read_text().splitlines(), ["dispatch", "merge"])
+            dispatched = events.read_text().splitlines()
+            self.assertEqual(dispatched, ["dispatch", "merge"])
             self.assertIn("still computing", result.stderr)
-            self.assertEqual((Path(directory) / "merged.mergeablereads").read_text().count("read"), 6)
+            reads = (Path(directory) / "merged.mergeablereads").read_text().count("read")
+            self.assertEqual(reads, dispatched.count("dispatch"))
 
     def test_override_waives_the_check_path_gates_red(self):
         with tempfile.TemporaryDirectory() as directory:
