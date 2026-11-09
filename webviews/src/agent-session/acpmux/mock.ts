@@ -8,6 +8,7 @@ import {
   codexModels,
   mockResolvable,
   mockSessions,
+  listedSession,
   newSessionSummary,
   sessionHistory,
   sessionSummary,
@@ -45,6 +46,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMethod?: string;
   /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
   cmuxAcpmuxMockSlowMs?: number;
+  /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
+  cmuxAcpmuxMockListSize?: number;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -328,6 +331,19 @@ export class MockAcpmuxSocket {
       for (const { ago, ...step } of steps) this.record(entry.sessionId, step as Step, now - ago);
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
+    const listSize = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockListSize ?? 0);
+    for (let index = 0; index < listSize; index += 1) this.sessions.push(listedSession(index, now));
+  }
+
+  /// One field change of one session (a status dot, unread, a rename, a cost), told the client the way
+  /// the daemon tells it: one `session_changed` with that session's summary. The row keeps its place.
+  /// `fields` may read the session's current summary (an unread toggle flips what it is).
+  changeSession(
+    target: string,
+    fields: Record<string, unknown> | ((current: Record<string, any>) => Record<string, unknown>),
+  ): void {
+    const current = this.sessions.find((entry) => entry.sessionId === target);
+    if (current) this.touch(target, typeof fields === "function" ? fields(current) : fields, false);
   }
 
   /// Claude lists its slash commands when a session starts, so the composer's + and `/` work.

@@ -197,6 +197,10 @@
 .acpmux-composer-plus .acpmux-menu-text,.acpmux-menu.acpmux-composer-plus .acpmux-menu-text{flex-direction:row;align-items:baseline;gap:var(--ds-space-2,8px)}
 .acpmux-composer-plus .acpmux-menu-label,.acpmux-menu.acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}
 .acpmux-composer-plus .acpmux-menu-description,.acpmux-menu.acpmux-composer-plus .acpmux-menu-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The + menu's description sits on the label's line, so its row is one line: no padding for a stacked
+   description (popupSurface.css), and the 28 row height centres the text. The label and description,
+   baseline-aligned in two sizes, can make a 19 px line, which that padding grew to a 29 px row. */
+.ui-popup.acpmux-menu.acpmux-composer-plus .acpmux-menu-section .ui-menu-item.acpmux-menu-item:has(.acpmux-menu-description),.acpmux-composer-plus .ui-popup.acpmux-menu .acpmux-menu-section .ui-menu-item.acpmux-menu-item:has(.acpmux-menu-description){padding-block:0}
 .acpmux-composer-plus .acpmux-menu-item>svg,.acpmux-menu.acpmux-composer-plus .acpmux-menu-item>svg{flex:none}
 /* Custom picker rows use the same AppKit menu grid as Menu/ContextMenu. The old 8px inset put
    icon rows' labels at 36px (and plain rows at 12px); the shared leading line is 15px, with a
