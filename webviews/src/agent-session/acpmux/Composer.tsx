@@ -436,8 +436,10 @@ type Props = {
   /// A new chat waiting on its folder choice: no prompt goes, including a trust-resend callback.
   /// Shell mode still runs. This is separate from a trust read's empty `blocked` object.
   blockSend?: boolean;
-  /// A Cloud start is out: the box takes no input until it ends (ComposerBox `inert`), since this
-  /// tab closes once the chat opens on the machine and an edit made meanwhile would be lost.
+  /// A Cloud start is out: its first prompt is the send, so Send keeps the draft until it ends. The
+  /// box still takes clicks, focus, typing, pastes and drops all the while (Leo, 2026-11-09: "I
+  /// can't click into the composer at all to, like potentially type other stuff while it's doing
+  /// that initial load situation"); a failed start's prompt comes back before what was typed.
   locked?: boolean;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
@@ -742,7 +744,6 @@ function ComposerFrame({
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
-    locked: () => locked,
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
     pasteTarget: (target) =>
       shellField.current?.contains(target)
@@ -800,8 +801,6 @@ function ComposerFrame({
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
   // there (composer/pasteAnywhere.ts).
   usePasteAnywhere(() => {
-    // A Cloud start is out (`locked`): the prompt takes nothing until it ends.
-    if (locked) return false;
     const shellInput = shellRef.current.shell ? shellField.current : null;
     if (shellInput) {
       shellInput.focus();
@@ -1442,6 +1441,8 @@ function ComposerFrame({
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
     if (authBlock || authBlocked || blockSend || (blocked?.reason && !force)) return false;
+    // A Cloud start is out: what was typed meanwhile stays here until it ends.
+    if (locked) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
     // the composer says so instead of doing nothing.
     if (sending.current) {
@@ -2564,7 +2565,6 @@ function ComposerFrame({
           typedAt.current = performance.now();
         }}
         boxRef={setComposerBox}
-        inert={locked}
         fieldRef={fieldRef}
         field={{
           className: shell

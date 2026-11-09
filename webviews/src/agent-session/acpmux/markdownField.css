@@ -519,12 +519,18 @@
 /* A cmux link the page knows draws as what it names (composer/deeplinkTitles.ts), as the sent
    message's chip (chips/cmuxLinkChip.css; startedSessions.css .acpmux-started-chip): the kind's icon,
    muted, then the title on the session chip's wash, never the link blue. The link's own characters
-   stay the draft's text at no width (the text sent is the link; the caret inside it brings the text
-   back to edit), so the span itself has no height: the chip is its pseudo-elements, which hold real
-   text at the line's own size and an icon no taller than the sent chip's, so the line keeps its
-   height. ::before is the icon; ::after is the title, pulled back under the icon so one wash with
-   the sent chip's padding and radius covers both, and the icon paints over it (position). No break
-   between the icon and the title (nowrap on the span); the title wraps with the sentence. */
+   stay the draft's text but are not drawn (.is-titled-link; the caret inside them brings the text
+   back to edit), so the caret at either end of the link stands beside the chip at the line's height,
+   never inside a box of no size (Leo, 2026-11-09: "it doesn't have a caret"). The chip is a widget
+   that takes no input; it has no text of its own, so it has no height: the chip is its
+   pseudo-elements, which hold real text at the line's own size and an icon no taller than the sent
+   chip's, so the line keeps its height. ::before is the icon; ::after is the title, pulled back
+   under the icon so one wash with the sent chip's padding and radius covers both, and the icon
+   paints over it (position). No break between the icon and the title (nowrap on the span); the
+   title wraps with the sentence. */
+.acpmux-md .is-titled-link {
+  display: none;
+}
 .acpmux-md .is-titled[data-title] {
   /* The sent chip's measures (startedSessions.css .acpmux-started-chip padding, cmuxLinkChip.css's
      14px icon and its 4px gap), so the draft's chip is the same box. */

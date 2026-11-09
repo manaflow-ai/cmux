@@ -237,8 +237,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   ): boolean | string;
   /// How a Cloud send from here goes (CloudStartView): shown over the box while Cloud is the mode.
   cloudStatus?: React.ReactNode;
-  /// A Cloud start from here is out: the box takes no input until it ends (inert), since the tab
-  /// closes once the chat opens on the machine and an edit made meanwhile would go with it.
+  /// A Cloud start from here is out: drawn on the page (`data-cloud-starting`). The box still takes
+  /// clicks, typing, pastes, drops and dictation (Leo, 2026-11-09: "I can't click into the composer
+  /// at all"); Send waits for the start (App.tsx `sendToCloud`).
   cloudStarting?: boolean;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
@@ -516,7 +517,7 @@ export function NewTabScreen(props: Props) {
   // in chat should put it in chat").
   usePasteAnywhere(() => {
     const input = field.current;
-    if (!input || props.cloudStarting) return false;
+    if (!input) return false;
     input.focus();
     input.setCaret(input.plainText().length);
     return true;
@@ -550,7 +551,6 @@ export function NewTabScreen(props: Props) {
     place: (chips, kind) => inlinePlace.current?.(chips, kind),
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => fieldElement()?.closest(".acpmux-main") ?? null,
-    locked: () => props.cloudStarting === true,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
     pasteTarget: (target) => (!shell && fieldElement()?.contains(target) ? { uploads: false } : undefined),
     ...(props.upload ? { upload: props.upload } : {}),
@@ -1451,9 +1451,6 @@ export function NewTabScreen(props: Props) {
   };
   const sendRef = useRef(send);
   sendRef.current = send;
-  /// A Cloud start is out (`cloudStarting`): dictation writes nothing then, as typing doesn't.
-  const cloudStartingRef = useRef(false);
-  cloudStartingRef.current = props.cloudStarting === true;
   const { dictationField } = props;
   useLayoutEffect(() => {
     if (!dictationField) return undefined;
@@ -1462,10 +1459,7 @@ export function NewTabScreen(props: Props) {
       focused: () => field.current?.focused() ?? false,
       element: () => field.current?.element() ?? null,
       text: () => fieldText(),
-      writeText: (value, selectionStart, selectionEnd) => {
-        if (cloudStartingRef.current) return;
-        field.current?.writeText(value, selectionStart, selectionEnd);
-      },
+      writeText: (value, selectionStart, selectionEnd) => field.current?.writeText(value, selectionStart, selectionEnd),
       submit: () => sendRef.current(),
     };
     return () => {
@@ -1479,8 +1473,6 @@ export function NewTabScreen(props: Props) {
   typeAnywhere.current = (event) => {
     const input = field.current;
     const editor = fieldElement();
-    // A Cloud start is out: the box takes nothing until it ends (`cloudStarting`).
-    if (props.cloudStarting) return;
     if (!input || event.defaultPrevented || event.isComposing) return;
     if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
     const target = event.target as Element | null;
@@ -2188,10 +2180,10 @@ export function NewTabScreen(props: Props) {
           <CloudChatHint onUse={() => runMode.onMode("cloud")} onClose={props.cloudHint.onClose} />
         )}
         {!pill && <div className="nt-above">{folderStrip}</div>}
-        <div ref={setBox} className="ui-glass ui-glass-floats nt-box" inert={props.cloudStarting === true}>
+        <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
           {commandsOpen && (
-            <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
+            <ComposerListAnchor box={box}>
               <ComposerListLayer>
                 <SlashMenu
                   matches={commandMatches}
