@@ -170,6 +170,16 @@ import Testing
         panel.open(.computer)
         panel.close(keyboardTo: host)
         #expect(!panel.showsComputer)
+        // Opening, a pick and closing each tell the host, so the popup follows at once.
+        var changes = 0
+        panel.view.onTab = { changes += 1 }
+        panel.open(.details)
+        #expect(changes == 1)
+        panel.view.tabs.button(.computer)?.performClick(nil)
+        #expect(changes == 2)
+        #expect(panel.showsComputer)
+        panel.close(keyboardTo: host)
+        #expect(changes == 3)
     }
 
     /// The capture scene's fixture computer keeps its control bar through the host's own reads.

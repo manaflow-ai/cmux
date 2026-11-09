@@ -38,6 +38,7 @@ public final class HomeChiefProfilePanel {
     /// Opens the panel at `tab` (nil: the tab it showed last).
     public func open(_ tab: HomeChiefProfileTab?) {
         if let tab { view.select(tab) }
+        defer { view.onTab() }
         guard view.isHidden else { return }
         view.isHidden = false
         view.superview?.needsDisplay = true
@@ -51,6 +52,7 @@ public final class HomeChiefProfilePanel {
         view.isHidden = true
         divider.isHidden = true
         coversChat = false
+        view.onTab()
         view.superview?.needsLayout = true
         if hadKeyboard { chat.window?.makeFirstResponder(chat) }
     }

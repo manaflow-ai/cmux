@@ -11,8 +11,8 @@ extension InternalPageID {
     nonisolated static let chiefComputer = InternalPageID(rawValue: "chief-computer")
 }
 
-/// Owns the Chief profile tabs in the pane beside Home. The Home header's Computer toggle and the
-/// chat's popup open them. Each tab's route is its conversation, so a relaunched tab shows the same Chief.
+/// Owns the Chief's large computer pages in the pane beside Home. The profile panel's Expand and
+/// the palette's Chief: Toggle Computer open them. Each tab's route is its conversation, so a relaunched tab shows the same Chief.
 @MainActor
 final class ChiefComputerPageService: InternalPageProvider {
     static let toggleActionID: ActionID = "chief.toggleComputer"

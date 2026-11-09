@@ -12,6 +12,7 @@ extension HomeHostView {
         let services = control.services
         ChiefComputerPageService.wire(panel.view, services: services, conversation: conversation)
         panel.view.onClose = { [weak self] in self?.closeProfile() }
+        panel.view.onTab = { [weak self] in self?.computerPopup.update() }
         panel.view.onExpand = { [weak services] in
             _ = services?.registry.perform(ChiefComputerPageService.toggleActionID,
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation), "open": .string("1")], origin: .user))
@@ -43,10 +44,7 @@ extension HomeHostView {
         return true
     }
 
-    func closeProfile() {
-        panel.close(keyboardTo: focusTarget)
-        computerPopup.update()
-    }
+    func closeProfile() { panel.close(keyboardTo: focusTarget) }
 
     /// A new read of the Chief (a message, a turn, a move to the Cloud): the open panel follows it.
     func refreshProfile() {
