@@ -30,6 +30,20 @@ extension AppActionContext {
         return group
     }
 
+    /// The targeted group (``group(_:)``'s rules) as the active sidebar shows it, also one made a moment ago, which
+    /// is in no personal row until its create's echo (Leo 2026-11-06: "I can't ungroup").
+    func shownGroup(_ invocation: ActionInvocation) throws -> (id: CmuxNextSidebar.GroupID, personalID: String, name: String, sidebar: SidebarBridge) {
+        let sidebar = try sidebar()
+        do {
+            let group = try group(invocation)
+            return (sidebar.model.groupID(personal: group.id.rawValue), group.id.rawValue, group.name, sidebar)
+        } catch {
+            guard let target = Self.explicitTarget([invocation.target, invocation["group"]?.targetValue], kinds: [.workspaceGroup]),
+                  let shown = sidebar.model.shownGroup(target: target.id, created: { sidebar.groupEditor.created[.init(rawValue: $0)]?.rawValue }) else { throw error }
+            return (shown.group.id, shown.personalID, shown.group.name, sidebar)
+        }
+    }
+
     /// A workspace's personal group, if any.
     func personalGroupID(of workspace: WorkspaceModel) -> WorkspaceGroupID? {
         guard let qualified = WindowProfiles.qualified(workspace.id, machines: services.machines) else { return nil }

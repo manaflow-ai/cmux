@@ -117,6 +117,7 @@ struct SidebarGroupFlow {
         let failed: @MainActor (ActionWorkFailure) -> Void = { failure in
             // Edits made meanwhile go with the group that was not made.
             for edit in editor.creating.removeValue(forKey: id) ?? [] { bridge.rows.edits.settle(edit.token) }
+            bridge.rows.edits.settle(editor.removing.removeValue(forKey: id))
             settleFailed(failure)
         }
         // Mixed order: the new group's place where the model formed it,
@@ -131,8 +132,9 @@ struct SidebarGroupFlow {
         }
         let top = place.topIndex, flow = self
         editor.creating[id] = []
+        let settled: @MainActor () -> Void = { applied?(); bridge.rows.edits.settle(editor.removing.removeValue(forKey: id)) }
         life.commit("create-personal-group", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, failed: failed,
-                    applied: applied, landed: { created in flow.landed(id, as: created) }) { connection -> WorkspaceGroupID in
+                    applied: settled, landed: { created in flow.landed(id, as: created) }) { connection -> WorkspaceGroupID in
             // The v2 operation names the group itself.
             let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
                 name: SidebarGroup.named(name), room: room.rawValue, color: color.wire, index: move).id)
@@ -151,6 +153,19 @@ struct SidebarGroupFlow {
         editor.created[local] = created
         guard let pending = editor.creating.removeValue(forKey: local) else { return }
         for edit in pending { send(created, name: edit.name, color: edit.color, edit: edit.token) }
+        if editor.removing[local] != nil { ungroup(CmuxNextSidebar.GroupID(created.rawValue), .ungroup(CmuxNextSidebar.GroupID(created.rawValue))) }
+    }
+
+    /// `.ungroup` on the personal path, pending until the store has the delete (#26382): under the daemon's id for a group
+    /// the sidebar made under its own (the sidebar's was refused), after its create (the local edit goes in `create`).
+    func ungroup(_ group: CmuxNextSidebar.GroupID, _ intent: SidebarIntent) {
+        let id = WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue)), token = bridge.rows.edits.add(intent)
+        if editor.creating[id] != nil { return bridge.rows.edits.settle(editor.removing.updateValue(token, forKey: id)) }
+        let target = editor.created[id] ?? id, v2 = bridge.statePersonal
+        bridge.rows.send("delete-personal-group", edit: token, on: bridge.services.machines.local, failed: bridge.saveFailed(intent)) {
+            if v2 { return try await $0.state.deleteWorkspaceGroup(target.rawValue) }
+            try await $0.deletePersonalGroup(target)
+        }
     }
 
     /// `.renameGroup` / `.setGroupColor`. The editor opens on a new group at

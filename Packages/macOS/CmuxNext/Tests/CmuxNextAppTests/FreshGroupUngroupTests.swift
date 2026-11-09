@@ -86,4 +86,22 @@ struct FreshGroupUngroupTests {
         _ = services.registry.perform("workspaceGroup.collapse", invocation: ActionInvocation(target: target, origin: .user))
         #expect(bridge.model.group(fresh.id)?.isCollapsed == true, "Collapse was refused on a group made a moment ago")
     }
+
+    /// The target rule itself: a shown group the personal store does not hold resolves to the sidebar's group, also
+    /// by the daemon's id once it made the group under its own; a group nobody shows stays refused.
+    @Test func aPendingGroupResolvesByTheSidebarsIDOrTheDaemonsID() {
+        let model = CmuxNextSidebar.SidebarModel(sections: [
+            CmuxNextSidebar.SidebarSection(kind: .machine(CmuxNextSidebar.SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+                .group(CmuxNextSidebar.SidebarGroup(id: CmuxNextSidebar.GroupID("local-1"), name: "made here", workspaces: [])),
+                .group(CmuxNextSidebar.SidebarGroup(id: CmuxNextSidebar.GroupID("grp_daemon"), name: "landed", workspaces: [])),
+            ]),
+        ], activeWorkspaceID: nil)
+        let created = ["local-2": "grp_daemon"]
+        func shown(_ target: String) -> [String]? {
+            model.shownGroup(target: target, created: { created[$0] }).map { [$0.group.id.rawValue, $0.personalID, $0.group.name] }
+        }
+        #expect(shown("local-1") == ["local-1", "local-1", "made here"])
+        #expect(shown("local-2") == ["grp_daemon", "grp_daemon", "landed"])
+        #expect(shown("gone") == nil)
+    }
 }

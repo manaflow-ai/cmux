@@ -45,14 +45,7 @@ extension SidebarBridge {
                 if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
                 try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
             }
-        case .ungroup(let group):
-            // A pending edit until the store has the delete (#26382): the group leaves in this turn, and no
-            // live recompute before the delete lands shows it again; a failed delete brings it back and says why.
-            let v2 = statePersonal
-            personal("delete-personal-group", intent, edit: rows.edits.add(intent)) {
-                if v2 { return try await $0.state.deleteWorkspaceGroup(group.rawValue) }
-                try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue))
-            }
+        case .ungroup(let group): groupFlow.ungroup(group, intent)
         case .reorderGroup(let group, _):
             let edit = rows.edits.add(intent)
             // The intent's index counts section nodes; the daemon wants a

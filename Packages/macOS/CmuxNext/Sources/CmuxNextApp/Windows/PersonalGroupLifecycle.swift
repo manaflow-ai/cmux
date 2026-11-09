@@ -156,4 +156,5 @@ final class PersonalGroupEditorState {
     }
     /// The daemon's id for a group the sidebar made under its own id.
     var created: [WorkspaceGroupID: WorkspaceGroupID] = [:]
+    var removing: [WorkspaceGroupID: SidebarPendingEdits.Token] = [:] // ungrouped during their create: the edit hiding them
 }

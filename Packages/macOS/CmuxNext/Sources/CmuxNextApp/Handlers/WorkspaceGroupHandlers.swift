@@ -20,10 +20,10 @@ enum WorkspaceGroupHandlers {
         WorkspaceGroupPlaces.bind(into: registry, context: context)
         // The header menu's toggles read as the change they make on the right-clicked group.
         ActionTargetTitles.set("workspaceGroup.togglePin", in: registry) { invocation in
-            (try? context.group(invocation)).map { isPinned($0, context) ? WorkspaceVerbStrings.unpinGroup : WorkspaceVerbStrings.pinGroup }
+            (try? context.shownGroup(invocation)).map { $0.sidebar.model.group($0.id)?.isPinned == true ? WorkspaceVerbStrings.unpinGroup : WorkspaceVerbStrings.pinGroup }
         }
         ActionTargetTitles.set("toggleFocusedWorkspaceGroupCollapsed", in: registry) { invocation in
-            (try? context.group(invocation)).map { isCollapsed($0, context) ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
+            (try? context.shownGroup(invocation)).map { $0.sidebar.model.group($0.id)?.isCollapsed == true ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
         }
         registry.bind("nextWorkspaceGroup", requires: DaemonCapability.profiles.rawValue, daemon: context.services.machines.local,
                       run: { _ in try selectGroup(context, offset: 1) })
@@ -74,7 +74,7 @@ enum WorkspaceGroupHandlers {
             // A document group (a nested one too) may have no personal-store row: the target's id is enough.
             let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
             // A personal group's id or exact name (`cmux workspace group create --parent Fleet`) names its document item.
-            let parent = try explicit.map { ref in (try? context.sidebar())?.model.groupID(personal: context.services.machines.local.store.personal.groups.first { $0.id.rawValue == ref.id || $0.name == ref.id }?.id.rawValue ?? ref.id) ?? CmuxNextSidebar.GroupID(ref.id) } ?? sidebarID(context.group(invocation), context)
+            let parent = try explicit.map { ref in (try? context.sidebar())?.model.groupID(personal: context.services.machines.local.store.personal.groups.first { $0.id.rawValue == ref.id || $0.name == ref.id }?.id.rawValue ?? ref.id) ?? CmuxNextSidebar.GroupID(ref.id) } ?? context.shownGroup(invocation).id
             let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             try newSubgroup(in: parent, name: name, byUser: invocation.origin == .user, context)
         })
@@ -104,13 +104,9 @@ enum WorkspaceGroupHandlers {
             })
         }
         registry.bind("workspaceGroup.rename", requires: DaemonCapability.profiles.rawValue, daemon: home, run: { invocation in
-            let group = try context.group(invocation)
-            let sidebar = try context.sidebar()
-            if let name = invocation["name"]?.stringValue, !name.isEmpty {
-                sidebar.handle(.renameGroup(sidebarID(group, context), name))
-            } else {
-                sidebar.container.beginRename(group: sidebarID(group, context))
-            }
+            let group = try context.shownGroup(invocation)
+            if let name = invocation["name"]?.stringValue, !name.isEmpty { return group.sidebar.handle(.renameGroup(group.id, name)) }
+            group.sidebar.container.beginRename(group: group.id)
         })
         // Top, Up, Down, Bottom among the section's rows (u2418), one undoable sidebar move each.
         let moves: [(ActionID, SidebarGroupMove)] = [("workspaceGroup.moveToTop", .top), ("workspaceGroup.moveUp", .up),
@@ -119,15 +115,14 @@ enum WorkspaceGroupHandlers {
             registry.bind(id, requires: DaemonCapability.profiles.rawValue, daemon: home, run: { invocation in try move(invocation, direction, context) })
             // At the edge of its section the row is disabled with the reason (the first group's Move Up).
             context.setTargetReason(id) { invocation in
-                guard let group = try? sidebarID(context.group(invocation), context), let sidebar = try? context.sidebar(),
+                guard let shown = try? context.shownGroup(invocation), case let (group, sidebar) = (shown.id, shown.sidebar),
                       sidebar.model.group(group) != nil, SidebarEdits.groupIndex(group, direction, in: sidebar.model.sections) == nil else { return nil }
                 return edgeReason(direction)
             }
         }
         registry.bind("workspaceGroup.collapseOthers", requires: DaemonCapability.profiles.rawValue, daemon: home, run: { invocation in
-            let group = sidebarID(try context.group(invocation), context)
-            let sidebar = try context.sidebar()
-            for id in SidebarEdits.groupsToggledByCollapsingOthers(keeping: group, in: sidebar.model.sections) {
+            let group = try context.shownGroup(invocation), sidebar = group.sidebar
+            for id in SidebarEdits.groupsToggledByCollapsingOthers(keeping: group.id, in: sidebar.model.sections) {
                 sidebar.handle(.toggleCollapse(.group(id)))
             }
         })
@@ -149,9 +144,9 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapability.workspaceGroupPin.rawValue, daemon: home, run: { invocation in
             // On the sidebar document a pinned group is one in Pinned, as shown (pending changes included).
             // A `pinned` argument (CLI, MCP, scripts) sets that state instead of toggling.
-            let group = try context.group(invocation), id = sidebarID(group, context)
-            let pinned = invocation["pinned"]?.boolValue ?? !(context.services.sidebarDoc.store?.showsPinned(group: id.rawValue) ?? isPinned(group, context))
-            try context.sidebar().handle(.setGroupPinned(id, pinned))
+            let group = try context.shownGroup(invocation), sidebar = group.sidebar, id = group.id
+            let pinned = invocation["pinned"]?.boolValue ?? !(context.services.sidebarDoc.store?.showsPinned(group: id.rawValue) ?? sidebar.model.group(id)?.isPinned ?? false)
+            sidebar.handle(.setGroupPinned(id, pinned))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.
         registry.bind("workspaceGroup.setIcon", requires: DaemonCapability.workspaceGroupIcon.rawValue, daemon: home, run: { invocation in
@@ -279,22 +274,6 @@ enum WorkspaceGroupHandlers {
         if byUser, name.isEmpty { try context.sidebar().groupFlow.editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
 
-    /// The id the active sidebar shows `group` under (its sidebar document item on sidebar-v2).
-    private static func sidebarID(_ group: WorkspaceGroupModel, _ context: AppActionContext) -> CmuxNextSidebar.GroupID {
-        (try? context.sidebar())?.model.groupID(personal: group.id.rawValue) ?? CmuxNextSidebar.GroupID(group.id.rawValue)
-    }
-
-    /// The fold the sidebar shows (the sidebar document keeps its own), else the personal group's.
-    private static func isCollapsed(_ group: WorkspaceGroupModel, _ context: AppActionContext) -> Bool {
-        (try? context.sidebar().model.group(sidebarID(group, context))?.isCollapsed) ?? group.collapsed
-    }
-
-    /// Whether the group reads as pinned where the person sees it: in the Pinned band on the sidebar
-    /// document, else the personal group's saved flag. Pin/Unpin toggles from this.
-    private static func isPinned(_ group: WorkspaceGroupModel, _ context: AppActionContext) -> Bool {
-        (try? context.sidebar().model.group(sidebarID(group, context))?.isPinned) ?? group.pinned
-    }
-
     private static func createGroup(named name: String, members: [SidebarWorkspaceID], byUser: Bool, _ context: AppActionContext) throws {
         try context.sidebar().groupFlow.newGroup(of: members, name: name, byUser: byUser)
     }
@@ -333,15 +312,15 @@ enum WorkspaceGroupHandlers {
     /// Sends a sidebar intent for the targeted group.
     private static func edit(_ invocation: ActionInvocation, _ context: AppActionContext,
                              _ intent: (CmuxNextSidebar.GroupID) -> SidebarIntent) throws {
-        let group = try context.group(invocation)
-        try context.sidebar().handle(intent(sidebarID(group, context)))
+        let group = try context.shownGroup(invocation), sidebar = group.sidebar
+        sidebar.handle(intent(group.id))
     }
 
     /// nil toggles.
     private static func setCollapsed(_ collapsed: Bool?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
-        let group = try context.group(invocation)
-        guard collapsed == nil || collapsed != isCollapsed(group, context) else { return }
-        try context.sidebar().handle(.toggleCollapse(.group(sidebarID(group, context))))
+        let group = try context.shownGroup(invocation), sidebar = group.sidebar
+        guard collapsed == nil || collapsed != sidebar.model.group(group.id)?.isCollapsed else { return }
+        sidebar.handle(.toggleCollapse(.group(group.id)))
     }
 
     /// Shows the first workspace of the next (or previous) group of the room. A navigation with
@@ -368,8 +347,7 @@ enum WorkspaceGroupHandlers {
     /// Moves the targeted group among its section's rows. `reorderGroup` counts every row of the
     /// section (loose workspaces too), not the group's place among the room's groups.
     private static func move(_ invocation: ActionInvocation, _ direction: SidebarGroupMove, _ context: AppActionContext) throws {
-        let group = sidebarID(try context.group(invocation), context)
-        let sidebar = try context.sidebar()
+        let shown = try context.shownGroup(invocation), group = shown.id, sidebar = shown.sidebar
         guard let index = SidebarEdits.groupIndex(group, direction, in: sidebar.model.sections) else {
             throw ActionFailure.invalidTarget(sidebar.model.group(group) == nil ? RefusalStrings.noWorkspaceGroup(group.rawValue) : edgeReason(direction))
         }
