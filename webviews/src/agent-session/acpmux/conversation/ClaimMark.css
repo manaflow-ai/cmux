@@ -40,7 +40,7 @@ a.cv-claim:focus-visible {
 .cv-claim__chip {
   margin-inline-start: 4px;
   padding: 0 4px;
-  border-radius: 999px;
+  border-radius: 4px;
   color: var(--cv-claim-color);
   background: color-mix(in srgb, var(--cv-claim-color) 12%, transparent);
   font-family: var(--font-mono, ui-monospace, monospace);
