@@ -118,6 +118,8 @@ public final class AppHealth: Sendable {
         var repairs: [Kind: RepairHandler] = [:]
         var injectors: [Kind: Injector] = [:]
         var holdsReplace = false
+        /// The last restore progress (model ms), until an owner is ready or exits.
+        var restoreProgressAt: UInt64?
     }
 
     private let box = Mutex(Box())
@@ -176,8 +178,20 @@ public final class AppHealth: Sendable {
         var fields: [String: JSONValue] = ["id": .string(id), "event": .string(event.rawValue)]
         if let pid { fields["pid"] = .number(Double(pid)) }
         if let value { fields["value"] = .number(Double(value)) }
-        // A daemon that is ready again is no restore to protect.
-        if id == Self.sessionDaemonID, event == .ready { box.withLock { $0.holdsReplace = false } }
+        if id == Self.sessionDaemonID {
+            let now = nowMs()
+            box.withLock { box in
+                switch event {
+                // A daemon that is ready again is no restore to protect.
+                case .ready:
+                    box.holdsReplace = false
+                    box.restoreProgressAt = nil
+                case .exited: box.restoreProgressAt = nil
+                case .restoreProgress: box.restoreProgressAt = now
+                default: break
+                }
+            }
+        }
         run("event", fields)
     }
 
@@ -247,10 +261,20 @@ public final class AppHealth: Sendable {
         return Kind(rawValue: id)
     }
 
-    /// True after the model said a restoring session daemon loops (`holdReplace`), until an owner is
-    /// ready again. Read-only: the launcher's replace path (DaemonLauncher+Replace,
-    /// PR #38819's lane) consults it before it kills or replaces an owner; this type never does either.
-    public var holdsReplace: Bool { box.withLock { $0.holdsReplace } }
+    /// True while the session daemon restores and still makes progress (its last progress within
+    /// ``restoreProgressWindowMs``, the model's no-progress bound `DAEMON_STALL_MS`), and after
+    /// the model said a restoring daemon loops (`holdReplace`), until an owner is ready again.
+    /// Read-only: the replace paths consult it before they kill or replace an owner; this type never
+    /// does either.
+    public var holdsReplace: Bool {
+        let now = nowMs()
+        return box.withLock { box in
+            box.holdsReplace || box.restoreProgressAt.map { now &- $0 < Self.restoreProgressWindowMs } == true
+        }
+    }
+
+    /// A restore with no progress this long is stuck, not protected (cmux-health-core's bound).
+    static let restoreProgressWindowMs: UInt64 = 120_000
 
     // MARK: Snapshot
 

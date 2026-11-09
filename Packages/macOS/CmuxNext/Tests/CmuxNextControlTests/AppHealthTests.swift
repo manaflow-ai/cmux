@@ -117,6 +117,23 @@ struct AppHealthTests {
         #expect(action?.action == .restartPageHost)
     }
 
+    @Test(.enabled(if: linked)) func aRestoreThatMakesProgressHoldsReplacementsAtOnceAndAStalledOneDoesNot() {
+        let clock = ManualClock()
+        let health = AppHealth(clock: clock)
+        #expect(!health.holdsReplace)
+        // The first progress line holds: no start loop needs to be seen first.
+        health.noteDaemonRestoring(pid: 42)
+        #expect(health.holdsReplace)
+        clock.advance(by: .seconds(119))
+        #expect(health.holdsReplace)
+        // No progress for the model's bound: stuck, no longer protected.
+        clock.advance(by: .seconds(1))
+        #expect(!health.holdsReplace)
+        health.noteDaemonRestoring(pid: 42)
+        health.noteDaemonReady(pid: 42)
+        #expect(!health.holdsReplace, "a ready owner is no restore to protect")
+    }
+
     @Test(.enabled(if: linked)) func theSnapshotIsPublishedOnlyWhenItChanges() {
         let health = AppHealth(clock: ManualClock())
         let published = AppHealthTestBox(0)
