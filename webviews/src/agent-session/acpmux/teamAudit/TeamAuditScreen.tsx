@@ -91,7 +91,9 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
         },
         (error: unknown) => {
           if (id !== request.current) return;
-          setState(isOlderDaemon(error) ? { phase: "older" } : { phase: "answered", answer: { kind: "failed" }, group: by });
+          setState(
+            isOlderDaemon(error) ? { phase: "older" } : { phase: "answered", answer: { kind: "failed" }, group: by },
+          );
         },
       );
     },

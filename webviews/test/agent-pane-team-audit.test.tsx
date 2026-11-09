@@ -197,9 +197,7 @@ test("switching the grouping keeps the last rows under their own heading until t
   const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
   let release: (value: unknown) => void = () => undefined;
   const load = (params: Record<string, unknown>) =>
-    params.groupBy === "day"
-      ? new Promise((resolve) => (release = resolve))
-      : Promise.resolve(answer());
+    params.groupBy === "day" ? new Promise((resolve) => (release = resolve)) : Promise.resolve(answer());
   const root: Root = createRoot(host);
   await act(async () => root.render(<TeamAuditScreen load={load} now={NOW} />));
   await settle();
@@ -218,9 +216,7 @@ test("switching the grouping keeps the last rows under their own heading until t
   expect(host.querySelector(".tma")!.hasAttribute("data-loading")).toBe(true);
   expect(heading()).toBe("Person");
   expect(keys()).toEqual(["user_a", "user_b"]);
-  await act(async () =>
-    release(answer({ groupBy: "day", rows: [{ ...totals(), key: "2026-11-09" }] })),
-  );
+  await act(async () => release(answer({ groupBy: "day", rows: [{ ...totals(), key: "2026-11-09" }] })));
   await settle();
   expect(heading()).toBe("Day");
   expect(keys()).toEqual(["Mon, Nov 9"]);
