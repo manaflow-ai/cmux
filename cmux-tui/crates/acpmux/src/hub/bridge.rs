@@ -187,7 +187,9 @@ impl Hub {
         };
         let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
         let from = crate::claude_peers::from_address(&sender);
-        let sent = crate::claude_peers::deliver(&config, &peer, &text, &uuid, &from).await;
+        // The chat shows the prompt as sent (`delivered`); the app also reads how to answer.
+        let wire = with_reply_hint(&text, opts.agent.as_deref());
+        let sent = crate::claude_peers::deliver(&config, &peer, &wire, &uuid, &from).await;
         if let Err(e) = sent {
             // A resend waiting on this delivery fails with it, and a later one delivers again.
             let gone = deliveries().by_uuid.remove(&uuid);
@@ -208,6 +210,22 @@ impl Hub {
             );
         }
         Some(answer(&prompt_id, turn_of(rx).await, Some(&peer)))
+    }
+}
+
+/// `text` as the app reads it: an agent's message ends with how to answer that agent. Claude
+/// Code's own messaging cannot reach an `acpmux:` address, and its `acpmux send` from the app's
+/// shell is bound to this chat (`desktop_bridge.rs`), so the answer lands in the sender's inbox
+/// under the chat's name. The person's prompt goes as typed.
+fn with_reply_hint(text: &str, agent: Option<&str>) -> String {
+    match agent.map(str::trim).filter(|a| !a.is_empty()) {
+        Some(agent) => {
+            let quoted = agent.replace('\'', "'\\''");
+            format!(
+                "{text}\n\n[From {agent}, an acpmux session. Answer it with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
+            )
+        }
+        None => text.to_owned(),
     }
 }
 

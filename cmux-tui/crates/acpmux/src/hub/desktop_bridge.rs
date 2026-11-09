@@ -110,6 +110,94 @@ impl Hub {
     }
 }
 
+/// Where the daemon carries the bridged chat a send came from (`_meta.acpmux`), from the request
+/// path through the outbox to the prompt's provenance (`server/requests.rs`). Never taken from a
+/// client: [`Hub::stamp_bridged_sender`] drops one any connection but the outbox sent.
+pub const BRIDGED_KEY: &str = "bridgedSender";
+
+/// The bridged chat a prompt's params name ([`BRIDGED_KEY`]), as the daemon stamped it.
+pub fn bridged_sender(params: &Value) -> Option<&str> {
+    params.pointer("/_meta/acpmux")?.get(BRIDGED_KEY)?.as_str()
+}
+
+impl Hub {
+    /// A desktop chat's own send, bound to its bridged chat: `acpmux send` run from a Claude
+    /// desktop session's shell proves no acpmux session (it has no caller token), so it would
+    /// read as a self-declared, unauthenticated label nothing can answer. When the unix socket
+    /// peer's ancestry (the kernel's pids, `sender_harness::ancestors`) holds the live Claude
+    /// Code process the registry lists for a chat the bridge made (tag `bridge=claude`, its
+    /// session id, an entrypoint the setting lists), the send is that chat's: its inbox thread
+    /// names the chat, and `inbox_reply` or `acpmux send` to it goes back into the app
+    /// (`bridge.rs`). The registry and the tag alone prove nothing; only the pid the kernel
+    /// reports for the connection does, as for the caller token's process tree.
+    ///
+    /// `peer_pid` is the connection's (`sender_harness::check_trust`); `outbox` is the daemon's
+    /// own outbox delivering a send it bound on arrival, the one connection whose stamp is kept.
+    /// Nothing is read while the bridge is off or lists no chat.
+    pub(crate) async fn stamp_bridged_sender(
+        &self,
+        prompt: &mut Value,
+        peer_pid: Option<u32>,
+        outbox: bool,
+        proven_caller: bool,
+    ) {
+        let Some(mux) = prompt.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) else {
+            return;
+        };
+        if !outbox {
+            mux.remove(BRIDGED_KEY);
+        }
+        let Some(pid) = peer_pid.filter(|_| !proven_caller) else { return };
+        let chats: Vec<(String, String)> = {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            sessions
+                .values()
+                .filter_map(|s| {
+                    let meta = s.meta();
+                    meta.watching.as_ref().filter(|w| w.family == "claude")?;
+                    meta.tags.get("bridge").filter(|t| t.value == "claude")?;
+                    Some((s.id.clone(), meta.agent_session_id?))
+                })
+                .collect()
+        };
+        if chats.is_empty() {
+            return;
+        }
+        let config = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).claude.clone();
+        let found = tokio::task::spawn_blocking(move || {
+            if !crate::claude_peers::enabled() {
+                return None;
+            }
+            let ancestry = crate::sender_harness::ancestors(pid);
+            let listed = crate::claude_peers::listed_entrypoints();
+            let live = crate::claude_peers::live(&config);
+            bound_chat(&ancestry, &chats, &live, &listed)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let (Some(id), Some(mux)) =
+            (found, prompt.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut))
+        {
+            mux.insert(BRIDGED_KEY.into(), json!(id));
+        }
+    }
+}
+
+/// The chat (of `chats`, `(chat id, Claude session id)`) whose live registry entry (`live`) has
+/// a pid in `ancestry` and an entrypoint in `listed`.
+fn bound_chat(
+    ancestry: &[u32],
+    chats: &[(String, String)],
+    live: &[Peer],
+    listed: &[String],
+) -> Option<String> {
+    let peer = live.iter().find(|p| {
+        ancestry.contains(&p.pid) && p.entrypoint.as_ref().is_some_and(|e| listed.contains(e))
+    })?;
+    chats.iter().find(|(_, sid)| *sid == peer.session_id).map(|(id, _)| id.clone())
+}
+
 /// The chat's name: the session's own, else the app and the folder it works in.
 fn name_of(peer: &Peer) -> String {
     if let Some(name) = peer.name.as_deref().filter(|n| !n.trim().is_empty()) {
@@ -183,6 +271,29 @@ mod tests {
         assert_eq!(unique_name(&peer(None), |n| n == "desktop cmux"), "desktop cmux (42)");
         let both = |n: &str| n == "desktop cmux" || n == "desktop cmux (42)";
         assert_eq!(unique_name(&peer(None), both), "desktop cmux (42) 2");
+    }
+
+    #[test]
+    fn a_send_is_bound_only_to_the_chat_whose_live_app_is_its_ancestor() {
+        let chats = vec![("chat-1".to_owned(), "sid".to_owned())];
+        let live = vec![peer(None)];
+        let listed = vec!["claude-desktop".to_owned()];
+        // acpmux (50) under bash (45) under the desktop session's claude (42).
+        assert_eq!(bound_chat(&[50, 45, 42, 1], &chats, &live, &listed).as_deref(), Some("chat-1"));
+        // Another process tree: nothing.
+        assert_eq!(bound_chat(&[50, 45, 7], &chats, &live, &listed), None);
+        // An entrypoint the setting does not list: nothing.
+        assert_eq!(bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()]), None);
+        // A live app with no chat the bridge made: nothing.
+        let other = vec![("chat-2".to_owned(), "other".to_owned())];
+        assert_eq!(bound_chat(&[50, 42], &other, &live, &listed), None);
+    }
+
+    #[test]
+    fn a_bridged_sender_is_read_from_the_daemon_stamp() {
+        let params = json!({"_meta": {"acpmux": {BRIDGED_KEY: "chat-1"}}});
+        assert_eq!(bridged_sender(&params), Some("chat-1"));
+        assert_eq!(bridged_sender(&json!({})), None);
     }
 
     #[test]

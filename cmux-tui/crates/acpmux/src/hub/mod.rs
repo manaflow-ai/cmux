@@ -225,7 +225,7 @@ pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 mod bridge;
-mod desktop_bridge;
+pub(crate) mod desktop_bridge;
 pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
 mod caller_registry;
 pub(crate) mod inbox;
