@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bytes::Bytes;
-use cmux_rd_link::dlink::{DatagramLink, LinkOut, LinkState, ViewerOffer};
+use cmux_rd_link::dlink::{DatagramLink, LinkOut, LinkState, TurnName, ViewerOffer};
 use cmux_remote::bridge::BridgeError;
 use cmux_remote::service::ServiceStream;
 use serde_json::{Value, json};
@@ -359,6 +359,7 @@ pub(super) async fn bridge<S, R, W>(
     mut reader: R,
     mut writer: W,
     stun: Vec<String>,
+    turn: Vec<TurnName>,
     log: impl Fn(&str),
 ) -> Result<(), BridgeError>
 where
@@ -366,7 +367,7 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let offer = match ViewerOffer::new(stun) {
+    let offer = match ViewerOffer::new(stun, turn) {
         Ok(offer) => Some(offer),
         Err(why) => {
             log(&format!("not_offered {why}"));
@@ -566,7 +567,8 @@ mod tests {
 
     #[test]
     fn the_hello_gains_the_cap_and_keeps_every_other_field() {
-        let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
+        let mut splice =
+            Splice::new(Some(ViewerOffer::new(Vec::new(), Vec::new()).unwrap()), bind());
         let mut out = Vec::new();
         splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
         let sent = controls(&out, true);
@@ -583,7 +585,8 @@ mod tests {
 
     #[test]
     fn a_host_without_the_cap_keeps_every_datagram_on_the_stream() {
-        let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
+        let mut splice =
+            Splice::new(Some(ViewerOffer::new(Vec::new(), Vec::new()).unwrap()), bind());
         let mut out = Vec::new();
         splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
         out.clear();
@@ -599,7 +602,8 @@ mod tests {
 
     #[test]
     fn the_offer_waits_for_started_and_the_link_carries_datagrams_both_ways() {
-        let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
+        let mut splice =
+            Splice::new(Some(ViewerOffer::new(Vec::new(), Vec::new()).unwrap()), bind());
         let mut out = Vec::new();
         splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
         out.clear();
@@ -677,7 +681,8 @@ mod tests {
 
     #[test]
     fn a_viewer_that_asks_for_the_cap_itself_is_left_alone() {
-        let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
+        let mut splice =
+            Splice::new(Some(ViewerOffer::new(Vec::new(), Vec::new()).unwrap()), bind());
         let own = serde_json::to_vec(&json!({"t": "hello", "caps": ["link.udp"]})).unwrap();
         let mut out = Vec::new();
         splice.on_viewer(FRAME_CONTROL, own.clone(), &mut out);
@@ -735,7 +740,7 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(5), reached_host.recv()).await
         };
         tokio::select! {
-            ended = bridge(remote, stdin, stdout, Vec::new(), |_| {}) => panic!("bridge ended: {ended:?}"),
+            ended = bridge(remote, stdin, stdout, Vec::new(), Vec::new(), |_| {}) => panic!("bridge ended: {ended:?}"),
             got = viewer_side => {
                 assert_eq!(got.expect("feedback held behind stdout"), Some(feedback.clone()));
             }
