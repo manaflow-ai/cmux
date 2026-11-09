@@ -1246,6 +1246,11 @@ function Columns({
                   <span className="acpmux-cols-name">{t("picker.noMatches")}</span>
                 </div>
               )}
+              {!query && menu.updating && rows.length > 0 && (
+                <div className="acpmux-cols-row acpmux-cols-note acpmux-models-updating" aria-disabled="true">
+                  <span className="acpmux-cols-name">{t("picker.catalogRefreshing")}</span>
+                </div>
+              )}
               {tabEmpty && (
                 <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
                   <span className="acpmux-cols-name">

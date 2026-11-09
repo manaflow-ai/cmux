@@ -57,7 +57,15 @@ const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<
   QuickMenu,
-  "effort" | "account" | "auth" | "fast" | "searchField" | "providers" | "searchGroups" | "harnessPlacement"
+  | "effort"
+  | "account"
+  | "auth"
+  | "fast"
+  | "searchField"
+  | "providers"
+  | "searchGroups"
+  | "harnessPlacement"
+  | "updating"
 >;
 
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
@@ -796,6 +804,11 @@ export function QuickModelMenu({
             {shown.note}
           </MenuItem>
         )
+      )}
+      {!query && menu.updating && rows.length > 0 && (
+        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note acpmux-models-updating">
+          {t("picker.catalogRefreshing")}
+        </MenuItem>
       )}
       {!query && shown?.note && shown.logIn && (
         <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>

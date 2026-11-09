@@ -235,12 +235,9 @@ export function ComposerPickers({
     !harnessSwitch &&
     !!summary?.harness &&
     ((summary.turnCount ?? 0) > 0 || snapshot.rows.some((row) => row.kind !== "sessionStart"));
-  const allEntries = composerPickerEntries(
-    snapshot,
-    pickerCatalog,
-    // A snapshot that already holds acpmux's harnesses has had its answer, flag or not.
-    harnessesListed || snapshot.catalog.some((entry) => !entry.folder),
-  );
+  // A snapshot that already holds acpmux's harnesses has had its answer, flag or not.
+  const listed = harnessesListed || snapshot.catalog.some((entry) => !entry.folder);
+  const allEntries = composerPickerEntries(snapshot, pickerCatalog, listed);
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
   // than an empty picker. A chat that can fork keeps every harness: a pick of another's model is
   // held for the next message's fork, never a switch in place (Leo 2026-10-22: "can expose as fork").
@@ -1083,6 +1080,8 @@ export function ComposerPickers({
     ...(quickEffort ? { effort: quickEffort } : {}),
     ...(quickAccount ? { account: quickAccount } : {}),
     ...(quickFast ? { fast: quickFast } : {}),
+    // Until acpmux answers, the menu lists the bundled models and says quietly they are updating.
+    ...(listed ? {} : { updating: true }),
   };
   // The button names the effort after the model ("Opus 5.5  Medium"), and its short name for a
   // narrow row ("Med"). Before the session reports, it names the held pick.

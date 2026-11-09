@@ -87,7 +87,9 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
-  for (const popup of dom.window.document.querySelectorAll(".acpmux-cols, .acpmux-quick-menu, .ui-context-menu-backdrop"))
+  for (const popup of dom.window.document.querySelectorAll(
+    ".acpmux-cols, .acpmux-quick-menu, .ui-context-menu-backdrop",
+  ))
     popup.remove();
 });
 
@@ -225,20 +227,6 @@ describe("the model chip's right-click menu", () => {
   });
 });
 
-const menuItem = (label: string) =>
-  [...dom.window.document.querySelectorAll<HTMLElement>("[role^='menuitem']")].find(
-    (row) => row.querySelector(".ui-menu-label")?.textContent?.trim() === label,
-  );
-
-const contextMenuOn = async (element: Element) => {
-  await act(async () =>
-    element.dispatchEvent(
-      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 4, clientY: 4 }),
-    ),
-  );
-  await settle();
-};
-
 // Review F1 on 2b76c61e: with no chip on the page the look stayed cached while storage events went
 // unheard, so another page's change was lost on remount and a toggle wrote back a stale other flag.
 describe("the model chip look across pages", () => {
@@ -292,9 +280,7 @@ describe("the model menu with the daemon down", () => {
     const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
     const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
     const { ChatAccountsContext } = await import("../src/agent-session/acpmux/chatAccounts");
-    const { BUNDLED_MODEL_CATALOG, buildPickerCatalog } = await import(
-      "../src/agent-session/acpmux/modelCatalogData"
-    );
+    const { BUNDLED_MODEL_CATALOG, buildPickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogData");
     const { user } = await import("../src/gallery/fixtures/acpmux");
     const snapshot = {
       type: "snapshot",
@@ -342,7 +328,7 @@ describe("the model menu with the daemon down", () => {
     [...(menu()?.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="listbox"] [role="option"]') ?? [])].map(
       (row) => row.querySelector(".acpmux-quick-label, .acpmux-cols-name")?.textContent?.trim() ?? "",
     );
-  const updatingNote = () => menu()?.querySelector<HTMLElement>("[data-models-updating]") ?? null;
+  const updatingNote = () => menu()?.querySelector<HTMLElement>(".acpmux-models-updating") ?? null;
 
   test("a started Claude chat lists Claude Code's models", async () => {
     await mount(false);

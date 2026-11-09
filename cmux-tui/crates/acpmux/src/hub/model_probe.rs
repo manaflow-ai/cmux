@@ -75,7 +75,8 @@ impl Hub {
     /// Reads the ACP lists earlier probes kept (`live_models::AcpCache`) and serves each whose
     /// profile is unchanged. Daemon start, before the login environment and the probes, so the
     /// first `_acpmux/models` names OpenCode's or Gemini's models, not only "default"; the
-    /// probe still runs and replaces the list.
+    /// probe still runs and replaces the list. A pane that read `_acpmux/models` before this
+    /// ran hears `_acpmux/harnesses_changed` once, when some harness was served its disk list.
     pub(super) async fn load_acp_cache(&self) {
         self.load_acp_cache_from(crate::live_models::AcpCache::default_dir()).await;
     }
@@ -91,21 +92,24 @@ impl Hub {
                 .unwrap_or_default();
         *self.acp_cached.lock().unwrap_or_else(PoisonError::into_inner) =
             cached.into_iter().collect();
-        let cfg = self.config.read().await;
-        self.serve_acp_cache(&cfg.harnesses);
+        let served = self.serve_acp_cache(&self.config.read().await.harnesses);
+        if served {
+            self.announce_harnesses().await;
+        }
     }
 
     /// Fills `known_models` from the disk copy for each ACP profile that has no list yet and
     /// was probed under the same profile. Also after a catalog reload: a profile found on the
-    /// login PATH appears only then.
+    /// login PATH appears only then. True when it served some harness a list.
     pub(super) fn serve_acp_cache(
         &self,
         harnesses: &std::collections::BTreeMap<String, HarnessProfile>,
-    ) {
+    ) -> bool {
         let cached = self.acp_cached.lock().unwrap_or_else(PoisonError::into_inner);
         if cached.is_empty() {
-            return;
+            return false;
         }
+        let mut served = false;
         let mut known = self.known_models.lock().unwrap_or_else(PoisonError::into_inner);
         let mut from_disk = self.acp_from_disk.lock().unwrap_or_else(PoisonError::into_inner);
         for (name, profile) in harnesses {
@@ -118,7 +122,9 @@ impl Hub {
             }
             known.insert(name.clone(), list.clone());
             from_disk.insert(name.clone());
+            served = true;
         }
+        served
     }
 
     /// A probe of `name` under `profile` answered: its list goes to disk when the disk copy is

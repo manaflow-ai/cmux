@@ -70,7 +70,9 @@ afterEach(() => {
   for (const node of document.body.querySelectorAll(".ui-context-menu-backdrop, .acpmux-mp")) node.remove();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // The composer's last scheduled React work runs on this window, not after it is gone.
+  for (let turn = 0; turn < 5; turn += 1) await settle();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

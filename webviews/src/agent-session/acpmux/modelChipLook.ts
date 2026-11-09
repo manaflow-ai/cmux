@@ -24,11 +24,13 @@ function read(raw: string | null | undefined): ModelChipLook {
   }
 }
 
-function stored(): ModelChipLook {
+/// The store's look, else `fallback` when there is no store or it refuses the read.
+function stored(fallback: ModelChipLook = DEFAULT_MODEL_CHIP_LOOK): ModelChipLook {
   try {
-    return read(globalThis.localStorage?.getItem(STORAGE_KEY));
+    const store = globalThis.localStorage;
+    return store ? read(store.getItem(STORAGE_KEY)) : fallback;
   } catch {
-    return DEFAULT_MODEL_CHIP_LOOK;
+    return fallback;
   }
 }
 
@@ -46,7 +48,11 @@ function onStorage(event: StorageEvent) {
 }
 
 function subscribe(listener: () => void): () => void {
-  if (listeners.size === 0) globalThis.window?.addEventListener("storage", onStorage);
+  // With no chip listening, storage events went unheard: the first chip reads the store again.
+  if (listeners.size === 0) {
+    publish(stored(current));
+    globalThis.window?.addEventListener("storage", onStorage);
+  }
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
@@ -65,7 +71,8 @@ export function useModelChipLook(): ModelChipLook {
 
 /// Shows or hides one part of the model chip in every composer, and remembers it.
 export function setModelChipLook(change: Partial<ModelChipLook>): void {
-  const next = { ...snapshot(), ...change };
+  // Over the store's look, not this page's copy: another page may have changed the other flag.
+  const next = { ...stored(snapshot()), ...change };
   try {
     globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(next));
   } catch {

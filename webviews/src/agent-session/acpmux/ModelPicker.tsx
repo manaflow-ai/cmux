@@ -49,6 +49,7 @@ import {
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
 import { ContextMenu } from "../../ui/ContextMenu";
+import { OWN_CONTEXT_MENU } from "./composerChipMenu";
 import { setModelChipLook, useModelChipLook } from "./modelChipLook";
 import { quantizePickerRail } from "./pickerRailGeometry";
 import { type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
@@ -1316,6 +1317,8 @@ export function ModelPicker(props: ModelPickerProps) {
       ref={root}
       className="acpmux-picker acpmux-model"
       style={{ position: "relative" }}
+      // Its right-click is the customize menu, also inside the chat composer (composerChipMenu.ts).
+      {...{ [OWN_CONTEXT_MENU]: "" }}
       // A hidden logo or effort hides by CSS (composerLocation.css), so the row's fit steps still
       // bring the logo back once the name is gone and the chip is never a bare chevron.
       {...(chipLook.providerLogo ? {} : { "data-chip-logo": "off" })}
@@ -1833,6 +1836,12 @@ export function ModelPicker(props: ModelPickerProps) {
                   )}
                 </PickerOptionList>
               </ScrollArea>
+              {/* Until acpmux answers, a quiet line under the bundled models says they are updating. */}
+              {quick?.updating && !searching && (
+                <div className="acpmux-mp-updating acpmux-models-updating flex-none px-2.5 py-1.5 text-detail text-muted">
+                  {t("picker.catalogRefreshing")}
+                </div>
+              )}
               {update && (
                 <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
                   <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>

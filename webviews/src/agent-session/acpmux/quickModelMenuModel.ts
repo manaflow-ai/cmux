@@ -62,6 +62,9 @@ export type QuickMenu = {
   /// The chat's agent CLI has an update (hq#2569 #12): a quiet footer under the list starts it, apart
   /// from the model choices and their held height.
   update?: { text: string; run(): void };
+  /// acpmux has not listed its harnesses yet (or the fetch failed): a quiet line beside the bundled
+  /// models says they are updating, never in place of them.
+  updating?: boolean;
   /// Search (Lawrence 2026-10-22: "spacing + needs search"): the models a typed query finds, with
   /// the full picker's matching (ModelPicker's `searchModels`), and the pick of one, which lands
   /// the effort and fast mode the query named. Without it typing opens the full picker.
