@@ -45,6 +45,8 @@ public final class DaemonService {
     #endif
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
     public let recovery = DaemonRecovery()
+    /// The person's reads of this daemon's tabs, sent until answered (DaemonService+TabReads).
+    public let reads = TabReads()
     public private(set) var connection: DaemonConnection?
     public private(set) var windowState: WindowStateStore?
     /// The colors this app paints the daemon's terminals with, sent at every
@@ -562,6 +564,7 @@ public final class DaemonService {
         startupDeadlineTimer = timer
         timer.schedule(after: startupDeadline) { @MainActor [weak self] in
             guard let self, self.startup == .connecting else { return }
+            if self.recovery.isRestoring { return self.armStartupDeadline() } // a restore that reports progress has not failed
             if let error = self.lastStartupError { self.store.markFailed(error.description) }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()

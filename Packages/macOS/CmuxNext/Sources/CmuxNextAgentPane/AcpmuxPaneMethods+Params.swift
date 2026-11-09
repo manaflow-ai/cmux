@@ -83,6 +83,8 @@ nonisolated extension AcpmuxPaneMethods {
         // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
         "_acpmux/prewarm": (["harness", "cwd", "release"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
+        // New project (direct.ts newProject): the folder's name only, never a path or a root.
+        "_acpmux/project_new": (["name"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
         "_acpmux/harnesses": (["cwd"], []),
         // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
@@ -131,6 +133,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
         // No `value` declines the card.
         "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
+        // The preset approval card's answer only; a preset write (`set`, `clear`) never comes from the pane.
+        "_acpmux/presets": (["name", "approveMode", "approveDigest", "sessionId"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),

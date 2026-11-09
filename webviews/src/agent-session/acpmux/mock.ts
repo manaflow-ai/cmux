@@ -32,12 +32,17 @@ export type MockSessionAuth = {
   fromSessionId: string | null;
   login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
 };
+/// Mux records acpmux's "transcript" kind leaves out (paging.rs `TRANSCRIPT_MUX_KINDS`) that the
+/// pane asks for by name.
+const MOCK_NOT_TRANSCRIPT = new Set(["preset_approval_request", "preset_approval_decision"]);
 type MockAuthGlobals = {
   cmuxAcpmuxMockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
   cmuxAcpmuxMockNative?: Record<string, unknown>;
   cmuxAcpmuxMockSessionAuth?: MockSessionAuth;
   /** `_acpmux/memory_resolve` fails with this message, as acpmux does when it cannot write the file. */
   cmuxAcpmuxMockMemoryError?: string;
+  /** `_acpmux/presets` with `approveMode` fails with this message, as acpmux does when the host or the person check refuses it. */
+  cmuxAcpmuxMockPresetError?: string;
   /** Capability ids `initialize` names (`_meta.acpmux.capabilities`); absent names none, as an older daemon. */
   cmuxAcpmuxMockCapabilities?: string[];
   /** Gallery only: `session/new` refuses with `trust.pending` until `acp.trust.set` trusts a folder. */
@@ -819,6 +824,26 @@ export class MockAcpmuxSocket {
           this.emit(target, { mux: "memory_resolved", msg: { offerId, file, accepted, dismissed } });
         return { file, accepted, dismissed, wrote: accepted.length > 0 };
       }
+      // A preset approval card's answer (hub/unattended_presets.rs): it counts only for the digest
+      // the chat's latest request for that preset names, and records the decision in that chat.
+      case "_acpmux/presets": {
+        if (params.approveMode === undefined) return { presets: {} };
+        const failure = (globalThis as MockAuthGlobals).cmuxAcpmuxMockPresetError;
+        if (failure) throw Object.assign(new Error(failure), { code: -32000 });
+        const name = String(params.name ?? "");
+        const chat = String(params.sessionId ?? "");
+        const asked = this.events
+          .filter(
+            (event) =>
+              event.sessionId === chat && event.kind === "preset_approval_request" && event.msg?.preset === name,
+          )
+          .at(-1);
+        if (!asked || asked.msg?.digest !== params.approveDigest)
+          throw Object.assign(new Error(`preset ${name} changed since its card was shown`), { code: -32602 });
+        const outcome = params.approveMode === true ? "approved" : "declined";
+        this.emit(chat, { mux: "preset_approval_decision", msg: { preset: name, digest: asked.msg.digest, outcome } });
+        return { name };
+      }
       case "_acpmux/events":
         return this.page(target, params);
       case "_acpmux/attachment": {
@@ -1213,6 +1238,8 @@ export class MockAcpmuxSocket {
         kinds.includes(event.kind) ||
         (event.kind !== "available_commands_update" &&
           event.kind !== "prompt_suggestion" &&
+          // As acpmux's paging.rs: the preset approval records are not transcript; a read asks by name.
+          !MOCK_NOT_TRANSCRIPT.has(event.kind) &&
           kinds.includes("transcript")));
     const after = Number(params.afterSeq ?? 0);
     const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
