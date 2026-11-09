@@ -80,6 +80,7 @@ impl Rpc {
     async fn call(&mut self, m: &str, params: Value) -> Value {
         self.id += 1;
         self.input.send(Message::request(self.id, m, params).to_line()).await.unwrap();
+        // timeout: test-only bound; a lost reply fails the test instead of hanging it.
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let value: Value =
@@ -228,6 +229,7 @@ async fn person_race_reads_cross_a_real_peer_link_with_qualified_winner_and_even
     assert_eq!(result["result"]["races"][0]["candidates"][0]["sessionId"], "box/winner-id");
     let parent = remote.resolve(PARENT).unwrap();
     remote.append(&parent, "mux", "race", race());
+    // timeout: test-only bound; a lost event fails the test instead of hanging it.
     let event = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let v: Value = serde_json::from_str(&person.output.recv().await.unwrap()).unwrap();

@@ -47,7 +47,11 @@ pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
 /// or answers `lifecycle_ready: false`, ensure
 /// waits for its restore up to this bound instead of reporting the owner
 /// unavailable (cx-w760: a slow box took over 10 s to restore after a
-/// restart, and the first ensure failed).
+/// restart, and the first ensure failed). It is a stall bound
+/// (`restore_bound`): each time the owner is seen working (CPU time or disk
+/// bytes advancing) the wait gets this much again, so an owner that restores
+/// a large registry for many minutes is never given up on, killed or
+/// replaced while it works.
 pub(crate) const RESTORE_DEADLINE: Duration = Duration::from_secs(120);
 
 /// How often a waiting ensure reports that the owner is still restoring
@@ -149,11 +153,14 @@ pub(crate) use exit_with::{exit_with, test_owner_exit_with};
 mod identify;
 #[cfg(all(test, unix))]
 mod recovery_tests;
+mod restore_bound;
 use identify::{IdentifyError, identify};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
 pub(crate) use replace::{
     ReplaceError, is_wedged, replace_if_backend_changed, replace_if_unresponsive, replace_if_wedged,
 };
+use restore_bound::RestoreBound;
+pub(crate) use restore_bound::debug_slow_restore;
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner
@@ -390,7 +397,8 @@ pub(crate) fn ensure_owner(
 ) -> Result<Ensured, EnsureError> {
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
         .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
-    let restore_deadline = deadline.max(Instant::now() + RESTORE_DEADLINE);
+    let bound = RestoreBound::new(deadline);
+    let restore_deadline = &bound;
     let requested_backend = requested_cloud_backend();
     let owner = loop {
         if let Some(ready) =
@@ -405,7 +413,7 @@ pub(crate) fn ensure_owner(
                 // owner. Re-probe after the exit to handle races.
                 match replace_if_backend_changed(spec, expected) {
                     Ok(Some(_)) => continue,
-                    Ok(None) if Instant::now() < restore_deadline => continue,
+                    Ok(None) if !restore_deadline.expired() => continue,
                     Ok(None) => {
                         return Err(EnsureError::RestoreTimeout);
                     }
@@ -419,7 +427,7 @@ pub(crate) fn ensure_owner(
             }
             return Ok(Ensured::Running(ready));
         }
-        if Instant::now() >= restore_deadline {
+        if restore_deadline.expired() {
             return Err(EnsureError::RestoreTimeout);
         }
         // Every holder keeps this lock only across a probe and a spawn or a
@@ -432,14 +440,14 @@ pub(crate) fn ensure_owner(
         // One probe under the lock: a concurrent ensure may have spawned the
         // owner while this call waited for the lock. A restoring owner is
         // awaited outside the lock (next turn), never while holding it.
-        match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
+        match attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))? {
             Attempt::Ready(ready) => {
                 if let Some(expected) = requested_backend.as_deref()
                     && ready.cloud_backend.as_deref() != Some(expected)
                 {
                     match replace_if_backend_changed(spec, expected) {
                         Ok(Some(_)) => continue,
-                        Ok(None) if Instant::now() < restore_deadline => continue,
+                        Ok(None) if !restore_deadline.expired() => continue,
                         Ok(None) => return Err(EnsureError::RestoreTimeout),
                         Err(error) => {
                             return Err(EnsureError::Spawn(io::Error::other(format!(
@@ -452,6 +460,7 @@ pub(crate) fn ensure_owner(
                 return Ok(Ensured::Running(ready));
             }
             Attempt::Starting(pid) => {
+                restore_deadline.note_owner(pid);
                 progress.restoring(pid);
                 drop(lock);
                 std::thread::sleep(POLL_INTERVAL);
@@ -544,16 +553,19 @@ fn attempt_deadline(restore_deadline: Instant) -> Instant {
 fn wait_while_starting(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
-    restore_deadline: Instant,
+    restore_deadline: &RestoreBound,
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut busy = BusySince::default();
     loop {
-        let interval = match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
+        let result =
+            attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))?;
+        let interval = match result {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Gone | Attempt::Unanswered => return Ok(None),
             Attempt::Starting(pid) => {
                 busy.answered();
+                restore_deadline.note_owner(pid);
                 progress.restoring(pid);
                 POLL_INTERVAL
             }
@@ -561,7 +573,7 @@ fn wait_while_starting(
             Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
             Attempt::Busy => BUSY_POLL_INTERVAL,
         };
-        if Instant::now() >= restore_deadline {
+        if restore_deadline.expired() {
             return Err(EnsureError::RestoreTimeout);
         }
         std::thread::sleep(interval);
@@ -581,19 +593,21 @@ fn wait_until_ready(
     expected_session: Option<&str>,
     owner_exited: &dyn Fn() -> bool,
     contact_deadline: Instant,
-    restore_deadline: Instant,
+    restore_deadline: &RestoreBound,
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut seen_alive = false;
     let mut busy = BusySince::default();
     loop {
-        let result = attempt(spec, expected_session, attempt_deadline(restore_deadline))?;
+        let result =
+            attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))?;
         let refused = matches!(result, Attempt::Busy);
         match result {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Starting(pid) => {
                 busy.answered();
                 seen_alive = true;
+                restore_deadline.note_owner(pid);
                 progress.restoring(pid);
             }
             Attempt::Stopped => return Err(EnsureError::NotReady),
@@ -612,7 +626,7 @@ fn wait_until_ready(
             }
         }
         let now = Instant::now();
-        if seen_alive && now >= restore_deadline {
+        if seen_alive && restore_deadline.expired() {
             return Err(EnsureError::RestoreTimeout);
         }
         if !seen_alive && now >= contact_deadline {
@@ -631,21 +645,24 @@ fn wait_for_spawned_owner(
     pid: u32,
     spec: &OwnerSpec,
     contact_deadline: Instant,
-    restore_deadline: Instant,
+    restore_deadline: &RestoreBound,
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let expected = Some(spec.session.as_str());
+    restore_deadline.note_owner(Some(u64::from(pid)));
     // The pipe stays open while the owner lives, and the owner writes its
     // byte only after its restore, so a live owner is awaited up to the
     // restore bound, never killed at the shorter contact bound (cx-w760).
-    // The wait wakes once per progress interval to report the live owner.
+    // The restore bound is a stall bound: an owner that works is awaited
+    // however long its restore takes. The wait wakes once per progress
+    // interval to report the live owner.
     let started = Instant::now();
     loop {
-        let slice = restore_deadline.min(Instant::now() + PROGRESS_INTERVAL);
+        let slice = restore_deadline.deadline().min(Instant::now() + PROGRESS_INTERVAL);
         if wait_readable(pipe, slice) {
             break;
         }
-        if Instant::now() >= restore_deadline {
+        if restore_deadline.expired() {
             return Err(EnsureError::RestoreTimeout);
         }
         // Silent for the first slice: a quick owner start is not a restore.
@@ -659,7 +676,8 @@ fn wait_for_spawned_owner(
     let mut byte = [0_u8; 1];
     let signaled = matches!((&*pipe).read(&mut byte), Ok(1));
     if signaled
-        && let Attempt::Ready(ready) = attempt(spec, expected, attempt_deadline(restore_deadline))?
+        && let Attempt::Ready(ready) =
+            attempt(spec, expected, attempt_deadline(restore_deadline.deadline()))?
     {
         return Ok(Some(ready));
     }
@@ -695,7 +713,7 @@ fn wait_for_spawned_owner(
     _pid: u32,
     _spec: &OwnerSpec,
     _contact_deadline: Instant,
-    _restore_deadline: Instant,
+    _restore_deadline: &RestoreBound,
     _progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     match *pipe {}
@@ -721,7 +739,11 @@ fn attempt(
         Err(IdentifyError::Timeout) if replace::listener_is_stopped(listener.as_deref()) => {
             return Ok(Attempt::Stopped);
         }
-        Err(IdentifyError::Timeout) => return Ok(Attempt::Starting(None)),
+        // The kernel names the listener: its pid lets the restore bound
+        // measure the owner's work.
+        Err(IdentifyError::Timeout) => {
+            return Ok(Attempt::Starting(replace::listener_pid(listener.as_deref())));
+        }
         Err(IdentifyError::Refused) => return Ok(Attempt::Busy),
         Err(IdentifyError::Failed) => return Ok(Attempt::Unanswered),
     };

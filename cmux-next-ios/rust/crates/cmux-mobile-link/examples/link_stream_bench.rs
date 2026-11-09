@@ -28,7 +28,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents};
-use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, TEST_RELAY_PORTS_START, TestTurn};
+use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, TestTurn, is_test_relay};
 use cmux_mobile_link::{ChannelEvent, DialOptions, LinkConfig, SignalingClient, TransportKind};
 use tokio::time::{Instant, sleep_until};
 
@@ -44,7 +44,7 @@ static LAN_CUT: AtomicBool = AtomicBool::new(false);
 /// Relayed: through this side's TURN allocation, or plain UDP from a TURN
 /// relayed port (the peer's allocation).
 fn impair(via_turn: bool, from: &SocketAddr) -> Option<Duration> {
-    let relayed = via_turn || (from.ip().is_loopback() && from.port() >= TEST_RELAY_PORTS_START);
+    let relayed = via_turn || is_test_relay(from);
     if relayed {
         return Some(Duration::from_micros(RELAY_ONE_WAY_US.load(Ordering::Relaxed)));
     }

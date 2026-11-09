@@ -31,6 +31,14 @@ pub const HISTORY_FRAMES: usize = 16;
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 /// Shortest time between two forced keyframes.
 pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
+/// How long a stream's newest frame may go unacknowledged before the host
+/// resends it (a tail-loss probe). On a datagram path a frame whose every
+/// datagram was lost leaves the viewer nothing to NACK and the gate nothing
+/// to open on; the probe recovers it. A received frame's resend is dropped by
+/// the viewer's reassembler.
+pub const TAIL_PROBE_US: u64 = 250_000;
+/// Probes before the host stops resending and starts over from a keyframe.
+pub const TAIL_PROBES: u32 = 3;
 /// Most streams per peer (the viewer's CMUX_RD_SESSION_MAX_STREAMS).
 pub const MAX_STREAMS: usize = 16;
 /// Share of the target that popup streams may take together, in percent.
@@ -269,6 +277,10 @@ struct StreamState {
     started: bool,
     /// A tile stream's surface stream (rd change C3).
     tile_of: Option<u16>,
+    /// When the newest frame went out, or was last probed, while it is unacknowledged.
+    probe_from_us: Option<u64>,
+    /// Tail-loss probes sent for the newest frame.
+    probes: u32,
 }
 
 impl StreamState {
@@ -283,6 +295,8 @@ impl StreamState {
             last_forced_idr_us: None,
             started: false,
             tile_of: None,
+            probe_from_us: None,
+            probes: 0,
         }
     }
 
@@ -471,6 +485,11 @@ impl MediaEngine {
             .filter_map(|s| s.gate.next_deadline_us())
             .chain(self.applier.next_deadline_us())
             .chain(self.upstreams.values().filter_map(Upstream::next_deadline_us))
+            .chain(self.streams.values().filter_map(|s| {
+                s.probe_from_us
+                    .filter(|_| s.gate.in_flight() > 0)
+                    .map(|t| t.saturating_add(TAIL_PROBE_US))
+            }))
             .min()
     }
 
@@ -538,6 +557,8 @@ impl MediaEngine {
         }
         state.force_idr = false;
         state.last_frame = req.frame;
+        state.probe_from_us = Some(now_us);
+        state.probes = 0;
         self.frames += 1;
         self.keyframes += u64::from(enc.idr && !tile);
         Ok(Output { datagrams: packets.datagrams, ..Output::default() })
@@ -623,6 +644,44 @@ impl MediaEngine {
         out.encode = self.request(stream, action);
     }
 
+    /// Tail-loss recovery: a stream whose newest frame has gone unacknowledged
+    /// for [`TAIL_PROBE_US`] gets that frame resent, up to [`TAIL_PROBES`] times;
+    /// then the gate opens for a keyframe. An ack ends it (the gate has nothing
+    /// in flight), so a stream that is acknowledged never probes.
+    fn probe_tails(&mut self, now_us: u64, out: &mut Output) {
+        let ids: Vec<u16> = self.streams.keys().copied().collect();
+        for stream in ids {
+            let Some(state) = self.streams.get_mut(&stream) else { continue };
+            if state.gate.in_flight() == 0 {
+                state.probe_from_us = None;
+                continue;
+            }
+            let Some(from) = state.probe_from_us else { continue };
+            if now_us < from.saturating_add(TAIL_PROBE_US) {
+                continue;
+            }
+            if state.probes < TAIL_PROBES {
+                state.probes = state.probes.saturating_add(1);
+                state.probe_from_us = Some(now_us);
+                if let Some(datagrams) = state.history.get(&state.last_frame) {
+                    out.datagrams.extend(datagrams.iter().take(MAX_RESENDS_PER_FEEDBACK).cloned());
+                }
+                continue;
+            }
+            // One encode per tick: a second stream's keyframe waits for the next.
+            if out.encode.is_some() {
+                continue;
+            }
+            state.probe_from_us = None;
+            state.last_forced_idr_us = Some(now_us);
+            state.force_idr = true;
+            state.gate.clear_in_flight();
+            let full = state.full();
+            let action = state.gate.damage(full, now_us);
+            out.encode = self.request(stream, action);
+        }
+    }
+
     /// Advances time for input: a missing event is skipped after its timeout.
     pub fn tick(&mut self, may_inject: bool, now_us: u64) -> Output {
         let mut out = Output::default();
@@ -631,6 +690,7 @@ impl MediaEngine {
             u.released_since_feedback |= !released.is_empty();
             out.upstream.extend(released.into_iter().map(|f| (stream, f)));
         }
+        self.probe_tails(now_us, &mut out);
         let events = self.applier.tick(now_us);
         if may_inject {
             out.inject = events;
