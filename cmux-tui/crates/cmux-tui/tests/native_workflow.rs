@@ -40,7 +40,9 @@ impl Machine {
             json!({
                 "defaultHarness":"fake", "permissionPolicy":"ask",
                 "harnesses":{"fake":{"argv":["python3",FAKE],"family":"fake"},
-                    "probe":{"argv":["python3",PROBE],"family":"fake"}}
+                    "probe":{"argv":["python3",PROBE],"family":"fake"},
+                    "probe-marked":{"argv":["python3",PROBE],"family":"fake",
+                        "env":{"ACPMUX_CALLER_SUBAGENT":"general-purpose:a0a68e7af3df5967e"}}}
             })
             .to_string(),
         )
@@ -140,7 +142,7 @@ impl Machine {
             .unwrap_or_else(|| panic!("no chat: {created}"))
             .to_owned();
         let names = "ACPMUX_ENV,ACPMUX_HOME,ACPMUX_SOCKET,ACPMUX_SESSION_ID,ACPMUX_SESSION_TOKEN,\
-            ACPMUX_SESSION_TOKEN_SOCKET,CMUX_AGENT_SESSION";
+            ACPMUX_SESSION_TOKEN_SOCKET,CMUX_AGENT_SESSION,ACPMUX_CALLER_SUBAGENT";
         let prompt = json!({"sessionId": session,
             "prompt": [{"type": "text", "text": format!("envs: {names}")}]});
         let (reply, text) = call(3, "session/prompt", prompt);
@@ -498,4 +500,17 @@ fn w5s_a_workflow_no_running_subagent_call_starts_runs_as_no_subagent() {
         assert_eq!(result["text"], "", "{} ran as a subagent: {result}", run.name);
         assert_eq!(completed.caller_subagent, None, "{} names a subagent", run.name);
     }
+}
+
+/// Review of #39733: only a workflow runner the daemon started for a subagent has its mark. A
+/// harness profile whose env sets `ACPMUX_CALLER_SUBAGENT` does not give it to the agent, so an
+/// agent's own MCP servers never send as a subagent that did not make the call.
+#[test]
+fn w5s_a_profile_env_gives_an_agent_no_subagent_mark() {
+    let machine = Machine::start();
+    let (_, env) = machine.agent_chat_of("probe-marked");
+    assert!(
+        !env.iter().any(|(key, _)| key == "ACPMUX_CALLER_SUBAGENT"),
+        "the agent got a subagent mark from its profile: {env:?}"
+    );
 }
