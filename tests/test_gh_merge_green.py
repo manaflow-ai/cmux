@@ -1030,6 +1030,18 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertIn(f"{self.LINT} red on", result.stderr)
             self.assertNotIn("no verdict", result.stderr)
 
+    def test_the_full_gate_does_not_let_a_newer_skipped_run_hide_an_older_red(self):
+        # The full gate takes the newest check run of each name by id: a newer skipped one read as a pass, so an
+        # older lint red merged with no base comparison. Now the older red goes to the base comparison.
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, event_log=events,
+                                     extra_checks=((self.LINT, "completed", "failure"), (self.LINT, "completed", "skipped")),
+                                     excuse=(1, f"not excused: {self.LINT} is green on the base"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn(self.LINT, result.stderr)
+
     # #39706 at a251910a (2026-11-09): path routing sent the Mac fast tier no Swift work (fast_tier=false), so
     # cmux-next.yml skipped it by design while its cargo half ran. A cancelled check of another workflow ("publish to
     # R2" in cmux-tui artifacts) made the gate read the skip as a cancelled cmux-next run: "skipped ... rerun it".
