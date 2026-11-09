@@ -36,7 +36,13 @@ nonisolated struct KeepAwakePolicy: Equatable, Sendable {
     }
 
     private var agentsHold: Bool {
-        (agentsWorking || (commands && commandsRunning > 0)) && Self.allows(agents, onBattery: onBattery)
+        (agentsWorking || countedCommands > 0) && Self.allows(agents, onBattery: onBattery)
+    }
+
+    /// The terminal commands that keep the Mac awake now: none while their setting is off or
+    /// `sessions.keepAwake` does not allow it on this power source (the menu bar's count).
+    var countedCommands: Int {
+        commands && Self.allows(agents, onBattery: onBattery) ? commandsRunning : 0
     }
 
     private var phoneHolds: Bool {

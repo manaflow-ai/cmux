@@ -78,6 +78,16 @@ struct KeepAwakePolicyTests {
         #expect(KeepAwakePolicy(agentsWorking: true, iPhoneServing: true, phone: .always, onBattery: true).setting == "phone.keepAwake")
     }
 
+    /// The menu bar counts a command only when it keeps the Mac awake: with its setting on and
+    /// `sessions.keepAwake` allowing it on this power source, also while another reason holds.
+    @Test func onlyCountedCommandsShowInTheMenu() {
+        #expect(KeepAwakePolicy(commandsRunning: 2, commands: true).countedCommands == 2)
+        #expect(KeepAwakePolicy(commandsRunning: 2, commands: false).countedCommands == 0)
+        #expect(KeepAwakePolicy(manual: true, agents: .off, commandsRunning: 2, commands: true).countedCommands == 0)
+        #expect(KeepAwakePolicy(manual: true, commandsRunning: 2, commands: true, onBattery: true).countedCommands == 0)
+        #expect(KeepAwakePolicy(agents: .always, commandsRunning: 2, commands: true, onBattery: true).countedCommands == 2)
+    }
+
     /// A long terminal command holds only with `sessions.keepAwakeForCommands` on, and then as
     /// `sessions.keepAwake` allows: Off there turns it off too.
     @Test func longCommandsHoldOnlyWhenTheirSettingIsOn() {
