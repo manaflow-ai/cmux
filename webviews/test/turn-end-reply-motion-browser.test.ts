@@ -3,10 +3,11 @@
 // transition on the house settle), on the routes around the end-of-turn fold (turnEndFold.ts). The
 // real agent pane from its dev entry, against a stand-in acpmux daemon (as
 // turn-end-fold-browser.test.ts). The turn's last paragraph comes with its end:
-// - a turn with calls, followed at the bottom (the fold plays): the reply moves
-//   over several frames, under 75% of its move in any one, never past its place and back, the bottom
-//   pinned;
-// - a turn of words alone (no running line, so no fold): the same;
+// - a turn with calls, followed at the bottom: the fold plays, over several frames, and the reply
+//   moves over several frames, under 75% of its move in any one, never past its place and back, the
+//   bottom pinned;
+// - a turn of words alone (no running line, so no fold): nothing folds, and the reply stays put,
+//   never stepping on any frame (or, should it move, eases as above);
 // - motion off before the end: the end applies at once, and nothing settles on after;
 // - the reader scrolled up: the row at the top of their view stays where it is.
 // Another chat shown in place of the one that ended is turnEndFold.test.ts's (nothing plays or draws).
@@ -16,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { replyMotionProblems } from "./support/replyMotion";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -291,36 +293,36 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
   }
 
   /// From `from` on, the reply moves over several frames, under 75% of its move in any one, and never
-  /// past its place and back (every step one way). A move of a few px is no motion to judge.
+  /// past its place and back; a reply that stays put never steps at all (support/replyMotion.ts).
   function expectEased(samples: Sample[], from: number, label: string) {
     expect(from).toBeGreaterThan(0);
     const after = samples.slice(from - 1).filter((sample) => Number.isFinite(sample.reply));
-    const move = after.at(-1)!.reply - after[0]!.reply;
-    const steps = after.slice(1).map((sample, index) => sample.reply - after[index]!.reply);
-    console.log(`TURN_END_REPLY ${label} move=${move.toFixed(1)} steps=${JSON.stringify(steps.map(Math.round))}`);
-    if (Math.abs(move) > 8) {
-      // Never most of the move in one frame (the house settle front-loads: about half in its biggest
-      // frame), the bar turn-end-fold-browser.test.ts holds the fold to.
-      expect(Math.max(...steps.map(Math.abs))).toBeLessThan(Math.abs(move) * 0.75);
-      expect(steps.filter((step) => Math.abs(step) >= 0.5).length).toBeGreaterThanOrEqual(3);
-      expect(steps.every((step) => Math.sign(step) !== -Math.sign(move) || Math.abs(step) < 1)).toBe(true);
-    }
+    const replies = after.map((sample) => sample.reply);
+    const steps = replies.slice(1).map((reply, index) => reply - replies[index]!);
+    const move = (replies.at(-1)! - replies[0]!).toFixed(1);
+    const folding = samples.filter((sample) => sample.folding).length;
+    console.log(`TURN_END_REPLY ${label} move=${move} folding=${folding} steps=${JSON.stringify(steps.map(Math.round))}`);
+    expect(replyMotionProblems(replies)).toEqual([]);
     // The bottom stays pinned once it lands.
     expect(after.at(-1)!.gap).toBeLessThanOrEqual(2);
   }
 
-  test("a turn with calls, followed at the bottom: the reply never steps at the end", async () => {
+  test("a turn with calls, followed at the bottom: the fold plays and the reply never steps at the end", async () => {
     const { page, samples } = await playEnd("bottom");
-    expectEased(
-      samples,
-      samples.findIndex((sample) => !sample.line),
-      "bottom",
-    );
+    const end = samples.findIndex((sample) => !sample.line);
+    // The fold played: the thread is marked folding from the frame the running line goes, over
+    // several painted frames, and the mark goes when it lands.
+    const folding = samples.filter((sample) => sample.folding).length;
+    expect(Math.abs(samples.findIndex((sample) => sample.folding) - end)).toBeLessThanOrEqual(1);
+    expect(folding).toBeGreaterThanOrEqual(3);
+    expect(samples.at(-1)!.folding).toBe(false);
+    expectEased(samples, end, "bottom");
     await page.close();
   });
 
-  test("a turn of words alone: the reply never steps at the end", async () => {
+  test("a turn of words alone: nothing folds and the reply never steps at the end", async () => {
     const { page, samples } = await playEnd("words");
+    expect(samples.some((sample) => sample.folding)).toBe(false);
     expectEased(
       samples,
       samples.findIndex((sample) => sample.ended),
