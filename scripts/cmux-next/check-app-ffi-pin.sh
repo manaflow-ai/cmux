@@ -2,8 +2,8 @@
 # Checks the app FFI pin (CCmuxAppFFI: the remote desktop core and the sidebar
 # layout reducer over one Rust runtime) in Packages/macOS/CmuxNext/Package.swift.
 #
-#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--base REF]
-#   scripts/cmux-next/check-app-ffi-pin.sh --list-inputs
+#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--base REF] [--tree DIR]
+#   scripts/cmux-next/check-app-ffi-pin.sh --list-inputs [--tree DIR]
 #
 # Fails when the FFI sources at HEAD differ from the pinned source sha (the tag
 # is cmux-app-ffi-<source sha>): change the Rust code, let
@@ -11,22 +11,35 @@
 # URL and checksum in one commit. With --verify-release it also downloads the
 # release's SOURCE_SHA and SHA256SUMS anonymously and fails unless they name
 # the pinned sha and the pinned checksum.
+#
+# --tree DIR checks the repository at DIR (its Package.swift, its FFI sources,
+# its git history) instead of the one this script is in. The pin reader is
+# always this script's own copy. cmux-next.yml runs the base's copy of both
+# against a pull request's tree, so the pull request's own copy never decides
+# its pin verdict.
 set -euo pipefail
 
 verify=0
 list_inputs=0
 base_ref=""
+tree=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify-release) verify=1 ;;
     --base) base_ref="${2:?--base needs a ref}"; shift ;;
     --list-inputs) list_inputs=1 ;;
-    *) echo "usage: $0 [--verify-release] [--base REF]" >&2; exit 2 ;;
+    --tree) tree="${2:?--tree needs a directory}"; shift ;;
+    *) echo "usage: $0 [--verify-release] [--base REF] [--tree DIR]" >&2; exit 2 ;;
   esac
   shift
 done
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+# code: the repository this script is in, whose pin reader runs. root: the tree it checks.
+code="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+root="$code"
+if [[ -n "$tree" ]]; then
+  root="$(cd "$tree" 2>/dev/null && pwd -P)" || { echo "error: --tree $tree is not a directory" >&2; exit 2; }
+fi
 manifest="$root/Packages/macOS/CmuxNext/Package.swift"
 asset="CCmuxAppFFI.xcframework.zip"
 
@@ -68,7 +81,7 @@ fi
 # The pin is read only through scripts/ci/app_ffi_pin.py's fail-closed canonical match (the classifier, the repin
 # picker and the repin script read it the same way). A Package.swift whose pin is not the canonical block fails here,
 # naming its first line that does not match.
-pin_reader="$root/scripts/ci/app_ffi_pin.py"
+pin_reader="$code/scripts/ci/app_ffi_pin.py"
 # Every python3 here runs isolated (-I): neither the script's directory nor the working directory is on its import
 # path, and PYTHONPATH and the user site are ignored. Otherwise a module a change adds (scripts/ci/json.py beside the
 # reader, or json.py at the root for the python3 -c below) is imported in place of the standard library and decides

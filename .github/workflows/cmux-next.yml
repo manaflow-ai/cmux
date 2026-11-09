@@ -2416,15 +2416,39 @@ jobs:
       # path dependencies) and the release must be built from them. Here on
       # Linux it runs on every push and pull request: in swift test a newer
       # push replaced the waiting job, so tip runs rarely reached it.
+      #
+      # On a pull request the base's copy of the check and of its pin reader
+      # (the merge commit's first parent), extracted outside the checkout,
+      # judges the pull request's tree (--tree), with only PATH=/usr/bin:/bin
+      # and HOME in its environment. The steps above ran the pull request's
+      # code, which could rewrite the checkout's copy on disk or change PATH,
+      # and base_red_excuse.py trusts this verdict for a pull request whose
+      # diff leaves the check alone. BASH_ENV is empty here, so the checkout's
+      # scripts/ci/api_call_log/env.sh is not sourced either.
       - name: Check the app FFI pin
         id: app-ffi-pin
         continue-on-error: true
         env:
           EVENT_NAME: ${{ github.event_name }}
+          BASH_ENV: ""
         run: |
-          base=()
-          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
-          scripts/cmux-next/check-app-ffi-pin.sh --verify-release "${base[@]}"
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+          fi
+          export PATH=/usr/bin:/bin
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] \
+            || { echo "error: the checkout's HEAD is not the merge commit $GITHUB_SHA" >&2; exit 1; }
+          base="$(git rev-parse --verify "$GITHUB_SHA^1^{commit}")"
+          code="$(mktemp -d "${RUNNER_TEMP:-/tmp}/app-ffi-pin-base.XXXXXX")"
+          git archive "$base" scripts/cmux-next/check-app-ffi-pin.sh scripts/ci/app_ffi_pin.py | tar -x -C "$code"
+          if ! grep -q -e '--tree)' "$code/scripts/cmux-next/check-app-ffi-pin.sh"; then
+            # Only while the base predates --tree (the pull request that adds it).
+            echo "note: the base's check has no --tree; this tree's copy runs"
+            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --base "$base"
+          fi
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" \
+            bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --verify-release --base "$base" --tree "$PWD"
 
       # plans/cmux-next/daemon-capabilities.json against the lists in
       # DaemonEndpoint.swift, without a build: check-daemon-capabilities.sh
