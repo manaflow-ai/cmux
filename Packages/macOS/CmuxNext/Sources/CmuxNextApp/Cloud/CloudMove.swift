@@ -365,11 +365,11 @@ struct CloudMove {
         for window in services.windows.controllers { if let pane { window.state.selection.select(opened, in: pane.id) } }
     }
 
-    /// Whether window `state` shows `tab`: its pane's selected tab there, in the workspace it shows (under a top page too).
+    /// Whether window `state` shows `tab`: its pane's selected tab, in its focused workspace, under no top page (History stays up).
     static func shows(_ tab: TabModel, in state: WindowState, services: AppServices) -> Bool {
         let store = services.machines.daemon(forTab: tab).store
-        guard let pane = store.tab(idOrResource: tab.id).flatMap(store.pane(holding:)), let workspace = store.workspace(containing: pane.handle)?.id,
-              state.workspaceID == workspace || state.viewSet?.ids.contains(workspace) == true else { return false }
+        guard state.page == nil, let pane = store.tab(idOrResource: tab.id).flatMap(store.pane(holding:)),
+              let workspace = store.workspace(containing: pane.handle)?.id, state.workspaceID == workspace else { return false }
         let fallback = pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil
         return (state.selection.selection(in: pane.id) ?? fallback) == tab.id
     }

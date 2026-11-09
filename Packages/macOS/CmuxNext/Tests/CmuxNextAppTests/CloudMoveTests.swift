@@ -130,6 +130,29 @@ struct CloudMoveTests {
         }
     }
 
+    /// A top page over the chat's workspace hides the chat: a CLI move with no `--focus` leaves the page (History) up and the
+    /// window's workspace as it was, though the chat stays its pane's selected tab under the page (the review of #39834, F1).
+    @Test func aCLIMoveOfAChatUnderATopPageLeavesThePageUp() async throws {
+        try await Self.withMove("moves") { move in
+            let services = move.services
+            let controller = try #require(services.windows.active)
+            let (chat, pane) = try #require(services.locateTab(move.tabID, onMachine: services.machines.local.machineID))
+            let local = try #require(services.daemon.store.workspace(containing: pane.handle))
+            _ = services.windows.reveal(workspaceID: local.id)
+            controller.state.selection.select(chat.id, in: pane.id)
+            try await Self.waitUntil { CloudMove.shows(chat, in: controller.state, services: services) }
+            let page = TopPageRoute.page(.history)
+            try #require(TopPages.show(page, services: services, in: controller.state) != nil, "History did not open as a top page")
+            #expect(!CloudMove.shows(chat, in: controller.state, services: services), "a chat under History counts as shown")
+
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            #expect(moved.machineTab != nil, "no chat tab on the machine")
+            #expect(controller.state.page == page, "the move dismissed History: \(String(describing: controller.state.page))")
+            #expect(controller.state.workspaceID == local.id, "the move changed the workspace under History")
+        }
+    }
+
     /// A CLI move with no `--focus` of a chat no window shows changes no window's view: the window keeps its workspace.
     @Test func aCLIMoveOfAChatNoWindowShowsLeavesTheWindowAlone() async throws {
         try await Self.withMove("moves") { move in
