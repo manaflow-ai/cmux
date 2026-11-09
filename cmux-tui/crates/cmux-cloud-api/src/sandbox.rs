@@ -69,6 +69,24 @@ pub struct Task {
     pub agent: String,
     /// The task's own bound: the start and the turn together.
     pub timeout: Duration,
+    /// The Run's account ([`account_scope`]): the start and the send happen only while the app is
+    /// signed in to it, and only on a machine its list shows.
+    pub account: String,
+}
+
+/// Whose a `cloud list-machines` answer is: `user:<id>|team:<id>` or `user:<id>|personal`. `None`
+/// when signed out, or when the answer names no user (then it is no one's).
+pub fn account_scope(list: &Value) -> Option<String> {
+    let account = list.get("account")?;
+    if account.get("signed_in").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let present = |name: &str| account.get(name).and_then(Value::as_str).filter(|v| !v.is_empty());
+    let user = present("user_id")?;
+    Some(match present("team_id") {
+        Some(team) => format!("user:{user}|team:{team}"),
+        None => format!("user:{user}|personal"),
+    })
 }
 
 /// How the task ended. `machine` is the machine's id when the steps learned it.
@@ -113,8 +131,6 @@ pub struct Timing {
     pub keep_ended: Duration,
     /// After a cut-off start: how long past the task's timeout the app may still be making the machine.
     pub start_settle: Duration,
-    /// How long a wait or a cancel reuses the app's account it read last.
-    pub account_ttl: Duration,
 }
 
 impl Default for Timing {
@@ -125,7 +141,6 @@ impl Default for Timing {
             give_up: Duration::from_secs(3 * 24 * 60 * 60),
             keep_ended: Duration::from_secs(24 * 60 * 60),
             start_settle: Duration::from_secs(120),
-            account_ttl: Duration::from_secs(5),
         }
     }
 }
@@ -190,8 +205,6 @@ pub struct Engine {
     steps: Arc<dyn Steps>,
     store: Option<PathBuf>,
     timing: Timing,
-    /// The app's account as read last ([`Steps::scope`]), and when.
-    account: Mutex<Option<(Instant, Option<String>)>>,
 }
 
 fn now_ms() -> i64 {
@@ -315,7 +328,6 @@ impl Engine {
             steps,
             store,
             timing,
-            account: Mutex::new(None),
         });
         {
             let mut state = engine.lock();
@@ -365,26 +377,13 @@ impl Engine {
         }
     }
 
-    /// The app's account now: read again once [`Timing::account_ttl`] has passed (`fresh`: always).
-    fn account(&self, fresh: bool) -> Option<String> {
-        let mut last = self.account.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !fresh
-            && let Some((at, account)) = last.as_ref()
-            && at.elapsed() < self.timing.account_ttl
-        {
-            return account.clone();
-        }
-        let account = self.steps.scope();
-        *last = Some((Instant::now(), account.clone()));
-        account
-    }
-
     /// `run_not_found` unless the Run `id` is the account the app is signed in to now.
     fn owned(&self, id: &str) -> Result<(), Failure> {
         if !self.lock().runs.contains_key(id) {
             return Err(not_found());
         }
-        let account = self.account(false);
+        // Read now, every time: a sign-out or a switch shuts the previous account out at once.
+        let account = self.steps.scope();
         let state = self.lock();
         let run = state.runs.get(id).ok_or_else(not_found)?;
         if account.is_none() || run.scope != account {
@@ -421,7 +420,7 @@ impl Engine {
                 "idempotencyKey: 1 to 128 characters",
             ));
         }
-        let Some(account) = self.account(true) else {
+        let Some(account) = self.steps.scope() else {
             return Err(refused(
                 401,
                 "run_not_signed_in",
@@ -490,7 +489,7 @@ impl Engine {
     fn drive(&self, id: &str, prompt: String, cancel: &AtomicBool) {
         // The task runs as the app's account at its launch: it must still be the Run's own, or the
         // task (which may be private) would reach another account's machine.
-        let now_account = if cancel.load(Ordering::Acquire) { None } else { self.account(true) };
+        let now_account = if cancel.load(Ordering::Acquire) { None } else { self.steps.scope() };
         let mut refused = None;
         let task = {
             let mut state = self.lock();
@@ -515,6 +514,7 @@ impl Engine {
                     prompt,
                     agent: run.agent.clone(),
                     timeout: Duration::from_millis(u64::try_from(run.timeout_ms).unwrap_or(0)),
+                    account: run.scope.clone().unwrap_or_default(),
                 };
                 self.save(&state);
                 self.changed.notify_all();

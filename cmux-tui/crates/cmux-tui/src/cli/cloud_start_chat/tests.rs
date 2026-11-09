@@ -27,6 +27,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             cwd: None,
             login: None,
             environment: None,
+            account: None,
             machine: Machine::New,
             wait: false,
             timeout: Duration::from_secs(900),
@@ -1785,6 +1786,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         cwd: None,
         login: None,
         environment: None,
+        account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(60),
@@ -1818,6 +1820,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         cwd: None,
         login: None,
         environment: None,
+        account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(secs),
@@ -1929,4 +1932,66 @@ fn a_late_creation_timeout_names_the_machine_to_ask_again_by() {
         error["details"]["again"].as_str().unwrap_or_default().contains("--name chat-fresh"),
         "{error}"
     );
+}
+
+/// `cloud list-machines` signed in as `user` on `team`, listing `machines` by id.
+fn listed_as(user: &str, team: Option<&str>, machines: &[&str]) -> Ran {
+    let rows: Vec<Value> = machines.iter().map(|id| json!({"machine_id": id, "title": id})).collect();
+    ok(json!({"loaded": true, "account": {"signed_in": true, "user_id": user, "team_id": team},
+              "machines": rows}))
+}
+
+/// A sandboxed Run's `--account` (the fifth review of #39022): nothing starts on another account,
+/// and the prompt goes only to a machine the Run's own account lists, read after the start.
+#[test]
+fn an_account_run_starts_and_sends_only_on_that_account() {
+    let asked = request(&["--prompt", "secret", "--wait", "--account", "user:u1|team:t1"]);
+    assert_eq!(asked.account.as_deref(), Some("user:u1|team:t1"));
+    assert!(parse(&strings(&["--account", "team:t1"]), || Ok(String::new())).is_err());
+
+    // Another person (same team) at the start: nothing starts.
+    let mut fake = Fake::new(vec![listed_as("u2", Some("t1"), &["dev"])]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert_eq!(fake.ran.len(), 1, "{:?}", fake.ran);
+
+    // The app switched between the first list and the start: the machine is not the Run's
+    // account's, so nothing is sent, and the failure names the machine this run made.
+    let mut fake = Fake::new(vec![
+        listed_as("u1", Some("t1"), &[]),
+        started(),
+        listed_as("u2", None, &["vm-1"]),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert_eq!(error["details"]["machine_id"], "vm-1");
+    assert!(fake.ran.iter().all(|ran| ran[1] != "exec"), "{:?}", fake.ran);
+
+    // The account's list shows the machine only on a later read: then the prompt goes.
+    let mut fake = Fake::new(vec![
+        listed_as("u1", Some("t1"), &[]),
+        started(),
+        listed_as("u1", Some("t1"), &[]),
+        listed_as("u1", Some("t1"), &["vm-1"]),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"done\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "done");
+
+    // A list that never shows it: nothing is sent.
+    let mut answers = vec![listed_as("u1", Some("t1"), &[]), started()];
+    answers.extend((0..5).map(|_| listed_as("u1", Some("t1"), &["other"])));
+    let mut fake = Fake::new(answers);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert!(fake.ran.iter().all(|ran| ran[1] != "exec"), "{:?}", fake.ran);
+
+    // Without --account nothing extra is read.
+    let mut fake = Fake::new(vec![signed_in(), started(), exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n")]);
+    assert!(matches!(run(&mut fake, &request(&["--prompt", "x"])), Outcome::Done(_)));
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
 }

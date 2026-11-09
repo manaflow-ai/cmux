@@ -74,7 +74,6 @@ fn quick() -> Timing {
         give_up: Duration::from_secs(60),
         keep_ended: Duration::from_secs(60),
         start_settle: Duration::ZERO,
-        account_ttl: Duration::ZERO,
     }
 }
 
@@ -128,6 +127,8 @@ fn a_run_answers_the_reply_and_deletes_its_machine() {
     assert_eq!(snapshot["artifacts"], json!([]));
     let ran = fake.ran.lock().unwrap().clone();
     assert_eq!(ran.len(), 1);
+    // The task carries the Run's account, which its start and send are bound to.
+    assert_eq!(ran[0].account, "team:team_1");
     assert_eq!(ran[0].prompt, "say hi");
     assert_eq!(ran[0].agent, "claude");
     assert_eq!(ran[0].machine_name, format!("{MACHINE_PREFIX}{id}"));
@@ -343,7 +344,8 @@ fn another_accounts_wait_or_cancel_finds_no_run() {
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     let not_found =
         || Failure::http(404, Some("run_not_found".into()), Some("no such Run on this Mac".into()));
-    // Signed in to another account, or signed out: the Run is not there.
+    // Signed in to another account, or signed out: the Run is not there, from the very next call
+    // (the account is read for every wait and cancel, never reused).
     for account in [Some("team:team_2"), None] {
         *fake.account.lock().unwrap() = account.map(str::to_owned);
         let wait = engine.perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 10 })));

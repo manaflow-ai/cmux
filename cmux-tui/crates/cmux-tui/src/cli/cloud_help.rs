@@ -535,6 +535,9 @@ older name; both run the same start.
                      Neither: create a new small machine with a new name
   --environment ENV  Boot the new machine in this Cloud environment (its
                      env_ id or its name); not with --target
+  --account ACCOUNT  Start and send only while the app is signed in to this
+                     account (user:ID|team:ID or user:ID|personal), and only
+                     to a machine its list shows
   --wait             Wait for the turn to end and print the reply (no
                      prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)

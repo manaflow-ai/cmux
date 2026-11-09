@@ -89,6 +89,7 @@ struct CloudListMachinesTests {
         #expect(account["signed_in"] == .bool(false))
         // The team the list is for (none signed out): a sandboxed Run's cleanup trusts only its own team's list.
         #expect(account["team_id"] == .null)
+        #expect(account["user_id"] == .null)
         // The store keeps no plan limits; a machine count is no entitlement.
         #expect(account["limits"] == nil)
     }
