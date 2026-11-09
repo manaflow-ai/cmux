@@ -76,17 +76,25 @@ fn a_carrier_dial_carries_the_daemon_stream_both_ways() {
         "no team, no header: {teams:?}"
     );
     // The route line also went to the dial's own connect log, exactly,
-    // followed by the attempt's phases line (which stderr never gets).
+    // followed by the attempt's phases line and its carriers line (which
+    // stderr never gets): no ssh candidate in this answer, so the relay alone.
     let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
     let text = std::fs::read_to_string(&log).unwrap();
-    let (logged, phases) = text.split_at(route.len().min(text.len()));
+    let (logged, rest) = text.split_at(route.len().min(text.len()));
     assert_eq!(logged, route, "connect.log starts with the route line: {text}");
-    let phases = phases.strip_suffix('\n').unwrap_or(phases);
+    let (phases, routes) = rest.split_once('\n').unwrap_or((rest, ""));
     assert!(
         phases.starts_with(&format!(
             "carrier.phases machine={MACHINE} phase=connect carrier=relay:0 outcome=ok ticket_ms="
-        )) && !phases.contains('\n'),
-        "then one phases line and nothing else: {text}"
+        )),
+        "then one phases line: {text}"
+    );
+    assert_eq!(
+        routes,
+        format!(
+            "carrier.routes machine={MACHINE} phase=connect ssh=no_candidate carrier=relay:0 outcome=ok\n"
+        ),
+        "then its carriers line and nothing else: {text}"
     );
     assert!(phases.contains(" lanes=") && !phases.contains("cloud.connect"), "{text}");
     let ms = route.trim_end().rsplit_once(" ms=").unwrap().1;

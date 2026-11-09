@@ -79,12 +79,16 @@ export function MentionMenu({
         renderItem={(item) => (
           <>
             <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
-              <Icon name={item.kind === "session" ? "agent.chat" : item.kind} size={14} />
+              <Icon name={item.kind === "session" || item.kind === "harness" ? "agent.chat" : item.kind} size={14} />
             </span>
             <span className="acpmux-slash-name">{runs(item.name)}</span>
-            {item.kind === "session"
-              ? item.project && <span className="acpmux-slash-description">{item.project}</span>
-              : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
+            {item.kind === "session" ? (
+              item.project && <span className="acpmux-slash-description">{item.project}</span>
+            ) : item.kind === "harness" ? (
+              <span className="acpmux-slash-description">{t("mention.readOnlyGuest")}</span>
+            ) : (
+              item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>
+            )}
           </>
         )}
       />

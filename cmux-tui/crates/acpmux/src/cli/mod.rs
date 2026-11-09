@@ -6,6 +6,7 @@
 
 pub mod beads;
 pub(crate) mod bounded_child;
+pub mod bridge;
 pub mod chats;
 pub mod cli_agent;
 pub mod cloud_join;

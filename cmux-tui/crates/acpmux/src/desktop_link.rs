@@ -13,7 +13,8 @@
 //!   every running Claude Code rewrites, so acpmux never writes that file itself). Claude
 //!   desktop's Code tab runs the same Claude Code with the same user config.
 //! - Codex: `[mcp_servers.cmux]` in `$CODEX_HOME/config.toml` (`~/.codex`), which the Codex
-//!   desktop app and CLI share, edited with `toml_edit` so comments and order stay.
+//!   desktop app and CLI share, edited with `toml_edit` so comments and order stay, under the
+//!   lock every cmux writer of it takes (`cmux_tui_platform::codex_config_lock`).
 //!
 //! The entry runs this acpmux binary as `acpmux acpmux-mcp` with [`GUEST_ENV`] set to the app's
 //! id: the server's guest mode (`acpmux_mcp_guest.rs`), which lists the tools that make sense
@@ -26,6 +27,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// The server's name in every app's config: the name the tools show under (`mcp__cmux__ls`).
@@ -233,7 +235,7 @@ impl Row {
             "config": self.config.to_string_lossy(),
         });
         if let Some(note) = &self.note {
-            v["note"] = json!(note);
+            v.set("note", json!(note));
         }
         v
     }
@@ -257,13 +259,13 @@ pub fn status(env: &Env, app: App) -> Row {
 
 fn classify(env: &Env, app: App, entry: Option<&Value>) -> State {
     let Some(entry) = entry else { return State::NotLinked };
-    if entry.pointer(&format!("/env/{GUEST_ENV}")).and_then(Value::as_str).is_none() {
+    if !ours_json(entry) {
         return State::Foreign;
     }
     let ours = env.exe.to_string_lossy();
     let same_args = entry["args"] == json!(env.args);
     // The env too: an entry for another acpmux home reaches another daemon.
-    let same_env = entry["env"] == env.entry_json(app)["env"];
+    let same_env = entry.get("env") == env.entry_json(app).get("env");
     if entry["command"].as_str() == Some(ours.as_ref()) && same_args && same_env {
         State::Linked
     } else {
@@ -271,22 +273,57 @@ fn classify(env: &Env, app: App, entry: Option<&Value>) -> State {
     }
 }
 
+/// Whether an entry named [`SERVER_KEY`] (as JSON) is one this command wrote: it carries
+/// [`GUEST_ENV`].
+fn ours_json(entry: &Value) -> bool {
+    entry.pointer(&format!("/env/{GUEST_ENV}")).and_then(Value::as_str).is_some()
+}
+
+/// The same for Codex's TOML entry, its `env` an inline table or a table of its own.
+fn ours_toml(entry: &toml_edit::Item) -> bool {
+    entry.get("env").and_then(|env| env.get(GUEST_ENV)).and_then(toml_edit::Item::as_str).is_some()
+}
+
+/// The refusal of an edit that found, in the text it was built on, an entry named
+/// [`SERVER_KEY`] this command did not write: it is left as it is. Checked on every round of
+/// the edit (`desktop_link_write.rs`), so one that appeared after `status` read the file, while
+/// the edit waited for the lock or raced another writer, is never replaced or removed.
+#[derive(Debug)]
+struct ForeignEntry;
+
+impl std::fmt::Display for ForeignEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "a server named {SERVER_KEY} that cmux did not write is there")
+    }
+}
+
+impl std::error::Error for ForeignEntry {}
+
+/// The note of a row whose entry is not ours.
+fn foreign_note(config: &Path) -> String {
+    format!(
+        "a server named {SERVER_KEY} that cmux did not write is in {}; left alone",
+        config.display()
+    )
+}
+
 /// Give `app` the entry. An entry of ours that runs another binary is replaced; one we did not
-/// write is left alone and named in the row.
+/// write is left alone and named in the row, also one that appears while the edit runs.
 pub fn link(env: &Env, app: App, dry_run: bool) -> Row {
     let mut row = status(env, app);
     row.note = match row.state {
         State::NotInstalled => Some(format!("{} is not on this machine", app.label())),
         State::Linked => Some("already linked".to_owned()),
-        State::Foreign => Some(format!(
-            "a server named {SERVER_KEY} that cmux did not write is in {}; left alone",
-            row.config.display()
-        )),
+        State::Foreign => Some(foreign_note(&row.config)),
         State::NotLinked | State::Stale if dry_run => Some("would link".to_owned()),
         State::NotLinked | State::Stale => match write_entry(env, app, row.state == State::Stale) {
             Ok(()) => {
                 row.state = State::Linked;
                 Some(format!("linked; {}", app.takes_effect()))
+            }
+            Err(e) if e.downcast_ref::<ForeignEntry>().is_some() => {
+                row.state = State::Foreign;
+                Some(foreign_note(&row.config))
             }
             Err(e) => Some(format!("{e:#}")),
         },
@@ -300,14 +337,16 @@ pub fn unlink(env: &Env, app: App, dry_run: bool) -> Row {
     row.note = match row.state {
         // A config it could not read keeps the reason `status` gave.
         State::NotInstalled | State::NotLinked => row.note.take(),
-        State::Foreign => {
-            Some(format!("a server named {SERVER_KEY} that cmux did not write; left alone"))
-        }
+        State::Foreign => Some(foreign_note(&row.config)),
         State::Linked | State::Stale if dry_run => Some("would unlink".to_owned()),
         State::Linked | State::Stale => match remove_entry(env, app) {
             Ok(()) => {
                 row.state = State::NotLinked;
                 Some(format!("unlinked; {}", app.takes_effect()))
+            }
+            Err(e) if e.downcast_ref::<ForeignEntry>().is_some() => {
+                row.state = State::Foreign;
+                Some(foreign_note(&row.config))
             }
             Err(e) => Some(format!("{e:#}")),
         },
@@ -346,60 +385,105 @@ fn read_entry(env: &Env, app: App) -> Result<Option<Value>> {
 
 fn write_entry(env: &Env, app: App, replace: bool) -> Result<()> {
     match app {
-        App::ClaudeDesktop => {
-            let path = env.config_path(app);
-            edit_json(&path, |servers| servers.insert(SERVER_KEY, env.entry_json(app)))
-        }
+        App::ClaudeDesktop => edit_json(&env.config_path(app), link_json(env, app)),
         App::ClaudeCode => {
+            // `claude mcp` edits the file itself, so this is checked just before it runs.
+            refuse_foreign_claude_code(env)?;
             if replace {
                 claude_cli(env, &["mcp", "remove", "--scope", "user", SERVER_KEY])?;
             }
             let entry = env.entry_json(app).to_string();
             claude_cli(env, &["mcp", "add-json", "--scope", "user", SERVER_KEY, &entry])
         }
-        App::Codex => {
-            let path = env.config_path(app);
-            edit_toml(&path, |servers| {
-                let mut table = toml_edit::Table::new();
-                table.insert("command", toml_edit::value(env.exe.to_string_lossy().as_ref()));
-                let mut args = toml_edit::Array::new();
-                for arg in &env.args {
-                    args.push(arg.as_str());
-                }
-                table.insert("args", toml_edit::value(args));
-                let mut vars = toml_edit::InlineTable::new();
-                for (k, v) in env.entry_env(app) {
-                    vars.insert(k, v.into());
-                }
-                table.insert("env", toml_edit::value(vars));
-                servers.insert(SERVER_KEY, toml_edit::Item::Table(table));
-            })
-        }
+        App::Codex => edit_toml(&env.config_path(app), link_toml(env, app)),
     }
 }
 
 fn remove_entry(env: &Env, app: App) -> Result<()> {
     match app {
-        App::ClaudeDesktop => {
-            edit_json(&env.config_path(app), |servers| servers.remove(SERVER_KEY))
+        App::ClaudeDesktop => edit_json(&env.config_path(app), unlink_json),
+        App::ClaudeCode => {
+            refuse_foreign_claude_code(env)?;
+            claude_cli(env, &["mcp", "remove", "--scope", "user", SERVER_KEY])
         }
-        App::ClaudeCode => claude_cli(env, &["mcp", "remove", "--scope", "user", SERVER_KEY]),
-        App::Codex => edit_toml(&env.config_path(app), |servers| {
-            servers.remove(SERVER_KEY);
-        }),
+        App::Codex => edit_toml(&env.config_path(app), unlink_toml),
     }
 }
 
+/// [`ForeignEntry`] when Claude Code's config has an entry named [`SERVER_KEY`] that is not ours.
+fn refuse_foreign_claude_code(env: &Env) -> Result<()> {
+    match read_entry(env, App::ClaudeCode)? {
+        Some(entry) if !ours_json(&entry) => Err(ForeignEntry.into()),
+        _ => Ok(()),
+    }
+}
+
+/// Link's change of Claude desktop's `mcpServers`, as found in the text of this round: our entry
+/// in, unless one named [`SERVER_KEY`] there is not ours.
+fn link_json(env: &Env, app: App) -> impl Fn(&mut Ordered<Value>) -> Result<()> + '_ {
+    move |servers: &mut Ordered<Value>| {
+        if servers.get(SERVER_KEY).is_some_and(|entry| !ours_json(entry)) {
+            return Err(ForeignEntry.into());
+        }
+        servers.insert(SERVER_KEY, env.entry_json(app));
+        Ok(())
+    }
+}
+
+/// Unlink's: our entry out; one that is not ours stays, refused.
+fn unlink_json(servers: &mut Ordered<Value>) -> Result<()> {
+    if servers.get(SERVER_KEY).is_some_and(|entry| !ours_json(entry)) {
+        return Err(ForeignEntry.into());
+    }
+    servers.remove(SERVER_KEY);
+    Ok(())
+}
+
+/// The same for Codex's `[mcp_servers]`.
+fn link_toml(env: &Env, app: App) -> impl Fn(&mut toml_edit::Table) -> Result<()> + '_ {
+    move |servers: &mut toml_edit::Table| {
+        if servers.get(SERVER_KEY).is_some_and(|entry| !ours_toml(entry)) {
+            return Err(ForeignEntry.into());
+        }
+        let mut table = toml_edit::Table::new();
+        table.insert("command", toml_edit::value(env.exe.to_string_lossy().as_ref()));
+        let mut args = toml_edit::Array::new();
+        for arg in &env.args {
+            args.push(arg.as_str());
+        }
+        table.insert("args", toml_edit::value(args));
+        let mut vars = toml_edit::InlineTable::new();
+        for (k, v) in env.entry_env(app) {
+            vars.insert(k, v.into());
+        }
+        table.insert("env", toml_edit::value(vars));
+        servers.insert(SERVER_KEY, toml_edit::Item::Table(table));
+        Ok(())
+    }
+}
+
+fn unlink_toml(servers: &mut toml_edit::Table) -> Result<()> {
+    if servers.get(SERVER_KEY).is_some_and(|entry| !ours_toml(entry)) {
+        return Err(ForeignEntry.into());
+    }
+    servers.remove(SERVER_KEY);
+    Ok(())
+}
+
 /// Read `path` as JSON (none or empty: `{}`), change its `mcpServers`, and write it back whole
-/// through a temp file and a rename, so the app never reads half a file. The top level and
-/// `mcpServers` keep the person's key order (serde_json's own map would sort them).
-fn edit_json(path: &Path, change: impl FnOnce(&mut Ordered<Value>)) -> Result<()> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-    };
-    let text = if text.trim().is_empty() { "{}" } else { text.as_str() };
+/// ([`edit_file`]). The top level and `mcpServers` keep the person's key order (serde_json's own
+/// map would sort them).
+fn edit_json(path: &Path, change: impl Fn(&mut Ordered<Value>) -> Result<()>) -> Result<()> {
+    edit_file(path, None, |text| render_json(path, text, &change))
+}
+
+/// `text` with `change` made to its `mcpServers`; `change` refuses what it must not touch.
+fn render_json(
+    path: &Path,
+    text: &str,
+    change: &impl Fn(&mut Ordered<Value>) -> Result<()>,
+) -> Result<String> {
+    let text = if text.trim().is_empty() { "{}" } else { text };
     let doc: Value =
         serde_json::from_str(text).with_context(|| format!("{} is not JSON", path.display()))?;
     let Some(top) = doc.as_object() else {
@@ -415,7 +499,7 @@ fn edit_json(path: &Path, change: impl FnOnce(&mut Ordered<Value>)) -> Result<()
         servers: Option<Ordered<Value>>,
     }
     let mut servers = serde_json::from_str::<Servers>(text)?.servers.unwrap_or(Ordered(Vec::new()));
-    change(&mut servers);
+    change(&mut servers)?;
     #[derive(serde::Serialize)]
     #[serde(untagged)]
     enum Node {
@@ -439,7 +523,7 @@ fn edit_json(path: &Path, change: impl FnOnce(&mut Ordered<Value>)) -> Result<()
     }
     let mut out = serde_json::to_string_pretty(&Ordered(out))?;
     out.push('\n');
-    write_atomic(path, &out)
+    Ok(out)
 }
 
 /// The key of Claude's MCP servers.
@@ -459,6 +543,10 @@ impl<T> Ordered<T> {
 
     fn remove(&mut self, key: &str) {
         self.0.retain(|(k, _)| k != key);
+    }
+
+    fn get(&self, key: &str) -> Option<&T> {
+        self.0.iter().find(|(k, _)| k == key).map(|(_, v)| v)
     }
 }
 
@@ -491,13 +579,19 @@ impl<T: serde::Serialize> serde::Serialize for Ordered<T> {
     }
 }
 
-/// The same for Codex's TOML, through `toml_edit` so the person's comments and order stay.
-fn edit_toml(path: &Path, change: impl FnOnce(&mut toml_edit::Table)) -> Result<()> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-    };
+/// The same for Codex's TOML, through `toml_edit` so the person's comments and order stay, under
+/// the lock every cmux writer of it takes (`cmux_tui_platform::codex_config_lock`: the hook
+/// installer's trust state and the Cloud devbox provider merge).
+fn edit_toml(path: &Path, change: impl Fn(&mut toml_edit::Table) -> Result<()>) -> Result<()> {
+    let lock = path.parent().map(|dir| dir.join(cmux_tui_platform::codex_config_lock::LOCK_FILE));
+    edit_file(path, lock.as_deref(), |text| render_toml(path, text, &change))
+}
+
+fn render_toml(
+    path: &Path,
+    text: &str,
+    change: &impl Fn(&mut toml_edit::Table) -> Result<()>,
+) -> Result<String> {
     let mut doc: toml_edit::DocumentMut =
         text.parse().with_context(|| format!("{} is not TOML", path.display()))?;
     let servers = doc.entry("mcp_servers").or_insert_with(|| {
@@ -508,23 +602,8 @@ fn edit_toml(path: &Path, change: impl FnOnce(&mut toml_edit::Table)) -> Result<
     let Some(servers) = servers.as_table_mut() else {
         bail!("mcp_servers in {} is not a table", path.display());
     };
-    change(servers);
-    write_atomic(path, &doc.to_string())
-}
-
-fn write_atomic(path: &Path, text: &str) -> Result<()> {
-    let dir = path.parent().ok_or_else(|| anyhow!("{} has no folder", path.display()))?;
-    std::fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
-    let mut tmp = tempfile::NamedTempFile::new_in(dir)
-        .with_context(|| format!("writing beside {}", path.display()))?;
-    std::io::Write::write_all(&mut tmp, text.as_bytes())?;
-    // Keep the file's mode (a person may have made it 0600).
-    #[cfg(unix)]
-    if let Ok(meta) = std::fs::metadata(path) {
-        let _ = std::fs::set_permissions(tmp.path(), meta.permissions());
-    }
-    tmp.persist(path).map_err(|e| anyhow!("replacing {}: {}", path.display(), e.error))?;
-    Ok(())
+    change(servers)?;
+    Ok(doc.to_string())
 }
 
 /// Run the `claude` CLI with `args`, bounded; its last stderr line is the error.
@@ -549,14 +628,14 @@ fn claude_cli(env: &Env, args: &[&str]) -> Result<()> {
     if let Some(path) = crate::login_env::path() {
         command.env("PATH", path);
     }
-    let deadline = tokio::time::Instant::now() + CLAUDE_CLI_WAIT;
-    let done =
-        crate::cli::bounded_child::wait(command.spawn()?, None, Some(deadline), "claude mcp")?;
+    let deadline = tokio::time::Instant::now().checked_add(CLAUDE_CLI_WAIT);
+    let done = crate::cli::bounded_child::wait(command.spawn()?, None, deadline, "claude mcp")?;
     if !done.status.success() {
         let err = String::from_utf8_lossy(&done.stderr);
         let out = String::from_utf8_lossy(&done.stdout);
         let why = err.lines().chain(out.lines()).rfind(|l| !l.trim().is_empty()).unwrap_or("");
-        bail!("claude {} failed ({}): {why}", args[..2].join(" "), done.status);
+        let verb = args.get(..2).unwrap_or(args).join(" ");
+        bail!("claude {verb} failed ({}): {why}", done.status);
     }
     Ok(())
 }
@@ -570,6 +649,11 @@ pub fn apps(named: Option<&str>) -> Result<Vec<App>> {
         }),
     }
 }
+
+// Every edit of an app's config goes through it (`desktop_link_write.rs`).
+#[path = "desktop_link_write.rs"]
+mod write;
+use write::edit_file;
 
 #[cfg(test)]
 #[path = "desktop_link_tests.rs"]

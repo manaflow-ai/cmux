@@ -1,6 +1,6 @@
 import type { Env } from "./env.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
-import { defaultTeamMode, INCLUDED_MODES, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
+import { defaultTeamMode, INCLUDED_MODES, poolsMachineTime, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
 
 /**
  * The usage sync (cx-y79zh S4, plans/cmux-next/usage-billing.md section 3, placement option a): the
@@ -164,7 +164,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
    */
   const pushLevel = async (team: string, sub: StripeSubscription, start: number, end: number, mode: IncludedMode, includedUsd: number, seatsNow: number) => {
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
-    const level = await meter.level(team, start * 1000, end * 1000)
+    const level = await meter.level(team, start * 1000, end * 1000, poolsMachineTime(set))
     const sent = await meter.pushState(team, sub.id, start)
     const seats = mode === "per_seat" ? Math.max(seatsNow, sent?.mode === "per_seat" ? sent.seats : 1) : 1
     // per_team keeps the S4 identifier form, so a deploy does not resend every unchanged level.

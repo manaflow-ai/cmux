@@ -180,11 +180,17 @@ import Testing
 /// a taken code is held for its Mac's challenge, and that Mac is the one the team's Macs focus.
 @MainActor
 @Suite(.serialized) struct PairInviteCoordinatorTests {
-    func coordinator(_ store: AppStore) -> LiveCoordinator {
+    /// `snapshot` is what the last launch saved: this launch shows its space before the account's list loads.
+    func coordinator(_ store: AppStore, snapshot: LiveSnapshot? = nil) -> LiveCoordinator {
         let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
         ServiceStub.install(host: host) { _ in nil }
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-invite-\(UUID().uuidString)")
         let secrets = MemorySecretStore()
+        let snapshots = LiveSnapshotStore(directory: directory)
+        if let snapshot {
+            snapshots.save(snapshot, accountID: "user-a")
+            snapshots.flush()
+        }
         return LiveCoordinator(
             store: store,
             api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
@@ -192,7 +198,7 @@ import Testing
             userID: "user-a", deviceName: "iPhone", transport: .webRTC, dialer: MockDialer(fail: true),
             feedStore: FeedStore(items: []),
             keys: PhoneKeys(userID: "user-a", service: "test.invite.\(UUID())", store: secrets, enclave: false),
-            snapshots: LiveSnapshotStore(directory: directory), secrets: secrets,
+            snapshots: snapshots, secrets: secrets,
             readMarks: FeedReadMarks(url: directory.appending(path: "read.json"))
         )
     }
@@ -242,6 +248,49 @@ import Testing
         #expect(live.pairing?.invites.pending() == nil)
         #expect(store.activeTeamID != "t9")
         #expect(UserDefaults.standard.string(forKey: key) == nil)
+    }
+
+    /// A cold launch shows only the snapshot's personal space until Stack's team list answers (#39361):
+    /// a code for one of the account's Stack teams is held, then followed once the teams arrive.
+    @Test func aCodeOpenedBeforeTheTeamsLoadIsTakenOnceTheyArrive() throws {
+        let key = "cmuxMobile.live.mac.t-stack"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let personal = LiveCoordinator.personalTeamID(userID: "user-a")
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let live = coordinator(store, snapshot: LiveSnapshot(teamID: personal, teamName: "Personal", macs: [],
+                                                             linkedMacID: nil, workspaces: [:]))
+        defer { live.stop() }
+        #expect(store.teams.map(\.id) == [personal])
+        let invite = try #require(PairInvite(text: PairInviteTests.url(mac: "m1", team: "t-stack")))
+        #expect(live.accept(invite))
+        #expect(live.pairing?.invites.pending(mac: "m1") == invite)
+        #expect(store.activeTeamID == personal)
+        live.applyAccountTeams([AppStore.AccountTeam(id: "t-stack", name: "Stack")], selectedID: nil)
+        #expect(live.pairing?.invites.pending(mac: "m1") == invite)
+        #expect(store.activeTeamID == "t-stack")
+        #expect(UserDefaults.standard.string(forKey: key) == "m1")
+    }
+
+    /// The same cold launch still refuses a code for a team the account is not in once its teams
+    /// arrive, and refuses a new one at once after that.
+    @Test func aCodeOpenedBeforeTheTeamsLoadIsDroppedWhenItsTeamIsNotTheAccounts() throws {
+        let key = "cmuxMobile.live.mac.t9"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let personal = LiveCoordinator.personalTeamID(userID: "user-a")
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let live = coordinator(store, snapshot: LiveSnapshot(teamID: personal, teamName: "Personal", macs: [],
+                                                             linkedMacID: nil, workspaces: [:]))
+        defer { live.stop() }
+        let invite = try #require(PairInvite(text: PairInviteTests.url(mac: "m9", team: "t9")))
+        #expect(live.accept(invite))
+        live.applyAccountTeams([AppStore.AccountTeam(id: "t-stack", name: "Stack")], selectedID: nil)
+        #expect(live.pairing?.invites.pending() == nil)
+        #expect(store.activeTeamID != "t9")
+        #expect(UserDefaults.standard.string(forKey: key) == nil)
+        let again = try #require(PairInvite(text: PairInviteTests.url(mac: "m8", team: "t9")))
+        #expect(!live.accept(again))
     }
 
     /// A code from the other build on a listed computer (MacRoster lists one build per computer)

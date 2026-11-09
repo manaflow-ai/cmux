@@ -22,7 +22,7 @@ import { ToolRunSteps } from "./ToolRunSteps";
 import { KeepOpenedLine } from "./KeepOpenedLine";
 import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
-import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
+import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext } from "./turnActions";
@@ -141,7 +141,7 @@ function groupNode(
   live: boolean,
   folded = false,
   thoughts = 0,
-  inherits?: readonly string[],
+  runLine?: readonly string[],
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -152,7 +152,10 @@ function groupNode(
           items={group.items}
           folded={folded}
           disclosureKey={groupDisclosureKey(group, index, rowId)!}
-          inherits={inherits}
+          // An edits group keeps its own state: closed, each file's diff one click away, whatever the
+          // run's line around it was (it draws inside the opened run's line as its own line too).
+          inherits={group.kind === "edits" ? undefined : runLine}
+          closedBy={group.kind === "edits" ? undefined : runLine}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -236,6 +239,26 @@ function groupNode(
   }
 }
 
+/// How a folded stretch's line follows the group lines it grew from and splits back into
+/// (`useTranscriptDisclosure` links): any of them the reader opened opens it (`inherits`); its own
+/// choice passes down to those they set, but never to an edits group, which keeps its own state as it
+/// draws inside the opened line (`passesDown`); and closing every group that drew open while the turn
+/// ran, one by one, closes it (`closedBy`).
+function runLinks(stretch: RunStretch, rowId: string) {
+  const inherits: string[] = [];
+  const passesDown: string[] = [];
+  const closedBy: string[] = [];
+  stretch.groups.forEach((group, offset) => {
+    const key = groupDisclosureKey(group, stretch.from + offset, rowId);
+    if (!key) return;
+    inherits.push(key);
+    if (group.type === "group" && group.kind === "edits") return;
+    passesDown.push(key);
+    if (group.type === "group") closedBy.push(key);
+  });
+  return { inherits, passesDown, closedBy };
+}
+
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
   const reveal = useContext(FindReveal);
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
@@ -272,11 +295,17 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         );
       });
     if (!stretch.fold) return drawn;
-    const inherits = stretch.groups.flatMap(
-      (group, offset) => groupDisclosureKey(group, stretch.from + offset, row.id) ?? [],
-    );
+    const links = runLinks(stretch, row.id);
     return (
-      <ToolRun key={key} disclosureKey={key} inherits={inherits} items={stretch.items} defaultOpen={start.lineOpen}>
+      <ToolRun
+        key={key}
+        disclosureKey={key}
+        inherits={links.inherits}
+        passesDown={links.passesDown}
+        closedBy={links.closedBy}
+        items={stretch.items}
+        defaultOpen={start.lineOpen}
+      >
         <ToolRunSteps items={stretch.items} rowId={row.id} thoughtsBefore={thoughts[stretch.from] ?? 0} />
       </ToolRun>
     );
@@ -668,6 +697,8 @@ function TurnFailure({
       "subscription-login",
       "auth",
       "needs-credits",
+      "no-credit",
+      "cloud-auth-expired",
     ].includes(kind);
   // The cmux model router refused the turn: no paid plan and no credits, or credits that do not cover
   // the call (accessOffer.ts; Leo 2026-10-26: "we offer them to add credits or add their own api key").

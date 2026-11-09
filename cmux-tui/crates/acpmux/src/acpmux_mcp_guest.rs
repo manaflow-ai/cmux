@@ -29,10 +29,16 @@
 //! from the same asking table.
 //!
 //! `machines` and `new` run this binary's own CLI (`acpmux --json machine ls`, `acpmux --json new
-//! --detach --policy ask --require-asking --prompt-file -`), bounded under the shortest harness tool timeout, so
-//! they place, name and start a session exactly as the CLI does and can do nothing it cannot.
+//! --detach --policy ask --require-asking --from APP --prompt-file -`), bounded under the
+//! shortest harness tool timeout, so they place, name and start a session exactly as the CLI
+//! does and can do nothing it cannot.
+//! That CLI runs with [`crate::desktop_link::GUEST_ENV`] set, so it declares a guest at
+//! `initialize` (`cli_caller::KIND_GUEST`), and the task goes as the app's message (`--from`,
+//! `fromAgent`): the daemon never records it as the person's words, and the session's agent
+//! reads who sent it.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::process::Stdio;
 
 /// The tools of the full server a guest keeps, by name.
@@ -129,7 +135,10 @@ pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, 
     };
     let name = match arg(args, "name").map(session_name).filter(|n| !n.is_empty()) {
         Some(name) => name,
-        None => format!("{app}-{}", &uuid::Uuid::now_v7().simple().to_string()[24..]),
+        None => {
+            let id = uuid::Uuid::now_v7().simple().to_string();
+            format!("{app}-{}", id.get(24..).unwrap_or_default())
+        }
     };
     if name.starts_with('-') {
         return Err("name may not start with -".to_owned());
@@ -155,10 +164,13 @@ pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, 
     }
     argv.extend(["--policy".to_owned(), POLICY.to_owned(), "--require-asking".to_owned()]);
     argv.extend(["--tag".to_owned(), format!("origin={app}")]);
+    let label = crate::desktop_link::App::parse(app).map_or(app, |a| a.label());
     if args.get("showInCmux").and_then(Value::as_bool) == Some(true) {
-        let group = crate::desktop_link::App::parse(app).map_or(app, |a| a.label());
-        argv.extend(["--group".to_owned(), group.to_owned()]);
+        argv.extend(["--group".to_owned(), label.to_owned()]);
     }
+    // The task is the app's message, never the person's words (`cli/run/standard.rs`
+    // `first_prompt_id`): the session's agent reads who sent it.
+    argv.extend(["--from".to_owned(), label.to_owned()]);
     argv.extend(["--prompt-file".to_owned(), "-".to_owned()]);
     Ok((name, argv, prompt.to_owned()))
 }
@@ -192,10 +204,10 @@ pub(super) fn new_result(name: &str, record: &Value) -> Value {
     }
     let mut structured = json!({"name": shown, "sessionId": id});
     if let Some(peer) = peer {
-        structured["machine"] = json!(peer);
+        structured.set("machine", json!(peer));
     }
     if let Some(link) = link {
-        structured["link"] = json!(link);
+        structured.set("link", json!(link));
     }
     ok(text, structured)
 }
@@ -205,7 +217,7 @@ pub(super) async fn new(app: &str, args: &Value) -> Value {
         Ok(v) => v,
         Err(e) => return error_result(e),
     };
-    match run_cli(&argv, Some(&prompt), CLI_WAIT).await {
+    match run_cli(app, &argv, Some(&prompt), CLI_WAIT).await {
         Ok(out) => match serde_json::from_str::<Value>(out.trim()) {
             Ok(record) => new_result(&name, &record),
             Err(_) => ok(format!("Started {name}. {}", out.trim()), json!({"name": name})),
@@ -221,9 +233,9 @@ pub(super) async fn new(app: &str, args: &Value) -> Value {
     }
 }
 
-pub(super) async fn machines() -> Value {
+pub(super) async fn machines(app: &str) -> Value {
     let argv = ["--json", "machine", "ls"].map(str::to_owned);
-    match run_cli(&argv, None, MACHINES_WAIT).await {
+    match run_cli(app, &argv, None, MACHINES_WAIT).await {
         Ok(out) => match serde_json::from_str::<Value>(out.trim()) {
             Ok(list) => {
                 let rows = machine_rows(&list);
@@ -254,7 +266,7 @@ pub(super) fn machine_rows(list: &Value) -> Vec<Value> {
                 [("link", "/link"), ("os", "/health/os"), ("liveSessions", "/health/liveSessions")]
             {
                 if let Some(v) = m.pointer(at).filter(|v| !v.is_null()) {
-                    row[key] = v.clone();
+                    row.set(key, v.clone());
                 }
             }
             Some(row)
@@ -283,18 +295,37 @@ pub(super) enum CliError {
     Failed(String),
 }
 
-/// Run this binary with `argv` (and `stdin` on its stdin), its stdout on success, else its last
-/// stderr line.
-async fn run_cli(argv: &[String], stdin: Option<&str>, wait: Duration) -> Result<String, CliError> {
+/// The env the CLI a guest for `app` runs gets over this process's own (`None`: removed): never
+/// a session's (a guest is none), and the guest's app in [`crate::desktop_link::GUEST_ENV`], so
+/// the CLI declares a guest at `initialize` (`cli_caller::KIND_GUEST`) and the daemon never
+/// takes what it sends for the owner's terminal send.
+pub(super) fn child_env(app: &str) -> [(&'static str, Option<String>); 4] {
+    [
+        (SESSION_ENV, None),
+        (crate::hub::person::CALLER_TOKEN_ENV, None),
+        (crate::hub::person::CALLER_SOCKET_ENV, None),
+        (crate::desktop_link::GUEST_ENV, Some(app.to_owned())),
+    ]
+}
+
+/// Run this binary with `argv` (and `stdin` on its stdin) as the guest for `app`, its stdout on
+/// success, else its last stderr line.
+async fn run_cli(
+    app: &str,
+    argv: &[String],
+    stdin: Option<&str>,
+    wait: Duration,
+) -> Result<String, CliError> {
     let me = crate::self_command::SelfCommand::current()
         .map_err(|e| CliError::Failed(format!("{e}")))?;
     let mut command = me.tokio_command(argv);
+    for (key, value) in child_env(app) {
+        match value {
+            Some(value) => command.env(key, value),
+            None => command.env_remove(key),
+        };
+    }
     command
-        // Never as a session: a guest is none.
-        .env_remove(SESSION_ENV)
-        .env_remove(crate::desktop_link::GUEST_ENV)
-        .env_remove(crate::hub::person::CALLER_TOKEN_ENV)
-        .env_remove(crate::hub::person::CALLER_SOCKET_ENV)
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -313,7 +344,8 @@ async fn run_cli(argv: &[String], stdin: Option<&str>, wait: Duration) -> Result
         Ok(Ok(out)) => {
             let err = String::from_utf8_lossy(&out.stderr);
             let why = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").to_owned();
-            Err(CliError::Failed(format!("acpmux {} failed ({}): {why}", argv[1], out.status)))
+            let verb = argv.get(1).map_or("", String::as_str);
+            Err(CliError::Failed(format!("acpmux {verb} failed ({}): {why}", out.status)))
         }
     }
 }
@@ -323,47 +355,51 @@ pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>
     let inside = std::env::var(SESSION_ENV).is_ok_and(|s| !s.trim().is_empty());
     let tools = if inside { json!([]) } else { tools(&tools_with_artifacts(artifacts.is_some())) };
     let steer = (!inside).then(|| STEER.to_owned());
-    crate::secret_mcp::serve_as(
-        SERVER_NAME,
-        String::new(),
-        tools,
-        steer,
-        move |daemon, _, params| {
-            let artifacts = artifacts.clone();
-            let app = app.clone();
-            async move {
-                if inside {
-                    return error_result(
-                        "this chat runs in acpmux: use its own cmux tools".to_owned(),
-                    );
-                }
-                let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
-                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-                if !args.is_object() {
-                    return error_result("arguments must be an object".to_owned());
-                }
-                if artifacts::TOOLS.contains(&name) {
-                    return match &artifacts {
-                        Some(client) => artifacts::call(client, name, &args).await,
-                        None => error_result(
-                            "the artifact tools need a cmux sign-in on this machine".to_owned(),
-                        ),
-                    };
-                }
-                match name {
-                    NEW => new(&app, &args).await,
-                    MACHINES => machines().await,
-                    "search" => search_tool(&daemon, "", &args).await,
-                    "send_status" => send_status::call(&daemon, "", &args).await,
-                    n if KEPT.contains(&n) => call_as(&daemon, &params, None).await,
-                    other => error_result(crate::mcp_hint::unknown_tool(
+    crate::secret_mcp::serve_as(SERVER_NAME, String::new(), tools, steer, move |_, params| {
+        let artifacts = artifacts.clone();
+        let app = app.clone();
+        async move {
+            if inside {
+                return error_result("this chat runs in acpmux: use its own cmux tools".to_owned());
+            }
+            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            if !args.is_object() {
+                return error_result("arguments must be an object".to_owned());
+            }
+            if artifacts::TOOLS.contains(&name) {
+                return match &artifacts {
+                    Some(client) => artifacts::call(client, name, &args).await,
+                    None => error_result(
+                        "the artifact tools need a cmux sign-in on this machine".to_owned(),
+                    ),
+                };
+            }
+            match name {
+                NEW => return new(&app, &args).await,
+                MACHINES => return machines(&app).await,
+                "search" | "send_status" => {}
+                n if KEPT.contains(&n) => {}
+                other => {
+                    return error_result(crate::mcp_hint::unknown_tool(
                         other,
                         crate::mcp_hint::names(&tools_list()),
-                    )),
+                    ));
                 }
             }
-        },
-    )
+            // Only a tool that reads the daemon connects, and with no caller token, even one
+            // left in its env: the daemon takes a guest for no session (module docs).
+            let daemon = match crate::daemon::connect_without_caller(false).await {
+                Ok(daemon) => daemon,
+                Err(e) => return error_result(format!("{e:#}")),
+            };
+            match name {
+                "search" => search_tool(&daemon, "", &args).await,
+                "send_status" => send_status::call(&daemon, "", &args).await,
+                _ => call_as(&daemon, &params, None).await,
+            }
+        }
+    })
     .await
 }
 

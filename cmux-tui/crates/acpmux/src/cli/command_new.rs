@@ -108,7 +108,7 @@ pub struct NewArgs {
     /// label, matched ignoring case and outer spaces; an id is refused (exit 2).
     #[arg(long, value_name = "GROUP")]
     pub group: Option<String>,
-    /// When a session named --name already exists, use it instead of failing;
+    /// When a session named --name (in any case) already exists, use it instead of failing;
     /// the first prompt is not sent to it again.
     #[arg(long)]
     pub reuse: bool,
@@ -126,4 +126,9 @@ pub struct NewArgs {
     /// (`hub/require_asking.rs`). The acpmux MCP server's guest `new` passes it.
     #[arg(long, hide = true)]
     pub require_asking: bool,
+    /// The first prompt is SENDER's message (`_meta.acpmux.fromAgent`), never the person's
+    /// words, as `acpmux send --from` makes it. The acpmux MCP server's guest `new` passes its
+    /// app's name (`acpmux_mcp_guest.rs`).
+    #[arg(long, value_name = "SENDER", hide = true)]
+    pub from: Option<String>,
 }

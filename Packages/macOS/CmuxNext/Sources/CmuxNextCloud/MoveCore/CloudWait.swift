@@ -34,6 +34,29 @@ public struct CloudWait {
     public static let startRedial = Backoff(initial: .milliseconds(CloudMoveCore.deadlines.startRedialInitialMs),
                                             maximum: .milliseconds(CloudMoveCore.deadlines.startRedialMaximumMs))
 
+    /// One start wait's redial beats, as Rust's `start_redial` says: a paused machine resumes once, and a running
+    /// machine's ended link connects again, a bounded number of times (a new machine's updater restarts its services
+    /// seconds after the create, which can end the first connect).
+    @MainActor public final class StartRedials {
+        private var resumed = false
+        private var redials = 0
+
+        public init() {}
+
+        /// One beat: `ended` is the app link's failure showing with no connect running.
+        public func beat(ended: Bool, status: CloudMachine.Status, resume: () -> Void, connect: () -> Void) {
+            struct Look: Encodable { var ended: Bool, running: Bool, paused: Bool, resumed: Bool, redials: Int }
+            struct Answer: Decodable { var redial: String }
+            let look = Look(ended: ended, running: status == .running, paused: status == .paused, resumed: resumed, redials: redials)
+            // An FFI pinned from before the op answers nothing: the wait keeps its one resume, as before.
+            switch CloudMoveCore().call("start_redial", look, as: Answer.self)?.redial ?? (look.paused && !resumed ? "resume" : nil) {
+            case "resume": resumed = true; resume()
+            case "connect": redials += 1; connect()
+            default: break
+            }
+        }
+    }
+
     /// Whether `condition` holds within `limit`: `redial` runs first and again after each of `backoff`'s delays,
     /// so a link that ended while the condition did not hold yet is dialed again (a new machine's daemon may
     /// answer a little after its record runs). Never past `limit`, and never without a delay between redials.

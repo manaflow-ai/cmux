@@ -103,8 +103,11 @@ const MCP_WORKERS: usize = 2;
 /// The worker count `args` (without the program name) runs with: None is
 /// tokio's default, one per core.
 fn runtime_workers(args: &[OsString]) -> Option<usize> {
-    let command = args.iter().find(|a| *a != "--json" && *a != "--suppress-reads")?;
-    STDIO_MCP_SERVERS.iter().any(|name| command == name).then_some(MCP_WORKERS)
+    let mut words = args.iter().filter(|a| *a != "--json" && *a != "--suppress-reads");
+    let command = words.next()?;
+    // `bridge mcp` is the desktop apps' stdio server (`cli/bridge.rs`).
+    let bridge_mcp = command == "bridge" && words.next().is_some_and(|a| a == "mcp");
+    (bridge_mcp || STDIO_MCP_SERVERS.iter().any(|name| command == name)).then_some(MCP_WORKERS)
 }
 
 /// Each runtime worker's stack: the main thread's default on Linux and macOS, not tokio's 2 MiB.
@@ -380,6 +383,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Bridge(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::bridge::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Forum(cmd)) => {
             let json_out = cli.json;
             match crate::cli::forum::run(cmd, json_out).await {
@@ -480,11 +490,20 @@ mod tests {
             assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
             assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");
         }
+        let bridge = os(&["bridge", "mcp", "--as", "codex-desktop"]);
+        assert_eq!(runtime_workers(&bridge), Some(MCP_WORKERS));
     }
 
     #[test]
     fn every_other_command_keeps_the_default_runtime() {
-        for args in [&["ls"][..], &["daemon", "run"], &["send", "forum-mcp"], &[], &["--json"]] {
+        for args in [
+            &["ls"][..],
+            &["daemon", "run"],
+            &["send", "forum-mcp"],
+            &[],
+            &["--json"],
+            &["bridge", "inbox"],
+        ] {
             assert_eq!(runtime_workers(&os(args)), None, "{args:?}");
         }
     }
