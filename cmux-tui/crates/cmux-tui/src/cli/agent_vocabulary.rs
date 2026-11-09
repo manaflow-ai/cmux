@@ -16,10 +16,6 @@
 /// The canonical harness name for `raw` (any case, any alias above);
 /// unknown harnesses keep their own name, in lower case.
 pub(in crate::cli) fn harness_name(raw: &str) -> String {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return raw.to_owned();
-    }
     let lower = raw.trim().to_ascii_lowercase();
     let canonical = match lower.as_str() {
         "claude" | "claude-code" | "claude_code" | "claudecode" | "claude code" => "claude",

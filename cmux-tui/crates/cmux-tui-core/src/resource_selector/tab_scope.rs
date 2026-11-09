@@ -24,10 +24,6 @@ pub(super) fn tab_beyond_current_pane(
     screen: Option<ScreenId>,
     workspace: Option<WorkspaceId>,
 ) -> Result<Option<SurfaceId>, ResourceError> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Ok(None);
-    }
     let current = |selector: Option<&str>| selector.is_none_or(|value| value == "current");
     if selectors.pane.as_deref() != Some("current")
         || !current(selectors.screen.as_deref())

@@ -127,10 +127,6 @@ fn list<'a>(snapshot: &'a Value, key: &str) -> &'a [Value] {
 /// name when it is an agent name (`cmux agent start NAME`), else null. A
 /// terminal the snapshot does not show (or no snapshot) gives nulls.
 fn with_places(rows: Value, snapshot: &Value) -> Value {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return rows;
-    }
     let mut agents = match rows {
         Value::Array(rows) => rows,
         other => return other,

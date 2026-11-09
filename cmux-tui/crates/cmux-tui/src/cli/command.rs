@@ -66,10 +66,6 @@ pub(super) enum ResponseView {
 impl CommandPlan {
     /// `terminal <t> screen read`: human output prints the screen text only.
     fn screen_text(self) -> Self {
-        // W3-H red stub
-        if std::hint::black_box(true) {
-            return self;
-        }
         match self {
             Self::Protocol(mut plan) => {
                 plan.view = ResponseView::ScreenText;

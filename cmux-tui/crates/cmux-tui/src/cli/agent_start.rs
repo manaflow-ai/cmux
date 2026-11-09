@@ -184,10 +184,6 @@ pub(in crate::cli) enum Command {
 /// `terminal <t> wait …` (`words` follow the global options); `None` for any
 /// other command.
 pub(in crate::cli) fn parse(words: &[String]) -> Option<Result<Command, UsageError>> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return None;
-    }
     let strs: Vec<&str> = words.iter().map(String::as_str).collect();
     let (scope, rest) = strs.split_first()?;
     match (super::canonical_scope(scope), rest) {
@@ -277,10 +273,6 @@ fn parse_named(words: &[&str], command: &str) -> Result<(String, Options), Usage
 
 /// `--name value`, `--name=value` and switches, then `-- ARGS…`.
 pub(in crate::cli) fn parse_options(words: &[&str], command: &str) -> Result<Options, UsageError> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Ok(Options::default());
-    }
     let mut options = Options::default();
     let mut words = words.iter();
     while let Some(word) = words.next() {
@@ -555,10 +547,6 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     name: &str,
     options: &Options,
 ) -> Result<(Value, i32), Failure> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Err(Failure::local("w3h.red", "W3-H red stub", Value::Null, 1));
-    }
     valid_agent_name(name).map_err(Failure::usage)?;
     let snapshot = daemon::snapshot(daemon)?;
     if let Some(taken) = agent_names::places_named(&snapshot, name).into_iter().find(|p| p.live) {
@@ -712,10 +700,6 @@ pub(in crate::cli) fn resume_launch(
     harness: &str,
     session_id: &str,
 ) -> Result<Launch, Failure> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Err(Failure::local("w3h.red", "W3-H red stub", Value::Null, 1));
-    }
     let tail = launch::resume_args(harness, session_id).ok_or_else(|| {
         Failure::local(
             "agent.resume_unsupported",
@@ -750,10 +734,6 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
     target: &ResumeTarget,
     options: &Options,
 ) -> Result<(Value, i32), Failure> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Err(Failure::local("w3h.red", "W3-H red stub", Value::Null, 1));
-    }
     let target = match target {
         ResumeTarget::Terminal(selector) => {
             ResumeTarget::Terminal(daemon::terminal_keyword(daemon, selector)?)
@@ -859,10 +839,6 @@ fn wait_ready<D: Daemon + ?Sized>(
     selector: &str,
     timeout: Option<Duration>,
 ) -> Result<(Value, i32), Failure> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Err(Failure::local("w3h.red", "W3-H red stub", Value::Null, 1));
-    }
     let selector = daemon::terminal_keyword(daemon, selector)?;
     let snapshot = daemon::snapshot(daemon)?;
     let terminal = daemon::find_terminal(&snapshot, &selector)?;

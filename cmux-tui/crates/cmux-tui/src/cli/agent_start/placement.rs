@@ -51,10 +51,6 @@ impl Created {
     /// mutation receipt's `value` (`{generation, revision, value: {pane_id,
     /// tab_id, terminal_id, ...}}`), a `path`, or the record itself.
     pub(in crate::cli) fn from_result(result: &Value) -> Result<Self, Failure> {
-        // W3-H red stub
-        if std::hint::black_box(true) {
-            return Err(Failure::local("w3h.red", "W3-H red stub", Value::Null, 1));
-        }
         let path = ["value", "path"]
             .into_iter()
             .filter_map(|key| result.get(key))
@@ -214,12 +210,10 @@ impl Placeholder {
 /// main has no reaper, so that shell stays until the session ends. A shell
 /// that stays is harmless to the agent, so a failure is ignored.
 pub(in crate::cli) fn end_placeholder<D: Daemon + ?Sized>(daemon: &D, placeholder: &Placeholder) {
-    // W3-H red stub
-    let ended = !std::hint::black_box(true)
-        && placeholder.terminal.as_deref().is_some_and(|terminal| {
-            plan(&["terminal", terminal, "close"])
-                .is_ok_and(|close| daemon.request(None, close).is_ok())
-        });
+    let ended = placeholder.terminal.as_deref().is_some_and(|terminal| {
+        plan(&["terminal", terminal, "close"])
+            .is_ok_and(|close| daemon.request(None, close).is_ok())
+    });
     if !ended && let Ok(close) = plan(&["tab", placeholder.tab.as_str(), "close"]) {
         let _ = daemon.request(None, close);
     }

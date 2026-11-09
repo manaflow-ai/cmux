@@ -5626,7 +5626,7 @@ impl SocketStartLock {
             if let Some(file) = Self::checked_lock_file(Self::open_lock_file(path)?)? {
                 before_lock();
                 Self::lock(&file, deadline)?;
-                if std::hint::black_box(true) || at_path(&file, path) {
+                if at_path(&file, path) {
                     return Ok(Self { _file: file });
                 }
                 // Unlinked or replaced while this start waited: drop that file (and its
@@ -5673,6 +5673,9 @@ impl SocketStartLock {
                     std::io::ErrorKind::PermissionDenied,
                     "session-server start lock is not a regular file",
                 ));
+            }
+            if metadata.nlink() == 0 {
+                return Ok(None);
             }
             if metadata.nlink() != 1 {
                 return Err(std::io::Error::new(
@@ -5764,10 +5767,6 @@ fn still_at_path(_file: &std::fs::File, _path: &Path) -> bool {
 /// Windows cannot unlink an open file, so the lock file stays there (`Ok(false)`).
 #[cfg(unix)]
 pub fn remove_socket_start_lock(socket: &Path, deadline: Instant) -> std::io::Result<bool> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Ok(false);
-    }
     let path = socket_start_lock_path(socket);
     if std::fs::symlink_metadata(&path).is_err() {
         return Ok(false);

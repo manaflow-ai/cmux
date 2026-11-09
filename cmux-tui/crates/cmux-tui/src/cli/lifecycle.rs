@@ -502,10 +502,6 @@ fn exchange_io_error(error: std::io::Error) -> ExchangeError {
 /// (`cmux session <name> reset-state` removes it). Returns the removed path,
 /// or none when there is no lock file or a start holds it for 500 ms.
 fn remove_start_lock(socket: &std::path::Path) -> Vec<String> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Vec::new();
-    }
     let lock = cmux_tui_core::server::socket_start_lock_path(socket);
     let deadline = Instant::now() + Duration::from_millis(500);
     match cmux_tui_core::server::remove_socket_start_lock(socket, deadline) {

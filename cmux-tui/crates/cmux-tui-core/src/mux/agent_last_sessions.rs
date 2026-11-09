@@ -53,10 +53,6 @@ pub(crate) fn with_agent_session(
     mut terminal: Value,
     sessions: &HashMap<String, (String, Option<String>)>,
 ) -> Value {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return terminal;
-    }
     let Some((session, harness)) =
         terminal.get("id").and_then(Value::as_str).and_then(|id| sessions.get(id))
     else {

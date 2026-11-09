@@ -46,10 +46,6 @@ pub(in crate::cli) fn terminal_keyword<D: Daemon + ?Sized>(
     daemon: &D,
     selector: &str,
 ) -> Result<String, Failure> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Ok(selector.to_owned());
-    }
     if !matches!(selector, "current" | "focused") {
         return Ok(selector.to_owned());
     }

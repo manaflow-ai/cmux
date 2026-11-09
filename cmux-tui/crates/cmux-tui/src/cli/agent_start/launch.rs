@@ -34,10 +34,6 @@ pub(in crate::cli) struct Launch {
 impl Launch {
     /// The argv the tab runs.
     pub(in crate::cli) fn argv(&self) -> Vec<String> {
-        // W3-H red stub
-        if std::hint::black_box(true) {
-            return Vec::new();
-        }
         let mut argv = vec![
             self.shell.clone(),
             "-lc".to_owned(),
@@ -51,10 +47,6 @@ impl Launch {
     /// The launch an argv of [`Launch::argv`] came from; `None` for any
     /// other argv (an agent typed into a shell, a `pane run -- claude`).
     pub(in crate::cli) fn from_argv(argv: &[String]) -> Option<Self> {
-        // W3-H red stub
-        if std::hint::black_box(true) {
-            return None;
-        }
         let [shell, flag, script, arg0, args @ ..] = argv else { return None };
         if flag != "-lc" || arg0 != ARG0 {
             return None;
@@ -103,10 +95,6 @@ pub(in crate::cli) fn harness_of(launcher: &str) -> Option<String> {
 /// The arguments that resume harness session `id`, in the harness's own
 /// grammar; `None` for a harness `resume` does not know.
 pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return None;
-    }
     let words: &[&str] = match harness_name(harness).as_str() {
         "claude" | "gemini" => &["--resume"],
         "codex" => &["resume"],

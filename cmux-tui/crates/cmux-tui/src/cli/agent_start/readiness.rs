@@ -128,10 +128,6 @@ const DIALOG_ROWS: usize = 16;
 /// non-blank rows count, and only when they show no input box: a running
 /// agent whose output says "update now" is not held by a dialog.
 pub(in crate::cli) fn startup_dialog(screen: &str) -> Option<Dialog> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return None;
-    }
     let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
     let bottom = rows.iter().skip(rows.len().saturating_sub(DIALOG_ROWS)).copied();
     let bottom = bottom.collect::<Vec<_>>().join("\n");
@@ -155,10 +151,6 @@ fn fold(screen: &str) -> String {
 /// mark (`>`, `❯`, `›`) at the start of a line with a horizontal rule above
 /// or below it.
 pub(in crate::cli) fn composer_visible(screen: &str) -> bool {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return false;
-    }
     let folded = fold(screen);
     if COMPOSER_HINTS.iter().any(|hint| folded.contains(hint)) {
         return true;
@@ -213,10 +205,6 @@ pub(in crate::cli) struct Look<'a> {
 
 /// The readiness one look shows (see the module docs).
 pub(in crate::cli) fn assess(look: &Look<'_>) -> Readiness {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Readiness::Starting;
-    }
     if look.exited {
         return Readiness::Exited;
     }
@@ -330,10 +318,6 @@ where
     N: Fn() -> Instant + ?Sized,
     S: FnMut(Duration) + ?Sized,
 {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Err(Failure::local("w3h.red", "W3-H red stub", Value::Null, 1));
-    }
     let started = now();
     let deadline = started + options.timeout;
     let mut gate = Gate::new(options.settle, started);

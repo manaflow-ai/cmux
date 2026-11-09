@@ -62,10 +62,6 @@ const KEYWORDS: &[&str] = &["current", "caller", "focused", "all", "help"];
 
 /// Why `name` cannot name an agent; `Ok` when it can.
 pub(in crate::cli) fn valid_agent_name(name: &str) -> Result<(), String> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Ok(());
-    }
     let mut chars = name.chars();
     let first_ok = chars.next().is_some_and(|first| first.is_ascii_lowercase());
     let rest_ok = chars.all(|character| {
@@ -146,10 +142,6 @@ pub(in crate::cli) fn places_named(snapshot: &Value, name: &str) -> Vec<Place> {
 
 /// The tab `name` selects (a leading `name:` is dropped).
 pub(in crate::cli) fn resolve(snapshot: &Value, name: &str) -> Found {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Found::Missing;
-    }
     let name = name.strip_prefix("name:").unwrap_or(name);
     if name.is_empty() {
         return Found::Missing;
@@ -270,10 +262,6 @@ const FLAG_SCOPES: &[&str] = &["terminal", "tab", "pane", "agent", "notification
 /// flag that is not a boolean flag takes the next word as its value, and
 /// nothing after `--` is read.
 pub(in crate::cli) fn targets(words: &[String]) -> Vec<Target> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Vec::new();
-    }
     let Some(first) = words.first() else { return Vec::new() };
     let scope = super::canonical_scope(first);
     if scope == "agent" && words.get(1).is_some_and(|verb| verb == "start" || verb == "resume") {
@@ -355,10 +343,6 @@ pub(in crate::cli) fn replace(words: &mut [String], target: &Target, id: &str) {
 /// ([`rewrite_words`] asks it): it matches them only under the current tab
 /// or screen, so a title elsewhere in the session does not hide the name.
 pub(in crate::cli) fn lookup(snapshot: &Value, target: &Target) -> Result<Option<String>, Value> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return Ok(None);
-    }
     let Some(name) = candidate(&target.word) else { return Ok(None) };
     match resolve(snapshot, name) {
         Found::One(place) => Ok(Some(target.scope.id(&place).to_owned())),
@@ -448,10 +432,6 @@ pub(in crate::cli) fn args_with_words(
     words: &[String],
     rewritten: &[String],
 ) -> Option<Vec<String>> {
-    // W3-H red stub
-    if std::hint::black_box(true) {
-        return None;
-    }
     let mut result = args.to_vec();
     let mut expected = words.to_vec();
     let changes = words.iter().zip(rewritten).enumerate().filter(|(_, (old, new))| old != new);
