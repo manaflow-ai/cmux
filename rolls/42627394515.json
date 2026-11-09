@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42627394515",
+  "recorded_at": "2026-11-09T13:52:34Z",
+  "reason": "cmux-tui b1eae2a434d7 changes the image's cmux-tui (pinned 7836d086cc37)",
+  "dry_run": false,
+  "cmux_tui": "b1eae2a434d7fec05f05aa14070047cd02313301",
+  "fixes": [
+    {
+      "sha": "b1eae2a434d7fec05f05aa14070047cd02313301",
+      "mergedAt": "2026-11-09T05:17:16-08:00",
+      "subject": "cmux machine vault: show the vault's no-host warning; Claude and Codex keys are placeholders only (#39354)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T13:52:34Z",
+    "snapshot_id": "sh-af786726061443c9bbc3bdc32abe7439",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42627394515): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2d3818341e5b745b094e6a8c401e992799298063",
+    "image": "cloud-native-auto-b1eae2a4-42627394515-1",
+    "revision": "ci-42627394515-1",
+    "at": "2026-11-09T13:52:34Z"
+  },
+  "rolled_back": false
+}
