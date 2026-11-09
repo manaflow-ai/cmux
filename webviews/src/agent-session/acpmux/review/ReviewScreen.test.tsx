@@ -103,9 +103,12 @@ function mount(chats: AcpmuxSessionEntry[], actions: Actions = {}) {
 
 test("`a` accepts the selected row and moves on to the next", async () => {
   const accepted: string[] = [];
-  const view = mount(["a", "b", "c"].map((name, at) => chat(name, NOW - (at + 1) * 60_000)), {
-    accept: async (sessionId) => void accepted.push(sessionId),
-  });
+  const view = mount(
+    ["a", "b", "c"].map((name, at) => chat(name, NOW - (at + 1) * 60_000)),
+    {
+      accept: async (sessionId) => void accepted.push(sessionId),
+    },
+  );
   await flush();
   expect(view.doc.querySelectorAll('[role="option"]').length).toBe(3);
   view.key(view.list(), "a");
@@ -116,15 +119,18 @@ test("`a` accepts the selected row and moves on to the next", async () => {
 test("a refresh that hides the selected row leaves `a` waiting until the person moves", async () => {
   const accepted: string[] = [];
   const reads = new Map<string, number>();
-  const view = mount(["a", "b", "c"].map((name, at) => chat(name, NOW - (at + 1) * 60_000)), {
-    accept: async (sessionId) => void accepted.push(sessionId),
-    // A folder's second read never answers: its row and every row under it wait for it.
-    readDiff: (cwd) => {
-      const count = (reads.get(cwd) ?? 0) + 1;
-      reads.set(cwd, count);
-      return count > 1 ? new Promise(() => {}) : readDiff();
+  const view = mount(
+    ["a", "b", "c"].map((name, at) => chat(name, NOW - (at + 1) * 60_000)),
+    {
+      accept: async (sessionId) => void accepted.push(sessionId),
+      // A folder's second read never answers: its row and every row under it wait for it.
+      readDiff: (cwd) => {
+        const count = (reads.get(cwd) ?? 0) + 1;
+        reads.set(cwd, count);
+        return count > 1 ? new Promise(() => {}) : readDiff();
+      },
     },
-  });
+  );
   await flush();
   view.key(view.list(), "j");
   view.key(view.list(), "j");
