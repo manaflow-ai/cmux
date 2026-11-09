@@ -11,7 +11,9 @@
 // kept the stale rows over the page's, and a read from its cursor was refused (`cursor_future`).
 //   - The Mac's acpmux says so (`_acpmux/rewound`, from its peer link's replay): the pane drops
 //     its rows past the journal's new end and reads on from there.
-//   - A read refused with `cursor_future` says so too: the same, from the end it names.
+//   - A read refused with `cursor_future` says so too: the same, from the end it names, which may
+//     be past where the journal went back to (the agent wrote on), so the newest records kept are
+//     read again as the machine has them.
 //   - A reconnect's attach whose log ends before the rows held: the same, older rows kept.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -50,7 +52,10 @@ const synced = [...opened, chunk(3, "Synced one. "), chunk(4, "Synced two. ")];
 /// What the pane drew that the machine never synced.
 const lost = [chunk(5, "LOST one. "), chunk(6, "LOST two. ")];
 /// What the agent wrote after the machine came back: the same seqs, other words.
-const fresh = [chunk(5, "Fresh one. "), chunk(6, "Fresh two. ")];
+const fresh = [chunk(5, "Fresh one. "), chunk(6, "Fresh two. ")].map((record) => ({
+  ...record,
+  at: record.at + 60_000,
+}));
 
 /// A pane attached to a chat whose machine's journal is `host.log`; `_acpmux/events` reads it as
 /// acpmux does, refusing a cursor past its end (`cursor_future`).
@@ -192,7 +197,7 @@ test("a read refused as past the journal's end drops the rows past it and reads 
   chat.notify("_acpmux/lagged", { dropped: 1, reason: "output_queue_full" });
   await chat.until(() => chat.reply().includes("Fresh one."));
   expect(chat.reply()).toBe("Synced one. Synced two. Fresh one. ");
-  expect(chat.reads).toEqual([6, 4]);
+  expect(chat.reads).toEqual([6, 5]);
   chat.host.log = [...synced, ...fresh];
   chat.live(fresh[1]!);
   await chat.until(() => chat.reply().includes("Fresh two."));

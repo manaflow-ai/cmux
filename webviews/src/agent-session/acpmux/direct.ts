@@ -337,6 +337,10 @@ const LIMIT_READS = 3;
 /// The waits before each new read of the events a lag dropped, after a failed one
 /// (`readMissedAfterLag`): about 15 s in all, then the pane reports the failure.
 const LAG_RETRY_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
+/// The records each page of a journal that went back is read in, and the most pages read before
+/// the pane holds the rest as the machine has it (`readRewoundTail`).
+const REWIND_PAGE = 400;
+const REWIND_PAGES = 25;
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 const COMMANDS_KIND = "available_commands_update";
 /// How many withdrawn queue prompts a snapshot names (`queueWithdrawn`).
@@ -4194,7 +4198,43 @@ export class AcpmuxDirectClient {
     if (this.attachedGeneration !== this.selectionGeneration) return;
     if (!this.dropPastJournal(sessionId, end)) return;
     this.emit("resyncing");
-    this.readMissedAfterLag(sessionId, this.selectionGeneration, end, 0);
+    this.repairRewound(sessionId, this.selectionGeneration, end);
+  }
+
+  /// After the records past `end` went (`dropPastJournal`): the newest ones kept are read again as
+  /// the machine has them (`readRewoundTail`), then everything after `end`.
+  private repairRewound(sessionId: string, generation: number, end: number): void {
+    const forward = () => {
+      if (!this.closed && generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+        this.readMissedAfterLag(sessionId, generation, end, 0);
+    };
+    void this.readRewoundTail(sessionId, generation, end).then(forward, forward);
+  }
+
+  /// The machine's records up to `end`, read back page by page from it, replace the ones this pane
+  /// holds of those seqs: where its journal went back to may be below `end` (it wrote on before the
+  /// pane learned, and `end` is where it is now), and the rows past that point were the lost ones.
+  /// It stops at the first page whose oldest record is the one this pane holds (same seq, time and
+  /// kind: synced before the stop), at the oldest record held, or after `REWIND_PAGES` pages, so it
+  /// reads about what was rewritten, never the whole chat.
+  private async readRewoundTail(sessionId: string, generation: number, end: number): Promise<void> {
+    const current = () => generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+    let changed = false;
+    for (let before = end + 1, pages = 0; pages < REWIND_PAGES && before > (this.firstSeq ?? 1); pages++) {
+      const result = await this.typed("_acpmux/events", { sessionId, beforeSeq: before, limit: REWIND_PAGE });
+      if (!current()) return;
+      const page = records(result?.events);
+      const oldest = page[0];
+      if (!oldest) break;
+      const held = this.events.find((event) => event.seq === oldest.seq);
+      const synced = held !== undefined && held.at === oldest.at && held.kind === oldest.kind;
+      // The machine's own records win over the ones this pane held of the same seqs.
+      this.events = mergeEventRecords(this.events, page);
+      changed = true;
+      if (synced || result?.hasMore !== true) break;
+      before = oldest.seq;
+    }
+    if (changed) this.rebuildKeepingLiveState();
   }
 
   /// Drops every record this pane holds of `sessionId` past `end`, where its journal ends now, and
@@ -4205,7 +4245,7 @@ export class AcpmuxDirectClient {
     if (this.lastSeq <= end && !this.events.some((event) => event.seq > end)) return false;
     console.warn(`acpmux: the journal of ${sessionId} went back to ${end}; the pane held through ${this.lastSeq}`);
     this.events = this.events.filter((event) => event.seq <= end);
-    if (this.copyLive) for (const seq of [...this.copyLive.keys()]) if (seq > end) this.copyLive.delete(seq);
+    if (this.copyLive) for (const seq of this.copyLive.keys()) if (seq > end) this.copyLive.delete(seq);
     if (this.turnOpener && this.turnOpener.seq > end) this.turnOpener = undefined;
     for (const [key, gap] of this.gapReads) if (gap.sessionId === sessionId && gap.seq > end) this.gapReads.delete(key);
     this.configSeq = Math.min(this.configSeq, end);
@@ -4338,6 +4378,8 @@ export class AcpmuxDirectClient {
         if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
         rewound = true;
         this.dropPastJournal(sessionId, end);
+        await this.readRewoundTail(sessionId, generation, end);
+        if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
         afterSeq = Math.min(afterSeq, end);
         cursor = end;
         continue;
@@ -5841,8 +5883,10 @@ export class AcpmuxDirectClient {
     } else this.turnOpener = served ?? undefined;
     if (readCommandsThrough !== undefined)
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
-    // Merged after the opener's read: live events that landed meanwhile are kept.
-    this.events = mergeEventRecords(page, this.events);
+    // Merged after the opener's read: live events that landed meanwhile are kept. Over a journal
+    // that went back, the page's records are the machine's and win over those held of their seqs.
+    this.events =
+      rewoundTo === undefined ? mergeEventRecords(page, this.events) : mergeEventRecords(this.events, page);
     this.sawPrompts(page);
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
@@ -5865,7 +5909,7 @@ export class AcpmuxDirectClient {
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
-    if (rewoundTo !== undefined) this.readMissedAfterLag(sessionId, generation, rewoundTo, 0);
+    if (rewoundTo !== undefined) this.repairRewound(sessionId, generation, rewoundTo);
     // The machine answered: these rows are its chat now, not the Mac's copy.
     this.peerCopy = undefined;
     if (this.copyBack === sessionId) this.copyBack = undefined;
