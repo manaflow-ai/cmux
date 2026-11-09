@@ -838,3 +838,33 @@ test("a finished turn's repair restores a chunk a joined tail reply missed", asy
   await flush();
   expect(text(tab.last())).toContain("ABC");
 });
+
+/// #39431 review: an attach page that starts inside a joined tail reply holds chunks the joined
+/// record may lack (one the tail missed live). The rest of the reply is read from acpmux, so the
+/// reply is drawn as acpmux holds it, even when its turn ended while the chat was away and no live
+/// turn end comes to repair it.
+test("an attach page starting inside a joined tail reply brings back a chunk the tail missed", async () => {
+  const chat = new Fixture("joined-attach");
+  const chunk = (text: string): Step => [
+    "in",
+    "agent_message_chunk",
+    {
+      method: "session/update",
+      params: {
+        sessionId: chat.a,
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text }, messageId: "m-1" },
+      },
+    },
+  ];
+  // Read live with chunk 3 ("B") missed: the tail joins 2:"A" and 4:"C".
+  chat.pages.set(chat.a, { events: [prompt("Go"), chunk("A"), chunk("C")], seqs: [1, 2, 4] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+  // The next open's attach page is 3:"B", 4:"C", and acpmux holds the whole reply.
+  chat.pages.set(chat.a, { events: [chunk("B"), chunk("C")], seqs: [3, 4], hasMore: true });
+  const tab = chat.tab(chat.a);
+  tab.daemon.stored.set(chat.a, { events: [prompt("Go"), chunk("A"), chunk("B"), chunk("C")] });
+  live.push(await tab.client);
+  await flush();
+  expect(text(tab.last())).toContain('"text":"ABC"');
+});
