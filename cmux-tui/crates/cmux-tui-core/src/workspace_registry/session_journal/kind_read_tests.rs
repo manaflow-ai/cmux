@@ -552,10 +552,15 @@ fn an_output_cleanup_swap_drops_the_kept_reducer_records_and_the_backfill_rebuil
 
     let outcome = stage_registry(
         &db_path,
-        &StageControl { on_pending: &|| {}, next_segment: &|| true, stopped: Arc::new(|| false) },
+        &StageControl {
+            on_pending: &|| {},
+            next_segment: &|| true,
+            catch_up: &|| false,
+            stopped: Arc::new(|| false),
+        },
     )
     .unwrap();
-    assert!(matches!(outcome, StageOutcome::Complete { .. }), "not staged: {outcome:?}");
+    assert!(matches!(outcome, StageOutcome::Built), "not built: {outcome:?}");
     let registry = WorkspaceRegistry::open(&root, session).unwrap();
     assert!(
         output_cleanup::previous_path(&db_path).is_file(),
