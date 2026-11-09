@@ -1235,7 +1235,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // agents use by name (`cmux vault`), the `vault.*` control methods and the secure entry sheet.
         .target(
             name: "CmuxNextCredentialVault",
-            dependencies: ["CmuxNextCompat", "CmuxNextControl", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextDesign",
+                "CmuxNextDesignTokens",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+            ],
             resources: [
                 .process("Resources"),
             ],
@@ -1243,8 +1250,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextCredentialVaultTests",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextControl", "CmuxNextCredentialVault", "CmuxNextDesign", "CmuxNextPages",
-                           "CmuxNextSettings"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextCredentialVault",
+                "CmuxNextDesign",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
