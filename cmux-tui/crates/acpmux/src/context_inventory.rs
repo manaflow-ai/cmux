@@ -367,18 +367,37 @@ pub fn rules_channel(cfg: &Config, cwd: &Path, harness: &str) -> &'static str {
         let own = profile.argv.iter().any(|a| a.starts_with("--append-system-prompt"));
         return if own { USER_CONTEXT } else { APPEND_SYSTEM_PROMPT };
     }
-    if crate::codex_app_server::is_profile_launch(&profile.argv) && !codex_has_own(profile, cwd) {
+    if crate::codex_app_server::is_profile_launch(&profile.argv)
+        && !codex_has_own(profile, cwd, false)
+    {
         return DEVELOPER_INSTRUCTIONS;
     }
     USER_CONTEXT
 }
 
-/// Whether a Codex `profile` started in `cwd` sets `developer_instructions` itself: on its
-/// command line, or in any config file it may read (its `CODEX_HOME`'s, a project's), trusted
-/// or not, so cmux never decides for Codex which of them counts.
-fn codex_has_own(profile: &crate::config::HarnessProfile, cwd: &Path) -> bool {
-    let home = profile.env.get("CODEX_HOME").map(std::path::PathBuf::from);
-    crate::harness_limits::codex_sets(&profile.argv, cwd, home, "developer_instructions")
+/// Whether a Codex `profile` started in `cwd` may set `developer_instructions` itself: on its
+/// command line, or in any config file it may read, trusted or not, so cmux never decides for
+/// Codex which of them counts. Every home it may start with is checked: the profile's
+/// `CODEX_HOME` (as given, and with its `${env:…}` references resolved: `resolved`), the
+/// daemon's, the login shell's, else `~/.codex`. A home that is not the one it starts with
+/// only sends the rules to the first message, which reaches it all the same.
+fn codex_has_own(profile: &crate::config::HarnessProfile, cwd: &Path, resolved: bool) -> bool {
+    let key = "developer_instructions";
+    let mut homes: Vec<Option<std::path::PathBuf>> = vec![None];
+    let mut add = |home: Option<String>| {
+        if let Some(home) = home.filter(|h| !h.is_empty()) {
+            homes.push(Some(home.into()));
+        }
+    };
+    add(profile.env.get("CODEX_HOME").cloned());
+    if resolved {
+        add(crate::agent::resolved_profile_env(profile)
+            .ok()
+            .and_then(|e| e.get("CODEX_HOME").cloned()));
+    }
+    add(std::env::var("CODEX_HOME").ok());
+    add(crate::login_env::reference_var("CODEX_HOME"));
+    homes.into_iter().any(|home| crate::harness_limits::codex_sets(&profile.argv, cwd, home, key))
 }
 
 /// The most text cmux's rules put in one launch argument. Linux refuses any one argument over
@@ -426,7 +445,7 @@ pub fn launch_args(
             return claude_args(text);
         }
     } else if crate::codex_app_server::is_profile_launch(&profile.argv)
-        && !codex_has_own(profile, cwd)
+        && !codex_has_own(profile, cwd, true)
         && let Some(text) = rules_text(parts, DEVELOPER_INSTRUCTIONS).filter(fits)
     {
         return codex_args(text);

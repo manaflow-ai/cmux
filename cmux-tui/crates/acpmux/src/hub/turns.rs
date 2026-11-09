@@ -1282,6 +1282,17 @@ impl Hub {
                         // A fallback that could not resume (another store)
                         // starts fresh: it gets the restored transcript first.
                         let mut blocks = blocks;
+                        // Rules the fallback's start did not carry (its own appended prompt or
+                        // developer instructions), judged by its own command line.
+                        let rules_owed_here = !rules_owed && control != Control::Web && {
+                            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                            !m.cmux_rules_in_transcript
+                                && crate::context_inventory::append_owed_rules(
+                                    m.cmux_context.as_deref(),
+                                    m.spawn_argv.as_deref(),
+                                    &mut blocks,
+                                )
+                        };
                         if session.rehydrate.swap(false, Ordering::SeqCst)
                             && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
                         {
@@ -1331,6 +1342,14 @@ impl Hub {
                                         confirm_team_write,
                                         None,
                                         || {
+                                            if rules_owed_here {
+                                                session
+                                                    .meta
+                                                    .lock()
+                                                    .unwrap_or_else(|e| e.into_inner())
+                                                    .cmux_rules_in_transcript = true;
+                                                self.save_meta(session);
+                                            }
                                             self.mark_team_messages(session, &team_messages);
                                             if team_enabled {
                                                 self.mark_team_work(session, &team_prompt_ids);
