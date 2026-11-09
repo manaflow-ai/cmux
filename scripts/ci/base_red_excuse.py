@@ -938,6 +938,7 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
 # its merge-base's. Every other receipt state (no verdict, unread, another commit) stays the head's.
 COMPILE_RECEIPTS = os.environ.get("BASE_RED_EXCUSE_COMPILE_RECEIPTS", "https://gh-events.cmux.com/compile-checks/v1")
 COMPILE_RECEIPT_SECONDS = 20
+COMPILE_RECEIPT_RECIPE = (2, "release-onone")
 FLEET_COMPILE_JOB = "cmux-next fleet Release compile"
 FLEET_COMPILE_FAIL = re.compile(r"^##\[error\]\s*cmux-next/compile is not a pass for [0-9a-f]{40} \(fail\)")
 
@@ -959,6 +960,10 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
         raise Refused(f"the compile receipt of {sha[:12]}: {type(error).__name__}: {error}") from error
     if not isinstance(receipt, dict) or receipt.get("sha") != sha or receipt.get("repo") != repo:
         raise Refused(f"the compile receipt of {sha[:12]} names another commit")
+    # The receipt the workflow trusts (cmux-next.yml's compile-status step): recipe 2, Release at -Onone.
+    if (receipt.get("recipe_version"), receipt.get("configuration")) != COMPILE_RECEIPT_RECIPE:
+        raise Refused(f"the compile receipt of {sha[:12]} is of another recipe (recipe_version "
+                      f"{receipt.get('recipe_version')}, configuration {receipt.get('configuration')})")
     return receipt
 
 
