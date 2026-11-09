@@ -1272,3 +1272,67 @@ async fn completed_process_event_stream_uses_bulk_lane_then_finishes() {
         .unwrap()
         .unwrap();
 }
+
+/// A reconnect's READY snapshot is large and the bytes printed right after it
+/// are small. Both must reach the app in host order: output tagged with the
+/// new generation that overtakes its READY is wiped when the READY lands.
+#[tokio::test]
+#[cfg(unix)]
+async fn mux_control_delivers_a_large_snapshot_before_the_output_after_it() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("mux.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let screen = "A".repeat(768 * 1024);
+    let snapshot = serde_json::json!({
+        "event": "snapshot", "surface": 1, "phase": "ready", "generation": 2,
+        "offset": 9, "version": 1, "cols": 80, "rows": 24, "data": screen,
+    });
+    let output = serde_json::json!({
+        "event": "output", "surface": 1, "data": "aGk=", "generation": 2, "offset": 9,
+    });
+    let fake = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut lines = Vec::new();
+        for event in [&snapshot, &output] {
+            lines.extend(serde_json::to_vec(event).unwrap());
+            lines.push(b'\n');
+        }
+        socket.write_all(&lines).await.unwrap();
+        // Held open until the test is done reading.
+        std::future::pending::<()>().await;
+    });
+    let (client_endpoint, daemon_endpoint) = endpoint_pair();
+    let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+    let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+    let stream = client_mux.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+    let incoming = daemon_mux.accept().await.unwrap().unwrap();
+    let serve = tokio::spawn(DaemonServices::serve_mux_control_with_budget(
+        Some(path),
+        None,
+        incoming.stream,
+        MuxUploadBudget::new(),
+    ));
+
+    let opened = stream.receive().await.unwrap().unwrap();
+    let opened: serde_json::Value = serde_json::from_slice(&opened.payload).unwrap();
+    assert_eq!(opened["type"], "opened", "{opened}");
+    let read = async {
+        let mut assembler = crate::mux_codec::MuxLineAssembler::<()>::default();
+        let mut events = Vec::new();
+        while events.len() < 2 {
+            let chunk = stream.receive().await.unwrap().expect("stream ended early");
+            if let Some(line) = assembler.push_retaining(chunk.lane, chunk.payload, ()).unwrap() {
+                let value: serde_json::Value = serde_json::from_slice(line.payload()).unwrap();
+                events.push((value["event"].as_str().unwrap().to_owned(), line.lane()));
+            }
+        }
+        events
+    };
+    let events = crate::acpmux_bridge::tests::within(read).await;
+    let expected = [("snapshot".to_owned(), Lane::Bulk), ("output".to_owned(), Lane::Bulk)];
+    assert_eq!(events, expected);
+    serve.abort();
+    fake.abort();
+    client_mux.shutdown().await;
+    daemon_mux.shutdown().await;
+}
