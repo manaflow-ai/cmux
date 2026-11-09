@@ -163,7 +163,10 @@
         // (Lawrence Chen's workspace, AUSTIN, Aziz Albahar's Team). Add a team id here in a reviewed change.
         "MANAFLOW_TEAM_TENANT_IDS": "d13acd51-c77d-438a-9610-5369455e2a2f,eff137f0-2e49-409e-bd6e-6e2d46cf3f1d,8e288bf9-264c-44a3-9d85-f22cbff2a6ad,50c7631c-c546-45d8-9b98-2a5744b4cdad",
         // JSON object of Stack team id to live VM limit; the default is 20.
-        "TENANT_VM_QUOTAS": "{\"cmux-vm-product-smoke\":2}",
+        // d13acd51-...: the company team ("cmux", the first MANAFLOW_TEAM_TENANT_IDS entry), keyed by its Stack team id
+        // (the tenant cmux-platform sends). 30 = its most VMs today (20, the default it is held to) + 5 create room + 5
+        // spares (one per active person); cmux-platform's spare ceiling reads the same number once it lists the team.
+        "TENANT_VM_QUOTAS": "{\"cmux-vm-product-smoke\":2,\"d13acd51-c77d-438a-9610-5369455e2a2f\":30}",
         "STACK_API_URL": "https://api.stack-auth.com",
         "UPSTREAM_API_URL": "https://api.freestyle.sh",
         // NEXT Cloud in production: the same Cloud Native image staging runs (cloud-native-cbbeec1-rd021, bake run 42097744382,
