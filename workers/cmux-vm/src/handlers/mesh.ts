@@ -954,16 +954,18 @@ const intentCaller = (principal: Principal) =>
   }));
 
 /**
- * Why an intent could not be claimed, reconciled or committed: its tombstone (409 with its code), a caller the shared
- * predicate refuses (404, as a revoke answers it), or another create holding it (409, retry).
+ * Why an intent could not be claimed, reconciled or committed: a caller the shared predicate refuses (404, as a revoke
+ * answers it, checked first so it never learns the intent's state), its tombstone (409 with its code), or another
+ * create holding it (409, retry). `caller` is null only where the caller already holds the intent's claim.
  */
 const intentRefusal = (tenantId: Principal["tenantId"], meshId: string, intentId: string, caller: IntentCaller | null) =>
   Effect.gen(function* () {
     const store = yield* MeshStore;
     const row = yield* store.findDeviceIntent(tenantId, meshId, intentId).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceIntent")));
     const at = yield* now;
-    if (intentState(row, at) === "revoked") return intentRevoked();
+    // The predicate before the state: a caller it refuses never learns the intent is revoked.
     if (caller !== null && Option.isSome(row) && !authorizes(row.value, caller)) return intentNotFound();
+    if (intentState(row, at) === "revoked") return intentRevoked();
     // A reconcile holds the intent: no claim is taken until it ends (its lease bounds the wait).
     if (Option.isSome(row) && reconcileLive(row.value, at)) return intentReconciling();
     return intentInProgress();
@@ -1129,21 +1131,30 @@ const enrollInto = <C, M>(
 ) =>
   Effect.gen(function* () {
     const intentId = payload.intentId;
+    let revoked = false;
     if (intentId !== undefined) {
-      // Checked before the signature: a repeat sends the same signed body, whose nonce the first try already claimed.
       const store = yield* MeshStore;
       const found = yield* store.findDeviceIntent(caller.value.tenantId, mesh.value, intentId).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceIntent")));
+      // The shared authorization predicate first: a caller it refuses gets the answer of an intent that does not exist,
+      // whatever the intent's state, so another member never learns that an intent exists, is committed or is revoked.
+      if (Option.isSome(found) && !authorizes(found.value, yield* intentCaller(caller.value))) return yield* Effect.fail(intentNotFound());
       const state = intentState(found, yield* now);
-      if (state === "revoked") return yield* Effect.fail(intentRevoked());
+      // A repeat of a committed intent answers its device before the signature: it sends the same signed body, whose
+      // nonce the first try already claimed, possibly more than 120 s ago. It creates nothing, and answers only under
+      // the device read rules and for the same keys.
       if (state === "committed" && Option.isSome(found) && found.value.deviceId !== null) {
         return yield* replayIntent(caller, proofs.scope, found.value.deviceId, payload);
       }
+      revoked = state === "revoked";
     }
-    // The signature before anything that changes an intent: an enroll that may not create a device settles nothing. A
-    // resend of the same signed body with the same intent passes; whether it may create anything is then decided by the
-    // intent's compare-and-set and claim (an earlier attempt must be resolved first).
+    // The signature before anything that changes an intent or tells its tombstone: an enroll that may not create a
+    // device settles nothing, and a forged one learns nothing (403). A resend of the same signed body with the same
+    // intent passes; whether it may create anything is then decided by the intent's compare-and-set and claim (an
+    // earlier attempt must be resolved first).
     const held = yield* verifyEnroll(caller, mesh, payload, intentId);
     if (held._tag !== "held") return yield* Effect.fail(signatureRefused(held._tag));
+    // Only now, to the intent's authorized and signed caller: the tombstone (409 mesh.device.intent_revoked).
+    if (revoked) return yield* Effect.fail(intentRevoked());
     if (intentId !== undefined) {
       // A claim still held, or open attempts of earlier creates: reconcile them, or refuse while any may be live.
       const next = yield* reconcileBeforeClaim(caller, mesh, proofs, intentId);
