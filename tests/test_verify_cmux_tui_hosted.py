@@ -625,9 +625,28 @@ def validate_step_cases(failures: list[str]) -> None:
 # the steps come from the workflow revision, the scripts they call from the tested commit.
 GUARD = ROOT / "scripts" / "ci" / "cmux-tui-commit-has-workflow-paths.py"
 GUARD_WORKFLOW = """\
+on:
+  workflow_dispatch:
+env:
+  # Outside any job.
+  NOT_A_PATH: scripts/ci/top-level-env.sh
 jobs:
+  validate-inputs:
+    steps:
+      # Takes its tools from the workflow revision, never from the tested commit.
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /scripts/ci/cmux-tui-commit-has-workflow-paths.py
+      - run: python3 scripts/ci/cmux-tui-commit-has-workflow-paths.py "$EXACT_COMMIT" x.yml
+  summary:
+    steps:
+      - run: echo scripts/ci/no-checkout-at-all.sh
   test:
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit }}
       # A comment that names scripts/ci/only-in-a-comment.sh is not a step.
       - run: bash scripts/ci/init-submodule.sh ghostty-next
       - uses: ./.github/actions/setup-rust
@@ -639,11 +658,18 @@ jobs:
           bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-chrome.sh"
           bash scripts/ci/${VARIANT}.sh
           python3 cmux-tui/dist/scripts/package.py
+  package:
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout_ref }}
+      - run: bash scripts/ci/package-step.sh
 """
 GUARD_FILES = {
     "scripts/ci/init-submodule.sh": "", ".github/actions/setup-rust/action.yml": "",
     "scripts/ci/cargo-test-selected.sh": "", "cmux-tui/scripts/smoke-tui.py": "",
     "scripts/ci/ensure-chrome.sh": "", "cmux-tui/dist/scripts/package.py": "",
+    "scripts/ci/package-step.sh": "",
 }
 
 
@@ -676,12 +702,13 @@ def run_guard(files: dict[str, str], workflow: str = GUARD_WORKFLOW,
         shutil.rmtree(directory, ignore_errors=True)
 
 
-def run_guard_step(*, has_scripts: bool) -> tuple[int, str]:
+def run_guard_step(*, has_scripts: bool, drop: tuple[str, ...] = ()) -> tuple[int, str]:
     """Run validate-inputs' guard step as GitHub would: origin has the tested commit, the
     checkout holds the workflow revision's files (here: the real cmux-tui.yml).
 
     has_scripts: the tested commit has (empty copies of) every file under the checked
     prefixes of this checkout; else it has only the small fixture set, which lacks most.
+    drop: files the tested commit does not have even so (an older commit).
     """
     import yaml  # tooling-tests installs PyYAML
 
@@ -695,7 +722,7 @@ def run_guard_step(*, has_scripts: bool) -> tuple[int, str]:
             listing = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "-r", "-z", "--name-only", "HEAD", "--",
                                       "scripts", ".github/actions", ".github/scripts", "cmux-tui/scripts",
                                       "cmux-tui/dist/scripts"], check=True, capture_output=True, text=True).stdout
-            files = {name: "" for name in listing.split("\0") if name}
+            files = {name: "" for name in listing.split("\0") if name and name not in drop}
         origin = directory / "origin"
         sha = git_fixture(origin, files)
         env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "HOME": str(directory)}
@@ -725,8 +752,13 @@ def guard_cases(failures: list[str]) -> None:
             failures.append(f"workflow-paths guard: {name} (exit {code})\n--- output ---\n{out}")
 
     code, out = run_guard(GUARD_FILES)
-    case("a commit with every script and local action passes (comments, variables and reusable "
-         "workflows are not checked; ../scripts, toplevel/scripts and cmux-tui/scripts resolve)", code == 0, code, out)
+    case("a commit with every script and local action passes (comments, variables, reusable workflows, "
+         "top-level keys and jobs that do not check out the tested commit are not checked; ../scripts, "
+         "toplevel/scripts and cmux-tui/scripts resolve)", code == 0, code, out)
+    files = {k: v for k, v in GUARD_FILES.items() if k != "scripts/ci/package-step.sh"}
+    code, out = run_guard(files)
+    case("a job that checks out inputs.checkout_ref (the reusable package workflow) is checked",
+         code == 1 and "missing: scripts/ci/package-step.sh" in out and out.count("missing:") == 1, code, out)
     files = {k: v for k, v in GUARD_FILES.items() if k != "scripts/ci/cargo-test-selected.sh"}
     code, out = run_guard(files)
     case("a commit without a script the workflow calls fails and names it",
@@ -754,6 +786,12 @@ def guard_cases(failures: list[str]) -> None:
          result.returncode == 0, result.returncode, result.stdout + result.stderr)
     code, out = run_guard_step(has_scripts=True)
     case("the validate-inputs guard step passes for a commit with this checkout's scripts", code == 0, code, out)
+    # Review of #39740 at 505e535c: the guard asked the tested commit for the guard itself, which
+    # validate-inputs runs from the workflow revision, so every commit older than the guard was refused.
+    code, out = run_guard_step(has_scripts=True, drop=("scripts/ci/cmux-tui-commit-has-workflow-paths.py",
+                                                       "scripts/ci/nightly-steps/ensure-gh.sh"))
+    case("an older commit that lacks only the files validate-inputs takes from the workflow revision passes",
+         code == 0, code, out)
     code, out = run_guard_step(has_scripts=False)
     case("the validate-inputs guard step fails for a commit without them, and names one",
          code == 1 and "missing: scripts/ci/macos-cross.sh" in out, code, out)
