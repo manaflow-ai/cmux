@@ -136,6 +136,7 @@ pub(super) async fn handle(
         caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
         // A token it could not prove keeps the replay off the owner too (#38260 F1).
         unproven_caller: conn.unproven_caller.get().filter(|_| !conn.is_person()).cloned(),
+        not_terminal: !conn.is_person() && !conn.may_be_owner_terminal(),
         state: State::Queued,
         attempts: 0,
         never_sent: true,
@@ -230,6 +231,7 @@ pub(super) async fn remember_forward(
         request,
         caller: Some(caller.to_owned()),
         unproven_caller: None,
+        not_terminal: false,
         // Held is terminal to older daemons: rollback never sends this lookup
         // record as a prompt. New code recognizes the forwardProjection marker.
         state: State::Held,
@@ -764,6 +766,8 @@ async fn forget_attachments(path: std::path::PathBuf) {
 pub(super) enum Caller<'a> {
     Proven(&'a str),
     Unproven(&'a str),
+    /// No session, from a connection that declared no terminal (`Delivery::not_terminal`).
+    NotTerminal,
 }
 
 impl<'a> Caller<'a> {
@@ -773,6 +777,7 @@ impl<'a> Caller<'a> {
             .as_deref()
             .map(Caller::Proven)
             .or_else(|| delivery.unproven_caller.as_deref().map(Caller::Unproven))
+            .or_else(|| delivery.not_terminal.then_some(Caller::NotTerminal))
     }
 }
 
@@ -816,14 +821,19 @@ pub(super) async fn attempt_once(
         // An unproven one goes with no token, which proves nothing: the fresh connection binds it
         // unproven, as the sender's own did (`Conn::bind_person`).
         let (id, token) = match caller {
-            Caller::Proven(id) => (id, crate::hub::person::caller_token(id)),
-            Caller::Unproven(id) => (id, String::new()),
+            Caller::Proven(id) => (Some(id), crate::hub::person::caller_token(id)),
+            Caller::Unproven(id) => (Some(id), String::new()),
+            Caller::NotTerminal => (None, String::new()),
         };
-        let mut mux = serde_json::Map::new();
-        mux.insert(
-            crate::hub::person::CALLER_FIELD.to_owned(),
-            json!({"sessionId": id, "token": token}),
-        );
+        // Never a terminal's declaration: a send that names a session or declared none is no
+        // owner's terminal send (`cli_caller.rs`).
+        let mut mux = crate::cli_caller::agent_declaration();
+        if let Some(id) = id {
+            mux.insert(
+                crate::hub::person::CALLER_FIELD.to_owned(),
+                json!({"sessionId": id, "token": token}),
+            );
+        }
         hello.set("_meta", json!({"acpmux": mux}));
     }
     let lines = [
@@ -937,6 +947,7 @@ mod retry_delay_tests {
             request,
             caller: None,
             unproven_caller: None,
+            not_terminal: false,
             state: State::Queued,
             attempts: 0,
             never_sent: true,
