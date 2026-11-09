@@ -203,7 +203,7 @@ mod tests {
         assert!(timings.steps()[0].1 >= Duration::from_millis(5));
         assert!(timings.total() >= Duration::from_millis(5));
         let again = StartupTimings::from_process_start("process.server_setup");
-        assert_eq!(again.steps().len(), 1, "the marks are taken once");
+        assert!(again.steps().is_empty(), "the marks are taken once");
     }
 
     #[test]
