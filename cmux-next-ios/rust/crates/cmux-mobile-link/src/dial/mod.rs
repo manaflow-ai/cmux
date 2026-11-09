@@ -124,6 +124,12 @@ pub struct DialOptions {
     /// announcing its new endpoints.
     #[doc(hidden)]
     pub restrict_inbound_udp: bool,
+    /// Test and measurement support: what WireGuard does with each datagram
+    /// it receives, by whether it came through this side's TURN allocation
+    /// and where from: `None` drops it (a cut path), `Some(delay)` delivers
+    /// it that much later, in order (a path's one-way latency).
+    #[doc(hidden)]
+    pub impair_inbound: Option<fn(bool, &std::net::SocketAddr) -> Option<Duration>>,
     /// Offer and accept the input lane (PROTOCOL.md "Lanes"): a second
     /// stream for keystrokes and resizes. Off only to measure or test the
     /// single-stream behavior of older peers.
@@ -154,6 +160,12 @@ pub struct DialOptions {
     /// (srflx 500 ms, prflx 1 s, relay 2 s) for before/after comparisons.
     #[doc(hidden)]
     pub stock_ice_waits: bool,
+    /// WireGuard, phone side: the person's "Ultra mode on cellular" setting.
+    /// On, a tunnel dialed while the phone's network is cellular
+    /// ([`wireguard::set_cellular_path`]) sends Reed-Solomon repair data
+    /// ([`wireguard::ultra_for_dial`]), about 2-3x the bytes, so loss costs
+    /// no time. `CMUX_WG_ULTRA` still wins over it.
+    pub ultra_on_cellular: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
     /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
@@ -178,6 +190,7 @@ impl Default for DialOptions {
             refuse_udp_to: None,
             drop_udp_to: None,
             restrict_inbound_udp: false,
+            impair_inbound: None,
             input_lane: true,
             video_lane: false,
             webrtc_media: false,
@@ -185,6 +198,7 @@ impl Default for DialOptions {
             video_cap_bps: 0,
             video_blackout: None,
             stock_ice_waits: false,
+            ultra_on_cellular: false,
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),

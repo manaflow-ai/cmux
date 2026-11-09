@@ -34,6 +34,33 @@ enum Made {
 }
 
 impl Hub {
+    /// A fork's own turns: the turn results in its log after its `forked` record (the ones
+    /// before it are the parent's, copied); its meta's `turn_count` starts at the parent's. None
+    /// for a chat that is not a fork. Read once, at a first start that seeds the cost ledger
+    /// (`hub/ledger` `seed`), parsing only those two kinds.
+    pub(super) fn fork_own_turns(&self, meta: &SessionMeta) -> Option<u64> {
+        meta.parent_id.as_ref()?;
+        let (mut forked, mut turns) = (false, 0u64);
+        let kinds = ["forked", "turn_result"];
+        let scanned = self.store.scan_kinds(&meta.id, &kinds, &mut |e: EventRecord| {
+            match e.kind.as_str() {
+                "forked" => {
+                    forked = true;
+                    turns = 0;
+                }
+                _ => turns += u64::from(forked && e.dir == "mux"),
+            }
+            true
+        });
+        match scanned {
+            Ok(()) => Some(turns),
+            Err(e) => {
+                tracing::debug!(session = %meta.id, "ledger seed: fork log: {e}");
+                Some(0)
+            }
+        }
+    }
+
     /// Whether the session runs Claude Code, and its profile env plus its
     /// preset's (`agent_tools::left_out`, where Claude keeps its store).
     pub(super) async fn harness_env(
@@ -354,7 +381,8 @@ impl Hub {
         {
             let cfg = self.config.read().await;
             let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
-            let parts = crate::context_inventory::snapshot_for(&cfg, &cwd, &parent_meta.harness);
+            let parts =
+                crate::context_inventory::snapshot_for(&cfg, &cwd, &parent_meta.harness, false);
             // A native fork's agent keeps the parent's transcript, the old folder's
             // instructions in it: the new ones say those no longer apply.
             if moved && matches!(made, Made::Agent(..) | Made::ClaudeResume) {
@@ -454,6 +482,9 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            seen_seq: None,
+            unread_turns: 0,
+            last_return: None,
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
@@ -464,6 +495,7 @@ impl Hub {
             last_turn: None,
             auth_change: None,
             harness_failures: Default::default(),
+            harness_sandbox: Default::default(),
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
             vm_boundary: parent_meta.vm_boundary,
@@ -498,6 +530,7 @@ impl Hub {
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
             pull_requests: vec![],
+            pull_request_times: Default::default(),
             touched_files: vec![],
             harness_cost_usd: if matches!(made, Made::ClaudeResume) {
                 parent_meta.harness_cost_usd
@@ -509,6 +542,7 @@ impl Hub {
             subsession,
             subsession_limits: Default::default(),
             races: Default::default(),
+            plan_builds: Default::default(),
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`), unless
             // its agent started it (`sub`).
             created_by,
@@ -586,6 +620,9 @@ impl Hub {
                     .map_err(|e| RpcError::internal(e.to_string()))?;
             }
         } else {
+            // The copies are the parent's turns: they count in the parent's cost, not here, until
+            // the fork's own `forked` record below.
+            self.ledger.suppress(&new.id);
             let order = new.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(&new);
             let copied = self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
@@ -639,11 +676,14 @@ impl Hub {
             });
             drop(order);
             if cancelled {
+                self.ledger.unsuppress(&new.id);
                 return Err(super::fork_cancel::cancelled_refusal());
             }
-            if before.is_some() {
-                copied
-                    .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
+            if before.is_some()
+                && let Err(e) = copied
+            {
+                self.ledger.unsuppress(&new.id);
+                return Err(super::fork_before::refused("fork.incomplete", &e.to_string()));
             }
         }
         // These too go to no watcher: the `forked` record below is the first one heard.
@@ -667,6 +707,8 @@ impl Hub {
         {
             let mut m = new.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
+            // Its own harness: a refusal the parent's records carry is not the fork's.
+            m.harness_sandbox = Default::default();
         }
         let mut forked = json!({"parentId": session.id, "forkSeq": new.meta().fork_seq});
         if let Some((_, b)) = &before {
@@ -681,6 +723,7 @@ impl Hub {
             forked.set("from", json!("transcript"));
             forked.set("harness", json!(parent_meta.harness));
         }
+        self.ledger.unsuppress(&new.id);
         self.append(&new, "mux", "forked", forked);
         if before.is_none() {
             self.append(session, "mux", "fork_child", json!({"childId": id}));

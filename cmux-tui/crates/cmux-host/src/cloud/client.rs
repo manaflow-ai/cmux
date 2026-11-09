@@ -231,6 +231,38 @@ impl BindResult {
 /// section. That section is kept as `carrier.json` (0600,
 /// `carrier_entry.rs`) before `bound.json`; a bind without one leaves any
 /// existing `carrier.json` as it is.
+/// The bind as the Cloud role makes it: the updater's connect hold first, so
+/// the machine's first link is never cut by an update's restart, then the
+/// request. A person's machine from this bind on, and the supervisor's
+/// `Bound` (an instance id change) does not cover a bind of the same machine.
+/// The hold is the state dir's restart gate (`updater/gate.rs`), which every
+/// flip and restart goes through in whichever process runs it: either the
+/// flip sees this hold, or a restart was queued first and this answers None
+/// with `bind.json` left for the restarted service.
+#[allow(clippy::too_many_arguments)]
+pub fn hold_then_bind(
+    paths: &crate::config::Paths,
+    store: &mut dyn Store,
+    http: &dyn Http,
+    key: &InstallKey,
+    wg_public_key: &str,
+    daemon: &DaemonInfo,
+    daemon_noise_key: Option<&str>,
+    now_wall_ms: u64,
+) -> Option<BindResult> {
+    #[cfg(unix)]
+    if !crate::updater::gate::hold_connects(
+        paths,
+        now_wall_ms,
+        crate::updater::gate::HoldKind::Connect,
+    ) {
+        return None;
+    }
+    #[cfg(not(unix))]
+    let _ = paths;
+    Some(bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms))
+}
+
 pub fn bind_machine(
     store: &mut dyn Store,
     http: &dyn Http,

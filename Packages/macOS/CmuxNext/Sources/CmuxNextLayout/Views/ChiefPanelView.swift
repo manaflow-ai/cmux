@@ -82,6 +82,10 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     public var showsPanelGlass: Bool { !backdrop.isHidden }
     /// The glass plate under the message box (see-through styles), in this view's coordinates; nil without one.
     public var composerPlate: NSRect? { plate.isHidden ? nil : plate.frame }
+    /// The glass plate behind the bar and the chat's header (see-through styles), in this view's coordinates; nil without one.
+    public var headerPlate: NSRect? { header.isHidden ? nil : header.frame }
+    /// The corner radius the panel draws now (0 docked).
+    public var shapeCornerRadius: CGFloat { body.layer?.cornerRadius ?? 0 }
     /// The Chief view this panel shows now; nil while it is in Home's pane.
     public private(set) weak var chief: NSView?
 
@@ -92,9 +96,14 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     private let dockButton = NSButton()
     private let hideButton = NSButton()
     private let eyeButton = NSButton()
-    /// The see-through styles' glass under the message box: the one surface they keep, so what is typed stays
-    /// readable over any workspace.
-    private let plate = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, interactive: true)
+    /// The see-through styles' veil under the message box, so what is typed stays readable over any workspace.
+    private let plate = NSView()
+    /// The see-through styles' veil behind the bar and the chat's header (its name and picture): only there, so the
+    /// header reads over busy text while the bubbles below still show the workspace. Its bottom fades out.
+    ///
+    /// A veil, not glass: glass here samples nothing under it (the terminal draws in its own layer), so a glass plate
+    /// drew nothing in the captures and the terminal's text ran straight through the Chief's name.
+    private let header = NSView()
     private let gripMark = NSImageView()
     private let chiefMark = NSImageView()
     private let body = NSView()
@@ -148,9 +157,15 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         chiefMark.symbolConfiguration = .init(scale: .large)
         for view in [self.title, eyeButton, dockButton, hideButton, gripMark, chiefMark] { bar.addSubview(view) }
         body.wantsLayer = true
-        plate.isHidden = true
+        for veil in [plate, header] {
+            veil.wantsLayer = true
+            veil.isHidden = true
+        }
+        plate.layer?.mask = CAGradientLayer()
+        header.layer?.mask = CAGradientLayer()
         addSubview(backdrop)
         addSubview(plate)
+        addSubview(header)
         addSubview(body)
         addSubview(bar)
         setFloating(true)
@@ -362,21 +377,31 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         }
     }
 
+    /// A floating panel's corner radius: a card inside the window, concentric with the window's corners across the
+    /// gutter like the main pane (10 pt in a 16 pt window), or the radius `layout.paneCornerRadius` sets.
+    private static var cardCornerRadius: CGFloat {
+        Metrics.windowConcentricCornerRadius(windowCornerRadius: Metrics.standardWindowCornerRadius,
+                                             edgeInset: max(Metrics.mainPaneGutter, PaneTabRowRim.height),
+                                             setting: DesignSettings.shared.paneChrome.cornerRadius.map(Metrics.scale))
+    }
+
     private func applyShape() {
         guard superview != nil, expanded.width > 0 else { needsLayout = true; return }
         let chrome = chrome
         let shown = !floating ? expanded : chrome == .rest ? rest(in: expanded) : style.collapses ? grown(from: expanded) : expanded
         if frame != shown { frame = shown }
-        let radius: CGFloat = !floating ? 0 : chrome == .rest ? min(shown.height / 2, restsAsBar ? 14 : shown.height / 2) : Metrics.surfaceCornerRadius
+        let card = Self.cardCornerRadius
+        let radius: CGFloat = !floating ? 0 : chrome == .rest ? min(shown.height / 2, restsAsBar ? card : shown.height / 2) : card
         backdrop.cornerRadius = radius
+        header.layer?.cornerRadius = card
+        plate.layer?.cornerRadius = chrome == .rest ? radius : card
         body.layer?.cornerRadius = radius
         body.layer?.masksToBounds = floating
         let clear = floating && style.isSeeThrough
         backdrop.isHidden = clear
         plate.isHidden = !clear
-        // Over a see-through panel the Chief's words get a halo (black in dark, white in light), so they read over
-        // any workspace in light and dark.
-        chief?.shadow = clear ? Self.halo : nil
+        header.isHidden = !clear || chrome == .rest
+        chief?.shadow = nil  // no halo over the whole chat (it blurred every bubble); the header has its plate
         if let content = chief as? any ChiefPanelContent, content.chiefShowsThrough != clear { content.chiefShowsThrough = clear }
         body.isHidden = chrome == .rest && style == .bubble
         title.isHidden = chrome != .bar
@@ -406,6 +431,10 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
             body.frame = NSRect(x: 0, y: strip, width: w, height: max(0, h - strip))
             chief?.frame = body.bounds
             plate.frame = NSRect(x: 0, y: max(strip, h - Self.plateHeight), width: w, height: min(Self.plateHeight, h - strip))
+            let headerHeight = (chief as? any ChiefPanelContent)?.chiefHeaderHeight ?? 0
+            header.frame = NSRect(x: 0, y: 0, width: w, height: min(h, strip + headerHeight + Self.headerPlateFade))
+            Self.fade(header, atBottom: true)
+            Self.fade(plate, atBottom: false)
         case .rest:
             let grip: CGFloat = style == .bubble ? w : style == .pill ? 16 : 20
             bar.frame = NSRect(x: 0, y: 0, width: grip, height: h)
@@ -415,7 +444,38 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
             // The chat keeps its grown height, its bottom (the message box) showing through the shape.
             chief?.frame = NSRect(x: 0, y: 0, width: body.bounds.width, height: max(h, grown(from: expanded).height - Self.stripHeight))
             plate.frame = bounds
+            Self.fade(plate, atBottom: nil)
         }
+        applyVeils()
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyVeils()
+    }
+
+    /// The veils' color: the dialogs' glass veil (``FloatingGlassStyle/dialog``), at ``veilAlpha`` so text reads over
+    /// any workspace in light and dark.
+    private func applyVeils() {
+        let color = performWithTheme { Palette.veil(of: .dialog).withAlphaComponent(Self.veilAlpha) }.cgColor
+        for veil in [plate, header] where veil.layer?.backgroundColor != color { veil.layer?.backgroundColor = color }
+    }
+
+    /// Lays `veil`'s mask: solid, fading to clear over ``headerPlateFade`` at its bottom (`atBottom`) or top, the
+    /// edge toward the chat; solid all over when nil.
+    private static func fade(_ veil: NSView, atBottom: Bool?) {
+        guard let mask = veil.layer?.mask as? CAGradientLayer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        mask.frame = veil.bounds
+        mask.colors = [CGColor(gray: 0, alpha: 1), CGColor(gray: 0, alpha: 1), CGColor(gray: 0, alpha: atBottom == nil ? 1 : 0)]
+        let fade = Double(min(1, headerPlateFade / max(veil.bounds.height, 1)))
+        mask.locations = [0, NSNumber(value: 1 - fade), 1]
+        // From the solid edge to the fading one; the unit square's y = 0 is at the top only on flipped contents.
+        let top: CGFloat = veil.layer?.contentsAreFlipped() == true ? 0 : 1
+        mask.startPoint = CGPoint(x: 0.5, y: atBottom == true ? top : 1 - top)
+        mask.endPoint = CGPoint(x: 0.5, y: atBottom == true ? 1 - top : top)
+        CATransaction.commit()
     }
 
     @objc private func toggleDockPressed() { actions.toggleDock() }
@@ -434,15 +494,10 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
 
     /// The see-through plate's height: the message box and its margin.
     static let plateHeight: CGFloat = 64
-    /// The halo under the Chief's text on a see-through panel.
-    private static var halo: NSShadow {
-        let halo = NSShadow()
-        // A shadow, not a fill: black under the light text of dark mode, white under the dark text of light mode.
-        halo.shadowColor = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .black : .white }.withAlphaComponent(0.9)
-        halo.shadowBlurRadius = 3
-        halo.shadowOffset = .zero
-        return halo
-    }
+    /// How far a veil fades out at its edge toward the chat, below the header (or above the message box).
+    public static let headerPlateFade: CGFloat = 14
+    /// The veils' opacity: dense enough that busy text behind reads as texture, still translucent.
+    private static let veilAlpha: CGFloat = 0.82
 
     // MARK: Moving and resizing (floating only)
 

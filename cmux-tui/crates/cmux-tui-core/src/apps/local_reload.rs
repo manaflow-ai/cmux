@@ -4,10 +4,13 @@
 //! macOS, inotify on Linux) wakes one thread; no timer, no polling. A burst of
 //! events is drained before one catalog read. Only an app whose files changed
 //! restarts its host (its mounts are sent again, so a hover card or a section
-//! renders the new script); a removed app's mounts fail. A script that fails
-//! to load shows its error where the app renders (the mount fails), and the
-//! host never takes the daemon down. The customization app installs itself
-//! with its required scopes when it first appears (the user wrote it).
+//! renders the new script); a removed app's mounts fail. A saved script that
+//! does not load, for an app whose views are open, is tried first in a host of
+//! its own (`load_trial.rs`): the live host keeps the last script that loaded,
+//! its views stay, and `apps-reload-failed` says why. With no view open the
+//! script fails where the app next renders. A host never takes the daemon
+//! down. The customization app installs itself with its required scopes when
+//! it first appears (the user wrote it).
 //!
 //! The watch must never lose the last change. Fingerprints are taken before
 //! the catalog read they describe (`PrintsBefore`), so a save that lands
@@ -87,6 +90,7 @@ impl Supervisor {
         if changed.is_empty() && removed.is_empty() {
             return next;
         }
+        let refused = self.refused_saves(&changed, &catalog);
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             let mut outs = Vec::new();
@@ -101,7 +105,27 @@ impl Supervisor {
                     inner.catalog.packages.get(CUSTOMIZE_APP).map(|p| p.facts().requested);
                 inner.customize_reads_offered = Some(declared.unwrap_or_default());
             }
+            let mut catalog = catalog;
+            for (app, _) in &refused {
+                // The live host goes on running the last script that loaded;
+                // its package stays, so a mount or restart names its exports.
+                if let Some(package) = inner.catalog.packages.get(app).cloned() {
+                    catalog.packages.insert(app.clone(), package);
+                }
+            }
             inner.catalog = catalog;
+            for (app, error) in &refused {
+                let reason = format!("init: {error}");
+                let message = format!(
+                    "the saved script did not load, the last one that did keeps running: {reason}"
+                );
+                outs.extend(self.log_locked(&mut inner, app, "error", message));
+                outs.push(Out::Broadcast(
+                    json!({ "event": "apps-reload-failed", "app": app, "reason": reason }),
+                ));
+            }
+            let changed: Vec<String> =
+                changed.into_iter().filter(|app| !refused.iter().any(|(r, _)| r == app)).collect();
             if changed.iter().any(|id| id == CUSTOMIZE_APP) {
                 self.seed_customize_locked(&mut inner);
                 outs.extend(self.grant_new_customize_reads_locked(&mut inner));
@@ -125,6 +149,41 @@ impl Supervisor {
         };
         self.emit(outs);
         next
+    }
+
+    /// The changed apps whose live host serves views and whose saved script
+    /// does not load (`load_trial`), with the init error of each. Their
+    /// hosts are not restarted, so the views keep the last good script.
+    fn refused_saves(
+        &self,
+        changed: &[String],
+        catalog: &catalog::Catalog,
+    ) -> Vec<(String, String)> {
+        let trials: Vec<(Package, super::grants::Grant)> = {
+            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            changed
+                .iter()
+                .filter_map(|app| {
+                    let key = super::supervisor::HostKey { app: app.clone(), preview: false };
+                    let host = inner.hosts.get(&key)?;
+                    let live = matches!(
+                        host.state,
+                        super::supervisor::HostState::Starting
+                            | super::supervisor::HostState::Running
+                    ) && host.process.is_some();
+                    let serving = inner.mounts.values().any(|m| m.host == key);
+                    let package = catalog.packages.get(app)?.clone();
+                    (live && serving).then(|| (package, Self::grant_for(&inner, &key)))
+                })
+                .collect()
+        };
+        // Off the lock: each trial waits for a host process's answer.
+        trials
+            .into_iter()
+            .filter_map(|(package, grant)| {
+                Some((package.id.clone(), self.load_trial(&package, &grant)?))
+            })
+            .collect()
     }
 
     /// Installs the customization app with its required scopes the first

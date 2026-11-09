@@ -286,7 +286,8 @@ extension AgentPaneView {
     private func fillContextMenu(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?) {
         lastContextMenu = (NSEvent.mouseLocation, ProcessInfo.processInfo.systemUptime)
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
-        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
+        let developerTools = PageDeveloperTools()
+        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: developerTools.isEnabled(), chatMenu: chatMenu,
                                      scope: themeScope.fullStrength, actions: .init(
             copy: { [weak self] text in
                 guard let self else { return }
@@ -330,7 +331,11 @@ extension AgentPaneView {
             pasteTarget: webView,
             inspectElement: AgentPaneTunables.pointerInspector.value ? {
                 NotificationCenter.default.post(name: .cmuxNextInspectUIElement, object: self)
-            } : nil))
+            } : nil,
+            inspectWithDevTools: { [weak self] in
+                guard let self else { return }
+                developerTools.inspect(self.page ?? self.webView)
+            }))
     }
 
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.

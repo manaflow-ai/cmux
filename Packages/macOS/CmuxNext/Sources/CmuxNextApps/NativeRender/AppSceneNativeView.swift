@@ -11,7 +11,7 @@ import CmuxNextDesign
 /// makes views for new nodes and drops the views of removed ones. A change is noticed by Observation
 /// (no polling) while the view is in a window, and any layout pass draws a pending one; ``onContentSizeChange`` tells the host when the
 /// height may have changed. Loading draws nothing; a failed or disconnected mount draws one quiet row
-/// with the reason. Every node type of the kit has an AppKit view here, so no scene falls back to
+/// (``AppFailureNSView``): what happened in plain words, with the raw reason under Details. Every node type of the kit has an AppKit view here, so no scene falls back to
 /// SwiftUI.
 final class AppSceneNativeView: NSView {
     let model: AppSceneModel
@@ -21,18 +21,27 @@ final class AppSceneNativeView: NSView {
     var onContentSizeChange: (() -> Void)?
     private var views: [String: AppSceneNodeNSView] = [:]
     private var rootView: AppSceneNodeNSView?
-    private let failure = ChromeLabel(wrappingLabelWithString: "")
+    /// The failed or disconnected mount's row (plain words, Copy Error, Details).
+    private let failure: AppFailureNSView
     private var drawnRevision = -1
     private var drawnStatus: AppSceneModel.Status?
 
-    init(model: AppSceneModel, bundleDirectory: URL? = nil) {
+    /// - Parameter copyText: What the failure row's Copy Error does with the raw reason (the general
+    ///   pasteboard); tests pass a recorder.
+    init(model: AppSceneModel, bundleDirectory: URL? = nil,
+         copyText: @escaping @MainActor (String) -> Void = AppFailureNSView.copyToPasteboard) {
         self.model = model
         self.bundleDirectory = bundleDirectory
+        failure = AppFailureNSView(copyText: copyText)
         super.init(frame: .zero)
         wantsLayer = true
-        failure.font = Typography.caption
-        failure.maximumNumberOfLines = 3
         failure.isHidden = true
+        failure.onSizeChange = { [weak self] in
+            self?.needsLayout = true
+            self?.invalidateIntrinsicContentSize()
+            self?.onContentSizeChange?()
+        }
+        failure.onReload = { [model] in model.reload() }
         addSubview(failure)
         needsLayout = true
     }
@@ -82,13 +91,10 @@ final class AppSceneNativeView: NSView {
 
     private func reconcile() {
         switch model.status {
-        case .failed(let reason), .disconnected(let reason):
-            failure.stringValue = reason
-            failure.isHidden = false
-            rootView?.removeFromSuperview()
-            rootView = nil
-            views.removeAll()
-            return
+        case .failed(let reason):
+            return showFailure { $0.show(failure: AppFailureCopy(reason: reason)) }
+        case .disconnected(let reason):
+            return showFailure { $0.show(disconnected: reason) }
         case .loading, .ready:
             failure.isHidden = true
         }
@@ -100,6 +106,15 @@ final class AppSceneNativeView: NSView {
             if let next { addSubview(next) }
             rootView = next
         }
+    }
+
+    /// Draws the failure row in place of the scene.
+    private func showFailure(_ configure: (AppFailureNSView) -> Void) {
+        configure(failure)
+        failure.isHidden = false
+        rootView?.removeFromSuperview()
+        rootView = nil
+        views.removeAll()
     }
 
     /// The view of node `id`, reused when the node keeps its type, configured with its current value,
@@ -162,7 +177,7 @@ final class AppSceneNativeView: NSView {
     /// The scene's height laid out `width` points wide.
     func preferredHeight(width: CGFloat) -> CGFloat {
         redrawIfNeeded()
-        if !failure.isHidden { return ceil(failure.size(forWidth: max(0, width - 2 * failureInset)).height) + 2 * Metrics.space2 }
+        if !failure.isHidden { return ceil(failure.height(width: width)) }
         return ceil(rootView?.height(width: width) ?? 0)
     }
 
@@ -170,23 +185,15 @@ final class AppSceneNativeView: NSView {
         NSSize(width: NSView.noIntrinsicMetric, height: preferredHeight(width: bounds.width))
     }
 
-    private var failureInset: CGFloat { Metrics.space4 }
-
     override func layout() {
         redrawIfNeeded()
         super.layout()
         if !failure.isHidden {
-            let height = ceil(failure.size(forWidth: max(0, bounds.width - 2 * failureInset)).height)
-            failure.frame = CGRect(x: failureInset, y: Metrics.space2, width: max(0, bounds.width - 2 * failureInset), height: height)
+            failure.frame = CGRect(x: 0, y: 0, width: bounds.width, height: ceil(failure.height(width: bounds.width)))
         }
         guard let rootView else { return }
         let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
         rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
     }
 
-    override func updateLayer() {
-        performWithTheme { failure.textColor = Palette.textSecondary }
-    }
-
-    nonisolated override var wantsUpdateLayer: Bool { true }
 }

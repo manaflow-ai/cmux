@@ -133,9 +133,9 @@ enum CloudHandlers {
         ActionRunScope.current?.origin ?? invocation.origin
     }
 
-    /// Whether a machine change goes: a person's own run yes; an agent's or a script's once the person allows it (CloudChangeRequest).
+    /// Whether a machine change goes: a person's own run yes; an agent's or a script's once the person allows it (CloudChangeRequest, naming the machine and what was asked).
     static func allows(_ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext) -> @MainActor () async -> Bool {
-        let person = origin(of: invocation) == .user; return { person ? true : await CloudChangeRequest().allowed(registry.descriptor(for: id)?.title ?? id.rawValue, in: context.services.windows.active?.window) }
+        let person = origin(of: invocation) == .user, request = CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, asked: invocation.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) }); return { person ? true : await request.allowed(registry.descriptor(for: id)?.title ?? id.rawValue, in: context.services.windows.active?.window) }
     }
 
     /// The origin of a connect an invocation starts: `user` only for the
@@ -345,11 +345,9 @@ enum CloudHandlers {
         guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
     }
 
-    /// Whether `session` can take an attach now or after a resume: a legacy
-    /// machine with no connection may be paused behind a stale record, so
-    /// ``attached(_:_:within:)`` reads it again and decides.
+    /// Whether `session` can take an attach now: its machine is not changing and its daemon is connected.
     static func attachable(_ session: CloudMachineSession) -> Bool {
-        !session.machine.shownStatus.isChanging && (session.daemon.connection != nil || session.appLink == nil)
+        !session.machine.shownStatus.isChanging && session.daemon.connection != nil
     }
 
     static func requireAttachableState(_ session: CloudMachineSession) throws {

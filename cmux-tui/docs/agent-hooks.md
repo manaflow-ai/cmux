@@ -80,6 +80,67 @@ real Claude receives the merged `--settings`. If it then adds a `--settings`
 of its own, that later flag wins and the hooks are dropped. Launchers with
 another name that look up `claude` on PATH are not affected.
 
+### Claude started by full path or by a launcher
+
+The shim only covers a `claude` found on `PATH`. A launcher that runs Claude
+by its full path (`sr2 claude` when a login shell has put `~/.local/bin`
+ahead of the shim, a version manager's shim, an alias to the full path, or a
+typed `/path/to/claude`) skips it. For those launches each terminal also
+names this build's Claude Code plugin in `CLAUDE_CODE_PLUGIN_DIRS`, which
+Claude Code 2.1 reads under any config directory and beside any
+`--settings`:
+
+- The server writes the plugin to
+  `$XDG_DATA_HOME/cmux-tui/builds/<build>/claude-plugin` and appends that
+  folder to the `CLAUDE_CODE_PLUGIN_DIRS` the server inherited. Folders of
+  other cmux-tui plugins are dropped (found by their manifest, or by the
+  `cmux-tui/builds/<build>/claude-plugin` place, which also finds the folder
+  of a build deleted since), so a server started in another build's terminal
+  does not load two. An acpmux daemon started in a terminal drops them from
+  the environment of its agents, which run in no terminal.
+- The plugin's hooks are the installed hooks plus the `SessionStart` session
+  context. They run `CMUX_TUI_HOOK`, or this build's helper when a launcher
+  removed that variable.
+- Claude Code does not merge plugin hooks with settings hooks. When the user
+  settings of the config directory Claude runs with already hold the hooks
+  from `agent hook install claude`, the plugin's copy of each such event does
+  nothing.
+- Limit: when Claude is started with `--setting-sources` that leaves `user`
+  out, the installed copy does not load, but the plugin's copy still does
+  nothing beside it (no hook tells the plugin which settings loaded). That
+  terminal then gets no hook events, so `agent list` shows no hook state for
+  it (only what screen detection finds). Remove the installed hooks
+  (`agent hook uninstall claude`) or keep `user` in the sources to get the
+  plugin's hooks.
+- Claude Code gives its tool commands its environment: the plugin folder,
+  `CMUX_TUI_HOOK` and the terminal's variables. A Claude that a tool command
+  starts (`claude -p` in a Bash call) would report to the same terminal and
+  take the messages queued for the terminal's agent, through the plugin, the
+  installed hooks or the shim's hooks. So the copy of the hooks that reports
+  `SessionStart` (whichever it is) appends
+  `export CMUX_TUI_CLAUDE_OWNER=<terminal>/<session>` to Claude Code's
+  `CLAUDE_ENV_FILE` (creating it), which Claude Code sources before each Bash
+  tool command. Every copy of the Claude hooks does nothing in a Claude whose
+  environment names its terminal and another session, so the terminal's
+  session, last reply and messages stay the outer Claude's. A Claude started
+  with `cmux agent start` from a tool command runs in its own terminal and
+  reports there. The shim's fallback when no hook helper is found
+  (`cmux-tui agent hook emit`) records events only, delivers no messages, and
+  does not read the claim; the terminal keeps its first live session.
+- The wrapper removes the plugin from the folders it passes on, because its
+  `--settings` already carries the same hooks. Other plugin folders stay.
+- `CMUX_TUI_CLAUDE_HOOKS_DISABLED=1` turns the plugin's hooks off. Set in the
+  server's environment, it also keeps the folder out of new terminals.
+- Claude Code refuses to start while `CLAUDE_CODE_PLUGIN_DIRS` names a folder
+  under an organization policy with `disableSideloadFlags`. The server adds no
+  folder when this machine's managed settings, managed preferences, or cached
+  remote settings set that policy. A policy that only the server delivers,
+  and that this machine has not cached, is not seen; Claude then names
+  `CLAUDE_CODE_PLUGIN_DIRS` in its error, and unsetting it in the terminal
+  starts Claude without the plugin.
+- Claude Code versions without `CLAUDE_CODE_PLUGIN_DIRS` ignore it; for them
+  only the shim adds hooks.
+
 With `agent hook install claude` also in place and its `cmux-tui-hook`
 helper present, both copies use the same command, and Claude Code runs it
 once. When the wrapper finds no helper (neither the installed copy nor one

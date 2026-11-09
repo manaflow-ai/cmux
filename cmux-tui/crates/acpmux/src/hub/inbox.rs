@@ -994,12 +994,15 @@ fn reply_hint(items: &[&Item]) -> Option<String> {
         ));
     }
     for name in &later {
-        parts.push(format!("To answer {name}, inbox_reply or `acpmux send {name} \"…\"`."));
+        parts.push(format!(
+            "To answer {name}, inbox_reply or the send tool (to: \"{name}\"); `acpmux send \
+             {name}` in a shell only without them."
+        ));
     }
     for lead in &leads {
         parts.push(format!(
-            "A subagent reads only the reply to its own send; `acpmux send {lead}` reaches {lead} \
-             itself."
+            "A subagent reads only the reply to its own send; the send tool (to: \"{lead}\") \
+             reaches {lead} itself."
         ));
     }
     (!parts.is_empty()).then(|| {
@@ -2148,8 +2151,12 @@ impl Hub {
                 .rev()
                 .filter(|i| thread_matches(i, thread, allow_declared_fallback))
             {
+                // `from` is the agent's words (`inbox_read`, `acpmux session inbox`, the team
+                // read); `fromName` is the name alone, which the transcript draws when the person
+                // opens the thread, as a notice's parts name it.
                 messages.push(json!({
-                    "promptId": item.prompt_id, "from": display_sender(&item.sender, &item.from), "fromSession": item.from_session,
+                    "promptId": item.prompt_id, "from": display_sender(&item.sender, &item.from),
+                    "fromName": shown_sender(&item.sender, &item.from), "fromSession": item.from_session,
                     "sender": item.sender,
                     "class": item.class, "kind": kind_of(item.class), "at": item.at,
                     "text": item.text, "read": item.read, "details": item.details,
