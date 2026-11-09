@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_link::LINK_PORT;
 use cmux_link::key_holder::{KeyFile, KeyHolder};
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::pairing::{PairingRecord, Pairings};
@@ -129,7 +130,9 @@ async fn an_adopted_link_never_serves_under_another_lock() {
     serve_key(&state, &holder, &Pairings::default()).await.unwrap();
     drop(holder);
     let own = KeyHolder::acquire(&machine.link).unwrap();
-    let refused = serve_key(&state, &own, &Pairings::default()).await.unwrap_err();
+    let Err(refused) = serve_key(&state, &own, &Pairings::default()).await else {
+        panic!("an adopted link served under another lock");
+    };
     assert!(refused.to_string().starts_with("key_lock_dir:"), "{refused}");
 }
 
@@ -304,7 +307,7 @@ async fn run(machine: &Machine, adopting: bool, socket: tokio::net::UdpSocket) -
     overlay.set_retiring(retiring);
     let peers = Arc::new(Peers::load(state.peers_path()).unwrap());
     overlay.sync_peers(&peers.snapshot()).await.unwrap();
-    let listener = overlay.listen(cmux_link::LINK_PORT).await.unwrap();
+    let listener = overlay.listen(LINK_PORT).await.unwrap();
     let mut tasks =
         vec![tokio::spawn(serve_overlay(listener, peers.clone(), None, None, AcpmuxTarget::Off))];
     tasks.push(tokio::spawn({
@@ -322,7 +325,7 @@ async fn run(machine: &Machine, adopting: bool, socket: tokio::net::UdpSocket) -
 
 /// `from` reaches `to`'s link port over the keys they hold now.
 async fn reaches(from: &Running, to: &str) {
-    let remote = SocketAddr::new(IpAddr::V6(overlay_address(to)), cmux_link::LINK_PORT);
+    let remote = SocketAddr::new(IpAddr::V6(overlay_address(to)), LINK_PORT);
     tokio::time::timeout(Duration::from_secs(10), from.overlay.connect(remote))
         .await
         .expect("no connection within 10 s")
