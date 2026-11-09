@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42629075270",
+  "recorded_at": "2026-11-09T14:00:17Z",
+  "reason": "cmux-tui 335e21db5980 changes the image's cmux-tui (pinned b1eae2a434d7)",
+  "dry_run": false,
+  "cmux_tui": "335e21db5980ccf455c433f5e1d014418da537df",
+  "fixes": [
+    {
+      "sha": "6bd5ed4883e5728bf35332b0c06c5371306b245d",
+      "mergedAt": "2026-11-09T13:23:57Z",
+      "subject": "Reducer record backfill: don't pass segments over on a partly filled kind map (#39597)"
+    },
+    {
+      "sha": "ded051668a55daec548d4143243573b35a3fe2dd",
+      "mergedAt": "2026-11-09T05:21:59-08:00",
+      "subject": "acpmux TUI: Enter steers a turn waiting on a permission; menu and help follow (#39568 F1-F3) (#39605)"
+    },
+    {
+      "sha": "e9a45e5ed6395d8eac7ba2c86dbef2be7ae3aaf4",
+      "mergedAt": "2026-11-09T05:20:10-08:00",
+      "subject": "acpmux: the cmux link is a plain ssh machine's backup path when it is a paired install (#39556)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T14:00:17Z",
+    "snapshot_id": "sh-7d173a4300764ccbb852a23fcbfe4f7d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42629075270): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e5ad0795bc880951155d8feb5d47a252609b175e",
+    "image": "cloud-native-auto-335e21db-42629075270-1",
+    "revision": "ci-42629075270-1",
+    "at": "2026-11-09T14:00:17Z"
+  },
+  "rolled_back": false
+}
