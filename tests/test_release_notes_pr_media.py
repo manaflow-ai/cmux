@@ -480,12 +480,14 @@ class GalleryRenderPlanTests(unittest.TestCase):
                 self.tool.main(["parents", "--plan", str(plan), "--limit", "2"])
         self.assertEqual(out.getvalue().split(), ["new", "mid"])
 
-    def test_a_published_picture_goes_again_only_with_its_pair(self):
+    def test_a_published_picture_is_never_uploaded_again(self):
         from pathlib import Path
         with tempfile.TemporaryDirectory() as tmp:
             results = Path(tmp)
-            rows = [{"id": "h", "role": "after", "state": "a.b/x", "url": "u/after", "path": "p/after"}]
+            rows = [{"id": "h", "role": "after", "state": "a.b/x", "url": "u/after", "path": "p/after"},
+                    {"id": "h", "role": "before", "state": "a.b/y", "url": "u/before", "path": "p/before"}]
             (results / "h--after-chromium.png").write_bytes(self.picture(40, 30, [(5, 6, 4)]))
+            (results / "h--before-chromium.png").write_bytes(self.picture(40, 30, [(9, 9, 4)]))
             uploaded = []
             fake = type("M", (), {"privacy_module": lambda self: type("P", (), {"ocr_binary": lambda self: "ocr"})(),
                                   "check_privacy": lambda self, files, repo: None,
@@ -493,10 +495,12 @@ class GalleryRenderPlanTests(unittest.TestCase):
             original = self.tool._load
             self.tool._load = lambda name, path: fake
             try:
+                # Signed notes pin the after's bytes: its late before goes up alone.
+                self.tool.publish(rows, results, exists=lambda url: url == "u/after")
+                self.assertEqual(uploaded, ["p/before"])
+                uploaded.clear()
                 self.tool.publish(rows, results, exists=lambda url: True)
                 self.assertEqual(uploaded, [])
-                self.tool.publish(rows, results, exists=lambda url: False)
-                self.assertEqual(uploaded, ["p/after"])
             finally:
                 self.tool._load = original
 

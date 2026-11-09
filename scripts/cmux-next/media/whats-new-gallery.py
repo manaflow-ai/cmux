@@ -115,11 +115,9 @@ def plan(days: int, everything: bool, exists=published) -> list[dict]:
         category = meta.get("category", "").lower()
         states = notes.gallery_states(meta)
         commit = born[1]
-        urls = notes.gallery_urls(meta, highlight_id, category or "new")
-        # A picture still missing renders its pair again too, so the two share one box (`publish`).
-        if not everything and all(exists(url) for url in urls.values()):
-            continue
-        for role, url in urls.items():
+        for role, url in notes.gallery_urls(meta, highlight_id, category or "new").items():
+            if not everything and exists(url):
+                continue
             row = {"id": highlight_id, "role": role, "url": url, "path": url.split(f"/{BRANCH}/", 1)[1],
                    "born": int(born[0])}
             if role in states:
@@ -386,10 +384,10 @@ def publish(rows: list[dict], results: Path, exists=published) -> list[str]:
     by_highlight: dict[str, list[tuple[dict, Path]]] = {}
     for row, local in files:
         by_highlight.setdefault(row["id"], []).append((row, local))
-    # A picture already up goes again only with its pair (re-cropped to their shared box); alone it
-    # stays as it is, so a before that keeps failing does not upload its after on every push.
-    by_highlight = {key: group for key, group in by_highlight.items()
-                    if len(group) > 1 or not exists(group[0][0]["url"])}
+    # A picture already up is never replaced: published notes pin its bytes' SHA-256, and the app drops
+    # a picture whose bytes differ (ReleaseMediaStore), so a recropped copy would blank older nightlies.
+    by_highlight = {key: kept for key, group in by_highlight.items()
+                    if (kept := [pair for pair in group if not exists(pair[0]["url"])])}
     files = [pair for group in by_highlight.values()
              for pair in zip([row for row, _ in group],
                              crop_pictures([local for _, local in group], results / "cropped"))]
