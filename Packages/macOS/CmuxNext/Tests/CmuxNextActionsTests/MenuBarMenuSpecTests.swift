@@ -13,6 +13,7 @@ struct MenuBarMenuSpecTests {
             case .separator: "-"
             case .info(let text, _, _): "info:\(text)"
             case .action(let id, _, _): id.rawValue
+            case .setting(let text, let key, _): "setting:\(key):\(text)"
             case .header(let title): "header:\(title)"
             case .chat(let chat): "chat:\(chat.id)"
             case .command(let command, _, _): "command:\(command)"
@@ -74,15 +75,15 @@ struct MenuBarMenuSpecTests {
         let items = MenuBarMenuSpec().items(for: state, isBound: Self.everything)
         let ids = Self.ids(items)
         let start = try #require(ids.firstIndex(of: "-")) + 1
-        #expect(Array(ids[start..<start + 4]) == ["info:Keeping Mac awake", "info:Commands running: 1", "info:Agents working: 2", "-"])
-        #expect(items[start] == .info("Keeping Mac awake", symbol: "cup.and.saucer", avatar: false))
+        #expect(Array(ids[start..<start + 4]) == ["setting:sessions.keepAwake:Keeping Mac awake", "info:Commands running: 1", "info:Agents working: 2", "-"])
+        #expect(items[start] == .setting("Keeping Mac awake", key: "sessions.keepAwake", symbol: "cup.and.saucer"))
 
         let agentsOnly = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(agentsWorking: 1, keepingAwake: .init()), isBound: Self.everything))
-        #expect(agentsOnly.contains("info:Keeping Mac awake"))
+        #expect(agentsOnly.contains("setting:sessions.keepAwake:Keeping Mac awake"))
         #expect(!agentsOnly.contains { $0.hasPrefix("info:Commands running") })
 
         let none = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(agentsWorking: 1), isBound: Self.everything))
-        #expect(!none.contains("info:Keeping Mac awake"))
+        #expect(!none.contains { $0.hasPrefix("setting:sessions.keepAwake") })
     }
 
     /// A downloaded update: Restart to Update (the install path, run only on this click) takes
@@ -102,6 +103,23 @@ struct MenuBarMenuSpecTests {
         let bound: Set<ActionID> = ["showMainWindow", "help.discord", "quit"]
         let ids = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(), isBound: { bound.contains($0) }))
         #expect(ids == ["showMainWindow", "-", "help.discord", "-", "quit"])
+    }
+
+    /// Keeping Mac awake is one click from its setting: the row runs Settings… at sessions.keepAwake,
+    /// enabled, with no shortcut, beside Settings… itself.
+    @Test func keepingAwakeOpensItsSetting() throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("openSettings") {}
+        let menu = NSMenu()
+        MenuBarMenuBuilder(registry: registry).fill(menu, state: MenuBarMenuState(keepingAwake: .init()))
+        let row = try #require(menu.items.first { $0.identifier?.rawValue == "cmux.setting.sessions.keepAwake" })
+        #expect(row.title == "Keeping Mac awake")
+        #expect(row.keyEquivalent.isEmpty)
+        #expect(row.action != nil)
+        let run = try #require(ActionRegistry.menuRun(of: row))
+        #expect(run.id == "openSettings")
+        #expect(run.arguments == ["setting": .string("sessions.keepAwake")])
+        #expect(menu.items.filter { $0.identifier?.rawValue == "cmux.action.openSettings" }.count == 1)
     }
 
     /// The builder: registry rows with their ids, a disabled info line, the global key on Open cmux.
