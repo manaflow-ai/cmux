@@ -5,6 +5,12 @@ cmux checkout and the app you're using right now changes as you save: no build, 
 windows, chats and terminals stay where they are. It works in every cmux build, in WebKit and in
 Chromium, and it's on by default.
 
+`cmux live` and **Live Web Reload** are one feature, not one for Swift and one for React. `cmux live`
+(or **Edit cmux Live…**) is how you start and stop it; **Live Web Reload** in Settings > General is
+the switch that lets the app load what `cmux live` serves. Plain `cmux live start` is the React web
+UI. Swift (`--swift`), the daemon's Rust (`--rust`) and Chromium (`--chromium`) are flags of the same
+command, below.
+
 ## Start in 30 seconds
 
 ```sh
@@ -523,6 +529,7 @@ Built bundles carry none of this. The code is `webviews/src/devkit/perfBudgets.t
 | You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **Live Web Reload** off (`cmux settings set updates.liveWebReload false`). |
 | Nothing changes, and `status` says the server runs | `cmux settings get updates.liveWebReload` says `true`. The app's commit includes this change (older NIGHTLYs also needed Debug Settings > Pages > Live web reload on). |
 | `status` says `refused by <app>` | The overlay was built for another page bridge (`abi` in its `manifest.json`, from `webviews/src/web-abi.json`) than the app has, so the app serves its own pages instead of calling host ops it lacks. Build the overlay from a tree at the app's ABI (near its `CMUXCommit`), or run a build of that tree. A web update is refused the same way. |
+| A page's React content goes blank, or a page shows another page or its HTML | The dev server answered a file it does not have (a bundled page's chunk, a page newer than your checkout) with the diff viewer's `index.html`. A server from a checkout with this change answers cmux a 404 there, and the app serves the bundled copy: pull, then `cmux live start` again. Serve a tree near the app's commit, so every page the app opens is in it. A page drawn as its HTML source in Chromium is fixed in apps from #37247 on. |
 | Unstyled pages with no override running | Not the live loop. With no `web-dev.json`, the app serves its bundled files unchanged. Report it with the app's commit. |
 
 The design and its edge cases are in [web-live-reload.md](../../plans/cmux-next/web-live-reload.md).
