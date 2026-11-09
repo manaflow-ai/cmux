@@ -6,7 +6,7 @@
  */
 import { Effect, Redacted } from "effect";
 import { expect, it } from "vitest";
-import { ORPHAN_MIN_AGE_MS, orphanSlug, sweepOrphanVms } from "../../src/upstream/orphan-sweep.ts";
+import { ORPHAN_MIN_AGE_MS, orphanSlug, sweepOrphanTunnels, sweepOrphanVms } from "../../src/upstream/orphan-sweep.ts";
 
 const NOW = Date.parse("2026-11-04T12:00:00Z");
 const old = new Date(NOW - ORPHAN_MIN_AGE_MS - 60_000).toISOString();
@@ -122,4 +122,147 @@ it("names each orphan's reason: no row, or a row deleted while the VM stayed", a
   const q = provider([ours(1)]);
   const plain = await Effect.runPromise(sweepOrphanVms(q.config, { nowMs: NOW, dryRun: true, recorded: recordedOf([]) }));
   expect(plain.orphans[0]?.reason).toBe("no_row");
+});
+
+const device = (n: number) => `dev_${String(n).padStart(26, "0")}`;
+const tunnelProvider = (tunnels: ReadonlyArray<{ id: string; slug: string | null; displayName: string | null; attachments?: ReadonlyArray<{ vpcId: string | null }> }>) => {
+  const live = new Map(tunnels.map((tunnel) => [tunnel.id, tunnel]));
+  const deletes: string[] = [];
+  const fetch = async (request: Request) => {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/v5/tunnels") return Response.json({ tunnels: [...live.values()], totalCount: live.size });
+    const match = /^\/v5\/tunnels\/([^/]+)$/.exec(url.pathname);
+    if (request.method === "DELETE" && match) {
+      const upstreamId = decodeURIComponent(match[1]!);
+      deletes.push(upstreamId);
+      return live.delete(upstreamId) ? Response.json({}) : Response.json({ code: "NOT_FOUND" }, { status: 404 });
+    }
+    return new Response(null, { status: 500 });
+  };
+  return { live, deletes, config: { baseUrl: "https://provider.test", apiKey: Redacted.make("key"), environment: "production" as const, fetch } };
+};
+const deviceTunnel = (n: number, environment = "production", tenant = "team_alpha", attachments: ReadonlyArray<{ vpcId: string | null }> = [{ vpcId: "vpc-mesh" }]) => ({
+  id: `tun-${n}`, slug: `cmux-tun-${environment}-${device(n).replace("_", "-")}`, displayName: `cmux-vm-${environment} ${tenant} ${device(n)}`, attachments,
+});
+/** A lookup naming `devices`, each on the mesh network "vpc-mesh". */
+const naming = (devices: ReadonlyArray<string>) => (owners: ReadonlyArray<{ readonly deviceId: string }>) => {
+  const found: ReadonlyMap<string, string> = new Map(owners.filter((owner) => devices.includes(owner.deviceId)).map((owner) => [owner.deviceId, "vpc-mesh"] as const));
+  return Effect.succeed(found);
+};
+
+it("deletes only this environment's device tunnels, named exactly as their create named them, that the lookup names", async () => {
+  const p = tunnelProvider([
+    deviceTunnel(1), // sweepable
+    deviceTunnel(2), // the lookup keeps it (a live device, or an open attempt)
+    deviceTunnel(3, "staging"), // another environment
+    { ...deviceTunnel(4), displayName: "someone else's" }, // not the create's name
+    { id: "tun-5", slug: "cmux-tun-production-vm-00000000000000000000000005", displayName: null }, // not a device id
+    { id: "tun-6", slug: null, displayName: null },
+  ]);
+  const asked: string[] = [];
+  const report = await Effect.runPromise(sweepOrphanTunnels(p.config, {
+    dryRun: false,
+    sweepable: (owners) => {
+      asked.push(...owners.map((owner) => `${owner.tenantId} ${owner.deviceId}`));
+      return naming([device(1)])(owners);
+    },
+  }));
+  expect([...new Set(asked)].sort()).toEqual([`team_alpha ${device(1)}`, `team_alpha ${device(2)}`]);
+  expect(report.deleted).toEqual(["tun-1"]);
+  expect(p.deletes).toEqual(["tun-1"]);
+  expect([...p.live.keys()].sort()).toEqual(["tun-2", "tun-3", "tun-4", "tun-5", "tun-6"]);
+});
+
+it("skips and reports a named tunnel that is not attached to exactly its mesh's network, and deletes the one that is", async () => {
+  const p = tunnelProvider([
+    deviceTunnel(1), // on its mesh's network only: deleted
+    deviceTunnel(2, "production", "team_alpha", []), // no attachments
+    deviceTunnel(3, "production", "team_alpha", [{ vpcId: "vpc-mesh" }, { vpcId: "vpc-other" }]), // its mesh's plus another
+    deviceTunnel(4, "production", "team_alpha", [{ vpcId: "vpc-other" }]), // only another
+    deviceTunnel(5, "production", "team_alpha", [{ vpcId: null }]), // an attachment with no network id
+  ]);
+  const report = await Effect.runPromise(sweepOrphanTunnels(p.config, { dryRun: false, sweepable: naming([1, 2, 3, 4, 5].map(device)) }));
+  expect(report.deleted).toEqual(["tun-1"]);
+  expect([...report.skipped].sort()).toEqual(["tun-2", "tun-3", "tun-4", "tun-5"]);
+  expect(p.deletes).toEqual(["tun-1"]);
+  expect([...p.live.keys()].sort()).toEqual(["tun-2", "tun-3", "tun-4", "tun-5"]);
+});
+
+it("deletes no tunnel when the sweep's lookup fails", async () => {
+  const p = tunnelProvider([deviceTunnel(1)]);
+  const outcome = await Effect.runPromise(Effect.either(sweepOrphanTunnels(p.config, { dryRun: false, sweepable: () => Effect.fail("db down") })));
+  expect(outcome._tag).toBe("Left");
+  expect(p.deletes).toEqual([]);
+});
+
+it("reads a tunnel listing far over the 1 MiB reply cap as it streams, and still sweeps it", async () => {
+  // 4,000 tunnels with a full WireGuard config each: about 3 MiB, streamed in 16 KiB chunks.
+  // tun-3999 sits only on its device's mesh network and is deleted; tun-2000 is named by the
+  // lookup too but sits on another network, so the exact-attachment check skips it.
+  const listing = Array.from({ length: 4_000 }, (_, n) => ({
+    ...deviceTunnel(n + 1),
+    clientConfig: `[Interface]\nPrivateKey = \nAddress = 100.64.0.1/32\n${"#".repeat(600)}`,
+    attachments: [{ vpcId: n + 1 === 2_000 ? "vpc-other" : "vpc-mesh", address: "10.0.0.2" }],
+  }));
+  const text = JSON.stringify({ tunnels: listing, totalCount: listing.length });
+  expect(text.length).toBeGreaterThan(3 * 1024 * 1024);
+  const deletes: string[] = [];
+  const fetch = async (request: Request) => {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/v5/tunnels") {
+      const bytes = new TextEncoder().encode(text);
+      let offset = 0;
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (offset >= bytes.length) return controller.close();
+          controller.enqueue(bytes.slice(offset, offset + 16 * 1024));
+          offset += 16 * 1024;
+        },
+      }), { headers: { "content-type": "application/json" } });
+    }
+    if (request.method === "DELETE") {
+      deletes.push(decodeURIComponent(url.pathname.replace("/v5/tunnels/", "")));
+      return Response.json({});
+    }
+    return new Response(null, { status: 500 });
+  };
+  const report = await Effect.runPromise(sweepOrphanTunnels(
+    { baseUrl: "https://provider.test", apiKey: Redacted.make("key"), environment: "production", fetch },
+    { dryRun: false, sweepable: naming([device(2_000), device(3_999)]) },
+  ));
+  expect(report.listed).toBe(4_000);
+  expect(report.skipped).toEqual(["tun-2000"]);
+  expect(report.deleted).toEqual(["tun-3999"]);
+  expect(deletes).toEqual(["tun-3999"]);
+});
+
+it("deletes nothing when the listing is cut off", async () => {
+  const fetch = async (request: Request) =>
+    new URL(request.url).pathname === "/v5/tunnels" && request.method === "GET"
+      ? new Response(JSON.stringify({ tunnels: [deviceTunnel(1)] }).slice(0, -3))
+      : new Response(null, { status: 500 });
+  const outcome = await Effect.runPromise(Effect.either(sweepOrphanTunnels(
+    { baseUrl: "https://provider.test", apiKey: Redacted.make("key"), environment: "production", fetch },
+    { dryRun: false, sweepable: naming([device(1)]) },
+  )));
+  expect(outcome._tag).toBe("Left");
+});
+
+it("deletes nothing when the listing breaks the JSON grammar after its items", async () => {
+  const deletes: string[] = [];
+  for (const tail of ["]]}", "]} x", "}}", '],"totalCount":}', '],"tunnels":null}', '],"\\u0074unnels":[]}']) {
+    const text = `{"tunnels":[${JSON.stringify(deviceTunnel(1))}${tail}`;
+    const fetch = async (request: Request) => {
+      const url = new URL(request.url);
+      if (url.pathname === "/v5/tunnels" && request.method === "GET") return new Response(text);
+      if (request.method === "DELETE") deletes.push(url.pathname);
+      return Response.json({});
+    };
+    const outcome = await Effect.runPromise(Effect.either(sweepOrphanTunnels(
+      { baseUrl: "https://provider.test", apiKey: Redacted.make("key"), environment: "production", fetch },
+      { dryRun: false, sweepable: naming([device(1)]) },
+    )));
+    expect(outcome._tag).toBe("Left");
+  }
+  expect(deletes).toEqual([]);
 });
