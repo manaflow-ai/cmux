@@ -3,9 +3,11 @@ use std::cell::Cell;
 use serde_json::{Value, json};
 
 use super::super::cloud_start_chat::Machine;
+use std::time::Duration;
+
 use super::{
-    Parsed, Reads, Route, Start, TAKES_VALUE, cloud_words, global_words, here_words, parse,
-    parse_with, pick_target, route, setting_stream, start_words,
+    Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_wait,
+    here_words, new_args, parse, parse_with, pick_target, route, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -189,8 +191,37 @@ fn a_vm_chat_is_the_cloud_start_chat_run() {
     // A Cloud chat needs a prompt, and takes no model or chat name.
     assert!(cloud_words(&start(&[]), &Machine::New).is_err());
     assert!(cloud_words(&start(&["--model", "m", "go"]), &Machine::New).is_err());
-    // A chat here does not wait.
-    assert!(here_words(&[], &start(&["--wait", "go"])).is_err());
+}
+
+/// Before, `cmux chat --prompt X --wait` here was refused ("--wait and --timeout wait for a Cloud
+/// chat; for a chat here, `cmux agents wait`"): a chat here took three commands. Now it waits, as
+/// a Cloud chat does, with Cloud's default and cap.
+#[test]
+fn a_chat_here_waits_for_its_reply_as_a_cloud_chat_does() {
+    assert_eq!(here_wait(&start(&["go"])).unwrap(), None);
+    assert_eq!(here_wait(&start(&["--wait", "go"])).unwrap(), Some(Duration::from_secs(900)));
+    assert_eq!(
+        here_wait(&start(&["--wait", "--timeout", "60", "go"])).unwrap(),
+        Some(Duration::from_secs(60))
+    );
+    assert_eq!(
+        here_wait(&start(&["--wait", "--timeout", "999999", "go"])).unwrap(),
+        Some(Duration::from_secs(4 * 60 * 60))
+    );
+    // `--timeout` alone bounds nothing, and is seconds, more than none.
+    assert!(here_wait(&start(&["--timeout", "60", "go"])).is_err());
+    assert!(here_wait(&start(&["--wait", "--timeout", "0", "go"])).is_err());
+    assert!(here_wait(&start(&["--wait", "--timeout", "soon", "go"])).is_err());
+    // The start it waits on is the `agents chat new` a chat here always was.
+    let waits = start(&["--wait", "--agent", "codex", "--name", "n", "--prompt", "go"]);
+    assert_eq!(
+        new_args(&waits).unwrap(),
+        words(&["--harness", "codex", "--name", "n", "--", "go"])
+    );
+    let mut expected = words(&["agents", "chat", "new"]);
+    expected.extend(new_args(&waits).unwrap());
+    assert_eq!(here_words(&[], &waits).unwrap(), expected);
+    assert!(!USAGE.contains("Wait for a Cloud chat"), "the help says --wait works here too");
 }
 
 #[test]

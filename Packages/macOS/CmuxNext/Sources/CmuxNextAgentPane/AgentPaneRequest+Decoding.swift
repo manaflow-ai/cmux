@@ -644,7 +644,7 @@ extension AgentPaneRequest {
             } else {
                 self = .invalidGit(method)
             }
-        case "git.diff", "git.status", "file.search", "git.checkpoint.diff":
+        case "git.diff", "git.status", "file.search", "git.checkpoint.diff", "git.worktree.setup":
             if let git = AgentPaneGitRequest(method: method, params: params) {
                 self = .git(git)
             } else {

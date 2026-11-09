@@ -188,8 +188,9 @@ import Testing
         reveal.setEdgeEngaged(true)
         try await clock.waitForSleeper()
         reveal.setEdgeEngaged(false)
+        // Leaving cancelled the open: nothing is asleep on the clock, so no amount of time opens it.
+        #expect(clock.sleeperCount == 0, "leaving the edge left its open pending")
         clock.advance(by: FloatingSidebarReveal.openDelay)
-        try await Task.sleep(for: .milliseconds(20))
         #expect(!model.isFloating, "a pointer passing the edge opens nothing")
         // A rest.
         reveal.setEdgeEngaged(true)
@@ -208,8 +209,9 @@ import Testing
         reveal.setPanelEngaged(false)
         try await clock.waitForSleeper()
         reveal.setPanelEngaged(true) // back before the delay ran out
+        // Coming back cancelled the close: nothing is asleep on the clock, so no amount of time closes it.
+        #expect(clock.sleeperCount == 0, "coming back left its close pending")
         clock.advance(by: FloatingSidebarReveal.closeDelay)
-        try await Task.sleep(for: .milliseconds(20))
         #expect(model.isFloating, "a short overshoot does not drop it")
         reveal.setPanelEngaged(false)
         try await clock.waitForSleeper()
@@ -223,13 +225,18 @@ import Testing
         model.presentation = .hidden
         let reveal = FloatingSidebarReveal(model: model, clock: clock)
         var held = true
-        reveal.holdsOpen = { held }
+        // The close deadline asks the hold when it fires: its count is the signal that the deadline ran.
+        var asked = 0
+        reveal.holdsOpen = {
+            asked += 1
+            return held
+        }
         model.isFloating = true
         reveal.setPanelEngaged(true)
         reveal.setPanelEngaged(false)
         try await clock.waitForSleeper()
         clock.advance(by: FloatingSidebarReveal.closeDelay)
-        try await Task.sleep(for: .milliseconds(20))
+        try await until("the close deadline ran and asked the hold") { asked > 0 }
         #expect(model.isFloating, "held open past the delay")
         held = false
         reveal.reconcile()

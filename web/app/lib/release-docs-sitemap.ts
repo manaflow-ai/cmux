@@ -12,6 +12,14 @@ function isDocsUrl(url: string): boolean {
   }
 }
 
+function isNightlyDocsUrl(url: string): boolean {
+  try {
+    return /^\/docs\/nightly(?:\/|$)/u.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
+}
+
 function decodeXmlText(value: string): string {
   return value
     .replaceAll("&lt;", "<")
@@ -46,7 +54,10 @@ export function keepServedDocsEntries(
   entries: MetadataRoute.Sitemap,
   servedDocsUrls: ReadonlySet<string>,
 ): MetadataRoute.Sitemap {
-  const isServed = (url: string) => !isDocsUrl(url) || servedDocsUrls.has(url);
+  // /docs/nightly is the nightly docs zone, built from the same branch as
+  // this deployment, so it serves what this sitemap lists there.
+  const isServed = (url: string) =>
+    !isDocsUrl(url) || isNightlyDocsUrl(url) || servedDocsUrls.has(url);
   const kept: MetadataRoute.Sitemap = [];
   for (const entry of entries) {
     if (!isServed(entry.url)) continue;

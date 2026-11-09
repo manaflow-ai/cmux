@@ -2110,6 +2110,34 @@ let package = Package(
                 self.assertEqual(direct.returncode, 0, direct.stdout + direct.stderr)
                 self.assertNotIn("no picture source", direct.stdout + direct.stderr)
 
+    def test_an_improvement_on_a_new_gallery_file_needs_its_old_look_marked(self):
+        # agent-file-result-cards and agent-web-result-cards (2026-11-09) added their gallery files, so the state
+        # rendered at the commit before had nothing to draw and the improvement shipped with no before.
+        improved = self.HIGHLIGHT_NO_PICTURE.replace("category: new", "category: improved")
+        new_file = "webviews/src/side/SideChat.gallery.ts"
+        cases = {
+            "unmarked": ('variants: { open: { note: "Selected: open." } }\n', True),
+            "a Before note": ('variants: { open: {}, closed: { note: "Before: one row." } }\n', False),
+            "an old-look name": ('variants: { open: {}, "open-before": {} }\n', False),
+        }
+        for name, (gallery, refused) in cases.items():
+            with self.subTest(gallery=name):
+                self.git("reset", "--quiet", "--hard", "origin/feat-cmux-next")
+                self.write(f"{self.HIGHLIGHTS}/side-chat.md", improved)
+                self.write(new_file, gallery)
+                self.commit(f"adds an improvement on a new gallery file, {name}")
+
+                direct = subprocess.run(["python3", "-I", GATE, "--only", "pictures"], cwd=self.repo, env=self.env,
+                                        text=True, capture_output=True)
+
+                output = direct.stdout + direct.stderr
+                self.assertEqual(direct.returncode != 0, refused, output)
+                self.assertEqual("gallery file is new, with no before" in output, refused, output)
+                self.assertNotIn("no picture source", output)
+                if refused:
+                    self.assertIn('its note opening "Before:"', output)
+                    self.assertNotIn("Give each one a picture", output)
+
     def test_a_validator_warning_on_stderr_does_not_turn_a_refusal_into_a_pass(self):
         # The validator's result is read from its own file, never from its output: a warning it prints (a future
         # SyntaxWarning) must not make the check fail open (review of #31260).

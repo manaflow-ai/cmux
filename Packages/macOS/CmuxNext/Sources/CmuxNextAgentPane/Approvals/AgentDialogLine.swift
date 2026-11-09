@@ -11,11 +11,14 @@ public protocol AgentDialogLine: AnyObject {
     var capabilities: Set<String> { get }
     /// One request; its `result`, or nil when it failed or the connection closed.
     func call(_ method: String, _ params: [String: Any]) async -> [String: Any]?
+    /// The `error.message` of the last request acpmux refused, nil when none was.
+    var lastError: String? { get }
     func close()
 }
 
 public extension AgentDialogLine {
     var capabilities: Set<String> { [] }
+    var lastError: String? { nil }
 }
 
 extension AcpmuxPersonLine: AgentDialogLine {}
