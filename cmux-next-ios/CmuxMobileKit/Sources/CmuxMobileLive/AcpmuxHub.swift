@@ -250,6 +250,20 @@ public final class AcpmuxHub {
         return source
     }
 
+    // A retained source can have readers using a freshly attached replay generation.
+    // Session actions must reach them as well as readers of the original generation.
+    fileprivate func emitLocal(_ event: AgentSessionEvent, sessionID: String) {
+        for entry in sources[sessionID] ?? [] { entry.source?.receiveLocal(event) }
+    }
+
+    fileprivate func refreshPermissions(sessionID: String) {
+        for entry in sources[sessionID] ?? [] { entry.source?.refill() }
+    }
+
+    fileprivate func loadEarlierHistory(sessionID: String) {
+        for entry in sources[sessionID] ?? [] { entry.source?.loadEarlierHistoryPage() }
+    }
+
     /// `_acpmux/permission_respond`. Throws the server's refusal (a remote
     /// connection may deny or cancel; an allow needs the Mac's person proof).
     public func respond(sessionID: String, permissionID: String, optionID: String?, answers: JSONValue? = nil) async throws {
@@ -538,7 +552,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     do {
                         blocks = try await self.promptBlocks(text: text, attachments: attachments, hub: hub)
                     } catch {
-                        self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                        self.emitLocal(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
                                                  reason: AcpmuxSessionSource.message(error)))
                         return
                     }
@@ -553,7 +567,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     } catch let error as LinkError {
                         // Maybe never reached the Mac: the draft comes back with its id, so a resend
                         // runs at most once, and it leaves again if the transcript shows it ran.
-                        self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                        self.emitLocal(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
                                                  reason: AcpmuxSessionSource.message(error)))
                     }
                 case .retryFailedTurn:
@@ -566,19 +580,19 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     try await hub.answerElevation(sessionID: sessionID, ask: ask, password: password)
                 case .answerQuestion(let questionID, let answer):
                     guard let question = questions[questionID] else {
-                        self.emit(.clientError("This question is no longer open on \(self.summary.macName)."))
+                        self.emitLocal(.clientError("This question is no longer open on \(self.summary.macName)."))
                         return
                     }
                     try await hub.answer(question, with: answer)
                 case .setModel(let id):
                     _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(id)]))
                     // The menu's check follows the pick (no record carries the model change).
-                    if !self.knownModels.isEmpty { self.emit(.modelsAvailable(self.knownModels, current: id)) }
+                    if !self.knownModels.isEmpty { self.emitLocal(.modelsAvailable(self.knownModels, current: id)) }
                 case .retryWithModel(let model, let text, let attachments, let promptID):
                     // As the Mac's Retry with another model: the move first; a refusal (acpmux's
                     // own words, e.g. a Claude chat the Mac started) sends nothing.
                     _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(model)]))
-                    if !self.knownModels.isEmpty { self.emit(.modelsAvailable(self.knownModels, current: model)) }
+                    if !self.knownModels.isEmpty { self.emitLocal(.modelsAvailable(self.knownModels, current: model)) }
                     self.send(.prompt(text: text, attachments: attachments, steer: false, promptID: promptID, resend: false))
                 case .setMode(let id):
                     _ = try await hub.request("session/set_mode", .object(["sessionId": session, "modeId": .string(id)]))
@@ -604,7 +618,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 }
             } catch {
                 if AcpmuxSessionSource.isFullAccessRefusal(error) { hub.fullAccessRefused() }
-                self.emit(.clientError(AcpmuxSessionSource.message(error)))
+                self.emitLocal(.clientError(AcpmuxSessionSource.message(error)))
             }
         }
     }
@@ -888,7 +902,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Reads the open asks again: a reattach from the last record applied, whose reply lists
     /// every permission still waiting (`applyState`).
-    public func refreshPermissions() { refill() }
+    public func refreshPermissions() {
+        hub?.refreshPermissions(sessionID: sessionID)
+    }
 
     public var eventJournal: AgentEventJournal? { journal }
 
@@ -1444,6 +1460,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var loadingEarlier = false
 
     public func loadEarlierHistory() {
+        if let hub {
+            hub.loadEarlierHistory(sessionID: sessionID)
+        } else {
+            loadEarlierHistoryPage()
+        }
+    }
+
+    fileprivate func loadEarlierHistoryPage() {
         guard !loadingEarlier else { return }
         guard let before = earlierBefore, let hub, hub.isReady else {
             // Nothing to read now (the start is shown, or the link is down): the chat's
@@ -1525,7 +1549,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             earlierCarry = all
             earlierBefore = Int(oldest)
             log.info("earlier \(self.sessionID, privacy: .public) before \(before, privacy: .public): no prompt yet, \(all.count, privacy: .public) records carried")
-            loadEarlierHistory()
+            loadEarlierHistoryPage()
             return
         }
         let events = page.flatMap { records.map($0) }
@@ -1606,6 +1630,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         for event in events { record(replay: event) }
         for continuation in continuations.values { continuation.yield(.batch(events)) }
     }
+
+    private func emitLocal(_ event: AgentSessionEvent) {
+        if let hub { hub.emitLocal(event, sessionID: sessionID) }
+        else { emit(event) }
+    }
+
+    fileprivate func receiveLocal(_ event: AgentSessionEvent) { emit(event) }
 
     private func emit(_ event: AgentSessionEvent) {
         switch event {

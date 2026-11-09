@@ -41,7 +41,7 @@ import Testing
 
 @MainActor
 @Suite struct AcpmuxReplayResyncTests {
-    enum Overflow: Sendable, CaseIterable { case events, pendingChunk, oversizedChunk }
+    enum Overflow: Sendable, CaseIterable, Equatable { case events, pendingChunk, oversizedChunk }
 
     @Test(arguments: Overflow.allCases)
     func newReaderResyncsWithoutInterruptingTheExistingReader(overflow: Overflow) async throws {
@@ -56,9 +56,15 @@ import Testing
             case "_acpmux/watch": return [reply(#"{"sessions":[]}"#)]
             case "_acpmux/attach":
                 let params = object["params"] as? [String: Any]
-                attaches.append((params?["afterSeq"] as? NSNumber)?.intValue ?? 0)
+                let after = (params?["afterSeq"] as? NSNumber)?.intValue ?? 0
+                attaches.append(after)
+                let history = ChatOpenSnapshotLiveTests.turnRecords(1).joined(separator: ",")
+                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":\#(after == 0),"events":[\#(history)]}"#)]
+            case "_acpmux/events":
                 let history = ChatOpenSnapshotLiveTests.turnRecords(0).joined(separator: ",")
-                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"events":[\#(history)]}"#)]
+                return [reply(#"{"hasMore":false,"events":[\#(history)]}"#)]
+            case "session/set_model":
+                return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"model unavailable"}}"#.utf8)]
             case "_test/live":
                 return [reply("{}"), Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s1","seq":100000,"dir":"mux","kind":"user_message","msg":{"text":"live","promptId":"live","turnId":"live"}}}"#.utf8)]
             default: return [reply("{}")]
@@ -82,7 +88,7 @@ import Testing
             let remaining = AcpmuxSessionSource.replayEventLimit - source.replayCount
             for n in 0..<(remaining + extra) {
                 source.receive(record: .object([
-                    "seq": .number(Double(n + 10)), "dir": .string("mux"), "kind": .string("turn_started"),
+                    "seq": .number(Double(n + 100)), "dir": .string("mux"), "kind": .string("turn_started"),
                     "msg": .object(["turnId": .string("t0")]),
                 ]))
             }
@@ -100,12 +106,31 @@ import Testing
             Issue.record("the resynced reader did not receive one complete history batch")
             return
         }
-        #expect(ChatOpenSnapshotLiveTests.userMessages(history) == ["t0"])
+        #expect(ChatOpenSnapshotLiveTests.userMessages(history) == ["t1"])
         #expect(first.events.filter { if case .batch = $0 { true } else { false } }.count == 1,
                 "resync never repeats history into the existing reader")
 
         source.receive(record: Self.chunk("after expiry", seq: 90_001))
         #expect(source.replayCount == 0, "an expired source keeps delivering but retains no new chunks")
+
+        // The store still holds the original source after its event stream resyncs.
+        // Its actions must reach the new reader, not disappear into the old source.
+        source.send(.setModel("unavailable"))
+        await ChatOpenSnapshotLiveTests.waitUntil {
+            Self.hasModelError(first.events) && Self.hasModelError(second.events)
+        }
+        #expect(Self.hasModelError(first.events))
+        #expect(Self.hasModelError(second.events))
+        source.loadEarlierHistory()
+        await ChatOpenSnapshotLiveTests.waitUntil {
+            Self.hasOlderTurn(first.events) && Self.hasOlderTurn(second.events)
+        }
+        #expect(Self.hasOlderTurn(first.events))
+        #expect(Self.hasOlderTurn(second.events))
+
+        source.refreshPermissions()
+        await ChatOpenSnapshotLiveTests.waitUntil { attaches.all.count == 4 }
+        #expect(attaches.all.suffix(2).sorted() == [10, 90_001], "both replay generations refresh their own state")
 
         _ = try await hub.request("_test/live", .object([:]))
         await ChatOpenSnapshotLiveTests.waitUntil {
@@ -114,6 +139,17 @@ import Testing
         }
         #expect(ChatOpenSnapshotLiveTests.userMessages(first.events).contains("live"))
         #expect(ChatOpenSnapshotLiveTests.userMessages(second.events).contains("live"))
+    }
+
+    private static func hasModelError(_ events: [AgentSessionEvent]) -> Bool {
+        events.contains { if case .clientError(let text) = $0 { text.localizedCaseInsensitiveContains("model unavailable") } else { false } }
+    }
+
+    private static func hasOlderTurn(_ events: [AgentSessionEvent]) -> Bool {
+        events.contains {
+            if case .earlierPage(let page, _) = $0 { ChatOpenSnapshotLiveTests.userMessages(page).contains("t0") }
+            else { false }
+        }
     }
 
     private static func chunk(_ text: String, seq: Int) -> JSONValue {
