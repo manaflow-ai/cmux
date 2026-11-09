@@ -55,7 +55,8 @@ public nonisolated struct ClassicRunningProbe: Sendable {
     /// Whether the classic app that saves `source` is open and may still save, on this Mac: it holds the lock beside
     /// its control socket (``lockPaths(channel:home:)``; `lockHeld` answers for a path, nil asks ``isLockHeld(_:)``),
     /// or its launch sentinel under `stateRoot` (nil: ``defaultStateRoot(home:environment:)``) and a recent save say so.
-    public static func isOpen(_ source: ClassicMigrationSource?, lockHeld: ((String) -> Bool)? = nil, stateRoot: URL? = nil) -> Bool {
+    @MainActor
+    public static func isOpen(_ source: ClassicMigrationSource?, lockHeld: (@MainActor (String) -> Bool)? = nil, stateRoot: URL? = nil) -> Bool {
         guard let source else { return false }
         let home = FileManager.default.homeDirectoryForCurrentUser
         if lockPaths(channel: source.bundleID, home: home).contains(where: { lockHeld?($0) ?? isLockHeld($0) }) { return true }
