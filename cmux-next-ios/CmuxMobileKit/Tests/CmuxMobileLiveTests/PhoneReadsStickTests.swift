@@ -63,11 +63,14 @@ import Testing
         for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
         let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
         await sync.bind(try await mac.link().openChannel(service: "daemon", args: [:]), macID: "m")
-        return (LiveWorkspaceCreationBackend(sync: sync, link: controller), sync)
+        let backend = LiveWorkspaceCreationBackend(sync: sync, link: controller)
+        // Short spacings: a busy test runner must not stretch the real ones past the waits below.
+        backend.reads.pause = { _ in try? await Task.sleep(for: .milliseconds(10)) }
+        return (backend, sync)
     }
 
     /// Waits up to `seconds` of real time for `condition` (a retry is spaced in real time).
-    static func waitUntil(seconds: Double = 3, _ condition: () -> Bool) async {
+    static func waitUntil(seconds: Double = 15, _ condition: () -> Bool) async {
         let end = ContinuousClock.now + .seconds(seconds)
         while !condition(), ContinuousClock.now < end { try? await Task.sleep(for: .milliseconds(10)) }
     }

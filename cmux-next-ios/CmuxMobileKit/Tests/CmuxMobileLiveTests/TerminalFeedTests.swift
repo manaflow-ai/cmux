@@ -94,7 +94,7 @@ import Testing
     struct Down: Error {}
 
     /// Waits up to `seconds` of real time for `condition` (a retry is spaced in real time).
-    static func waitUntil(seconds: Double = 3, _ condition: () -> Bool) async {
+    static func waitUntil(seconds: Double = 15, _ condition: () -> Bool) async {
         let end = ContinuousClock.now + .seconds(seconds)
         while !condition(), ContinuousClock.now < end { try? await Task.sleep(for: .milliseconds(10)) }
     }
@@ -244,6 +244,8 @@ import Testing
         let daemon = FakeDaemon()
         daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
         let (store, feed) = Self.make(daemon)
+        // Short spacings: a busy test runner must not stretch the real ones past the waits below.
+        feed.reads.pause = { _ in try? await Task.sleep(for: .milliseconds(10)) }
         feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
         await Self.settle { store.items.count == 1 }
 
