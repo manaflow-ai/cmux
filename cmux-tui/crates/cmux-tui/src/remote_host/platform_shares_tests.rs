@@ -575,9 +575,7 @@ fn a_create_that_fails_keeps_that_person_and_the_rest_local() {
     assert_eq!(left, ["s-2", "s-3"]);
 }
 
-#[test]
-fn an_every_chat_share_covers_local_shares_and_cannot_be_narrowed_by_name() {
-    let api = Platform::default();
+fn every_chat_share(api: &Platform) {
     api.shares.borrow_mut().push(PlatformShare {
         id: "csh_cccccccccccccccccccc".into(),
         machine: VM.into(),
@@ -587,11 +585,62 @@ fn an_every_chat_share_covers_local_shares_and_cannot_be_narrowed_by_name() {
         revoked_at: None,
         created_by: None,
     });
-    let outcome = moved(with_shares(vec![local(ANA, "s-1")]), &api);
-    assert_eq!(outcome.moved.len(), 1);
-    assert!(api.creates.borrow().is_empty());
+}
+
+#[test]
+fn an_every_chat_platform_share_never_takes_the_place_of_a_local_share() {
+    // A machine refuses a grant with no chats, so Ana's every-chat share admits her to none: her
+    // local share is her only way in, and it stays, with its grant.
+    let api = Platform::default();
+    every_chat_share(&api);
+    let config = config::Config {
+        grants: vec![grant(false, true, &[Scope::Agents, Scope::Shell])],
+        ..with_shares(vec![local(ANA, "s-1")])
+    };
+    let outcome = moved(config, &api);
+    assert!(outcome.moved.is_empty());
+    assert!(outcome.failed.is_none());
+    assert_eq!(outcome.kept.iter().map(|k| k.reason).collect::<Vec<_>>(), ["every-chat share"]);
+    assert!(api.creates.borrow().is_empty(), "the owner's share is left as it is");
+    assert_eq!(outcome.config.shares, vec![local(ANA, "s-1")]);
+    assert!(outcome.config.moved_shares.is_empty());
+    // Still admitted to the chat, on the filtered proxy.
+    assert!(outcome.config.grants.iter().all(|g| g.revoked_at.is_none()), "the grant stays");
+    assert_eq!(next_connection(&outcome.config), Some(true));
+    // The proxy still lets her prompt the shared chat.
+    let frame = json!({"cmd": "agent-session-prompt", "surface": 3, "text": "hi"});
+    let author = json!({"login": TEAMMATE});
+    let filtered = crate::remote_host::agent_proxy::filter(&outcome.config, &author, BOOT, frame);
+    assert!(filtered.is_ok(), "{filtered:?}");
+}
+
+#[test]
+fn sharing_a_chat_with_an_every_chat_share_names_it_and_unshare_by_name_is_refused() {
+    let api = Platform::default();
+    every_chat_share(&api);
+    let text = &crate::localization::catalog().host_share;
     let (answer, ..) = run("unshare", &["s-1", ANA], false, &elsewhere(), &api);
-    assert!(answer.unwrap_err().to_string().contains("covers every chat"));
+    assert!(answer.unwrap_err().to_string().contains(text.all_share_narrow));
+    // `share` is not "already covered": it writes the chat by name in place of the share.
+    let (answer, ..) = run("share", &["s-1", ANA], false, &elsewhere(), &api);
+    answer.unwrap();
+    assert_eq!(api.live_sessions(ANA).unwrap(), ["s-1"]);
+    assert_eq!(api.creates.borrow()[0]["replaces"], "csh_cccccccccccccccccccc");
+}
+
+#[test]
+fn shares_says_an_every_chat_share_admits_to_no_chat() {
+    let api = Platform::default();
+    every_chat_share(&api);
+    api.live(BO, &["a"]);
+    let (answer, ..) = run("shares", &[], false, &elsewhere(), &api);
+    let answer = answer.unwrap();
+    assert_eq!(answer["shares"][0]["admits_chats"], false);
+    assert!(answer["shares"][1].get("admits_chats").is_none());
+    let both = listing(&[], Ok(api.list(VM).unwrap()));
+    let every: Vec<_> =
+        both["shares"].as_array().unwrap().iter().map(|s| s["admits_chats"].clone()).collect();
+    assert_eq!(every, [json!(false), Value::Null]);
 }
 
 /// Runs `unshare` whose confirmation waits while `meanwhile` runs, as a second person's change

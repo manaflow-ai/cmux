@@ -238,11 +238,12 @@ fn live_for<'a>(live: &'a [PlatformShare], person: &str) -> Option<&'a PlatformS
 }
 
 /// The sessions a create must send to add `add` to `live` (the person's live share), or `None`
-/// when it already covers them (an "every chat" share covers all).
+/// when it already names them all. An "every chat" share (`sessions: null`) covers nothing: a
+/// machine refuses that grant (`acpmux.team_without_chats`), so it admits the teammate to no
+/// chat, and adding to it writes `add` by name in its place.
 pub(crate) fn merged(live: Option<&PlatformShare>, add: &Sessions) -> Option<Sessions> {
-    let mut ids = match live.map(|s| s.sessions.as_ref()) {
-        Some(None) => return None,
-        Some(Some(ids)) => ids.clone(),
+    let mut ids = match live.and_then(|s| s.sessions.as_ref()) {
+        Some(ids) => ids.clone(),
         None => Vec::new(),
     };
     let before = ids.len();
@@ -310,7 +311,10 @@ pub(crate) struct MoveOutcome {
 /// - `expired`: it names an older daemon boot than `generation` (local shares end with the boot),
 ///   or the boot could not be read;
 /// - `no verified identity`: the share carries no `user_` id (`Share::person`). A tailnet login is
-///   never matched to a teammate by display name.
+///   never matched to a teammate by display name;
+/// - `every-chat share`: the person's platform share names no chats (`sessions: null`). A machine
+///   refuses that grant, so the local share is the teammate's only working access to the chat; the
+///   move leaves it, and the grant, as they are and does not rewrite a share the owner made.
 ///
 /// A login whose last local share moved also loses its teammate grant here (revoked), so a grant
 /// with `shell` never outlives the share that kept it on the filtered proxy.
@@ -362,7 +366,7 @@ pub(crate) fn move_local(
                     });
                 }
             }
-            Ok(None) => {}
+            Ok(None) => outcome.kept.extend(local.iter().map(|s| kept(s, "every-chat share"))),
             Err(failure) => {
                 outcome.failed = Some(failure);
                 outcome.kept.extend(local.iter().map(|s| kept(s, "not reached")));
@@ -394,7 +398,8 @@ pub(crate) fn move_local(
 }
 
 /// The id of `person`'s live share once it covers `add`: as it is, or after a create that names
-/// the share it replaces. A conflict (another writer replaced it since `live` was read) reads
+/// the share it replaces; `None` when their live share is an "every chat" one, which admits them
+/// to no chat ([`merged`]) and is left for its owner. A conflict (another writer replaced it since `live` was read) reads
 /// `live` again and merges from that, up to [`MAX_WRITES`].
 fn cover(
     api: &dyn Api,
@@ -406,6 +411,9 @@ fn cover(
     let mut last = None;
     for _ in 0..MAX_WRITES {
         let existing = live_for(live, person);
+        if existing.is_some_and(|s| s.sessions.is_none()) {
+            return Ok(None);
+        }
         let Some(sessions) = merged(existing, add) else {
             return Ok(existing.map(|s| s.id.clone()));
         };
@@ -495,7 +503,9 @@ pub(crate) fn act(
                 return Err(super::usage(text.no_arguments));
             }
             let live = api.list(machine).map_err(failed)?;
-            Ok(json!({"machine": machine, "shares": live}))
+            Ok(
+                json!({"machine": machine, "shares": live.iter().map(cloud_entry).collect::<Vec<_>>()}),
+            )
         }
         "share" => {
             if role.is_some_and(|r| r != "member") {
@@ -659,6 +669,18 @@ pub(super) fn stays_local(
     }
 }
 
+/// A platform share as `shares` lists it. One with `sessions: null` also says `admits_chats:
+/// false`: a machine refuses an "every chat" grant, so it admits the teammate to no chat.
+fn cloud_entry(share: &PlatformShare) -> Value {
+    let mut entry = json!(share);
+    if share.sessions.is_none()
+        && let Some(object) = entry.as_object_mut()
+    {
+        object.insert("admits_chats".to_owned(), json!(false));
+    }
+    entry
+}
+
 /// `shares` on this Cloud machine: the local shares (`where: local`, enforced by the tailnet
 /// host as before) and the platform's (`where: cloud`), or the local ones and why the platform's
 /// could not be read.
@@ -676,7 +698,7 @@ pub(crate) fn listing(local: &[shares::Share], cloud: Result<Vec<PlatformShare>,
     let mut answer = json!({});
     match cloud {
         Ok(cloud) => all.extend(cloud.iter().map(|share| {
-            let mut entry = json!(share);
+            let mut entry = cloud_entry(share);
             if let Some(object) = entry.as_object_mut() {
                 object.insert("where".to_owned(), json!("cloud"));
             }
