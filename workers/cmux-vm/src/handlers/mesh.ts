@@ -789,7 +789,9 @@ const createDevice = <C, M>(
               createdBy,
               createdAt,
             };
-            const base = { tenantId: principal.tenantId, upstreamId: created.upstreamId, createdBy, createdAt, labels: {} };
+            // A service key (cx-b4h.13) reaches only rows carrying its required labels: record them on the device and its
+            // tunnel so the key that enrolled the device can rotate it, read its tunnel and delete it.
+            const base = { tenantId: principal.tenantId, upstreamId: created.upstreamId, createdBy, createdAt, labels: principal.requiredLabels ?? {} };
             const undo = (event: string) =>
               Effect.gen(function* () {
                 yield* upstream.discardCreatedTunnel(created).pipe(Effect.catchAll(() => logEvent("mesh_tunnel_discard_failed", { deviceId: device.value })));

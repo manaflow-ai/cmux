@@ -15,10 +15,12 @@
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread",
     "_acpmux/harness/health", "_acpmux/side", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/start_mode",
     "_acpmux/context", "_acpmux/context_override",
+    "_acpmux/ledger", "_acpmux/review_queue", "_acpmux/review_verdict", "_acpmux/audit",
     "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply", "_acpmux/watch_take_over",
     "_acpmux/process/list", "_acpmux/process/tail", "_acpmux/process/kill", "_acpmux/process/background",
     "_acpmux/session/auth", "_acpmux/route/list", "_acpmux/chat/route.set", "_acpmux/forum/rules", "_acpmux/resolve", "_acpmux/set_tools",
     "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
+    "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
     "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key", "_acpmux/agent_login/cancel"
   ],
@@ -34,6 +36,7 @@
     "_acpmux/watch_take_over",
     "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
     "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
+    "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
     "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats"
   ],
   "optionally_session_scoped": [
@@ -46,12 +49,13 @@
   "optional_scoped_session_params": {"_acpmux/offer_respond": ["childSessionId"]},
   "source_scoped": [
     "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
-    "_acpmux/handoff_discard", "_acpmux/retry"
+    "_acpmux/handoff_discard", "_acpmux/retry", "_acpmux/review_verdict"
   ],
   "gesture_rules": {
     "session/prompt": "always",
     "chat.fix_from_link": "always",
     "_acpmux/queue_approve": "always",
+    "_acpmux/review_verdict": "always",
     "_acpmux/btw": "always",
     "_acpmux/context_override": "always",
     "_acpmux/memory_resolve": "always",
@@ -67,6 +71,7 @@
     "_acpmux/app_reply": "always",
     "_acpmux/agent_login/start": "always",
     "_acpmux/agent_login/api_key": "always",
+    "_acpmux/plan/build": "always",
     "_acpmux/race/start": "always"
   },
   "act_as_me_covers": ["session/prompt", "_acpmux/queue_approve"],
@@ -106,6 +111,10 @@
     "_acpmux/bookmark_set": {"params": ["sessionId", "seq", "bookmarked"], "acpmux": []},
     "_acpmux/btw": {"params": ["sessionId", "question", "model", "inline"], "acpmux": []},
     "_acpmux/context": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/ledger": {"params": ["since", "until", "limit", "groupBy"], "acpmux": []},
+    "_acpmux/review_queue": {"params": ["localOnly", "limit"], "acpmux": []},
+    "_acpmux/review_verdict": {"params": ["prUrl", "sessionId", "verdict", "comment"], "acpmux": []},
+    "_acpmux/audit": {"params": ["since", "until", "sessionId", "limit", "cursor"], "acpmux": []},
     "_acpmux/context_override": {"params": ["sessionId", "scope", "text", "partId"], "acpmux": []},
     "_acpmux/queue_remove": {"params": ["sessionId", "promptId"], "acpmux": []},
     "_acpmux/queue_edit": {"params": ["sessionId", "promptId", "op", "text", "images", "index"], "acpmux": []},
@@ -161,7 +170,10 @@
     "acp.trust.set": {"params": ["cwd", "level", "sessionId", "peer"], "acpmux": []},
     "_acpmux/harness_enable": {"params": ["folder", "id"], "acpmux": []},
     "session/set_mode": {"params": ["sessionId", "modeId", "_meta"], "acpmux": []},
-    "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"], "acpmux": []}
+    "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"], "acpmux": []},
+    "_acpmux/plan/build": {"params": ["sessionId", "permissionId", "target", "_meta"], "acpmux": []},
+    "_acpmux/plan/compare": {"params": ["sessionId", "buildId"], "acpmux": []},
+    "_acpmux/plan/keep": {"params": ["sessionId", "buildId", "keep"], "acpmux": []}
   },
   "reply_shapes": {
     "_acpmux/status": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "health": {"object": {"unsupported": "bool", "load": {"list": "number"}, "cpus": "number", "ram": {"object": {"freeBytes": "number"}}, "pressure": {"object": {"cores": "number", "load_limit": "number", "ok": "bool", "over": {"list": "string"}}}}}}}}}},

@@ -467,6 +467,10 @@ pub struct SessionMeta {
     /// Model races owned by this parent. Shared so per-token metadata copies stay constant-time.
     #[serde(default)]
     pub races: std::sync::Arc<Vec<crate::hub::races::Race>>,
+    /// The plan builds started from this chat's plan approvals (`hub/plan_build.rs`): set by
+    /// acpmux alone, never from a request. Shared as `races` is.
+    #[serde(default, skip_serializing_if = "crate::hub::plan_build::no_records")]
+    pub plan_builds: std::sync::Arc<Vec<crate::hub::plan_build::PlanBuildRecord>>,
     /// The session whose agent started this one, recorded once at creation from
     /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
     /// shell, or its `start_session` tool. `None` for a session a person or
