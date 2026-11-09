@@ -5,6 +5,10 @@
     whats-new-clips.py render ID --capture DIR [--out FILE]             a capture folder to the clip
     whats-new-clips.py publish ID FILE                                  upload it and point the item at it
     whats-new-clips.py check                                            every spec and clip line is valid
+    whats-new-clips.py plan --base SHA --head SHA --out PLAN --tours DIR  what the nightly tour records
+    whats-new-clips.py write-tours --plan PLAN --tours DIR              a plan's tours, from this checkout
+    whats-new-clips.py tours --plan PLAN --role ROLE --dir DIR [--before SHA]  the planned tours of one role
+    whats-new-clips.py publish-auto --plan PLAN --results DIR           render those, upload them
 
 Leo, 2026-10-24: "I also think the What's New video is kind of, uh, it's like you're not even
 showing anything properly off. It's just sort of weird." The nightly reel (reel.py) strings whole
@@ -43,7 +47,20 @@ on the pr-media branch at whats-new/ID/<sha12>.webp (scripts/pr-media.py's priva
 every frame first) and writes `clip: URL | SHA256` into the highlight, which release-notes.py
 carries into the signed notes.
 
-Encoding needs ffmpeg and img2webp (Homebrew `webp`).
+With no person: cmux-next-media.yml's nightly tour (a push to nightly-next) builds the previous
+nightly tip and the new one. `plan` (run on Linux by the route job, so a tip whose only change is a
+highlight and its spec still gets a Mac) lists the New and Improved highlights that have a spec, no
+`clip:` line and a role not published yet: the ones the new tip adds, then the ones added in the
+CLIP_REANNOUNCE_DAYS before it (an earlier tour left them waiting, or their spec came later), at
+most PLAN_LIMIT. The tour job writes each spec as a tour.py tour (`write-tours`) and runs them on the
+new tip's app (the clip) and, for an improvement, on the app of the commit before its highlight (its
+before): the previous tip's for the ones the tip adds, and for an earlier one the parent of the
+commit that added it, one such extra app a tour (PLAN_EXTRA_BEFORES). `publish-auto` renders each from the tour's capture.mov (or its stills), checks it
+and puts it at whats-new/ID/clip-auto-ROLE.webp, where release-notes.py finds it with no write back
+to the highlight. Those publish after the nightly is cut, so the highlight rides along with the
+next one (release-notes.py late_pictures).
+
+Encoding needs ffmpeg and img2webp (Homebrew `webp`, apt `webp`).
 """
 
 from __future__ import annotations
@@ -81,6 +98,16 @@ MAX_WIDTH = 960
 # Two frames this alike (mean absolute difference of a small gray copy, 0 to 255) count as the same.
 SAME = 0.6
 QUALITIES = (80, 70, 60, 50)
+# At most this many highlights a nightly tour records (each twice for an improvement); the rest wait.
+PLAN_LIMIT = 4
+# A highlight a tour left waiting is planned again for this long (release-notes.py's CLIP_REANNOUNCE_DAYS,
+# the window in which a clip published later rides along with the next build).
+CLIP_REANNOUNCE_DAYS = 7
+# At most this many before commits other than the previous tip a tour builds an app for.
+PLAN_EXTRA_BEFORES = 1
+AUTO_ROLES = ("after", "before")
+# Spec step keys only `cmux-ci capture` reads: `clip` marks the clip's steps, `record` where its video starts.
+CAPTURE_ONLY_STEP_KEYS = {"clip", "record"}
 
 
 class ClipError(Exception):
@@ -239,7 +266,9 @@ def timeline(spec: dict, frames: list[Path], crop: str) -> list[tuple[Path, floa
     return [(frame, round(seconds, 3)) for frame, seconds in runs]
 
 
-def encode(spec: dict, frames: list[Path], out: Path) -> dict:
+def encode(spec: dict, frames: list[Path], out: Path, keep: Path | None = None) -> dict:
+    """Writes the clip to OUT; with KEEP, also the cropped PNG frames it is made of, in order (KEEP/NNNN.png):
+    the pictures the privacy check reads, since its Linux OCR cannot decode an animated WebP."""
     size = size_of(frames[0])
     crop = crop_filter(spec["crop"], size)
     plan = timeline(spec, frames, crop)
@@ -254,6 +283,11 @@ def encode(spec: dict, frames: list[Path], out: Path) -> dict:
             for quality in QUALITIES:
                 run([*argv[:5], "-q", str(quality), *argv[5:], "-o", str(out)])
                 if out.stat().st_size <= MAX_BYTES:
+                    if keep is not None:
+                        shutil.rmtree(keep, ignore_errors=True)
+                        keep.mkdir(parents=True)
+                        for cropped_frame in sorted(Path(tmp).glob("*.png")):
+                            shutil.copy2(cropped_frame, keep / cropped_frame.name)
                     return {"frames": len(plan), "seconds": round(sum(s for _, s in plan), 2),
                             "bytes": out.stat().st_size, "size": list(size_of(cropped)), "quality": quality}
     raise ClipError(f"the clip does not fit {MAX_BYTES} bytes even at {QUALITIES[-1]} quality and 560 px")
@@ -310,10 +344,7 @@ def publish(clip_id: str, local: Path, highlights: Path = HIGHLIGHTS) -> str:
         raise ClipError(f"{local} is not a .webp of at most {MAX_BYTES} bytes")
     digest = hashlib.sha256(data).hexdigest()
     path = f"whats-new/{clip_id}/{digest[:12]}.webp"
-    spec = importlib.util.spec_from_file_location("pr_media_tool", ROOT / "scripts/pr-media.py")
-    pr_media = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = pr_media
-    spec.loader.exec_module(pr_media)
+    pr_media = pr_media_module()
     # The shared privacy check (pr_media_privacy.py) reads every frame first; a refusal uploads nothing.
     # Without OCR it would pass a clip unread, so publish wants it (a Mac with Xcode).
     if pr_media.privacy_module().ocr_binary() is None:
@@ -324,6 +355,249 @@ def publish(clip_id: str, local: Path, highlights: Path = HIGHLIGHTS) -> str:
     highlight.write_text(set_clip_line(highlight.read_text(), f"clip: {url} | {digest}"))
     print(url)
     return url
+
+
+def pr_media_module():
+    """scripts/pr-media.py: the shared privacy check and the pr-media writer."""
+    spec = importlib.util.spec_from_file_location("pr_media_tool", ROOT / "scripts/pr-media.py")
+    pr_media = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = pr_media
+    spec.loader.exec_module(pr_media)
+    return pr_media
+
+
+def auto_url(clip_id: str, role: str) -> str:
+    """Where publish-auto puts a clip the nightly tour recorded (release-notes.py clip_auto_url)."""
+    return f"{URL_PREFIX}{clip_id}/clip-auto-{role}.webp"
+
+
+def published(url: str) -> bool:
+    import urllib.error
+    import urllib.request
+    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "cmux-whats-new-clips/1"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status == 200
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return False
+        raise
+
+
+def tour_module():
+    spec = importlib.util.spec_from_file_location("media_tour", Path(__file__).with_name("tour.py"))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def tour_from_spec(spec: dict, title: str) -> dict:
+    """The spec as a tour.py tour: the same steps in the same order, with no step shots (a shot stops the
+    window for a moment the clip would show), so its manifest's steps line up with the spec's."""
+    steps = [{**{k: v for k, v in step.items() if k not in CAPTURE_ONLY_STEP_KEYS}, "shot": False}
+             for step in spec["steps"]]
+    tour = {"title": title, "steps": steps}
+    for key in ("settings", "launch_args"):
+        if key in spec:
+            tour[key] = spec[key]
+    return tour
+
+
+def front_matter(text: str) -> dict:
+    meta = {}
+    for line in text.partition("\n\n")[0].splitlines():
+        key, sep, value = line.partition(":")
+        if sep:
+            meta[key.strip().lower()] = value.strip()
+    return meta
+
+
+def highlight_rows(base: str, head: str, root: Path = ROOT, days: int = CLIP_REANNOUNCE_DAYS) -> list[tuple[str, str]]:
+    """(path, before) of the highlights a nightly tour may record: the ones base..head adds, before them the
+    previous tip, then the ones added on the first-parent line in the DAYS before head (a tour that planned
+    more than PLAN_LIMIT left them waiting), oldest first, each before the commit that added it."""
+    git = lambda *a: run(["git", "-C", str(root), *a], text=True).stdout
+    folder = "release-notes/next/highlights"
+    added = sorted(git("diff", "--no-renames", "--diff-filter=A", "--name-only", base, head, "--", folder).split())
+    rows = [(path, base) for path in added]
+    head_time = int(git("show", "-s", "--format=%ct", head).strip())
+    # Newest first; a highlight removed and added again counts from its newest add.
+    log = git("log", "--first-parent", "--no-renames", "--diff-filter=A", "--name-only", "--format=commit %H %P",
+              f"--since={head_time - days * 86400}", head, "--", folder)
+    earlier, parent = {}, ""
+    for line in log.splitlines():
+        if line.startswith("commit "):
+            parts = line.split()
+            parent = parts[2] if len(parts) > 2 else ""
+        elif line.strip() and parent and line not in added and line not in earlier:
+            # A commit with no parent is a root, or a shallow clone's boundary, where every file reads as added.
+            earlier[line] = parent
+    present = set(git("ls-tree", "-r", "--name-only", head, "--", folder).split())
+    rows += [(path, before) for path, before in reversed(earlier.items()) if path in present]
+    return rows
+
+
+def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=published,
+         root: Path = ROOT, days: int = CLIP_REANNOUNCE_DAYS, extra_befores: int = PLAN_EXTRA_BEFORES) -> list[dict]:
+    """The highlights the tour records (highlight_rows): New or Improved, a valid spec, no `clip:` line, and
+    a role whose clip is not on pr-media yet. Each row's `before` is the commit its before is recorded on;
+    at most EXTRA_BEFORES rows have one other than base (each is another app to build), and a row past
+    that records its after now and its before on a later tour. Writes each one's tour to TOURS/ID.json."""
+    git = lambda *a: run(["git", "-C", str(root), *a], text=True).stdout
+    validate = tour_module().load_tour
+    rows, others, waiting = [], set(), 0
+    for path, before in highlight_rows(base, head, root, days):
+        clip_id = Path(path).stem
+        if not path.endswith(".md") or not ID.fullmatch(clip_id):
+            continue
+        meta = front_matter(git("show", f"{head}:{path}"))
+        category = meta.get("category", "new").lower() or "new"
+        if category not in {"new", "improved"} or "clip" in meta:
+            continue
+        try:
+            spec = load_spec(clip_id, root / "release-notes/next/clips")
+            roles = [role for role in AUTO_ROLES[:2 if category == "improved" else 1]
+                     if not exists(auto_url(clip_id, role))]
+            if "before" in roles and before != base and before not in others and len(others) >= extra_befores:
+                roles.remove("before")  # no app for its commit this tour; a later tour records it
+            if not roles:
+                continue
+            if len(rows) >= limit:
+                waiting += 1
+                continue
+            tours.mkdir(parents=True, exist_ok=True)
+            tour = tours / f"{clip_id}.json"
+            tour.write_text(json.dumps(tour_from_spec(spec, meta.get("title") or clip_id), indent=2) + "\n")
+            validate(tour)
+        except ClipError as error:
+            if "no spec" not in str(error):
+                print(f"::warning title=What's New clip::{clip_id}: {error}")
+            continue
+        except Exception as error:  # tour.py's TourError: the spec has a step tour.py cannot run
+            (tours / f"{clip_id}.json").unlink(missing_ok=True)
+            print(f"::warning title=What's New clip::{clip_id}: not a tour: {error}")
+            continue
+        row = {"id": clip_id, "category": category, "roles": roles}
+        if "before" in roles:
+            row["before"] = before
+            if before != base:
+                others.add(before)
+        rows.append(row)
+    if waiting:
+        print(f"::notice title=What's New clip::{waiting} more wait for the next nightly")
+    return rows
+
+
+def write_tours(rows: list[dict], tours: Path, root: Path = ROOT) -> list[dict]:
+    """Writes the tours of a plan another job made (the route job plans on Linux) from this checkout's
+    specs; a row whose spec no longer makes a tour is left out."""
+    validate = tour_module().load_tour
+    kept = []
+    for row in rows:
+        clip_id = row.get("id", "")
+        try:
+            spec = load_spec(clip_id, root / "release-notes/next/clips")
+            meta = front_matter((root / "release-notes/next/highlights" / f"{clip_id}.md").read_text())
+            tours.mkdir(parents=True, exist_ok=True)
+            tour = tours / f"{clip_id}.json"
+            tour.write_text(json.dumps(tour_from_spec(spec, meta.get("title") or clip_id), indent=2) + "\n")
+            validate(tour)
+        except Exception as error:  # ClipError, OSError, tour.py's TourError
+            (tours / f"{clip_id}.json").unlink(missing_ok=True) if ID.fullmatch(clip_id) else None
+            print(f"::warning title=What's New clip::{clip_id}: {error}")
+            continue
+        kept.append(row)
+    return kept
+
+
+def tour_frames(spec: dict, manifest: dict, tour_dir: Path, scratch: Path) -> list[Path]:
+    """The clip steps' frames out of a tour folder: from capture.mov at the spec's frame interval, cut at
+    the steps' `at` times, else from the still frames tagged with their step."""
+    steps = manifest.get("steps") or []
+    if manifest.get("error") or len(steps) != len(spec["steps"]):
+        raise ClipError(f"the tour did not run every step: {manifest.get('error') or len(steps)}")
+    marked = [i for i, step in enumerate(spec["steps"]) if step.get("clip") is True]
+    failed = [s["title"] for i, s in enumerate(steps)
+              if s.get("status") == "failed" or (i in marked and s.get("status") != "ok")]
+    if failed:
+        raise ClipError(f"steps failed: {', '.join(failed)}")
+    interval = float(spec.get("frameInterval", 1.0))
+    after = marked[-1] + 1
+    if manifest.get("video"):
+        if any("at" not in step for step in steps):
+            raise ClipError("the tour's steps have no times (a tour.py from before step times)")
+        # The frame before the first clip step is the state the clip starts from.
+        start = max(0.0, steps[marked[0]]["at"] - interval)
+        argv = ["ffmpeg", "-v", "error", "-y", "-ss", f"{start:.3f}", "-i", str(tour_dir / manifest["video"])]
+        if after < len(steps):
+            argv += ["-t", f"{steps[after]['at'] - start:.3f}"]
+        run([*argv, "-vf", f"fps=1/{interval}", str(scratch / "frame-%05d.png")])
+        picked = sorted(scratch.glob("frame-*.png"))
+    else:
+        # Still frames carry the 1-based step they were taken in.
+        first, last = marked[0] + 1, marked[-1] + 1
+        frames = manifest.get("frames") or []
+        inside = [i for i, f in enumerate(frames) if first <= f.get("step", 0) <= last]
+        if inside and inside[0] > 0:
+            inside.insert(0, inside[0] - 1)
+        picked, previous = [], None
+        for index in inside:
+            frame = frames[index]
+            if previous is None or frame.get("time", 0) - previous >= interval:
+                picked.append(tour_dir / frame["file"])
+                previous = frame.get("time", 0)
+    if len(picked) < 2:
+        raise ClipError(f"the clip steps span {len(picked)} frame(s); give them a longer wait")
+    return picked
+
+
+def render_tour(clip_id: str, tour_dir: Path, out: Path, keep: Path | None = None) -> dict:
+    spec = load_spec(clip_id)
+    manifest = json.loads((tour_dir / "manifest.json").read_text())
+    with tempfile.TemporaryDirectory(prefix="whats-new-clip-") as tmp:
+        report = encode(spec, tour_frames(spec, manifest, tour_dir, Path(tmp)), out, keep)
+    print(json.dumps({"id": clip_id, "out": str(out), **report}))
+    return report
+
+
+def publish_auto(rows: list[dict], results: Path, scratch: Path) -> list[str]:
+    """Renders each planned clip from RESULTS/ROLE/ID (the tour's folders), then checks them all and puts
+    them at auto_url. A clip that does not render is left out with a warning; a refusal uploads nothing.
+    The check reads each clip's frames as PNGs (the cropped frames the encoder made it from), never the
+    animated WebP: the Linux OCR (pr_media_ocr_tesseract.py, Leptonica) reads a .webp as one still and cannot
+    decode an animated one, so it refused every clip as unreadable. pr-media-privacy.yml reads the pushed
+    clips again with Vision."""
+    files, problems = [], []
+    # tour.py names a tour's folder by the slug of its file's name (40 characters at most).
+    folder = tour_module().slug
+    for row in rows:
+        for role in row["roles"]:
+            local = scratch / f"{row['id']}-{role}.webp"
+            pictures = scratch / f"{row['id']}-{role}-frames"
+            try:
+                render_tour(row["id"], results / role / folder(row["id"]), local, pictures)
+                frames = sorted(pictures.glob("*.png"))
+                if not frames:
+                    raise ClipError("the encoder kept no frames to check")
+            except (ClipError, OSError, ValueError) as error:
+                problems.append(f"{row['id']} {role}: {error}")
+                continue
+            files.append((f"whats-new/{row['id']}/clip-auto-{role}.webp", local, row["id"], role, frames))
+    if not files:
+        return problems
+    pr_media = pr_media_module()
+    if pr_media.privacy_module().ocr_binary() is None:
+        raise ClipError("publish-auto reads every frame first, and no OCR is set up")
+    # One check for all of them: a refusal names paths and kinds only, and uploads nothing. Each frame is
+    # named under its clip's path, so a refusal says which clip and frame.
+    pr_media.check_privacy([(f"{path}.frames/{frame.name}", frame)
+                            for path, _, _, _, frames in files for frame in frames], REPO)
+    for path, local, clip_id, role, _ in files:
+        pr_media.put_file(REPO, BRANCH, path, local, f"What's New clip: {clip_id} ({role}, nightly tour)",
+                          checked=True)
+        print(auto_url(clip_id, role))
+    return problems
 
 
 def check(specs: Path = SPECS, highlights: Path = HIGHLIGHTS) -> list[str]:
@@ -366,8 +640,52 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("id")
     p.add_argument("file", type=Path)
     sub.add_parser("check")
+    n = sub.add_parser("plan")
+    n.add_argument("--base", required=True)
+    n.add_argument("--head", required=True)
+    n.add_argument("--out", type=Path, required=True)
+    n.add_argument("--tours", type=Path, required=True)
+    n.add_argument("--limit", type=int, default=PLAN_LIMIT)
+    w = sub.add_parser("write-tours")
+    w.add_argument("--plan", type=Path, required=True)
+    w.add_argument("--tours", type=Path, required=True)
+    o = sub.add_parser("tours")
+    o.add_argument("--plan", type=Path, required=True)
+    o.add_argument("--role", choices=AUTO_ROLES, required=True)
+    o.add_argument("--dir", type=Path, required=True)
+    o.add_argument("--before", help="only the rows whose before is recorded on this commit")
+    o.add_argument("--other-befores", action="store_true",
+                   help="print the before commits other than --before the plan names, one per line")
+    u = sub.add_parser("publish-auto")
+    u.add_argument("--plan", type=Path, required=True)
+    u.add_argument("--results", type=Path, required=True)
     a = ap.parse_args(argv)
     try:
+        if a.command == "plan":
+            rows = plan(a.base, a.head, a.tours, a.limit)
+            a.out.write_text(json.dumps(rows, indent=2) + "\n")
+            print(len(rows))
+            return 0
+        if a.command == "write-tours":
+            rows = write_tours(json.loads(a.plan.read_text()), a.tours)
+            a.plan.write_text(json.dumps(rows, indent=2) + "\n")
+            print(len(rows))
+            return 0
+        if a.command == "tours":
+            rows = json.loads(a.plan.read_text())
+            if a.other_befores:
+                for sha in dict.fromkeys(r["before"] for r in rows if "before" in r["roles"] and r.get("before") != a.before):
+                    print(sha)
+                return 0
+            for row in rows:
+                if a.role in row["roles"] and (a.before is None or a.role != "before" or row.get("before") == a.before):
+                    print(a.dir / f"{row['id']}.json")
+            return 0
+        if a.command == "publish-auto":
+            with tempfile.TemporaryDirectory(prefix="whats-new-clips-") as tmp:
+                for problem in publish_auto(json.loads(a.plan.read_text()), a.results, Path(tmp)):
+                    print(f"::warning title=What's New clip::{problem}")
+            return 0
         if a.command == "check":
             problems = check()
             for problem in problems:
