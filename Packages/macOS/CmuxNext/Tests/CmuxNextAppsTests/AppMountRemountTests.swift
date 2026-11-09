@@ -80,4 +80,27 @@ import Testing
         #expect(transport.mounted == [mount.id])
         #expect(mount.model.status == .failed("removed"))
     }
+
+    /// Reload (the error card's button, Reload Custom Views) keeps a drawn view on screen until
+    /// the supervisor sends its new scene: a script saved with an error keeps its last good view
+    /// instead of going blank while it is mounted again.
+    @Test func reloadKeepsTheDrawnViewUntilTheNewSceneArrives() async throws {
+        let transport = Transport()
+        let client = AppsClient(transport: transport)
+        client.start()
+        for _ in 0..<100 where !client.hasList { await Task.yield() }
+        let section = try #require(client.app("local/customize")?.manifest.sections.first)
+        let mount = client.mount("local/customize", implementation: section, surface: "sidebarSection")
+        await client.tail?.value
+        let drawn: AppJSON = [["op": "create", "id": "n1", "type": "Text", "props": ["text": "PRs"]], ["op": "root", "id": "n1"]]
+        transport.onEvent?(.scene(mountID: mount.id, ops: AppSceneOp.batch(drawn), reset: false))
+        #expect(mount.model.status == .ready)
+
+        client.reload(app: "local/customize")
+        await Self.settle(client)
+
+        #expect(transport.mounted == [mount.id, mount.id], "the view is mounted again")
+        #expect(mount.model.status == .ready, "the drawn view went blank before its new scene")
+        #expect(mount.model.scene.root == "n1")
+    }
 }

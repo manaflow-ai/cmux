@@ -41,6 +41,11 @@ export type LedgerTotals = {
   sessions: number;
 };
 
+/// Tokens in: what the agent sent that was not a cache read (uncached input plus cache writes).
+/// Cache reads are the same context sent again; counted in, a long chat's input reads as many
+/// times what it is.
+export const tokensIn = (totals: LedgerTotals) => totals.inputTokens + totals.cacheWriteTokens;
+
 export type LedgerSession = LedgerTotals & {
   sessionId: string;
   title: string;

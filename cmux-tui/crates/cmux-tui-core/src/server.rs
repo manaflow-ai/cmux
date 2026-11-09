@@ -3019,6 +3019,10 @@ mod agent_session_attach_tests;
 mod agent_session_start_phone_tests;
 
 #[cfg(all(test, unix))]
+#[path = "server/cloud_mobile_capability_tests.rs"]
+mod cloud_mobile_capability_tests;
+
+#[cfg(all(test, unix))]
 #[path = "server/agent_inventory_tests.rs"]
 mod agent_inventory_tests;
 

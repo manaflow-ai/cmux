@@ -573,6 +573,15 @@ export type LastMessage = {
 } & Record<string, unknown>;
 
 /**
+ * A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when
+ * they left, and how many turns ended while nobody showed it.
+ */
+export type LastReturn = {
+  since: number;
+  turns: number;
+} & Record<string, unknown>;
+
+/**
  * The outcome of the session's last turn. Keys the turn result lacked
  * are absent.
  */
@@ -1385,6 +1394,16 @@ export type SessionDetail = {
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
   harness: string;
+  /**
+   * Unix milliseconds when its harness first refused a command because the harness's own
+   * sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
+   */
+  harnessSandboxFailed?: (number | null);
+  /**
+   * Whether its harness refuses commands now for that reason; a completed command or a new
+   * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
+   */
+  harnessSandboxFailing?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1394,6 +1413,12 @@ export type SessionDetail = {
   /** One sidebar line; null before the first prompt. */
   lastMessage?: (LastMessage | null);
   lastPrompt?: (string | null);
+  /**
+   * The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the
+   * `turns` that ended unseen. A client opening the chat then draws "New since you looked" at
+   * `since`, also when its attach answers before its list read.
+   */
+  lastReturn?: (LastReturn | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
   /**
@@ -1482,6 +1507,11 @@ export type SessionDetail = {
   rules: boolean;
   /** The session's permission rules. */
   rulesJson?: unknown;
+  /**
+   * The log seq the person had seen when they last stopped showing the chat: a client
+   * opening it while `unreadTurns` is above 0 draws "New since you looked" after it.
+   */
+  seenSeq?: (number | null);
   sessionId: string;
   /** Its name among its parent's sub-sessions; null for a root. */
   shortName?: (string | null);
@@ -1548,6 +1578,11 @@ export type SessionDetail = {
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
+  /**
+   * Turns that ended while no client showed the chat, since a person last showed it
+   * (`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.
+   */
+  unreadTurns?: number;
   updatedAt: number;
   usage?: unknown;
   /**
@@ -1675,6 +1710,16 @@ export type SessionSummary = {
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
   harness: string;
+  /**
+   * Unix milliseconds when its harness first refused a command because the harness's own
+   * sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
+   */
+  harnessSandboxFailed?: (number | null);
+  /**
+   * Whether its harness refuses commands now for that reason; a completed command or a new
+   * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
+   */
+  harnessSandboxFailing?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1684,6 +1729,12 @@ export type SessionSummary = {
   /** One sidebar line; null before the first prompt. */
   lastMessage?: (LastMessage | null);
   lastPrompt?: (string | null);
+  /**
+   * The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the
+   * `turns` that ended unseen. A client opening the chat then draws "New since you looked" at
+   * `since`, also when its attach answers before its list read.
+   */
+  lastReturn?: (LastReturn | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
   /**
@@ -1765,6 +1816,11 @@ export type SessionSummary = {
   root?: string;
   /** The session has its own permission rules. */
   rules: boolean;
+  /**
+   * The log seq the person had seen when they last stopped showing the chat: a client
+   * opening it while `unreadTurns` is above 0 draws "New since you looked" after it.
+   */
+  seenSeq?: (number | null);
   sessionId: string;
   /** Its name among its parent's sub-sessions; null for a root. */
   shortName?: (string | null);
@@ -1831,6 +1887,11 @@ export type SessionSummary = {
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
+  /**
+   * Turns that ended while no client showed the chat, since a person last showed it
+   * (`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.
+   */
+  unreadTurns?: number;
   updatedAt: number;
   /**
    * What its harness spends and holds, from the harness's own records

@@ -228,6 +228,12 @@ impl RegistryConnection {
         self.durability.as_ref().map(|durability| durability.wal_frame_bytes()).unwrap_or_default()
     }
 
+    /// (size now, high-water) of this registry's WAL file (`server-stats`
+    /// `write_path.registry_wal_file_bytes` and `registry_wal_file_high_water_bytes`); 0 in memory.
+    pub(crate) fn wal_file_bytes(&self) -> (u64, u64) {
+        self.durability.as_ref().map(|durability| durability.wal_file_bytes()).unwrap_or_default()
+    }
+
     /// The connection for a request thread. The caller holds the workspace
     /// registry lock (or owns the registry outright), never the state lock
     /// unless it pinned this lock before taking state.
