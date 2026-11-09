@@ -1142,7 +1142,8 @@
      compressed field grow back to its row height and moves every result under the caret. */
   flex-shrink: 0;
   box-sizing: border-box;
-  /* The rows set the menu's width; the field's default size (about 218 px) never does. */
+  /* Its placeholder sizer and the pinned actions set the menu's width; the field's default size
+     (about 218 px) never does. */
   width: 0;
   min-width: 100%;
   height: var(--ui-row-height);
@@ -1154,6 +1155,8 @@
   background: transparent;
   color: var(--agent-text);
   font: inherit;
+  /* `font` never carries letter-spacing: inherit the menu's, as its placeholder sizer does. */
+  letter-spacing: inherit;
   outline: none;
 }
 /* The search placeholder's width in flow, drawn nowhere (FolderPopover.tsx): the field's own padding
