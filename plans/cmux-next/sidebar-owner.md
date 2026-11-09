@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: app health's line on the footer, #39247. The coordinator (claude-sr2), verbatim: "take (1), the
+  sidebar footer, but quiet. Show nothing while everything is healthy. When something degrades, show a dot and a
+  one-line reason, and clicking it opens the popover." `SidebarView.healthIndicator` (the App's
+  `AppHealthIndicatorView`) sits on the footer row after the avatar and live mode mark, before the spaces strip,
+  truncated to fit; with less than two button widths of room it steps out. It never fades with the footer. The
+  "Restoring sessions…" card gains an opt-in quiet Details (`SidebarNoticeCard.restoring(_:withDetails:)`) that
+  presses the same line. Gallery: `AAAppHealthIndicatorGalleryTests` (a-line shipped, b-chip, c-dot).
 - 2026-11-09: a row patch with the list attached copies no node list. Leo, verbatim: "never ... acceptable ...
   linear time growth degradation". `patchRowsNow` cached the model's section and group again on each patch, so the
   list's cache shared the model's storage and the model's next in-place write copied the section's whole node list.

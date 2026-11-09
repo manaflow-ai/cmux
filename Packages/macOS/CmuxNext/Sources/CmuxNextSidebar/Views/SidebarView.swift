@@ -103,6 +103,15 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
+    /// App health's dot and line on the footer line after the avatar (design/app-health.md); it shows and
+    /// hides itself and asks for a layout. It never fades with the footer.
+    public var healthIndicator: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            healthIndicator.map { addSubview($0) }
+            needsLayout = true
+        }
+    }
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
