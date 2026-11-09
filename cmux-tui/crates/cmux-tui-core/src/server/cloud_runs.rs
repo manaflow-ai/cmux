@@ -479,9 +479,17 @@ mod tests {
         let machines =
             json!([listed("m-other", "other", "running"), listed("m-9", NAME, "running")]);
         let answer = list(true, Some("u1"), Some("t1"), machines, json!([]));
-        assert_eq!(judge(&answer, NAME, None, Some("user:u1|team:t1")), Judgement::Kill("m-9".into()));
-        let renamed =
-            list(true, Some("u1"), Some("t1"), json!([listed("m-9", "renamed", "paused")]), json!([]));
+        assert_eq!(
+            judge(&answer, NAME, None, Some("user:u1|team:t1")),
+            Judgement::Kill("m-9".into())
+        );
+        let renamed = list(
+            true,
+            Some("u1"),
+            Some("t1"),
+            json!([listed("m-9", "renamed", "paused")]),
+            json!([]),
+        );
         assert_eq!(
             judge(&renamed, NAME, Some("m-9"), Some("user:u1|team:t1")),
             Judgement::Kill("m-9".into())
@@ -491,8 +499,13 @@ mod tests {
     #[test]
     fn only_a_loaded_signed_in_list_of_the_runs_own_team_says_gone() {
         let empty = json!([]);
-        let gone =
-            list(true, Some("u1"), Some("t1"), json!([listed("m-x", "x", "running")]), empty.clone());
+        let gone = list(
+            true,
+            Some("u1"),
+            Some("t1"),
+            json!([listed("m-x", "x", "running")]),
+            empty.clone(),
+        );
         assert_eq!(judge(&gone, NAME, Some("m-9"), Some("user:u1|team:t1")), Judgement::Gone);
         // Not loaded yet (a relaunch, a slow first list): its empty list says nothing.
         let not_loaded = list(false, Some("u1"), Some("t1"), empty.clone(), empty.clone());
@@ -508,27 +521,34 @@ mod tests {
         ));
         // Signed in to another team (or personal): that list is not the Run's.
         let other = list(true, Some("u1"), Some("t2"), empty.clone(), empty.clone());
-        assert!(matches!(judge(&other, NAME, Some("m-9"), Some("user:u1|team:t1")), Judgement::Wait(_)));
+        assert!(matches!(
+            judge(&other, NAME, Some("m-9"), Some("user:u1|team:t1")),
+            Judgement::Wait(_)
+        ));
         let personal = list(true, Some("u1"), None, empty.clone(), empty);
-        assert!(matches!(judge(&personal, NAME, None, Some("user:u1|team:t1")), Judgement::Wait(_)));
+        assert!(matches!(
+            judge(&personal, NAME, None, Some("user:u1|team:t1")),
+            Judgement::Wait(_)
+        ));
         assert_eq!(judge(&personal, NAME, None, Some("user:u1|personal")), Judgement::Gone);
         // A Run whose start read no scope learns this list's, and says nothing else yet.
-        assert_eq!(
-            judge(&personal, NAME, None, None),
-            Judgement::Learn("user:u1|personal".into())
-        );
+        assert_eq!(judge(&personal, NAME, None, None), Judgement::Learn("user:u1|personal".into()));
     }
 
     #[test]
     fn a_machine_being_deleted_or_still_being_created_is_read_again() {
-        let deleting = list(true, Some("u1"), None, json!([listed("m-9", NAME, "deleting")]), json!([]));
+        let deleting =
+            list(true, Some("u1"), None, json!([listed("m-9", NAME, "deleting")]), json!([]));
         assert!(matches!(
             judge(&deleting, NAME, Some("m-9"), Some("user:u1|personal")),
             Judgement::Wait(_)
         ));
         let creating = json!([{ "creation_id": "c1", "name": NAME, "status": "creating" }]);
         let on_its_way = list(true, Some("u1"), None, json!([]), creating);
-        assert!(matches!(judge(&on_its_way, NAME, None, Some("user:u1|personal")), Judgement::Wait(_)));
+        assert!(matches!(
+            judge(&on_its_way, NAME, None, Some("user:u1|personal")),
+            Judgement::Wait(_)
+        ));
     }
 
     #[test]
@@ -567,7 +587,10 @@ mod tests {
         nameless["account"].as_object_mut().unwrap().remove("user_id");
         assert_eq!(scope_of(&nameless), None);
         assert!(matches!(judge(&nameless, NAME, None, None), Judgement::Wait(_)));
-        assert!(matches!(judge(&nameless, NAME, None, Some("user:u1|personal")), Judgement::Wait(_)));
+        assert!(matches!(
+            judge(&nameless, NAME, None, Some("user:u1|personal")),
+            Judgement::Wait(_)
+        ));
         // A scope stored before scopes named the person gains the person only from a list of
         // the same team: never another team's, and never a team's for a personal one.
         assert_eq!(
