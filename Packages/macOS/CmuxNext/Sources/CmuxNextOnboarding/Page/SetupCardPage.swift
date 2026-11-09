@@ -127,7 +127,7 @@ public final class SetupCardPageProvider: PageProvider {
 
     init(setup: FirstRunSetup, agents: (any AgentSignInSource)?, environment: SetupCardEnvironment) {
         self.setup = setup
-        self.agents = AgentsStepModel(source: agents)
+        self.agents = setup.agents(source: agents)
         self.environment = environment
         self.agents.start()
         readCLI()
@@ -139,8 +139,8 @@ public final class SetupCardPageProvider: PageProvider {
         }
     }
 
+    /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
     func stop() {
-        agents.stop()
         cliRead?.cancel()
         historyRead?.cancel()
     }

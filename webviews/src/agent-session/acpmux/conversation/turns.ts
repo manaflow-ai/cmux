@@ -26,7 +26,7 @@ import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagen
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { PLAN_BUILD_KIND } from "../planBuild/planBuild";
 import { QUESTION_RECORD } from "../question/record";
-import { answerOf, chosenAnswer, nextStepAsk, pickedAnswer } from "./nextStepAsk";
+import { answerOf, chosenAnswer, nextStepAsk, pickedAnswer, type NextStepAsk } from "./nextStepAsk";
 import { lastWrapUp, withoutWrapUp } from "./wrapUp";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
@@ -1147,6 +1147,28 @@ export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[]): Fol
 
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
+/// The tagged ask (nextStepAsk.ts) of the reply right before a message that was not the person's
+/// (another agent's, a notice) steered into the turn, with the reply that asked it: the newest such,
+/// so long as the person said nothing in the turn after it. Each steer's reply is the last words
+/// before it (`repliesIn`), which stay in sight.
+function steeredAsk(body: readonly AcpmuxRow[]): { reply: AcpmuxRow; ask: NextStepAsk } | undefined {
+  let steered = false;
+  for (let at = body.length - 1; at >= 0; at -= 1) {
+    const row = body[at]!;
+    if (row.kind === "user") {
+      // The person's own steer is their reply to what came before it.
+      if (!row.incoming && !row.received) return undefined;
+      steered = true;
+      continue;
+    }
+    if (!steered || !isReply(row)) continue;
+    const ask = nextStepAsk(row.text);
+    if (ask?.question) return { reply: row, ask };
+    steered = false;
+  }
+  return undefined;
+}
+
 /// The ids of a finished turn's replies to the person, which keep their action row inside its open
 /// fold (model.ts hasReplyActions): each takeaway, and the last words before each steer or received
 /// message (the reply after the part's last step). Short narration between steps stays quiet.
@@ -1349,7 +1371,13 @@ function shapeTurn(
   // to answer, and it stays theirs (Leo, 2026-11-06, on a question the next agent's message took
   // back: "we want to keep these things rendered, and perhaps persistent at the bottom").
   const tagged = !live && !wrapUp && summary.status === "completed" ? nextStepAsk(answer?.text) : undefined;
-  const nextStep = live ? undefined : (wrapUp ?? tagged);
+  // A tagged ask another message cut off: the agent asked, another agent's message steered into the
+  // turn before it ended, and the agent went on to answer that message, so the ask is no longer the
+  // turn's last word. It is still the person's question (Leo, 2026-11-06: "It was about you asking a
+  // question to me that had a question-answer response and then another message from another agent
+  // interrupted you and then there's nothing now"): its card draws under the reply that asked it.
+  const cutOff = !live && !wrapUp && !tagged && summary.status === "completed" ? steeredAsk(body) : undefined;
+  const nextStep = live ? undefined : (wrapUp ?? tagged ?? cutOff?.ask);
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
@@ -1516,7 +1544,7 @@ function shapeTurn(
       kind: NEXT_STEP,
       nextStep: { ask: nextStep! },
     });
-    const underAnswer = Boolean(said && nextStep && said === answer);
+    const underAnswer = Boolean(said && nextStep && !cutOff && said === answer);
     if (underAnswer) {
       // A wrap-up's answer stays whole. A tagged ask's answer drops the ask's lines, which the
       // card draws; a new version, so its memo redraws.
@@ -1528,6 +1556,17 @@ function shapeTurn(
     shaped.push(...[...before, ...after].filter(isPlan).map(endedPlan));
     // A wrap-up in a turn with no answer to hang under goes after the turn's last row.
     if (nextStep && wrapUp && !underAnswer) shaped.push(card(summary.at));
+    // A cut-off ask goes right under the reply that asked it, which drops the ask's lines; where
+    // that reply is out of sight (in a closed fold), after the turn's last row, the reply whole.
+    if (cutOff) {
+      const asked = shaped.findIndex((row) => row.id === cutOff.reply.id);
+      if (asked < 0) shaped.push(card(summary.at));
+      else {
+        const reply = shaped[asked]!;
+        const rest = cutOff.ask.rest ? [{ ...reply, text: cutOff.ask.rest, version: reply.version * 2 + 1 }] : [];
+        shaped.splice(asked, 1, ...rest, card(reply.at));
+      }
+    }
     if (taskLine && taskLook === "after-reply") shaped.push(taskLine);
   }
   shaped.push(...editsCard(edits));

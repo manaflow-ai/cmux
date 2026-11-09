@@ -2416,15 +2416,61 @@ jobs:
       # path dependencies) and the release must be built from them. Here on
       # Linux it runs on every push and pull request: in swift test a newer
       # push replaced the waiting job, so tip runs rarely reached it.
+      #
+      # On a pull request the base's copy of the check and of its pin reader
+      # (the merge commit's first parent), extracted outside the checkout,
+      # judges a fresh worktree of the merge commit (--tree), with only
+      # PATH=/usr/bin:/bin, an empty HOME and the git switches below in its
+      # environment. The steps above ran the pull request's code, which could
+      # rewrite the checkout's files on disk (the check, its reader, the
+      # manifest, a Cargo.toml), change PATH and the environment, or write
+      # dotfiles in HOME (a ~/.gitconfig hooks path, a ~/.curlrc) and git
+      # hooks in .git/hooks; base_red_excuse.py trusts this verdict for a
+      # pull request whose diff leaves the check alone. So no global or
+      # system git config is read, git runs no hook and no fsmonitor, and
+      # the base is the merge commit's first parent as its object records
+      # it (no graft). BASH_ENV is empty here, so the checkout's
+      # scripts/ci/api_call_log/env.sh is not sourced either.
       - name: Check the app FFI pin
         id: app-ffi-pin
         continue-on-error: true
         env:
           EVENT_NAME: ${{ github.event_name }}
+          BASH_ENV: ""
         run: |
-          base=()
-          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
-          scripts/cmux-next/check-app-ffi-pin.sh --verify-release "${base[@]}"
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+          fi
+          work="$(/usr/bin/mktemp -d "${RUNNER_TEMP:-/tmp}/app-ffi-pin.XXXXXX")"
+          /bin/mkdir "$work/home" "$work/code"
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$work/home" \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_LFS_SKIP_SMUDGE=1 \
+            GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null \
+            GIT_CONFIG_KEY_1=core.fsmonitor GIT_CONFIG_VALUE_1=false \
+            MERGE="$GITHUB_SHA" CODE="$work/code" CHECKOUT="$PWD" /bin/bash -euo pipefail -c '
+            cd "$CHECKOUT"
+            [[ "$(git rev-parse HEAD)" == "$MERGE" ]] \
+              || { echo "error: the checkout HEAD is not the merge commit $MERGE" >&2; exit 1; }
+            base="$(git cat-file commit "$MERGE" | awk "\$1 == \"parent\" && !found { print \$2; found = 1 }")"
+            base="$(git rev-parse --verify "$base^{commit}")"
+            code="$CODE"
+            # The blobs as the base commit stores them: no attribute (export-ignore, a filter) applies.
+            mkdir -p "$code/scripts/cmux-next" "$code/scripts/ci"
+            git cat-file blob "$base:scripts/cmux-next/check-app-ffi-pin.sh" >"$code/scripts/cmux-next/check-app-ffi-pin.sh"
+            git cat-file blob "$base:scripts/ci/app_ffi_pin.py" >"$code/scripts/ci/app_ffi_pin.py"
+            if ! grep -q -e "--tree)" "$code/scripts/cmux-next/check-app-ffi-pin.sh"; then
+              # Only while the base predates --tree (the pull request that adds it).
+              echo "note: the base check has no --tree; the checkout copy runs"
+              exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --base "$base"
+            fi
+            tree="$code/tree"
+            git worktree add --quiet --detach "$tree" "$MERGE"
+            status=0
+            bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --verify-release --base "$base" --tree "$tree" || status=$?
+            git worktree remove --force "$tree" || true
+            exit "$status"
+          '
 
       # plans/cmux-next/daemon-capabilities.json against the lists in
       # DaemonEndpoint.swift, without a build: check-daemon-capabilities.sh
@@ -2498,6 +2544,9 @@ jobs:
       - name: Fail on any red check
         if: always()
         env:
+          # The check steps above continue on error, so this step decides the job: it must not source the
+          # checkout's scripts/ci/api_call_log/env.sh (the workflow's BASH_ENV), which their code can rewrite.
+          BASH_ENV: ""
           STYLE_CHECKS: |
             God files and types (Swift)
             God files (cmux-tui Rust)

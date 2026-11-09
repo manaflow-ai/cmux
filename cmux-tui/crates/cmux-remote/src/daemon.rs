@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::connect_info::{ConnectInfo, Connected};
@@ -23,6 +23,9 @@ use cmux_remote_protocol::{FrameFlags, Lane, SessionId};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinSet;
+// The daemon's deadlines (resume lease, pending link groups) are tokio's, as the timers that
+// end them are, so they hold on a paused or test clock too.
+use tokio::time::Instant;
 
 use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
 use crate::crypto::{
@@ -1154,7 +1157,7 @@ impl RemoteDaemon {
         let daemon = Arc::downgrade(self);
         let connection = Arc::downgrade(&connection);
         let task = tokio::spawn(async move {
-            tokio::time::sleep_until(deadline.into()).await;
+            tokio::time::sleep_until(deadline).await;
             let (Some(_daemon), Some(connection)) = (daemon.upgrade(), connection.upgrade()) else {
                 return;
             };
@@ -1173,7 +1176,7 @@ impl RemoteDaemon {
     ) -> PendingLinkExpiryTask {
         let daemon = Arc::downgrade(self);
         let task = tokio::spawn(async move {
-            tokio::time::sleep_until((created_at + PENDING_LINK_TTL).into()).await;
+            tokio::time::sleep_until(created_at + PENDING_LINK_TTL).await;
             let Some(daemon) = daemon.upgrade() else {
                 return;
             };
