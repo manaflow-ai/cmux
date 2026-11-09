@@ -90,12 +90,15 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
       setState(keepWhileLoading);
       loadRef.current(teamAuditParams(which, by, now ?? Date.now())).then(
         (value) => {
-          if (id === request.current) setState({ phase: "answered", answer: readTeamAudit(value), group: by, range: which });
+          if (id === request.current)
+            setState({ phase: "answered", answer: readTeamAudit(value), group: by, range: which });
         },
         (error: unknown) => {
           if (id !== request.current) return;
           setState(
-            isOlderDaemon(error) ? { phase: "older" } : { phase: "answered", answer: { kind: "failed" }, group: by, range: which },
+            isOlderDaemon(error)
+              ? { phase: "older" }
+              : { phase: "answered", answer: { kind: "failed" }, group: by, range: which },
           );
         },
       );
