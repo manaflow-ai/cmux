@@ -558,7 +558,7 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
         return;
     }
     // A window shows the chat's activity too: its rows are recomputed when it may show this one.
-    super::chat_windows::activity_changed(conn, &rec.kind, || {
+    super::chat_windows::activity_changed(conn, &ev.session_id, &rec.kind, || {
         hub.resolve(&ev.session_id)
             .ok()
             .and_then(|session| crate::chats::session_chat_key(&session))

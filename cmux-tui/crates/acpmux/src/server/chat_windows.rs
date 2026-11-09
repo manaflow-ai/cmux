@@ -47,6 +47,11 @@ pub(super) struct ConnWindows {
     refreshing: tokio::sync::Mutex<()>,
     /// Wakes the connection's task after a chat activity change or a close.
     wake: tokio::sync::Notify,
+    /// The chat each session continued at its last activity change here (`activity_changed`):
+    /// a session whose chat changed (a cold start that replaced or cleared its agent session id)
+    /// changes the old chat's row too, which no window's rows name any more. One entry per
+    /// session with an activity change while a window was open; a purge drops its entry.
+    chat_of: StdMutex<HashMap<String, Option<String>>>,
 }
 
 #[derive(Default)]
@@ -157,7 +162,12 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
 /// (`WindowState::shows_activity_of`). `chat` reads the session's chat key, only when a window
 /// is open. A recompute under way may have read the activity before this record, so it is
 /// always followed by another; else the windows' last rows decide.
-pub(super) fn activity_changed(conn: &Conn, kind: &str, chat: impl FnOnce() -> Option<String>) {
+pub(super) fn activity_changed(
+    conn: &Conn,
+    session: &str,
+    kind: &str,
+    chat: impl FnOnce() -> Option<String>,
+) {
     let Ok(_none_running) = conn.chat_windows.refreshing.try_lock() else {
         conn.chat_windows.wake.notify_one();
         return;
@@ -167,15 +177,24 @@ pub(super) fn activity_changed(conn: &Conn, kind: &str, chat: impl FnOnce() -> O
     }
     // Any window may show these: no lookup (a purged session is not found by its id).
     if matches!(kind, "tags" | "purged") {
+        if kind == "purged" {
+            lock(&conn.chat_windows.chat_of).remove(session);
+        }
         conn.chat_windows.wake.notify_one();
         return;
     }
     // Read with no windows lock held: it takes the hub's session and metadata locks.
     let chat = chat();
-    let shown = lock(&conn.chat_windows.windows)
-        .by_name
-        .values()
-        .any(|state| state.shows_activity_of(chat.as_deref(), kind));
+    // A session first heard here, or one that moved to another chat: its earlier chat's row may
+    // change too, and only a recompute reads which that was.
+    let moved = lock(&conn.chat_windows.chat_of)
+        .insert(session.to_owned(), chat.clone())
+        .is_none_or(|before| before != chat);
+    let shown = moved
+        || lock(&conn.chat_windows.windows)
+            .by_name
+            .values()
+            .any(|state| state.shows_activity_of(chat.as_deref(), kind));
     if shown {
         conn.chat_windows.wake.notify_one();
     }
