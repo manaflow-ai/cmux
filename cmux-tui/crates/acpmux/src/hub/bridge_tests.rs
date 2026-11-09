@@ -558,7 +558,6 @@ async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_codex_thread() 
     assert!(added.lock().unwrap().is_empty(), "nothing reached the thread");
 }
 
-
 /// Review of #38393 at e63236a (F1): a bridged prompt passes the dispatch gate every prompt
 /// passes (`check_dispatch`): a Web prompt to a chat whose Web control ended since the request's
 /// own check is refused and never reaches the app.
