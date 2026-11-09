@@ -825,7 +825,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .ok_or_else(|| anyhow!("pass the cmux access token on stdin"))?;
             let mut params = json!({"token": token.as_str()});
             if let Some(network) = network {
-                params["networkId"] = json!(network);
+                cmux_json::JsonSet::set(&mut params, "networkId", json!(network));
             }
             let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
             let value = client.request(m, params).await?;
