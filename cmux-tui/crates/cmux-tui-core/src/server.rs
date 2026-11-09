@@ -822,6 +822,8 @@ enum Command {
         /// `lifecycle_ready: false` and `restore` (server/restoring.rs);
         /// without it, held until the restore ends. A ready owner ignores it.
         #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
         restore_progress: bool,
     },
     BrowserHostProvider,
@@ -893,6 +895,8 @@ enum Command {
         /// While the owner restores: refused with `server.restoring` and the
         /// restore's progress at once, instead of held until it ends.
         #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
         restore_progress: bool,
     },
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).

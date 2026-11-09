@@ -9459,6 +9459,9 @@
       "/machine_metadata": {
         "ty": "boolean"
       },
+      "/restore_progress": {
+        "ty": "boolean"
+      },
       "/revisions": {
         "ty": "boolean"
       }
@@ -11454,6 +11457,9 @@
       },
       "/include/*": {
         "ty": "string"
+      },
+      "/restore_progress": {
+        "ty": "boolean"
       }
     },
     "request:set-attach-visibility": {
@@ -17216,6 +17222,31 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/restore": {
+        "ty": "object"
+      },
+      "/data/restore/done": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/restore/elapsed_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/restore/last_advance_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/restore/phase": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/restore/total": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
       },
       "/data/session": {
         "ty": "string",
