@@ -54,12 +54,19 @@ if (query.get("motion") === "off") {
 }
 
 const expanded = new Set<string>();
+/// `?history=N`: the chat's history has N finished turns (three rows each), 7 by default.
+const historyTurns = Number(query.get("history")) || undefined;
 
 type PaneState = { rows: AcpmuxRow[]; working: boolean; sends: number; card: number };
 let show: (next: Partial<PaneState>) => void = () => {};
 
 function Pane() {
-  const [state, setState] = useState<PaneState>({ rows: history(), working: false, sends: 0, card: CARD_DRAFT });
+  const [state, setState] = useState<PaneState>({
+    rows: history(historyTurns),
+    working: false,
+    sends: 0,
+    card: CARD_DRAFT,
+  });
   const [dock, setDock] = useState<HTMLElement | null>(null);
   show = (next) => setState((now) => ({ ...now, ...next }));
   return (
@@ -116,6 +123,14 @@ export type Sample = {
   rows?: RowSample[];
   /// With `?rows=1`: the composer card's top in the viewport, px.
   composer?: number;
+  /// When the frame's step began (the scripted event that named it, on the page's clock), ms.
+  eventAt: number;
+  /// When the reader's scripted wheel landed, once it has (`run`'s `wheel`), ms.
+  wheeledAt?: number;
+  /// Finite animations running this frame, anywhere in the transcript (a looping shimmer is no motion).
+  animations: number;
+  /// Animations started since the run began (CSS animations and Web Animations), cumulative.
+  started: number;
 };
 
 /// One drawn row in a frame: its id, its box in the viewport, its ink's opacity (the row's and its
@@ -128,6 +143,8 @@ export type RowSample = {
   animating: boolean;
   /// Whether the row's box crosses the scroller's view.
   inView: boolean;
+  /// Whether a finite animation runs on it or inside it (a looping shimmer is not counted).
+  moving: boolean;
   /// The row's first words, for the report.
   text: string;
 };
@@ -141,11 +158,14 @@ if (tailLook) document.documentElement.setAttribute("data-tail-glide", tailLook)
 function rowSamples(scroller: HTMLElement): RowSample[] {
   const view = scroller.getBoundingClientRect();
   const animated = new Set<Element>();
+  const moving = new Set<Element>();
   for (const animation of document.getAnimations()) {
     if (animation.playState !== "running") continue;
     const target = (animation.effect as KeyframeEffect | null)?.target;
     const row = target instanceof Element ? target.closest(".acpmux-row") : null;
-    if (row) animated.add(row);
+    if (!row) continue;
+    animated.add(row);
+    if (finite(animation)) moving.add(row);
   }
   const out: RowSample[] = [];
   for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
@@ -161,6 +181,7 @@ function rowSamples(scroller: HTMLElement): RowSample[] {
       height: box.height,
       opacity,
       animating: animated.has(row),
+      moving: moving.has(row),
       inView: box.bottom > view.top && box.top < view.bottom,
       text: (row.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 48),
     });
@@ -168,8 +189,22 @@ function rowSamples(scroller: HTMLElement): RowSample[] {
   return out;
 }
 
+/// Whether an animation ends on its own (a looping shimmer never does, and is no motion).
+const finite = (animation: Animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Infinity);
+/// Animations started since the run began: every CSS animation, and every Web Animation.
+let started = 0;
+document.addEventListener("animationstart", () => (started += 1), true);
+const animate = Element.prototype.animate;
+Element.prototype.animate = function (this: Element, ...args: Parameters<Element["animate"]>) {
+  started += 1;
+  return animate.apply(this, args);
+};
+
 const samples: Sample[] = [];
 let phase: Phase = "idle";
+let eventAt = 0;
+/// When the reader's scripted wheel landed (`run`'s `wheel`), on the page's clock.
+let wheeledAt: number | undefined;
 let sampling = false;
 
 // The frame callback resizes a sentinel; its ResizeObserver runs after this frame's layout, after
@@ -214,6 +249,11 @@ const sampleFrame = () => {
     scrollTop: scroller.scrollTop,
     fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
     length,
+    eventAt,
+    ...(wheeledAt !== undefined && { wheeledAt }),
+    animations: document.getAnimations().filter((animation) => animation.playState === "running" && finite(animation))
+      .length,
+    started,
     ...(sampleRows && { rows: rowSamples(scroller), composer: dock }),
   });
 };
@@ -241,16 +281,23 @@ async function run({
   chars = 24,
   everyMs = 16,
   settleMs = 800,
+  wheel,
 }: {
   scenario?: Scenario;
   chars?: number;
   everyMs?: number;
   settleMs?: number;
+  /// The reader wheels up `px` px, `afterMs` after the step `at` begins (row-arrival-settle.test.ts:
+  /// their input holds every motion where it is drawn): a wheel event on the transcript, then the
+  /// scroll it makes, in one task, as a wheel the page does not cancel scrolls.
+  wheel?: { at: string; afterMs: number; px: number };
 }) {
   await loadHighlightedCode();
   // fixed-wait: the history's rows measure over the first frames
   await wait(400);
   samples.length = 0;
+  started = 0;
+  wheeledAt = undefined;
   if (sampleRows && !lateSampler) (lateSampler = new ResizeObserver(sampleFrame)).observe(sentinel);
   sampling = true;
   // fixed-wait: the frames before the turn are sampled as its rest
@@ -259,9 +306,23 @@ async function run({
   await playScriptedTurn(scenario, {
     show,
     frame: nextFrame,
-    step: (name) => (phase = name),
+    step: (name) => {
+      phase = name;
+      eventAt = performance.now();
+      if (wheel?.at === name)
+        // fixed-wait: the reader's wheel lands at a scripted point in the step's motion
+        setTimeout(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          scroller.dispatchEvent(
+            new WheelEvent("wheel", { deltaY: -wheel.px, deltaMode: 0, bubbles: true, cancelable: true }),
+          );
+          scroller.scrollTop -= wheel.px;
+          wheeledAt = performance.now();
+        }, wheel.afterMs);
+    },
     chars,
     everyMs,
+    historyTurns,
   });
   // fixed-wait: the reveal drains (StreamReveal.finishMs) before the stream counts as drawn
   await wait(400);
