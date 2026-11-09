@@ -132,7 +132,7 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
   const layout = layoutConversation(drawn, 720);
   expect(layout.heights[at]).toBe(TRANSCRIPT_FOOTER_CONTROL);
   const above = at - 1;
-  // The run folds under "Worked for": its own 12 under its rule stands in for the 8, as over a reply
+  // The run folds under "Worked for": its own 8 under its rule stands in for the 8, as over a reply
   // (transcriptGrid.ts MARK_WORKED), so the stack adds no gap; under an open run's last line, the 8.
   expect(drawn[above]!.kind).toBe("worked");
   expect(layout.tops[at]! - (layout.tops[above]! + layout.heights[above]!)).toBe(0);
