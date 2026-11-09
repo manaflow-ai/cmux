@@ -11,7 +11,11 @@ the headline ci-dash reads, and the workflows' trust and trigger wiring.
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 import sys
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -269,6 +273,103 @@ class Workflows(unittest.TestCase):
     def test_the_probe_is_named_by_its_commit(self):
         data = yaml.safe_load(PROBE.read_text())
         self.assertEqual(data["run-name"], "Main compile probe ${{ inputs.sha }}")
+
+
+class FixerFilesNeverRunAsTrustedPython(unittest.TestCase):
+    """The fixer (Claude with Read and Edit) writes into the checkout, and the fix job's later Python runs beside it
+    with CLAUDE_CODE_OAUTH_TOKEN, then APP_TOKEN. A module the fixer adds (json.py at the root, where `python3 -` and
+    `python3 -c` look first, or beside a script) must never be imported: those runs are isolated (-I), and the diff
+    step removes every file git does not track before any of them, since a fix commits tracked files only."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.checkout = self.tmp / "checkout"
+        self.checkout.mkdir()
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        self.output = self.tmp / "github-output"
+        self.summary = self.tmp / "github-summary"
+        self.output.write_text("")
+        self.summary.write_text("")
+
+    def step(self, name: str) -> dict:
+        data = yaml.safe_load(ATTRIBUTION.read_text())
+        return next(s for s in data["jobs"]["fix"]["steps"] if s.get("name") == name)
+
+    def run_step(self, name: str, **env: str) -> subprocess.CompletedProcess:
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        environment.update(PATH=f"{self.bin}:{environment.get('PATH', '/usr/bin:/bin')}", RUNNER_TEMP=str(self.tmp),
+                           GITHUB_OUTPUT=str(self.output), GITHUB_STEP_SUMMARY=str(self.summary), **env)
+        return subprocess.run(["bash", "-e", "-c", self.step(name)["run"]], cwd=self.checkout, env=environment,
+                              capture_output=True, text=True, timeout=120)
+
+    def tool(self, name: str, body: str) -> None:
+        path = self.bin / name
+        path.write_text("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(self.checkout), "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false", *args], check=True, capture_output=True,
+                              text=True).stdout
+
+    def test_the_fixer_answer_is_read_without_a_module_the_fixer_added(self):
+        (self.checkout / "scripts").symlink_to(ROOT / "scripts")
+        report = self.tmp / "compile-report.json"
+        report.write_text(json.dumps({"head": "a" * 40, "fix": {
+            "break": {"errors": ["Sources/A.swift:1:1: error: x"]},
+            "culprit": {"pr": 1, "sha": "b" * 40, "title": "t"}}}))
+        self.tool("npm", "exit 0\n")
+        # The fixer answers "not mechanical" and leaves json.py at the checkout root, which answers "mechanical".
+        planted = ("import sys\n"
+                   "def load(stream):\n"
+                   "    return {'structured_output': {'mechanical': True, 'summary': 'planted'}}\n")
+        self.tool("claude", "cat > json.py <<'PY'\n" + planted + "PY\n"
+                  "echo '{\"structured_output\": {\"mechanical\": false, \"summary\": \"edited nothing\"}}'\n")
+        result = self.run_step("Ask the fixer for a mechanical fix", REPORT=str(report))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.checkout / "json.py").exists(), "the fake fixer did not plant json.py")
+        lines = self.output.read_text().splitlines()
+        self.assertIn("mechanical=false", lines)
+        self.assertIn("summary=edited nothing", lines)
+        self.assertNotIn("summary=planted", lines)
+
+    def make_checkout(self) -> None:
+        (self.checkout / "Sources").mkdir()
+        (self.checkout / "Sources/A.swift").write_text("let a = 1\n")
+        (self.checkout / ".gitignore").write_text("ignored/\n")
+        self.git("init", "-q", "-b", "main")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "main")
+        # The fixer's work: one tracked edit, plus files git does not track (one of them ignored).
+        (self.checkout / "Sources/A.swift").write_text("let a = 2\n")
+        (self.checkout / "json.py").write_text("raise SystemExit('planted')\n")
+        (self.checkout / "scripts/ci").mkdir(parents=True)
+        (self.checkout / "scripts/ci/json.py").write_text("raise SystemExit('planted')\n")
+        (self.checkout / "ignored").mkdir()
+        (self.checkout / "ignored/json.py").write_text("raise SystemExit('planted')\n")
+
+    def untracked(self) -> list[str]:
+        return [line for line in self.git("status", "--porcelain", "--ignored", "--untracked-files=all").splitlines()
+                if not line.startswith(" M")]
+
+    def test_a_fix_keeps_the_tracked_edit_and_nothing_untracked(self):
+        self.make_checkout()
+        result = self.run_step("Keep only a small mechanical diff", MECHANICAL="true")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("kind=fix", self.output.read_text().splitlines())
+        self.assertEqual((self.checkout / "Sources/A.swift").read_text(), "let a = 2\n")
+        self.assertEqual(self.untracked(), [])
+
+    def test_a_revert_keeps_nothing_the_fixer_wrote(self):
+        self.make_checkout()
+        result = self.run_step("Keep only a small mechanical diff", MECHANICAL="false")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("kind=revert", self.output.read_text().splitlines())
+        self.assertEqual((self.checkout / "Sources/A.swift").read_text(), "let a = 1\n")
+        self.assertEqual(self.untracked(), [])
 
 
 if __name__ == "__main__":
