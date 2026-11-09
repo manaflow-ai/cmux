@@ -225,15 +225,18 @@ fn report(
     let result = super::mcp::cloud_tool(global, name, arguments);
     if result.get("isError").and_then(Value::as_bool) == Some(true) {
         let content = result.get("structuredContent").cloned().unwrap_or_default();
-        let exit = if content["state"] == "in_progress" { 75 } else { 1 };
-        return super::wire::print_local_error(&content["error"], output, exit);
+        let in_progress = content.get("state").and_then(Value::as_str) == Some("in_progress");
+        let error = content.get("error").unwrap_or(&Value::Null);
+        return super::wire::print_local_error(error, output, if in_progress { 75 } else { 1 });
     }
-    let image = result["content"]
-        .as_array()
+    let image = result
+        .get("content")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .find(|block| block["type"] == "image")
-        .and_then(|block| block["data"].as_str());
+        .find(|block| block.get("type").and_then(Value::as_str) == Some("image"))
+        .and_then(|block| block.get("data"))
+        .and_then(Value::as_str);
     if let Some(data) = image {
         let machine = arguments.get("machine").and_then(Value::as_str).unwrap_or("computer");
         let path = out.map(std::path::PathBuf::from).unwrap_or_else(|| {
@@ -269,7 +272,7 @@ fn report(
             Some(reply) => println!("{}", super::wire::sanitize_remote_text(reply)),
             None => println!(
                 "(no reply yet: the turn is {})",
-                answer["state"].as_str().unwrap_or("unknown")
+                answer.get("state").and_then(Value::as_str).unwrap_or("unknown")
             ),
         }
         return 0;
