@@ -34,8 +34,7 @@ pub(in crate::link) fn raise(
     lease: Duration,
     heard: Option<Now>,
 ) -> Raised {
-    let held =
-        Held { socket: socket.to_path_buf(), job: job.to_owned(), lease, heard, lost: None };
+    let held = Held { socket: socket.to_path_buf(), job: job.to_owned(), lease, heard, lost: None };
     *lock() = Some(held);
     Raised(())
 }
@@ -73,9 +72,7 @@ pub(super) fn check(cmd: &str) -> anyhow::Result<()> {
     let mut fence = lock();
     let Some(held) = fence.as_mut() else { return Ok(()) };
     let (socket, job) = (held.socket.clone(), held.job.clone());
-    held.allows(now(), || {
-        super::machine_call(&socket, "git.seed.status", json!({"job": job}))
-    })
+    held.allows(now(), || super::machine_call(&socket, "git.seed.status", json!({"job": job})))
 }
 
 fn lock() -> std::sync::MutexGuard<'static, Option<Held>> {
