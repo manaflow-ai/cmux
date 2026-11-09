@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import struct
@@ -117,7 +118,8 @@ def plan(days: int, everything: bool, exists=published) -> list[dict]:
         for role, url in notes.gallery_urls(meta, highlight_id, category or "new").items():
             if not everything and exists(url):
                 continue
-            row = {"id": highlight_id, "role": role, "url": url, "path": url.split(f"/{BRANCH}/", 1)[1]}
+            row = {"id": highlight_id, "role": role, "url": url, "path": url.split(f"/{BRANCH}/", 1)[1],
+                   "born": int(born[0])}
             if role in states:
                 row["state"] = states[role]
             else:
@@ -200,8 +202,44 @@ def infer(row: dict, cases: list[dict], text_at=show, changed=changed_lines) -> 
     return f"{entry}/{variant}"
 
 
-def resolve(rows: list[dict], cases: list[dict], text_at=show) -> tuple[list[dict], list[str]]:
-    """The rows with their inferred states filled in, and the highlights none could be picked for."""
+# A variant whose note opens with "Before" is the look its entry's change replaced ("Before: one flat list").
+BEFORE_NOTE = re.compile(r"""^\s*note:\s*[\"'`]Before\s*[:(]""")
+
+
+def marked_before(state: str, cases: list[dict], text: str) -> str | None:
+    """The variant of `state`'s entry that its gallery file marks as the old look (its note opens with
+    "Before", else its name ends in one of OLD_LOOK's words), the one sharing the longest name prefix with
+    `state`'s variant, which it must share at least its first word with (`notes-flat` for `notes-sections`,
+    never another surface's old look); None when the entry marks none. It renders beside the after, at the
+    same commit."""
+    entry, _, after = state.partition("/")
+    variants = list(dict.fromkeys(c["params"]["variant"] for c in _dark(cases)
+                                  if c["params"].get("entry") == entry))
+    lines = text.split("\n")
+    family = after.split("-", 1)[0] + "-"
+    marked = []
+    for order, variant in enumerate(variants):
+        if variant == after or variant.startswith(f"{after}-light") or not variant.startswith(family):
+            continue
+        start = next((i for i, line in enumerate(lines) if _key(variant).search(line)), None)
+        noted = start is not None and any(BEFORE_NOTE.search(line) for line in lines[start + 1:start + 3])
+        if noted or OLD_LOOK.search(variant):
+            shared = len(os.path.commonprefix([variant, after]))
+            marked.append((not noted, -shared, order, variant))
+    return f"{entry}/{min(marked)[3]}" if marked else None
+
+
+def _source_text(state: str, cases: list[dict]) -> str:
+    entry = state.partition("/")[0]
+    source = next((c["params"].get("source") for c in _dark(cases) if c["params"].get("entry") == entry), None)
+    path = ROOT / "webviews" / source if source else None
+    return path.read_text(encoding="utf-8") if path and path.is_file() else ""
+
+
+def resolve(rows: list[dict], cases: list[dict], text_at=show, source_text=_source_text) -> tuple[list[dict], list[str]]:
+    """The rows with their inferred states filled in, and the highlights none could be picked for. A before
+    with no `before:` line takes the old look its entry marks (``marked_before``), rendered now beside the
+    after; only an entry that marks none renders the after's state at the commit before the highlight's."""
     out, missing = [], []
     for row in rows:
         if not row.get("state"):
@@ -210,22 +248,25 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show) -> tuple[list[dic
                 missing.append(f"{row['id']}: no gallery state in {', '.join(row['sources'])}")
                 continue
             row = {**row, "state": state}
-            row["entry"], _, row["variant"] = state.partition("/")
+        if row["role"] == "before" and row.get("parent"):
+            old = marked_before(row["state"], cases, source_text(row["state"], cases))
+            if old:
+                row = {key: value for key, value in row.items() if key != "parent"} | {"state": old}
+        row["entry"], _, row["variant"] = row["state"].partition("/")
         out.append(row)
     return out, missing
 
 
 def manifest(rows: list[dict], cases: list[dict], parent: str | None = None) -> tuple[list[dict], list[str]]:
     """One case per row: the dark default theme's case of its entry and variant; and the rows with none.
-    With `parent`, the befores rendered at that commit: the same state, else its entry's first one there."""
+    With `parent`, the befores rendered at that commit: the same state there, never another one (the entry's
+    first variant there showed an unrelated picture as the before)."""
     out, missing = [], []
     for row in rows:
         if row.get("parent") != parent:
             continue
         dark = [c for c in _dark(cases) if c["params"].get("entry") == row["entry"]]
         hit = next((c for c in dark if c["params"].get("variant") == row["variant"]), None)
-        if hit is None and parent is not None and dark:
-            hit = dark[0]
         if hit is None:
             missing.append(f"{row['id']}: no gallery state {row['state']}" + (f" at {parent}" if parent else ""))
             continue
@@ -329,7 +370,7 @@ def crop_pictures(paths: list[Path], out: Path) -> list[Path]:
     return cropped
 
 
-def publish(rows: list[dict], results: Path) -> list[str]:
+def publish(rows: list[dict], results: Path, exists=published) -> list[str]:
     pr_media = _load("pr_media_tool", ROOT / "scripts/pr-media.py")
     files = []
     problems = []
@@ -343,6 +384,10 @@ def publish(rows: list[dict], results: Path) -> list[str]:
     by_highlight: dict[str, list[tuple[dict, Path]]] = {}
     for row, local in files:
         by_highlight.setdefault(row["id"], []).append((row, local))
+    # A picture already up is never replaced: published notes pin its bytes' SHA-256, and the app drops
+    # a picture whose bytes differ (ReleaseMediaStore), so a recropped copy would blank older nightlies.
+    by_highlight = {key: kept for key, group in by_highlight.items()
+                    if (kept := [pair for pair in group if not exists(pair[0]["url"])])}
     files = [pair for group in by_highlight.values()
              for pair in zip([row for row, _ in group],
                              crop_pictures([local for _, local in group], results / "cropped"))]
@@ -386,7 +431,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     rows = json.loads(args.plan.read_text())
     if args.cmd == "parents":
-        parents = list(dict.fromkeys(r["parent"] for r in rows if r.get("parent")))
+        # The newest highlights first: a commit whose before keeps failing never holds the newer ones back.
+        newest = sorted((r for r in rows if r.get("parent")), key=lambda r: -r.get("born", 0))
+        parents = list(dict.fromkeys(r["parent"] for r in newest))
         print(" ".join(parents[:args.limit]))
         return 0
     if args.cmd == "manifest":

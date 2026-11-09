@@ -793,13 +793,13 @@ button.acpmux-session-info-port:hover,
     .acpmux-session-info-section
     .ui-disclosure-panel {
     transition:
-      height var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)),
+      height var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)),
       opacity var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"], [data-agent-move="instant"])
     .acpmux-session-info
     :is(.acpmux-session-info-section__fold, .acpmux-session-info-fold > svg) {
-    transition: rotate var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
+    transition: rotate var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
   }
 }
 .acpmux-session-info-meter {

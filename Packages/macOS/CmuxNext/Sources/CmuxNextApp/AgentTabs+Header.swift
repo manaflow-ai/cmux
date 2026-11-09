@@ -145,9 +145,9 @@ extension AgentTabStore {
         }
     }
 
-    /// A tab in chat tab `provisional`'s pane (or right-column pane `paneKey`), on its `direction` side when `split` (right or
-    /// below: made in its split, ``openInSplit``; else made there, then moved); else a tab there, focused when `created` is set.
-    /// A split asked for chat `main` when that chat is its screen's main pane (``openInMainPane``) is a tab in the column on its right instead.
+    /// A tab in chat tab `provisional`'s pane (or right-column pane `paneKey`), on its `direction` side when `split` (right or below: made in its split,
+    /// ``openInSplit``; else made there, then moved); else a tab there, selected now as a link's stand-in is, never once the store answered (Leo 2026-11-05: "things just
+    /// don't open up fast enough on the right"), focused for a click, and never over the chat unasked. A split for a main pane chat `main` (``openInMainPane``) is a tab on its right.
     @discardableResult
     func openBeside(_ provisional: String, machine: String? = nil, in paneKey: String? = nil, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, open: AgentTabOpen, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
         let scoped = tabKey(provisional, machine: machine)
@@ -158,11 +158,11 @@ extension AgentTabStore {
         guard let pending = try? open(pane, daemon, inSplit) else { return false }
         if inSplit != nil { return openInSplit(pending, beside: resolvedKey(scoped), origin: origin, created: created, finished: finished) }
         guard split || created != nil else { return true }
+        if !split, paneKey != nil || origin == .user { selectInPaneScoped(AgentTabKey(machine: daemon.machineID, key: pending.key)); if origin == .user { _ = showSplitScoped(resolvedKey(scoped), pending.key, true) } }
         // task-owner: one tab creation, then one move (or, not `split`, one focus) of that tab
         Task { [weak self] in
             guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: { self.locateScoped(AgentTabKey(machine: scoped.machine, key: $0)) }) else { finished?(false); return }; created?(tab.key)
-            // An unfocused (script) tab open, a subagent's in the right column's lower pane, leaves focus where it is.
-            guard split else { if origin == .user { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), origin: origin).onMachine(scoped.machine)) }; finished?(false); return }
+            guard split else { if origin == .user { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), origin: origin).onMachine(scoped.machine)) }; finished?(false); return } // an unfocused (script) open leaves focus where it is
             _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: ["direction": .string(direction), "keepFocus": .bool(origin == .script)], origin: origin).onMachine(scoped.machine)) // script: an unfocused subagent open
             if let finished { finished(await TabMirror.reaches(tab.key, in: { [weak self] in self?.locateScoped(AgentTabKey(machine: scoped.machine, key: $0)).flatMap { $0.pane != pane ? $0 : nil } })) } // stacking waits for the move
         }
