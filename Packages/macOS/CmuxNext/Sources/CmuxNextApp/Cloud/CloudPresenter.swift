@@ -174,7 +174,7 @@ enum CloudPresenter {
                 // that never got it is given it, with no setup-token terminal.
                 let refresh = request.automatic ? false : await CloudMachineLogin.recoveryRefreshes(
                     on: services.cloud.machineAPI.pinningTeam(teamID), machineID: session.machineID, teamID: teamID,
-                    userID: userID, otherTeams: CloudStartChat.loginScopes(services.cloud))
+                    userID: userID, otherTeams: services.cloud.auth.loginScopes)
                 try await transfer.run(api: services.cloud.machineAPI,
                                        currentTeamID: { services.cloud.auth.teamID },
                                        currentUserID: { services.cloud.auth.user?.id },

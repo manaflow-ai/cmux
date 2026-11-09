@@ -156,7 +156,7 @@ extension CloudHandlers {
             // The person's cached Claude login goes to every new machine with no dialog when this build
             // may pass it silently (DEV and NIGHTLY; Release with the switch on and their consent).
             let hasCachedClaude = await CloudCredentialTransfer.hasCachedLogin(provider: .claude, teamID: teamID, userID: userID,
-                                                                               otherTeams: CloudStartChat.loginScopes(cloud))
+                                                                               otherTeams: cloud.auth.loginScopes)
             let cachedClaude = hasCachedClaude ? await CloudStartChat.loginCopyGate(services).recoveryAllowed(claude: true, automatic: true) : false
             try Task.checkCancellation()
             try await wizard.offerCredentialSetup(machine: session.machine.title,
