@@ -23,8 +23,9 @@ import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
+import { PLAN_BUILD_KIND } from "../planBuild/planBuild";
 import { QUESTION_RECORD } from "../question/record";
-import { chosenAnswer, nextStepAsk, pickedAnswer } from "./nextStepAsk";
+import { answerOf, chosenAnswer, nextStepAsk, pickedAnswer } from "./nextStepAsk";
 import { lastWrapUp, withoutWrapUp } from "./wrapUp";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
@@ -695,8 +696,12 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
     if (!row.nextStep!.ask.question) continue;
     const claim = answerClaim(askKey(row));
     if (!claim) continue;
+    const { question } = row.nextStep!.ask;
     for (let later = at + 1; later < out.length; later += 1) {
-      if (claimed.has(later) || personPrompt(out[later]!) !== claim.text) continue;
+      if (claimed.has(later)) continue;
+      // The click sent the answer under its quote of the ask (nextStepAsk.ts `answerPrompt`).
+      const said = personPrompt(out[later]!);
+      if (said === undefined || answerOf(question, said) !== claim.text) continue;
       if (out[later]!.at < claim.at - CLAIM_SLACK_MS) continue;
       claimed.set(later, index);
       own.set(index, later);
@@ -711,7 +716,7 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
     let answer: string | undefined;
     if (mine !== undefined) {
       const said = personPrompt(out[mine]!)!;
-      answer = pickedAnswer(ask, said) ?? said;
+      answer = pickedAnswer(ask, said) ?? answerOf(ask.question, said);
     }
     let first: string | undefined;
     if (ask.question)
@@ -1824,6 +1829,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === "sessionOffer" ||
   // A chat the turn started keeps its card in sight (started/startedSessions.ts).
   row.kind === STARTED_SESSIONS ||
+  // So do the builds a plan approval started (planBuild/PlanBuildCard.tsx).
+  row.kind === PLAN_BUILD_KIND ||
   // So does a Claude workflow it started (Labs, summary/WorkflowCard.tsx).
   row.kind === WORKFLOW_CARD ||
   // What the person answered an agent's question, which shaped the rest of the turn.

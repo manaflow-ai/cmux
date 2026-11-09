@@ -9,8 +9,9 @@
 //!   never answered and is not logged. Tool output is never logged; the ask is one line with its
 //!   secrets masked (`session::masked_preview`).
 //! - Entry: `{v, seq, at, sessionId, host?, harness, vendor, kind, permissionId?, promptId?,
-//!   prUrl?, ask, decision {optionId?, kind: allow|deny|answer|cancel|accept|changes}, answeredBy
-//!   {person, device?, via?, feedItem?}, prevHash, hash}`. `kind` is `approval`, `plan`,
+//!   prUrl?, ask, decision {optionId?, kind: allow|deny|answer|cancel|accept|changes, comment?},
+//!   answeredBy {person, device?, via?, feedItem?}, prevHash, hash}`. A Request changes
+//!   verdict's `comment` is masked and cut like an ask. `kind` is `approval`, `plan`,
 //!   `question`, `queued` or `review`. `answeredBy.person` is true only for an answer the
 //!   person's proof stood behind: an allow or an answer (which `respond_permission` accepts only
 //!   from the person or under their decision proof), a verdict from the person's connection.
@@ -25,7 +26,7 @@
 //!   before it counts. One writer thread numbers, chains and writes every entry. An answer to a
 //!   permission (recorded under a session's append lock) only sends its entry down a channel; a
 //!   line that cannot be written is counted (`writeErrors` in `_acpmux/audit`) and logged, never
-//!   silently dropped. A review verdict waits for its line ([`AuditLog::record_durable`]): the
+//!   silently dropped. A review verdict waits for its line ([`AuditLog::record_durable_of`]): the
 //!   verdict fails, and its pull request stays in the queue, unless the line is on disk. One the
 //!   writer has not taken within the wait is withdrawn, never written later; one it has taken is
 //!   waited for to the end. `open`
@@ -50,7 +51,6 @@ use cmux_json::JsonSet as _;
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-#[cfg(test)]
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, mpsc};
@@ -89,13 +89,18 @@ const STARTED: u8 = 1;
 const CANCELLED: u8 = 2;
 
 enum Msg {
-    /// An entry, and where to answer once it is written (the entry as written) or failed.
-    Entry(Value, Option<Durable>),
+    /// An entry, where to answer once it is written (the entry as written) or failed, and its
+    /// chat's purged flag: set by the time the writer takes it, the entry is that chat's late
+    /// line and is dropped, even after a new chat took the id ([`Msg::Reopen`]).
+    Entry(Value, Option<Durable>, Option<Arc<AtomicBool>>),
     /// Answered once every entry sent before it is written.
     Flush(mpsc::Sender<()>),
     /// Removes a purged session's entries: answered with how many, unless its caller withdrew
     /// it first ([`Durable::state`]). One that fails leaves the session unfenced.
     Purge(String, tokio::sync::oneshot::Sender<Result<usize, String>>, Arc<AtomicU8>),
+    /// A chat was created under a purged session's id: its entries are written again. An entry
+    /// sent before it (the purged chat's, late) is still refused.
+    Reopen(String),
 }
 
 /// The chain's head: the last entry's `seq` and `hash`.
@@ -176,20 +181,38 @@ impl AuditLog {
         self.fail_purges.store(fail, Ordering::SeqCst);
     }
 
-    /// Sends `entry` (without `v`, `seq`, `prevHash` and `hash`) to the writer: never blocks. A
-    /// line the writer cannot write counts in [`AuditLog::write_errors`].
+    /// [`AuditLog::record_of`] with no chat flag (tests).
+    #[cfg(test)]
     pub(crate) fn record(&self, entry: Value) {
-        if self.send(Msg::Entry(entry, None)).is_err() {
+        self.record_of(entry, None);
+    }
+
+    /// Sends `entry` (without `v`, `seq`, `prevHash` and `hash`) to the writer: never blocks. A
+    /// line the writer cannot write counts in [`AuditLog::write_errors`]. `gone` is its chat's
+    /// purged flag: set by the time the writer takes the entry, the entry is dropped.
+    pub(crate) fn record_of(&self, entry: Value, gone: Option<Arc<AtomicBool>>) {
+        if self.send(Msg::Entry(entry, None, gone)).is_err() {
             self.lost("the writer is gone");
         }
     }
 
-    /// Writes `entry` and waits until its line is on disk: the entry as written, or why not.
-    /// Blocking.
+    /// [`AuditLog::record_durable_of`] with no chat flag (tests).
+    #[cfg(test)]
     pub(crate) fn record_durable(&self, entry: Value) -> Result<Value, String> {
+        self.record_durable_of(entry, None)
+    }
+
+    /// Writes `entry` and waits until its line is on disk: the entry as written, or why not.
+    /// Blocking. `gone` as for [`AuditLog::record_of`].
+    pub(crate) fn record_durable_of(
+        &self,
+        entry: Value,
+        gone: Option<Arc<AtomicBool>>,
+    ) -> Result<Value, String> {
         let (done, rx) = mpsc::channel();
         let state = Arc::new(AtomicU8::new(QUEUED));
-        if self.send(Msg::Entry(entry, Some(Durable { done, state: state.clone() }))).is_err() {
+        let durable = Some(Durable { done, state: state.clone() });
+        if self.send(Msg::Entry(entry, durable, gone)).is_err() {
             self.lost("the writer is gone");
             return Err("the audit writer is gone".into());
         }
@@ -285,6 +308,12 @@ impl AuditLog {
                 rx.await.unwrap_or_else(|_| Err("the audit writer is gone".into()))
             }
         }
+    }
+
+    /// A chat was created under `session_id` (`Hub::new_session_with_id`): if a purge fenced that
+    /// id this run, the fence comes down, after every entry sent before. Never blocks.
+    pub(crate) fn reopen(&self, session_id: &str) {
+        let _ = self.send(Msg::Reopen(session_id.to_owned()));
     }
 
     /// Whether the pull request at `url`, opened by session `session_id`, has a written verdict.
@@ -411,7 +440,7 @@ impl Writer {
     fn run(mut self, rx: mpsc::Receiver<Msg>) {
         while let Ok(msg) = rx.recv() {
             match msg {
-                Msg::Entry(entry, durable) => {
+                Msg::Entry(entry, durable, gone) => {
                     let taken = durable.as_ref().is_none_or(|d| {
                         d.state
                             .compare_exchange(QUEUED, STARTED, Ordering::AcqRel, Ordering::Acquire)
@@ -423,7 +452,8 @@ impl Writer {
                     }
                     let done = durable.map(|d| d.done);
                     let sid = entry.get("sessionId").and_then(Value::as_str);
-                    if sid.is_some_and(|s| self.purged.contains(s)) {
+                    let late = gone.is_some_and(|g| g.load(Ordering::SeqCst));
+                    if late || sid.is_some_and(|s| self.purged.contains(s)) {
                         // A purged chat leaves no history: not an error to count.
                         if let Some(done) = done {
                             let _ = done.send(Err("the session was purged".into()));
@@ -448,6 +478,9 @@ impl Writer {
                 }
                 Msg::Flush(done) => {
                     let _ = done.send(());
+                }
+                Msg::Reopen(sid) => {
+                    self.purged.remove(&sid);
                 }
                 Msg::Purge(sid, done, state) => {
                     if state
@@ -975,6 +1008,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// The fence lasts until a chat takes the purged id again, not until a restart: a chat
+    /// recreated under it (a trigger's fixed id) has its answers logged. What the purged chat
+    /// sent before the new one was created is still refused.
+    #[tokio::test]
+    async fn a_chat_recreated_under_a_purged_id_is_logged_again() {
+        let d = dir("reopen");
+        let log = AuditLog::open(Some(d.clone()));
+        log.record(entry("same", 1));
+        assert_eq!(log.purge("same").unwrap().await.unwrap(), Ok(1));
+        log.record(entry("same", 2));
+        // The purged chat's verdict, built before the purge and sent after the new chat took
+        // the id: its own flag says it is the old chat's, so the lifted fence does not admit it.
+        let old_chat = Arc::new(AtomicBool::new(true));
+        log.reopen("same");
+        let late = log.record_durable_of(
+            json!({"at": 2, "sessionId": "same", "kind": "review",
+                   "prUrl": "https://github.com/o/r/pull/5", "ask": "Review",
+                   "decision": {"kind": "accept"}, "answeredBy": {"person": true}}),
+            Some(old_chat),
+        );
+        assert!(late.is_err(), "{late:?}");
+        assert!(!log.reviewed("same", "https://github.com/o/r/pull/5"));
+        log.record_of(entry("same", 3), Some(Arc::new(AtomicBool::new(false))));
+        let written = log.record_durable(json!({"at": 4, "sessionId": "same", "kind": "review",
+                                                "prUrl": "https://github.com/o/r/pull/6",
+                                                "ask": "Review", "decision": {"kind": "accept"},
+                                                "answeredBy": {"person": true}}));
+        assert!(written.is_ok(), "{written:?}");
+        let all = log.all().unwrap();
+        let ats: Vec<_> = all.iter().map(|e| e["at"].clone()).collect();
+        assert_eq!(ats, vec![json!(3), json!(4)]);
+        assert!(log.reviewed("same", "https://github.com/o/r/pull/6"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn a_torn_tail_is_cut_at_open_and_the_chain_goes_on() {
         let d = dir("torn");
@@ -1128,7 +1196,7 @@ mod tests {
         let log = AuditLog::open(Some(d.clone()));
         let (done, rx) = mpsc::channel();
         let state = Arc::new(AtomicU8::new(CANCELLED));
-        log.send(Msg::Entry(entry("s1", 1), Some(Durable { done, state }))).unwrap();
+        log.send(Msg::Entry(entry("s1", 1), Some(Durable { done, state }), None)).unwrap();
         log.record(entry("s1", 2));
         log.flush();
         assert!(rx.try_recv().is_err(), "a withdrawn entry gets no answer");

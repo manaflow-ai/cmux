@@ -62,6 +62,7 @@ import {
 } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
+import { PLAN_BUILD_KIND, planBuildHeight, type PlanBuild } from "./planBuild/planBuild";
 import {
   PASTE_FROM_HEIGHT,
   type PasteRange,
@@ -444,6 +445,8 @@ export type AcpmuxRow = {
   failover?: AcpmuxFailover;
   /// A recap row's recap.
   recap?: AcpmuxRecap;
+  /// A plan build row's builds (planBuild/PlanBuildCard.tsx): what a plan approval started off this chat.
+  planBuild?: PlanBuild;
   /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
   memory?: MemoryOffer;
   /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
@@ -2212,6 +2215,8 @@ function fallbackRowHeight(
     return finish(
       8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 50 : 34), 0) + (row.started.length - 1),
     );
+  // A plan's builds (planBuild/PlanBuildCard.tsx): every column reserves its lines, so one height per width.
+  if (row.kind === PLAN_BUILD_KIND && row.planBuild) return finish(planBuildHeight(row.planBuild, width));
   // A finished turn's task lines (conversation/TaskLine.tsx): one tool row each.
   if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
