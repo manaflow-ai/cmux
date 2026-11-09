@@ -1823,7 +1823,9 @@ mod fault;
 mod folder;
 use folder::local_folder;
 mod support;
-use support::{at, last_turn, reply, sections, words};
+use support::{at, last_turn, reply, words};
+// `cmux chat cd` reads the same `@@name` sections (chat_cd.rs).
+pub(in crate::cli) use support::sections;
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;
