@@ -114,7 +114,7 @@ import Testing
         worker.holds = true
         worker.replies = [.success(["_tag": "Refused", "code": "cloud_session.assigned_to_you", "message": "yours"])]
         // task-owner: the test's follow, held until checked.
-        let follow = Task { try await store.setFollowing(Self.ref("s1"), true) }
+        let follow = Task { _ = try await store.setFollowing(Self.ref("s1"), true) }
         await worker.held(1)
         #expect(store.row(Self.ref("s1"))?.following == true, "the eye fills on the click's turn")
         #expect(store.row(Self.ref("s1"))?.followerCount == 1)
@@ -146,7 +146,7 @@ import Testing
         await store.refresh()
         worker.holds = true
         // task-owner: the test's reassign, held until checked.
-        let reassign = Task { try await store.reassign(Self.ref("s1"), to: "user_b") }
+        let reassign = Task { _ = try await store.reassign(Self.ref("s1"), to: "user_b") }
         await worker.held(1)
         #expect(store.sessions.isEmpty, "no longer assigned to me, on the click's turn")
         worker.release()
@@ -199,7 +199,7 @@ import Testing
         await worker.held(1)
         #expect(store.isLoading)
         // task-owner: a script's `--by` page.
-        let script = Task { try await store.list(scope: "mine", by: "user_b") }
+        let script = Task { _ = try await store.list(scope: "mine", by: "user_b") }
         await worker.held(2)
         worker.release(1)
         _ = try await script.value
@@ -237,7 +237,7 @@ import Testing
         worker.replies = [.failure(CloudTeamError(code: "cloud_session.not_found", message: "gone")),
                           .success(Self.list([Self.row("s1", following: true, followers: 3)]))]
         // task-owner: the test's follow, refused after a list replaced the row.
-        let follow = Task { try await store.setFollowing(Self.ref("s1"), true) }
+        let follow = Task { _ = try await store.setFollowing(Self.ref("s1"), true) }
         await worker.held(1)
         // task-owner: the list that lands first.
         let list = Task { await store.refresh() }
