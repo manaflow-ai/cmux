@@ -1127,6 +1127,68 @@ class Excusing(unittest.TestCase):
         self.assertIn(f"excused '{SCHEME}'", text)
         self.assertFalse([route for route in self.gh.routes if "/runs/70" in route and "/jobs?" in route])
 
+    def cancelled_tier_setup(self, name, *, cancelled_without_verdict=0):
+        # cmux_next_base_tier.py cancel_superseded (2026-11-09) cancels a superseded base tier run whose daemon tests
+        # (or generated files) finished and whose scheme compile still queued: such a cancelled run has a verdict.
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step="Run the suites")}
+        self.gh.logs[1] = log(name, "Run the suites", ISSUE)
+        title = "cmux-next base tier · "
+        older = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "in_progress",
+                 "conclusion": None, "display_title": title + "e" * 40, "created_at": "2026-11-09T12:00:00Z",
+                 "check_suite_node_id": "CS_40"}
+        self.gh.jobs[4] = failed_job(4, 40, "e" * 40, name=name, step="Run the suites")
+        self.gh.logs[4] = log(name, "Run the suites", ISSUE, OTHER)
+        runs = [older]
+        for offset in range(cancelled_without_verdict):
+            run_id = 7000 + offset
+            runs.append({"id": run_id, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "cancelled",
+                         "display_title": title + f"{offset % 16:x}" * 39 + "0",
+                         "created_at": f"2026-11-09T13:{offset:02d}:00Z", "check_suite_node_id": f"CS_{run_id}"})
+            self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, "0" * 40, name=name), conclusion="cancelled",
+                                        steps=[])
+        self.gh.base_runs = sorted(runs, key=lambda run: run["created_at"], reverse=True)
+
+        def run(args):
+            # The check suites of the listed runs: every check run of the asked name in each, as GraphQL answers.
+            query = next(arg for arg in args if arg.startswith("query="))
+            asked = next(arg for arg in args if arg.startswith("name="))[len("name="):]
+            return json.dumps({"data": {"nodes": [
+                {"id": f"CS_{suite}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                    {"conclusion": (job["conclusion"] or "").upper() or None}
+                    for job in self.gh.jobs.values() if job["run_id"] == int(suite) and job["name"] == asked]}}
+                for suite in re.findall(r'"CS_(\d+)"', query)]}})
+
+        self.gh.run = run
+
+    def test_a_cancelled_base_tier_runs_newer_green_stands_over_an_older_red(self):
+        # The kick cancelled run 41 after its daemon tests (or generated files) passed; run 40, older, is red. The
+        # newest verdict is run 41's green: the head's red is its own, never excused by run 40.
+        for name in ("cmux-next daemon tests", "cmux-next generated files"):
+            with self.subTest(job=name):
+                self.setUp()
+                self.cancelled_tier_setup(name)
+                self.gh.base_runs.insert(0, {
+                    "id": 41, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                    "conclusion": "cancelled", "display_title": "cmux-next base tier · " + "d" * 40,
+                    "created_at": "2026-11-09T12:15:00Z", "check_suite_node_id": "CS_41"})
+                self.gh.jobs[5] = dict(failed_job(5, 41, "d" * 40, name=name, step="Run the suites"),
+                                       conclusion="success")
+                self.gh.jobs[5]["steps"][-1]["conclusion"] = "success"
+                with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 41"):
+                    self.judge()
+
+    def test_cancelled_base_tier_runs_with_no_verdict_spend_no_job_reads(self):
+        # More cancelled base tier runs with no verdict for the job than either lookup reads sit ahead of run 40:
+        # their check suites say so, so none is read or counted, and run 40's red still decides.
+        for name in ("cmux-next daemon tests", "cmux-next generated files"):
+            with self.subTest(job=name):
+                self.setUp()
+                self.cancelled_tier_setup(name, cancelled_without_verdict=excuse.BASE_JOB_READS + 2)
+                text = "\n".join(self.judge())
+                self.assertIn(f"excused '{name}': feat-cmux-next run 40", text)
+                self.assertFalse([route for route in self.gh.routes if "/runs/70" in route and "/jobs?" in route])
+
     def test_tree_jobs_are_jobs_of_the_suites_that_defer_them(self):
         # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing.
         self.assertLessEqual(excuse.TREE_JOBS, excuse.SUITES["cmux-next base tier · "])
@@ -3374,10 +3436,15 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
                     self.judge()
 
     def test_a_real_fleet_compile_failure_is_compared_with_the_base(self):
+        """With no receipt to read (InheritedCompileRed), the job is compared with the base run, as before. The
+        receipt read is a fake: the test never reaches the network."""
         line = "##[error]cmux-next/compile is not a pass for {} (fail)"
         self.gh.logs[1] = log(self.FLEET, self.STEP, line.format(HEAD))
         self.gh.logs[2] = log(self.FLEET, self.STEP, line.format(BASE_SHA))
-        self.assertIn(f"excused '{self.FLEET}'", "\n".join(self.judge()))
+        read = []
+        with unittest.mock.patch.object(excuse, "compile_receipt", lambda repo, sha: read.append(sha)):
+            self.assertIn(f"excused '{self.FLEET}'", "\n".join(self.judge()))
+        self.assertEqual(read, [HEAD])
 
 
 class InheritedCompileRed(unittest.TestCase):
@@ -3477,23 +3544,35 @@ class CompileReceiptRead(unittest.TestCase):
     """The receipt read: one anonymous GET; a 404 is no receipt, every other failure refuses."""
 
     def answer(self, body=None, code=None):
-        def urlopen(url, timeout):
+        def urlopen(request, timeout):
+            url = request.full_url
             self.assertIn("?repo=manaflow-ai%2Fcmux&wait=0", url)
+            # The proxy refuses Python's default User-Agent with a 403: the read always names its client.
+            self.assertEqual(request.get_header("User-agent"), excuse.COMPILE_RECEIPT_USER_AGENT)
             if code is not None:
                 raise urllib.error.HTTPError(url, code, "x", {}, None)
             return contextlib.closing(io.BytesIO(json.dumps(body).encode()))
         return unittest.mock.patch("urllib.request.urlopen", urlopen)
 
+    RECEIPT = {"repo": REPO, "sha": HEAD, "state": "fail", "recipe_version": 2, "configuration": "release-onone"}
+
     def test_the_receipt_answer_404_and_errors(self):
-        with self.answer({"repo": REPO, "sha": HEAD, "state": "fail"}):
+        with self.answer(self.RECEIPT):
             self.assertEqual(excuse.compile_receipt(REPO, HEAD)["state"], "fail")
         with self.answer(code=404):
             self.assertIsNone(excuse.compile_receipt(REPO, HEAD))
         with self.answer(code=524), self.assertRaisesRegex(excuse.Refused, "HTTP 524"):
             excuse.compile_receipt(REPO, HEAD)
-        with self.answer({"repo": REPO, "sha": BASE_SHA, "state": "fail"}), \
-                self.assertRaisesRegex(excuse.Refused, "another commit"):
+        with self.answer(dict(self.RECEIPT, sha=BASE_SHA)), self.assertRaisesRegex(excuse.Refused, "another commit"):
             excuse.compile_receipt(REPO, HEAD)
+
+    def test_a_receipt_of_another_recipe_or_configuration_refuses(self):
+        """The workflow trusts only recipe 2's release-onone receipt (cmux-next.yml's compile-status step): a receipt
+        of another recipe never excuses a red."""
+        for other in ({"recipe_version": 1}, {"configuration": "debug"}, {"recipe_version": None}, {"configuration": None}):
+            with self.subTest(other=other), self.answer(dict(self.RECEIPT, **other)), \
+                    self.assertRaisesRegex(excuse.Refused, "another recipe"):
+                excuse.compile_receipt(REPO, HEAD)
 
 
 CLIPPY = "clippy (changed cmux-tui packages)"

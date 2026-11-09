@@ -94,13 +94,14 @@ impl Hub {
             draft.remote_origin || crate::login_env::machine_env_fresh_before_spawn().await,
             "machine environment changed; login env refresh failed"
         );
-        let cmd = crate::agent::harness_command(
+        let cmd = crate::agent::harness_command_ready(
             &draft.harness,
             profile,
             &draft.cwd,
             command_line,
             Some((&session_id, &name)),
-        )?;
+        )
+        .await?;
         let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
         let dir = pool_dir();
@@ -112,6 +113,8 @@ impl Hub {
         // The class it runs at once a chat's start took it, from the harness's own env: its
         // profile's value as resolved (`cpu_class.rs`). Until then it stays at normal class.
         let run_class = crate::cpu_class::CpuClass::for_session(
+            profile.kind,
+            &profile.argv,
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut host_spec = agent_host::SpawnSpec {

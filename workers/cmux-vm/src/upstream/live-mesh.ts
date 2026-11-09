@@ -4,7 +4,7 @@
  * src/index.ts. Provider ids come from minted proofs or from this client's own
  * creates; the provider key stays in live-http.ts.
  */
-import { Effect, Layer, Redacted, Schema } from "effect";
+import { Effect, Layer, Option, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
 import { signedKeysOf } from "../proofs/device-holds-key.ts";
@@ -14,6 +14,7 @@ import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp, proofSegment } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { upstreamName } from "./naming.ts";
+import { attachedOnlyTo } from "./tunnel-attachment.ts";
 import { makeDurableMeshCreate } from "./live-mesh-create.ts";
 import { type CreatedNetwork, type CreatedRule, type CreatedTunnel, type TunnelInfo, UpstreamMesh, type UpstreamMeshService } from "./mesh.ts";
 
@@ -29,7 +30,9 @@ const TunnelBody = Schema.Struct({
   routes: Schema.Array(Schema.String),
   clientConfig: Schema.optional(Schema.String),
   clientPrivateKey: Schema.optional(Schema.NullOr(Schema.String)),
-  attachments: Schema.optional(Schema.Array(Schema.Struct({ ipv4: Schema.optional(Schema.NullOr(Schema.String)) }))),
+  slug: Schema.optional(Schema.NullOr(Schema.String)),
+  displayName: Schema.optional(Schema.NullOr(Schema.String)),
+  attachments: Schema.optional(Schema.Array(Schema.Struct({ ipv4: Schema.optional(Schema.NullOr(Schema.String)), vpcId: Schema.optional(Schema.NullOr(Schema.String)) }))),
 });
 type TunnelBody = typeof TunnelBody.Type;
 
@@ -103,6 +106,12 @@ const tunnelIdOf = (body: TunnelBody): string | null => body.tunnelId ?? body.id
 
 const path = (id: string) => encodeURIComponent(id);
 
+/**
+ * The provider slug a device's tunnel is created with: unique in the account, so a create whose reply was lost can be
+ * found again by it (`findDeviceTunnel`), and a device id is fresh per create, so each slug is sent at most once.
+ */
+export const deviceTunnelSlug = (environment: Environment, deviceId: string): string => `cmux-tun-${environment}-${deviceId.replace("_", "-")}`;
+
 export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
   const http = makeUpstreamHttp(config);
   const send = config.fetch ?? ((request: Request) => fetch(request));
@@ -146,6 +155,7 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
           // Always our key: omitting it would make the provider mint one, and that key would leave the device boundary.
           clientPublicKey: signedKeysOf(holds).wgPublicKey,
           displayName: upstreamName(config.environment, options.tenantId, options.deviceId),
+          slug: deviceTunnelSlug(config.environment, options.deviceId),
           routes,
           vpcs: [{ vpc: upstreamIdOf(owns) }],
         });
@@ -167,8 +177,31 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
       }),
     discardCreatedTunnel: (created) =>
       tunnels.has(created)
-        ? deleteTunnelById("discardCreatedTunnel", created.upstreamId)
+        ? deleteTunnelById("discardCreatedTunnel", created.upstreamId).pipe(
+            // Already gone (a revoke found and deleted it first) is the outcome the discard wants.
+            Effect.catchIf((error) => error.status === 404, () => Effect.void),
+          )
         : Effect.fail(new UpstreamError({ operation: "discardCreatedTunnel", status: null })),
+    findDeviceTunnel: (_mesh, device, { owns }, options) =>
+      Effect.gen(function* () {
+        const slug = deviceTunnelSlug(config.environment, device.value);
+        const raw = yield* http.json("findDeviceTunnel", "GET", `/v5/tunnels/${path(slug)}`).pipe(
+          Effect.map(Option.some),
+          Effect.catchIf((error) => error.status === 404, () => Effect.succeed(Option.none<unknown>())),
+        );
+        if (Option.isNone(raw)) return Option.none<CreatedTunnel>();
+        const body = yield* decodeAs(TunnelBody, "findDeviceTunnel")(raw.value);
+        const id = tunnelIdOf(body);
+        // Only this device's create could have made a tunnel with this slug and name, attached to exactly this mesh's
+        // network (src/upstream/tunnel-attachment.ts): anything else fails closed, and the caller deletes nothing.
+        if (id === null || body.slug !== slug || body.displayName !== upstreamName(config.environment, options.tenantId, device.value)
+          || !attachedOnlyTo(body.attachments, upstreamIdOf(owns))) {
+          return yield* Effect.fail(new UpstreamError({ operation: "findDeviceTunnel", status: null }));
+        }
+        const created: CreatedTunnel = Object.freeze({ upstreamId: UpstreamId.make(id), info: infoOf(body) });
+        tunnels.add(created);
+        return Option.some(created);
+      }),
     getTunnel: (_tunnel, { owns }) =>
       http
         .json("getTunnel", "GET", `/v5/tunnels/${proofSegment(owns)}`)

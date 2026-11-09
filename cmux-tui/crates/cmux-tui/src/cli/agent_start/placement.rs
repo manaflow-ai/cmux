@@ -8,6 +8,16 @@
 //! - A session with no pane yet (a daemon no client opened): a new workspace
 //!   named after the agent, whose first shell tab the agent's tab replaces.
 //!
+//! A split takes the new pane's width only from the pane it splits: every
+//! other pane of the row (the chain of splits in the same direction around
+//! it) keeps its width, so a person's column keeps its width. The agent
+//! panes next to the new one in that row (each tab's terminal has the
+//! daemon's `extra.agent_start` mark and runs; a tab's name does not count,
+//! and an exited agent's pane keeps its width) then
+//! share their space equally, so the third agent of a row is not an eighth
+//! of it (W5-Q, bench round 4 orchestration friction 6). A screen of
+//! viewport columns keeps each column's width.
+//!
 //! The agent runs in a tab of its own (`pane run --on-exit keep --name
 //! NAME`), so its name, argv and harness session stay on record after it
 //! exits. A split (or a new workspace) first opens a shell tab, whose shell
@@ -332,6 +342,7 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
                 words.extend(["--cwd", cwd]);
             }
             let split = Created::from_result(&daemon.request(None, plan(&words)?)?)?;
+            balance(daemon, split.screen.as_deref(), &split.pane);
             (split.pane.clone(), Some(Placeholder::of(&split)))
         }
         Placement::Tab => (pane.to_owned(), None),
@@ -366,4 +377,193 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
         end_placeholder(daemon, shell);
     }
     Ok(created)
+}
+
+/// Evens the agent panes of the new `pane`'s row ([`row_ratios`]) by
+/// setting the ratios of the splits that change.
+fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
+    let snapshot = send::snapshot(daemon, None).ok();
+    let screen = match screen {
+        Some(screen) => Some(screen.to_owned()),
+        None => snapshot.as_ref().and_then(|snapshot| {
+            list(snapshot, "panes")
+                .iter()
+                .find(|record| record["id"] == pane)
+                .and_then(|record| record["screen_id"].as_str())
+                .map(str::to_owned)
+        }),
+    };
+    let Some(screen) = screen else { return };
+    let Ok(export) = plan(&["screen", screen.as_str(), "layout", "export"]) else { return };
+    let Ok(layout) = daemon.request(None, export) else { return };
+    let root = layout.get("root").unwrap_or(&layout);
+    let is_agent = |id: &str| {
+        id == pane || snapshot.as_ref().is_some_and(|snapshot| started_agents(snapshot, id))
+    };
+    for (split, ratio) in row_ratios(root, pane, &is_agent) {
+        let ratio = format!("{ratio:.6}");
+        let words = [
+            "pane",
+            pane,
+            "split",
+            "ratio",
+            "set",
+            "--split",
+            split.as_str(),
+            "--ratio",
+            ratio.as_str(),
+        ];
+        if let Ok(set) = plan(&words) {
+            // The agent runs either way; an uneven row is no failure.
+            let _ = daemon.request(None, set);
+        }
+    }
+}
+
+/// Whether `pane` holds running agents agent start made: it has tabs, and
+/// each one's terminal carries the daemon's `extra.agent_start` mark (its
+/// stored spawn argv is the agent start launch,
+/// cmux_tui_core::agent_start_launch) and is live: its lifecycle is
+/// `running`, `launching` or `adopting` (`terminal_lifecycle::is_live`, the
+/// one allow-list). Any other word (a later protocol's state) or no
+/// `lifecycle` field counts as the person's pane, so a new state never
+/// resizes a column. The agent's own state (`working`, `idle`, `blocked`,
+/// ...) is a different field and does not count: a live idle or blocked
+/// agent runs in a `running` terminal. A person's tab never has the mark,
+/// whatever its name; an exited agent kept with `--on-exit keep` keeps its
+/// mark but counts as the person's pane, so its width stays. Nothing reads
+/// a process.
+fn started_agents(snapshot: &Value, pane: &str) -> bool {
+    let marked: std::collections::HashSet<&str> = list(snapshot, "terminals")
+        .iter()
+        .filter(|terminal| terminal.pointer("/extra/agent_start") == Some(&Value::Bool(true)))
+        .filter(|terminal| super::super::terminal_lifecycle::is_live(terminal))
+        .filter_map(|terminal| terminal["id"].as_str())
+        .collect();
+    let mut tabs = list(snapshot, "tabs").iter().filter(|tab| tab["pane_id"] == pane).peekable();
+    tabs.peek().is_some()
+        && tabs.all(|tab| tab["content_id"].as_str().is_some_and(|id| marked.contains(id)))
+}
+
+/// The split ratios (`split_id`, share of `first`) after a split made
+/// `pane`: the row is the largest chain of splits in the direction of
+/// `pane`'s own split. The run of agent panes around `pane` along the row
+/// (`is_agent`, [`started_agents`]) shares its width equally; every other pane of the row keeps
+/// its width, so a new pane takes space only from agent panes (the column
+/// rule). Ratios that already fit are left out; a layout that is not a
+/// split tree gives none.
+fn row_ratios(root: &Value, pane: &str, is_agent: &dyn Fn(&str) -> bool) -> Vec<(String, f64)> {
+    let mut path = Vec::new();
+    if root["kind"] != "split" || !path_to(root, pane, &mut path) {
+        return Vec::new();
+    }
+    let Some(direction) = path.last().map(|split| &split["direction"]) else {
+        return Vec::new();
+    };
+    let top = path
+        .iter()
+        .rposition(|split| split["direction"] != *direction)
+        .map_or(0, |different| different + 1);
+    let Some(row) = path.get(top) else { return Vec::new() };
+    let mut cells = Vec::new();
+    cells_of(row, direction, 1.0, &mut cells);
+    let Some(new) = cells.iter().position(|cell| cell.panes.contains(&pane)) else {
+        return Vec::new();
+    };
+    let agent =
+        |cell: &Cell<'_>| !cell.panes.is_empty() && cell.panes.iter().all(|id| is_agent(id));
+    let before = cells.get(..new).unwrap_or_default();
+    let first = new.saturating_sub(before.iter().rev().take_while(|cell| agent(cell)).count());
+    let after = cells.get(new..).unwrap_or_default();
+    let end = new.saturating_add(after.iter().take_while(|cell| agent(cell)).count());
+    let Some(run) = cells.get(first..end) else { return Vec::new() };
+    let mut total = 0.0;
+    let mut count = 0.0;
+    for cell in run {
+        total += cell.width;
+        count += 1.0;
+    }
+    let mut widths: Vec<f64> = cells.iter().map(|cell| cell.width).collect();
+    if let Some(shared) = widths.get_mut(first..end) {
+        shared.fill(total / count);
+    }
+    let mut ratios = Vec::new();
+    let mut next = 0;
+    assign(row, direction, &widths, &mut next, &mut ratios);
+    ratios
+}
+
+/// One pane (or stack, or split across the row) of a row, with its share of
+/// the row's width.
+struct Cell<'a> {
+    panes: Vec<&'a str>,
+    width: f64,
+}
+
+/// The cells of `node`'s row along `direction`, in order, into `cells`.
+fn cells_of<'a>(node: &'a Value, direction: &Value, width: f64, cells: &mut Vec<Cell<'a>>) {
+    if node["kind"] == "split" && node["direction"] == *direction {
+        let ratio = node["ratio"].as_f64().filter(|ratio| ratio.is_finite()).unwrap_or(0.5);
+        cells_of(&node["first"], direction, width * ratio, cells);
+        cells_of(&node["second"], direction, width * (1.0 - ratio), cells);
+        return;
+    }
+    let panes = match node["kind"].as_str() {
+        Some("leaf") => node["pane_id"].as_str().into_iter().collect(),
+        Some("stack") => node["pane_ids"]
+            .as_array()
+            .map(|ids| ids.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default(),
+        // A split across the row holds panes of other rows: never shared.
+        _ => Vec::new(),
+    };
+    cells.push(Cell { panes, width });
+}
+
+/// Pushes the ratio of each row split under `node` that `widths` (the
+/// cells' new widths, from `next` on) needs and returns `node`'s width.
+fn assign(
+    node: &Value,
+    direction: &Value,
+    widths: &[f64],
+    next: &mut usize,
+    ratios: &mut Vec<(String, f64)>,
+) -> f64 {
+    if node["kind"] != "split" || node["direction"] != *direction {
+        let width = widths.get(*next).copied().unwrap_or(0.0);
+        *next = next.saturating_add(1);
+        return width;
+    }
+    let first = assign(&node["first"], direction, widths, next, ratios);
+    let second = assign(&node["second"], direction, widths, next, ratios);
+    let total = first + second;
+    if total > 0.0 {
+        let ratio = first / total;
+        let current = node["ratio"].as_f64().unwrap_or(f64::NAN);
+        if let Some(split) = node["split_id"].as_str()
+            && (current.is_nan() || (current - ratio).abs() > 0.001)
+        {
+            ratios.push((split.to_owned(), ratio));
+        }
+    }
+    total
+}
+
+/// The splits from `node` down to `pane`'s leaf (or stack), into `path`.
+fn path_to<'a>(node: &'a Value, pane: &str, path: &mut Vec<&'a Value>) -> bool {
+    match node["kind"].as_str() {
+        Some("leaf") => node["pane_id"] == pane,
+        Some("stack") => {
+            node["pane_ids"].as_array().is_some_and(|panes| panes.iter().any(|id| id == pane))
+        }
+        Some("split") => {
+            path.push(node);
+            if path_to(&node["first"], pane, path) || path_to(&node["second"], pane, path) {
+                return true;
+            }
+            path.pop();
+            false
+        }
+        _ => false,
+    }
 }

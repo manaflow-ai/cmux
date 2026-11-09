@@ -32,7 +32,7 @@ use std::ffi::OsString;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::RwLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -206,6 +206,11 @@ fn now_secs() -> u64 {
 /// One login shell read at a time: the startup read and a refresh never
 /// overlap, so the last cache written is the newest read.
 static IMPORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// Told when a login shell read ends, done or failed (`await_child_env`).
+static READ_ENDED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+/// Login shell reads ended, done or failed: a command built before a read
+/// ended and checked after it is built again (`build_ready`).
+static READS: AtomicU64 = AtomicU64::new(0);
 /// Reads in a row when the startup files change during a read: one more
 /// read catches an edit made during the first.
 const MAX_ROUNDS: usize = 2;
@@ -238,7 +243,157 @@ pub async fn import() -> bool {
             tracing::info!("shell startup files changed during the read; reading them again");
         }
     }
+    READS.fetch_add(1, Ordering::SeqCst);
+    READ_ENDED.notify_waiters();
     changed
+}
+
+/// A child's final env plan, as far as the login shell goes: what it takes
+/// from the login env once its command is built (route set and unset, the
+/// remote policy, profile resolution, scrubs). Every spawn path waits on it
+/// (`await_child_env`; `agent::harness_command_ready` for harness commands),
+/// so none waits, or refuses, over a name its child never receives.
+pub(crate) struct ChildEnv<'a> {
+    pub family: &'a str,
+    /// The profile's env, unresolved: its `${env:X}` references and the
+    /// Bedrock and Vertex switches of the allow-list (`allowed_with`).
+    pub profile: Option<&'a BTreeMap<String, String>>,
+    /// The child starts from a cleared env and takes no login value but PATH
+    /// (`apply_remote_tokio`): a remote-origin launch.
+    pub remote: bool,
+    /// The command's explicit env changes as built: a name it sets (a
+    /// profile value) is never the login env's. A name it removes may be: the
+    /// nested-session scrub removes an inherited `ANTHROPIC_BASE_URL` that the
+    /// login import puts back. Only `never` names one the child never gets.
+    /// `None` until it is built.
+    pub explicit: Option<Vec<(String, Option<String>)>>,
+}
+
+impl ChildEnv<'_> {
+    /// The profile's `${env:X}` names: resolved from the login env whatever
+    /// the plan, remote included (`reference_var`).
+    fn refs(&self) -> Vec<String> {
+        self.profile.map(crate::config::profiles::env_ref_names).unwrap_or_default()
+    }
+
+    /// Names the child receives from the login env whose values only the
+    /// shell holds now (a cached start: `save_cache` keeps secrets by name
+    /// only). A reference; or a name the plan neither sets nor removes, the
+    /// family's allow-list takes (`allowed_with`), and that is a provider key
+    /// of a multi-provider harness or a base URL. Claude's and Codex's own
+    /// keys stay with `Plan::wait`.
+    fn blocking(&self) -> Vec<String> {
+        let refs = self.refs();
+        missing_secret_names().into_iter().filter(|n| self.takes(n, &refs)).collect()
+    }
+
+    /// The child receives `name` from the login env, and it is one a start waits for (`blocking`).
+    fn takes(&self, name: &str, refs: &[String]) -> bool {
+        if refs.iter().any(|r| r == name) {
+            return true;
+        }
+        let Some(explicit) = &self.explicit else { return false };
+        !self.remote
+            && !explicit.iter().any(|(k, v)| k == name && v.is_some())
+            && !self.never(name)
+            && PROVIDER_KEYS.contains(&name)
+            && allowed_with(name, "", Some(self.family), self.profile)
+            && (PROVIDER_FAMILIES.contains(&self.family) || endpoint(name))
+    }
+
+    /// The child never gets `name`, whatever the login env holds: a bound
+    /// route unsets it (`routes::UNSET_KEY`), or an Anthropic endpoint
+    /// harness clears it (`byo_endpoint::clears`). Unlike a scrub, which the
+    /// login import undoes, this removal is the plan's.
+    fn never(&self, name: &str) -> bool {
+        let Some(env) = self.profile else { return false };
+        env.get(crate::routes::UNSET_KEY).is_some_and(|l| l.split(',').any(|k| k == name))
+            || crate::byo_endpoint::clears(name, env)
+    }
+
+    /// The blocking names a start cannot go without: a base URL (else the
+    /// agent runs on its default endpoint) or a reference. A provider key it
+    /// lacks, the harness names itself.
+    fn refusing(&self) -> Vec<String> {
+        let refs = self.refs();
+        self.blocking().into_iter().filter(|n| endpoint(n) || refs.contains(n)).collect()
+    }
+}
+
+/// Before a child starts on `plan`: while it takes a login value only the
+/// shell holds and the shell has not answered since a cached start, wait
+/// for that read until `deadline` (`TIMEOUT` from the first build). True
+/// when the plan took such a value, so the caller builds the command again
+/// with the read's values. A base URL or reference still missing then (the
+/// read failed or is slower) refuses the start, naming it, never its value.
+pub(crate) async fn await_child_env(
+    plan: &ChildEnv<'_>,
+    deadline: tokio::time::Instant,
+) -> Result<bool, String> {
+    if !ENABLED.load(Ordering::SeqCst) || plan.blocking().is_empty() {
+        return Ok(false);
+    }
+    wait_until(|| outcome() == Outcome::Cached && !plan.blocking().is_empty(), deadline).await;
+    let missing = plan.refusing();
+    if missing.is_empty() {
+        return Ok(true);
+    }
+    Err(format!(
+        "{} from the login shell is not available yet: the shell did not answer within {} s. \
+         Retry in a moment, or set it in the agent's profile",
+        missing.join(", "),
+        TIMEOUT.as_secs()
+    ))
+}
+
+/// Build a spawn's command on `plan`, ready to start: `build` it, take its
+/// env changes (`explicit`) into the plan and `await_child_env`. Built again
+/// when the plan waited for the shell, or when a read ended while it was
+/// built (it took the values from before the read). A refusal is `refuse`d.
+pub(crate) async fn build_ready<T, E>(
+    plan: &mut ChildEnv<'_>,
+    mut build: impl FnMut() -> Result<T, E>,
+    explicit: impl Fn(&T) -> Vec<(String, Option<String>)>,
+    refuse: impl Fn(String) -> E,
+) -> Result<T, E> {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    // Twice at most: a build that failed on a missing reference has no plan
+    // until the reference is here.
+    for _ in 0..2 {
+        let reads = READS.load(Ordering::SeqCst);
+        let built = build();
+        plan.explicit = built.as_ref().ok().map(&explicit);
+        let waited = await_child_env(plan, deadline).await.map_err(&refuse)?;
+        if !waited && READS.load(Ordering::SeqCst) == reads {
+            return built;
+        }
+    }
+    build()
+}
+
+/// A provider base URL (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`): the
+/// `PROVIDER_KEYS` names that are not secret by name.
+fn endpoint(name: &str) -> bool {
+    PROVIDER_KEYS.contains(&name) && !is_secret(name, "")
+}
+
+/// Wait while `pending`, each time until a login shell read ends, at most `limit` in all.
+#[cfg(test)]
+async fn wait_while(pending: impl Fn() -> bool, limit: Duration) {
+    wait_until(pending, tokio::time::Instant::now() + limit).await;
+}
+
+/// Wait while `pending`, each time until a login shell read ends, until `deadline`.
+async fn wait_until(pending: impl Fn() -> bool, deadline: tokio::time::Instant) {
+    loop {
+        let ended = READ_ENDED.notified();
+        tokio::pin!(ended);
+        // Registered before the check, so a read that ends between them still wakes it.
+        ended.as_mut().enable();
+        if !pending() || tokio::time::timeout_at(deadline, ended).await.is_err() {
+            return;
+        }
+    }
 }
 
 /// One login shell run; its cache is labelled `read`, the fingerprint
@@ -626,7 +781,7 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
 /// - Codex: OPENAI_*, CODEX_*.
 /// - Gemini: GEMINI_* and GOOGLE_* (the CLI/API and Vertex credentials).
 /// - Muse: MUSE_* and META_* (the official CLI and API credentials).
-/// - OpenCode, pi, omp, cmux Harness (pi's loop) and Hermes: the fixed
+/// - OpenCode, OpenCode v2, pi, omp, Prime, cmux Harness (pi's loop) and Hermes: the fixed
 ///   provider-key names in `PROVIDER_KEYS`, never a prefix.
 /// - Not here: a name delivered in `~/.config/cmux/machine-secrets.env`
 ///   passes only on the local spawn paths (`pairs_for`), never through this
@@ -695,17 +850,24 @@ pub fn allowed_with(
     }
 }
 
-/// The harnesses that sign in with any provider's API key: OpenCode, pi and
-/// its fork omp, cmux Harness (pi's model loop) and Hermes.
-const PROVIDER_FAMILIES: [&str; 5] = ["opencode", "pi", "omp", "cmux-harness", "hermes"];
+/// The harnesses that sign in with any provider's API key: OpenCode and
+/// OpenCode v2 (`opencode2`, which uses OpenCode's provider credentials), pi
+/// and its forks omp and Prime Agent, cmux Harness (pi's model loop) and
+/// Hermes. Not DeepSeek Harness (`dsh`): its key lives in
+/// `~/.dsh/.credentials.yaml`.
+pub(crate) const PROVIDER_FAMILIES: [&str; 7] =
+    ["opencode", "opencode-v2", "pi", "omp", "prime", "cmux-harness", "hermes"];
 
 /// The provider keys (and base URLs) those harnesses read from their
 /// environment. Exact names, never a prefix: a prefix would bring in any
 /// secret that shares it (`OPENAI_ORG_TOKEN`, `GROQ_SECRET`). Every key is a
-/// secret by name (`is_secret`), so only its name reaches the cache.
+/// secret by name, so only its name reaches the cache (`save_cache`); a base
+/// URL is cached by value unless it carries a credential (`is_secret`).
 /// Not here: cloud credentials (AWS_*, Vertex ADC), which only Claude's
-/// Bedrock and Vertex switches unlock, and GitHub tokens.
-const PROVIDER_KEYS: [&str; 26] = [
+/// Bedrock and Vertex switches unlock, and GitHub tokens. The same list keeps
+/// these keys in the daemon's own env from other agents
+/// (`agent/foreign_login.rs`).
+pub(crate) const PROVIDER_KEYS: [&str; 26] = [
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_BASE_URL",
     "OPENAI_API_KEY",
@@ -1233,7 +1395,9 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
     let mut vars = BTreeMap::new();
     let mut secret_names = Vec::new();
     for (k, v) in login {
-        // A delivered value is a secret whatever its name (`DEMO`, `STRIPE`).
+        // A delivered value is a secret whatever its name (`DEMO`, `STRIPE`). A base URL is
+        // one only when it carries a credential (userinfo, `key=` or `token=` in its query:
+        // `is_secret`); a plain endpoint is cached by value, so a restart has it at once.
         if is_secret(k, v) || delivered(k) {
             secret_names.push(k.clone());
         } else {
@@ -1483,6 +1647,155 @@ mod machine_file_tests {
         assert!(!allowed("META_API_KEY", "secret", Some("claude")));
     }
 
+    /// A multi-provider harness waits for the shell read that fetches its
+    /// keys, at most `TIMEOUT`, and goes on as soon as a read ends; another
+    /// family never waits.
+    #[tokio::test(start_paused = true)]
+    async fn a_provider_harness_waits_for_the_read_that_fetches_its_keys() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let start = tokio::time::Instant::now();
+        super::wait_while(|| true, super::TIMEOUT).await;
+        assert_eq!(start.elapsed(), super::TIMEOUT, "the wait is bounded");
+        let pending = Arc::new(AtomicBool::new(true));
+        let read = pending.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            read.store(false, Ordering::SeqCst);
+            super::READ_ENDED.notify_waiters();
+        });
+        let start = tokio::time::Instant::now();
+        let waiting = pending.clone();
+        super::wait_while(move || waiting.load(Ordering::SeqCst), super::TIMEOUT).await;
+        let waited = start.elapsed();
+        assert_eq!(waited, std::time::Duration::from_millis(200), "it goes on when the read ends");
+    }
+
+    /// Which names a spawn waits for after a cached start, from its final env
+    /// plan: a multi-provider harness any provider key or base URL; Claude and
+    /// Codex the base URL they read, never a key (their own wait is
+    /// `Plan::wait`); a reference always; never a name the plan sets or
+    /// removes (a route's unset), nor anything on a remote-origin plan.
+    #[test]
+    fn a_spawn_waits_only_for_values_its_plan_takes_from_the_shell() {
+        use super::ChildEnv;
+        use std::collections::BTreeMap;
+        let plan = |family, profile, remote, explicit: &[(&str, Option<&str>)]| ChildEnv {
+            family,
+            profile,
+            remote,
+            explicit: Some(
+                explicit.iter().map(|(k, v)| (k.to_string(), v.map(str::to_owned))).collect(),
+            ),
+        };
+        let takes = |p: &ChildEnv, name: &str| p.takes(name, &p.refs());
+        for family in ["opencode", "opencode-v2", "pi", "prime", "cmux-harness", "hermes"] {
+            for key in ["OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL"] {
+                assert!(takes(&plan(family, None, false, &[]), key), "{family} waits for {key}");
+            }
+        }
+        assert!(takes(&plan("claude", None, false, &[]), "ANTHROPIC_BASE_URL"));
+        assert!(takes(&plan("codex", None, false, &[]), "OPENAI_BASE_URL"));
+        for (family, key) in [
+            ("claude", "OPENAI_BASE_URL"),
+            ("claude", "ANTHROPIC_API_KEY"),
+            ("claude", "ANTHROPIC_AUTH_TOKEN"),
+            ("claude", "OPENROUTER_API_KEY"),
+            ("codex", "ANTHROPIC_BASE_URL"),
+            ("codex", "OPENAI_API_KEY"),
+            ("gemini", "OPENAI_BASE_URL"),
+            ("gemini", "GOOGLE_API_KEY"),
+            ("deepseek", "OPENAI_BASE_URL"),
+            ("opencode", "GITHUB_TOKEN"),
+        ] {
+            assert!(!takes(&plan(family, None, false, &[]), key), "{family} never waits for {key}");
+        }
+        // A route that unsets it (codex-login), or a profile that sets it: never.
+        let route: BTreeMap<String, String> =
+            [(crate::routes::UNSET_KEY.to_owned(), "OPENAI_API_KEY,OPENAI_BASE_URL".to_owned())]
+                .into();
+        let unset = plan("codex", Some(&route), false, &[("OPENAI_BASE_URL", None)]);
+        assert!(!takes(&unset, "OPENAI_BASE_URL"));
+        // An Anthropic endpoint harness clears the Claude provider env it does not set.
+        let own: BTreeMap<String, String> =
+            [(crate::byo_endpoint::OWN_ENDPOINT_KEY.to_owned(), "anthropic".to_owned())].into();
+        let cleared = plan("claude", Some(&own), false, &[("ANTHROPIC_BASE_URL", None)]);
+        assert!(!takes(&cleared, "ANTHROPIC_BASE_URL"));
+        // A scrub is not an unset: the nested-session scrub (a daemon started
+        // inside a Claude Code turn) removes the inherited ANTHROPIC_BASE_URL,
+        // and the login import puts the person's own back, so a cached start
+        // still waits for it.
+        let scrubbed = plan("claude", None, false, &[("ANTHROPIC_BASE_URL", None)]);
+        assert!(takes(&scrubbed, "ANTHROPIC_BASE_URL"));
+        let scrubbed = plan("pi", None, false, &[("OPENROUTER_API_KEY", None)]);
+        assert!(takes(&scrubbed, "OPENROUTER_API_KEY"));
+        let set = plan("claude", None, false, &[("ANTHROPIC_BASE_URL", Some("https://r.invalid"))]);
+        assert!(!takes(&set, "ANTHROPIC_BASE_URL"));
+        // A remote-origin plan takes no login value.
+        assert!(!takes(&plan("codex", None, true, &[]), "OPENAI_BASE_URL"));
+        assert!(!takes(&plan("pi", None, true, &[]), "OPENROUTER_API_KEY"));
+        // A `${env:X}` reference needs X, whatever the family, name or plan.
+        let refs: BTreeMap<String, String> = [
+            ("ANTHROPIC_BASE_URL".to_owned(), "${env:ANTHROPIC_BASE_URL}".to_owned()),
+            ("TEAM_HEADER".to_owned(), "Bearer ${env:TEAM_GATEWAY_TOKEN}".to_owned()),
+        ]
+        .into();
+        let by_ref = plan("claude", Some(&refs), true, &[("ANTHROPIC_BASE_URL", Some("x"))]);
+        assert!(takes(&by_ref, "ANTHROPIC_BASE_URL"));
+        assert!(takes(&by_ref, "TEAM_GATEWAY_TOKEN"));
+        assert!(!takes(&by_ref, "OTHER_TOKEN"));
+        // Not built yet (a reference missing): only references.
+        let unbuilt = ChildEnv { explicit: None, ..plan("claude", Some(&refs), false, &[]) };
+        assert!(takes(&unbuilt, "TEAM_GATEWAY_TOKEN"));
+        assert!(!takes(&plan("pi", None, false, &[]), "GITHUB_TOKEN"));
+    }
+
+    /// A read that ends between building a command and checking its plan
+    /// left the command with the values from before it: it is built again.
+    #[tokio::test]
+    async fn a_command_built_while_a_read_ended_is_built_again() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let builds = AtomicUsize::new(0);
+        let mut plan =
+            super::ChildEnv { family: "pi", profile: None, remote: false, explicit: None };
+        let built = super::build_ready(
+            &mut plan,
+            || {
+                let n = builds.fetch_add(1, Ordering::SeqCst);
+                if n == 0 {
+                    // The shell read ends after this build took its values.
+                    super::READS.fetch_add(1, Ordering::SeqCst);
+                    super::READ_ENDED.notify_waiters();
+                }
+                Ok::<_, String>(n)
+            },
+            |_| Vec::new(),
+            |e| e,
+        )
+        .await
+        .unwrap();
+        assert_ne!(built, 0, "the command built before the read ended is not the one started");
+    }
+
+    /// A plain base URL is cached by value; one with a credential in its
+    /// userinfo or query is a secret, kept by name only.
+    #[test]
+    fn only_a_base_url_with_a_credential_is_a_secret() {
+        for url in
+            ["https://gateway.example/v1", "http://127.0.0.1:11434/v1", "https://api.example"]
+        {
+            assert!(!is_secret("ANTHROPIC_BASE_URL", url), "{url}");
+            assert!(!is_secret("OPENAI_BASE_URL", url), "{url}");
+        }
+        for url in [
+            "https://user:pass@gateway.example/v1",
+            "https://gateway.example/v1?api_key=s3cret",
+            "https://gateway.example/v1?token=s3cret",
+        ] {
+            assert!(is_secret("ANTHROPIC_BASE_URL", url), "{url}");
+        }
+    }
+
     /// A provider key exported in the login shell reaches the harnesses that
     /// sign in with any provider's key (OpenCode, pi and its forks, cmux
     /// Harness, Hermes) and no other family; it is kept as a secret, and no
@@ -1505,7 +1818,7 @@ mod machine_file_tests {
             "GOOGLE_GENERATIVE_AI_API_KEY",
             "HF_TOKEN",
         ];
-        for family in ["opencode", "pi", "omp", "cmux-harness", "hermes"] {
+        for family in ["opencode", "opencode-v2", "pi", "omp", "prime", "cmux-harness", "hermes"] {
             for key in KEYS {
                 assert!(allowed(key, "dummy", Some(family)), "{family} gets {key}");
             }
@@ -1533,7 +1846,7 @@ mod machine_file_tests {
             for family in [None, Some("claude"), Some("codex"), Some("gemini"), Some("muse")] {
                 assert!(!allowed(key, "dummy", family), "{family:?} never gets {key}");
             }
-            for family in ["chief", "unii", "cursor", "fake"] {
+            for family in ["chief", "unii", "cursor", "deepseek", "fake"] {
                 assert!(!allowed(key, "dummy", Some(family)), "{family} never gets {key}");
             }
         }
