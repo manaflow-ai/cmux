@@ -36,7 +36,6 @@ const BOOT_DELAY: Duration = Duration::from_secs(30);
 const INTERVAL: Duration = Duration::from_secs(60);
 /// An update waiting for a turn to end looks again this soon.
 const BUSY_RETRY: Duration = Duration::from_secs(60);
-#[cfg(test)]
 pub(super) use super::gate::CONNECT_HOLD;
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
@@ -147,7 +146,7 @@ pub(super) const STOP_SLACK: Duration = Duration::from_secs(30);
 /// The most wall time one check spends before its flip without counting as a
 /// stop. A slower one (a slow download) only waits one connect hold more: its
 /// binaries are staged, so the next check is quick.
-pub(super) const CHECK_BOUND: Duration = super::gate::CONNECT_HOLD;
+pub(super) const CHECK_BOUND: Duration = CONNECT_HOLD;
 
 /// Starts the connect hold at `now_ms` when more wall time passed since
 /// `started_ms` than a step bounded by `allowed` takes: the machine was
