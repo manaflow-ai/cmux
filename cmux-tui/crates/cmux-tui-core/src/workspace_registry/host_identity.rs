@@ -24,6 +24,8 @@
 
 use std::time::SystemTime;
 
+use cmux_tui_platform::file_birth;
+
 use super::*;
 
 /// Beside `machine-id` in the state root: the host stamp it was minted on.
@@ -114,12 +116,19 @@ fn identity_bound_at() -> Option<SystemTime> {
 /// Whether the unstamped id file at `path` was made before this machine's
 /// cmux Cloud instance id was bound, so on another instance: a fork of a
 /// running machine binds its new id after the files it inherited. A file
-/// system with no creation time, or a machine off cmux Cloud, answers no.
+/// system with no birth time, or a machine off cmux Cloud, answers no. The
+/// birth time comes from `statx` ([`cmux_tui_platform::file_birth`]):
+/// `Metadata::created` always fails in the static musl build Cloud VMs run.
 fn made_before_binding(path: &Path) -> bool {
     let Some(bound) = identity_bound_at() else {
         return false;
     };
-    fs::metadata(path).and_then(|meta| meta.created()).is_ok_and(|made| made < bound)
+    let Some(made) = fs::File::open(path).ok().and_then(|file| file_birth::birth_ns(&file)) else {
+        return false;
+    };
+    bound
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .is_ok_and(|bound| u128::from(made) < bound.as_nanos())
 }
 
 #[cfg(target_os = "macos")]
@@ -630,7 +639,8 @@ mod tests {
         seed(&template);
         let made = ids(&template);
         assert!(!template.join(HOST_STAMP_FILE).exists(), "made before the stamp");
-        if fs::metadata(registry_file(&template)).and_then(|meta| meta.created()).is_err() {
+        let registry = fs::File::open(registry_file(&template)).unwrap();
+        if file_birth::birth_ns(&registry).is_none() {
             eprintln!("skipped: this file system records no creation time");
             fs::remove_dir_all(template).unwrap();
             return;
