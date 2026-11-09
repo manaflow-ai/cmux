@@ -42,6 +42,47 @@ pub(in crate::mux) struct AgentRosterRebuild {
     skipped: Vec<SkippedJournalRange>,
 }
 
+/// Faults a test puts into one session's rebuild: a held rebuild takes no
+/// slice, and a failing read fails the next slices' reads.
+#[cfg(test)]
+pub(in crate::mux) mod rebuild_faults {
+    use std::collections::BTreeMap;
+    use std::sync::{Mutex, PoisonError};
+
+    #[derive(Default)]
+    struct Faults {
+        held: bool,
+        failing_reads: u32,
+    }
+
+    static FAULTS: Mutex<BTreeMap<String, Faults>> = Mutex::new(BTreeMap::new());
+
+    fn with<T>(session: &str, edit: impl FnOnce(&mut Faults) -> T) -> T {
+        let mut faults = FAULTS.lock().unwrap_or_else(PoisonError::into_inner);
+        edit(faults.entry(session.to_owned()).or_default())
+    }
+
+    pub(in crate::mux) fn hold(session: &str, held: bool) {
+        with(session, |faults| faults.held = held);
+    }
+
+    pub(in crate::mux) fn fail_reads(session: &str, reads: u32) {
+        with(session, |faults| faults.failing_reads = reads);
+    }
+
+    pub(super) fn held(session: &str) -> bool {
+        with(session, |faults| faults.held)
+    }
+
+    pub(super) fn take_failing_read(session: &str) -> bool {
+        with(session, |faults| {
+            let failing = faults.failing_reads > 0;
+            faults.failing_reads = faults.failing_reads.saturating_sub(1);
+            failing
+        })
+    }
+}
+
 impl Mux {
     /// Hands a stale roster's rebuild to the owner and wakes it.
     pub(in crate::mux) fn start_agent_roster_rebuild(&self) {
@@ -66,6 +107,10 @@ impl Mux {
         if !self.agent_roster_rebuilding() {
             return;
         }
+        #[cfg(test)]
+        if rebuild_faults::held(&self.session) {
+            return;
+        }
         let worker = &self.agent_roster_worker;
         let mut fold = worker.fold.lock().unwrap_or_else(PoisonError::into_inner);
         let mut slot = worker.rebuild.lock().unwrap_or_else(PoisonError::into_inner);
@@ -81,7 +126,12 @@ impl Mux {
             }
             let cursor = rebuild.host.cursor;
             let kinds = AgentRoster::folds_kind;
+            #[cfg(test)]
+            let injected = rebuild_faults::take_failing_read(&self.session);
+            #[cfg(not(test))]
+            let injected = false;
             let page = match fold.reader(&self.journal_kernel) {
+                _ if injected => Err(anyhow::anyhow!("an injected rebuild read failure")),
                 Some(reader) => reader.kinds_after(cursor, target, kinds, REBUILD_PAGE),
                 None => self.session_journal_kinds_after(cursor, target, kinds, REBUILD_PAGE),
             };
@@ -95,11 +145,14 @@ impl Mux {
                 continue;
             }
             // As the start does: a range that does not decode is skipped.
-            let salvaged = self
-                .workspace_registry
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .session_journal_after_salvaging(cursor, REBUILD_PAGE);
+            let salvaged = if injected {
+                Err(anyhow::anyhow!("an injected rebuild read failure"))
+            } else {
+                self.workspace_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .session_journal_after_salvaging(cursor, REBUILD_PAGE)
+            };
             match salvaged {
                 Ok(SalvagedJournalPage::Page(page)) => {
                     // A salvaged page can stop short of a range that does

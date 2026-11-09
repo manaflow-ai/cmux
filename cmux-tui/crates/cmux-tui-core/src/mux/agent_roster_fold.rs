@@ -9,6 +9,8 @@ pub(super) use agent_roster_worker::AgentRosterWorker;
 // A stale roster's background rebuild, on that owner.
 #[path = "agent_roster_rebuild.rs"]
 mod agent_roster_rebuild;
+#[cfg(test)]
+pub(super) use agent_roster_rebuild::rebuild_faults;
 
 /// The roster owner's fold state ([`AgentRosterWorker`]): its own journal
 /// reader. Only the owner's passes take it, so it orders folds and snapshot
