@@ -1822,6 +1822,10 @@ function TranscriptView({
   /// The rows the render before this one drew, and its chat, for a turn's end (turnEndFold.ts).
   const rowsBefore = rowsRef.current;
   rowsRef.current = rows;
+  /// Whether the render before this one drew any row: a send into a chat with none yet (a new
+  /// chat's first prompt) has no latest row to become, and fades in place (conversation/sendMorph.ts).
+  const drewRowsBefore = useRef(false);
+  drewRowsBefore.current = rowsBefore.length > 0;
   const sessionBefore = useRef(sessionId);
   const sameChat = sessionBefore.current === sessionId;
   sessionBefore.current = sessionId;
@@ -4032,8 +4036,8 @@ function TranscriptView({
       // overflows, not at the reader's old place (the placement pass).
       sentBeforeOpen.current = true;
       // A tail that fits is at its latest row: the composer's prompt becomes the sent message
-      // (conversation/sendMorph.ts).
-      noteSendFromLatest(true, node);
+      // (conversation/sendMorph.ts). A chat that drew no row yet has none: its prompt fades in place.
+      noteSendFromLatest(drewRowsBefore.current, node);
       // A tail that fit and overflows with this send opens at the latest row on the send's glide
       // (placement pass), and the reply's rows that land next rise on it too (`sendRows`).
       sendRiseUntil.current = performance.now() + SEND_RISE_MS;
