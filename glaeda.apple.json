@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "app": {
+      "engine": "script",
+      "executable": "scripts/reload.sh",
+      "arguments": [
+        "--tag",
+        "tact84-config",
+        "--derived-data",
+        "{derived_data}",
+        "--no-global-cli-links"
+      ],
+      "environment": {
+        "CMUX_SOURCE_PACKAGES_DIR": "{source_packages}",
+        "CMUX_BUILD_FILE_HASHING": "1",
+        "CMUX_RELOAD_KEEP_RUNNING": "1",
+        "CMUX_BUILD_BATCH_SIZE": "8",
+        "CMUX_DEV_BACKEND_MODE": "local"
+      }
+    },
+    "sidebar-lab": {
+      "engine": "script",
+      "executable": "scripts/build-sidebar-lab.sh",
+      "arguments": [
+        "{derived_data}"
+      ],
+      "environment": {
+        "CMUX_SIDEBAR_LAB_TESTS": "1"
+      }
+    }
+  },
+  "preparations": {
+    "app": {
+      "engine": "xcode",
+      "project": "cmux.xcodeproj",
+      "scheme": "cmux",
+      "reuse": {
+        "inputs": [
+          "cmux.xcodeproj/project.pbxproj",
+          "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+          "cmux.xcworkspace/contents.xcworkspacedata",
+          "Packages/**/Package.swift"
+        ],
+        "required_files": [
+          {
+            "cache": "source_packages",
+            "path": "workspace-state.json",
+            "match": "exists"
+          },
+          {
+            "cache": "source_packages",
+            "path": "artifacts/sparkle/Sparkle/Sparkle.xcframework/Info.plist"
+          },
+          {
+            "cache": "source_packages",
+            "path": "artifacts/sentry-cocoa/Sentry/Sentry.xcframework/Info.plist"
+          },
+          {
+            "cache": "source_packages",
+            "path": "artifacts/iroh-ffi/Iroh/Iroh.xcframework/Info.plist"
+          }
+        ]
+      }
+    }
+  },
+  "checks": {},
+  "cache_policies": {
+    "app": "native",
+    "sidebar-lab": "native"
+  }
+}
