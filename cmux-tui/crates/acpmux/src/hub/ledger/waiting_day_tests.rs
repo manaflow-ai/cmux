@@ -154,6 +154,21 @@ fn a_saved_day_reopens_with_its_open_stretches_ended_at_the_save() {
 }
 
 #[test]
+fn a_deleted_chat_is_not_read_back_after_a_crash() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    let t = DAY + 60 * MIN;
+    let day = WaitingDay::open(Some(path.clone()), t);
+    day.record("s1", &status(1, t, "waiting"));
+    day.save(t + 7 * MIN);
+    let again = WaitingDay::open(Some(path.clone()), t + 30 * MIN);
+    again.forget("s1");
+    // No save: the daemon crashed.
+    let after = WaitingDay::open(Some(path), t + 40 * MIN);
+    assert!(after.query(DAY, t + 40 * MIN).lanes.is_empty());
+}
+
+#[test]
 fn a_missing_or_garbled_file_opens_empty() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(FILE);

@@ -138,13 +138,21 @@ pub struct WaitingDay {
 }
 
 impl WaitingDay {
-    /// Reads what the last daemon saved at `path`, closing the stretches it left open.
+    /// Reads what the last daemon saved at `path`, closing the stretches it left open. The file
+    /// is removed once read: the next save writes it again, so a chat deleted in between is never
+    /// read back, even after a crash.
     pub fn open(path: Option<PathBuf>, now: u64) -> Self {
         let mut lanes = HashMap::new();
         let saved = path
             .as_ref()
             .and_then(|p| std::fs::read(p).ok())
             .and_then(|bytes| serde_json::from_slice::<Saved>(&bytes).ok());
+        if let Some(p) = &path
+            && let Err(e) = std::fs::remove_file(p)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!("waiting day: remove {}: {e}", p.display());
+        }
         if let Some(saved) = saved {
             for (id, marks) in saved.lanes {
                 let mut lane = Lane { marks: marks.into(), turn: None };

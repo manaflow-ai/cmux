@@ -16,6 +16,9 @@ export const WAITING_READ_DEBOUNCE_MS = 400;
 // The last day read in this page, so the home drawn again draws it at once, with no pop-in, while
 // the new read is on its way. Only today's: a page left open overnight starts empty.
 let lastDay: WaitingDay | undefined;
+// The newest ask of any home in this page: an older ask's reply, from this home or one gone since,
+// never overwrites a newer one's.
+let latestAsk = 0;
 
 export function useWaitingDay(
   read: ReadWaitingDay | undefined,
@@ -40,19 +43,19 @@ export function useWaitingDay(
     );
     return () => clearTimeout(timer);
   }, [shown, today]);
-  const ticket = useRef(0);
   const first = useRef(true);
   useEffect(() => {
     if (!shown || !read || !linked) {
       first.current = true;
       return;
     }
-    const asked = ++ticket.current;
+    let live = true;
     const ask = () => {
+      const asked = ++latestAsk;
       const until = Date.now();
       read({ since: localMidnight(until), until }).then(
         (reply) => {
-          if (asked !== ticket.current) return;
+          if (!live || asked !== latestAsk) return;
           const parsed = parseWaitingDay(reply);
           if (!parsed) return;
           lastDay = parsed;
@@ -65,7 +68,10 @@ export function useWaitingDay(
     const delay = first.current ? 0 : WAITING_READ_DEBOUNCE_MS;
     first.current = false;
     const timer = setTimeout(ask, delay);
-    return () => clearTimeout(timer);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
   }, [read, key, shown, linked, today]);
   return shown ? day : undefined;
 }
