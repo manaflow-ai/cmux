@@ -268,9 +268,10 @@ async fn check_inner(
     if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
         return Err(refused(m));
     }
-    // A person's name (`author.rs`) comes over the unix socket, or from a peer forwarding one it
-    // took there; never from Web, the app's pane or a peer forwarding for its own Web client.
+    // A person's name (`author.rs`) comes over the unix socket, from a peer forwarding one it took
+    // there, or from the Cloud carrier's header (`carrier::gate`); never from Web or the app.
     if crate::author::present(params)
+        && auth != super::ConnAuth::CarrierTeam
         && !(origin == super::Origin::Peer
             && control_of(origin, auth, params) == crate::hub::Control::Peer)
     {
@@ -754,8 +755,7 @@ pub(super) fn settles_as_peer(
     auth: super::ConnAuth,
     params: &Value,
 ) -> bool {
-    auth == super::ConnAuth::PeerToken
-        && control_of(origin, auth, params) == crate::hub::Control::Peer
+    auth.peer_daemon() && control_of(origin, auth, params) == crate::hub::Control::Peer
 }
 
 fn no_reviewed_asking_mode() -> RpcError {

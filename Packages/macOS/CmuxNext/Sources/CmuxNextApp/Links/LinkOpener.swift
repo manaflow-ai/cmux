@@ -67,8 +67,8 @@ final class LinkOpener {
     /// The pane an open from tab `key` (a tab id or resource id) starts from (``route(tab:)``): never another workspace's focused pane.
     func source(tab key: String?) -> PaneController? { route(tab: key).pane }
     func route(tab key: String?) -> LinkSourceRoute<PaneController> {
-        services.map { services in LinkSourceRoute<PaneController>.resolve(key: key, shown: { key in services.locateTabOnAnyMachine(key).flatMap { services.paneController(for: $0.1) } ?? services.paneController(showingTab: key) },
-                                            exists: { services.locateTabOnAnyMachine($0) != nil }, focused: { services.windows.active?.focusedPane }) } ?? .none
+        services.map { services in let found = key.flatMap { key in services.locateTabOnAnyMachine(key) } // one lookup answers shown: and exists:
+            return LinkSourceRoute<PaneController>.resolve(key: key, shown: { key in found.flatMap { services.paneController(for: $0.1) } ?? services.paneController(showingTab: key) }, exists: { _ in found != nil }, focused: { services.windows.active?.focusedPane }) } ?? .none
     }
 
     /// The pane showing `view` (a Home or agent chat, a cmux page) in any window, or nil: a click

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR aaaa8132232238e4faf50bf470932db3363e57307c7ee60cb2e2761f0d581e9a.
+// cmux-tui mux protocol 12, IR 8ba85d4c24fcc5790a9fc2d078ceb2273e8bb258bf521d49e1e1dd85c46aaed7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3753,6 +3753,8 @@ pub struct SnapshotRequestRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub before: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5729,6 +5731,10 @@ impl CmuxClient {
     }
 
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
+        if request.before.is_some() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "split-before-v1")?;
+        }
         if !request.cwd.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-env-v1")?;

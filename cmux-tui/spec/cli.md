@@ -714,7 +714,8 @@ client <selector> metadata set
 client <selector> sizing set|release
 client <selector> cell pixels set
 
-workspace list|create
+workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+workspace create
 workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
 workspace <selector> show|rename|move|focus|close|run
 workspace <selector> close --remove-worktree [--discard]
@@ -728,7 +729,8 @@ screen <selector> layout export|undo
 screen <selector> column <split_id> update
 screen <selector> pane ...
 
-pane list|create
+pane list [--name <name>] [--cwd <path>]
+pane create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
 pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--focus]
 pane <selector> focus direction <left|right|up|down>
@@ -741,7 +743,7 @@ tab create terminal|browser [--engine chromium|webkit]
 tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
-terminal list
+terminal list [--cwd <path>]
 terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
 terminal <term_id> keep on|off
 terminal <selector> focus <in|out>
@@ -916,8 +918,9 @@ Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
 they go into a new pane split off q. `--to-tab <t>` puts them after tab t in
 its pane. `--to-workspace <w>` and `--new-screen` (alias `--new-tab`, the
 pane's own workspace) put them into a new screen there, named `--name`. A new
-pane's shell tab closes once the tabs are in, and the new pane takes the
-moved pane's name. `tab.move` focuses what it moved, so afterwards the command
+pane's shell ends once the tabs are in (`terminal <t> close`, which takes
+its tab; a tab close alone left the shell running with no tab), and the new
+pane takes the moved pane's name. `tab.move` focuses what it moved, so afterwards the command
 focuses the pane that had the focus before (`--focus`: the destination pane);
 when the moved pane had the focus, the focus stays with its tabs. A
 destination in the pane itself is a usage error. The result is `{pane,
@@ -942,8 +945,10 @@ command goes on). The result is the `workspace create` result plus
 --remove-worktree [--discard]` runs `git worktree remove` of the workspace's
 agent folder when it has one, else of the worktree its current terminal works
 in (`--workspace <ws>`; the main checkout is never removed), then closes the
-workspace; a refused remove closes nothing. The result is the close result
-plus `worktree`, the removal. Each step has its own key derived from `--idempotency-key` (made
+workspace, then ends each terminal whose every tab was in it (they worked in
+the removed folder); a refused remove closes nothing. The result is the close
+result plus `worktree`, the removal, and `ended_terminals`, the terminals it
+ended (one it could not end is left to the reaper). Each step has its own key derived from `--idempotency-key` (made
 when absent), so retrying the whole command replays the steps that ran; a
 failed step's error names `step`, the command's `idempotency_key` and what
 the steps before it `made`.
@@ -1338,9 +1343,10 @@ extra argument stays one argv word, with `pane run --on-exit keep`: the exited
 terminal keeps its argv and name for `resume`. Without `--pane` or `--split`
 the caller's pane (else the focused pane) is split to the right; `--pane SEL`
 alone opens a tab in that pane; `--split DIR` splits SEL (default: the
-caller's pane). The split's shell tab is closed once the agent runs. In a session
+caller's pane). The split's shell ends (`terminal <t> close`, which takes its
+tab) once the agent runs. In a session
 with no pane yet (a daemon that no client opened), it creates a workspace named
-NAME and replaces its shell tab; the pane and the shell tab come from the create
+NAME and ends its shell the same way; the pane and the shell tab come from the create
 receipt (else the pane of the receipt's workspace), never from focus, so two
 starts at once each use their own workspace. The tab
 is focused unless `--no-focus`.
@@ -1494,7 +1500,21 @@ puts a group right before the personal workspace at placement index `<n>`;
 sets the group's icon (one emoji, an SF Symbol name, or a stored
 `image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
 removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
-or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
+or unpins it (`workspace-group-pin-v1`). `workspace list --name <name>` keeps the workspaces whose name is exactly
+`<name>`, and `--cwd <path>` those with at least one terminal whose folder
+(`terminal.cwd`) is `<path>` or inside it; `pane list` takes the same two
+flags for panes, and `terminal list --cwd <path>` keeps the terminals in or
+under `<path>`. `<path>` is made absolute against the caller's folder (`.`
+and `..` resolved) and also matched with its links resolved. Filters combine
+with AND and keep the list's JSON shape and order; no match prints `[]` and
+exits 0. The CLI filters the rows it read: `--name` and `terminal list --cwd`
+add no request, and a workspace or pane `--cwd` adds one `session.snapshot`
+read on the same connection, joined in memory (a constant two requests, not
+one per row). A Cloud machine's workspaces (`--machine <Cloud machine> workspace
+list`, which the app answers) take `--name`; a `--cwd` there fails with
+`validation.invalid`, since those rows carry no terminals. A `name:<name>` selector that two workspaces share fails with
+`selector.ambiguous`; `workspace list --name <name> --json` lists both ids.
+`workspace list --order personal` lists the
 workspaces in the sidebar order. With the sidebar document (`sidebar-doc-v1`),
 `workspace list` without `--order` also lists the sidebar order (one order
 with the sidebar). `--order session` (and, without the

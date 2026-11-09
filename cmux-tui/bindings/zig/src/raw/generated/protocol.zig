@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "aaaa8132232238e4faf50bf470932db3363e57307c7ee60cb2e2761f0d581e9a";
+pub const ir_sha256 = "8ba85d4c24fcc5790a9fc2d078ceb2273e8bb258bf521d49e1e1dd85c46aaed7";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -9537,6 +9537,7 @@ pub fn snapshotRequest(client: anytype, request: SnapshotRequestRequest) !wire.D
 }
 
 pub const SplitRequest = struct {
+    before: ?bool = null,
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
     dir: SplitDirection,
@@ -9553,6 +9554,7 @@ pub const SplitRequest = struct {
     url: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "before",
         "keep",
     };
 };
@@ -9568,6 +9570,7 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "before", .since = 12, .capability = "split-before-v1" },
                 .{ .name = "cwd", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },

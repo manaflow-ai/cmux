@@ -238,6 +238,7 @@ fn resolve_local_open_preparation(
             ResourceEffectOutcome::Failure(error) => Err(error),
         },
         ResourceEffectPreparation::Indeterminate => {
+            mux.report_resource_effect_indeterminate(key, "session.open", EARLIER_ATTEMPT_CAUSE);
             Err(local_indeterminate_error(key, "session.open"))
         }
         ResourceEffectPreparation::Execute { .. } => {
@@ -255,7 +256,12 @@ fn resolve_local_open_preparation(
                     &outcome,
                     Some(&json!([])),
                 )
-                .map_err(|_| {
+                .map_err(|error| {
+                    mux.report_resource_effect_indeterminate(
+                        key,
+                        "session.open",
+                        &format!("the outcome commit failed: {error:#}"),
+                    );
                     let _ = mux.mark_resource_effect_indeterminate(key);
                     local_indeterminate_error(key, "session.open")
                 })?;
@@ -278,6 +284,11 @@ fn local_mutation_result(
         "replayed":replayed,
     }))
 }
+
+/// Cause logged when a request replays a key whose earlier attempt left an
+/// indeterminate outcome.
+pub(crate) const EARLIER_ATTEMPT_CAUSE: &str =
+    "an earlier attempt with this key has an indeterminate outcome";
 
 fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
     ResourceError::new(
@@ -533,7 +544,7 @@ pub(crate) fn public_terminal_snapshot(
 }
 
 pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError> {
-    public_session_snapshot_with_journal_head(mux).map(|(snapshot, _)| snapshot)
+    session_snapshot_with_journal_head(mux, true).map(|(snapshot, _)| snapshot)
 }
 
 /// Returns the public session snapshot together with the session journal head
@@ -542,8 +553,22 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 /// reflected in the snapshot, and every later record is not. Checkpoint
 /// capture keys its consistency fence to this cut so a journal write that
 /// merely precedes the cut cannot spuriously abort the capture.
+///
+/// A checkpoint is written to disk, so this snapshot leaves out what the daemon
+/// keeps in memory only (`mux/agent_prompts.rs`): an agent's last reply
+/// (`extra.last_reply`) and a terminal's last harness session
+/// (`extra.agent_session_id`).
 pub(crate) fn public_session_snapshot_with_journal_head(
     mux: &Mux,
+) -> Result<(Value, u64), ResourceError> {
+    session_snapshot_with_journal_head(mux, false)
+}
+
+/// The snapshot of [`public_session_snapshot_with_journal_head`]; `memory_only`
+/// adds the values the daemon keeps in memory only, for a read that is not stored.
+fn session_snapshot_with_journal_head(
+    mux: &Mux,
+    memory_only: bool,
 ) -> Result<(Value, u64), ResourceError> {
     // No pending terminal directory is published here: a read runs no
     // write. Terminal output, resize, reconnect and every committed graph
@@ -556,8 +581,11 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         mux.sidebar_plugin_resource_status();
     let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
     // Taken before the projection lock, like the sidebar status (memory only).
-    let last_replies = mux.agent_last_replies();
-    let last_sessions = mux.agent_last_sessions();
+    let (last_replies, last_sessions) = if memory_only {
+        (mux.agent_last_replies(), mux.agent_last_sessions())
+    } else {
+        (HashMap::new(), HashMap::new())
+    };
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
@@ -1079,6 +1107,57 @@ mod tests {
         assert_eq!(
             machine_capabilities(),
             serde_json::json!(["terminal", "workspace", "agent_session"])
+        );
+    }
+
+    #[test]
+    fn an_indeterminate_session_open_reports_its_cause_to_the_daemon_log() {
+        use super::ResourceMachineService as _;
+
+        let mux = crate::Mux::new_for_test("dev", crate::SurfaceOptions::default());
+        let diagnostics = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(std::sync::Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        let context = mux.local_resource_context().unwrap();
+        let service = super::LocalResourceMachineService::new(std::sync::Arc::downgrade(&mux));
+        let request = super::ResourceMachineRequest {
+            operation: crate::resource::ResourceOperation::SessionOpen,
+            selectors: crate::ResourceSelectors {
+                machine: Some(context.machine_id.to_string()),
+                session: Some(context.session_id.to_string()),
+                ..Default::default()
+            },
+            fields: serde_json::Map::new(),
+            idempotency_key: Some("session-open-cause".to_string()),
+            actor: crate::Actor::local_user(),
+        };
+        mux.reject_resource_effect_commits_for_test();
+
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+
+        let diagnostics = diagnostics.lock().unwrap().clone();
+        let reports = |cause: &str| {
+            diagnostics
+                .iter()
+                .filter(|message| {
+                    message.contains("session.open")
+                        && message.contains("session-open-cause")
+                        && message.contains(cause)
+                })
+                .count()
+        };
+        assert_eq!(
+            reports("injected outcome commit failure"),
+            1,
+            "the daemon log has no cause for the indeterminate open: {diagnostics:?}"
+        );
+        assert_eq!(
+            reports("an earlier attempt"),
+            1,
+            "the daemon log has no cause for the indeterminate replay: {diagnostics:?}"
         );
     }
 }

@@ -796,6 +796,7 @@ impl V2Tool {
                 stream: false,
                 resolve: Vec::new(),
                 view: Default::default(),
+                filter: Default::default(),
             },
             session,
             page,

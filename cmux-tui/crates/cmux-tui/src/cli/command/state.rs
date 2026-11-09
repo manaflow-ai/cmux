@@ -369,14 +369,15 @@ fn status_target(
 
 /// `workspace group …`: personal workspace groups of the home session.
 /// `add` and `remove` place a workspace with `workspace.place`.
-/// `workspace list [--order session|personal]`.
+/// `workspace list [--order session|personal] [--name <name>] [--cwd <path>]`.
 pub(super) fn workspace_list(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Params::default();
     insert_optional_string(&mut params.fields, flags, "order", "order");
-    params.send(Op::WorkspaceList, selectors, flags)
+    let filter = super::list_filter::take(flags, true, true)?;
+    params.send(Op::WorkspaceList, selectors, flags).map(|plan| plan.filtered(filter))
 }
 
 pub(super) fn parse_workspace_group(

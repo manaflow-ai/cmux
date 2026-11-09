@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -25,7 +26,7 @@ struct RightSidebarCleanupTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "cmux-right-sidebar-cleanup-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         services.rightSidebarDefaults = defaults
         services.windows.ordersWindowsIn = false
         AppActions.bind(services)
@@ -99,7 +100,7 @@ struct RightSidebarCleanupTests {
     /// A first launch: no sidebar, and when it opens, a narrow one.
     @Test func itStartsHiddenAndNarrow() throws {
         let suite = "cmux-right-sidebar-fresh-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let model = RightSidebarModel(defaults: defaults)
         #expect(!model.isVisible)
