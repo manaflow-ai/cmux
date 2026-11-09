@@ -481,6 +481,9 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            seen_seq: None,
+            unread_turns: 0,
+            last_return: None,
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
@@ -537,6 +540,7 @@ impl Hub {
             subsession,
             subsession_limits: Default::default(),
             races: Default::default(),
+            plan_builds: Default::default(),
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`), unless
             // its agent started it (`sub`).
             created_by,

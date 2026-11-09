@@ -212,6 +212,14 @@ impl TcpStack {
         self.iface.poll(now, &mut self.device, &mut self.sockets);
     }
 
+    /// The tunnel moved to another route: every connection with data in
+    /// flight resends it at once, with its RTO back at the RTT estimate.
+    pub(crate) fn path_changed(&mut self) {
+        for conn in &self.conns {
+            self.sockets.get_mut::<tcp::Socket>(conn.handle).path_changed();
+        }
+    }
+
     /// When smoltcp next wants a poll, or `None` to wait for an event.
     pub(crate) fn poll_delay(&mut self) -> Option<Duration> {
         let now = self.now();

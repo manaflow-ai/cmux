@@ -164,14 +164,14 @@ impl ReconnectPolicy {
 
 /// The redial budget's state. Tokio's clock, so a paused test clock drives it.
 #[derive(Debug)]
-struct TokenBucket {
+pub(crate) struct TokenBucket {
     budget: RedialBudget,
     tokens: u32,
     refilled_at: tokio::time::Instant,
 }
 
 impl TokenBucket {
-    fn new(budget: RedialBudget, now: tokio::time::Instant) -> Self {
+    pub(crate) fn new(budget: RedialBudget, now: tokio::time::Instant) -> Self {
         Self { budget, tokens: budget.capacity, refilled_at: now }
     }
 
@@ -195,7 +195,7 @@ impl TokenBucket {
     }
 
     /// Spend a token, or say when the next one arrives.
-    fn take(&mut self, now: tokio::time::Instant) -> Result<(), tokio::time::Instant> {
+    pub(crate) fn take(&mut self, now: tokio::time::Instant) -> Result<(), tokio::time::Instant> {
         self.refill(now);
         if self.tokens == 0 {
             return Err(self.refilled_at + self.budget.refill_interval);

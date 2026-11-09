@@ -34,3 +34,8 @@ libc.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+# `remote_stream_bench --path rd-link`: Cloud desktop media on the datagram path.
+cmux-rd-core = { path = "../cmux-rd-core" }
+cmux-rd-engine = { path = "../cmux-rd-engine" }
+cmux-rd-link = { path = "../cmux-rd-link" }
+cmux-rd-proto = { path = "../cmux-rd-proto" }

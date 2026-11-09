@@ -27,7 +27,7 @@ import type { SendGesture } from "./heldPrompt";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
-import { opensProcessTerminal } from "./processTerminal";
+import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
@@ -741,7 +741,7 @@ function ComposerFrame({
     // the prompt to its new session.
     scope: sessionId,
     // A chat on this Mac (Quick Chat too): its attached videos show their posters.
-    localChat: opensProcessTerminal(snapshot.summary),
+    localChat: chatProcessesHere(snapshot.summary),
     elsewhere: (chat, chips) => {
       if (keptAttachments) void keepElsewhere(keptAttachments, chat, chips);
     },
@@ -2451,6 +2451,9 @@ function ComposerFrame({
       {...{ [WEB_SWAP_FOCUS]: "composer" }}
       data-cmux-component="Composer"
       data-cmux-source="webviews/src/agent-session/acpmux/Composer.tsx:1420"
+      // It holds still while the chat streams, ticks and scrolls: the dev budgets warn when anything
+      // but its own events changes its nodes (devkit/perfBudgets.ts `still-surface`).
+      data-perf-still="composer"
       data-shell={shell ? "" : undefined}
       // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
       data-composer-look={look === "codex" ? "codex" : undefined}

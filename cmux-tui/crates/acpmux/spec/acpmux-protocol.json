@@ -725,6 +725,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/plan/build",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/compare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/background",
       "params": {
         "$ref": "#/types/ProcessBackgroundParams"
@@ -3380,6 +3398,26 @@
       ],
       "type": "object"
     },
+    "LastReturn": {
+      "description": "A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when\nthey left, and how many turns ended while nobody showed it.",
+      "properties": {
+        "since": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "turns": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "since",
+        "turns"
+      ],
+      "type": "object"
+    },
     "LastTurn": {
       "description": "The outcome of the session's last turn. Keys the turn result lacked\nare absent.",
       "properties": {
@@ -5462,6 +5500,16 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxFailed": {
+          "default": null,
+          "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "indicator": {
           "anyOf": [
             {
@@ -5509,6 +5557,17 @@
             "string",
             "null"
           ]
+        },
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the\n`turns` that ended unseen. A client opening the chat then draws \"New since you looked\" at\n`since`, also when its attach answers before its list read."
         },
         "lastSeq": {
           "format": "uint64",
@@ -5682,6 +5741,15 @@
         "rulesJson": {
           "description": "The session's permission rules."
         },
+        "seenSeq": {
+          "description": "The log seq the person had seen when they last stopped showing the chat: a client\nopening it while `unreadTurns` is above 0 draws \"New since you looked\" after it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
@@ -5832,6 +5900,13 @@
         },
         "unread": {
           "type": "boolean"
+        },
+        "unreadTurns": {
+          "default": 0,
+          "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "updatedAt": {
           "format": "uint64",
@@ -6107,6 +6182,16 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxFailed": {
+          "default": null,
+          "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "indicator": {
           "anyOf": [
             {
@@ -6154,6 +6239,17 @@
             "string",
             "null"
           ]
+        },
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the\n`turns` that ended unseen. A client opening the chat then draws \"New since you looked\" at\n`since`, also when its attach answers before its list read."
         },
         "lastSeq": {
           "format": "uint64",
@@ -6315,6 +6411,15 @@
           "description": "The session has its own permission rules.",
           "type": "boolean"
         },
+        "seenSeq": {
+          "description": "The log seq the person had seen when they last stopped showing the chat: a client\nopening it while `unreadTurns` is above 0 draws \"New since you looked\" after it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
@@ -6465,6 +6570,13 @@
         },
         "unread": {
           "type": "boolean"
+        },
+        "unreadTurns": {
+          "default": 0,
+          "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "updatedAt": {
           "format": "uint64",

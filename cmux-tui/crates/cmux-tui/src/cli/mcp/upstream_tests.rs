@@ -520,7 +520,8 @@ fn a_stored_list_answers_without_starting_the_server_until_a_call() {
     let mut first = upstream_server("cmux-cua").with_listings(Some(dir.path().into()));
     let listed = first.descriptors(&BTreeSet::new());
     assert!(first.started(), "with nothing stored, listing starts the server");
-    assert_eq!(listed.len(), 3);
+    // look, fail, hold and meta: every tool the fake server lists.
+    assert_eq!(listed.len(), 4);
     drop(first);
     let mut second = upstream_server("cmux-cua").with_listings(Some(dir.path().into()));
     assert_eq!(second.descriptors(&BTreeSet::new()), listed, "the stored list, rules included");

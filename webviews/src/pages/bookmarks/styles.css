@@ -73,12 +73,15 @@
   min-height: 0;
 }
 
-/* The folder tree. */
+/* The folder tree. Its width is the default until its edge is dragged (SplitEdge sets
+   --bookmarks-tree-width on it); the track reads invalid while that is unset, and the list keeps 280px. */
 .bm-tree-pane {
+  --bm-tree-track: clamp(140px, var(--bookmarks-tree-width), 100% - 280px);
+  position: relative;
   flex: none;
   display: flex;
   flex-direction: column;
-  width: clamp(160px, 28%, 240px);
+  width: var(--bm-tree-track, clamp(160px, 28%, 240px));
   min-height: 0;
   padding: 8px 0 8px calc(var(--page-edge) - 8px);
   border-inline-end: 1px solid var(--page-separator);

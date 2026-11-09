@@ -18,6 +18,13 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   file: L.envFileFailed,
   copy: L.envCopyFailed,
   secret: L.envSecretRequired,
+  hosts: L.envInvalidHosts,
+  hostless: L.envSecretNoHosts,
+  header: L.envInvalidHeader,
+  route: L.envReservedHeader,
+  value: L.envInvalidValue,
+  retype: L.envSecretRetype,
+  dropped: L.envRouteDropped,
 };
 const sections = {
   overview: L.envTitle,
@@ -77,79 +84,82 @@ export function EnvironmentSheet({ store, strings }: { store: EnvironmentStore; 
             ×
           </button>
         </header>
-        <fieldset className="env-body" disabled={state.saving}>
-          {state.loading && <output>{t(L.loading)}</output>}
-          {draft && original && (
-            <>
-              {section === "overview" && (
-                <div className="env-fields">
-                  <label className="env-field">
-                    <span>{t(L.envName)}</span>
-                    <input
-                      aria-label={t(L.envName)}
-                      value={draft.name}
-                      readOnly={original.is_default}
-                      onChange={(event) => store.edit({ name: event.target.value })}
-                    />
-                    {original.is_default && <small>{t(L.envDefaultLocked)}</small>}
-                  </label>
-                  {draft.network.mode === "limited" && <p className="env-note">{t(L.envNetworkPending)}</p>}
-                  <div className="env-rows">
-                    {row(
-                      "network",
-                      [
-                        t(draft.network.mode === "full" ? L.envFull : L.envLimited),
-                        ...(draft.network.mode === "limited" ? draft.network.domains.filter(Boolean) : []),
-                        ...(draft.network.mode === "limited" && draft.network.package_managers
-                          ? [t(L.envPackages)]
-                          : []),
-                      ].join(" · "),
-                    )}
-                    {row(
-                      "secrets",
-                      draft.secrets
-                        .map((secret) => secret.name)
-                        .filter(Boolean)
-                        .join(", ") || t(L.envNone),
-                    )}
-                    {row(
-                      "script",
-                      t(
-                        draft.script !== null && draft.script !== ""
-                          ? L.envScriptCustom
-                          : state.derivedScript
-                            ? L.envScriptDerived
-                            : L.envScriptUnset,
-                      ),
-                    )}
-                    {row(
-                      "variables",
-                      draft.variables
-                        .map((variable) => variable.name)
-                        .filter(Boolean)
-                        .join(", ") || t(L.envNone),
-                    )}
+        {/* The one scroller: a fieldset clips and sizes oddly as a flex item, so it scrolls inside this. */}
+        <div className="env-scroll">
+          <fieldset className="env-body" disabled={state.saving}>
+            {state.loading && <output>{t(L.loading)}</output>}
+            {draft && original && (
+              <>
+                {section === "overview" && (
+                  <div className="env-fields">
+                    <label className="env-field">
+                      <span>{t(L.envName)}</span>
+                      <input
+                        aria-label={t(L.envName)}
+                        value={draft.name}
+                        readOnly={original.is_default}
+                        onChange={(event) => store.edit({ name: event.target.value })}
+                      />
+                      {original.is_default && <small>{t(L.envDefaultLocked)}</small>}
+                    </label>
+                    {draft.network.mode === "limited" && <p className="env-note">{t(L.envNetworkPending)}</p>}
+                    <div className="env-rows">
+                      {row(
+                        "network",
+                        [
+                          t(draft.network.mode === "full" ? L.envFull : L.envLimited),
+                          ...(draft.network.mode === "limited" ? draft.network.domains.filter(Boolean) : []),
+                          ...(draft.network.mode === "limited" && draft.network.package_managers
+                            ? [t(L.envPackages)]
+                            : []),
+                        ].join(" · "),
+                      )}
+                      {row(
+                        "secrets",
+                        draft.secrets
+                          .map((secret) => secret.name)
+                          .filter(Boolean)
+                          .join(", ") || t(L.envNone),
+                      )}
+                      {row(
+                        "script",
+                        t(
+                          draft.script !== null && draft.script !== ""
+                            ? L.envScriptCustom
+                            : state.derivedScript
+                              ? L.envScriptDerived
+                              : L.envScriptUnset,
+                        ),
+                      )}
+                      {row(
+                        "variables",
+                        draft.variables
+                          .map((variable) => variable.name)
+                          .filter(Boolean)
+                          .join(", ") || t(L.envNone),
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-              {section === "network" && <EnvironmentNetwork draft={draft} store={store} strings={strings} />}
-              {(section === "secrets" || section === "variables") && (
-                <EnvironmentValues draft={draft} store={store} strings={strings} secrets={section === "secrets"} />
-              )}
-              {section === "script" && <EnvironmentScript state={state} store={store} strings={strings} />}
-            </>
-          )}
-          {state.error && (
-            <p role="alert" className="env-error">
-              {t(errorKeys[state.error])}
-            </p>
-          )}
-          {!draft && !state.loading && (
-            <button type="button" className="env-button" onClick={() => void store.retry()}>
-              {t(L.retry)}
-            </button>
-          )}
-        </fieldset>
+                )}
+                {section === "network" && <EnvironmentNetwork draft={draft} store={store} strings={strings} />}
+                {(section === "secrets" || section === "variables") && (
+                  <EnvironmentValues draft={draft} store={store} strings={strings} secrets={section === "secrets"} />
+                )}
+                {section === "script" && <EnvironmentScript state={state} store={store} strings={strings} />}
+              </>
+            )}
+            {state.error && (
+              <p role="alert" className="env-error">
+                {t(errorKeys[state.error])}
+              </p>
+            )}
+            {!draft && !state.loading && (
+              <button type="button" className="env-button" onClick={() => void store.retry()}>
+                {t(L.retry)}
+              </button>
+            )}
+          </fieldset>
+        </div>
         <footer className="env-actions">
           <DialogButton dialogKey="escape" className="env-button" disabled={state.saving} onClick={store.close}>
             {t(L.cancel)}
