@@ -123,7 +123,7 @@ fn made_before_binding(path: &Path) -> bool {
     let Some(bound) = identity_bound_at() else {
         return false;
     };
-    let Some(made) = fs::File::open(path).ok().and_then(|file| file_birth::birth_ns(&file)) else {
+    let Some(made) = File::open(path).ok().and_then(|file| file_birth::birth_ns(&file)) else {
         return false;
     };
     bound
@@ -639,7 +639,7 @@ mod tests {
         seed(&template);
         let made = ids(&template);
         assert!(!template.join(HOST_STAMP_FILE).exists(), "made before the stamp");
-        let registry = fs::File::open(registry_file(&template)).unwrap();
+        let registry = File::open(registry_file(&template)).unwrap();
         if file_birth::birth_ns(&registry).is_none() {
             eprintln!("skipped: this file system records no creation time");
             fs::remove_dir_all(template).unwrap();
