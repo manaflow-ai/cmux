@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42632960663",
+  "recorded_at": "2026-11-09T14:31:26Z",
+  "reason": "cmux-tui 707251c35b87 changes the image's cmux-tui (pinned 80df8e7eb6f7)",
+  "dry_run": false,
+  "cmux_tui": "707251c35b879e726c1435c39e037c7300cdbb29",
+  "fixes": [
+    {
+      "sha": "707251c35b879e726c1435c39e037c7300cdbb29",
+      "mergedAt": "2026-11-09T05:45:42-08:00",
+      "subject": "Cloud start-chat: wait for a repository folder the machine is still cloning (GitLab URL start) (#37248)"
+    },
+    {
+      "sha": "bf65efabf49bc0e0a3fe206e87a23c7fd657fa8b",
+      "mergedAt": "2026-11-09T05:44:53-08:00",
+      "subject": "cmux host share: a Cloud machine's shares go to the cmux platform (#39140)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T14:31:26Z",
+    "snapshot_id": "sh-e2bc6cffa6c44698b07d1062b9a5a4a0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42632960663): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ae1c1d61855a068c034348a5ee6240b42ab6dd19",
+    "image": "cloud-native-auto-707251c3-42632960663-1",
+    "revision": "ci-42632960663-1",
+    "at": "2026-11-09T14:31:26Z"
+  },
+  "rolled_back": false
+}
