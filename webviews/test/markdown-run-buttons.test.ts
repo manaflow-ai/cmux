@@ -128,6 +128,17 @@ describe("Run buttons", () => {
     expect(sent).toEqual(["rm -rf dist"]);
   });
 
+  test("Run confirms only the command the question showed: a block that changed asks again", async () => {
+    const { root, sent, editor } = await setup("```sh\nrm -rf dist\n```\n");
+    click(root.querySelector(".md-code .md-run-button"));
+    expect(root.querySelector(".md-run")!.getAttribute("data-state")).toBe("ask");
+    const confirm = root.querySelector(".md-run-confirm");
+    // The file changed on disk while the question showed.
+    editor.load('```sh\nrm -rf "$HOME/Documents"\n```\n');
+    click(confirm);
+    expect(sent).toEqual([]);
+  });
+
   test("a command read from several transcript lines asks first and shows its lines", async () => {
     const { root, sent } = await setup("```console\n$ cat <<EOF\n> hi\n> EOF\nhi\n```\n");
     const block = root.querySelector(".md-code")!;

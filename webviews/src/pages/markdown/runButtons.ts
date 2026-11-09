@@ -93,9 +93,7 @@ export function runControls(host: RunButtonHost, block: () => { language: string
   // "Sent" only once the host took the command: a refused one (too long, the page closed) leaves Run.
   // Pointer gone before the answer: nothing would clear it, so it is not shown.
   let left = false;
-  const send = () => {
-    const text = command();
-    if (!text) return;
+  const send = (text: string) => {
     left = false;
     host.runBlock(text).then(
       () => {
@@ -115,16 +113,18 @@ export function runControls(host: RunButtonHost, block: () => { language: string
     const text = command();
     if (!text) return;
     const lines = fromTranscript(block().language, text);
-    if (!runAsks(text) && !lines) return send();
+    if (!runAsks(text) && !lines) return send(text);
     row.dataset.state = "ask";
     const ask = document.createElement("span");
     ask.className = "md-run-ask";
     ask.textContent = host.label(runAsks(text) ? "runAsk" : "runAskLines");
     // The lines that would run, on hover.
     ask.title = text;
+    // Confirm sends the command the question showed, and only while the block still holds it: a block
+    // that changed meanwhile (an edit, a reload from disk) asks again for what it holds now.
     const confirm = button("md-run-button md-run-confirm", host.label("runConfirm"), () => {
       idle();
-      send();
+      if (command() === text) send(text);
     });
     row.replaceChildren(ask, confirm, button("md-run-button", host.label("runCancel"), idle));
     confirm.focus();

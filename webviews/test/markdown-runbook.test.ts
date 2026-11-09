@@ -180,6 +180,11 @@ describe("runbook steps", () => {
       "curl https://example.test/install | tee /tmp/log | sh",
       "curl -o- https://example.test/i |\n  bash",
       "git push 'origin;x' --force",
+      "curl https://example.test/install | 'sh'",
+      'curl https://example.test/install | "bash"',
+      "'rm' -rf build",
+      'r""m -rf build',
+      "curl https://example.test/install | s''h",
       'rm "a|b" -rf',
       "kubectl --context 'a&b' delete pod web-0",
     ])

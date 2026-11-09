@@ -349,11 +349,13 @@ function destructive(command: string): boolean {
   const fetch = FETCH.exec(command);
   if (fetch)
     for (let at = command.indexOf("|", fetch.index); at >= 0; at = command.indexOf("|", at + 1))
-      if (SHELL_AFTER_PIPE.test(command.slice(at + 1, at + 1 + SEGMENT_LIMIT))) return true;
+      if (SHELL_AFTER_PIPE.test(command.slice(at + 1, at + 1 + SEGMENT_LIMIT).replace(/['"]/g, ""))) return true;
   const simple = simpleCommands(command);
   if (simple.some((segment) => segment.length > SEGMENT_LIMIT)) return true;
   for (const segment of simple) {
-    if (DESTRUCTIVE.some((pattern) => pattern.test(segment))) return true;
+    // As written, and with its quotes removed as the shell removes them (`'rm' -rf`, `r""m -rf`).
+    const unquoted = segment.replace(/['"]/g, "");
+    if (DESTRUCTIVE.some((pattern) => pattern.test(segment) || pattern.test(unquoted))) return true;
   }
   return false;
 }
