@@ -55,7 +55,13 @@ const SCHEMES = ["light", "dark"] as const;
 const LARGE = 20;
 
 function Row({ fork, size }: { fork: ForkGlyphCandidate; size: number }) {
-  const slot = { display: "inline-flex", width: size + 12, height: size + 12, alignItems: "center", justifyContent: "center" };
+  const slot = {
+    display: "inline-flex",
+    width: size + 12,
+    height: size + 12,
+    alignItems: "center",
+    justifyContent: "center",
+  };
   return (
     <div role="toolbar" aria-label="Message actions" style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={slot}>
@@ -84,7 +90,14 @@ export function ForkGlyphGallery({ fork }: ForkGlyphGalleryProps) {
         <section
           key={scheme}
           data-scheme={scheme}
-          style={{ colorScheme: scheme, background: "Canvas", color: "CanvasText", padding: 16, display: "grid", gap: 12 }}
+          style={{
+            colorScheme: scheme,
+            background: "Canvas",
+            color: "CanvasText",
+            padding: 16,
+            display: "grid",
+            gap: 12,
+          }}
         >
           <Row fork={fork} size={ROW_ICON} />
           <Row fork={fork} size={12} />

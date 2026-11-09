@@ -15,7 +15,7 @@ export default componentEntry<IconPassGalleryProps>({
   },
   variants: {
     "peel-off": {
-      note: "Picked 2026-11-07: the chat runs on as the straight arrow and the fork peels off up and right. Replaced 2026-11-09 by the fork mark (Leo: \"and this fork symbol is so bad\"; agent-pane.fork-glyph).",
+      note: 'Picked 2026-11-07: the chat runs on as the straight arrow and the fork peels off up and right. Replaced 2026-11-09 by the fork mark (Leo: "and this fork symbol is so bad"; agent-pane.fork-glyph).',
       props: { fork: "peel-off" },
     },
     "turned-y": {

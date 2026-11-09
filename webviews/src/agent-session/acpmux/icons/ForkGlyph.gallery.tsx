@@ -28,7 +28,7 @@ export default componentEntry<ForkGlyphGalleryProps>({
     },
     before: {
       props: { fork: "before" },
-      note: "Before: a straight arrow with a branch peeling off up and right (Leo 2026-11-09: \"and this fork symbol is so bad\"). It sits low, and at 16 pt the two arrowheads read as a bent arrow.",
+      note: 'Before: a straight arrow with a branch peeling off up and right (Leo 2026-11-09: "and this fork symbol is so bad"). It sits low, and at 16 pt the two arrowheads read as a bent arrow.',
     },
   },
 });

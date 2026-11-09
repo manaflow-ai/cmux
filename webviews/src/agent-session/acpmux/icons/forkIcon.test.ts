@@ -41,7 +41,11 @@ describe("the fork glyph", () => {
       "TurnFork = ({ size = 14 }: CvIconProps = {}) => <Icon name={FORK_ICON}",
     );
     expect(SEND_ICONS.side).toBe(FORK_ICON);
-    const rows = forkMenuRows(1, () => undefined, (key) => key);
+    const rows = forkMenuRows(
+      1,
+      () => undefined,
+      (key) => key,
+    );
     expect(rows.map((row) => (row === "separator" ? row : row.icon))).toEqual([FORK_ICON, FORK_ICON]);
   });
 
