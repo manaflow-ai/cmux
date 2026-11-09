@@ -284,6 +284,7 @@ pub(crate) use peers::{
 mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
+mod attribution;
 pub mod person;
 pub mod presence;
 mod processes;
@@ -293,7 +294,6 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
-mod attribution;
 mod review_brief;
 pub(crate) mod review_queue;
 mod touched;

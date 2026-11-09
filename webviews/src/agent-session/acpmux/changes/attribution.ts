@@ -203,9 +203,7 @@ export class AttributionStore {
   want(target: AttributionTarget, lines: readonly number[], texts?: ReadonlyMap<number, string>): boolean {
     const key = attributionKey(target);
     const asked = this.files.get(key)?.asked;
-    const left = asked
-      ? lines.filter((each) => !asked.has(each) || asked.get(each) !== texts?.get(each))
-      : lines;
+    const left = asked ? lines.filter((each) => !asked.has(each) || asked.get(each) !== texts?.get(each)) : lines;
     const ranges = lineRanges(left);
     if (!ranges.length) return true;
     const job = { target, key, ranges, texts };
@@ -244,8 +242,7 @@ export class AttributionStore {
   private send(job: Job): void {
     const file = this.file(job.key);
     // A line asked again with other text: its earlier answers named the other text's writers.
-    const again = (start: number, end: number) =>
-      job.ranges.some(([from, to]) => from <= end && start <= to);
+    const again = (start: number, end: number) => job.ranges.some(([from, to]) => from <= end && start <= to);
     file.attributions = file.attributions.filter((entry) => !again(entry.start, entry.end));
     for (const [start, end] of job.ranges)
       for (let each = start; each <= end; each++) file.asked.set(each, job.texts?.get(each));
@@ -253,7 +250,12 @@ export class AttributionStore {
     this.inFlight++;
     const done = (value: unknown) => {
       this.inFlight--;
-      if (generation === this.generation && this.files.get(job.key) === file) {
+      // An answer whose lines were asked again since, with other text, names the other text's writers.
+      const current = job.ranges.every(([start, end]) => {
+        for (let each = start; each <= end; each++) if (file.asked.get(each) !== job.texts?.get(each)) return false;
+        return true;
+      });
+      if (generation === this.generation && this.files.get(job.key) === file && current) {
         const answers = parseAttributions(value);
         if (answers.length) {
           // The newest are kept: an answer comes newest first, and so is the merged list.

@@ -22,7 +22,7 @@
 
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// The most ranges one chat keeps; its oldest go first.
 pub const MAX_PER_CHAT: usize = 2000;
@@ -40,18 +40,21 @@ const MAX_QUERY_TEXT_BYTES: usize = 1 << 20;
 const MAX_TEXT_BYTES: usize = 512 << 10;
 /// How long the prompt's first line may be in an answer.
 const MAX_PROMPT_CHARS: usize = 200;
-/// An earlier range is looked for elsewhere only when the search costs at most this many line
-/// comparisons; past it, a range whose text moved is dropped.
-const MAX_RELOCATE_WORK: usize = 4_000_000;
+/// The most lines one read of a file compares to find where its ranges are ([`Places`]); a range
+/// left unchecked past it is dropped, never kept on a guess.
+const MAX_PLACE_WORK: usize = 4_000_000;
 
 /// One file an edit tool call wrote, from its diff block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EditBlock {
     /// Absolute and canonical (`path_canon.rs`).
     pub path: String,
-    /// The text it replaced; none for a new file.
+    /// The text it replaced; none for a new file, or for a file written over whose old text the
+    /// call did not carry.
     pub old_text: Option<String>,
     pub new_text: String,
+    /// The block is part of its file, not the whole of it (`_meta.acpmux.fragment`).
+    pub fragment: bool,
 }
 
 /// A tool call of the running turn, as its updates said.
@@ -106,6 +109,7 @@ impl TurnEdits {
                     path: canon(path)?,
                     old_text: b.get("oldText").and_then(Value::as_str).map(str::to_owned),
                     new_text: new_text.to_owned(),
+                    fragment: b.pointer("/_meta/acpmux/fragment") == Some(&Value::Bool(true)),
                 })
             })
             .collect();
@@ -149,42 +153,83 @@ pub fn file_lines(text: &str) -> Vec<&str> {
     text.lines().collect()
 }
 
-/// The lines `block` changed in `text` (the file at the turn's end): `(start, end)`, 1-based and
-/// inclusive. None when its new text is in the file nowhere or in more than one place, or when it
-/// changed no line (a pure deletion).
-pub fn locate(text: &str, block: &EditBlock) -> Option<(u32, u32)> {
+/// The lines `block` added to `text` (the file at the turn's end): runs of consecutive lines,
+/// `(start, end)`, 1-based and inclusive, from a line diff of its old text against its new. Empty
+/// when its new text is in the file nowhere or in more than one place, when it added no line (a
+/// pure deletion), or when it is a fragment of a file written over without its old text (its
+/// lines there are not known to be new).
+pub fn locate(text: &str, block: &EditBlock) -> Vec<(u32, u32)> {
     let new = block.new_text.as_str();
-    if new.trim().is_empty() {
-        return None;
+    if new.trim().is_empty() || (block.fragment && block.old_text.is_none()) {
+        return vec![];
     }
     let mut found = text.match_indices(new).map(|(at, _)| at);
-    let at = found.next()?;
+    let Some(at) = found.next() else { return vec![] };
     if found.next().is_some() {
-        return None;
+        return vec![];
     }
     let first = text[..at].bytes().filter(|b| *b == b'\n').count();
     let new_lines: Vec<&str> = new.lines().collect();
-    let old_lines: Vec<&str> = block.old_text.as_deref().map(|o| o.lines().collect()).unwrap_or_default();
-    let n = new_lines.len();
-    // The first and last lines may be partial (an edit inside a line): they count as changed
-    // unless the old text has the same partial line in the same place.
+    let old_lines: Vec<&str> =
+        block.old_text.as_deref().map(|o| o.lines().collect()).unwrap_or_default();
+    let mut ranges: Vec<(u32, u32)> = vec![];
+    for index in added_lines(&old_lines, &new_lines) {
+        let Ok(line) = u32::try_from(first + index + 1) else { break };
+        match ranges.last_mut() {
+            Some(last) if last.1 + 1 == line => last.1 = line,
+            _ => ranges.push((line, line)),
+        }
+    }
+    ranges
+}
+
+/// The most cells a line diff ([`added_lines`]) fills; past it, the lines between the first and
+/// last changed one all count as added.
+const MAX_DIFF_CELLS: usize = 1 << 20;
+
+/// The indexes of `new`'s lines that are not in a longest common subsequence with `old`: the lines
+/// an edit added or changed. The lines the two share at their start and end are trimmed first.
+fn added_lines(old: &[&str], new: &[&str]) -> Vec<usize> {
     let mut prefix = 0;
-    while prefix < n && prefix < old_lines.len() && new_lines[prefix] == old_lines[prefix] {
+    while prefix < new.len() && prefix < old.len() && new[prefix] == old[prefix] {
         prefix += 1;
     }
     let mut suffix = 0;
-    while suffix < n - prefix
-        && suffix < old_lines.len() - prefix
-        && new_lines[n - 1 - suffix] == old_lines[old_lines.len() - 1 - suffix]
+    while suffix < new.len() - prefix
+        && suffix < old.len() - prefix
+        && new[new.len() - 1 - suffix] == old[old.len() - 1 - suffix]
     {
         suffix += 1;
     }
-    if prefix + suffix >= n {
-        return None;
+    let (o, n) = (&old[prefix..old.len() - suffix], &new[prefix..new.len() - suffix]);
+    if o.is_empty() || n.is_empty() || o.len().saturating_mul(n.len()) > MAX_DIFF_CELLS {
+        return (prefix..prefix + n.len()).collect();
     }
-    let start = u32::try_from(first + prefix + 1).ok()?;
-    let end = u32::try_from(first + n - suffix).ok()?;
-    Some((start, end))
+    // lcs[i][j]: the longest common subsequence of o[i..] and n[j..].
+    let w = n.len() + 1;
+    let mut lcs = vec![0u32; (o.len() + 1) * w];
+    for i in (0..o.len()).rev() {
+        for j in (0..n.len()).rev() {
+            lcs[i * w + j] = if o[i] == n[j] {
+                lcs[(i + 1) * w + j + 1] + 1
+            } else {
+                lcs[(i + 1) * w + j].max(lcs[i * w + j + 1])
+            };
+        }
+    }
+    let (mut i, mut j, mut out) = (0, 0, vec![]);
+    while j < n.len() {
+        if i < o.len() && o[i] == n[j] {
+            i += 1;
+            j += 1;
+        } else if i < o.len() && lcs[(i + 1) * w + j] >= lcs[i * w + j + 1] {
+            i += 1;
+        } else {
+            out.push(prefix + j);
+            j += 1;
+        }
+    }
+    out
 }
 
 /// Who wrote a range: the chat and its turn.
@@ -232,6 +277,9 @@ pub struct Written {
     head: String,
     #[serde(skip)]
     hash: u64,
+    /// The hash of its first line alone ([`line_hash`]), where [`Places`] starts looking.
+    #[serde(skip)]
+    first: u64,
     /// Its order of recording: a later turn's range has a larger one.
     #[serde(skip)]
     seq: u64,
@@ -254,28 +302,40 @@ impl Index {
     /// Records the ranges `author` wrote in `path` of the worktree `root`, with `text` the file
     /// now. The file's earlier ranges whose text is no longer where it was move to where it is now
     /// when that is one place, and go when it is not.
-    pub fn record(&mut self, root: &str, path: &str, text: &str, ranges: &[(u32, u32)], author: &Author) {
-        let lines = file_lines(text);
+    pub fn record(
+        &mut self,
+        root: &str,
+        path: &str,
+        text: &str,
+        ranges: &[(u32, u32)],
+        author: &Author,
+    ) {
+        let places = Places::new(text);
+        let lines = &places.lines;
         let key: FileKey = (root.to_owned(), path.to_owned());
         if let Some(entries) = self.files.get_mut(&key) {
-            let mut gone = vec![];
+            let mut budget = MAX_PLACE_WORK;
+            let mut gone = HashSet::new();
             for entry in entries.iter_mut() {
-                if range_hash(&lines, entry.start, entry.end) == Some(entry.hash) {
-                    continue;
-                }
-                match relocate(&lines, entry.end - entry.start + 1, entry.hash) {
+                match places.only(entry, &mut budget) {
                     Some(start) => {
                         entry.end = start + (entry.end - entry.start);
                         entry.start = start;
                     }
-                    None => gone.push(entry.seq),
+                    None => {
+                        gone.insert(entry.seq);
+                    }
                 }
             }
             entries.retain(|e| !gone.contains(&e.seq));
+            if entries.is_empty() {
+                self.files.remove(&key);
+            }
             self.forget(&gone);
         }
         for &(start, end) in ranges {
-            let Some(hash) = range_hash(&lines, start, end) else { continue };
+            let Some(hash) = range_hash(lines, start, end) else { continue };
+            let first = line_hash(lines[(start - 1) as usize]);
             let seq = self.next;
             self.next += 1;
             self.files.entry(key.clone()).or_default().push(Written {
@@ -289,16 +349,20 @@ impl Index {
                 at: author.at,
                 head: author.head.clone(),
                 hash,
+                first,
                 seq,
             });
-            self.per_chat.entry(author.session_id.clone()).or_default().push_back((key.clone(), seq));
+            self.per_chat
+                .entry(author.session_id.clone())
+                .or_default()
+                .push_back((key.clone(), seq));
             self.all.push_back((key.clone(), seq));
         }
         self.bound(&author.session_id);
     }
 
     /// Drops `seqs` from the bookkeeping lists (their entries are gone already).
-    fn forget(&mut self, seqs: &[u64]) {
+    fn forget(&mut self, seqs: &HashSet<u64>) {
         if seqs.is_empty() {
             return;
         }
@@ -333,7 +397,7 @@ impl Index {
                 }
             }
         }
-        let seqs: Vec<u64> = out.into_iter().map(|(_, s)| s).collect();
+        let seqs: HashSet<u64> = out.into_iter().map(|(_, s)| s).collect();
         self.forget(&seqs);
     }
 
@@ -344,8 +408,16 @@ impl Index {
 
     /// The recorded ranges of `path` in `root` at `head` that overlap one of `ranges`, newest first.
     /// Not yet checked against the file: [`verify`] does that.
-    pub fn candidates(&self, root: &str, head: &str, path: &str, ranges: &[(u32, u32)]) -> Vec<Written> {
-        let Some(entries) = self.files.get(&(root.to_owned(), path.to_owned())) else { return vec![] };
+    pub fn candidates(
+        &self,
+        root: &str,
+        head: &str,
+        path: &str,
+        ranges: &[(u32, u32)],
+    ) -> Vec<Written> {
+        let Some(entries) = self.files.get(&(root.to_owned(), path.to_owned())) else {
+            return vec![];
+        };
         let mut out: Vec<Written> = entries
             .iter()
             .filter(|e| e.head == head)
@@ -357,30 +429,53 @@ impl Index {
     }
 }
 
-/// The start of the one place in `lines` whose `len` lines hash to `hash`; none when there is no
-/// such place, more than one, or the search would cost more than [`MAX_RELOCATE_WORK`].
-fn relocate(lines: &[&str], len: u32, hash: u64) -> Option<u32> {
-    let n = len as usize;
-    if n == 0 || n > lines.len() || lines.len().saturating_mul(n) > MAX_RELOCATE_WORK {
-        return None;
-    }
-    let mut found = None;
-    for from in 0..=lines.len() - n {
-        let start = u32::try_from(from + 1).ok()?;
-        if range_hash(lines, start, start + len - 1) == Some(hash) {
-            if found.is_some() {
-                return None;
-            }
-            found = Some(start);
-        }
-    }
-    found
+/// FNV-1a of one line.
+fn line_hash(line: &str) -> u64 {
+    range_hash(&[line], 1, 1).unwrap_or_default()
 }
 
-/// `candidates` whose lines in `text` (the file now) are still the lines their turn wrote.
+/// A file's lines, and where each line's text is, to find where a range's text is now.
+pub struct Places<'a> {
+    lines: Vec<&'a str>,
+    /// The 0-based indexes of the lines with each [`line_hash`].
+    starts: HashMap<u64, Vec<usize>>,
+}
+
+impl<'a> Places<'a> {
+    pub fn new(text: &'a str) -> Self {
+        let lines = file_lines(text);
+        let mut starts: HashMap<u64, Vec<usize>> = HashMap::new();
+        for (index, line) in lines.iter().enumerate() {
+            starts.entry(line_hash(line)).or_default().push(index);
+        }
+        Places { lines, starts }
+    }
+
+    /// Where `entry`'s text is now when that is exactly one place: none when it is nowhere, in more
+    /// than one place (a copy of it could be either), or past `budget` line comparisons.
+    fn only(&self, entry: &Written, budget: &mut usize) -> Option<u32> {
+        let len = entry.end - entry.start + 1;
+        let mut found = None;
+        for &from in self.starts.get(&entry.first)? {
+            *budget = budget.checked_sub(len as usize)?;
+            let start = u32::try_from(from + 1).ok()?;
+            if range_hash(&self.lines, start, start + len - 1) == Some(entry.hash) {
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(start);
+            }
+        }
+        found
+    }
+}
+
+/// `candidates` whose lines in `text` (the file now) are still the lines their turn wrote, there
+/// and nowhere else.
 pub fn verify(text: &str, candidates: Vec<Written>) -> Vec<Written> {
-    let lines = file_lines(text);
-    candidates.into_iter().filter(|c| range_hash(&lines, c.start, c.end) == Some(c.hash)).collect()
+    let places = Places::new(text);
+    let mut budget = MAX_PLACE_WORK;
+    candidates.into_iter().filter(|c| places.only(c, &mut budget) == Some(c.start)).collect()
 }
 
 /// A query's `ranges` (`[[start, end], ...]`, 1-based, inclusive), at most [`MAX_QUERY_RANGES`].
@@ -403,9 +498,13 @@ pub fn query_ranges(value: Option<&Value>) -> Result<Vec<(u32, u32)>, String> {
 
 /// A query's `texts`, beside its `ranges`: the lines the diff shows in each, one string a line.
 /// None when the query sends none.
-pub fn query_texts(value: Option<&Value>, ranges: &[(u32, u32)]) -> Result<Option<Vec<Vec<String>>>, String> {
+pub fn query_texts(
+    value: Option<&Value>,
+    ranges: &[(u32, u32)],
+) -> Result<Option<Vec<Vec<String>>>, String> {
     let Some(value) = value.filter(|v| !v.is_null()) else { return Ok(None) };
-    let list = value.as_array().filter(|l| l.len() == ranges.len()).ok_or("texts has one list a range")?;
+    let list =
+        value.as_array().filter(|l| l.len() == ranges.len()).ok_or("texts has one list a range")?;
     let mut bytes = 0;
     let mut out = Vec::with_capacity(list.len());
     for (lines, &(start, end)) in list.iter().zip(ranges) {
@@ -430,7 +529,11 @@ pub fn query_texts(value: Option<&Value>, ranges: &[(u32, u32)]) -> Result<Optio
 /// The `ranges` whose lines in `text` (the file now) are the ones the diff shows (`texts`): a diff
 /// of an older turn whose lines were rewritten since asks about lines the file no longer holds,
 /// and gets no answer for them rather than the rewriter's.
-pub fn shown_ranges(text: &str, ranges: &[(u32, u32)], texts: Option<&[Vec<String>]>) -> Vec<(u32, u32)> {
+pub fn shown_ranges(
+    text: &str,
+    ranges: &[(u32, u32)],
+    texts: Option<&[Vec<String>]>,
+) -> Vec<(u32, u32)> {
     let Some(texts) = texts else { return ranges.to_vec() };
     let lines = file_lines(text);
     ranges
@@ -438,7 +541,8 @@ pub fn shown_ranges(text: &str, ranges: &[(u32, u32)], texts: Option<&[Vec<Strin
         .zip(texts)
         .filter(|((start, end), shown)| {
             let (from, to) = ((*start - 1) as usize, *end as usize);
-            to <= lines.len() && lines[from..to].iter().zip(shown.iter()).all(|(a, b)| *a == b.as_str())
+            to <= lines.len()
+                && lines[from..to].iter().zip(shown.iter()).all(|(a, b)| *a == b.as_str())
         })
         .map(|(range, _)| *range)
         .collect()
@@ -451,7 +555,11 @@ pub fn query_path(value: Option<&Value>) -> Result<String, String> {
         && !path.starts_with('/')
         && !path.contains('\\')
         && path.split('/').all(|part| !part.is_empty() && part != "." && part != "..");
-    if ok { Ok(path.to_owned()) } else { Err("path is relative to root, with no . or .. part".into()) }
+    if ok {
+        Ok(path.to_owned())
+    } else {
+        Err("path is relative to root, with no . or .. part".into())
+    }
 }
 
 #[cfg(test)]

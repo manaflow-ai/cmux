@@ -235,3 +235,17 @@ test("a file's answers past the bound keep the newest", async () => {
   await settle();
   expect(store.writersOf(target, 1)[0]!.turnId).toBe("t0");
 });
+
+test("an answer that comes after its lines were asked again with other text is dropped", async () => {
+  const { store, asked } = harness();
+  store.want(target, [5], new Map([[5, "foo"]]));
+  // A second card shows `bar` on line 5 before the first answer comes; two requests are out.
+  store.want(target, [5], new Map([[5, "bar"]]));
+  expect(asked).toHaveLength(2);
+  asked[0]!.answer({ attributions: [entry(5, 5, "wrote-foo", 100)] });
+  await settle();
+  expect(store.writersOf(target, 5, "bar")).toEqual([]);
+  asked[1]!.answer({ attributions: [entry(5, 5, "wrote-bar", 200)] });
+  await settle();
+  expect(store.writersOf(target, 5, "bar").map((each) => each.turnId)).toEqual(["wrote-bar"]);
+});

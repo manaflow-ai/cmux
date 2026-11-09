@@ -33,7 +33,8 @@ fn done(id: &str, status: &str) -> Value {
 
 /// A turn's edits as `record` takes them: each block located in `text`.
 fn record_turn(index: &mut Index, turn: &mut TurnEdits, text: &str, who: &Author) {
-    let ranges: Vec<(u32, u32)> = turn.take_written().iter().filter_map(|b| locate(text, b)).collect();
+    let ranges: Vec<(u32, u32)> =
+        turn.take_written().iter().flat_map(|b| locate(text, b)).collect();
     index.record("/repo", "src/a.rs", text, &ranges, who);
 }
 
@@ -133,7 +134,9 @@ fn a_stale_head_or_changed_text_gets_nothing_rather_than_a_wrong_answer() {
     assert!(index.candidates("/repo", "h2", "src/a.rs", &[(2, 2)]).is_empty());
     // The same head, but someone changed the line since: no answer.
     let edited_by_hand = "a\nrewritten by hand\nz\n";
-    assert!(verify(edited_by_hand, index.candidates("/repo", "h1", "src/a.rs", &[(2, 2)])).is_empty());
+    assert!(
+        verify(edited_by_hand, index.candidates("/repo", "h1", "src/a.rs", &[(2, 2)])).is_empty()
+    );
     // And a line pushed down by a hand edit above it is not named at its old place.
     let shifted = "inserted\na\nwritten\nz\n";
     assert!(verify(shifted, index.candidates("/repo", "h1", "src/a.rs", &[(2, 2)])).is_empty());
@@ -161,17 +164,32 @@ fn failed_running_and_non_edit_calls_write_nothing() {
 
 #[test]
 fn text_found_twice_or_nowhere_is_an_unknown_location() {
-    let block = |new: &str| EditBlock { path: "/repo/a".into(), old_text: None, new_text: new.into() };
-    assert_eq!(locate("x = 1\nx = 1\n", &block("x = 1")), None);
-    assert_eq!(locate("x = 2\n", &block("x = 1")), None);
-    assert_eq!(locate("x = 2\n", &block("  ")), None);
-    assert_eq!(locate("a\nx = 1\n", &block("x = 1")), Some((2, 2)));
+    let block = |new: &str| EditBlock {
+        path: "/repo/a".into(),
+        old_text: None,
+        new_text: new.into(),
+        fragment: false,
+    };
+    assert!(locate("x = 1\nx = 1\n", &block("x = 1")).is_empty());
+    assert!(locate("x = 2\n", &block("x = 1")).is_empty());
+    assert!(locate("x = 2\n", &block("  ")).is_empty());
+    assert_eq!(locate("a\nx = 1\n", &block("x = 1")), vec![(2, 2)]);
     // An edit inside a line counts that line.
-    let inside = EditBlock { path: "/repo/a".into(), old_text: Some("foo".into()), new_text: "bar(1)".into() };
-    assert_eq!(locate("let a = bar(1);\n", &inside), Some((1, 1)));
+    let inside = EditBlock {
+        path: "/repo/a".into(),
+        old_text: Some("foo".into()),
+        new_text: "bar(1)".into(),
+        fragment: false,
+    };
+    assert_eq!(locate("let a = bar(1);\n", &inside), vec![(1, 1)]);
     // A deletion writes no line.
-    let deletion = EditBlock { path: "/repo/a".into(), old_text: Some("a\nb\nc".into()), new_text: "a\nc".into() };
-    assert_eq!(locate("a\nc\n", &deletion), None);
+    let deletion = EditBlock {
+        path: "/repo/a".into(),
+        old_text: Some("a\nb\nc".into()),
+        new_text: "a\nc".into(),
+        fragment: false,
+    };
+    assert!(locate("a\nc\n", &deletion).is_empty());
 }
 
 #[test]
@@ -230,4 +248,61 @@ fn shown_texts_have_one_list_a_range_and_one_line_a_line() {
     assert!(query_texts(Some(&json!([["a"], ["c"]])), &ranges).is_err());
     assert!(query_texts(Some(&json!([["a", "b"]])), &ranges).is_err());
     assert!(query_texts(Some(&json!([["a", 1], ["c"]])), &ranges).is_err());
+}
+
+#[test]
+fn only_the_lines_an_edit_changed_count_not_the_unchanged_ones_between() {
+    // Turn 1 adds `foo()`; turn 2's edit spans it but changes only the lines around it.
+    let mut index = Index::default();
+    let mut turn = TurnEdits::default();
+    let v1 = "a\nfoo()\nz\n";
+    turn.absorb(&edit("e1", Some("a\nz"), "a\nfoo()\nz"), canon);
+    turn.absorb(&done("e1", "completed"), canon);
+    record_turn(&mut index, &mut turn, v1, &author("turn-1", "h1", 10));
+    let v2 = "A\nfoo()\nZ\n";
+    turn.absorb(&edit("e2", Some("a\nfoo()\nz"), "A\nfoo()\nZ"), canon);
+    turn.absorb(&done("e2", "completed"), canon);
+    record_turn(&mut index, &mut turn, v2, &author("turn-2", "h1", 20));
+
+    let middle = verify(v2, index.candidates("/repo", "h1", "src/a.rs", &[(2, 2)]));
+    assert_eq!(turns_of(&middle), ["turn-1"]);
+    let ends = verify(v2, index.candidates("/repo", "h1", "src/a.rs", &[(1, 1), (3, 3)]));
+    assert_eq!(turns_of(&ends), ["turn-2", "turn-2"]);
+}
+
+#[test]
+fn a_write_over_a_file_without_its_old_text_names_no_line() {
+    let over = EditBlock {
+        path: "/repo/a".into(),
+        old_text: None,
+        new_text: "a\nb".into(),
+        fragment: true,
+    };
+    assert!(locate("a\nb\n", &over).is_empty());
+    let mut turn = TurnEdits::default();
+    let mut write = edit("w", None, "a\nb");
+    write["content"][0]["_meta"] = json!({"acpmux": {"fragment": true}});
+    turn.absorb(&write, canon);
+    turn.absorb(&done("w", "completed"), canon);
+    assert!(turn.take_written().iter().all(|b| b.fragment));
+}
+
+#[test]
+fn a_copy_of_an_attributed_line_leaves_it_unattributed_rather_than_guessed() {
+    let mut index = Index::default();
+    let mut turn = TurnEdits::default();
+    let v1 = "a\nlet x = 1;\nz\n";
+    turn.absorb(&edit("e1", Some("a\nz"), "a\nlet x = 1;\nz"), canon);
+    turn.absorb(&done("e1", "completed"), canon);
+    record_turn(&mut index, &mut turn, v1, &author("turn-1", "h1", 10));
+    // Someone pastes the same line above it: either copy could be the one turn 1 wrote.
+    let v2 = "let x = 1;\na\nlet x = 1;\nz\n";
+    assert!(verify(v2, index.candidates("/repo", "h1", "src/a.rs", &[(1, 3)])).is_empty());
+    // A later turn's edit of the file drops the range for good, and the file's key with it.
+    turn.absorb(&edit("e2", Some("z"), "z2"), canon);
+    turn.absorb(&done("e2", "completed"), canon);
+    let v3 = "let x = 1;\na\nlet x = 1;\nz2\n";
+    record_turn(&mut index, &mut turn, v3, &author("turn-2", "h1", 20));
+    let found = verify(v3, index.candidates("/repo", "h1", "src/a.rs", &[(1, 4)]));
+    assert_eq!(turns_of(&found), ["turn-2"]);
 }

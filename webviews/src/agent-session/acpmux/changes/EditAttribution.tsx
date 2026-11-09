@@ -137,23 +137,46 @@ export function useEditAttribution(file: TurnFile): EditAttribution {
   const latestNow = useRef(now);
   latestNow.current = now;
   useEffect(() => () => clearTimeout(leave.current), []);
-  // The card stays where its line was: a scroll puts it away. The listener lives while it shows.
+  // The card follows its marker when the transcript scrolls itself (a working chat follows its
+  // output), once a frame, and goes when the marker leaves the page or the window; the person's own
+  // wheel puts it away. The listeners live while it shows.
   const shown = intent.shown;
+  const anchorAt = useRef<Element | null>(null);
+  const latestShown = useRef(shown);
+  latestShown.current = shown;
   useEffect(() => {
     if (!shown) return;
     const close = () => latestNow.current();
-    window.addEventListener("scroll", close, { capture: true, passive: true });
+    let frame = 0;
+    const follow = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const at = anchorAt.current;
+        const card = latestShown.current;
+        if (!at?.isConnected || !card) return close();
+        const box = at.getBoundingClientRect();
+        if (box.bottom < 0 || box.top > window.innerHeight) return close();
+        point(
+          { writers: card.writers, anchor: { left: box.left, top: box.top, right: box.right, bottom: box.bottom } },
+          0,
+        );
+      });
+    };
+    window.addEventListener("scroll", follow, { capture: true, passive: true });
     window.addEventListener("wheel", close, { capture: true, passive: true });
     return () => {
-      window.removeEventListener("scroll", close, { capture: true });
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", follow, { capture: true });
       window.removeEventListener("wheel", close, { capture: true });
     };
-  }, [shown]);
+  }, [shown, point]);
 
   const marker = useRef<MarkerActions>({ show: () => undefined, go, now });
   marker.current = {
     show: (writers, at, delay) => {
       stay();
+      anchorAt.current = at;
       const box = at.getBoundingClientRect();
       point({ writers, anchor: { left: box.left, top: box.top, right: box.right, bottom: box.bottom } }, delay);
     },
@@ -164,9 +187,7 @@ export function useEditAttribution(file: TurnFile): EditAttribution {
   const renderGutterUtility = useMemo(
     () =>
       enabled && store
-        ? () => (
-            <AttributionMarker hovered={hovered} store={store} target={target} actions={marker} source={latest} />
-          )
+        ? () => <AttributionMarker hovered={hovered} store={store} target={target} actions={marker} source={latest} />
         : undefined,
     [enabled, store, target, hovered],
   );

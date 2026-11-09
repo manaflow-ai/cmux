@@ -38,12 +38,14 @@ fn read_text(path: &std::path::Path) -> Option<String> {
 impl Hub {
     /// Records the lines the turn `turn_id` of `session` wrote, at `head` (its `gitHead`): read once
     /// per file it edited, off the runtime and bounded. A turn with no head (no repository, or git
-    /// could not be read) records nothing.
+    /// could not be read) records nothing; a `trigger` turn (one the person did not prompt) records
+    /// no prompt.
     pub(super) async fn record_turn_attribution(
         self: &Arc<Self>,
         session: &Session,
         turn_id: &str,
         head: Option<&str>,
+        trigger: bool,
     ) {
         let written = session.turn_edits.lock().unwrap_or_else(|e| e.into_inner()).take_written();
         let Some(head) = head.filter(|h| !h.is_empty()) else { return };
@@ -58,7 +60,12 @@ impl Hub {
                 head: head.to_owned(),
                 model: super::model_options::current_model(&m),
                 title: m.title.clone(),
-                prompt: m.last_prompt.as_deref().and_then(Author::first_line),
+                // A trigger's turn keeps the person's last prompt as `last_prompt`: not its own.
+                prompt: if trigger {
+                    None
+                } else {
+                    m.last_prompt.as_deref().and_then(Author::first_line)
+                },
                 at: crate::store::now_ms(),
             }
         };
@@ -74,12 +81,14 @@ impl Hub {
                 };
                 let Ok(rel) = std::path::Path::new(&abs).strip_prefix(&repo.root) else { continue };
                 let Some(text) = read_text(std::path::Path::new(&abs)) else { continue };
-                let ranges: Vec<(u32, u32)> = blocks.iter().filter_map(|b| attr::locate(&text, b)).collect();
+                let ranges: Vec<(u32, u32)> =
+                    blocks.iter().flat_map(|b| attr::locate(&text, b)).collect();
                 let root = repo.root.to_string_lossy();
                 let rel = rel.to_string_lossy().replace('\\', "/");
-                hub.attribution_index.lock().unwrap_or_else(|e| e.into_inner()).record(
-                    &root, &rel, &text, &ranges, &author,
-                );
+                hub.attribution_index
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .record(&root, &rel, &text, &ranges, &author);
             }
         });
         if tokio::time::timeout(RECORD_LIMIT, record).await.is_err() {
@@ -104,12 +113,18 @@ impl Hub {
             .ok_or_else(|| RpcError::invalid_params("head is required"))?;
         let path = attr::query_path(params.get("path")).map_err(RpcError::invalid_params)?;
         let ranges = attr::query_ranges(params.get("ranges")).map_err(RpcError::invalid_params)?;
-        let texts = attr::query_texts(params.get("texts"), &ranges).map_err(RpcError::invalid_params)?;
+        let texts =
+            attr::query_texts(params.get("texts"), &ranges).map_err(RpcError::invalid_params)?;
         let none = || Ok(json!({"attributions": []}));
         // The index keys a worktree by its canonical top folder (`touched_files::repo_of`).
         let Ok(root) = std::fs::canonicalize(root) else { return none() };
         let root_text = root.to_string_lossy().into_owned();
-        if !self.attribution_index.lock().unwrap_or_else(|e| e.into_inner()).knows(&root_text, &path) {
+        if !self
+            .attribution_index
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .knows(&root_text, &path)
+        {
             return none();
         }
         let Some(text) = read_text(&root.join(&path)) else { return none() };

@@ -17,7 +17,6 @@
 pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod adopt;
-pub mod attribution;
 pub mod adopt_live;
 pub mod adopt_replay;
 pub mod adopt_tools;
@@ -32,6 +31,7 @@ pub mod agent_tools;
 mod artifacts_fs;
 pub mod artifacts_sync;
 pub mod attach;
+pub mod attribution;
 pub mod author;
 pub mod beads;
 pub mod bg_hook;
