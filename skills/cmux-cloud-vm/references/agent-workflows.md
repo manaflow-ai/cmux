@@ -52,7 +52,7 @@ credentials. `vm push` and `git bundle` transfer through cmux were removed.
 ```bash
 cmux workspace current run --name tests -- sh -c 'cd work/app && make test'
 cmux terminal list                                      # find the new term_… id
-cmux terminal term_… process wait --timeout-ms 900000   # exits 1 on timeout
+cmux terminal term_… process wait --timeout-ms 900000   # exits 124 (timed_out: true) if it still runs
 cmux terminal term_… output read > test.log             # the full output, not just the screen
 ```
 
@@ -69,8 +69,8 @@ cmux terminal term_… screen read
 cmux terminal term_… keys ctrl+c
 ```
 
-No pane is attached and no Mac focus moves. `screen wait` exits 1 on timeout with its
-result, so branch on it rather than sleeping.
+No pane is attached and no Mac focus moves. `screen wait` exits 124 on timeout with its
+result (`timed_out: true`), so branch on it rather than sleeping.
 
 ## 4. Agents on other machines
 
