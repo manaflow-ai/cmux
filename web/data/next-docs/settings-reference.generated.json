@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 609,
+  "count": 616,
   "sections": [
     {
       "id": "general",
@@ -371,6 +371,14 @@
             "1h",
             "5m"
           ]
+        },
+        {
+          "key": "agents.promptSuggestions",
+          "title": "Suggest Next Prompt",
+          "help": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Sessions"
         },
         {
           "key": "agents.subsessions.answerQuestions",
@@ -1270,14 +1278,6 @@
           ]
         },
         {
-          "key": "tabs.cmdWClosesPinnedTabs",
-          "title": "Cmd-W Closes Pinned Tabs",
-          "help": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Tabs"
-        },
-        {
           "key": "tabs.hideLoneChatTab",
           "title": "Hide the Tab of a Chat Alone in Its Pane",
           "help": "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.",
@@ -1914,9 +1914,11 @@
           "title": "Chat Interface Font",
           "help": "The font of the whole chat: replies, the composer, cards and menus.",
           "kind": "choice",
-          "default": "inter-tuned",
+          "default": "system-ui",
           "group": "Agent Chat",
           "values": [
+            "system-ui",
+            "system-ui-tight",
             "inter-tuned",
             "inter",
             "verdana",
@@ -1926,9 +1928,7 @@
             "geist",
             "cmux-sans",
             "hanken",
-            "atkinson",
-            "system-ui",
-            "system-ui-tight"
+            "atkinson"
           ]
         },
         {
@@ -1996,6 +1996,45 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.badge",
+          "title": "Sender Badge",
+          "help": "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
+          "kind": "choice",
+          "default": "diamond",
+          "group": "Agent Chat",
+          "values": [
+            "diamond",
+            "robot",
+            "none"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.corner",
+          "title": "Sender Badge Corner",
+          "help": "Where the small glyph sits on a sender's icon.",
+          "kind": "choice",
+          "default": "bottom-right",
+          "group": "Agent Chat",
+          "values": [
+            "bottom-right",
+            "bottom-left",
+            "top-right",
+            "top-left"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.lead",
+          "title": "Sender Icon Emphasis",
+          "help": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
+          "kind": "choice",
+          "default": "family",
+          "group": "Agent Chat",
+          "values": [
+            "family",
+            "session"
           ]
         },
         {
@@ -3646,6 +3685,20 @@
           ]
         },
         {
+          "key": "sidebar.groupGradient",
+          "title": "Group Gradient",
+          "help": "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.",
+          "kind": "choice",
+          "default": "sunset",
+          "group": "Sidebar",
+          "values": [
+            "sunset",
+            "aurora",
+            "lagoon",
+            "twoTone"
+          ]
+        },
+        {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
           "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
@@ -3677,7 +3730,7 @@
         {
           "key": "sidebar.groupPalette",
           "title": "Group Colors",
-          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list.",
           "kind": "choice",
           "default": "glass",
           "group": "Sidebar",
@@ -3686,7 +3739,9 @@
             "theme",
             "wallpaper",
             "grayscale",
-            "vibrant"
+            "vibrant",
+            "gradient",
+            "pictorial"
           ]
         },
         {
@@ -5858,6 +5913,31 @@
           ]
         },
         {
+          "key": "home.chiefPanel.seesScreen",
+          "title": "Chief Sees Your Screen When It Opens",
+          "help": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chief Dock"
+        },
+        {
+          "key": "home.chiefPanel.style",
+          "title": "Floating Chief Style",
+          "help": "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip.",
+          "kind": "choice",
+          "default": "composeBar",
+          "group": "Chief Dock",
+          "values": [
+            "composeBar",
+            "pill",
+            "card",
+            "panel",
+            "bubble",
+            "seeThrough",
+            "seeThroughBar"
+          ]
+        },
+        {
           "key": "home.chiefPetEnabled",
           "title": "Show Chief Pet",
           "help": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",
@@ -6549,6 +6629,14 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
+        {
+          "key": "developerTools.appPages",
+          "title": "Developer Tools for cmux Pages",
+          "help": "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Developer Tools"
+        },
         {
           "key": "labs.liveCode",
           "title": "Live Code",

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c";
+pub const ir_sha256 = "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -65,6 +65,8 @@ pub const AgentRecord = struct {
     since_ms: ?u64 = null,
     source: AgentSource,
     state: AgentState,
+    /// What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`.
+    status: wire.Field(AgentState) = .absent,
     surface: Id,
     updated_at_ms: u64,
 
@@ -7861,6 +7863,7 @@ pub fn parkTabs(client: anytype, request: ParkTabsRequest) !wire.Decoded(ParkTab
 
 pub const PasteImageRequest = struct {
     data: wire.Field([]const u8) = .absent,
+    filename: wire.Field([]const u8) = .absent,
     lease: []const u8,
     mime: wire.Field([]const u8) = .absent,
     offset: wire.Field(u64) = .absent,
@@ -7883,6 +7886,9 @@ pub fn pasteImage(client: anytype, request: PasteImageRequest) !wire.Decoded(Pas
             .authority = "control",
             .since = 12,
             .capability = "terminal-image-paste-v1",
+            .fields = &.{
+                .{ .name = "filename", .since = null, .capability = "terminal-file-paste-v1" },
+            },
         },
         request,
     );
@@ -9459,6 +9465,7 @@ pub const ShutdownDaemonRequest = struct {
     generation: []const u8,
     keep_layout: ?bool = null,
     pid: u32,
+    restart: wire.Field(bool) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "end_terminals",
@@ -9479,6 +9486,7 @@ pub fn shutdownDaemon(client: anytype, request: ShutdownDaemonRequest) !wire.Dec
                 .{ .name = "end_terminals", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "force", .since = 10, .capability = "daemon-handoff-force-v1" },
                 .{ .name = "keep_layout", .since = 12, .capability = "end-terminals-keep-layout-v1" },
+                .{ .name = "restart", .since = 12, .capability = null },
             },
         },
         request,
@@ -9529,6 +9537,7 @@ pub fn snapshotRequest(client: anytype, request: SnapshotRequestRequest) !wire.D
 }
 
 pub const SplitRequest = struct {
+    before: ?bool = null,
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
     dir: SplitDirection,
@@ -9545,6 +9554,7 @@ pub const SplitRequest = struct {
     url: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "before",
         "keep",
     };
 };
@@ -9560,6 +9570,7 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "before", .since = 12, .capability = "split-before-v1" },
                 .{ .name = "cwd", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
@@ -10759,6 +10770,11 @@ pub const ConversationTypingEvent = struct {
 
 pub const DaemonShutdownEvent = struct {
     event: []const u8,
+    restart: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "restart",
+    };
 };
 
 pub const DetachedEvent = struct {

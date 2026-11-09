@@ -79,6 +79,7 @@ pub mod show;
 pub mod sidebar_choice;
 pub mod single_flight;
 pub mod skills;
+pub mod slash_skills;
 pub mod spawn_route;
 pub mod state;
 pub mod sub_watch;

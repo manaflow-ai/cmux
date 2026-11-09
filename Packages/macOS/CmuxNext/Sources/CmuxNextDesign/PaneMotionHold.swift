@@ -62,10 +62,15 @@ public protocol PaneMotionHoldFollowing: NSView {
     /// Motion or pane animations off, ``ScreenContentView`` `holdsSnapForContent`), which asks the size render only; a key
     /// press's size also takes its grid to the program (RESIZE P0 11).
     func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool)
+    /// A snapped change this follower's size was drawn ahead for showed (``ScreenContentView`` `presentHeldSnap`, RESIZE
+    /// P0 14): a size drawn ahead that the change's placement did not take goes now. Until then only a placement at a new
+    /// size may take it or drop it.
+    func aheadOfFollowShown()
 }
 
 public extension PaneMotionHoldFollowing {
     var followsPaneMotion: Bool { true }
     func drawAhead(nextHostSize: CGSize) {}
     func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool) {}
+    func aheadOfFollowShown() {}
 }

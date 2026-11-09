@@ -14,6 +14,17 @@
       }
     }
   },
+  "settings.choice.groupGradientAurora": {
+    "source": "Aurora",
+    "identityLocales": {
+      "es": {
+        "reason": "Aurora is the standard Spanish word for the dawn and the polar lights, the gradient's name.",
+        "values": [
+          "Aurora"
+        ]
+      }
+    }
+  },
   "settings.choice.agentChatPresentationMessages": {
     "source": "Messages",
     "identityLocales": {
@@ -7319,6 +7330,23 @@
         "reason": "Agents is the standard French plural noun for AI agents (the Agents onboarding window's title).",
         "values": [
           "Agents"
+        ]
+      }
+    }
+  },
+  "home.firstRun.switchKeys.tabs": {
+    "source": "Tab 1–9",
+    "identityLocales": {
+      "de": {
+        "reason": "Tab is the standard German noun for a window tab. The translated German entry is still required.",
+        "values": [
+          "Tab 1–9"
+        ]
+      },
+      "vi": {
+        "reason": "Tab is the standard Vietnamese UI word for a window tab. The translated Vietnamese entry is still required.",
+        "values": [
+          "Tab 1–9"
         ]
       }
     }

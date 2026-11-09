@@ -118,3 +118,112 @@ test("a send its harness shell named (fromAgent) draws its sender_claim on the i
     io.close();
   }
 });
+
+test("a sender_claim that comes after its prompt's row still draws on it", async () => {
+  const io = await connect([prompt("p-late"), claim("p-late")]);
+  try {
+    await settle(() => row(io.snapshot(), "p-late")?.sentFrom !== undefined);
+    expect(row(io.snapshot(), "p-late")?.sentFrom?.label).toBe("Claude desktop");
+  } finally {
+    io.close();
+  }
+});
+
+test("a live sender_claim after its prompt's row draws on it", async () => {
+  const io = await connect([]);
+  try {
+    io.feed.emit(io.target, prompt("p-after"));
+    await settle(() => row(io.snapshot(), "p-after") !== undefined);
+    io.feed.emit(io.target, claim("p-after"));
+    await settle(() => row(io.snapshot(), "p-after")?.sentFrom !== undefined);
+    expect(row(io.snapshot(), "p-after")?.sentFrom?.label).toBe("Claude desktop");
+  } finally {
+    io.close();
+  }
+});
+
+// The default route of another agent's send (agentInbox): an inbox notice names it by its prompt id
+// (acpmux hub/inbox.rs `render`), and its thread line carries the claim of that id.
+const inboxNoticeOf = (promptId: string) => ({
+  mux: "user_message",
+  msg: {
+    promptId: `notice-${promptId}`,
+    text: "You have 1 new message.",
+    _meta: {
+      provenance: {
+        kind: "inbox_notice",
+        noticeId: `notice-${promptId}`,
+        threads: [
+          {
+            threadId: "from:Claude Code desktop on mac · cc-1",
+            label: "",
+            new: 1,
+            from: ["Claude Code desktop on mac · cc-1"],
+            promptIds: [promptId],
+            preview: "from the desktop",
+            messages: [{ promptId, from: "Claude Code desktop on mac · cc-1", text: "from the desktop" }],
+          },
+        ],
+      },
+    },
+  },
+});
+const noticeThread = (shown: AcpmuxSnapshot | undefined, promptId: string) => {
+  const notice = shown?.rows.find((r) => r.kind === "user" && r.incoming?.kind === "inbox");
+  return notice?.incoming?.kind === "inbox"
+    ? notice.incoming.notice.threads.find((t) => t.promptIds.includes(promptId))
+    : undefined;
+};
+
+test("an inbox notice's thread carries the sender_claim of each message it names", async () => {
+  const io = await connect([claim("p-inbox"), inboxNoticeOf("p-inbox")]);
+  try {
+    await settle(() => noticeThread(io.snapshot(), "p-inbox") !== undefined);
+    expect(noticeThread(io.snapshot(), "p-inbox")?.sentFrom?.["p-inbox"]).toMatchObject({
+      label: "Claude desktop",
+      confirmed: true,
+    });
+  } finally {
+    io.close();
+  }
+});
+
+test("a sender_claim after its inbox notice still reaches the notice's thread", async () => {
+  const io = await connect([inboxNoticeOf("p-inbox-late")]);
+  try {
+    await settle(() => noticeThread(io.snapshot(), "p-inbox-late") !== undefined);
+    io.feed.emit(io.target, claim("p-inbox-late"));
+    await settle(() => noticeThread(io.snapshot(), "p-inbox-late")?.sentFrom !== undefined);
+    expect(noticeThread(io.snapshot(), "p-inbox-late")?.sentFrom?.["p-inbox-late"]?.label).toBe("Claude desktop");
+  } finally {
+    io.close();
+  }
+});
+
+test("a sender_claim after a harness-named message's row still draws on it", async () => {
+  const named = {
+    mux: "user_message",
+    msg: {
+      promptId: "p-named-late",
+      text: "from the desktop",
+      fromAgent: "Claude Code desktop on mac · cc-1",
+      _meta: {
+        provenance: {
+          kind: "agent_message",
+          from: "fromAgent",
+          fromName: "Claude Code desktop on mac · cc-1",
+          to: "x",
+        },
+      },
+    },
+  };
+  const io = await connect([named]);
+  try {
+    await settle(() => row(io.snapshot(), "p-named-late") !== undefined);
+    io.feed.emit(io.target, claim("p-named-late"));
+    await settle(() => row(io.snapshot(), "p-named-late")?.sentFrom !== undefined);
+    expect(row(io.snapshot(), "p-named-late")?.sentFrom?.label).toBe("Claude desktop");
+  } finally {
+    io.close();
+  }
+});

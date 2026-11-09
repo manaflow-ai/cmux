@@ -110,6 +110,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.groupPalette`.
     public nonisolated static let groupPalettePath = ["sidebar", "groupPalette"]
     public nonisolated static let groupPaletteDefault: GroupPalette = .glass
+    /// `sidebar.groupGradient`.
+    public nonisolated static let groupGradientPath = ["sidebar", "groupGradient"]
+    public nonisolated static let groupGradientDefault: GroupGradient = .sunset
     /// `sidebar.minimalMode`.
     public nonisolated static let minimalModePath = ["sidebar", "minimalMode"]
     public nonisolated static let minimalModeDefault: SidebarMinimalMode = .off

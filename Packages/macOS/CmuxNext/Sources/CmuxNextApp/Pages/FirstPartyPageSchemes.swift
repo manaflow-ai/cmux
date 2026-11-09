@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextCloudUI
 import CmuxNextPages
@@ -58,6 +59,7 @@ enum FirstPartyPageSchemes {
         .agentActivity,
         .apps,
         .artifacts,
+        .bookmarks,
         .changelog,
         .chiefInspector,
         .chiefUsage,
@@ -82,6 +84,7 @@ enum FirstPartyPageSchemes {
         .mobilePairing,
         .onboarding,
         .passwords,
+        .serverCards,
         .settings,
         .stats,
         .tasks,

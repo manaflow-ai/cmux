@@ -67,7 +67,10 @@ export function useInlineAttachments(options: Options) {
   /// Placeholders whose node an edit took out while they loaded: an undo brings each back loading.
   const cancelled = useRef(new Set<string>());
   /// Attachments that stay in the strip (a chip with no place kept as a file, pastedChips.ts
-  /// `keepAsFile`): never placed in the text, so no undo there can take one out.
+  /// `keepAsFile`): never placed in the text, so no undo there can take one out. Kept across a
+  /// change of scope, as the attachment itself is (a chat's kept chips come back with its draft):
+  /// cleared there, the next `ready()` would put the file in the prompt (review of #37516). An id
+  /// leaves when it is sent.
   const stripOnly = useRef(new Set<string>());
   /// Attachments sent with a prompt: an undo of the send's clear brings their nodes back with no
   /// attachment to draw, so they leave the text again. One the host puts back (a refusal, Edit on a
@@ -81,7 +84,6 @@ export function useInlineAttachments(options: Options) {
     removed.current.clear();
     placed.current.clear();
     cancelled.current.clear();
-    stripOnly.current.clear();
     sentIds.current.clear();
   }, [options.scope]);
   const [views, setViews] = useState<ReadonlyMap<string, HTMLElement>>(() => new Map());
@@ -239,6 +241,7 @@ export function useInlineAttachments(options: Options) {
       for (const id of ids) {
         removed.current.delete(id);
         placed.current.delete(id);
+        stripOnly.current.delete(id);
         sentIds.current.add(id);
       }
       clearing.current = true;
@@ -451,7 +454,12 @@ const InlineChip = memo(function InlineChip({
             aria-label={`${attachment.name || pasteName(text)}, ${label}`}
             onClick={() => onExpand(id)}
           >
-            <TextAttachmentCard text={text} label={label} wrap />
+            <TextAttachmentCard
+              text={text}
+              label={label}
+              wrap
+              {...(onKeepFile ? { reserve: t("composer.pastedText.keepFile") } : {})}
+            />
           </button>
           {onKeepFile ? <KeepFileButton onKeep={() => onKeepFile(id)} /> : null}
           {remove}

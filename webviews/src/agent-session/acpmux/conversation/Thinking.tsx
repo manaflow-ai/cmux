@@ -10,7 +10,9 @@
 // never "Thinking" while the agent is blocked on them. It reads as Claude desktop's "Needs your input"
 // pill: the attention dot and the words on a tinted pill. Once answered, the dot shrinks into the
 // Thinking line that takes its place (Leo, 2026-11-05: "there's a little animation that plays. It,
-// like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute").
+// like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute"), and
+// when an ask opens under a line already drawn, the dot grows in the same way (Leo, 2026-11-08: "I
+// mostly just meant the yellow circle thing. I thought that was cute").
 import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
@@ -104,7 +106,7 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"]): Ro
 /// wait never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
 /// line stays where it is and reads "Writing": it never leaves and comes back mid-turn (Leo,
 /// 2026-11-04: "it appears and disappears????").
-/// The longest the answered dot stays, should its shrink never end (motion off draws no animation).
+/// The longest the dot's grow or shrink lasts, should it never end (motion off draws no animation).
 const SETTLE_MS = 400;
 
 /// True from the render the chat stops waiting on the person until the dot's shrink ends (`done`)
@@ -124,6 +126,26 @@ function useAnswered(waiting: WaitingOn | undefined): [boolean, () => void] {
     return () => clearTimeout(timer);
   }, [waiting]);
   return [answered, () => setAnswered(false)];
+}
+
+/// True from the render the chat starts waiting on the person, under a line already drawn, until the
+/// dot's grow ends (`done`) or SETTLE_MS passes. A line that mounts waiting (a chat opened mid-ask)
+/// draws the dot still: only an ask that opens while the person watches grows in.
+function useAsked(waiting: WaitingOn | undefined): [boolean, () => void] {
+  const [asked, setAsked] = useState(false);
+  const was = useRef(waiting);
+  useLayoutEffect(() => {
+    const before = was.current;
+    was.current = waiting;
+    if (!waiting || before) {
+      setAsked(false);
+      return;
+    }
+    setAsked(true);
+    const timer = setTimeout(() => setAsked(false), SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [waiting]);
+  return [asked, () => setAsked(false)];
 }
 
 export function Thinking({
@@ -204,6 +226,7 @@ export function Thinking({
   const language = usePaneLanguage();
   const waiting = useContext(WaitingOnContext);
   const [answered, settled] = useAnswered(waiting);
+  const [asked, grown] = useAsked(waiting);
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
   // The turn's time, from the prompt, whatever the line names: it keeps counting across steps and
   // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
@@ -382,7 +405,11 @@ export function Thinking({
     >
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
-          <span className="cv-needs-input-glyph" aria-hidden="true" />
+          <span
+            className={`cv-needs-input-glyph${asked ? " is-asked" : ""}`}
+            aria-hidden="true"
+            onAnimationEnd={asked ? grown : undefined}
+          />
           <span className="cv-waiting__pill">{t(WAITING_LABEL[waiting])}</span>
         </output>
       ) : (

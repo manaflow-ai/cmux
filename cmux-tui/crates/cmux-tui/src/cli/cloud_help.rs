@@ -148,14 +148,8 @@ const GROUPS: &[Group] = &[
                 "エージェントセッション（claude、codex など）を開始",
             ),
             verb(
-                "relay-chat",
-                "{target} --agent AGENT --prompt TEXT [--cwd DIR] [--prompt-id ID]",
-                "Send a prompt over the machine's relay and answer when the turn ends",
-                "マシンのリレー経由でプロンプトを送り、ターンの終了時に応答を返す",
-            ),
-            verb(
                 "open-desktop",
-                "{target} [--viewer rd|web]",
+                "{target} [--viewer rd]",
                 "Show the machine's desktop in a new workspace",
                 "マシンのデスクトップを新しいワークスペースに表示",
             ),
@@ -164,12 +158,6 @@ const GROUPS: &[Group] = &[
                 "{target} [--focus]",
                 "Set up git and GitHub on the machine",
                 "マシンに git と GitHub を設定",
-            ),
-            verb(
-                "enroll-machine",
-                "{target} [--ssh-key FILE] [--name HOST]",
-                "Make it an ssh host and acpmux peer of this Mac",
-                "この Mac の ssh ホストと acpmux ピアにする",
             ),
             verb(
                 "apply-machine-config",

@@ -36,7 +36,7 @@ extension AddMachineServices {
             run: { command in
                 #if DEBUG
                 if command.needsAccount, services.debugFixtures.joinedMachines != nil {
-                    return AsyncThrowingStream { for line in DebugAddDevice.joinedDoctorLines { $0.yield(line) }; $0.finish() }
+                    return AsyncThrowingStream { for line in JoinedMachine.fixtureDoctorLines { $0.yield(line) }; $0.finish() }
                 }
                 #endif
                 guard let cli else { return AsyncThrowingStream { $0.finish(throwing: ActionFailure(message: RemoteStrings.noClient)) } }
