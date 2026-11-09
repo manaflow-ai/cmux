@@ -1,9 +1,9 @@
 //! The one-time stored-output cleanup on the real owner binary. A registry
 //! of an older build holds `terminal.output` rows, live and inside sealed
-//! segments. An owner stages the sealed segments in the background
-//! (Phase A); the next owner start builds a new registry without the
-//! output, renames it into place and keeps the old file as
-//! `.pre-output-cleanup`, which the start after that removes.
+//! segments. An owner stages the sealed segments and builds a new registry
+//! without the output in the background (Phase A); the next owner start
+//! finishes it with the journal tail, renames it into place and keeps the
+//! old file as `.pre-output-cleanup`, which the start after that removes.
 //!
 //! Output rows are seeded with SQLite into a registry the daemon created
 //! (this branch still journals output, but a seed gives fixed counts); the
@@ -490,11 +490,16 @@ fn prepare_with_tail(dir: &Path, session: &str, tail_output: usize) -> Prepared 
     Prepared { registry, workspaces, journal, bytes, checkpoint }
 }
 
-/// Phase A finished in the background and wrote its staging file.
+/// Phase A and the background build finished and wrote the staging file.
 fn stage(dir: &Path, session: &str, label: &str) -> Owner {
-    let owner =
-        Owner::start(dir, session, label, &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", "0")]);
-    let line = owner.wait_for_log("output cleanup: phase A complete");
+    stage_with(dir, session, label, &[])
+}
+
+fn stage_with(dir: &Path, session: &str, label: &str, env: &[(&str, &str)]) -> Owner {
+    let mut env = env.to_vec();
+    env.push(("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", "0"));
+    let owner = Owner::start(dir, session, label, &env);
+    let line = owner.wait_for_log("output cleanup: built the new registry in the background");
     assert!(line.contains("records kept"), "{line}");
     owner
 }
@@ -595,8 +600,8 @@ fn assert_structural_tables_equal(new: &Path, old: &Path) {
         "journal_event_index",
         "journal_pruned_ranges",
     ];
-    const CLEANUP_META: &str =
-        "'output_cleanup_v1', 'journal_segment_kinds_backfill', 'output_cleanup_full_starts'";
+    const CLEANUP_META: &str = "'output_cleanup_v1', 'journal_segment_kinds_backfill', 'output_cleanup_full_starts', \
+         'output_cleanup_swap'";
     let db = read_only(new);
     db.execute("ATTACH DATABASE ?1 AS old", [old.to_str().unwrap()]).unwrap();
     let tables: Vec<(String, String)> = db
@@ -669,6 +674,18 @@ fn stored_output_is_removed_and_the_registry_swapped_at_the_next_start() {
     );
     let line = owner.wait_for_log("output cleanup: swapped the registry");
     assert!(line.contains("pruned ranges"), "{line}");
+    // The background build packed the journal; this start staged only the
+    // records after its last catch-up.
+    let number_before = |marker: &str| -> u64 {
+        line.split(marker)
+            .next()
+            .and_then(|before| before.rsplit(' ').next())
+            .and_then(|count| count.parse().ok())
+            .unwrap_or_else(|| panic!("no count before {marker:?} in {line:?}"))
+    };
+    let kept = number_before(" records kept");
+    let tail = number_before(" records staged at this start");
+    assert!(tail < kept && tail <= 64, "the start staged a tail of {tail} of {kept}: {line}");
     let previous = sidecar(&prepared.registry, ".pre-output-cleanup");
     assert_structural_tables_equal(&snapshot, &previous);
     assert_eq!(integrity(&prepared.registry), "ok");
@@ -914,6 +931,134 @@ fn a_killed_cleanup_leaves_the_registry_usable_and_resumes() {
     owner.wait_for_log("output cleanup: resuming after sequence");
     owner.stop();
     let owner = Owner::start(&dir.0, session, "swap-after-resume", &[]);
+    owner.wait_for_log("output cleanup: swapped the registry");
+    assert_cleaned(&owner, &prepared);
+    owner.stop();
+}
+
+/// A start whose swap would block on a long journal tail defers it and
+/// serves the old registry; its cleanup thread packs the tail, and the next
+/// start swaps.
+#[test]
+fn a_long_tail_after_the_build_defers_the_swap_until_the_thread_caught_up() {
+    let dir = state_dir("deferred-tail");
+    let session = "oc-tail";
+    let prepared = prepare(&dir.0, session);
+    stage(&dir.0, session, "stage").stop();
+    seed_output(&prepared.registry, 64, "after-build");
+
+    let owner = Owner::start(
+        &dir.0,
+        session,
+        "deferred",
+        &[
+            ("CMUX_TUI_TEST_OUTPUT_CLEANUP_TAIL_LIMIT", "16"),
+            ("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", "0"),
+            ("CMUX_TUI_TEST_OUTPUT_CLEANUP_CATCH_UP_MS", "100"),
+        ],
+    );
+    let line = owner.wait_for_log("output cleanup: swap deferred to a later start");
+    let tail: u64 = line
+        .split("later start: ")
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|count| count.parse().ok())
+        .unwrap_or_else(|| panic!("no tail length in {line:?}"));
+    assert!(tail >= 64, "the tail holds the rows seeded after the build: {line}");
+    assert!(!sidecar(&prepared.registry, ".pre-output-cleanup").exists(), "nothing was swapped");
+    assert_eq!(workspaces(&owner), prepared.workspaces, "the old registry serves");
+    owner.wait_for_log("output cleanup: caught up through sequence");
+    owner.stop();
+
+    let owner =
+        Owner::start(&dir.0, session, "swap", &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_TAIL_LIMIT", "16")]);
+    owner.wait_for_log("output cleanup: swapped the registry");
+    assert_cleaned(&owner, &prepared);
+    owner.stop();
+}
+
+/// A kill in the middle of the background build loses no packed segment:
+/// the next owner resumes at the step and segment it reached.
+#[test]
+fn a_build_killed_midway_resumes_where_it_stopped() {
+    let dir = state_dir("build-kill");
+    let session = "oc-build-kill";
+    let prepared = prepare(&dir.0, session);
+    let small = [
+        ("CMUX_TUI_TEST_OUTPUT_CLEANUP_SEGMENT_RECORDS", "2"),
+        ("CMUX_TUI_TEST_OUTPUT_CLEANUP_PROGRESS_MS", "0"),
+    ];
+    let mut paused = small.to_vec();
+    paused.push(("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", "0"));
+    paused.push(("CMUX_TUI_TEST_OUTPUT_CLEANUP_SEGMENT_PAUSE_MS", "300"));
+    let owner = Owner::start(&dir.0, session, "build-killed", &paused);
+    owner.wait_for_log("output cleanup: packed 3 segments through sequence");
+    assert!(!owner.log_text().contains("built the new registry"), "the kill lands in the build");
+    owner.kill();
+    assert_eq!(integrity(&prepared.registry), "ok");
+
+    let owner = stage_with(&dir.0, session, "resume", &small);
+    let line = owner.wait_for_log("output cleanup: resuming the background build at step pack");
+    let packed: u64 = line
+        .split('(')
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|count| count.parse().ok())
+        .unwrap_or_else(|| panic!("no packed count in {line:?}"));
+    assert!(packed >= 3, "the resumed build keeps the packed segments: {line}");
+    let log = owner.log_text();
+    assert!(!log.contains("output cleanup: staging "), "phase A is not staged again: {log}");
+    assert!(
+        !log.contains("building the new registry in the background"),
+        "the build does not start over: {log}"
+    );
+    owner.stop();
+
+    let owner = Owner::start(&dir.0, session, "swap", &[]);
+    owner.wait_for_log("output cleanup: swapped the registry");
+    assert_cleaned(&owner, &prepared);
+    owner.stop();
+}
+
+/// A start killed after the swap committed and before the rename keeps the
+/// built registry: the next start checks it again and renames it.
+#[test]
+fn a_swap_killed_before_its_rename_is_finished_by_the_next_start() {
+    let dir = state_dir("rename-kill");
+    let session = "oc-rename-kill";
+    let prepared = prepare(&dir.0, session);
+    stage(&dir.0, session, "stage").stop();
+
+    let socket = dir.0.join("mux.sock");
+    let log = File::create(dir.0.join("exit-before-rename.log")).unwrap();
+    let mut child = command(&dir.0)
+        .args(["--headless", "--session", session, "--socket"])
+        .arg(&socket)
+        .env("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", NEVER)
+        .env("CMUX_TUI_TEST_OUTPUT_CLEANUP_EXIT_BEFORE_RENAME", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(log)
+        .spawn()
+        .unwrap();
+    let status = child.wait_timeout(Duration::from_secs(120)).unwrap().expect("the start exits");
+    assert!(!status.success());
+    let text = fs::read_to_string(dir.0.join("exit-before-rename.log")).unwrap();
+    assert!(text.contains("test: exiting after the swap committed"), "{text}");
+    let staged = sidecar(&prepared.registry, ".output-cleanup");
+    assert!(staged.is_file(), "the committed registry stays");
+    assert_eq!(
+        count(
+            &read_only(&staged),
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'output_cleanup_state'"
+        ),
+        0,
+        "the build state went with the commit"
+    );
+    assert_eq!(live_output_rows(&prepared.registry), SEEDED_LIVE as i64, "not swapped yet");
+
+    let owner = Owner::start(&dir.0, session, "finish", &[]);
+    owner.wait_for_log("output cleanup: finishing a swap an earlier start committed");
     owner.wait_for_log("output cleanup: swapped the registry");
     assert_cleaned(&owner, &prepared);
     owner.stop();

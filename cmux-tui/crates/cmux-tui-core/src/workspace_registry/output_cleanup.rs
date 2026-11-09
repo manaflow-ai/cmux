@@ -10,32 +10,44 @@
 //!   with a read-only connection. It copies the non-output records of every
 //!   sealed segment (segments are immutable) into the staging file
 //!   `workspace-registry.sqlite3.output-cleanup`, one segment per staging
-//!   transaction, so a quit resumes at the next segment.
+//!   transaction, so a quit resumes at the next segment. The same thread
+//!   then builds the new registry's journal in that file (`build`): the
+//!   non-output live rows (through the `(kind, sequence)` index, never a
+//!   full scan), all kept records packed into new sealed segments over the
+//!   same sequence range with their index rows, each removed run recorded in
+//!   `journal_pruned_ranges`, and a check. Every step records its progress,
+//!   so a quit or a kill resumes it. While the owner serves on, the thread
+//!   packs the records appended since.
 //! - Phase B ([`swap_at_open`]) runs at the next owner start, inside
 //!   `WorkspaceRegistry::open` while the session locks are held and before
-//!   any connection writes the registry. It copies every other table, the
-//!   non-output live rows (through the `(kind, sequence)` index, never a full
-//!   scan) and their index rows, packs all kept records into new sealed
-//!   segments over the same sequence range, records each removed run in
-//!   `journal_pruned_ranges`, checks the result, and renames it over the
-//!   registry. The old file stays as `workspace-registry.sqlite3.pre-output-
-//!   cleanup` until the next start that opens the new registry.
+//!   any connection writes the registry. It only finishes the built file:
+//!   the journal tail since the last catch-up (a start with a tail over
+//!   `SWAP_TAIL_LIMIT` records defers the swap), every other table copied,
+//!   a check, and the rename over the registry. The old file stays as
+//!   `workspace-registry.sqlite3.pre-output-cleanup` until the next start
+//!   that opens the new registry. A start that swaps used to build the whole
+//!   journal here and took minutes on a large registry.
 //!
 //! Sequences never change: cursors, checkpoints and hook deliveries keep
 //! pointing at the same records. The journal readers accept a missing run of
 //! sequences exactly when one pruned range covers it ([`pruned_gap`]).
 //!
-//! Both phases copy every kept record, and Phase B does it inside the open.
-//! That is cheap only while output is most of the journal; a registry whose
-//! journal is mostly other records (one held 12M rows, 96.6% of them session
-//! records) staged 38 GB and would have spent hours of a start copying it. So
+//! The cleanup copies every kept record (in the background; Phase B did it
+//! inside the open before). That is cheap only while output is most of the
+//! journal; a registry whose journal is mostly other records (one held 12M
+//! rows, 96.6% of them session records) staged 38 GB and would have spent
+//! hours of a start copying it. So
 //! the cleanup runs only while the kept records stay under
 //! [`MAX_KEPT_RECORDS`] and at most half of the journal, and the staging file
 //! under [`MAX_STAGED_BYTES`]: Phase A checks an estimate before it stages and
-//! the staged count as it goes, Phase B the staged count before it copies
-//! anything. Past a bound the staging file is deleted and the registry stays
-//! as it is; the next start estimates again.
+//! the staged count as it goes, the build the staged count and the segments
+//! sealed since before it starts, and the staged size as it packs and
+//! catches up; Phase B the staged size before it copies anything, and it
+//! copies at most a bounded tail of the journal. Past a bound the staging
+//! file is deleted and the registry stays as it is; the next start
+//! estimates again.
 
+mod build;
 mod chunks;
 mod codec;
 mod pruned;
@@ -72,8 +84,8 @@ const ROLLBACK_PENDING_SUFFIX: &str = ".output-cleanup-rollback";
 /// Free space beyond the staged file that both phases require.
 const DISK_MARGIN_BYTES: u64 = 1 << 30;
 const OUTPUT_KIND: &str = "terminal.output";
-/// Kept records past which the cleanup does not run: Phase B copies each of
-/// them inside the open.
+/// Kept records past which the cleanup does not run: the build copies each
+/// of them.
 const MAX_KEPT_RECORDS: u64 = 1_000_000;
 /// Staging file size past which the cleanup is abandoned.
 const MAX_STAGED_BYTES: u64 = 2 << 30;
