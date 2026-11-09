@@ -47,7 +47,9 @@ extension Metrics {
     /// Settings override, else `appearance.chromeStyle`, else the default.
     public static var mainPaneCurved: Bool {
         let tunable = ChromeTunables.mainPaneCurved
-        return tunable.override ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
+        // The flush corner (`chrome.cornerFlush`) draws the card under any chrome style; a Debug override still wins.
+        let flush: Bool? = CornerFlush.current.isOn ? true : nil
+        return tunable.override ?? flush ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
     }
     /// Floating panes (`appearance.chromeStyle` floating): every pane is its
     /// own card, tab strip included, left unshaded on the shaded chrome
@@ -68,6 +70,7 @@ extension Metrics {
     public static var mainPaneGutter: CGFloat {
         guard mainPaneCurved else { return 0 }
         if floatingPanes, ChromeTunables.mainPaneGutter.override == nil { return panePadding }
+        if CornerFlush.current.isOn, ChromeTunables.mainPaneGutter.override == nil { return CornerFlush.current.gap }
         return scale(ChromeTunables.mainPaneGutter.value)
     }
     /// Corner radius of the main pane; 0 when it is edge to edge or its
@@ -89,6 +92,9 @@ extension Metrics {
     /// still rounds its own corners). A Debug Settings override wins.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
+        // The flush corner: 12 pt, concentric with the 16 pt window across its 4 pt gap.
+        let flush = CornerFlush.current
+        if flush.isOn { return windowCornerRadius > 0 ? min(flush.cardRadius, windowCornerRadius) : flush.cardRadius }
         let gutter = mainPaneGutter
         if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : max(0, windowCornerRadius - PaneTabRowRim.height) }
         return windowConcentricCornerRadius(windowCornerRadius: windowCornerRadius, edgeInset: max(gutter, PaneTabRowRim.height),
@@ -127,6 +133,8 @@ extension Metrics {
     /// is edge to edge.
     public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
         guard mainPaneCurved else { return 0 }
+        // The flush corner shades its frame so the card reads on the one surface.
+        if CornerFlush.current.isOn { return CornerFlush.current.shade(isDark: isDark) }
         let style = DesignSettings.shared.chromeStyle
         let tunable = isDark ? ChromeTunables.mainPaneShadeDark : ChromeTunables.mainPaneShadeLight
         let separate = tunable.override.map { CGFloat($0) } ?? style.separateShade(isDark: isDark) ?? CGFloat(tunable.defaultValue)

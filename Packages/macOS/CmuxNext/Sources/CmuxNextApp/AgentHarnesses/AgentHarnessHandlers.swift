@@ -45,7 +45,7 @@ enum AgentHarnessHandlers {
         })
         // task-owner: refresh is one bounded harness list read that answers or fails on its own
         AgentHarnessIconAction(setIcon: { _ = try await center.setIcon(id: $0, change: $1) }, state: { center.pageState },
-                               refresh: { Task { await center.refresh() } }, failure: AgentHarnessCenter.text).bind(into: registry)
+                               refresh: { await center.refresh() }, failure: AgentHarnessCenter.text).bind(into: registry)
         center.updates?.bind(into: registry)
         registry.bind("agent.harness.doctor", run: { invocation in
             guard let id = nonEmpty(invocation.arguments["id"]?.stringValue) else {
