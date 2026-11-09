@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 
@@ -18,48 +19,100 @@ public struct ConversationTranscriptSnapshot: Sendable, Hashable, Codable {
     }
 }
 
-/// Keeps one `ConversationTranscriptSnapshot` per conversation key on disk (Application Support,
-/// readable after first unlock) and the ones read or written this run in memory, so a store made
-/// again in the same run shows them in the same frame. Disk reads and writes run in order on one
-/// utility queue, never on the main thread. The files together stay under `byteLimit`: after each
-/// write the least recently written conversations go first. Sign-out deletes them all (`removeAll`).
+/// Every conversation's history on this device, in one SQLite database per account
+/// (`ConversationHistoryDatabase`, Application Support, readable after first unlock, not in
+/// backups): what the stores read and what ``sync(_:pageSize:fetch:)`` backfilled. A store built
+/// again shows the newest ``limit`` messages at once (from memory in the same run, else read off
+/// the main thread), and with no network it pages older ones from here (`ConversationStore.loadOlder`).
+///
+/// Account isolation: ``activate(account:)`` picks the account's own file; another account's
+/// rows are never read, and a read or sync begun for one account never lands after a switch.
+/// Sign-out deletes every file (``removeAll()``). Disk work runs in order on one utility queue.
 public final class ConversationTranscriptCache: @unchecked Sendable {
-    /// Messages kept per conversation: the newest screens, not the history (older pages still
-    /// come from the server when the reader scrolls up).
+    /// Messages a store shows at once from here; older ones page in as the reader scrolls up.
     public static let limit = 200
-    /// Bytes kept on disk for every conversation together: the newest conversations stay, the
-    /// ones written longest ago leave first (the user, 2026-11-09: "chats preserved on disk up to
-    /// a storage limit, latest kept").
-    public static let byteLimit = 32 * 1024 * 1024
 
     public let directory: URL
     public let limit: Int
-    public let byteLimit: Int
     let queue = DispatchQueue(label: "dev.cmux.conversation.transcript-cache", qos: .utility)
     /// How long a write waits for newer changes (a streamed reply changes the transcript many
-    /// times a second): one file write per key per `writeDelay`, of the newest snapshot.
+    /// times a second): one write per key per `writeDelay`, of what changed since the last.
     let writeDelay: DispatchTimeInterval
-    /// Snapshots waiting for their write, by key; the queue takes the newest.
-    private let pending = OSAllocatedUnfairLock(initialState: [String: ConversationTranscriptSnapshot]())
-    /// This run's snapshots by key. Read and written on the main actor only.
-    @MainActor private var memory: [String: ConversationTranscriptSnapshot] = [:]
-    /// Bumps on `removeAll`: a read that started before it never lands in memory after it.
-    @MainActor private var generation = 0
 
-    public init(directory: URL, limit: Int = ConversationTranscriptCache.limit, byteLimit: Int = ConversationTranscriptCache.byteLimit,
-                writeDelay: DispatchTimeInterval = .seconds(1)) {
+    /// Which account the cache serves now, and a counter that bumps on every switch and on
+    /// sign-out: work started under an older one is dropped. Read on the queue too.
+    struct Scope: Sendable, Equatable {
+        var account: String?
+        var generation: Int
+    }
+    private let scopeLock = OSAllocatedUnfairLock(initialState: Scope(account: nil, generation: 0))
+    var scope: Scope { scopeLock.withLock { $0 } }
+
+    /// What a store saved and the queue has not written yet, by account and key.
+    struct PendingWrite {
+        var account: String?
+        var key: String
+        var info: ConversationInfo?
+        var meID: String?
+        var changed: [String: ConversationMessage] = [:]
+        var deleted: Set<String> = []
+        var window: ClosedRange<Int>?
+        var reachedStart = false
+    }
+    private let pending = OSAllocatedUnfairLock(initialState: [String: PendingWrite]())
+
+    /// This run's snapshots by key. Main actor only.
+    @MainActor private var memory: [String: ConversationTranscriptSnapshot] = [:]
+    /// What each key's last save wrote, by message id: the next save writes only what changed.
+    @MainActor private var written: [String: [String: ConversationMessage]] = [:]
+    /// Ids each key's saves already deleted for me.
+    @MainActor private var deletedWritten: [String: Set<String>] = [:]
+
+    /// The open database and the account it is for. Queue only.
+    private var database: ConversationHistoryDatabase?
+    private var databaseAccount: String??
+
+    public init(directory: URL, limit: Int = ConversationTranscriptCache.limit, writeDelay: DispatchTimeInterval = .seconds(1)) {
         self.directory = directory
         self.limit = limit
-        self.byteLimit = byteLimit
         self.writeDelay = writeDelay
     }
 
-    /// The cache in Application Support/`name`.
-    public static func inApplicationSupport(_ name: String) -> ConversationTranscriptCache {
+    /// The cache in Application Support/`name`. `replacing` names folders an older build kept
+    /// conversations in (the JSON files of the first kept-transcript build): they are removed.
+    public static func inApplicationSupport(_ name: String, replacing legacy: [String] = []) -> ConversationTranscriptCache {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return ConversationTranscriptCache(directory: base.appending(path: name, directoryHint: .isDirectory))
+        let cache = ConversationTranscriptCache(directory: base.appending(path: name, directoryHint: .isDirectory))
+        if !legacy.isEmpty {
+            cache.queue.async {
+                for folder in legacy { try? FileManager.default.removeItem(at: base.appending(path: folder, directoryHint: .isDirectory)) }
+            }
+        }
+        return cache
     }
+
+    // MARK: Account
+
+    /// The account whose history the cache reads and writes from now on (nil: signed out, a
+    /// device-only file). Kept rows of the previous account leave memory at once.
+    @MainActor public func activate(account: String?) {
+        guard scope.account != account else { return }
+        scopeLock.withLock { $0 = Scope(account: account, generation: $0.generation + 1) }
+        // What the previous account saved goes to its own file now, before any read for the
+        // next account (or for it again) runs on the queue.
+        queue.async { [self] in
+            for slot in pending.withLock({ Array($0.keys) }) { write(slot) }
+        }
+        memory = [:]
+        written = [:]
+        deletedWritten = [:]
+    }
+
+    /// The account the cache serves now.
+    @MainActor public var account: String? { scope.account }
+
+    // MARK: Reads
 
     /// The snapshot for `key` read or written this run, without touching the disk.
     @MainActor public func cached(_ key: String) -> ConversationTranscriptSnapshot? { memory[key] }
@@ -67,135 +120,184 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
     /// The snapshot for `key`: from memory, else read from disk off the main thread.
     @MainActor public func load(_ key: String) async -> ConversationTranscriptSnapshot? {
         if let held = memory[key] { return held }
-        let url = file(for: key), started = generation
-        let read: ConversationTranscriptSnapshot? = await withCheckedContinuation { continuation in
-            queue.async {
-                let data = try? Data(contentsOf: url)
-                continuation.resume(returning: data.flatMap { try? JSONDecoder().decode(ConversationTranscriptSnapshot.self, from: $0) })
-            }
+        let started = scope, limit = limit
+        let read: ConversationTranscriptSnapshot? = try? await run(started) { db in
+            let messages = try db.newest(key, limit: limit)
+            let head = try db.info(key)
+            guard !messages.isEmpty || head?.info != nil else { return nil }
+            return ConversationTranscriptSnapshot(info: head?.info, meID: head?.meID, messages: messages)
         }
-        guard started == generation else { return nil }
+        guard started == scope else { return nil }
         // A save during the read is newer than what was on disk.
         if let held = memory[key] { return held }
         if let read { memory[key] = read }
         return read
     }
 
-    /// Keeps the newest `limit` acknowledged messages of `messages` for `key`: in memory now, on
-    /// disk on the queue. Sends not yet acknowledged and their image bytes are not kept (the
-    /// outbox owns unsent messages).
-    @MainActor public func save(_ key: String, info: ConversationInfo?, meID: String?, messages: [ConversationMessage]) {
+    /// Up to `limit` stored messages older than `beforeSeq`, oldest first, as a history page.
+    /// `requireSynced`: only when the stored history below `beforeSeq` has no gap (a sync or a
+    /// store walked it), else nil and the caller asks the server. Without it (no network) the
+    /// page is whatever is stored. Nil after an account switch or a failed read.
+    @MainActor public func older(_ key: String, beforeSeq: Int, limit: Int, requireSynced: Bool) async -> ConversationHistoryPage? {
+        let started = scope
+        let page: ConversationHistoryPage? = try? await run(started) { db in
+            let range = try db.syncedRange(key)
+            if requireSynced {
+                guard let range, range.oldestSeq <= beforeSeq, beforeSeq <= range.newestSeq + 1 else { return nil }
+                let rows = try db.older(key, beforeSeq: beforeSeq, limit: limit)
+                let reachedOldest = rows.first.flatMap(\.seq).map { $0 <= range.oldestSeq } ?? true
+                if reachedOldest && !range.complete && rows.isEmpty { return nil }
+                return ConversationHistoryPage(messages: rows, hasMore: !(reachedOldest && range.complete))
+            }
+            let rows = try db.older(key, beforeSeq: beforeSeq, limit: limit)
+            return ConversationHistoryPage(messages: rows, hasMore: rows.count == limit)
+        }
+        guard started == scope else { return nil }
+        return page
+    }
+
+    /// How much of `key` is stored without gaps (tests, diagnostics).
+    public func syncedRange(_ key: String) async -> ConversationHistoryRange? {
+        try? await run(scope) { try $0.syncedRange(key) }
+    }
+
+    /// How many messages of `key` are stored (tests, diagnostics).
+    public func storedCount(_ key: String) async -> Int {
+        (try? await run(scope) { try $0.count(key) }) ?? 0
+    }
+
+    // MARK: Writes
+
+    /// Keeps the store's transcript for `key`: the newest `limit` in memory now, and every
+    /// acknowledged message that changed since the last save on disk, on the queue. Sends not yet
+    /// acknowledged, Send Later rows and image bytes are not kept (the outbox owns unsent
+    /// messages). `deleted`: rows deleted for me, which leave the disk for good. `reachedStart`:
+    /// the store holds the conversation's first message, so its history is stored whole.
+    @MainActor public func save(_ key: String, info: ConversationInfo?, meID: String?, messages: [ConversationMessage],
+                                deleted: Set<String> = [], reachedStart: Bool = false) {
         let snapshot = Self.snapshot(info: info, meID: meID, messages: messages, limit: limit)
-        guard memory[key] != snapshot else { return }
-        memory[key] = snapshot
-        let waiting = pending.withLock { pending in
-            defer { pending[key] = snapshot }
-            return pending[key] != nil
-        }
-        guard !waiting else { return }
-        queue.asyncAfter(deadline: .now() + writeDelay) { [self] in write(key) }
-    }
-
-    /// Writes the newest snapshot waiting for `key`, if any (on the queue).
-    private func write(_ key: String) {
-        guard let snapshot = pending.withLock({ $0.removeValue(forKey: key) }),
-              let data = try? JSONEncoder().encode(snapshot) else { return }
-        var directory = directory
-        if !FileManager.default.fileExists(atPath: directory.path(percentEncoded: false)) {
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            // Kept messages are a copy of the server's: not in device backups.
-            var values = URLResourceValues()
-            values.isExcludedFromBackup = true
-            try? directory.setResourceValues(values)
-        }
-        let written = file(for: key)
-        guard (try? data.write(to: written, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil else { return }
-        Self.trim(directory, to: byteLimit, keeping: written)
-    }
-
-    /// Deletes the files of `directory` written longest ago until the rest fit in `byteLimit`
-    /// bytes, never `keeping` (the file just written). Runs on the caller's queue (a cache's
-    /// utility queue, never the main thread). Other on-disk caches with a total limit share it.
-    public static func trim(_ directory: URL, to byteLimit: Int, keeping: URL?) {
-        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
-        guard let urls = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys),
-                                                                       options: [.skipsHiddenFiles]) else { return }
-        let kept = keeping?.standardizedFileURL.path(percentEncoded: false)
-        var total = 0
-        var candidates: [(url: URL, size: Int, date: Date)] = []
-        for url in urls {
-            guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true else { continue }
-            let size = values.fileSize ?? 0
-            total += size
-            if url.standardizedFileURL.path(percentEncoded: false) != kept {
-                candidates.append((url, size, values.contentModificationDate ?? .distantPast))
+        var before = written[key] ?? [:]
+        var changed: [String: ConversationMessage] = [:]
+        var low = Int.max, high = Int.min
+        for message in messages where message.seq != nil && !message.isScheduled {
+            let stored = ConversationHistoryDatabase.stored(message)
+            if let seq = stored.seq { low = min(low, seq); high = max(high, seq) }
+            if before[stored.id] != stored {
+                before[stored.id] = stored
+                changed[stored.id] = stored
             }
         }
-        guard total > byteLimit else { return }
-        for candidate in candidates.sorted(by: { $0.date < $1.date }) {
-            guard total > byteLimit else { break }
-            if (try? FileManager.default.removeItem(at: candidate.url)) != nil { total -= candidate.size }
+        let newlyDeleted = deleted.subtracting(deletedWritten[key] ?? [])
+        for id in newlyDeleted { before[id] = nil }
+        deletedWritten[key, default: []].formUnion(newlyDeleted)
+        let infoChanged = memory[key]?.info != info || memory[key]?.meID != meID
+        written[key] = before
+        memory[key] = snapshot
+        guard !changed.isEmpty || !newlyDeleted.isEmpty || infoChanged || reachedStart else { return }
+        let account = scope.account
+        let slot = "\(account ?? "")\u{1F}\(key)"
+        let window = low <= high ? low...high : nil
+        let waiting = pending.withLock { pending in
+            let waiting = pending[slot] != nil
+            var write = pending[slot] ?? PendingWrite(account: account, key: key)
+            write.info = info
+            write.meID = meID
+            write.changed.merge(changed) { $1 }
+            for id in newlyDeleted { write.changed[id] = nil }
+            write.deleted.formUnion(newlyDeleted)
+            write.window = window
+            write.reachedStart = reachedStart
+            pending[slot] = write
+            return waiting
         }
+        guard !waiting else { return }
+        queue.asyncAfter(deadline: .now() + writeDelay) { [self] in write(slot) }
     }
 
-    /// Sign-out: every kept conversation leaves this device. Writes not yet made are dropped
-    /// now; the files go on the queue, after any write already running.
+    /// Writes what waits under `slot`, if anything (on the queue).
+    private func write(_ slot: String) {
+        guard let write = pending.withLock({ $0.removeValue(forKey: slot) }),
+              let db = try? database(for: write.account) else { return }
+        // The store's window has no gap: it widens the synced range it overlaps (or starts one).
+        var range: ConversationHistoryDatabase.SyncedRange?? = nil
+        if let window = write.window {
+            let current = try? db.syncedRange(write.key)
+            if let current, window.lowerBound <= current.newestSeq + 1, window.upperBound >= current.oldestSeq {
+                let oldest = min(current.oldestSeq, window.lowerBound)
+                range = .some(.init(oldestSeq: oldest, newestSeq: max(current.newestSeq, window.upperBound),
+                                    complete: current.complete || (write.reachedStart && oldest == window.lowerBound)))
+            } else if current == nil {
+                range = .some(.init(oldestSeq: window.lowerBound, newestSeq: window.upperBound, complete: write.reachedStart))
+            }
+        }
+        try? db.write(write.key, messages: Array(write.changed.values), info: .some(write.info), meID: .some(write.meID),
+                      range: range, deleting: write.deleted)
+    }
+
+    /// Sign-out: every kept conversation of every account leaves this device. Writes not yet
+    /// made are dropped now; the files go on the queue, after any write already running.
     @MainActor public func removeAll() {
         memory = [:]
-        generation += 1
+        written = [:]
+        deletedWritten = [:]
+        scopeLock.withLock { $0.generation += 1 }
         pending.withLock { $0 = [:] }
-        let directory = directory
-        queue.async { try? FileManager.default.removeItem(at: directory) }
+        queue.async { [self] in
+            database = nil
+            databaseAccount = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
     }
 
     /// Makes every waiting write now and returns once the queue is done (tests, never main-thread code).
     public func flush() {
         queue.sync {
-            for key in pending.withLock({ Array($0.keys) }) { write(key) }
+            for slot in pending.withLock({ Array($0.keys) }) { write(slot) }
         }
+    }
+
+    // MARK: Queue
+
+    /// Runs `body` on the queue against `scope`'s database; throws `CancellationError` when the
+    /// account changed or signed out since `scope` was read.
+    func run<T: Sendable>(_ scope: Scope, _ body: @escaping @Sendable (ConversationHistoryDatabase) throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { [self] in
+                guard self.scope == scope else { return continuation.resume(throwing: CancellationError()) }
+                continuation.resume(with: Result { try body(try database(for: scope.account)) })
+            }
+        }
+    }
+
+    /// The database of `account`, opened (created) on first use. Queue only.
+    private func database(for account: String?) throws -> ConversationHistoryDatabase {
+        if let database, databaseAccount == .some(account) { return database }
+        var folder = directory
+        if !FileManager.default.fileExists(atPath: folder.path(percentEncoded: false)) {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                    attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+            // Kept messages are a copy of the server's: not in device backups.
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? folder.setResourceValues(values)
+        }
+        database = nil
+        let opened = try ConversationHistoryDatabase(url: directory.appending(path: Self.fileName(account: account)))
+        database = opened
+        databaseAccount = .some(account)
+        return opened
+    }
+
+    /// One file per account, named by a hash so no account id is on disk in clear.
+    static func fileName(account: String?) -> String {
+        guard let account else { return "history-signed-out.sqlite" }
+        let digest = SHA256.hash(data: Data(account.utf8)).map { String(format: "%02x", $0) }.joined()
+        return "history-\(digest.prefix(32)).sqlite"
     }
 
     nonisolated static func snapshot(info: ConversationInfo?, meID: String?, messages: [ConversationMessage], limit: Int) -> ConversationTranscriptSnapshot {
         // From the end: a long transcript (older pages loaded) is not walked whole.
-        let kept = messages.lazy.filter { $0.seq != nil && !$0.isScheduled }.suffix(limit).map { message -> ConversationMessage in
-            var message = message
-            for index in message.attachments.indices { message.attachments[index].localData = nil }
-            return message
-        }
+        let kept = messages.lazy.filter { $0.seq != nil && !$0.isScheduled }.suffix(limit).map(ConversationHistoryDatabase.stored)
         return ConversationTranscriptSnapshot(info: info, meID: meID, messages: Array(kept))
-    }
-
-    private func file(for key: String) -> URL {
-        directory.appending(path: "\(Self.fileName(for: key)).json")
-    }
-
-    /// The file name for `key`, one per key: ASCII letters, digits and `-` as they are, every other
-    /// UTF-8 byte as `_` and two hex digits (`mac:m1` is `mac_3Am1`). Mapping each of them to `_`
-    /// gave `mac:a.b`, `mac:a/b` and `mac_a_b` one file, so one conversation showed another's kept
-    /// messages. An empty key is `_`, which no escape is; a name past 200 bytes keeps its first 180
-    /// and ends with `~` and a 64-bit FNV-1a hash of the whole key (`~` is never in an escaped name).
-    nonisolated static func fileName(for key: String) -> String {
-        let digits = Array("0123456789ABCDEF".unicodeScalars)
-        var name = String.UnicodeScalarView()
-        for byte in key.utf8 {
-            switch byte {
-            case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "A")...UInt8(ascii: "Z"),
-                 UInt8(ascii: "0")...UInt8(ascii: "9"), UInt8(ascii: "-"):
-                name.append(Unicode.Scalar(byte))
-            default:
-                name.append("_")
-                name.append(digits[Int(byte >> 4)])
-                name.append(digits[Int(byte & 0x0F)])
-            }
-        }
-        if name.isEmpty { return "_" }
-        guard name.count > 200 else { return String(name) }
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in key.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3
-        }
-        let hex = String(hash, radix: 16)
-        return String(String(name).prefix(180)) + "~" + String(repeating: "0", count: 16 - hex.count) + hex
     }
 }

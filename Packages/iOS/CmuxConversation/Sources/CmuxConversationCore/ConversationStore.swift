@@ -186,6 +186,11 @@ public final class ConversationStore {
     /// Back to no rows from the server: only sends not yet acknowledged stay.
     private func dropKeptRows() {
         isShowingKeptTranscript = false
+        // A page of the device's history asked for under those rows is not theirs any more.
+        olderGeneration += 1
+        olderTask?.cancel()
+        olderTask = nil
+        if !hasLoadedNewest { older = .idle }
         messages.removeAll { $0.seq != nil }
         sortAndReindex()
         notify(.reset)
@@ -205,7 +210,8 @@ public final class ConversationStore {
     /// Keeps the newest messages now (also called when the app leaves the foreground).
     public func saveTranscript() {
         guard let transcriptCache, let transcriptCacheKey, hasLoadedNewest else { return }
-        transcriptCache.save(transcriptCacheKey, info: info, meID: meID, messages: messages)
+        transcriptCache.save(transcriptCacheKey, info: info, meID: meID, messages: messages,
+                             deleted: deletedMessageIDs, reachedStart: older == .exhausted)
     }
 
     /// Runs `body`, a change to `messages` that leaves every message before
@@ -876,6 +882,9 @@ public final class ConversationStore {
     /// every scroll tick; it coalesces and retries with backoff on failure.
     public func loadOlder() {
         olderWanted = true
+        // No server page yet (no network, or still connecting) but kept rows on screen: the
+        // reader scrolls the history stored on this device.
+        if !hasLoadedNewest, isShowingKeptTranscript { return loadOlderKept() }
         guard hasLoadedNewest else { return }
         switch older {
         case .loading, .retrying, .exhausted: return
@@ -889,7 +898,15 @@ public final class ConversationStore {
         older = .loading
         notify(.older)
         let generation = olderGeneration
+        let cache = transcriptCache, cacheKey = transcriptCacheKey
         olderTask = Task { [weak self] in
+            // The device's history first, where it is stored without a gap below this row.
+            if let cache, let cacheKey,
+               let page = await cache.older(cacheKey, beforeSeq: oldestSeq, limit: self?.pageSize ?? Self.defaultPageSize, requireSynced: true) {
+                guard let self, self.olderGeneration == generation else { return }
+                self.applyOlder(page, expectedOldest: oldestSeq)
+                return
+            }
             var attempt = 0
             while !Task.isCancelled {
                 guard let self else { return }
@@ -912,6 +929,27 @@ public final class ConversationStore {
                     }
                 }
             }
+        }
+    }
+
+    /// Pages the kept rows shown before the server's newest page from the device's history.
+    /// When that page lands it replaces them (`applyNewest`'s first load), and the pager
+    /// belongs to the server again.
+    private func loadOlderKept() {
+        switch older {
+        case .loading, .retrying, .exhausted: return
+        case .idle: break
+        }
+        guard let cache = transcriptCache, let key = transcriptCacheKey,
+              let oldestSeq = messages.first(where: { $0.seq != nil })?.seq else { return }
+        older = .loading
+        notify(.older)
+        let generation = olderGeneration
+        olderTask = Task { [weak self] in
+            let page = await cache.older(key, beforeSeq: oldestSeq, limit: self?.pageSize ?? Self.defaultPageSize, requireSynced: false)
+            guard let self, self.olderGeneration == generation, !self.hasLoadedNewest, self.isShowingKeptTranscript,
+                  self.transcriptCache === cache, self.transcriptCacheKey == key else { return }
+            self.applyOlder(page ?? ConversationHistoryPage(messages: [], hasMore: false), expectedOldest: oldestSeq)
         }
     }
 

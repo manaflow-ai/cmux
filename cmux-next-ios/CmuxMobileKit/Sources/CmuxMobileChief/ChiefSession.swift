@@ -192,9 +192,11 @@ public final class ChiefSession {
         return nil
     }
 
-    /// Every Chief conversation's newest messages, kept on this phone (Messages-style): a
-    /// store built again after the app comes back, or on a relaunch, shows them at once.
-    public static let transcripts = ConversationTranscriptCache.inApplicationSupport("cmux-mobile-chief-transcripts")
+    /// Every Chief conversation's history, kept on this phone in SQLite per account (CMUX-24): a
+    /// store built again after the app comes back, or on a relaunch, shows the newest messages at
+    /// once, and with no network the reader scrolls the whole synced history.
+    public static let transcripts = ConversationTranscriptCache.inApplicationSupport(
+        "cmux-mobile-chief-history", replacing: ["cmux-mobile-chief-transcripts"])
     private let transcripts: ConversationTranscriptCache?
     /// The kept transcript's key when the session names it (a conversation of a Mac's Home list,
     /// which is not that Mac's Chief): nil keys it by ``outboxTarget``.
@@ -256,6 +258,39 @@ public final class ChiefSession {
         store.useTranscriptCache(transcripts, key: transcriptKey)
         refreshOutbox()
         attach()
+        syncHistory()
+    }
+
+    /// Reads this Chief's whole history into the phone (``ChiefHistorySync``), while signed in
+    /// and talking to the Mac's Chief or a Cloud Chief: offline and DEBUG mock backends have no
+    /// history of their own, and a Mac-away replica holds only the newest messages.
+    public func syncHistory() {
+        guard let historySync, let transcripts, let key = outboxTarget else { return }
+        let backend = backend
+        let pageSize: Int
+        switch backend {
+        case is ChiefCloudBackend: pageSize = 200
+        case is ChiefDaemonBackend: pageSize = ConversationStore.macPageSize
+        default: return
+        }
+        historySync.sync(key, cache: transcripts, pageSize: pageSize) { before, limit in
+            try await backend.history(beforeSeq: before, limit: limit)
+        }
+    }
+
+    /// Syncs this account's Chief histories (set by ``ChiefSources`` while signed in).
+    @ObservationIgnored var historySync: ChiefHistorySync?
+
+    /// The phone's Chief history (``transcripts``), for ``ChiefSources``' other Cloud Chiefs.
+    var transcriptCache: ConversationTranscriptCache? { transcripts }
+
+    /// The account whose kept history this Chief reads and writes from now on (nil: signed
+    /// out). The previous account's rows on screen go at once; the new account's show.
+    func useTranscriptAccount(_ account: String?) {
+        guard let transcripts, transcripts.account != account else { return }
+        transcripts.activate(account: account)
+        store.discardKeptTranscript()
+        store.useTranscriptCache(transcripts, key: transcriptKey)
     }
 
     /// The Chief `backend` talks to (``outboxTarget``). An offline backend
