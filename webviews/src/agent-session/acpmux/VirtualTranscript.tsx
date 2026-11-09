@@ -117,6 +117,15 @@ import {
   type FoldAnchor,
 } from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
+import {
+  captureTurnEnd,
+  endsTurn,
+  playTurnEnd,
+  settleTurnEnd,
+  TURN_END_ATTR,
+  type TurnEndCapture,
+  type TurnEndFold,
+} from "./conversation/turnEndFold";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { isEditRow } from "./turnChanges/sessionRows";
@@ -1408,6 +1417,20 @@ function TranscriptView({
   /// Until when (performance.now) the turn that just ended still draws its reply: the reveal drains
   /// what had arrived within StreamReveal.finishMs of the end, and those lines ride the chase.
   const chaseDrainUntil = useRef(Number.NEGATIVE_INFINITY);
+  /// The reply's drawn height while the turn's end folds and its last lines reveal (`chaseDrainUntil`).
+  const drainReply = useRef<{ id: string; height: number } | undefined>(undefined);
+  /// The turn's reply, its last assistant row near the end, and its drawn height. O(1): a few rows
+  /// from the end and one element's height.
+  const replyHeight = (shown: readonly AcpmuxRow[]) => {
+    for (let index = shown.length - 1; index >= Math.max(0, shown.length - 6); index -= 1) {
+      const row = shown[index]!;
+      if (row.kind !== "assistant") continue;
+      const name = typeof CSS === "undefined" ? row.id.replace(/["\\]/g, "\\$&") : CSS.escape(row.id);
+      const node = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
+      return node ? { id: row.id, height: node.offsetHeight } : undefined;
+    }
+    return undefined;
+  };
   /// Ends the follow motion in flight where the rows lay out, and forgets where they were.
   const stopFollowMotion = useCallback(() => {
     followGlide.current?.stop();
@@ -1437,7 +1460,10 @@ function TranscriptView({
     // Followed again after the reader's input held it: it goes on home from where it is drawn.
     chase.resume();
     chase.fit(below);
-    if (before && now !== undefined && !moveAtOnce) chase.shift(thread.current, now - before.top, below, held);
+    // A turn's end folding moves the rows itself (turnEndFold.ts): their motion is no move to chase.
+    const turnEnding = thread.current?.hasAttribute(TURN_END_ATTR) === true;
+    if (before && now !== undefined && !moveAtOnce && !turnEnding)
+      chase.shift(thread.current, now - before.top, below, held);
     const first = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0).first;
     const id = shown[Math.min(first, shown.length - 1)]?.id;
     const top = id === undefined ? undefined : rowTop(id);
@@ -1742,7 +1768,12 @@ function TranscriptView({
   const rowWidthRef = useRef(scaledRowWidth);
   rowWidthRef.current = scaledRowWidth;
   const rowsRef = useRef(rows);
+  /// The rows the render before this one drew, and its chat, for a turn's end (turnEndFold.ts).
+  const rowsBefore = rowsRef.current;
   rowsRef.current = rows;
+  const sessionBefore = useRef(sessionId);
+  const sameChat = sessionBefore.current === sessionId;
+  sessionBefore.current = sessionId;
   // Keyboard focus is a roving tab stop. A range is kept as stable row ids rather than DOM nodes
   // because the transcript virtualizes rows and can unmount either end while the reader moves.
   const [activeRowId, setActiveRowId] = useState(rows[0]?.id);
@@ -2234,6 +2265,16 @@ function TranscriptView({
     flushSync(roomTaken);
   }, []);
   const thread = useRef<HTMLDivElement>(null);
+  /// A turn's end folds its work in one motion (turnEndFold.ts): the rows drawn when it ended are
+  /// read here, in the render that ends it, before its rows replace them; the fold plays once they
+  /// are placed (the layout effect after the placement pass). It reads in render because the
+  /// commit replaces those rows: by any effect they are gone. Only within one chat: another chat
+  /// shown in their place is a switch, which draws whole on its first frame, never a fold.
+  const turnEndCapture = useRef<TurnEndCapture | undefined>(undefined);
+  const turnEnd = useRef<TurnEndFold | undefined>(undefined);
+  if (sameChat && endsTurn(rowsBefore, rows))
+    turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId);
+  else if (!sameChat) turnEndCapture.current = undefined;
   // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
   // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
   // padding. Read when it comes and as the view resizes, never per streamed token.
@@ -3238,6 +3279,10 @@ function TranscriptView({
           stopFollowMotion();
         }
         const resizing = now - resizedAt.current < MOTION_MS.standard;
+        // The turn ending folds its work in one motion (turnEndFold.ts) from the rows as they were
+        // drawn: it moves the rows on its own frames, so nothing chases or glides with it (a chase
+        // that drew the thread back by the swap, then by the fold's own steps, moved the rows twice).
+        const turnEnding = turnEndCapture.current !== undefined || Boolean(thread.current?.hasAttribute(TURN_END_ATTR));
         // Every arm but `eased`: whatever moved the rows in view in this pass (a line, rows that came,
         // the composer's room) is one move of one chase (followChase.ts). A disclosure's fold and
         // the bottom stack's fold move the thread on their own frames, and Jump to latest rides on
@@ -3262,9 +3307,46 @@ function TranscriptView({
           // chase, so the turn ending never moves the rows by them at once (send-stream-motion).
           const draining = now < chaseDrainUntil.current;
           const live = (working || sendWindow || draining) && chaseOpenTail.current === undefined;
-          const riding = jumping || bottomStacking || heightFoldPlaying();
-          if (riding || resizing) {
+          const riding = jumping || bottomStacking || heightFoldPlaying() || turnEnding;
+          // The fold playing on after the pass that ended the turn: it moves the rows on its frames,
+          // and the chase that took the reply's last lines lands on its own (a stop there moved what
+          // it still held back at once).
+          const foldRiding =
+            turnEnding && turnEndCapture.current === undefined && !jumping && !bottomStacking && !heightFoldPlaying();
+          const folding = Boolean(thread.current?.hasAttribute(TURN_END_ATTR));
+          if (folding && draining && !jumping && !bottomStacking && !heightFoldPlaying() && !resizing) {
+            // The fold plays and the reply's last lines still reveal: the fold takes every move but
+            // theirs (it takes a late one only from its curve's remaining share, which moved the rest
+            // at once, 12 to 18 px in a frame), and the chase takes the reply's growth, drawn back by
+            // it and landing at no more than a line a frame. The fold reads the rows over the thread
+            // drawn back, so it sees only the rest.
+            const reply = replyHeight(rows);
+            const grew = reply && drainReply.current?.id === reply.id ? reply.height - drainReply.current.height : 0;
+            drainReply.current = reply;
+            chaseAnchor.current = undefined;
+            const chase = followChase.current;
+            if (chase && grew > 0.5) {
+              chase.resume();
+              // After Jump to latest the reply's lines keep to the room (chaseHeld), as they do
+              // while the turn runs: an unbounded draw-back drew the folded line under the card.
+              const held = chaseHeld.current;
+              chase.shift(thread.current, -grew, held ? room : Number.POSITIVE_INFINITY, held);
+              chase.land();
+            }
+          } else if (foldRiding && !resizing) {
+            // The fold playing on: nothing noted, and a chase still landing lands on its own.
+            chaseAnchor.current = undefined;
+          } else if (riding || resizing) {
             stopFollowMotion();
+            // The turn's end rides on its fold (turnEndFold.ts), or rests where nothing moved: the
+            // reply's last lines still revealing after it are the turn's all the same, and chase
+            // (send-stream-motion), never move the rows at once. Its height now is where they start.
+            if (turnEnding && lineLeft) chaseDrainUntil.current = now + StreamReveal.finishMs;
+            // Whatever the reply grew by while a ride moved the rows (Jump to latest heads for the
+            // moving end) is the ride's, never the drain's to chase after it: the drain measures
+            // from the rows as this pass leaves them (a jump landing mid-fold drew the reply's
+            // growth over its whole glide back at once, 100 to 200 px under the card).
+            if ((turnEnding && lineLeft) || draining) drainReply.current = replyHeight(rows);
             // A resize settles in this pass: the next pass after it measures from the rows as they
             // lie now (none noted, the first move after an idle resize, a prompt landing, moved at
             // once). A ride, a fold and a jump move the rows on their own frames: nothing noted.
@@ -3315,7 +3397,15 @@ function TranscriptView({
         const sendRows = (sends !== seenSends.current || now < sendRiseUntil.current) && rows.length > oldRows.length;
         if (chasing) {
           // Moved above.
-        } else if (sendRows && !jumping && !bottomStacking && !resizing && !heightFoldPlaying() && rose > 0.5)
+        } else if (
+          sendRows &&
+          !jumping &&
+          !bottomStacking &&
+          !resizing &&
+          !heightFoldPlaying() &&
+          !turnEnding &&
+          rose > 0.5
+        )
           followGlide.current?.sent(thread.current, rose);
         // A disclosure's height fold moves the rows on its own frames: easing them too lagged it.
         else if (
@@ -3323,6 +3413,7 @@ function TranscriptView({
           !bottomStacking &&
           !resizing &&
           !heightFoldPlaying() &&
+          !turnEnding &&
           rose > 0.5 &&
           rows.length === oldRows.length &&
           rows.at(-2)?.id === oldRows.at(-2)?.id
@@ -3442,6 +3533,30 @@ function TranscriptView({
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume]);
+  // The turn that just ended folds from the rows drawn then to the rows placed now (turnEndFold.ts).
+  useLayoutEffect(() => {
+    const capture = turnEndCapture.current;
+    if (!capture) return;
+    turnEndCapture.current = undefined;
+    const host = thread.current;
+    if (!host) return;
+    settleTurnEnd(host, turnEnd.current);
+    // The fold alone moves the rows from where they were drawn. The followed view's motion
+    // (followGlide.ts, followChase.ts) drew the thread back on its own curve and clock under the
+    // fold's rows: the two summed to a reply that rose past its place and dropped back (3 to 13 px,
+    // agent-pane-stream-jitter). Where it drew them is already in the rows' starts. A reader who
+    // took the view keeps the thread where the held chase drew it: nothing of theirs moves.
+    if (followingRef.current) stopFollowMotion();
+    turnEnd.current = playTurnEnd(host, capture, sessionId, ref.current);
+  }, [rows, sessionId, stopFollowMotion]);
+  // Another chat shown, or the transcript unmounting: a fold still playing ends at once.
+  useLayoutEffect(
+    () => () => {
+      settleTurnEnd(thread.current, turnEnd.current);
+      turnEnd.current = undefined;
+    },
+    [sessionId],
+  );
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
   useLayoutEffect(() => {
     foldBase.current = trayBase;
@@ -3497,6 +3612,9 @@ function TranscriptView({
       const shown = rowsRef.current;
       const host = thread.current;
       settleTurnFold(host, turnFold.current, foldGhosts.current);
+      // A turn's end still folding lands first: the reader's own fold starts from the rows drawn.
+      settleTurnEnd(host, turnEnd.current);
+      turnEnd.current = undefined;
       // At the very bottom (`beginBottomStackFold`, from this click) whole rows come or go: the
       // thread slides to their layout, and a body in the row settles at once.
       const stack = bottomStackFold.current;

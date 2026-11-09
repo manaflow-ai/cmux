@@ -215,6 +215,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     count: 1,
     what: "a followed reply eases into each new line",
   },
+  "src/agent-session/acpmux/conversation/turnEndFold.ts": {
+    count: 1,
+    what: "a turn's end folds its work in one motion: the rows that stay slide to their place, copies of the rows it took away fade where they were",
+  },
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/session-info/foldMotion.ts": {
