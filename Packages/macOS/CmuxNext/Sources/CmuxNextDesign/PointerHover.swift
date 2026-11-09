@@ -180,14 +180,25 @@ public final class PointerHover: NSObject {
     /// The top window under the pointer, asked once per refresh pass: every target of the pass reads the
     /// same pointer, and each answer is a synchronous window server round trip (a move in a hover card's
     /// band refreshes the window, `HoverCardPanel+PointerBand`).
-    private static var passTop: (point: NSPoint, number: Int)?
-
     private static func topWindowNumber() -> Int {
         let point = NSEvent.mouseLocation
-        if refreshing, let passTop, passTop.point == point { return passTop.number }
+        if refreshing, let top = index.passTop, top.point == point { return top.number }
         let number = PointerTopWindow.number(at: point)
-        if refreshing { passTop = (point, number) }
+        if refreshing { index.passTop = (point, number) }
         return number
+    }
+
+    /// `follower` hears the pointer move in a clear band over `window` (``PointerBandFollower``) until it
+    /// goes or follows another window.
+    public static func followBand(over window: NSWindow, with follower: any PointerBandFollower) {
+        index.follow(window, with: follower)
+    }
+
+    /// The pointer moved, entered or left a clear band over `window`: its chrome hover and its
+    /// followers recompute (the window hears no pointer event of its own there).
+    static func pointerMovedInBand(over window: NSWindow) {
+        refresh(in: window)
+        for follower in index.followers(of: window) { follower.pointerMovedInBand() }
     }
 
     // MARK: The owner
@@ -214,7 +225,7 @@ public final class PointerHover: NSObject {
         refreshing = true
         defer {
             refreshing = false
-            passTop = nil
+            index.passTop = nil
         }
         var queue = [window]
         // Bounded: a hover that moves its own view away and back must not spin.
@@ -295,6 +306,22 @@ private final class KeyWindowObserver {
 private final class TargetIndex {
     private struct Weak {
         weak var value: PointerHover?
+    }
+
+    /// The top window under the pointer for the refresh pass running now (`PointerHover.topWindowNumber`).
+    var passTop: (point: NSPoint, number: Int)?
+    /// The views of each window whose hover follows the pointer on its own (``PointerBandFollower``). Weak.
+    private let bandFollowers = NSMapTable<NSWindow, NSHashTable<AnyObject>>.weakToStrongObjects()
+
+    func follow(_ window: NSWindow, with follower: any PointerBandFollower) {
+        for case let table as NSHashTable<AnyObject> in bandFollowers.objectEnumerator()?.allObjects ?? [] { table.remove(follower) }
+        let table = bandFollowers.object(forKey: window) ?? NSHashTable<AnyObject>.weakObjects()
+        table.add(follower)
+        bandFollowers.setObject(table, forKey: window)
+    }
+
+    func followers(of window: NSWindow) -> [any PointerBandFollower] {
+        (bandFollowers.object(forKey: window)?.allObjects ?? []).compactMap { $0 as? any PointerBandFollower }
     }
 
     /// The targets of each view (one, now and then two), by the view's identifier.

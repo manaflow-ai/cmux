@@ -61,7 +61,6 @@ final class HoverCardBandRelay: NSObject {
     /// The parent's chrome hover (`PointerHover`) and every other hover of the window that follows the
     /// pointer on its own (the layout's dividers, `PointerBandFollower`).
     private static func refresh(_ parent: NSWindow) {
-        PointerHover.refresh(in: parent)
-        PointerTopWindow.pointerMovedInBand(over: parent)
+        PointerHover.pointerMovedInBand(over: parent)
     }
 }
