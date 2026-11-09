@@ -258,4 +258,19 @@ test("a list keeps only the last few lists it was made from alive", () => {
   expect(replacedSince(lists[last - STEPS - 1], lists[last - STEPS])).toBeUndefined();
   expect(replacedSince(lists[499], lists[500])).toBeUndefined();
   expect(replacedSince(lists[last - STEPS + 1], lists[last - STEPS + 2])).toEqual([(last - STEPS + 1) % 10]);
+test("a session listed twice in place of another, then back, is in the folder input again", () => {
+  const by = new SessionsBy(folderFields);
+  const a = () => counted(1);
+  const b = () => counted(2, { cwd: "/Users/me/code/b" });
+  by.of([b(), a()]);
+  by.of([a(), a()]);
+  const back = [b(), a()];
+  expect(by.of(back)).toBe(back);
+});
+
+test("a sender alias freed by a session listed twice resolves to the session left with it", () => {
+  const store = new SubsessionStore();
+  store.set([counted(1, { name: "old" }), counted(1, { name: "new" }), counted(2, { name: "old" })]);
+  store.set([counted(1, { name: "new" }), counted(1, { name: "new" }), counted(2, { name: "old" })]);
+  expect(store.find("old")).toBe("s2");
 });
