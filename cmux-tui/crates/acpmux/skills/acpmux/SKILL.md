@@ -196,10 +196,10 @@ the person's prompt. What the receiver gets depends on who you are to it:
   the same rule. A cmux workflow it starts (`cmux.cmux_workflow`) runs as it:
   the workflow's commands and its script's sends name it. Its work on another
   machine (an `agent()` or `machine()` with `on: HOST`, a CI machine) still runs
-  as the lead. On a path that names no subagent, a subagent passes `notify: false` and reads the task with
-  `bg_output`. The receiver reads `From another agent (LEAD's TYPE
-  subagent ID)` and ends its turn with its answer; it does not send it to the
-  lead.
+  as the lead. On a path that names no subagent, a subagent passes
+  `notify: false` and reads the task with `bg_output`. The receiver reads
+  `From another agent (LEAD's TYPE subagent ID)` and ends its turn with its
+  answer; it does not send it to the lead.
   `acpmux send LEAD` reaches the lead.
   A Codex subagent is named `LEAD's codex subagent THREAD` (its own
   `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line

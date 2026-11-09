@@ -147,8 +147,10 @@ impl Machine {
             "prompt": [{"type": "text", "text": format!("envs: {names}")}]});
         let (reply, text) = call(3, "session/prompt", prompt);
         assert!(reply.get("error").is_none(), "{reply}");
-        let env: BTreeMap<String, String> =
-            serde_json::from_str(&text).unwrap_or_else(|_| panic!("no environment: {text}"));
+        let env: BTreeMap<String, String> = serde_json::from_str(&text).unwrap_or_else(|_| {
+            // Never the text: it holds the chat's caller token.
+            panic!("no environment ({} bytes of reply)", text.len())
+        });
         let env = env.into_iter().filter(|(_, value)| !value.is_empty()).collect::<Vec<_>>();
         assert!(env.iter().any(|(k, _)| k == "ACPMUX_SESSION_TOKEN"), "no caller token");
         (session, env)
@@ -509,8 +511,10 @@ fn w5s_a_workflow_no_running_subagent_call_starts_runs_as_no_subagent() {
 fn w5s_a_profile_env_gives_an_agent_no_subagent_mark() {
     let machine = Machine::start();
     let (_, env) = machine.agent_chat_of("probe-marked");
+    // Names only, never values: the env holds the chat's caller token.
+    let keys = env.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>();
     assert!(
-        !env.iter().any(|(key, _)| key == "ACPMUX_CALLER_SUBAGENT"),
-        "the agent got a subagent mark from its profile: {env:?}"
+        !keys.contains(&"ACPMUX_CALLER_SUBAGENT"),
+        "the agent got a subagent mark from its profile (its env has {keys:?})"
     );
 }
