@@ -421,11 +421,31 @@ impl Drop for HubServe {
 }
 
 /// Where a peer finds its hub carrier: the daemon's one carrier, set once it starts (peers
-/// start before it, `hub/mod.rs` `build`), and the daemon id the peer's config names.
+/// start before it, `hub/mod.rs` `build`), and whether one is expected at all.
 #[derive(Clone, Default)]
-pub struct HubCarrierSlot(Arc<OnceLock<Arc<HubCarrier>>>);
+pub struct HubCarrierSlot(Arc<OnceLock<Arc<HubCarrier>>>, bool);
 
 impl HubCarrierSlot {
+    /// A slot for a daemon whose startup may run the carrier: one with the joined machine
+    /// credential (`meshRelay.credential: "join"`) whose WireGuard transport holds the key lock
+    /// ([`start_configured`] runs only on that lock).
+    pub fn for_daemon(
+        config: &crate::config::Config,
+        wireguard: Option<&Arc<crate::wireguard::Transport>>,
+    ) -> Self {
+        let joined = config
+            .mesh_relay
+            .as_ref()
+            .is_some_and(|relay| relay.credential.as_deref() == Some("join"));
+        let held = wireguard.is_some_and(|transport| transport.key_holder().is_some());
+        Self(Arc::default(), joined && held)
+    }
+
+    /// Whether the carrier runs or this daemon's startup may start it.
+    pub fn expected(&self) -> bool {
+        self.1 || self.0.get().is_some()
+    }
+
     pub fn set(&self, carrier: Arc<HubCarrier>) -> bool {
         self.0.set(carrier).is_ok()
     }

@@ -17,12 +17,14 @@ impl Peer {
         let _ = self.hub_carrier.set((slot, daemon));
     }
 
-    /// Whether this peer has a hub path: a configured `daemonId`, or a route the running
-    /// carrier was given by name.
+    /// Whether this peer has a hub path: the daemon runs the carrier or may start it (joined,
+    /// with the WireGuard transport's key lock: the carrier never takes the lock itself), and
+    /// the peer names a hub `daemonId` or the running carrier has a route for it.
     pub(crate) fn has_hub_path(&self) -> bool {
         self.hub_carrier.get().is_some_and(|(slot, daemon)| {
-            daemon.is_some()
-                || slot.get().is_some_and(|carrier| carrier.route(&self.name).is_some())
+            slot.expected()
+                && (daemon.is_some()
+                    || slot.get().is_some_and(|carrier| carrier.route(&self.name).is_some()))
         })
     }
 

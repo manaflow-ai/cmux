@@ -159,15 +159,11 @@ impl Hub {
         {
             peer.set_wireguard(transport.clone(), address);
         }
-        // The hub carrier runs only on the key lock the WireGuard transport holds: without the
-        // transport (or a carrier already given), this peer has no hub path.
         #[cfg(feature = "hub-carrier")]
-        if self.wireguard.is_some() || self.hub_carrier.get().is_some() {
-            peer.set_hub_carrier(
-                self.hub_carrier.clone(),
-                pc.wireguard.as_ref().map(|configured| configured.public_key.clone()),
-            );
-        }
+        peer.set_hub_carrier(
+            self.hub_carrier.clone(),
+            pc.wireguard.as_ref().map(|configured| configured.public_key.clone()),
+        );
         // The cmux link's `acpmux` service, when this peer is one of its paired installs.
         if let Some(host) = pc.link_host.clone().or_else(|| {
             pc.wireguard.as_ref().and_then(|wg| crate::peer::paired_install(&wg.public_key))
@@ -2358,6 +2354,25 @@ mod restart_notice_tests {
         let (wireguard, vias, _machine) = link_serving(false, false).start().await;
         let wireguard = wireguard.expect("acpmux's WireGuard stepped down for another key's link");
         assert_eq!(vias, ["wireguard", "url"]);
+        wireguard.shutdown(tokio::time::Instant::now()).await;
+    }
+
+    /// The hub path is listed only where the hub carrier may run: a joined daemon whose
+    /// WireGuard transport holds the key lock (the carrier never takes the lock itself).
+    #[cfg(feature = "hub-carrier")]
+    #[tokio::test]
+    async fn a_joined_daemon_with_the_transports_lock_lists_the_hub_path() {
+        let mut machine = link_serving(false, false);
+        machine.cfg.mesh_relay = Some(crate::mesh_http::MeshRelayConfig {
+            url: "http://127.0.0.1:9".into(),
+            token_command: Vec::new(),
+            team_messaging: true,
+            credential: Some("join".into()),
+            control_from: Vec::new(),
+        });
+        let (wireguard, vias, _machine) = machine.start().await;
+        let wireguard = wireguard.expect("acpmux's WireGuard stepped down for another key's link");
+        assert_eq!(vias, ["wireguard", "url", "hub"]);
         wireguard.shutdown(tokio::time::Instant::now()).await;
     }
 

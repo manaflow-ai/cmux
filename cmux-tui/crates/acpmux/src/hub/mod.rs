@@ -1034,13 +1034,16 @@ impl Hub {
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        #[cfg(feature = "hub-carrier")]
+        let hub_carrier =
+            crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
             wireguard,
             #[cfg(feature = "hub-carrier")]
-            hub_carrier: Default::default(),
+            hub_carrier,
             peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
