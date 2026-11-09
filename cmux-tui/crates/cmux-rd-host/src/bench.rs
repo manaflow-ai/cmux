@@ -641,7 +641,6 @@ pub fn run(opts: &Opts) -> Res<()> {
         } else {
             Vec::new()
         },
-        link_offer: None,
     })?;
     v.io.send_control(&Control::Start {
         key: format!("bench-{pid}-{}", now_ns()),

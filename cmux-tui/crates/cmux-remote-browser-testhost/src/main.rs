@@ -183,7 +183,6 @@ fn session(mut stream: TcpStream, o: Options) -> Res<String> {
             carrier: "stream".into(),
             service: negotiated.service.clone(),
             caps: negotiated.caps.clone(),
-            link: None,
         },
     )?;
     write_control(&mut stream, &Control::Started { session: 1 })?;

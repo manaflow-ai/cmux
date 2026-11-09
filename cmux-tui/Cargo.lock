@@ -35,6 +35,8 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-tailnet",
+ "cmux-transport",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-vault-egress",
  "cmux-wg",
@@ -1282,6 +1284,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-command-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-conductor-import"
 version = "0.1.0"
 dependencies = [
@@ -1708,7 +1714,6 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
- "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",

@@ -886,7 +886,6 @@ fn session(viewer: crate::launch::Admitted) -> std::io::Result<String> {
             carrier: "stream".into(),
             service: negotiated.service,
             caps: negotiated.caps,
-            link: None,
         },
     )?;
     write_rd(&mut stream, &RdControl::Started { session: 1 })?;

@@ -195,7 +195,7 @@ struct CloudAgentChatTests {
 
         /// The chat's pane host as the agent pane gets it, and its handshake.
         func page(_ key: String) async throws -> (machineName: String?, wire: (any AcpmuxPaneWire)?) {
-            let host = try #require(services.agentTabs.remoteHost(key), "the chat has no pane host")
+            let host = try #require(services.agentTabs.host(for: services.agentTabs.tabKey(key, machine: machine.daemon.machineID)), "the chat has no pane host")
             #expect(host is AgentTabRemoteHost, "the chat's host is \(type(of: host)), not the machine's")
             let handshake = try await host.handshake(sessionId: nil)
             return (handshake.machineName, handshake.connection?.remote?.makeWire())

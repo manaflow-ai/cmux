@@ -83,11 +83,11 @@ fn say(line: AppLine) {
     let _ = out.flush();
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn unhex32(text: &str) -> Option<[u8; 32]> {
+pub(crate) fn unhex32(text: &str) -> Option<[u8; 32]> {
     let text = text.trim();
     if text.len() != 64 {
         return None;
@@ -384,7 +384,6 @@ fn serve_session(
         carrier: "link".into(),
         service: negotiated.service.clone(),
         caps: negotiated.caps.clone(),
-        link: None,
     })?;
     carrier.send_control(&Control::Started { session })?;
     let reason = media.run(carrier, &mut table, session, &principal);

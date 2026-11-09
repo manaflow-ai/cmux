@@ -535,7 +535,6 @@ pub async fn host_session(
             carrier: "stream".into(),
             service: SERVICE_REMOTE_BROWSER.into(),
             caps: input_caps,
-            link: None,
         },
         &mut out,
     );

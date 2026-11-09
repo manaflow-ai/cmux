@@ -12,13 +12,22 @@ use std::time::Duration;
 
 use cmux_remote::admin::{AdminRequest, LinkStatus, call_admin, serve_link_cell_admin};
 use cmux_remote::connection::{ReconnectPolicy, RedialBudget};
-use cmux_remote::first_dial::{DialOutcome, LinkCell, LinkPhase, NotConnected};
+use cmux_remote::first_dial::{DialOutcome, DialStop, LinkCell, LinkPhase, NotConnected};
 use cmux_remote::network_watch::NetworkWatch;
 use tempfile::TempDir;
 use tokio::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Refused(&'static str);
+
+impl From<DialStop> for Refused {
+    fn from(stop: DialStop) -> Self {
+        match stop {
+            DialStop::NetworkChanged => Refused("network changed"),
+            DialStop::DeadlineExceeded { .. } => Refused("deadline"),
+        }
+    }
+}
 
 impl fmt::Display for Refused {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -259,4 +268,146 @@ async fn the_link_socket_answers_before_the_first_connect() {
     let status = link_call(&path, AdminRequest::LinkState).await;
     assert_eq!(status, LinkStatus { state: "closed".into(), reason: None });
     drop(server);
+}
+
+/// A first dial whose every attempt hangs until the network changes, counting attempts.
+fn spawn_hung_dial(
+    cell: &Arc<LinkCell>,
+    policy: ReconnectPolicy,
+    watch: &NetworkWatch,
+) -> (Arc<AtomicUsize>, tokio::task::JoinHandle<Result<(), Refused>>) {
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let counted = attempts.clone();
+    let cell = cell.clone();
+    let network = watch.subscribe();
+    let task = tokio::spawn(async move {
+        cell.dial(policy, network, || {
+            counted.fetch_add(1, Ordering::AcqRel);
+            std::future::pending::<DialOutcome<(), Refused>>()
+        })
+        .await
+    });
+    (attempts, task)
+}
+
+/// A network that keeps flapping cannot outlast an attempt bound: an attempt a network change
+/// abandons counts toward it (#38972 F1). Each change still redials at once.
+#[tokio::test(start_paused = true)]
+async fn network_flapping_cannot_outlast_a_bounded_first_dial() {
+    let cell = LinkCell::new();
+    let watch = NetworkWatch::manual();
+    let (attempts, task) =
+        spawn_hung_dial(&cell, ReconnectPolicy { maximum_attempts: Some(3), ..policy() }, &watch);
+    for change in 1..=10 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        if task.is_finished() {
+            break;
+        }
+        watch.signal();
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        if change < 3 {
+            assert_eq!(attempts.load(Ordering::Acquire), change + 1, "no immediate redial");
+        }
+    }
+    assert!(
+        task.is_finished(),
+        "{} attempts and the bound of 3 never ended the dial",
+        attempts.load(Ordering::Acquire)
+    );
+    assert_eq!(task.await.unwrap(), Err(Refused("network changed")));
+    assert_eq!(attempts.load(Ordering::Acquire), 3);
+    assert!(matches!(cell.phase(), LinkPhase::Failed { .. }), "{:?}", cell.phase());
+}
+
+/// `maximum_duration` bounds the whole first dial, failing attempts and parks included
+/// (#38972 F2).
+#[tokio::test(start_paused = true)]
+async fn the_first_dial_ends_at_its_maximum_duration() {
+    let cell = LinkCell::new();
+    let watch = NetworkWatch::manual();
+    let (_attempts, task) = spawn_dial(
+        &cell,
+        ReconnectPolicy { maximum_duration: Some(Duration::from_secs(10)), ..policy() },
+        &watch,
+        false,
+    );
+    tokio::time::sleep(Duration::from_secs(11)).await;
+    assert!(task.is_finished(), "the dial outlived its maximum duration");
+    assert_eq!(task.await.unwrap(), Err(Refused("deadline")));
+    assert!(matches!(cell.phase(), LinkPhase::Failed { .. }), "{:?}", cell.phase());
+}
+
+/// An attempt still in flight when `maximum_duration` passes is dropped then, not at its own
+/// timeout (#38972 F2).
+#[tokio::test(start_paused = true)]
+async fn a_hung_first_dial_ends_at_its_maximum_duration() {
+    let cell = LinkCell::new();
+    let watch = NetworkWatch::manual();
+    let started = Instant::now();
+    let (attempts, task) = spawn_hung_dial(
+        &cell,
+        ReconnectPolicy { maximum_duration: Some(Duration::from_secs(5)), ..policy() },
+        &watch,
+    );
+    let result = tokio::time::timeout(Duration::from_secs(60), task)
+        .await
+        .expect("a hung attempt outlived the maximum duration")
+        .unwrap();
+    assert_eq!(result, Err(Refused("deadline")));
+    assert_eq!(started.elapsed(), Duration::from_secs(5));
+    assert_eq!(attempts.load(Ordering::Acquire), 1);
+}
+
+/// An attempt that completes at the very instant `maximum_duration` passes loses: the deadline
+/// wins, as `ClientConnection`'s deadline does, so nothing goes on past it (#38983 F1).
+#[tokio::test(start_paused = true)]
+async fn an_attempt_ready_at_the_deadline_loses() {
+    let cell = LinkCell::new();
+    let watch = NetworkWatch::manual();
+    let result = cell
+        .dial(
+            ReconnectPolicy { maximum_duration: Some(Duration::from_secs(1)), ..policy() },
+            watch.subscribe(),
+            || async {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                DialOutcome::<(), Refused>::Ready(())
+            },
+        )
+        .await;
+    assert_eq!(result, Err(Refused("deadline")));
+    assert!(matches!(cell.phase(), LinkPhase::Failed { .. }), "{:?}", cell.phase());
+}
+
+/// A budget token that arrives at the deadline starts no attempt (#38983 F1). Both wake at the
+/// same instant; run it many times so a select that picks either at random fails.
+#[tokio::test(start_paused = true)]
+async fn a_token_at_the_deadline_starts_no_attempt() {
+    for _ in 0..32 {
+        let cell = LinkCell::new();
+        let watch = NetworkWatch::manual();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counted = attempts.clone();
+        let result = cell
+            .dial(
+                ReconnectPolicy {
+                    initial_delay: Duration::from_millis(1),
+                    maximum_delay: Duration::from_millis(1),
+                    attempts_per_recovery: 1_000,
+                    maximum_duration: Some(Duration::from_secs(10)),
+                    redial_budget: RedialBudget {
+                        capacity: 1,
+                        refill_interval: Duration::from_secs(10),
+                    },
+                    ..policy()
+                },
+                watch.subscribe(),
+                || {
+                    counted.fetch_add(1, Ordering::AcqRel);
+                    async { DialOutcome::<(), _>::Retry(Refused("nothing listens")) }
+                },
+            )
+            .await;
+        assert_eq!(result, Err(Refused("deadline")));
+        assert_eq!(attempts.load(Ordering::Acquire), 1, "an attempt started at the deadline");
+    }
 }

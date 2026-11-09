@@ -4,44 +4,41 @@
 //! inside the carrier's authenticated Noise session (`cmux carrier dial
 //! --service desktop` on the viewer's side, the systemd socket on the host's).
 //! Every hop of that stream is TCP, so one lost packet stalls every datagram
-//! behind it for a retransmission timeout. This module adds a second path for
+//! behind it for a retransmission timeout. This module is a second path for
 //! the datagrams only: a cmux-rd-link secure link (Noise_XX over one UDP
 //! socket, sealed packets, a replay window) negotiated inside the stream.
 //!
-//! - The viewer's `hello` carries a [`LinkOffer`]: a fresh id (the Noise
-//!   prologue), its link key and the STUN servers the platform named. The
-//!   host answers in `welcome` with a [`LinkAnswer`]: its key and its routes.
-//!   More routes follow as `link_candidate` controls, both ways, and only
-//!   after a welcome with `link`, so a host that never answered never sees one.
-//! - The stream vouches for both keys, so each side accepts only the other's.
-//!   Nothing listens: the host's socket is an ephemeral one that only the
+//! The protocol is the host's (`cmux-rd-host` `hybrid.rs`, cap `link.udp`):
+//! after a `welcome` that lists `link.udp`, the viewer sends `link_offer` (a
+//! fresh session id, the Noise prologue, and its link key) and the host
+//! answers `link_answer` with its key. Routes cross as `link_candidate`
+//! controls both ways. This module is the link; the controls are the caller's.
+//!
+//! - The stream vouches for both keys, so each side takes only the other's.
+//!   Nothing listens: each side's socket is an ephemeral one that only the
 //!   link's own packets reach, and a packet without the expected key's
 //!   handshake is dropped.
-//! - Control stays on the stream. A side sends datagrams on the link while
-//!   the link is established and a path answers, and on the stream otherwise,
-//!   and takes datagrams from both. The rd datagram layer already tolerates
-//!   loss and reordering (FEC, NACK, sequence numbers), so a switch either way
-//!   needs no coordination. A link that fails ends; the session goes on on the
+//! - Control stays on the stream. A side sends datagrams on the link while the
+//!   link is established and a path answers, and on the stream otherwise, and
+//!   takes datagrams from both. The rd datagram layer already tolerates loss
+//!   and reordering (FEC, NACK, sequence numbers), so a switch either way needs
+//!   no coordination. A link that fails ends; the session goes on on the
 //!   stream, as it does today.
-//!
-//! Version skew: an older host ignores `link_offer` (an unknown field) and
-//! answers a welcome without `link`; an older viewer sends no offer. Either
-//! way every datagram stays on the stream.
 
 use crate::net::{Candidate, Net, NetConfig, NetEvent};
 use crate::{EndpointEvent, Event, KeyPair, Role};
-use cmux_rd_proto::control::{LINK_VERSION, LinkAnswer, LinkOffer};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::os::fd::RawFd;
+use std::sync::mpsc;
 
 /// The largest rd datagram the link carries: one 1280-byte IPv6 minimum MTU
-/// path with headroom for a relay's framing (as `cmux-rd serve`).
+/// path with headroom for a relay's framing (as the host's `LINK_MAX_DATAGRAM`).
 pub const LINK_MAX_DATAGRAM: usize = 1152 - crate::SEAL_OVERHEAD;
-/// Most STUN servers taken from an offer.
+/// Most STUN servers a viewer resolves.
 const MAX_STUN: usize = 4;
 /// Most routes taken from the peer (a session needs a handful).
 const MAX_REMOTE_CANDIDATES: usize = 32;
-/// Longest STUN server name accepted.
+/// Longest STUN server name resolved.
 const MAX_STUN_NAME: usize = 255;
 
 /// Something the link produced for its owner.
@@ -90,7 +87,7 @@ fn unhex<const N: usize>(text: &str) -> Option<[u8; N]> {
     Some(out)
 }
 
-/// The STUN servers of an offer that resolve to IPv4 (the link's socket is IPv4).
+/// The STUN servers that resolve to IPv4 (the link's socket is IPv4).
 fn stun_servers(names: &[String]) -> Vec<SocketAddr> {
     names
         .iter()
@@ -100,49 +97,61 @@ fn stun_servers(names: &[String]) -> Vec<SocketAddr> {
         .collect()
 }
 
-/// A viewer's offer before the link starts: its keys and the offer to send.
+/// A viewer's side before the link starts: its keys and session id.
 pub struct ViewerOffer {
     keys: KeyPair,
-    id: [u8; 16],
-    stun: Vec<String>,
-    pub offer: LinkOffer,
+    session: String,
+    /// The STUN servers, resolved on their own thread so a slow resolver never
+    /// holds the stream; a link that starts first goes without them.
+    stun: mpsc::Receiver<Vec<SocketAddr>>,
 }
 
 impl ViewerOffer {
-    /// A fresh key and id for one session; `stun` are the platform's servers.
+    /// A fresh key and session id for one session; `stun` are the platform's servers.
     pub fn new(stun: Vec<String>) -> Result<Self, String> {
         let keys = KeyPair::generate().map_err(|e| e.to_string())?;
         let id_seed = KeyPair::generate().map_err(|e| e.to_string())?.public;
-        let mut id = [0u8; 16];
-        id.copy_from_slice(&id_seed[..16]);
-        let offer = LinkOffer {
-            v: LINK_VERSION,
-            id: hex(&id),
-            key: hex(&keys.public),
-            stun: stun.iter().take(MAX_STUN).cloned().collect(),
-        };
-        Ok(Self { keys, id, stun, offer })
+        let session = hex(&id_seed[..16]);
+        let (tx, rx) = mpsc::channel();
+        if stun.is_empty() {
+            let _ = tx.send(Vec::new());
+        } else {
+            std::thread::Builder::new()
+                .name("rd-link-stun".into())
+                .spawn(move || {
+                    let _ = tx.send(stun_servers(&stun));
+                })
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(Self { keys, session, stun: rx })
     }
 
-    /// The host answered: start the viewer's side (it initiates the handshake).
-    pub fn start(self, answer: &LinkAnswer, bind: SocketAddr) -> Result<DatagramLink, String> {
-        let remote = unhex::<32>(&answer.key).ok_or("the host's link key is not 64 hex")?;
+    /// The Noise prologue, for `link_offer`'s `session`.
+    pub fn session(&self) -> &str {
+        &self.session
+    }
+
+    /// This side's link key, 64 hex characters, for `link_offer`'s `key`.
+    pub fn key(&self) -> String {
+        hex(&self.keys.public)
+    }
+
+    /// The host answered (`link_answer`): start the viewer's side, which
+    /// initiates the handshake.
+    pub fn start(self, host_key: &str, bind: SocketAddr) -> Result<DatagramLink, String> {
+        let remote = unhex::<32>(host_key).ok_or("the host's link key is not 64 hex")?;
         let net = Net::start(NetConfig {
             role: Role::Initiator,
-            session: self.id.to_vec(),
+            session: self.session.into_bytes(),
             local: self.keys,
             expected_remote: remote,
-            stun: stun_servers(&self.stun),
+            stun: self.stun.try_recv().unwrap_or_default(),
             bind,
             turn: Vec::new(),
             relay_only: false,
         })
         .map_err(|e| e.to_string())?;
-        let mut link = DatagramLink::running(net);
-        for candidate in &answer.candidates {
-            link.add_remote_candidate(candidate);
-        }
-        Ok(link)
+        Ok(DatagramLink::running(net))
     }
 }
 
@@ -151,39 +160,29 @@ impl DatagramLink {
         Self { net: Some(net), established: false, path: false, remote_candidates: 0, failed: None }
     }
 
-    /// The host's side for a viewer's offer, and the answer for `welcome`.
-    /// `None`: an offer this host does not take (another version, a bad key
-    /// or id); the session keeps every datagram on the stream.
-    pub fn accept(offer: &LinkOffer, bind: SocketAddr) -> Result<(Self, LinkAnswer), String> {
-        if offer.v != LINK_VERSION {
-            return Err(format!("link version {} is not {LINK_VERSION}", offer.v));
-        }
-        let id = unhex::<16>(&offer.id).ok_or("the link id is not 32 hex")?;
-        let remote = unhex::<32>(&offer.key).ok_or("the viewer's link key is not 64 hex")?;
+    /// The answering side of a link (`link_offer`'s `session` and `key`), and
+    /// its own key for `link_answer`. The Cloud host has its own
+    /// (`cmux-rd-host` `hybrid.rs`); this one serves tests and other hosts.
+    pub fn respond(
+        session: &str,
+        peer_key: &str,
+        bind: SocketAddr,
+    ) -> Result<(Self, String), String> {
+        let remote = unhex::<32>(peer_key).ok_or("the peer's link key is not 64 hex")?;
         let keys = KeyPair::generate().map_err(|e| e.to_string())?;
         let key = hex(&keys.public);
         let net = Net::start(NetConfig {
             role: Role::Responder,
-            session: id.to_vec(),
+            session: session.as_bytes().to_vec(),
             local: keys,
             expected_remote: remote,
-            stun: stun_servers(&offer.stun),
+            stun: Vec::new(),
             bind,
             turn: Vec::new(),
             relay_only: false,
         })
         .map_err(|e| e.to_string())?;
-        let mut link = Self::running(net);
-        // The host routes are reported at start; they go in the answer.
-        let mut candidates = Vec::new();
-        let mut early = Vec::new();
-        link.poll(&mut early);
-        for out in early {
-            if let LinkOut::Candidate(c) = out {
-                candidates.push(c);
-            }
-        }
-        Ok((link, LinkAnswer { key, candidates }))
+        Ok((Self::running(net), key))
     }
 
     /// Readable when [`DatagramLink::poll`] may have something; `None` once ended.
@@ -264,7 +263,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     /// Every interface: the host routes are this machine's non-loopback addresses.
-    fn loopback() -> SocketAddr {
+    fn any() -> SocketAddr {
         "0.0.0.0:0".parse().unwrap()
     }
 
@@ -303,8 +302,9 @@ mod tests {
     #[test]
     fn an_offer_and_answer_bring_up_a_link_that_carries_datagrams_both_ways() {
         let offer = ViewerOffer::new(Vec::new()).unwrap();
-        let (mut host, answer) = DatagramLink::accept(&offer.offer, loopback()).unwrap();
-        let mut viewer = offer.start(&answer, loopback()).unwrap();
+        let (mut host, host_key) =
+            DatagramLink::respond(offer.session(), &offer.key(), any()).unwrap();
+        let mut viewer = offer.start(&host_key, any()).unwrap();
         let up = LinkOut::State(LinkState::Up);
         pump(&mut host, &mut viewer, |h, v| h.contains(&up) && v.contains(&up));
         assert!(host.is_up() && viewer.is_up(), "both sides up");
@@ -319,12 +319,12 @@ mod tests {
     }
 
     #[test]
-    fn a_viewer_whose_answer_names_another_key_never_comes_up() {
+    fn a_viewer_given_another_hosts_key_never_comes_up() {
         let offer = ViewerOffer::new(Vec::new()).unwrap();
-        let (mut host, mut answer) = DatagramLink::accept(&offer.offer, loopback()).unwrap();
+        let (mut host, _) = DatagramLink::respond(offer.session(), &offer.key(), any()).unwrap();
         // A key the stream did not vouch for (a different host).
-        answer.key = hex(&KeyPair::generate().unwrap().public);
-        let mut viewer = offer.start(&answer, loopback()).unwrap();
+        let other = hex(&KeyPair::generate().unwrap().public);
+        let mut viewer = offer.start(&other, any()).unwrap();
         let up = LinkOut::State(LinkState::Up);
         let (h, v) = pump(&mut host, &mut viewer, |h, v| h.contains(&up) || v.contains(&up));
         assert!(!h.contains(&up) && !v.contains(&up), "no side came up: {h:?} {v:?}");
@@ -332,21 +332,25 @@ mod tests {
     }
 
     #[test]
-    fn an_offer_of_another_version_or_with_bad_hex_is_not_taken() {
-        let good = ViewerOffer::new(Vec::new()).unwrap().offer;
-        for bad in [
-            LinkOffer { v: LINK_VERSION + 1, ..good.clone() },
-            LinkOffer { id: "zz".into(), ..good.clone() },
-            LinkOffer { key: "00".into(), ..good },
-        ] {
-            assert!(DatagramLink::accept(&bad, loopback()).is_err(), "{bad:?}");
-        }
+    fn a_key_that_is_not_64_hex_is_refused_on_both_sides() {
+        let offer = ViewerOffer::new(Vec::new()).unwrap();
+        assert!(DatagramLink::respond(offer.session(), "zz", any()).is_err());
+        assert!(ViewerOffer::new(Vec::new()).unwrap().start("00", any()).is_err());
+    }
+
+    #[test]
+    fn a_stun_name_that_does_not_resolve_leaves_the_link_without_it() {
+        let offer = ViewerOffer::new(vec!["stun.invalid:3478".into()]).unwrap();
+        let (_host, host_key) =
+            DatagramLink::respond(offer.session(), &offer.key(), any()).unwrap();
+        // Starting never waits for the resolver.
+        assert!(offer.start(&host_key, any()).is_ok());
     }
 
     #[test]
     fn the_peers_routes_are_bounded_and_malformed_ones_dropped() {
         let offer = ViewerOffer::new(Vec::new()).unwrap();
-        let (mut host, _) = DatagramLink::accept(&offer.offer, loopback()).unwrap();
+        let (mut host, _) = DatagramLink::respond(offer.session(), &offer.key(), any()).unwrap();
         host.add_remote_candidate("not a candidate");
         assert_eq!(host.remote_candidates, 0);
         for port in 0..(MAX_REMOTE_CANDIDATES as u16 + 10) {

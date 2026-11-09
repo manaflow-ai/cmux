@@ -297,7 +297,6 @@ pub fn hello_control_with(token: Option<&str>) -> Control {
         token: token.map(|token| cmux_rd_proto::control::SecretHex(token.to_owned())),
         service: SERVICE_REMOTE_BROWSER.into(),
         caps: vec![INPUT_SERVICE.into()],
-        link_offer: None,
     }
 }
 

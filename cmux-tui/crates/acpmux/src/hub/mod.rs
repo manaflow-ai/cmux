@@ -605,6 +605,8 @@ pub struct Hub {
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
+    /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
+    pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
@@ -980,6 +982,17 @@ impl Hub {
         Self::build(config, store, mailbox, true, true, None)
     }
 
+    /// A hub whose configured peers may dial over `wireguard` first, as a daemon's do: for tests
+    /// that run two daemons in one process and cut that carrier (`tests/carrier_faults.rs`).
+    #[doc(hidden)]
+    pub fn new_with_wireguard(
+        config: Config,
+        store: Box<dyn Store>,
+        wireguard: Arc<crate::wireguard::Transport>,
+    ) -> Arc<Self> {
+        Self::build(config, store, Mailbox::memory(), false, false, Some(wireguard))
+    }
+
     pub(crate) fn new_loading_with_wireguard(
         config: Config,
         store: Box<dyn Store>,
@@ -1011,6 +1024,7 @@ impl Hub {
             caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
@@ -1022,6 +1036,7 @@ impl Hub {
             config: RwLock::new(config),
             usage_limits,
             wireguard,
+            peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),

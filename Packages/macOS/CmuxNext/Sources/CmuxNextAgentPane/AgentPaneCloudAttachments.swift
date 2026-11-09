@@ -6,8 +6,9 @@ import CmuxNextCompat
 /// the page or saved. A Send gesture never authorizes reading a path supplied by page script on
 /// this Mac: a link chip is carried only when its path is one of `files`, the pane's record of
 /// the person's own drop, paste or pick and of this app's Chat Uploads
-/// (``AgentPaneModel/cloudCarriedFiles(_:)``). Folders are not carried. Image previews go as
-/// images, with a copy on the machine as their file link; a carried file goes as itself, by path.
+/// (``AgentPaneModel/cloudCarriedFiles(_:)``). A folder the person dropped or picked goes whole
+/// (its chip's name ends in a slash), by the upload CLI's folder rules. Image previews go as
+/// images, with a copy on the machine as their file link; a carried file or folder goes as itself, by path.
 public nonisolated struct AgentPaneCloudAttachments: Sendable {
     private let items: [JSONValue]
     /// Per item, the Mac file a carried link chip names, else nil.
@@ -15,12 +16,9 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
     /// The carried files to clone into the paste folder before the upload (Chat Uploads, which the CLI never reads).
     private let staged: Set<String>
 
-    /// The refusal's words when `items` can't go to Cloud: a folder says so; any other chip needs a local file.
+    /// The refusal's words when `items` can't go to Cloud: a chip this pane didn't hand the page.
     public static func refusal(_ items: [JSONValue]) -> String {
-        let folder = items.contains { $0["kind"]?.stringValue == "link" && $0["name"]?.stringValue?.hasSuffix("/") == true }
-        return folder
-            ? "Folders can't go to Cloud with a new chat's first message yet. Run this chat on This Mac, or attach the files inside the folder."
-            : "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud."
+        "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud."
     }
 
     /// The temporary root the upload CLI resolves from this app's environment.
@@ -45,9 +43,10 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
     public init?(_ items: [JSONValue], files carried: Set<String> = [], staged: Set<String> = []) {
         var files: [String?] = []
         for item in items {
-            guard let id = item["id"]?.stringValue, !id.isEmpty,
-                  let name = item["name"]?.stringValue, AgentPaneUpload.isFileName(name),
-                  let kind = item["kind"]?.stringValue else { return nil }
+            guard let id = item["id"]?.stringValue, !id.isEmpty, let kind = item["kind"]?.stringValue,
+                  let name = item["name"]?.stringValue,
+                  // A folder's link chip names it with a trailing slash.
+                  AgentPaneUpload.isFileName(kind == "link" && name.hasSuffix("/") ? String(name.dropLast()) : name) else { return nil }
             var file: String?
             switch kind {
             case "image", "document", "audio":
@@ -88,7 +87,7 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
             chip.removeValue(forKey: "originalPath")
             chip.removeValue(forKey: "originalName")
             if file != nil {
-                // A carried file: a saved link to its copy on the machine, as a follow-up's upload makes.
+                // A carried file or folder: a saved link to its copy on the machine, as a follow-up's upload makes.
                 guard next < paths.count, paths[next].hasPrefix("/") else { return nil }
                 chip["path"] = .string(paths[next])
                 chip["saved"] = .bool(true)

@@ -112,7 +112,6 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
         carrier: "stream".into(),
         service: "rb/1".into(),
         caps: vec!["input.service".into()],
-        link: None,
     });
     out.extend(control(&Control::Started { session: 1 }));
     out.extend(rb(json!({"t": "rb.opened", "session": 1, "main_stream": 0})));

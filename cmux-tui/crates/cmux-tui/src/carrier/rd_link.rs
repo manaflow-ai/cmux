@@ -4,19 +4,22 @@
 //! The app's viewer speaks `cmux.rd/1` frames (`u8 type` 1 control JSON or 2
 //! datagram, `u32` little-endian length, payload) on this process's stdin
 //! and stdout, and the dial carries them to the machine's desktop socket.
-//! When the carrier answer turns the link on (`rd_link`), the dial splices
-//! the link in without the viewer knowing:
-//! - the viewer's `hello` gains a `link_offer` (cmux-rd-host's `dlink`);
-//! - a `welcome` with `link` starts the link, and the field is taken out, so
-//!   the viewer sees the welcome it always saw;
-//! - `link_candidate` controls cross between the host and the link, never
-//!   reaching the viewer;
+//! When the carrier answer turns the link on (`rd_link`), the dial speaks the
+//! host's link protocol (`cmux-rd-host` `hybrid.rs`, cap `link.udp`) for the
+//! viewer, without the viewer knowing:
+//! - the viewer's `hello` gains the cap `link.udp`;
+//! - the `welcome` loses it again, so the viewer sees the caps it asked for;
+//! - once the host says `started` (its media session runs), the dial sends
+//!   `link_offer`, and `link_answer` starts the link;
+//! - `link_answer`, `link_candidate` and `link_state` stay between the dial
+//!   and the host, never reaching the viewer;
 //! - the viewer's datagrams go on the link while it is up, else on the
 //!   stream, and the link's datagrams reach the viewer as stream datagrams.
 //!
 //! Control never leaves the stream, so a link that never comes up (UDP
-//! blocked, no route between the two sides) or that fails changes nothing
-//! the viewer can see. A host that does not know the offer ignores it.
+//! blocked, no route between the two sides) or that fails changes nothing the
+//! viewer can see. A host without the cap answers a welcome without it, and
+//! the dial then only passes bytes through.
 
 use std::io;
 use std::net::SocketAddr;
@@ -27,7 +30,7 @@ use bytes::Bytes;
 use cmux_rd_link::dlink::{DatagramLink, LinkOut, LinkState, ViewerOffer};
 use cmux_remote::bridge::BridgeError;
 use cmux_remote::service::ServiceStream;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -35,6 +38,8 @@ const FRAME_CONTROL: u8 = 1;
 const FRAME_DATAGRAM: u8 = 2;
 /// The rd host's frame bound (cmux-rd-host `wire.rs`).
 const MAX_FRAME: usize = 1 << 20;
+/// The host's cap for the link (cmux-rd-core `caps::LINK_UDP`).
+const LINK_CAP: &str = "link.udp";
 /// `CMUX_RD_LINK=0` keeps every datagram on the stream whatever the platform says.
 pub(super) const KILL_SWITCH: &str = "CMUX_RD_LINK";
 
@@ -90,19 +95,43 @@ enum Out {
     Note(String),
 }
 
+/// How far the negotiation got.
+enum Phase {
+    /// Before the viewer's hello: the offer to make, if the platform turned the link on.
+    Hello(Option<ViewerOffer>),
+    /// The hello went out with the cap; the welcome says whether the host has it.
+    Asked(ViewerOffer),
+    /// The host has the cap; the offer goes out once its media session runs.
+    Granted(ViewerOffer),
+    /// `link_offer` went out; `link_answer` starts the link.
+    Offered(ViewerOffer),
+    /// The link started, or this session has none.
+    Done,
+}
+
 /// The splice, apart from its I/O.
 struct Splice {
-    /// Before the hello went out: the offer to put in it.
-    offer: Option<ViewerOffer>,
-    /// After the hello went out with an offer, until a welcome answers it.
-    offered: Option<ViewerOffer>,
+    phase: Phase,
+    /// The dial added the cap, so the link's controls are the dial's. A
+    /// viewer that asked for the cap itself gets every byte as sent.
+    spliced: bool,
     link: Option<DatagramLink>,
     bind: SocketAddr,
 }
 
+/// `caps` of a hello or welcome, as a mutable list.
+fn caps_of(control: &mut Value) -> Option<&mut Vec<Value>> {
+    control.get_mut("caps")?.as_array_mut()
+}
+
 impl Splice {
+    /// Takes the phase when `want` matches it, leaving `Done`; else leaves it.
+    fn take(&mut self, want: fn(&Phase) -> bool) -> Option<Phase> {
+        want(&self.phase).then(|| std::mem::replace(&mut self.phase, Phase::Done))
+    }
+
     fn new(offer: Option<ViewerOffer>, bind: SocketAddr) -> Self {
-        Self { offer, offered: None, link: None, bind }
+        Self { phase: Phase::Hello(offer), spliced: false, link: None, bind }
     }
 
     /// One frame from the viewer.
@@ -114,26 +143,33 @@ impl Splice {
             }
             return;
         }
-        // Only the first control may carry the offer: when it is not a hello,
-        // no link this session.
+        // Only the first control may ask for the cap: when it is not a hello,
+        // or the viewer asked for it itself, the dial stays out of the way.
         if ty == FRAME_CONTROL
-            && let Some(offer) = self.offer.take()
+            && let Some(Phase::Hello(offer)) = self.take(|p| matches!(p, Phase::Hello(_)))
+            && let Some(offer) = offer
             && let Ok(mut hello) = serde_json::from_slice::<Value>(&payload)
             && hello.get("t").and_then(Value::as_str) == Some("hello")
-            && let Ok(offer_value) = serde_json::to_value(&offer.offer)
-            && let Some(fields) = hello.as_object_mut()
         {
-            fields.insert("link_offer".into(), offer_value);
-            out.push(Out::Host(control_frame(&hello)));
-            self.offered = Some(offer);
-            return;
+            if hello.get("caps").is_none() {
+                hello["caps"] = json!([]);
+            }
+            if let Some(caps) = caps_of(&mut hello)
+                && !caps.iter().any(|c| c == LINK_CAP)
+            {
+                caps.push(json!(LINK_CAP));
+                out.push(Out::Host(control_frame(&hello)));
+                self.phase = Phase::Asked(offer);
+                self.spliced = true;
+                return;
+            }
         }
         out.push(Out::Host(frame(ty, &payload)));
     }
 
     /// One frame from the host.
     fn on_host(&mut self, ty: u8, payload: Vec<u8>, out: &mut Vec<Out>) {
-        if ty != FRAME_CONTROL {
+        if ty != FRAME_CONTROL || !self.spliced {
             out.push(Out::Viewer(frame(ty, &payload)));
             return;
         }
@@ -141,7 +177,9 @@ impl Splice {
             out.push(Out::Viewer(frame(ty, &payload)));
             return;
         };
-        match control.get("t").and_then(Value::as_str) {
+        let kind = control.get("t").and_then(Value::as_str).map(str::to_owned);
+        match kind.as_deref() {
+            // The dial's own messages: the viewer never asked for the cap.
             Some("link_candidate") => {
                 if let (Some(link), Some(candidate)) =
                     (&mut self.link, control.get("candidate").and_then(Value::as_str))
@@ -149,23 +187,52 @@ impl Splice {
                     link.add_remote_candidate(candidate);
                 }
             }
+            Some("link_state") => {
+                let up = control.get("up").and_then(Value::as_bool).unwrap_or(false);
+                let reason = control.get("reason").and_then(Value::as_str).unwrap_or("");
+                out.push(Out::Note(if up {
+                    "host_up".into()
+                } else {
+                    format!("host_down {reason}")
+                }));
+            }
+            Some("link_answer") => {
+                if let Some(Phase::Offered(offer)) = self.take(|p| matches!(p, Phase::Offered(_))) {
+                    let key = control.get("key").and_then(Value::as_str).unwrap_or("");
+                    match offer.start(key, self.bind) {
+                        Ok(link) => {
+                            out.push(Out::Note("answered".into()));
+                            self.link = Some(link);
+                            self.poll(out);
+                        }
+                        Err(why) => out.push(Out::Note(format!("not_started {why}"))),
+                    }
+                }
+            }
             Some("welcome") => {
-                let answer = control.as_object_mut().and_then(|fields| fields.remove("link"));
-                if let Some(offer) = self.offered.take() {
-                    match answer.map(serde_json::from_value) {
-                        Some(Ok(answer)) => match offer.start(&answer, self.bind) {
-                            Ok(link) => {
-                                out.push(Out::Note("offered".into()));
-                                self.link = Some(link);
-                                self.poll(out);
-                            }
-                            Err(why) => out.push(Out::Note(format!("not_started {why}"))),
-                        },
-                        Some(Err(_)) => out.push(Out::Note("bad_answer".into())),
-                        None => out.push(Out::Note("not_answered".into())),
+                if let Some(Phase::Asked(offer)) = self.take(|p| matches!(p, Phase::Asked(_))) {
+                    let granted = caps_of(&mut control).is_some_and(|caps| {
+                        let before = caps.len();
+                        caps.retain(|c| c != LINK_CAP);
+                        caps.len() != before
+                    });
+                    if granted {
+                        self.phase = Phase::Granted(offer);
+                    } else {
+                        out.push(Out::Note("not_answered".into()));
                     }
                 }
                 out.push(Out::Viewer(control_frame(&control)));
+            }
+            Some("started") => {
+                if let Some(Phase::Granted(offer)) = self.take(|p| matches!(p, Phase::Granted(_))) {
+                    out.push(Out::Host(control_frame(&json!({
+                        "t": "link_offer", "session": offer.session(), "key": offer.key(), "candidates": []
+                    }))));
+                    out.push(Out::Note("offered".into()));
+                    self.phase = Phase::Offered(offer);
+                }
+                out.push(Out::Viewer(frame(ty, &payload)));
             }
             _ => out.push(Out::Viewer(frame(ty, &payload))),
         }
@@ -180,7 +247,7 @@ impl Splice {
             match item {
                 LinkOut::Datagram(d) => out.push(Out::Viewer(frame(FRAME_DATAGRAM, &d))),
                 LinkOut::Candidate(candidate) => out.push(Out::Host(control_frame(
-                    &serde_json::json!({"t": "link_candidate", "candidate": candidate}),
+                    &json!({"t": "link_candidate", "candidate": candidate}),
                 ))),
                 LinkOut::State(LinkState::Up) => out.push(Out::Note("up".into())),
                 LinkOut::State(LinkState::Quiet) => out.push(Out::Note("quiet".into())),
@@ -296,14 +363,24 @@ where
             }
             () = link_ready(&link_fd) => splice.poll(&mut out),
         }
-        for item in out {
-            match item {
-                Out::Host(bytes) => remote.send(Bytes::from(bytes)).await?,
-                Out::Viewer(bytes) => writer.write_all(&bytes).await?,
-                Out::Note(note) => log(&note),
+        // The writes stay under the failure watch: a viewer that stops reading
+        // must not hide a carrier reset.
+        let deliver = async {
+            for item in out {
+                match item {
+                    Out::Host(bytes) => remote.send(Bytes::from(bytes)).await?,
+                    Out::Viewer(bytes) => writer.write_all(&bytes).await?,
+                    Out::Note(note) => log(&note),
+                }
             }
+            writer.flush().await?;
+            Ok::<(), BridgeError>(())
+        };
+        tokio::select! {
+            biased;
+            error = &mut failure => return Err(error.into()),
+            delivered = deliver => delivered?,
         }
-        writer.flush().await?;
         // The link starts after a welcome and ends on failure: follow its descriptor.
         let fd = splice.link_fd();
         if fd != link_fd.as_ref().map(|f| f.get_ref().of) {
@@ -320,7 +397,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmux_rd_link::dlink::DatagramLink;
+    use cmux_rd_proto::control::Control;
     use std::time::{Duration, Instant};
 
     /// Every interface: the link's host routes are this machine's non-loopback addresses.
@@ -329,19 +406,21 @@ mod tests {
     }
 
     fn hello() -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
+        serde_json::to_vec(&json!({
             "t": "hello", "user": "u", "install": "i", "class": "user", "interactive": true,
-            "udp_port": null, "max_datagram": 1200, "service": "desktop", "caps": [],
+            "udp_port": null, "max_datagram": 1200, "service": "desktop", "caps": ["tile"],
             "future_field": 7
         }))
         .unwrap()
     }
 
-    fn host_bytes(out: &[Out]) -> Vec<(u8, Value)> {
+    fn controls(out: &[Out], host: bool) -> Vec<(u8, Value)> {
         let mut frames = Frames::default();
         for item in out {
-            if let Out::Host(bytes) = item {
-                frames.push(bytes);
+            match item {
+                Out::Host(bytes) if host => frames.push(bytes),
+                Out::Viewer(bytes) if !host => frames.push(bytes),
+                _ => {}
             }
         }
         let mut parsed = Vec::new();
@@ -365,15 +444,16 @@ mod tests {
         parsed
     }
 
-    fn welcome(link: Option<Value>) -> Vec<u8> {
-        let mut w = serde_json::json!({
+    fn welcome(caps: &[&str]) -> Vec<u8> {
+        serde_json::to_vec(&json!({
             "t": "welcome", "encoder": "openh264", "width": 1280, "height": 800,
-            "max_datagram": 1126, "carrier": "stream", "service": "desktop", "caps": []
-        });
-        if let Some(link) = link {
-            w["link"] = link;
-        }
-        serde_json::to_vec(&w).unwrap()
+            "max_datagram": 1126, "carrier": "stream", "service": "desktop", "caps": caps
+        }))
+        .unwrap()
+    }
+
+    fn started() -> Vec<u8> {
+        serde_json::to_vec(&json!({"t": "started", "session": 1})).unwrap()
     }
 
     #[test]
@@ -382,46 +462,46 @@ mod tests {
         let mut out = Vec::new();
         splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
         splice.on_viewer(FRAME_DATAGRAM, b"input".to_vec(), &mut out);
-        splice.on_host(FRAME_CONTROL, welcome(None), &mut out);
+        splice.on_host(FRAME_CONTROL, welcome(&["tile"]), &mut out);
+        splice.on_host(FRAME_CONTROL, started(), &mut out);
         assert_eq!(
             out,
             vec![
                 Out::Host(frame(FRAME_CONTROL, &hello())),
                 Out::Host(frame(FRAME_DATAGRAM, b"input")),
-                Out::Viewer(frame(FRAME_CONTROL, &welcome(None))),
+                Out::Viewer(frame(FRAME_CONTROL, &welcome(&["tile"]))),
+                Out::Viewer(frame(FRAME_CONTROL, &started())),
             ]
         );
     }
 
     #[test]
-    fn the_hello_gains_an_offer_and_keeps_every_other_field() {
-        let mut splice =
-            Splice::new(Some(ViewerOffer::new(vec!["stun.example:3478".into()]).unwrap()), bind());
+    fn the_hello_gains_the_cap_and_keeps_every_other_field() {
+        let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
         let mut out = Vec::new();
         splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
-        let sent = host_bytes(&out);
+        let sent = controls(&out, true);
         assert_eq!(sent.len(), 1);
         let hello = &sent[0].1;
         assert_eq!(hello["future_field"], 7);
-        assert_eq!(hello["link_offer"]["v"], 1);
-        assert_eq!(hello["link_offer"]["stun"][0], "stun.example:3478");
+        assert_eq!(hello["caps"], json!(["tile", "link.udp"]));
         // The rd host's own parser reads it.
-        let parsed: cmux_rd_proto::control::Control =
-            serde_json::from_value(hello.clone()).unwrap();
-        assert!(matches!(
-            parsed,
-            cmux_rd_proto::control::Control::Hello { link_offer: Some(_), .. }
-        ));
+        let parsed: Control = serde_json::from_value(hello.clone()).unwrap();
+        assert!(
+            matches!(parsed, Control::Hello { caps, .. } if caps.contains(&LINK_CAP.to_owned()))
+        );
     }
 
     #[test]
-    fn a_host_that_does_not_answer_keeps_every_datagram_on_the_stream() {
+    fn a_host_without_the_cap_keeps_every_datagram_on_the_stream() {
         let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
         let mut out = Vec::new();
         splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
         out.clear();
-        splice.on_host(FRAME_CONTROL, welcome(None), &mut out);
+        splice.on_host(FRAME_CONTROL, welcome(&["tile"]), &mut out);
+        splice.on_host(FRAME_CONTROL, started(), &mut out);
         assert!(out.contains(&Out::Note("not_answered".into())));
+        assert!(controls(&out, true).is_empty(), "no offer: {out:?}");
         assert!(splice.link.is_none());
         out.clear();
         splice.on_viewer(FRAME_DATAGRAM, b"input".to_vec(), &mut out);
@@ -429,45 +509,53 @@ mod tests {
     }
 
     #[test]
-    fn an_answered_welcome_reaches_the_viewer_without_link_and_the_link_carries_datagrams() {
+    fn the_offer_waits_for_started_and_the_link_carries_datagrams_both_ways() {
         let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
         let mut out = Vec::new();
         splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
-        let offer: cmux_rd_proto::control::LinkOffer =
-            serde_json::from_value(host_bytes(&out)[0].1["link_offer"].clone()).unwrap();
-        let (mut host, answer) = DatagramLink::accept(&offer, bind()).unwrap();
         out.clear();
-        splice.on_host(
-            FRAME_CONTROL,
-            welcome(Some(serde_json::to_value(&answer).unwrap())),
-            &mut out,
-        );
-        let to_viewer = viewer_frames(&out);
-        assert_eq!(to_viewer.len(), 1);
-        let seen: Value = serde_json::from_slice(&to_viewer[0].1).unwrap();
-        assert_eq!(seen["t"], "welcome");
-        assert!(seen.get("link").is_none(), "{seen}");
+        splice.on_host(FRAME_CONTROL, welcome(&["tile", "link.udp"]), &mut out);
+        // The viewer sees the caps it asked for, and nothing goes to the host yet:
+        // the host reads `start` next.
+        let seen = controls(&out, false);
+        assert_eq!(seen[0].1["caps"], json!(["tile"]));
+        assert!(controls(&out, true).is_empty());
+        out.clear();
+        splice.on_host(FRAME_CONTROL, started(), &mut out);
+        let offer = controls(&out, true);
+        assert_eq!(offer.len(), 1);
+        let Ok(Control::LinkOffer { session, key, .. }) =
+            serde_json::from_value(offer[0].1.clone())
+        else {
+            panic!("not a link_offer the host parses: {:?}", offer[0].1);
+        };
+        assert_eq!(viewer_frames(&out), vec![(FRAME_CONTROL, started())]);
+        // The host's side, as hybrid.rs answers.
+        let (mut host, host_key) = DatagramLink::respond(&session, &key, bind()).unwrap();
+        out.clear();
+        let answer = serde_json::to_vec(&Control::LinkAnswer { key: host_key }).unwrap();
+        splice.on_host(FRAME_CONTROL, answer, &mut out);
+        let state = serde_json::to_vec(&Control::LinkState { up: true, reason: None }).unwrap();
+        splice.on_host(FRAME_CONTROL, state, &mut out);
+        assert!(viewer_frames(&out).is_empty(), "link controls never reach the viewer: {out:?}");
         // Bring the link up, candidates crossing as the stream would carry them.
         let deadline = Instant::now() + Duration::from_secs(5);
-        let mut host_out = Vec::new();
         let mut pending = out;
         while Instant::now() < deadline
             && !(host.is_up() && splice.link.as_ref().is_some_and(DatagramLink::is_up))
         {
-            for (ty, c) in host_bytes(&pending) {
+            for (ty, c) in controls(&pending, true) {
                 if ty == FRAME_CONTROL && c["t"] == "link_candidate" {
                     host.add_remote_candidate(c["candidate"].as_str().unwrap());
                 }
             }
             pending = Vec::new();
             splice.poll(&mut pending);
+            let mut host_out = Vec::new();
             host.poll(&mut host_out);
-            for item in host_out.drain(..) {
+            for item in host_out {
                 if let LinkOut::Candidate(c) = item {
-                    let msg = serde_json::to_vec(
-                        &serde_json::json!({"t":"link_candidate","candidate":c}),
-                    )
-                    .unwrap();
+                    let msg = serde_json::to_vec(&Control::LinkCandidate { candidate: c }).unwrap();
                     let mut ignored = Vec::new();
                     splice.on_host(FRAME_CONTROL, msg, &mut ignored);
                     assert!(
@@ -482,7 +570,7 @@ mod tests {
         // Viewer datagrams now take the link, not the stream.
         let mut out = Vec::new();
         splice.on_viewer(FRAME_DATAGRAM, b"input".to_vec(), &mut out);
-        assert!(host_bytes(&out).is_empty(), "nothing on the stream: {out:?}");
+        assert!(controls(&out, true).is_empty(), "nothing on the stream: {out:?}");
         host.send_datagram(b"frame");
         let deadline = Instant::now() + Duration::from_secs(5);
         let (mut got_input, mut got_frame) = (false, false);
@@ -499,25 +587,18 @@ mod tests {
     }
 
     #[test]
-    fn an_older_hosts_welcome_parses_and_a_newer_hosts_welcome_parses_in_an_older_viewer() {
-        // A host without the field: the proto's Welcome still parses (no link).
-        let parsed: cmux_rd_proto::control::Control =
-            serde_json::from_slice(&welcome(None)).unwrap();
-        assert!(matches!(parsed, cmux_rd_proto::control::Control::Welcome { link: None, .. }));
-        // A hello with an offer, as an older host's parser (no field) would read it:
-        // serde ignores the unknown field.
-        #[derive(serde::Deserialize)]
-        #[allow(dead_code)]
-        struct OldHello {
-            t: String,
-            user: String,
-            max_datagram: usize,
-        }
+    fn a_viewer_that_asks_for_the_cap_itself_is_left_alone() {
         let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
+        let own = serde_json::to_vec(&json!({"t": "hello", "caps": ["link.udp"]})).unwrap();
         let mut out = Vec::new();
-        splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
-        let sent = host_bytes(&out);
-        let old: OldHello = serde_json::from_value(sent[0].1.clone()).unwrap();
-        assert_eq!(old.t, "hello");
+        splice.on_viewer(FRAME_CONTROL, own.clone(), &mut out);
+        splice.on_host(FRAME_CONTROL, welcome(&["link.udp"]), &mut out);
+        assert_eq!(
+            out,
+            vec![
+                Out::Host(frame(FRAME_CONTROL, &own)),
+                Out::Viewer(frame(FRAME_CONTROL, &welcome(&["link.udp"]))),
+            ]
+        );
     }
 }
