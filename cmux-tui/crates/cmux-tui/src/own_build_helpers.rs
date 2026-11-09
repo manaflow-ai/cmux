@@ -153,11 +153,14 @@ fn claude_plugin_dirs(executable: &Path, helper: &Path) -> Option<String> {
     let config_dir =
         std::env::var_os("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()).map(PathBuf::from);
     let policy = crate::claude_plugin::policy_files(home.as_deref(), config_dir.as_deref());
+    cmux_tui_core::startup_timings::process_mark("process.helpers.plugin_policy_files");
     if crate::claude_plugin::sideloading_disabled(&policy) {
         return None;
     }
+    cmux_tui_core::startup_timings::process_mark("process.helpers.plugin_policy_read");
     let dir = build_dir(executable)?.join(crate::claude_plugin::PLUGIN_FOLDER);
     crate::claude_plugin::install(&dir, executable, helper).ok()?;
+    cmux_tui_core::startup_timings::process_mark("process.helpers.plugin_install");
     let inherited = std::env::var_os(crate::claude_plugin::PLUGIN_DIRS_ENV);
     crate::claude_plugin::pane_plugin_dirs(inherited.as_deref(), &dir)?.into_string().ok()
 }

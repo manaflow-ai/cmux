@@ -74,7 +74,9 @@ pub(crate) fn install(dir: &Path, executable: &Path, helper: &Path) -> anyhow::R
         .as_array_mut()
         .context("SessionStart hooks are not a list")?
         .push(context);
+    cmux_tui_core::startup_timings::process_mark("process.helpers.plugin_hooks");
     write_if_changed(&dir.join(MANIFEST), &serde_json::to_vec_pretty(&manifest)?)?;
+    cmux_tui_core::startup_timings::process_mark("process.helpers.plugin_manifest_write");
     write_if_changed(&dir.join(HOOKS), &serde_json::to_vec_pretty(&Value::Object(hooks))?)?;
     Ok(())
 }
