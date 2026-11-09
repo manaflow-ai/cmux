@@ -4,6 +4,7 @@
 import { expect, test } from "bun:test";
 import { currentChatMetrics } from "../chatDisplay";
 import {
+  ARRIVAL_BURST_S,
   BURST_S,
   CHASE_HOLD_LINES,
   CHASE_LAND_LINES,
@@ -340,3 +341,31 @@ test.each(["spring", "chunk", "linear", "blocks"] as FollowMotionArm[])(
     expect(drawn()).toBeLessThanOrEqual(4 + 1e-6);
   },
 );
+
+// Leo, 2026-11-07: "the jumps are jarring. We want to minimize the jumps" (test/turn-transition-jumps.test.ts).
+test("a row that arrived holds all of its move back, and is back within the bound in ARRIVAL_BURST_S", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn } = fixture();
+  const line = currentChatMetrics().lineHeight;
+  // A steer and the call it came under: 115 px of rows above the live line. A reply's growth of the
+  // same size moves CHASE_LAND_LINES of it at once; an arrival moves none of it in that frame.
+  chase.shift(node, -115, line * 10, false, true);
+  expect(drawn()).toBeCloseTo(115);
+  let previous = drawn();
+  let frames = 0;
+  while (drawn() > chaseMaxTrail() + 0.5) {
+    frame();
+    frames += 1;
+    // Never more than a line in a frame.
+    expect(previous - drawn()).toBeLessThanOrEqual(line + 1e-6);
+    previous = drawn();
+  }
+  // Back within the bound over ARRIVAL_BURST_S (nine 120 Hz frames), not BURST_S's six.
+  expect(frames).toBeLessThanOrEqual(Math.ceil(ARRIVAL_BURST_S * 120) + 1);
+  expect(frames).toBeGreaterThan(Math.ceil(BURST_S * 120));
+  // The same move as a reply's growth lands part at once, as before.
+  const growth = createFollowChase("blocks");
+  const other = fixture();
+  growth.shift(other.node, -2 * line, line * 10);
+  expect(other.drawn()).toBeCloseTo((2 - Math.min(2 - CHASE_HOLD_LINES, CHASE_LAND_LINES)) * line);
+});

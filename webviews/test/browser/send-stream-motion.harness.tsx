@@ -112,7 +112,61 @@ export type Sample = {
   tail: number;
   /// The reply's text drawn this frame (every segment), in characters.
   length: number;
+  /// With `?rows=1` (turn-transition-jumps.test.ts): every mounted row.
+  rows?: RowSample[];
+  /// With `?rows=1`: the composer card's top in the viewport, px.
+  composer?: number;
 };
+
+/// One drawn row in a frame: its id, its box in the viewport, its ink's opacity (the row's and its
+/// presentation child's, as drawn this frame) and whether an animation runs on it or inside it.
+export type RowSample = {
+  id: string;
+  top: number;
+  height: number;
+  opacity: number;
+  animating: boolean;
+  /// Whether the row's box crosses the scroller's view.
+  inView: boolean;
+  /// The row's first words, for the report.
+  text: string;
+};
+
+const sampleRows = query.get("rows") === "1";
+// `?tailGlide=`: how the rows under a change move (tailGlide.ts looks), for the arms' numbers.
+const tailLook = query.get("tailGlide");
+if (tailLook) document.documentElement.setAttribute("data-tail-glide", tailLook);
+
+/// The rows mounted this frame (RowSample's fields).
+function rowSamples(scroller: HTMLElement): RowSample[] {
+  const view = scroller.getBoundingClientRect();
+  const animated = new Set<Element>();
+  for (const animation of document.getAnimations()) {
+    if (animation.playState !== "running") continue;
+    const target = (animation.effect as KeyframeEffect | null)?.target;
+    const row = target instanceof Element ? target.closest(".acpmux-row") : null;
+    if (row) animated.add(row);
+  }
+  const out: RowSample[] = [];
+  for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+    const box = row.getBoundingClientRect();
+    if (box.height === 0) continue;
+    let opacity = Number.parseFloat(getComputedStyle(row).opacity);
+    const inner =
+      row.querySelector<HTMLElement>(".acpmux-row__message-presentation") ?? row.firstElementChild?.nextElementSibling;
+    if (inner instanceof HTMLElement) opacity *= Number.parseFloat(getComputedStyle(inner).opacity);
+    out.push({
+      id: row.dataset.rowId!,
+      top: box.top,
+      height: box.height,
+      opacity,
+      animating: animated.has(row),
+      inView: box.bottom > view.top && box.top < view.bottom,
+      text: (row.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 48),
+    });
+  }
+  return out;
+}
 
 const samples: Sample[] = [];
 let phase: Phase = "idle";
@@ -125,7 +179,7 @@ Object.assign(sentinel.style, { position: "fixed", left: "0", top: "0", height: 
 document.body.append(sentinel);
 let frameAt = 0;
 let toggle = false;
-new ResizeObserver(() => {
+const sampleFrame = () => {
   if (!sampling) return;
   const thread = document.querySelector<HTMLElement>(".acpmux-thread");
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
@@ -160,8 +214,13 @@ new ResizeObserver(() => {
     scrollTop: scroller.scrollTop,
     fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
     length,
+    ...(sampleRows && { rows: rowSamples(scroller), composer: dock }),
   });
-}).observe(sentinel);
+};
+// A row sample reads the rows where the frame paints them: its observer comes after the
+// transcript's own (made at its mount), which places the rows under a row that grew this frame.
+if (!sampleRows) new ResizeObserver(sampleFrame).observe(sentinel);
+let lateSampler: ResizeObserver | undefined;
 const tick = (t: number) => {
   frameAt = t;
   toggle = !toggle;
@@ -192,6 +251,7 @@ async function run({
   // fixed-wait: the history's rows measure over the first frames
   await wait(400);
   samples.length = 0;
+  if (sampleRows && !lateSampler) (lateSampler = new ResizeObserver(sampleFrame)).observe(sentinel);
   sampling = true;
   // fixed-wait: the frames before the turn are sampled as its rest
   await wait(100);
