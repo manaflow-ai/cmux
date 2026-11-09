@@ -644,12 +644,16 @@ export default componentEntry<GalleryProps>({
     // The "used here" mark's versions, each on the chat's own tab beside the held Codex pick, the
     // rail listing every harness the chat can fork to (Leo 2026-11-06: "Everybody wants to see the
     // models").
-    // C, shipped: the history glyph after the running model, a hairline ring on its tab.
+    // C, shipped: the history glyph after the running model, a hairline ring on its tab; hovering
+    // the glyph says "In this chat".
     "started-chat-used-glyph": { props: startedHeld("glyph"), play: openOwnTab },
     // A: a dot after the running model's name and on its tab.
     "started-chat-used-dot": { props: startedHeld("dot"), play: openOwnTab },
     // B: "In this chat" after the running model's name; its tab a dot in the corner.
     "started-chat-used-caption": { props: startedHeld("caption"), play: openOwnTab },
+    // D, shipped with nothing held (Leo 2026-11-09, relaying Lucas: "What's this new clock icon?"):
+    // the chat's own tab with only the running row's check, no mark beside it and no ring.
+    "started-chat-used-none": { props: startedFork, play: openColumns },
     // The full picker with the same hold: the rail's Claude tab carries the ring, Codex's row the check.
     "started-chat-held-full": {
       props: { ...startedHeld("glyph"), quick: undefined },
