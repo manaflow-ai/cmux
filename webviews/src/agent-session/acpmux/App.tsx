@@ -707,7 +707,7 @@ import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type Ru
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { CloudChatHint } from "./CloudChatHint";
-import { cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
+import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
@@ -724,7 +724,9 @@ import { declineReply, isPending, reply as questionReply, replyParams, selection
 import { defaultRegistry } from "./rows/registry";
 import { ReadOnlyRecapRow } from "./rows/RecapRow";
 import { ReadOnlyMemoryOfferRow } from "./rows/MemoryOfferRow";
+import { ReadOnlyPresetApprovalRow } from "./rows/PresetApprovalRow";
 import { MEMORY_OFFER } from "./conversation/memoryInbox";
+import { PRESET_APPROVAL } from "./conversation/presetApproval";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
@@ -4120,9 +4122,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
-  /// no × (ReadOnlyRecapRow), and its memory offers no Accept or Dismiss.
+  /// no × (ReadOnlyRecapRow), its memory offers no Accept or Dismiss, and its preset approvals no
+  /// Approve or Not now.
   const noDismissRegistry = useMemo(
-    () => ({ ...registry, recap: ReadOnlyRecapRow, [MEMORY_OFFER]: ReadOnlyMemoryOfferRow }),
+    () => ({
+      ...registry,
+      recap: ReadOnlyRecapRow,
+      [MEMORY_OFFER]: ReadOnlyMemoryOfferRow,
+      [PRESET_APPROVAL]: ReadOnlyPresetApprovalRow,
+    }),
     [registry],
   );
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
@@ -6031,6 +6039,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
   /// preference can preserve the exact visible row while the new prompt arrives below it.
   const followingTranscript = useRef(true);
+  /// The composer reads it as it sends (conversation/sendTuck.ts); one function for the pane's life,
+  /// so the composer's props stay the same while the transcript scrolls.
+  const transcriptFollowing = useCallback(() => followingTranscript.current, []);
   const onTranscriptFollowingChange = useCallback((following: boolean) => {
     followingTranscript.current = following;
     // Back at the latest row: the commands held out while scrolled up go back into their runs.
@@ -8042,6 +8053,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               Array.isArray(accept) ? accept.map(String) : [],
               Array.isArray(dismiss) ? dismiss.map(String) : [],
             ),
+          // Approve or Not now on a no-prompt preset's card (conversation/PresetApprovalCard.tsx).
+          "chat.presetApproval.answer": async ({ rowId, approve }) =>
+            client.answerPresetApproval(String(rowId), approve === true),
           "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
             for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
           },
@@ -9637,16 +9651,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
-  const cloudHintShown =
-    !quick &&
-    !onOtherMachine &&
-    cloudChatHintShown({
-      record: cloudHint.record,
-      tipsOn: featureTipsOn,
-      cloudOffered: sandboxOffered,
-      cloudPicked: sandbox.mode === "cloud",
-      started: Boolean(snapshot.sessionId),
-    });
+  /// It shows at most once per install: the page asks the app when the moment fits, and the app's
+  /// yes spends the tips' one 14-day budget.
+  const cloudHintFacts = {
+    record: cloudHint.record,
+    tipsOn: featureTipsOn,
+    cloudOffered: sandboxOffered,
+    cloudPicked: sandbox.mode === "cloud",
+    started: Boolean(snapshot.sessionId),
+  };
+  /// Only where it draws: the chat composer, or the New Tab screen (not the classic New Tab page, nor
+  /// history), so a claim never spends the budget on a hint nobody saw.
+  const cloudHintDraws =
+    !showNewTab || (newTab !== undefined && !newTab.history && shownTemplate(newTab) !== "classic");
+  const cloudHintDue = !quick && !onOtherMachine && cloudHintDraws && cloudChatHintDue(cloudHintFacts);
+  const claimCloudHint = cloudHint.claim;
+  useEffect(() => {
+    if (cloudHintDue) claimCloudHint();
+  }, [cloudHintDue, claimCloudHint]);
+  const cloudHintShown = !quick && !onOtherMachine && cloudChatHintShown(cloudHintFacts);
   /// New Cloud Chat, pending until taken: the New Tab page takes it (`cloudPick`) or this composer
   /// picks Cloud once it is offered; a chat that already started drops it.
   const cloudPickPending = cloudPickRequest > cloudPicksDone;
@@ -10988,6 +11011,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               };
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
+            transcriptFollowing={transcriptFollowing}
             onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
