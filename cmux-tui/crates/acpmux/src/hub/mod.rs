@@ -2453,6 +2453,11 @@ impl Hub {
                         if let Some(err) = e.msg.get("error") {
                             t.insert("error".into(), err.clone());
                         }
+                        // Why a failed turn ended with no answer (`outcome_unknown`: a daemon
+                        // restart cut it short), so a reader tells that from an agent error.
+                        if let Some(detail) = e.msg.get("detail") {
+                            t.insert("detail".into(), detail.clone());
+                        }
                     }
                 }
                 "turn_end" | "turn_error" => {

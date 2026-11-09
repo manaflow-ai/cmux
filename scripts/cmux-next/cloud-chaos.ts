@@ -74,12 +74,13 @@ export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
 ];
 
 /**
- * Reset every established 443 connection on the machine. `ss -K` lists each socket it closed, so `@@ok` needs both its
- * exit status and at least one closed socket: a missing `sudo`, a missing `ss`, or a kernel without SOCK_DESTROY (where
- * `ss -K` closes nothing) prints `@@failed` instead of passing as a cut that never happened.
+ * Reset every established 443 connection on the machine. `ss -K` lists each socket it closed (`-n`, so the port reads
+ * `:443`, never `:https`), so `@@ok` needs both its exit status and at least one closed socket: a missing `sudo`, a
+ * missing `ss`, or a kernel without SOCK_DESTROY (where `ss -K` closes nothing) prints `@@failed` instead of passing
+ * as a cut that never happened.
  */
 export function relayCutCommand(): string {
-  return "out=$(sudo -n ss -K -H state established '( dport = :443 )' 2>&1); rc=$?; " +
+  return "out=$(sudo -n ss -K -H -n state established '( dport = :443 )' 2>&1); rc=$?; " +
     "n=$(printf '%s\\n' \"$out\" | grep -c ':443'); " +
     "if [ \"$rc\" -eq 0 ] && [ \"$n\" -gt 0 ]; then echo \"@@ok $n\"; else echo \"@@failed rc=$rc closed=$n\"; fi";
 }
@@ -128,6 +129,16 @@ export function dropCommand(secs: number): string {
     `elif command -v nft >/dev/null 2>&1; then (sleep ${secs}; nft delete table inet cmuxchaos) >/dev/null 2>&1 & ` +
     `if ${nft}; then echo @@ok nft; else nft delete table inet cmuxchaos; echo @@failed nft; fi; else echo @@none; fi`;
   return `sudo -n sh -c ${shq(script)}`;
+}
+
+/**
+ * When a fault's cause is surely over: no earlier than the fault command's answer (a cut or a kill has happened by
+ * then, and an identify sent before it may have been answered before the cause), and no earlier than the drop's own
+ * length after the command went out. Recovery is timed from here, so an answer to a request sent before the cause
+ * never counts as recovery.
+ */
+export function causeEndedAt(sentAt: number, answeredAt: number, secs: number): number {
+  return Math.max(answeredAt, sentAt + secs * 1000);
 }
 
 /** One open carrier dial, pinged; every answer's time kept. A dial that ends is replaced at once. */
@@ -230,7 +241,9 @@ async function turnState(ctx: ChaosContext, marker: string): Promise<{ started: 
     started: mine.length,
     running,
     status: mine.map((t: any) => String(t.status)).join(","),
-    detail: mine.map((t: any) => String(t.detail ?? "")).join(","),
+    // `detail` names why a failed turn ended (`outcome_unknown` for a restart cut); a daemon older than it carries the
+    // reason only in `error`'s text.
+    detail: mine.map((t: any) => String(t.detail ?? (typeof t.error === "string" ? t.error : t.error?.message ?? ""))).join(","),
   };
 }
 
@@ -288,8 +301,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const when = state.running ? "mid-turn" : `after the turn (${state.status})`;
       const dialsBefore = carrier.dials;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
-      // The cause starts when the command runs, which is after this moment: timing from here makes recovery an upper
-      // bound. A drop may hold the exec's own answer until it ends, so its budget covers the drop.
+      // A drop may hold the exec's own answer until it ends, so its budget covers the drop.
       const injectedAt = Date.now();
       const injected = await ctx.exec(`${ctx.guest}${f.command}`, f.secs * 1000 + 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
       if (!/@@ok/.test(injected.stdout)) {
@@ -297,7 +309,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         out.push({ fault: f.name, outcome: "fail", recover_ms: null, carrier: "", turn: "", detail: `could not inject: ${(injected.stdout + injected.stderr).trim().slice(-200)}` });
         continue;
       }
-      const healed = injectedAt + f.secs * 1000;
+      const healed = causeEndedAt(injectedAt, Date.now(), f.secs);
       await sleep(Math.max(0, healed - Date.now()));
       const back = await carrier.answeredAfter(healed, RECOVER_DEADLINE_MS);
       const recover = back === null ? null : back - healed;

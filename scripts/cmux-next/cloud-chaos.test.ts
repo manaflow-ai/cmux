@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chaosProbeRow, dropCommand, FAULTS, NOT_INJECTED, relayCutCommand, sessionHostKillCommand, type ChaosResult } from "./cloud-chaos.ts";
+import { causeEndedAt, chaosProbeRow, dropCommand, FAULTS, NOT_INJECTED, relayCutCommand, sessionHostKillCommand, type ChaosResult } from "./cloud-chaos.ts";
 
 const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", recover_ms: ms, carrier: "resumed the session", turn: "completed once", detail: "" });
 
@@ -61,8 +61,10 @@ describe("faults", () => {
       writeFileSync(join(bin, "sudo"), "#!/bin/sh\nshift\nexec \"$@\"\n");
       writeFileSync(join(bin, "ss"), [
         "#!/bin/sh",
+        // Without -n, ss names the port (`:https`), which the count must never depend on.
+        'case " $* " in *" -n "*) port=443;; *) port=https;; esac',
         'case "$SSMODE" in',
-        '  closed) echo "ESTAB 0 0 10.0.0.2:5555 1.2.3.4:443"; echo "ESTAB 0 0 10.0.0.2:5556 1.2.3.4:443";;',
+        '  closed) echo "ESTAB 0 0 10.0.0.2:5555 1.2.3.4:$port"; echo "ESTAB 0 0 10.0.0.2:5556 1.2.3.4:$port";;',
         "  nothing) ;;",
         '  refused) echo "SOCK_DESTROY answers: Operation not supported" >&2; exit 1;;',
         "esac",
@@ -80,6 +82,15 @@ describe("faults", () => {
     } finally {
       rmSync(bin, { recursive: true, force: true });
     }
+  });
+
+  test("recovery is timed from the fault command's answer, never from before the command ran", () => {
+    // A cut or a kill answered 800 ms after it went out: an identify sent in between is not recovery.
+    expect(causeEndedAt(1_000, 1_800, 0)).toBe(1_800);
+    // A 5 s drop whose command answered at once ends 5 s after it went out.
+    expect(causeEndedAt(1_000, 1_200, 5)).toBe(6_000);
+    // A drop that held the command's answer past its end ends at the answer.
+    expect(causeEndedAt(1_000, 7_000, 5)).toBe(7_000);
   });
 
   test("Leo's 5 s and 60 s drops are both in the leg", () => {
