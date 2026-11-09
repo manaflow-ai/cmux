@@ -58,6 +58,7 @@
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
 pub mod prompt_sources;
+pub mod skill_index;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -1103,7 +1104,7 @@ fn materialize(state_dir: &Path, chat_skill: bool) -> anyhow::Result<PathBuf> {
 }
 
 /// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, and for a subagent's
-/// calls only ([`subagent_hook_command`]) after its `Bash` calls, around its acpmux MCP calls
+/// calls only ([`hook_command`]) after its `Bash` calls, around its acpmux MCP calls
 /// (`bg_hook::MCP_CALLS`, `subagent_call.rs`) and as it stops (the notices left for a subagent,
 /// `subagent_notice.rs`), run by this binary
 /// with this daemon's home as its argument: the harness's env carries no `ACPMUX_HOME`
@@ -1117,10 +1118,11 @@ fn bg_hooks() -> String {
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
-    let hook = json!([{"type": "command", "command": hook_command(&words), "timeout": 10}]);
+    let bash = hook_command(&words, &crate::bg_hook::bash_patterns());
+    let hook = json!([{"type": "command", "command": bash, "timeout": 10}]);
     // Only a subagent's call has work there: the lead's never starts this binary.
-    let subagent =
-        json!([{"type": "command", "command": subagent_hook_command(&words), "timeout": 10}]);
+    let sub = hook_command(&words, &[crate::bg_hook::SUBAGENT_PATTERN.to_owned()]);
+    let subagent = json!([{"type": "command", "command": sub, "timeout": 10}]);
     let mcp = crate::bg_hook::mcp_matcher();
     json!({"hooks": {
         "PreToolUse": [{"matcher": "Bash", "hooks": hook}, {"matcher": mcp, "hooks": subagent}],
@@ -1131,25 +1133,16 @@ fn bg_hooks() -> String {
     .to_string()
 }
 
-/// The hook's shell command: `words` quoted, then `|| true`. Claude Code blocks the tool call
-/// when a PreToolUse hook exits 2, and the hook only ever turns a call away through the JSON it
-/// prints on success, so a failure (a binary that is gone, or one that does not know
-/// `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
-/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02:
-/// `unknown resource scope "__bg-hook"` on each call).
-pub(crate) fn hook_command(words: &[String]) -> String {
-    format!("{} || true", quoted(words))
-}
-
-/// [`hook_command`] that starts `words` only for a subagent's call: Claude Code's hook input
-/// names `agent_id` only for one. The shell reads the input first and passes it on, so the
-/// lead's `PostToolUse` and MCP calls do not start this binary to find nothing to do. A false
-/// match (a quoted `"agent_id"` in a call's own input) only starts it, and it answers nothing.
-pub(crate) fn subagent_hook_command(words: &[String]) -> String {
-    format!(
-        "input=$(cat); case \"$input\" in *'\"agent_id\"'*) printf '%s' \"$input\" | {} ;; esac; true",
-        quoted(words)
-    )
+/// A hook's shell command: the shell reads Claude Code's input and starts `words` with it only when
+/// it matches one of `patterns` (shell `case` patterns), so a call the binary has nothing to say
+/// about starts no process (`bg_hook::bash_patterns`; a subagent's call names `agent_id`). It ends
+/// `true`: Claude Code blocks the call when a PreToolUse hook exits 2, and the hook turns a call
+/// away only through the JSON it prints, so a failure (a binary that is gone, or one that does not
+/// know `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
+/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02).
+pub(crate) fn hook_command(words: &[String], patterns: &[String]) -> String {
+    let (read, when, run) = ("input=$(cat); case \"$input\" in", patterns.join("|"), quoted(words));
+    format!("{read} {when}) printf '%s' \"$input\" | {run} ;; esac; true")
 }
 
 /// `words` as single-quoted shell words.

@@ -55,6 +55,7 @@ const MIN_READ_PAGE_BYTES: u64 = 4 * 1024;
 const READ_WAIT: Duration = Duration::from_secs(50);
 
 /// One wait on the receipt (the hub holds it at most 25 s).
+// timeout: one long-poll on the receipt (the hub holds it 25 s); READ_WAIT bounds the read.
 const ANSWER_WAIT: Duration = Duration::from_secs(25);
 
 /// The refusal prefix of a session the receiving daemon does not have.

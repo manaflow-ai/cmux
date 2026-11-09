@@ -1684,6 +1684,14 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
 Each session logs every JSON-RPC line in both directions plus acpmux records, with a
 per-session sequence number. Clients resume from a sequence number after a disconnect.
 
+That sequence number is the one resume cursor of a chat, on every route: a client attaches
+with `afterSeq` = the last `seq` it holds and drops duplicates by `seq`. Transports below
+acpmux keep their own positions only to replay frames within one connection: the Cloud
+carrier's lanes (interactive, control, bulk, tunnel) are transport scheduling, are never
+persisted, and are never a cursor a client sees or sends. After a relay drop, a route switch
+or a new dial, the chat resumes from acpmux's `seq`, so nothing is lost or shown twice
+([Cloud carrier roles](docs/carrier-roles.md#the-resume-cursor)).
+
 `acpmux export` writes a bundle: `session.json`, `events/*.ndjson`, the adapter's own session
 files under `native/` when the adapter is known (Codex rollouts, Claude Code project files),
 and `manifest.json`. `acpmux import` on another machine restores the native files (never

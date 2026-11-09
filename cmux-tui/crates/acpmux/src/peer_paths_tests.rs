@@ -89,16 +89,23 @@ fn a_dead_path_is_probed_again_on_a_growing_backoff_and_comes_back_with_a_pong()
 #[test]
 fn a_cold_connect_dials_the_remembered_path_first() {
     let mut paths = Paths::new(&[Via::Ssh, Via::Link, Via::Hub]);
-    assert_eq!(paths.dial_order(0), vec![Via::Link, Via::Ssh], "the hub has no stream yet");
+    // The hub relay streams only through the hub carrier, and then it is dialed last.
+    let then_hub = |mut order: Vec<Via>| {
+        if Via::Hub.streams() {
+            order.push(Via::Hub);
+        }
+        order
+    };
+    assert_eq!(paths.dial_order(0), then_hub(vec![Via::Link, Via::Ssh]));
     paths.remember(Some(Via::Ssh));
-    assert_eq!(paths.dial_order(0), vec![Via::Ssh, Via::Link]);
+    assert_eq!(paths.dial_order(0), then_hub(vec![Via::Ssh, Via::Link]));
     // A remembered path that is not one of these is ignored.
     paths.remember(Some(Via::Wireguard));
-    assert_eq!(paths.dial_order(0), vec![Via::Link, Via::Ssh]);
+    assert_eq!(paths.dial_order(0), then_hub(vec![Via::Link, Via::Ssh]));
     // Measured beats remembered.
     paths.remember(Some(Via::Ssh));
     paths.pong(Via::Link, 3 * MS, 0);
-    assert_eq!(paths.dial_order(0), vec![Via::Link, Via::Ssh]);
+    assert_eq!(paths.dial_order(0), then_hub(vec![Via::Link, Via::Ssh]));
 }
 
 #[test]

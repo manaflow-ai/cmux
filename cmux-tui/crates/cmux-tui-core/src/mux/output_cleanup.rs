@@ -201,6 +201,10 @@ fn run_output_cleanup(db_path: &Path, control: &Arc<Control>, pending: &AtomicBo
                 "cmux-tui: output cleanup: not enough free space, retried at the next start: {reason}"
             );
         }
+        Ok(StageOutcome::Skipped(reason)) => {
+            pending.store(false, Ordering::Release);
+            eprintln!("cmux-tui: output cleanup: skipped, the registry is unchanged: {reason}");
+        }
         Ok(StageOutcome::Stopped) => {
             eprintln!("cmux-tui: output cleanup: stopped; it resumes at the next start");
         }
