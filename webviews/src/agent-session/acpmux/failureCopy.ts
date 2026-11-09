@@ -65,8 +65,10 @@ const INSUFFICIENT_QUOTA = /insufficient[ _-]quota/i;
 const ROUTER_LIMIT = /too many requests|rate.?limit|wait a moment/i;
 /// The cmux model router's own refusal codes (backend inference/): `free.rate`, `inference.daily_limit`,
 /// `budget.exhausted` (a 429), `usage.included_reached` (a 402). Never the account behind the chat's
-/// own key, whatever status or type comes with them: none of them is `no-credit`.
-const ROUTER_CODE = /\b(?:free|inference|usage|budget)\.[a-z_]+\b/i;
+/// own key, whatever status or type comes with them: none of them is `no-credit`. The exact code
+/// tokens only, as a word of their own: never part of a URL or hostname (`inference.baseten.co`).
+const ROUTER_CODE =
+  /(?<![\w./:-])(?:free\.rate|inference\.daily_limit|budget\.exhausted|usage\.included_reached)(?![\w./-])/i;
 /// The cloud provider credentials a Bedrock or Vertex chat uses have expired or were refused: the AWS
 /// SDK's `ExpiredToken`, `ExpiredTokenException`, `UnrecognizedClientException`, "The security token
 /// included in the request is expired", "Could not load credentials", an expired SSO session; Google's
@@ -109,6 +111,9 @@ const INVALID_KEY =
 const SUBSCRIPTION =
   /not logged in|login required|please (?:run )?\/login|(?:claude|codex) (?:auth )?login|oauth token (?:has )?expired|session (?:has )?expired|refresh token|invalid_grant|invalid_rapt|sign(?:ed)? ?in again/i;
 const AUTH = /\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b/i;
+/// The agent's own OAuth refresh was refused (`invalid_grant`, `invalid_rapt`): its way out is its own
+/// sign-in, whatever host the message names (the token endpoint is no proxy).
+const OAUTH_REFRESH = /\binvalid_(?:grant|rapt)\b/i;
 const MISSING_CREDENTIAL =
   /(?:provider )?credentials? (?:is |are )?(?:missing|not configured|not set)|no provider credentials?/i;
 const EXPIRED_CREDENTIAL =
@@ -242,6 +247,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   // A signed-out Claude CLI says "Invalid API key · Please run /login": its way out is the login.
   if (INVALID_KEY.test(message) && !(SUBSCRIPTION.test(message) && !via)) return "invalid-key";
   if (MISSING_CREDENTIAL.test(message)) return "auth";
+  // Before a proxy: a refresh that names its token endpoint is still the agent's own login.
+  if (OAUTH_REFRESH.test(message)) return "subscription-login";
   if (AUTH.test(message) && via) return "proxy-auth";
   if (SUBSCRIPTION.test(message)) return "subscription-login";
   if (EXPIRED_CREDENTIAL.test(message)) return "auth";
