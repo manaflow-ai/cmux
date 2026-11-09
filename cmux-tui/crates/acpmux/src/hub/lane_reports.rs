@@ -303,7 +303,7 @@ pub(super) fn reports_only(provenance: Option<&Value>) -> bool {
 /// Words that make a turn's reply news for its parent even while the lane's own work runs: an
 /// end, a failure, a block or an ask (module docs). One that says neither is a still-waiting
 /// turn's; a false match only sends a report, as before.
-const DECISIVE: &str = r"(?i)\b(merged|landed|shipped|done|finished|completed?|ready|fail(?:ed|s|ing|ure|ures)?|errors?|blocked|stuck|needs?|question|approve|approval|refused|denied|cancell?ed|broken|red)\b|\?";
+const DECISIVE: &str = r"(?i)\b(merged|landed|shipped|done|finished|completed?|passed|passing|green|succeeded|ready|fail(?:ed|s|ing|ure|ures)?|errors?|blocked|stuck|needs?|question|approve|approval|refused|denied|cancell?ed|broken|red)\b|\?";
 
 static DECISIVE_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(DECISIVE).ok());
 
@@ -1636,6 +1636,7 @@ mod tests {
         }
         for news in [
             "Fleet run passed; merged.",
+            "The compile check passed.",
             "The compile check failed on linux-arm.",
             "Blocked: the mirror refuses the push.",
             "Done. Opened https://github.com/manaflow-ai/cmux/pull/1",
@@ -1650,8 +1651,7 @@ mod tests {
     #[test]
     fn a_still_waiting_report_is_held_and_folded_into_the_next() {
         let waiting = |turn| Report { interim: true, ..report(turn, &[]) };
-        let mut l = Link::default();
-        l.ready = Some(waiting(1));
+        let mut l = Link { ready: Some(waiting(1)), ..Link::default() };
         assert!(due_report(&mut l, 1).is_none(), "a still-waiting report went");
         assert!(l.ready.is_some(), "a held report was dropped");
         // Two more still-waiting turns replace it, then a real one replaces them all.
