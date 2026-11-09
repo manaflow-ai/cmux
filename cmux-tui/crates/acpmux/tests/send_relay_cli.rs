@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
 
 /// A state folder whose config names a relay that records each call in `relayed` (its argv,
-/// `ACPMUX_FROM` and stdin, one line per call), prints a delivery id and exits 7 for the
-/// session `refuse`.
+/// `ACPMUX_FROM` and stdin, one line per call) and in `labels` (`ACPMUX_FROM_SUBAGENT` and
+/// `ACPMUX_FROM_LABEL`), prints a delivery id and exits 7 for the session `refuse`.
 fn scratch(tag: &str) -> PathBuf {
     // Short: the socket path must stay under the macOS limit.
     let dir = std::env::temp_dir().join(format!("amx-rly-{tag}-{}", std::process::id()));
@@ -32,7 +32,8 @@ fn scratch(tag: &str) -> PathBuf {
     fs::write(
         &relay,
         format!(
-            "#!/bin/sh\n{{ printf '%s|' \"$*\" \"${{ACPMUX_FROM-unset}}\"; tr '\\n' ' '; echo; }} >> {}\n[ \"$2\" = refuse ] && {{ echo 'refused: not allowed' >&2; exit 7; }}\necho delivery-42\n",
+            "#!/bin/sh\nprintf '%s|%s\\n' \"${{ACPMUX_FROM_SUBAGENT-unset}}\" \"${{ACPMUX_FROM_LABEL-unset}}\" >> {}\n{{ printf '%s|' \"$*\" \"${{ACPMUX_FROM-unset}}\"; tr '\\n' ' '; echo; }} >> {}\n[ \"$2\" = refuse ] && {{ echo 'refused: not allowed' >&2; exit 7; }}\necho delivery-42\n",
+            dir.join("labels").display(),
             dir.join("relayed").display()
         ),
     )
@@ -208,4 +209,58 @@ fn a_stalled_relay_is_killed_at_the_send_deadline_with_its_process_group() {
     for pid in pids.split_whitespace() {
         assert!(gone(pid), "relay process {pid} survived the timeout ({pids})");
     }
+}
+
+/// W5-M (b): a Claude Code subagent's relayed send names the subagent to the relay as a label
+/// (`ACPMUX_FROM_SUBAGENT`, `ACPMUX_FROM_LABEL`), while `ACPMUX_FROM` stays the lead's session
+/// name: the far side's answer goes to that name (the lead), the only reply address the relay
+/// has. The lead's own send names no subagent.
+#[test]
+fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
+    let dir = scratch("s");
+    let _shutdown = Shutdown(&dir);
+    // The lane's agent prints the acpmux environment its shell would have.
+    let names = "ACPMUX_SESSION_ID,ACPMUX_SESSION_NAME,ACPMUX_SESSION_TOKEN,\
+        ACPMUX_SESSION_TOKEN_SOCKET,ACPMUX_SOCKET";
+    let made = cli(&dir, &["run", "-n", "lane", &format!("envs: {names}")]);
+    assert!(made.status.success(), "the session: {}", text(&made));
+    let stdout = String::from_utf8_lossy(&made.stdout);
+    let line = stdout.lines().find(|l| l.trim_start().starts_with('{')).unwrap_or_default();
+    let env: std::collections::BTreeMap<String, String> = serde_json::from_str(line.trim())
+        .unwrap_or_else(|_| panic!("no environment: {}", text(&made)));
+    assert!(!env["ACPMUX_SESSION_TOKEN"].is_empty(), "no caller token");
+    let as_agent = |subagent: Option<&str>| {
+        let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
+        cmd.args(["send", "--no-wait", "far/coordinator", "from the lane"])
+            .env("ACPMUX_HOME", &dir)
+            .env("ACPMUX_LOGIN_ENV", "0")
+            .env_remove("ACPMUX_FROM")
+            .env_remove("ACPMUX_CALLER_SUBAGENT")
+            .envs(env.iter().filter(|(_, v)| !v.is_empty()))
+            .current_dir(dir.join("p"))
+            .stdin(Stdio::null());
+        if let Some(mark) = subagent {
+            cmd.env("ACPMUX_CALLER_SUBAGENT", mark);
+        }
+        cmd.output().unwrap()
+    };
+    let sub = as_agent(Some("general-purpose:a0a68e7af3df5967e"));
+    assert!(sub.status.success(), "{}", text(&sub));
+    let lead = as_agent(None);
+    assert!(lead.status.success(), "{}", text(&lead));
+    let relayed = relayed(&dir);
+    assert_eq!(relayed.len(), 2, "{relayed:?}");
+    for line in &relayed {
+        assert!(line.ends_with("|lane|from the lane"), "ACPMUX_FROM is the lead's name: {line}");
+    }
+    let labels = fs::read_to_string(dir.join("labels")).unwrap_or_default();
+    let labels: Vec<&str> = labels.lines().collect();
+    assert_eq!(
+        labels,
+        [
+            "general-purpose:a0a68e7af3df5967e|lane's general-purpose subagent a0a68e7a",
+            "unset|unset"
+        ],
+        "the relay is told which subagent sent it, and the lead's own send names none"
+    );
 }
