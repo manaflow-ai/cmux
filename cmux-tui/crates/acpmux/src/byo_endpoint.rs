@@ -642,9 +642,7 @@ pub(crate) fn clear_inherited(
     let mut drop: Vec<String> = vec![OPENAI_KEY_ENV.to_owned()];
     if kind == Kind::Anthropic {
         drop.extend(
-            crate::agent::command_env(cmd).into_iter().map(|(k, _)| k).filter(|k| {
-                k.starts_with("ANTHROPIC_") || CLAUDE_PROVIDER_KEYS.contains(&k.as_str())
-            }),
+            crate::agent::command_env(cmd).into_iter().map(|(k, _)| k).filter(|k| cleared(k)),
         );
         drop.extend(ANTHROPIC_KEYS.iter().chain(CLAUDE_PROVIDER_KEYS).map(|k| (*k).to_owned()));
     }
@@ -652,6 +650,21 @@ pub(crate) fn clear_inherited(
     for k in drop {
         cmd.env_remove(k);
     }
+}
+
+/// A name `clear_inherited` removes unless the harness sets it itself.
+fn cleared(name: &str) -> bool {
+    name.starts_with("ANTHROPIC_") || CLAUDE_PROVIDER_KEYS.contains(&name)
+}
+
+/// The harness of `profile_env` (its unresolved env, the endpoint marker
+/// still in it) never takes `name` from the login env: an Anthropic endpoint
+/// harness's `clear_inherited` removes it (`login_env::ChildEnv`), as every
+/// endpoint harness removes an inherited `CMUX_BYO_API_KEY`.
+pub(crate) fn clears(name: &str, profile_env: &BTreeMap<String, String>) -> bool {
+    let Some(kind) = Kind::of_env(profile_env) else { return false };
+    !profile_env.contains_key(name)
+        && (name == OPENAI_KEY_ENV || (kind == Kind::Anthropic && cleared(name)))
 }
 
 #[cfg(all(test, unix))]

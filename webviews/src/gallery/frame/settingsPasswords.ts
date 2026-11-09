@@ -50,7 +50,12 @@ export async function fixtureSteps(steps: PageFixtureStep[] = []): Promise<void>
     } else if (step.action === "enter")
       node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     else if (step.action === "input" || step.action === "change") {
-      const proto = node instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+      const proto =
+        node instanceof HTMLSelectElement
+          ? HTMLSelectElement.prototype
+          : node instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype;
       Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(node, step.value ?? "");
       node.dispatchEvent(new Event(step.action, { bubbles: true }));
     }

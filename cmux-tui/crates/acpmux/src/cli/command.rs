@@ -141,7 +141,8 @@ pub enum Command {
     Continue(crate::cli::handoff::ContinueArgs),
     /// Retry a session's failed last turn now, in the same session (a waiting retry fires).
     Retry(crate::cli::retry::RetryArgs),
-    /// One turn per turn: prompt preview, status, tools, tokens, wall time.
+    /// One turn per turn: prompt preview, status, tools, tokens, wall time, and how much of it
+    /// went to getting the prompt to the agent (START) and to the model's first output (MODEL).
     History {
         session: String,
         #[arg(long, short = 'n', default_value_t = 20)]
@@ -417,6 +418,9 @@ pub enum Command {
     /// Wake a session with one message when others are done or blocked: add, ls, rm.
     #[command(subcommand)]
     Watch(crate::cli::watch::WatchCmd),
+    /// Give the Claude desktop app, Claude Code and Codex the cmux tools: link, unlink, status.
+    #[command(subcommand)]
+    Desktop(crate::cli::desktop::DesktopCmd),
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),

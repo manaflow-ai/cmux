@@ -331,6 +331,16 @@ fn a_folder_that_is_there_while_the_clone_runs_is_not_ready_until_the_repo_step_
     fake.assert_clean();
 }
 
+/// Statuses from a runner older than `step` (review of #37248 at f96471d1).
+const LEGACY_REPO_FAILED: &str =
+    r#"{"state":"failed","exit_code":1,"repo":{"status":"failed"},"at":1}"#;
+const LEGACY_NEEDS_GITHUB: &str =
+    r#"{"state":"failed","exit_code":3,"repo":{"status":"needs_github"},"at":1}"#;
+const LEGACY_SCRIPT_FAILED: &str =
+    r#"{"state":"failed","exit_code":2,"repo":{"status":"cloned"},"at":1}"#;
+const LEGACY_SCRIPT_FAILED_NEEDS_GITHUB: &str =
+    r#"{"state":"failed","exit_code":2,"repo":{"status":"needs_github"},"at":1}"#;
+
 /// The bootstrap files decide, and the folder must be there. No bootstrap: the folder being there is
 /// enough. The repository step cloned (or the whole bootstrap done) starts. Review of #37248 at
 /// 83945375: a bootstrap whose setup script failed keeps no chat out of a folder that is there (a
@@ -350,6 +360,11 @@ fn the_bootstrap_files_decide_whether_the_folder_is_ready() {
         (Some(FAILED_REPO), failed_repo, true, false),
         (Some(FAILED_REPO), None, true, false),
         (Some(DONE), Some(CLONED), false, false),
+        // A runner older than `step`: its repository failed by `repo.status` (machine_bootstrap.rs).
+        (Some(LEGACY_REPO_FAILED), None, true, false),
+        (Some(LEGACY_NEEDS_GITHUB), None, true, false),
+        (Some(LEGACY_SCRIPT_FAILED), None, true, true),
+        (Some(LEGACY_SCRIPT_FAILED_NEEDS_GITHUB), None, true, true),
     ] {
         let home = tempfile::tempdir().unwrap();
         let cwd = home.path().join("work/r");
