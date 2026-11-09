@@ -626,7 +626,7 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
 /// - Codex: OPENAI_*, CODEX_*.
 /// - Gemini: GEMINI_* and GOOGLE_* (the CLI/API and Vertex credentials).
 /// - Muse: MUSE_* and META_* (the official CLI and API credentials).
-/// - OpenCode, pi, omp, cmux Harness (pi's loop) and Hermes: the fixed
+/// - OpenCode, OpenCode v2, pi, omp, Prime, cmux Harness (pi's loop) and Hermes: the fixed
 ///   provider-key names in `PROVIDER_KEYS`, never a prefix.
 /// - Not here: a name delivered in `~/.config/cmux/machine-secrets.env`
 ///   passes only on the local spawn paths (`pairs_for`), never through this
@@ -695,14 +695,19 @@ pub fn allowed_with(
     }
 }
 
-/// The harnesses that sign in with any provider's API key: OpenCode, pi and
-/// its fork omp, cmux Harness (pi's model loop) and Hermes.
-const PROVIDER_FAMILIES: [&str; 5] = ["opencode", "pi", "omp", "cmux-harness", "hermes"];
+/// The harnesses that sign in with any provider's API key: OpenCode and
+/// OpenCode v2 (`opencode2`, which uses OpenCode's provider credentials), pi
+/// and its forks omp and Prime Agent, cmux Harness (pi's model loop) and
+/// Hermes. Not DeepSeek Harness (`dsh`): its key lives in
+/// `~/.dsh/.credentials.yaml`.
+const PROVIDER_FAMILIES: [&str; 7] =
+    ["opencode", "opencode-v2", "pi", "omp", "prime", "cmux-harness", "hermes"];
 
 /// The provider keys (and base URLs) those harnesses read from their
 /// environment. Exact names, never a prefix: a prefix would bring in any
-/// secret that shares it (`OPENAI_ORG_TOKEN`, `GROQ_SECRET`). Every key is a
-/// secret by name (`is_secret`), so only its name reaches the cache.
+/// secret that shares it (`OPENAI_ORG_TOKEN`, `GROQ_SECRET`). Only their
+/// names reach the cache (`save_cache`): every key is a secret by name
+/// (`is_secret`), and a base URL can carry a token in its path.
 /// Not here: cloud credentials (AWS_*, Vertex ADC), which only Claude's
 /// Bedrock and Vertex switches unlock, and GitHub tokens.
 const PROVIDER_KEYS: [&str; 26] = [
@@ -1233,8 +1238,9 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
     let mut vars = BTreeMap::new();
     let mut secret_names = Vec::new();
     for (k, v) in login {
-        // A delivered value is a secret whatever its name (`DEMO`, `STRIPE`).
-        if is_secret(k, v) || delivered(k) {
+        // A delivered value is a secret whatever its name (`DEMO`, `STRIPE`), and so is
+        // a provider base URL (`PROVIDER_KEYS`), whose path can carry a token.
+        if is_secret(k, v) || delivered(k) || PROVIDER_KEYS.contains(&k.as_str()) {
             secret_names.push(k.clone());
         } else {
             vars.insert(k.clone(), v.clone());

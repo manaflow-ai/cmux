@@ -1265,10 +1265,10 @@ BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
 NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
 with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Gemini: GEMINI_*, GOOGLE_*.
-Muse: MUSE_*, META_*. OpenCode, pi, omp, cmux Harness and Hermes also: a fixed list of provider
-keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY, HF_TOKEN
-and the rest of `PROVIDER_KEYS` in `src/login_env.rs`, plus ANTHROPIC_BASE_URL and OPENAI_BASE_URL),
-exact names only. Nothing else (GITHUB_TOKEN,
+Muse: MUSE_*, META_*. OpenCode, OpenCode v2, pi, omp, Prime, cmux Harness and Hermes also: a fixed
+list of provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY,
+DEEPSEEK_API_KEY, HF_TOKEN and the rest of `PROVIDER_KEYS` in `src/login_env.rs`, plus
+ANTHROPIC_BASE_URL and OPENAI_BASE_URL), exact names only; the cache keeps only their names. Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
 default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
 (`cmux cloud deliver-secrets`; its value is never cached). Local child launches also read
