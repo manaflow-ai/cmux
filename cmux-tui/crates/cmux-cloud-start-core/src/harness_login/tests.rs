@@ -712,3 +712,41 @@ fn the_login_decision_wire_holds_no_credential() {
         assert!(!wire.to_lowercase().contains(word), "{word} in {wire}");
     }
 }
+
+#[test]
+fn only_a_claude_start_that_copies_conflicts_with_a_warm_copy() {
+    // A Claude start that reads and copies onto its machine would race the warm's Claude copy.
+    let claude = decide(&cached(owner()));
+    assert!(claude.reads_machine && claude.warm_copy_conflict);
+    // Codex reads the machine too (its broker), but the warm copies only Claude: no conflict.
+    let codex = decide(&Inputs { provider: Some(Provider::Codex), ..cached(owner()) });
+    assert!(codex.reads_machine && !codex.warm_copy_conflict);
+    // A start that copies nothing (`--login none`, a machine it does not own) never waits.
+    let none =
+        Inputs { requested: Some(Choice::None), requested_by_person: true, ..cached(owner()) };
+    assert!(!decide(&none).warm_copy_conflict);
+    assert!(!decide(&Inputs { caller_owns: Some(false), ..cached(owner()) }).warm_copy_conflict);
+}
+
+#[test]
+fn a_refused_start_never_waits_on_a_warm_copy() {
+    // A headless Claude start with no login choice refuses at once (`cloud start-session`): it copies nothing,
+    // so it never waits for the warm's copy onto its machine.
+    let refused = decide(&Inputs { headless: true, ..owner() });
+    assert_eq!(refused.step, Step::Refuse);
+    assert!(!refused.warm_copy_conflict);
+}
+
+#[test]
+fn a_start_that_keeps_the_machines_login_never_waits_on_a_warm_copy() {
+    // `--login machine` writes nothing: with a login there it keeps it, without one it refuses.
+    for login in [MachineLogin::Working, MachineLogin::Session, MachineLogin::None] {
+        let d = decide(&Inputs {
+            requested: Some(Choice::Machine),
+            requested_by_person: true,
+            machine_login: Some(login),
+            ..owner()
+        });
+        assert!(d.reads_machine && !d.warm_copy_conflict, "{login:?}");
+    }
+}

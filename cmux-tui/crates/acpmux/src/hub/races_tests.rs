@@ -339,3 +339,154 @@ async fn a_race_without_a_slot_for_its_reviewer_is_refused_up_front() {
     assert!(refused.message.contains("needs 3 free sub-session slots"), "{}", refused.message);
     assert!(parent.read_meta(|m| m.races.is_empty()), "nothing recorded or started");
 }
+
+fn child_with_log(hub: &Hub, id: &str) -> Arc<Session> {
+    let child = hub.insert_test_session(test_meta(id, "idle", Some("parent")));
+    hub.save_meta(&child);
+    child
+}
+
+fn ended(child: &Session, turn: &str, status: &str, error: Option<&str>) {
+    let mut last = json!({"turnId": turn, "status": status});
+    if let Some(error) = error {
+        last["errorText"] = json!(error);
+    }
+    child.meta.lock().unwrap().last_turn = Some(last);
+}
+
+/// Review of #34437 (GPT F1): a turn a connection error cut is continued under a new turn id
+/// (`auto_resume.rs`); the candidate's outcome is that continuation's, not the cut turn's.
+#[tokio::test]
+async fn a_cut_turn_settles_with_its_automatic_continuation() {
+    let hub = memory_hub();
+    let child = child_with_log(&hub, "cut-child");
+    let started = |turn: &str, provenance: Value| {
+        let mut msg = json!({"turnId": turn, "promptId": "p"});
+        if !provenance.is_null() {
+            msg["_meta"] = json!({"provenance": provenance});
+        }
+        hub.append(&child, "mux", "user_message", msg);
+    };
+    let resume = |cut: &str| json!({"kind": "auto_resume", "promptId": "p", "turnId": cut});
+    started("t1", Value::Null);
+    started("t2", resume("t1"));
+    started("t3", resume("t2"));
+    ended(&child, "t3", "completed", None);
+    assert_eq!(hub.continued_turn(&child, Some("t1")).as_deref(), Some("t3"));
+    assert_eq!(hub.settled(&child, Some("t1")), Some((true, None)));
+    // The continuation still runs: nothing is settled yet.
+    ended(&child, "t1", "failed", Some("stream disconnected"));
+    assert_eq!(hub.settled(&child, Some("t1")), None);
+}
+
+/// Review of #34437: a prompt removed before it ran settles its candidate however many records
+/// the child logged since (the check read only the last 512).
+#[tokio::test]
+async fn a_removal_far_back_in_the_log_still_settles() {
+    let hub = memory_hub();
+    let child = child_with_log(&hub, "busy-child");
+    hub.append(&child, "mux", "queue_removed", json!({"turnId": "t1", "reason": "stopped"}));
+    for n in 0..600 {
+        hub.append(&child, "mux", "note", json!({"n": n}));
+    }
+    let (ok, error) = hub.settled(&child, Some("t1")).unwrap();
+    assert!(!ok);
+    assert!(error.unwrap().contains("stopped"));
+}
+
+/// Review of #34437 (GPT F2): after a restart, a candidate whose prompt waited for a run slot
+/// has no turn yet; its turn id comes from the queued record, so its outcome can settle.
+#[tokio::test]
+async fn a_queued_prompt_keeps_its_turn_id_across_a_restart() {
+    let hub = memory_hub();
+    let child = child_with_log(&hub, "slot-child");
+    let queued = crate::store::EventRecord {
+        seq: 1,
+        at: 0,
+        dir: "mux".into(),
+        kind: "queued".into(),
+        msg: json!({"turnId": "t-queued", "promptId": "p"}),
+        host_seq: None,
+    };
+    assert_eq!(recovered_turn(&child, &[]), None);
+    assert_eq!(recovered_turn(&child, &[queued]).as_deref(), Some("t-queued"));
+}
+
+/// Review of #34437: cancelling an imported race, whose children stayed on the machine it came
+/// from, finishes instead of failing and retrying at every restart.
+#[tokio::test]
+async fn cancelling_a_race_whose_children_are_not_here_finishes() {
+    let hub = memory_hub();
+    let parent = hub.insert_test_session(test_meta("parent", "idle", None));
+    hub.save_meta(&parent);
+    let race: Race = serde_json::from_value(json!({
+        "id": "imported", "parent": "parent", "prompt": "fix", "state": "failed",
+        "candidates": [
+            {"id": "c1", "target": {"harness": "codex"}, "state": "completed", "sessionId": "elsewhere-1"},
+            {"id": "c2", "target": {"harness": "codex"}, "state": "completed", "sessionId": "elsewhere-2"}
+        ],
+        "reviewer": {"harness": "codex"}, "reviewerSessionId": "elsewhere-review",
+        "winnerId": null, "reason": "moved", "createdAt": 1, "updatedAt": 2
+    }))
+    .unwrap();
+    parent.meta.lock().unwrap().races = Arc::new(vec![race]);
+    hub.race_cancel(&parent, "imported").await.unwrap();
+    let done = hub.race_get(&parent, "imported").unwrap();
+    assert_eq!(done.state, "cancelled");
+    assert!(!done.cleanup_pending);
+    assert!(!race_needs_resume(&done), "nothing for a restart to retry");
+}
+
+/// Review of #38735: a cleanup that failed after the verdict or cancel was saved is retried
+/// (`spawn_race`); a race that merely failed, or whose cleanup finished, is not.
+#[test]
+fn only_a_saved_verdict_or_cancel_with_cleanup_left_is_retried() {
+    let mut reviewing = race();
+    reviewing.winner_id = Some("c1".into());
+    assert!(!cleanup_unfinished(&reviewing), "no cleanup started");
+    reviewing.cleanup_pending = true;
+    assert!(cleanup_unfinished(&reviewing));
+    let mut cancelled = race();
+    cancelled.state = "cancelled".into();
+    cancelled.cleanup_pending = true;
+    assert!(cleanup_unfinished(&cancelled));
+    cancelled.cleanup_pending = false;
+    assert!(!cleanup_unfinished(&cancelled));
+    let mut failed = race();
+    failed.state = "failed".into();
+    failed.cleanup_pending = true;
+    assert!(!cleanup_unfinished(&failed));
+    let mut no_winner = race();
+    no_winner.cleanup_pending = true;
+    assert!(!cleanup_unfinished(&no_winner), "no verdict saved: nothing to finish");
+    assert!(!CLEANUP_RETRY_DELAYS.is_empty() && CLEANUP_RETRY_DELAYS.len() <= 5);
+}
+
+/// Review of #38759: a cancel that came while the verdict's cleanup ran, and whose own cleanup
+/// failed, is finished by that verdict cleanup instead of ending `Ok` with cleanup pending.
+#[tokio::test]
+async fn a_cancel_during_verdict_cleanup_is_finished_by_it() {
+    let hub = memory_hub();
+    let parent = hub.insert_test_session(test_meta("parent", "idle", None));
+    let child = hub.insert_test_session(test_meta("loser", "idle", Some("parent")));
+    hub.save_meta(&parent);
+    hub.save_meta(&child);
+    let race: Race = serde_json::from_value(json!({
+        "id": "cancelled-mid-cleanup", "parent": "parent", "prompt": "fix", "state": "cancelled",
+        "candidates": [
+            {"id": "c1", "target": {"harness": "codex"}, "state": "completed", "sessionId": "gone"},
+            {"id": "c2", "target": {"harness": "codex"}, "state": "completed", "sessionId": "loser"}
+        ],
+        "reviewer": {"harness": "codex"}, "winnerId": "c1",
+        "reason": "Cancelled; worktrees retained for recovery",
+        "createdAt": 1, "updatedAt": 2, "cleanupPending": true
+    }))
+    .unwrap();
+    parent.meta.lock().unwrap().races = Arc::new(vec![race]);
+    hub.finish_review_cleanup(&parent, "cancelled-mid-cleanup").await.unwrap();
+    let done = hub.race_get(&parent, "cancelled-mid-cleanup").unwrap();
+    assert_eq!(done.state, "cancelled");
+    assert!(!done.cleanup_pending, "the cancel's cleanup finished");
+    assert!(!cleanup_unfinished(&done));
+    assert_eq!(child.meta().status, SessionStatus::Closed, "its child was stopped");
+}

@@ -13,6 +13,9 @@ Behaviour per prompt text:
   "cancel-errors" -> streams "running", then answers session/cancel with an error
   "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
                  session/cancel; answers end_turn after 60 s
+  "stuck-loop" -> three identical failed cargo test calls, then a ready marker while the
+                 turn stays open for at most 90 s; cancel ends it early, otherwise one
+                 successful call clears the episode before end_turn
   "works-through-cancel-beside-background" -> the same after starting background subagent bg-1
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
@@ -112,6 +115,18 @@ def send_all(objs):
     with lock:
         sys.stdout.write("".join(json.dumps(o) + "\n" for o in objs))
         sys.stdout.flush()
+
+
+def request_start(method, params):
+    """Send a request to the client without waiting: its id and the event its answer sets."""
+    global next_id
+    with lock:
+        rid = next_id
+        next_id += 1
+    ev = threading.Event()
+    pending[rid] = [ev, None]
+    send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+    return rid, ev
 
 
 def request(method, params):
@@ -395,6 +410,41 @@ def run_gh_pr_create(rid, sid):
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
+def run_stuck_loop(rid, sid):
+    """Keep a detected loop visible long enough for a real-app capture, without running a command."""
+    for number in range(3):
+        if sid in cancelled:
+            cancelled.discard(sid)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+            return
+        call_id = f"stuck-cargo-{number}"
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": call_id, "title": "cargo test",
+                     "kind": "execute", "status": "in_progress", "rawInput": {"command": "cargo test"}})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call_id, "status": "failed",
+                     "rawOutput": {"exit_code": 1, "stderr": "auth.rs:88: assertion failed"}})
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+        "type": "text", "text": "STUCK LOOP READY"}})
+    # Starting the next tool finalizes that assistant segment for the DEV capture's
+    # chat_state untilReplyContains wait, without clearing the still-running episode.
+    update(sid, {"sessionUpdate": "tool_call", "toolCallId": "stuck-progress", "title": "Check progress",
+                 "kind": "execute", "status": "in_progress", "rawInput": {"command": "true"}})
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        if sid in cancelled:
+            cancelled.discard(sid)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+            return
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+    if sid in cancelled:
+        cancelled.discard(sid)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+        return
+    update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "stuck-progress", "status": "completed"})
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+        "type": "text", "text": " STUCK LOOP CLEARED"}})
+    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     # Model a harness that scopes an interrupt to the prompt it is processing.
@@ -408,6 +458,37 @@ def handle_prompt(rid, params):
             "type": "text",
             "text": json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True),
         }})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "carrier-fault: TOTAL KILL GATE" (tests/carrier_faults.rs): streams chunks "ev-1 " to
+    # "ev-KILL ", asks permission without waiting, waits until the file GATE exists (the test cuts
+    # the carrier, then makes it), streams on to "ev-(TOTAL-50) " while the carrier is down, waits
+    # for the answer, streams the rest to "ev-TOTAL ", then "chose X" and end_turn.
+    if text.startswith("carrier-fault:"):
+        total, kill, gate = text[len("carrier-fault:"):].split("<", 1)[0].split()
+        total, kill = int(total), int(kill)
+        chunk = lambda n: update(sid, {"sessionUpdate": "agent_message_chunk",
+                                       "content": {"type": "text", "text": f"ev-{n} "}})
+        for n in range(1, kill + 1):
+            chunk(n)
+        aid, ev = request_start("session/request_permission", {
+            "sessionId": sid,
+            "toolCall": {"toolCallId": "cf1", "title": "carrier fault", "kind": "execute", "status": "pending"},
+            "options": [
+                {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
+                {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+            ],
+        })
+        while not os.path.exists(gate):
+            time.sleep(0.005)
+        for n in range(kill + 1, total - 49):
+            chunk(n)
+        ev.wait()
+        res = pending.pop(aid)[1] or {}
+        for n in range(max(kill + 1, total - 49), total + 1):
+            chunk(n)
+        chosen = res.get("outcome", {}).get("optionId", res.get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "/compact": a compaction, as Claude Code reports one (acpmux compacts a chat that outgrew
@@ -436,6 +517,8 @@ def handle_prompt(rid, params):
         return run_hostname(rid, sid)
     if text == "gh-pr-create":
         return run_gh_pr_create(rid, sid)
+    if text == "stuck-loop":
+        return run_stuck_loop(rid, sid)
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
     # with a transport error once per session; "net-down" fails it and every later prompt of
     # the session the same way. Any other prompt after a net-fail-once is answered as usual.

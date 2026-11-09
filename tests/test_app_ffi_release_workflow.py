@@ -594,11 +594,17 @@ class NewestPublishedRelease(unittest.TestCase):
 
 
 class BuildSpeedAndSupersede(unittest.TestCase):
-    """A newer FFI push supersedes an older build, and the build clones treeless.
+    """A newer FFI push queues behind a running build, never cancels it, and the build clones treeless.
 
     The run-level group (cancel-in-progress: false) made a newer push wait for
-    the whole older run, whose pin could no longer land (#36262). The full
-    clone of every ref was 5 to 10 minutes of each build.
+    the whole older run, publish and re-pin included (#36262). The build job's
+    group then cancelled the running build on each newer FFI push (#36346):
+    on 2026-11-08 FFI pushes at 18:19, 18:39, 19:01 and 19:04Z cancelled every
+    build, a dispatch (run 42511706663) too, so nothing newer than fcf8221e
+    published and the pin stayed red. A build is never cancelled: the group
+    keeps one running and only the newest pending, and the re-pin pins the
+    newest published release (latest wins). The full clone of every ref was 5
+    to 10 minutes of each build.
     """
 
     def setUp(self):
@@ -609,10 +615,10 @@ class BuildSpeedAndSupersede(unittest.TestCase):
     def test_no_run_level_group_queues_a_newer_push(self):
         self.assertNotIn("concurrency", self.workflow)
 
-    def test_a_newer_build_cancels_the_older_build(self):
+    def test_a_newer_push_never_cancels_a_running_build(self):
         concurrency = self.jobs["build"]["concurrency"]
         self.assertIn("${{ github.ref }}", concurrency["group"])
-        self.assertIs(concurrency["cancel-in-progress"], True)
+        self.assertIs(concurrency["cancel-in-progress"], False)
 
     def test_publish_is_never_cancelled_and_repins_run_one_at_a_time(self):
         publish = self.jobs["publish"]["concurrency"]

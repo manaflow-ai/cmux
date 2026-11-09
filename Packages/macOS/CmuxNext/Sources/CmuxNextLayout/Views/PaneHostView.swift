@@ -349,6 +349,12 @@ final class PaneHostView: NSView, RestingPlacement {
         area.drawAheadOfHold(sizeChange: sizeChange, keyPress: keyPress)
     }
 
+    /// The held snap showed (``ScreenContentView`` `presentHeldSnap`): a size drawn ahead for it that its placement did
+    /// not take goes (RESIZE P0 14).
+    func snapDidShow() {
+        (content as? PaneMotionHolding)?.paneMotionHoldArea?.aheadOfHoldShown()
+    }
+
     /// The held area rides the key hold's edges in each frame, and lets go when the hold ends, before the content hears
     /// the landing (its terminal then sizes its surface from its final frame).
     private func syncHeldArea() {

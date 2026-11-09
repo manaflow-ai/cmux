@@ -1,0 +1,40 @@
+{
+  "$comment": "HAND-EDITED source of the Developer Tools row: Inspect Element and the Web Inspector or Chromium DevTools for cmux's own pages. gen-settings-sources.py writes the Swift descriptor and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "developerTools",
+      "section": "advanced",
+      "group": {
+        "key": "settings.group.developerTools",
+        "text": "Developer Tools"
+      },
+      "note": "Settings > Advanced > Developer Tools (Lawrence 2026-11-07: \"make it possible to open chrome devtools in chat ui itself\").",
+      "rows": [
+        {
+          "key": "developerTools.appPages",
+          "note": "On (the default, in every build): the agent chat, Home, Markdown and Settings pages offer Inspect Element in their right-click menu, and Toggle Developer Tools (Cmd-Opt-I), Inspect Element (Cmd-Opt-C) and the palette's Developer Tools commands act on them. Off: only browser tabs open developer tools. Browser tabs are never affected.",
+          "title": {
+            "key": "settings.developerTools.appPages",
+            "text": "Developer Tools for cmux Pages"
+          },
+          "help": {
+            "key": "settings.developerTools.appPages.help",
+            "text": "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "developer",
+            "devtools",
+            "inspector",
+            "web inspector",
+            "inspect element",
+            "chrome",
+            "debug"
+          ],
+          "swift_owner": "AppPageDevToolsSetting"
+        }
+      ]
+    }
+  ]
+}

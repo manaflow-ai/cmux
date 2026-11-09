@@ -47,6 +47,17 @@ Global options, accepted before the scope:
 `--socket`, `--session`, `--machine` and `--app-socket` also take the
 `--flag=value` form.
 
+A command that streams (every `stream_open` operation: `session events`,
+`session journal subscribe`, `terminal attach`) has no single JSON result:
+`--json` on one fails with `cli.use_jsonl`, exit 2, before anything connects.
+Its message and `details.command` name the same command with `--jsonl`.
+
+`cmux identify` with no cmux app to ask (a headless session, or `--session` or
+`CMUX_TUI_SOCKET` naming a session no app owns) answers from the session
+daemon: `session`, `machine`, `socket_path`, `caller` (found only in a cmux
+terminal), `app_connected: false`, `app: null` and `app_error` (why no app
+answered), exit 0. `--socket` and `--app-socket` still name the app socket.
+
 `--socket` is a daemon session socket. The remote commands (`connect`, `ssh`,
 `forward`, `rpc`) reach a ROUTE and refuse `--socket`. A tagged app's
 `~/.local/state/cmux/cmux-debug-<tag>.sock` is the app control socket: pass it with
@@ -387,7 +398,7 @@ cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
 cmux terminal <selector> keys <key...>
 cmux terminal <selector> mouse <down|up|move|wheel> --row <n> --column <n> [--button <b>] [--delta-rows <n>] [--modifiers <list>]
 cmux terminal <selector> focus <in|out>
-cmux terminal <selector> screen read
+cmux terminal <selector> screen read [--details]
 cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
 cmux terminal <selector> state read
 cmux terminal <selector> history read [--before <n>] [--limit <n>] [--styled]
@@ -396,14 +407,19 @@ cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 cmux terminal <selector> copy [--mode screen|selection|scrollback]
 cmux terminal <selector> process show
 cmux terminal <selector> process wait [--timeout-ms <n>]
-cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>|--timeout-ms <n>]
+cmux terminal <selector> wait --until idle|prompt|ready [--timeout <500ms|30s|5m>|--timeout-ms <n>]
 cmux terminal <selector> send --text <message|-> [--wait idle|prompt|none] [--timeout <5m>] [--settle <3s>] [--force]
 cmux terminal <selector> viewport scroll --delta-rows <n>
 cmux terminal <selector> move|project --workspace <sel> --screen <sel> --pane <sel> --index <n>
 cmux terminal <selector> attach [--read-only]
 cmux terminal <selector> close
 cmux terminal <term_id> keep on|off
+cmux terminal <selector> resume [--cmd <launcher>] [--pane <sel>] [--split <dir>] [--cwd <dir>] [--no-focus] [--no-wait]
 ```
+
+`screen read` prints the screen's text as it shows (no trailing blank rows);
+`--details` prints the whole record (`text`, `cols`, `rows`, `revision`, ...)
+in the human form, and `--json` prints the record as before.
 
 `write` sends text as typed, with no implied newline; without `--text` or
 `--bytes-base64` it reads stdin. `keys` takes key chords joined with `+`:
@@ -424,7 +440,10 @@ record. A passed timeout exits 124 with `wait.timeout`, also when the daemon
 stops answering. Both read shell state from OSC 133 marks: in a shell without
 integration `--until idle` returns while a command still runs. After the daemon
 reattaches to a running terminal host, the prompt and command state come back
-only with the shell's next mark.
+only with the shell's next mark. `--until ready` waits until the terminal's
+agent can take a message, as `cmux agent start` does (spec/cli.md "Agent start
+and resume"): a startup dialog such as Claude's folder-trust question ends it
+as `blocked` with `dialog` and `reason` (exit 4).
 
 `list --agents` lists the terminals that run a coding agent, from one
 `session.snapshot`: the harness (Claude Code, Codex, … from hook or plugin
@@ -438,6 +457,15 @@ Listing never clears `done`; viewing the tab in a client does. `--json` prints
 updated_at_ms, age_ms, source}]`: `status` is the word above (`null` for an
 ended session) and `state` keeps the older words (`busy`, `idle`,
 `waiting-for-input`, `ended`) for existing scripts.
+
+Each `list --agents` row also has `name` (the tab's name when it is an agent
+name, see `cmux agent start`), `tab_id`, `tab_name`, `pane_id` and
+`last_reply` (the agent's last answer from its hooks, one line of at most 200
+characters, kept in daemon memory only; null when unknown), and the human
+table starts with a NAME column. `harness` and `source` use one word each:
+`claude` (input aliases `claude-code`, `claude_code`, `Claude Code`), `codex`
+(`codex-cli`), `opencode`, `gemini`, `amp`; sources `hook`, `plugin` (older
+records say `detected`), `socket` and `program_status` (OSC 7501).
 
 `send` talks to the agent or shell in a terminal in one call. It types the
 message as one bracketed paste when the terminal has paste mode on (so a
@@ -594,6 +622,7 @@ cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
 cmux settings unset <path> [--confirm]
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
+            [--timeout <duration>] [--until <name>|<prefix>*] [--match <path>=<value>]...
 ```
 
 `settings set` parses the value as JSON when it parses, else as a string.
@@ -602,7 +631,9 @@ cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats
 Mac on a native sheet and waits for the answer with no client deadline; a
 declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 `cmux settings set <path> -- --confirm` sets the string "--confirm".
-`events` streams JSON lines until interrupted.
+`events` streams JSON lines until interrupted, or until `--timeout` (exit 124,
+with a last `{"type":"timeout","timed_out":true}` line in JSON modes); with
+`--until`/`--match` it prints the first matching event and exits 0.
 
 `action run -` reads app actions from stdin, a JSON array or one JSON object
 per line of `action.run` params (`{"action": "newColumn", "target": "pane:…",

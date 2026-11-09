@@ -12,7 +12,7 @@
   gap: var(--ds-space-2);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text);
   font-variant-numeric: tabular-nums;
   cursor: default;

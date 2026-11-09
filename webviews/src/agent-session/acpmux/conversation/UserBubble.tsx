@@ -37,8 +37,10 @@ import { useStableImage } from "./imageEntries";
 import { sendMorphRef } from "./sendMorph";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
-import { isStripMedia, readsAsText } from "./inlinePromptContentModel";
+import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts, resendsAttachments } from "../inlinePrompt";
+import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
+import { attachmentOnly, imageOriginals } from "./bubbleParts";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -148,17 +150,14 @@ export function UserBubble({
   // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
   // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
   // to read beside its attachments, keep the legacy bands above the bubble.
-  const firstMedia = orderedParts?.findIndex((part) => part.kind !== "text") ?? -1;
   const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
-  const hasInterleaved =
-    firstMedia >= 0 &&
-    (placed
-      ? orderedParts!.some((part) => !isStripMedia(part))
-      : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
+  // The row's height estimate reads the same rule (promptCollapse.ts `inlineBubbleParts`).
+  const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
   // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
   // in the same strip as the legacy `images` shape, otherwise the estimator reserves a thumbnail
   // row while the DOM draws nothing and the next virtualized row jumps into that space.
-  const inlineAttachmentOnly = Boolean(orderedParts?.length && orderedParts.every((part) => !readsAsText(part)));
+  // The row's estimate reads the same rule (bubbleParts.ts `attachmentOnlyPrompt`).
+  const inlineAttachmentOnly = attachmentOnly(orderedParts, text);
   const strip = (useComposerSettings().attachmentView === "strip" && hasInterleaved) || inlineAttachmentOnly;
   // The legacy bands draw a prompt's `images` and files only when its recorded parts do not: an
   // attachment-only row carries both shapes (send and replay record each), and drawing both drew
@@ -175,6 +174,7 @@ export function UserBubble({
   const banded = (part: PromptContentPart) =>
     isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
+  // These are bubbleParts.ts `bubbleParts` in the pane's view, which Find and the row's estimate read.
   const shownParts = orderedParts?.filter((part) => !banded(part));
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const renderFile = useCallback(
@@ -388,14 +388,6 @@ function shownSkills(row: AcpmuxRow, skills: SkillCatalog): AcpmuxRow {
       ),
     }),
   };
-}
-
-/// The paths of the originals a prompt's images kept (an image the composer converted sends its
-/// original file after it).
-function imageOriginals(row: AcpmuxRow): ReadonlySet<string> {
-  return new Set(
-    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
-  );
 }
 
 function UserFooter({

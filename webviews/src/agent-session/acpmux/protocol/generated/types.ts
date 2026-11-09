@@ -612,6 +612,19 @@ export type LifecycleReceipt = {
   state: string;
 } & Record<string, unknown>;
 
+/**
+ * The bounded diagnosis shown beside a looping chat. The daemon emits one event when this
+ * becomes active and another when progress clears it; the summary lets a newly attached client
+ * render the current state without replaying the transcript.
+ */
+export type LoopEpisodeSummary = {
+  count: number;
+  diagnosis: string;
+  episodeId: number;
+  hint: string;
+  since: number;
+} & Record<string, unknown>;
+
 /** A machine link's whole state (`link`): what every surface draws, from acpmux alone. */
 export type MachineLink = ("connected" | "connecting" | "reconnecting" | "restarting" | "degraded" | "offline" | "authFailed" | "updateRequired" | "paused");
 
@@ -1405,6 +1418,11 @@ export type SessionDetail = {
    */
   lifecycleReceipt?: (LifecycleReceipt | null);
   /**
+   * A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.
+   * Additive so older clients and peers can omit it.
+   */
+  loopEpisode?: (LoopEpisodeSummary | null);
+  /**
    * The MCP servers the harness says it loaded, from its own report (Claude
    * Code's system/init); null when it reports none (every ACP harness).
    */
@@ -1689,6 +1707,11 @@ export type SessionSummary = {
    * status or placement fields.
    */
   lifecycleReceipt?: (LifecycleReceipt | null);
+  /**
+   * A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.
+   * Additive so older clients and peers can omit it.
+   */
+  loopEpisode?: (LoopEpisodeSummary | null);
   /**
    * The MCP servers the harness says it loaded, from its own report (Claude
    * Code's system/init); null when it reports none (every ACP harness).
