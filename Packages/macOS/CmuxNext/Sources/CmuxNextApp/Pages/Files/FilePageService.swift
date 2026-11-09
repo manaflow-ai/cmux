@@ -417,6 +417,8 @@ final class FilePageService: InternalPageProvider {
         // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send To… on a selection; Reset
         // Column Widths on a table (viewer-comments-DESIGN.md).
         installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
+        // A local file's first edit swaps in its quit document's state (`edited`).
+        page.holdsUnsavedEdits = { [weak provider] in provider?.remoteUnsaved != nil }
         tab.page = page
         tab.provider = provider
         tab.host = host
