@@ -23,9 +23,9 @@ use serde::Serialize;
 /// Journal bytes each kind may write per day, the disk budget table.
 ///
 /// A kind's bytes are the bytes of its live `session_journal` rows (every
-/// text and blob column plus [`JOURNAL_ROW_FIXED_BYTES`]) before sealing
+/// text and blob column plus 64 bytes, [`JOURNAL_ROW_BYTES_SQL`]) before sealing
 /// compresses them. A kind not listed gets [`DEFAULT_JOURNAL_KIND_BUDGET`].
-/// `disk_budget_guard` (mux/tests/disk_budget.rs) runs a scripted day of
+/// `disk_budget_guard` (mux/tests/disk_budget.rs) runs a scripted slice of
 /// Leo's 2026-11-09 load on a real on-disk registry and fails when a kind
 /// writes more than its entry; `server-stats` `disk` flags a kind whose
 /// newest rows write faster than it (`over_budget`).
@@ -37,15 +37,17 @@ use serde::Serialize;
 /// that rises with no measured reason is the regression this table exists
 /// to catch: one 6 KB `personal.session.put` fact at 12 a second wrote
 /// 7 GB a day and 59 GB in a week (2026-11-09).
+/// Each entry notes what the guard measured when it was set.
 pub const JOURNAL_KIND_BUDGETS: &[(&str, u64)] = &[
-    // A flapping session put at 12/s: under 1 KB a fact since #39116
-    // (about 7 GB/day before, with the capability list in every fact).
-    ("personal.session.put", 1_536 * MIB),
-    ("workspace.create", 16 * MIB),
-    ("workspace.rename", 16 * MIB),
-    ("workspace.close", 16 * MIB),
-    ("journal.checkpoint.created", 64 * MIB),
-    ("journal.segment.sealed", 16 * MIB),
+    // 8 machines flapping a field at 12 puts/s: 672 B a fact, 697 MB/day
+    // since #39116 (about 7 KB a fact and 7 GB/day before: the capability
+    // list was in every fact).
+    ("personal.session.put", 1_024 * MIB),
+    // 2 workspaces a minute, each with a terminal: 11.2 MB/day.
+    ("workspace.create", 24 * MIB),
+    // Their renames and closes: 2.4 and 6.3 MB/day.
+    ("workspace.renamed", 8 * MIB),
+    ("workspace.closed", 16 * MIB),
 ];
 
 /// The budget of a journal kind [`JOURNAL_KIND_BUDGETS`] does not list.
@@ -53,8 +55,9 @@ pub const DEFAULT_JOURNAL_KIND_BUDGET: u64 = 64 * MIB;
 
 /// A day of the guard's load may grow the registry file (pages in use) by
 /// at most this much per recorded machine session: journal rows, their
-/// indexes, and every other table a write touches.
-pub const REGISTRY_BYTES_PER_SESSION_PER_DAY: u64 = 512 * MIB;
+/// indexes, and every other table a write touches. Measured: 150 MB a
+/// session a day since #39116 (about 900 MB before).
+pub const REGISTRY_BYTES_PER_SESSION_PER_DAY: u64 = 256 * MIB;
 
 const MIB: u64 = 1024 * 1024;
 
@@ -75,11 +78,9 @@ pub const MAX_DIRECTORY_ENTRIES: u64 = 20_000;
 const LISTED_FILES: usize = 32;
 /// Journal kinds and segment kinds the section lists.
 const LISTED_KINDS: usize = 16;
-/// Bytes a journal row stores beyond its text and blob columns: the integer
-/// columns, `class`, `replay_policy`, `sensitivity` and the record header.
-pub const JOURNAL_ROW_FIXED_BYTES: u64 = 64;
-
-/// The bytes one `session_journal` row stores, as SQL over its columns.
+/// The bytes one `session_journal` row stores, as SQL over its columns:
+/// every text and blob column, plus 64 bytes for the integer columns,
+/// `class`, `replay_policy`, `sensitivity` and the record header.
 /// `CAST(.. AS BLOB)` makes `length` count bytes, not characters.
 pub(crate) const JOURNAL_ROW_BYTES_SQL: &str = "(64
     + length(CAST(event_id AS BLOB)) + length(CAST(kind AS BLOB))
