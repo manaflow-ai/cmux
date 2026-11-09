@@ -136,8 +136,8 @@ struct Shared {
     fixed_paths: bool,
     /// This machine's interfaces, for each new path's medium.
     networks: Vec<LocalNetwork>,
-    /// The session left the path that carried it since the last
-    /// `take_path_change` (to another path, or to every path).
+    /// The path that carried the session went quiet (datagrams now go on
+    /// every path) or died since the last `take_path_change`.
     left_path: bool,
 }
 
@@ -152,16 +152,19 @@ impl Shared {
         if current.is_some() {
             self.last_path = current;
         }
-        let mut left = false;
+        let mut sprayed = false;
         let switched = self.current.send_if_modified(|seen| {
             let previous = std::mem::replace(seen, current);
-            left = previous.is_some() && previous != current;
+            sprayed = previous.is_some() && current.is_none();
             previous != current
         });
-        self.left_path |= left;
         let held = self.selector.chosen();
         let held_died = self.held.is_some() && held.is_none();
         self.held = held;
+        // Only a path that went quiet or died can have lost what was in
+        // flight; a move to a better path while the old one still answers
+        // loses nothing and needs no resend.
+        self.left_path |= sprayed || held_died;
         if switched || held_died {
             self.emit(Instant::now());
         }

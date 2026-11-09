@@ -260,9 +260,18 @@ pub struct SocketPath<S> {
     retry: Option<Pin<Box<Sleep>>>,
     retry_after: Duration,
     refusals: u32,
-    /// The peer roamed to a new address since the last `take_path_change`.
+    /// The peer roamed to a new address after a silence, since the last
+    /// `take_path_change`.
     roamed: bool,
+    /// When the peer last sent an authenticated datagram, from any address.
+    heard: Option<Instant>,
 }
+
+/// How long the peer must have been silent before a datagram from a new
+/// address counts as the peer moving off a lost path: the multipath
+/// selector's shortest silence window, so a path cut under a stream counts and
+/// paths that alternate while both answer do not.
+const ROAM_QUIET: Duration = Duration::from_millis(100);
 
 /// The default underlay: one UDP socket, one peer address.
 pub type UdpUnderlay = SocketPath<UdpSocket>;
@@ -278,6 +287,7 @@ impl<S: DatagramSocket> SocketPath<S> {
             retry_after: INTERFACE_RETRY_MIN,
             refusals: 0,
             roamed: false,
+            heard: None,
         }
     }
 
@@ -402,9 +412,15 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
 
     fn authenticated(&mut self, origin: Origin) {
         if let Some(addr) = origin.addr {
-            // Learning the first address is not a move; a new one is.
-            self.roamed |= self.peer.is_some_and(|peer| peer != addr);
+            // Learning the first address is not a move, and neither is a peer
+            // whose datagrams alternate between live paths (probes on one,
+            // data on another). A new address after the peer went silent is:
+            // whatever was sent to the old one in that silence is lost.
+            let now = Instant::now();
+            let quiet = self.heard.is_none_or(|heard| now - heard >= ROAM_QUIET);
+            self.roamed |= quiet && self.peer.is_some_and(|peer| peer != addr);
             self.peer = Some(addr);
+            self.heard = Some(now);
         }
     }
 
