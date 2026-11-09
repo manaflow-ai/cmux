@@ -268,8 +268,7 @@ impl Mux {
     }
 
     fn commit_terminal_tail(&self, workspace: &str, change: WorkspaceStatusChange) -> bool {
-        let selectors =
-            crate::ResourceSelectors { workspace: Some(workspace.to_owned()), ..Default::default() };
+        let selectors = self.local_workspace_selectors(workspace);
         let mutation = WorkspaceMutation::daemon_local("terminal.tail_pin");
         let operation = match change {
             WorkspaceStatusChange::Clear { .. } => "workspace_status.clear",
@@ -281,6 +280,16 @@ impl Mux {
                 eprintln!("cmux-tui: terminal tail publication failed: {error}");
                 false
             }
+        }
+    }
+
+    /// This machine's and session's routing selectors for `workspace`.
+    pub(crate) fn local_workspace_selectors(&self, workspace: &str) -> crate::ResourceSelectors {
+        crate::ResourceSelectors {
+            machine: Some(self.machine_public_id.as_str().into()),
+            session: Some(self.session_public_id.as_str().into()),
+            workspace: Some(workspace.to_owned()),
+            ..Default::default()
         }
     }
 

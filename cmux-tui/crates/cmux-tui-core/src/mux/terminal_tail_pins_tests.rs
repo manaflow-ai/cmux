@@ -35,10 +35,7 @@ fn fixture(name: &str) -> Fixture {
 impl Fixture {
     /// The `tail:` entries of the workspace, as `(key, text)`.
     fn tails(&self) -> Vec<(String, String)> {
-        let selectors = crate::ResourceSelectors {
-            workspace: Some(self.workspace.clone()),
-            ..Default::default()
-        };
+        let selectors = self.mux.local_workspace_selectors(&self.workspace);
         let snapshots = self.mux.workspace_status_snapshots(&selectors).unwrap();
         snapshots[0]["entries"]
             .as_array()
@@ -76,8 +73,7 @@ fn a_pinned_terminal_shows_its_last_line_without_escapes_under_its_workspace() {
 
     f.print(b"\x1b[33mwarning\x1b[0m: \x1b]8;;https://x\x07unused\x1b]8;;\x07 import\r\n\r\n");
     wait_for("the new line published", || f.tail_text().as_deref() == Some("warning: unused import"));
-    let selectors =
-        crate::ResourceSelectors { workspace: Some(f.workspace.clone()), ..Default::default() };
+    let selectors = f.mux.local_workspace_selectors(&f.workspace);
     let entry = &f.mux.workspace_status_snapshots(&selectors).unwrap()[0]["entries"][0];
     assert_eq!(entry["icon"], "terminal");
     assert_eq!(entry["owner"]["terminal"], Value::String(terminal.as_str().to_owned()), "{entry}");
@@ -150,8 +146,7 @@ fn an_ended_terminal_drops_its_pin_and_its_line() {
 fn a_restart_keeps_a_status_key_that_only_looks_like_a_tail() {
     let f = fixture("tail-pin-foreign");
     // A script's own entry under a `tail:` key, not made by a pin.
-    let selectors =
-        crate::ResourceSelectors { workspace: Some(f.workspace.clone()), ..Default::default() };
+    let selectors = f.mux.local_workspace_selectors(&f.workspace);
     f.mux
         .state_workspace_status(
             &WorkspaceMutation::daemon_local("test"),
