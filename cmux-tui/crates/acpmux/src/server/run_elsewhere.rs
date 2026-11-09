@@ -103,7 +103,8 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
             "the files changed since you looked; check what goes again",
         ));
     }
-    let peer = str_param(params, "peer").ok_or_else(|| RpcError::invalid_params("peer is required"))?;
+    let peer =
+        str_param(params, "peer").ok_or_else(|| RpcError::invalid_params("peer is required"))?;
     let destination = match machines.into_iter().find(|(name, _)| name == peer) {
         Some((_, Ok(destination))) => destination,
         Some((_, Err(why))) => return Err(RpcError::invalid_params(format!("{peer}: {why}"))),
@@ -121,7 +122,8 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
     let patch = if left_out.is_empty() {
         plan.patch.clone()
     } else {
-        let patch = re::diff(&plan.root, &plan.base, &left_out).await.map_err(RpcError::invalid_params)?;
+        let patch =
+            re::diff(&plan.root, &plan.base, &left_out).await.map_err(RpcError::invalid_params)?;
         if re::plan(&cwd).await.map(|p| p.digest()).as_deref() != Ok(digest) {
             return Err(RpcError::invalid_params(
                 "the files changed since you looked; check what goes again",
@@ -130,14 +132,17 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         patch
     };
     let run_id = uuid::Uuid::now_v7().simple().to_string();
-    let script = re::remote_script(&plan, &patch, &left_out, command, &run_id).map_err(RpcError::invalid_params)?;
-    let path = write_script(&run_id, &script).map_err(|e| RpcError::internal(format!("save the run's script: {e}")))?;
+    let script = re::remote_script(&plan, &patch, &left_out, command, &run_id)
+        .map_err(RpcError::invalid_params)?;
+    let path = write_script(&run_id, &script)
+        .map_err(|e| RpcError::internal(format!("save the run's script: {e}")))?;
     let task = re::task_command("ssh", &destination, &path);
     let description = format!("{} on {peer}", crate::bg_run::label(None, command));
     // The task's own shell removes the script when the run ends; a start acpmux refuses (a stopped
     // chat, too many tasks) leaves it here, readable only by this user.
-    let started =
-        hub.bg_start(&session, &task, Some(plan.root.clone()), Some(description), false, false, None).await?;
+    let started = hub
+        .bg_start(&session, &task, Some(plan.root.clone()), Some(description), false, false, None)
+        .await?;
     Ok(json!({
         "task": started,
         "machine": peer,

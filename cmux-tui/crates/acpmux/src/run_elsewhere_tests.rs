@@ -80,7 +80,10 @@ fn the_task_command_quotes_every_part() {
 
 #[test]
 fn a_login_in_the_origin_url_never_leaves_this_machine() {
-    assert_eq!(without_login("https://me:ghp_secret@github.com/acme/app.git"), "https://github.com/acme/app.git");
+    assert_eq!(
+        without_login("https://me:ghp_secret@github.com/acme/app.git"),
+        "https://github.com/acme/app.git"
+    );
     assert_eq!(without_login("https://token@host:8443/a@b/c"), "https://host:8443/a@b/c");
     assert_eq!(without_login("https://github.com/acme/app"), "https://github.com/acme/app");
     assert_eq!(without_login("git@github.com:acme/app.git"), "git@github.com:acme/app.git");
@@ -188,7 +191,8 @@ async fn a_dirty_tree_arrives_the_same_without_its_untracked_or_secret_files() {
     assert_eq!(plan.prefix, "crates/core/");
     let pushed = git_in(&work, &["rev-parse", "origin/main"]);
     assert_eq!(plan.base, pushed.trim(), "the base is the newest commit the upstream has");
-    let mut files: Vec<_> = plan.files.iter().map(|f| (f.path.as_str(), f.status.as_str(), f.secret)).collect();
+    let mut files: Vec<_> =
+        plan.files.iter().map(|f| (f.path.as_str(), f.status.as_str(), f.secret)).collect();
     files.sort();
     assert_eq!(
         files,
@@ -204,12 +208,17 @@ async fn a_dirty_tree_arrives_the_same_without_its_untracked_or_secret_files() {
     let digest = plan.digest();
     let again = super::plan(&work.join("crates/core")).await.unwrap();
     assert_eq!(again.digest(), digest, "the same tree, the same digest");
-    assert_ne!(super::plan(&work).await.unwrap().digest(), digest, "another folder, another digest");
+    assert_ne!(
+        super::plan(&work).await.unwrap().digest(),
+        digest,
+        "another folder, another digest"
+    );
 
     let left_out = plan.left_out(&[]);
     assert_eq!(left_out, vec![".env".to_owned()]);
     let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
-    let script = remote_script(&plan, &patch, &left_out, "pwd; cat ../../src/lib.rs", "run-1").unwrap();
+    let script =
+        remote_script(&plan, &patch, &left_out, "pwd; cat ../../src/lib.rs", "run-1").unwrap();
     let out = run_script(&script, &home);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "{stderr}");
@@ -228,7 +237,10 @@ async fn a_dirty_tree_arrives_the_same_without_its_untracked_or_secret_files() {
 
     // A second run reuses the worktree and resets what the first left in it.
     write(&remote.join("src/leftover.rs"), b"from the last run\n");
-    let out = run_script(&remote_script(&plan, &patch, &left_out, "ls ../../src", "run-2").unwrap(), &home);
+    let out = run_script(
+        &remote_script(&plan, &patch, &left_out, "ls ../../src", "run-2").unwrap(),
+        &home,
+    );
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(!String::from_utf8_lossy(&out.stdout).contains("leftover"));
 
@@ -252,14 +264,17 @@ async fn a_secret_one_run_sent_is_gone_from_the_next_run_that_leaves_it_out() {
     let plan = plan(&work).await.unwrap();
 
     // The person ticks .env: it goes with the run.
-    let out = run_script(&remote_script(&plan, &plan.patch, &[], "cat .env", "run-5").unwrap(), &home);
+    let out =
+        run_script(&remote_script(&plan, &plan.patch, &[], "cat .env", "run-5").unwrap(), &home);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(String::from_utf8_lossy(&out.stdout).contains("hunter2"));
 
     // The next run leaves it out, in the same worktree: it is not there to read.
     let left_out = plan.left_out(&[]);
     let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
-    let script = remote_script(&plan, &patch, &left_out, "cat .env 2>/dev/null || echo absent", "run-6").unwrap();
+    let script =
+        remote_script(&plan, &patch, &left_out, "cat .env 2>/dev/null || echo absent", "run-6")
+            .unwrap();
     let out = run_script(&script, &home);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -286,7 +301,11 @@ async fn the_task_streams_the_remote_output_in_order_and_keeps_its_exit_code() {
     let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
     let command = "for i in 1 2 3; do echo line $i; sleep 0.05; done; echo oops >&2; exit 7";
     let script_path = tmp.path().join("run.sh");
-    std::fs::write(&script_path, remote_script(&plan, &patch, &left_out, command, "run-3").unwrap()).unwrap();
+    std::fs::write(
+        &script_path,
+        remote_script(&plan, &patch, &left_out, command, "run-3").unwrap(),
+    )
+    .unwrap();
     let task = task_command(fake.to_str().unwrap(), "me@box", &script_path);
     let out = Command::new("bash")
         .arg("-c")

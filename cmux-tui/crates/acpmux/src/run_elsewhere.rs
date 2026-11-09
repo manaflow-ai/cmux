@@ -31,10 +31,42 @@ const GIT_DEADLINE: Duration = Duration::from_secs(30);
 /// Programs that need this machine itself (its screen, its keys, a person at the keyboard) or
 /// that reach other machines on their own: a command that starts with one stays here.
 const LOCAL_ONLY: &[&str] = &[
-    "sudo", "su", "doas", "ssh", "scp", "sftp", "mosh", "rsync", "vi", "vim", "nvim", "nano",
-    "emacs", "less", "more", "man", "top", "htop", "btop", "watch", "tmux", "screen", "open",
-    "xdg-open", "osascript", "pbcopy", "pbpaste", "code", "cmux", "acpmux", "security",
-    "defaults", "launchctl", "systemctl", "pkill", "killall",
+    "sudo",
+    "su",
+    "doas",
+    "ssh",
+    "scp",
+    "sftp",
+    "mosh",
+    "rsync",
+    "vi",
+    "vim",
+    "nvim",
+    "nano",
+    "emacs",
+    "less",
+    "more",
+    "man",
+    "top",
+    "htop",
+    "btop",
+    "watch",
+    "tmux",
+    "screen",
+    "open",
+    "xdg-open",
+    "osascript",
+    "pbcopy",
+    "pbpaste",
+    "code",
+    "cmux",
+    "acpmux",
+    "security",
+    "defaults",
+    "launchctl",
+    "systemctl",
+    "pkill",
+    "killall",
 ];
 
 /// Why `command` stays on this machine, or None when it may run elsewhere. The other machine runs
@@ -65,7 +97,9 @@ pub fn command_refusal(command: &str) -> Option<String> {
             return Some("it names a file in your home folder".into());
         }
         if word.starts_with("/Users/") || word.starts_with("/home/") {
-            return Some("it names a path on this machine; use one relative to the repository".into());
+            return Some(
+                "it names a path on this machine; use one relative to the repository".into(),
+            );
         }
     }
     None
@@ -130,9 +164,11 @@ fn secret_content(patch: &[u8]) -> Vec<String> {
             || ["ghp_", "github_pat_", "sk-ant-", "sk-proj-", "xoxb-", "xoxp-"]
                 .iter()
                 .any(|p| token_after(added, p))
-            || added
-                .split(|c: char| !c.is_ascii_alphanumeric())
-                .any(|w| w.len() == 20 && w.starts_with("AKIA") && w.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()));
+            || added.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| {
+                w.len() == 20
+                    && w.starts_with("AKIA")
+                    && w.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+            });
         if hit
             && let Some(path) = current
             && !out.iter().any(|p| p == path)
