@@ -22,6 +22,7 @@ impl Hub {
         if self.peer_notices_finished.load(Ordering::Acquire) {
             return;
         }
+        // timeout: shutdown joins the loop's cache flush inside its own grace, never forever.
         let _ = tokio::time::timeout(Duration::from_secs(2), notified).await;
     }
 

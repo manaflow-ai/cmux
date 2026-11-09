@@ -33,9 +33,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
     /// (`agent-session-start-keyed-reason-v1`, cx-0w0jj).
     var servesKeyedReason = false
-    /// The machine's daemon relays a chat's own sign-in (`agent-session-login-v1`): a new chat's
-    /// page offers Sign in from its first turn.
-    var servesLogin = false
+    /// The machine's daemon relays a chat's own sign-in (`agent-session-login-v1`) and opens its side
+    /// chats there (`agent-session-side-v1`): a new chat's page offers Sign in and New side chat.
+    var servesLogin = false, servesSide = false
     /// A Cloud machine's link owner answer (``CloudMachineLinks/ownerLink``), read at each trust call
     /// and never kept. Nil for a machine that is not a Cloud machine.
     var ownerLink: AgentSessionAttachClient.OwnerLink?
@@ -111,7 +111,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
                 }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud,
                 cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint),
-                servesLogin: servesLogin)
+                servesLogin: servesLogin, servesSide: servesSide)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)

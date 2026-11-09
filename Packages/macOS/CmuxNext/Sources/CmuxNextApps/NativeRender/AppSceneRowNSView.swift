@@ -136,7 +136,7 @@ final class AppSceneRowNSView: AppSceneNodeNSView {
         if window != nil { performWithTheme { paintContent() } }
     }
 
-    override func updateLayer() {
+    override func paint() {
         performWithTheme {
             let state = ChromeHover.State(hovering: isHovered && isTappable, pressed: isPressed, selected: node.flag("selected"))
             ChromeHover.paint(pill, ChromeHover.fillColor(state), animated: fadesNextFill && window != nil)

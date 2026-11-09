@@ -7,7 +7,7 @@
 //! app's link never share a socket, a registration or a state directory.
 //!
 //! - `ensure --state-dir D [--install ID] [--port P] [--session-socket S]
-//!   [--server-config F] [--cloud-token-file F]`: runs `init` first when D has no config (then
+//!   [--server-config F]`: runs `init` first when D has no config (then
 //!   `--install` is required; `--port 0` binds any free UDP port), returns
 //!   the live link of D when one runs, else starts `cmux link serve` in its
 //!   own session (it survives the caller) and waits for its ready line. A
@@ -87,8 +87,6 @@ impl ReadyPipe {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Served {
     pub session_socket: Option<std::path::PathBuf>,
-    pub credential_socket: Option<std::path::PathBuf>,
-    pub cloud_token_file: Option<std::path::PathBuf>,
     pub server_config: Option<std::path::PathBuf>,
     pub server_config_sha256: Option<String>,
 }
@@ -114,8 +112,6 @@ impl Served {
             bytes.map(|bytes| Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect());
         Self {
             session_socket: flags.get("--session-socket").map(std::path::PathBuf::from),
-            credential_socket: flags.get("--credential-socket").map(std::path::PathBuf::from),
-            cloud_token_file: flags.get("--cloud-token-file").map(std::path::PathBuf::from),
             server_config,
             server_config_sha256,
         }
@@ -124,8 +120,6 @@ impl Served {
     fn json(&self) -> Value {
         json!({
             "session_socket": self.session_socket,
-            "credential_socket": self.credential_socket,
-            "cloud_token_file": self.cloud_token_file,
             "server_config": { "path": self.server_config, "sha256": self.server_config_sha256 },
         })
     }
@@ -138,10 +132,6 @@ impl Served {
             return true;
         }
         status["session_socket"] == json!(self.session_socket)
-            && status.get("credential_socket").unwrap_or(&Value::Null)
-                == &json!(self.credential_socket)
-            && status.get("cloud_token_file").unwrap_or(&Value::Null)
-                == &json!(self.cloud_token_file)
             && status["server_config"]["path"] == json!(self.server_config)
             && status["server_config"]["sha256"] == json!(self.server_config_sha256)
     }
@@ -243,7 +233,7 @@ pub(super) fn matches_enrollment(state: &LinkState, status: &Value) -> anyhow::R
     if config.server_identity.is_none() {
         return Ok(true);
     }
-    let public = super::state::public_key(&*state.private_key()?);
+    let public = state.own_public_key()?;
     Ok(status["identity_source"] == "server_pairing"
         && status["install"] == config.install
         && status["public_key"] == STANDARD.encode(public))
@@ -284,7 +274,7 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
     }
     let config = state.config()?;
     if config.server_identity.is_some() {
-        let _ = state.private_key()?;
+        let _ = state.own_public_key()?;
         if flags.get("--install").is_some_and(|install| install != &config.install) {
             bail!("server_link.identity_conflict");
         }
@@ -318,6 +308,17 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
 pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
     let state = super::state(flags)?;
     let _lock = ensure_lock(&state)?;
+    // An agent installed before `--key-lock-dir` gets it (`launchd.rs`).
+    #[cfg(target_os = "macos")]
+    if let Err(error) = super::launchd::refresh_key_lock_dir(
+        state.dir(),
+        super::key_lock::FLAG,
+        &super::key_lock::lock_dir(&state),
+    ) {
+        eprintln!(
+            "warning: could not give the link's launchd agent its key lock directory: {error}"
+        );
+    }
     let mut restarted = init_or_check(&state, flags, handoff)?;
     let wanted = Served::wanted(flags)?;
     if let Some(live) = live(&state) {
@@ -350,6 +351,14 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
         restarted = true;
     }
     match start(&state, flags)? {
+        // The link would not serve: another process holds the key.
+        Some(failed) if failed.get("event").and_then(Value::as_str) == Some("link-failed") => {
+            Err(anyhow!(
+                "{}: {}",
+                failed.get("error").and_then(Value::as_str).unwrap_or("link_failed"),
+                failed.get("message").and_then(Value::as_str).unwrap_or("the link did not start")
+            ))
+        }
         Some(ready) => {
             print_json(&json!({
                 "status": if restarted { "restarted" } else { "started" },
@@ -412,8 +421,9 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     }
     let mut command = std::process::Command::new(std::env::current_exe()?);
     command.args(["link", "serve", "--state-dir"]).arg(state.dir());
-    for name in ["--session-socket", "--server-config", "--credential-socket", "--cloud-token-file"]
-    {
+    // Resolved here, with this process's environment (`key_lock.rs`).
+    command.arg(super::key_lock::FLAG).arg(super::key_lock::lock_dir(state));
+    for name in ["--session-socket", "--server-config"] {
         if let Some(value) = flags.get(name) {
             command.arg(name).arg(value);
         }

@@ -122,6 +122,15 @@ public actor CmuxConfigFile {
         return record
     }
 
+    /// Whether ``writeBeside(suffix:text:)`` left a record named `suffix` beside the file (a regular
+    /// file; a folder of that name is not one).
+    public func hasRecordBeside(suffix: String) -> Bool {
+        let url = self.url.resolvingSymlinksInPath()
+        let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
+        var isDirectory: ObjCBool = false
+        return FileManager.checked.fileExists(atPath: record.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
+
     /// The parsed document. A missing file is an empty object.
     public func document() throws -> JSONValue {
         let text = try source()

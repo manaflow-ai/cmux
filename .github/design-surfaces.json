@@ -422,7 +422,9 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteCard.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteRowView.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentShareInviteSheetModel.swift",
-        "webviews/src/agent-session/guest/"
+        "webviews/src/agent-session/guest/",
+        "webviews/src/agent-session/acpmux/share/ShareNudge.tsx",
+        "webviews/src/agent-session/acpmux/share/shareNudgeModel.ts"
       ]
     },
     "icons": {

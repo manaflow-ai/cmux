@@ -211,6 +211,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         "Contents/Resources/bin/cmux-tui-host",
         "Contents/Resources/bin/cmux-holder",
         "Contents/Resources/bin/cmux-app-host",
+        "Contents/Resources/bin/cmux-agent-screen-detection",
         "Contents/Resources/bin/cmux-cloud",
         "Contents/Resources/bin/cmux-diff-sidecar",
         "Contents/Resources/bin/cmux-mobile-host",
@@ -314,6 +315,40 @@ class CheckBundleNoticesTest(unittest.TestCase):
         errors = checker.check(self.app, bundle_map)
         for section in self.BROWSER_HOST_SECTIONS:
             self.assertIn(f"{self.BROWSER_HOST}: missing notice section:{section}", errors)
+
+    # cmux-agent-screen-detection (the daemon runs it from beside its own executable)
+
+    SCREEN_DETECTION = "Contents/Resources/bin/cmux-agent-screen-detection"
+    SCREEN_DETECTION_SECTIONS = ("rust-cmux-agent-screen-detection", "manual-herdr-agent-detection-plugin")
+
+    def screen_detection_app(self) -> dict:
+        """The fake bundle: bin/cmux-agent-screen-detection (Rust, rustc 1.95.0
+        std), the reviewed toolchain texts, the GPL LICENSE and the committed
+        THIRD_PARTY_LICENSES.md."""
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        toolchain_notices.install(toolchain_notices.load(), self.app / "Contents/Resources")
+        (self.app / "Contents/MacOS/app").unlink()
+        binary = self.app / self.SCREEN_DETECTION
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(THIN + b"/rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/lib.rs")
+        notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
+        notices.write_text((ROOT / "THIRD_PARTY_LICENSES.md").read_text())
+        return json.loads((HERE / "bundle-map.json").read_text())
+
+    def test_bundled_screen_detection_passes_with_the_committed_map_and_notices(self) -> None:
+        self.assertEqual(checker.check(self.app, self.screen_detection_app()), [])
+
+    def test_bundled_screen_detection_fails_without_its_notice_sections(self) -> None:
+        bundle_map = self.screen_detection_app()
+        notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
+        text = notices.read_text()
+        for section in self.SCREEN_DETECTION_SECTIONS:
+            text = text.replace(f"<!-- notices-section: {section} -->\n", "")
+        notices.write_text(text)
+        errors = checker.check(self.app, bundle_map)
+        for section in self.SCREEN_DETECTION_SECTIONS:
+            self.assertIn(f"{self.SCREEN_DETECTION}: missing notice section:{section}", errors)
 
     def test_map_requirements_are_well_formed(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())

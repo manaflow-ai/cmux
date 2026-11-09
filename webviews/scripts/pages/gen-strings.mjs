@@ -243,6 +243,25 @@ export const PAGES = {
       },
     ],
   },
+  // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced:
+  // Pair Another Machine's own, and the server surfaces' (which Pair Another Machine reuses).
+  "server-cards": {
+    out: "webviews/src/pages/server-cards/generated/strings.json",
+    catalogs: [
+      { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
+      // Add Machine's card shares its table with the Machines section (`addMachine.` keys only).
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("addMachine.")),
+      },
+      // The server surfaces' own table (the menu bar panel, Health, pairing, Add Server); the app's
+      // refusals (`refusal.*`) stay native.
+      {
+        file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
+        keys: (all) => all.filter((key) => !key.startsWith("refusal.")),
+      },
+    ],
+  },
   // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
   // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
   machines: {

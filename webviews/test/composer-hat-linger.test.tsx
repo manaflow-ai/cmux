@@ -271,7 +271,7 @@ describe("composer hat: review follow-ups", () => {
     const ended = [{ key: "agent:peer", endedAt: local - offset }];
     let kept: ReadonlyMap<string, number> = new Map();
     function Probe() {
-      kept = useTrayLinger("chat-peer", [], ended, true, { offsetMs: offset, clock: () => local });
+      kept = useTrayLinger("chat-peer", [], ended, true, { offsetMs: offset, clock: () => local }).kept;
       return null;
     }
     const host = dom.window.document.getElementById("root")!;
