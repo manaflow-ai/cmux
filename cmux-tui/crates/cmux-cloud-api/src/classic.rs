@@ -1,8 +1,9 @@
-//! Classic cmux.com's `/api/vm` routes the NEXT app still calls (tunnel, firewall, domains and
-//! publications): none has a NEXT route yet, so each is sent as it was, with the same body,
-//! deadline and answer. A machine's resize, snapshots, restore and fork are the Cloud app server's
-//! `cloud.machine.resize` and `cloud.snapshot.*` ops, and its SCP route is cmux-platform's
-//! (`vm.scp_endpoint`, [`crate::machine::scp_endpoint`]).
+//! Classic cmux.com's `/api/vm` routes the NEXT app still calls (tunnel, firewall): none has a
+//! NEXT route yet, so each is sent as it was, with the same body, deadline and answer. A machine's
+//! resize, snapshots, restore and fork are the Cloud app server's `cloud.machine.resize` and
+//! `cloud.snapshot.*` ops, its SCP route is cmux-platform's (`vm.scp_endpoint`,
+//! [`crate::machine::scp_endpoint`]), and domains, publications and their API keys are
+//! cmux-platform's previews (`crate::previews::publications`).
 
 use std::time::Duration;
 
@@ -99,46 +100,6 @@ pub(crate) async fn run(
                 .classic(Method::GET, &["api", "vm", "network"], &[], None, None, DEFAULT)
                 .await?;
             field(list, "networks", "/api/vm/network")
-        }
-        "vm.domains" => {
-            let list = http
-                .classic(Method::GET, &["api", "vm", "domains"], &[], None, None, DEFAULT)
-                .await?;
-            field(list, "domains", "/api/vm/domains")
-        }
-        "vm.publications" => {
-            let list = http
-                .classic(Method::GET, &["api", "vm", "publications"], &[], None, None, DEFAULT)
-                .await?;
-            field(list, "publications", "/api/vm/publications")
-        }
-        "vm.provision_api" => {
-            let mut body = pick(args, &["vmId", "port", "accessMode"]);
-            if let Some(name) = optional_text(args, "keyName") {
-                body.set("name", json!(name));
-            }
-            http.classic(Method::POST, &["api", "vm", "apis"], &[], Some(body), None, secs(120))
-                .await
-        }
-        "vm.publication_api_keys" => {
-            let publication = text(args, "publication")?;
-            let list = http
-                .classic(
-                    Method::GET,
-                    &["api", "vm", "publications", publication, "api-keys"],
-                    &[],
-                    None,
-                    None,
-                    DEFAULT,
-                )
-                .await?;
-            field(list, "apiKeys", "/api/vm/publications/api-keys")
-        }
-        "vm.revoke_publication_api_key" => {
-            let (publication, key_id) = (text(args, "publication")?, text(args, "keyId")?);
-            let segments = ["api", "vm", "publications", publication, "api-keys", key_id];
-            let revoked = http.classic(Method::DELETE, &segments, &[], None, None, DEFAULT).await?;
-            field(revoked, "apiKey", "/api/vm/publications/api-keys")
         }
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
     }

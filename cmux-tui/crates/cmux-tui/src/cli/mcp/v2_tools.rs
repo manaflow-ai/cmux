@@ -183,6 +183,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("stash.restore", STASH_REASON),
     ("stash.delete", STASH_REASON),
     ("stash.import", STASH_REASON),
+    ("classic_import.plan", CLASSIC_IMPORT_REASON),
+    ("classic_import.record", CLASSIC_IMPORT_REASON),
     ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
     ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
     ("cloud.machine.io", CLOUD_API_REASON),
@@ -292,6 +294,8 @@ const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the ap
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
      list; agents close and open tabs through the tab and browser tools, never the stash.";
+const CLASSIC_IMPORT_REASON: &str = "The app's move from classic cmux drives these: it reads \
+     the plan and records what it made; agents never import.";
 const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
      the dry-run plan and records what it made; agents never import.";
 const CLOUD_API_REASON: &str = "The app's Cloud code and `cmux cloud` call these with the \

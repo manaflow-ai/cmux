@@ -129,6 +129,9 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectRemove
         | Op::ProjectSync
         | Op::ProjectSourceUpdate
+        // Classic's session files and the migration ledger: the app's classic migration.
+        | Op::ClassicImportPlan
+        | Op::ClassicImportRecord
         // Conductor's database and worktrees, read by the app's Import from Conductor.
         | Op::ConductorImportPlan
         | Op::ConductorImportRecord

@@ -423,13 +423,14 @@ impl Mux {
         while cursor < target {
             #[cfg(test)]
             fold.note_io_for_test();
-            // Terminal output between agent events is skipped by the read:
-            // the roster ignores it.
+            // The read skips every kind the roster does not fold (terminal
+            // output, session churn): the roster ignores them.
+            let kinds = crate::journal_reducers::AgentRoster::folds_kind;
             let page = match fold.reader(&self.journal_kernel) {
-                Some(reader) => reader.without_output_after(cursor, target, 512),
+                Some(reader) => reader.kinds_after(cursor, target, kinds, 512),
                 // An in-memory registry has no file to read: one page under
                 // the registry lock, which is released before the apply.
-                None => self.session_journal_without_output_after(cursor, target, 512),
+                None => self.session_journal_kinds_after(cursor, target, kinds, 512),
             };
             let (records, reached) = match page {
                 Ok(page) => page,

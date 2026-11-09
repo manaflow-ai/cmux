@@ -65,6 +65,7 @@ mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
 mod root_identity;
+pub(crate) mod segment_codec;
 pub(crate) mod terminal_end_prefetch;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
@@ -84,6 +85,7 @@ mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
+pub mod synth;
 pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
@@ -106,6 +108,8 @@ use effect_store::{
     create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
     initialize_resource_input_receipt_retention, recover_resource_effects,
 };
+#[cfg(test)]
+pub(crate) use journal_extensions::JOURNAL_CHECKPOINTS_KEPT;
 use journal_extensions::create_journal_extensions_schema;
 pub use journal_extensions::{
     JournalAppendCommit, JournalCheckpoint, JournalContentRef, JournalEventSchema,
