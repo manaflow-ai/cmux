@@ -237,3 +237,106 @@ test("a pick in a huge legacy prompt still draws as the chip, the text around it
   expect(host.textContent).toContain("# Log");
   opensAndFolds(chip!);
 });
+
+/// A placed pick on line 15 of a prompt past the fold's twenty lines, as acpmux gives it back.
+async function foldedPickParts() {
+  const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const { inlinePrompt } = await import("../src/agent-session/acpmux/inlinePrompt");
+  const [pick] = designSelectionChips(SELECTION);
+  const lines = (from: number, count: number) =>
+    Array.from({ length: count }, (_, index) => `line ${from + index}`).join("\n");
+  const built = inlinePrompt(`${lines(1, 14)}\n${inlineToken(pick!.id)}\n${lines(16, 20)}`, [pick!])!;
+  return built.parts.map((part) => ({ ...part, attachmentId: undefined })) as PromptContentPart[];
+}
+
+// Review of cmux#38447 at 105d5c58: "A pick around line 15 of a folded message therefore expands
+// behind the twenty-line clamp, hiding report content and Collapse."
+test("opening a pick in a folded message opens the message's fold too", async () => {
+  const { InlinePromptContent } = await import("../src/agent-session/acpmux/conversation/InlinePromptContent");
+  const parts = await foldedPickParts();
+  await render(
+    <div className="cv-user">
+      <InlinePromptContent rowId="folded-pick" parts={parts} show={(text) => text} renderImage={() => null} />
+    </div>,
+  );
+  const body = host.querySelector(".cv-user__text")!;
+  expect(body.classList.contains("is-clamped")).toBe(true);
+  const chip = host.querySelector<HTMLElement>('[data-chip-kind="ui"]')!;
+  click(chip.querySelector("button[aria-expanded]")!);
+  expect(chip.hasAttribute("data-open")).toBe(true);
+  expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(false);
+});
+
+// Review of cmux#38447 at 105d5c58: "Selecting a match in computed styles or DOM leaves the report
+// closed and the matching text undrawn."
+test("Find's current match in a pick's report opens the chip and the fold, and repaints", async () => {
+  const { InlinePromptContent } = await import("../src/agent-session/acpmux/conversation/InlinePromptContent");
+  const { FindReveal, foldFind } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const parts = await foldedPickParts();
+  let repaints = 0;
+  for (const needle of ['"display": "inline"', 'class="cv-li__text"']) {
+    const reveal = {
+      rowId: `find-pick-${needle.length}`,
+      card: false,
+      needle: foldFind(needle),
+      repaint: () => repaints++,
+    };
+    await render(
+      <FindReveal.Provider value={reveal}>
+        <div className="cv-user">
+          <InlinePromptContent rowId={reveal.rowId} parts={parts} show={(text) => text} renderImage={() => null} />
+        </div>
+      </FindReveal.Provider>,
+    );
+    const chip = host.querySelector<HTMLElement>('[data-chip-kind="ui"]')!;
+    expect(chip.hasAttribute("data-open")).toBe(true);
+    expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(false);
+    expect(chip.querySelector('[role="document"]')!.textContent).toContain(needle);
+    act(() => root?.unmount());
+    root = undefined;
+  }
+  expect(repaints).toBe(2);
+});
+
+test("a sent pick's chip stays open across the row's remount, as its file chip did", async () => {
+  const { InlinePromptContent } = await import("../src/agent-session/acpmux/conversation/InlinePromptContent");
+  const parts = await foldedPickParts();
+  const draw = () =>
+    render(
+      <div className="cv-user">
+        <InlinePromptContent rowId="remount-pick" parts={parts} show={(text) => text} renderImage={() => null} />
+      </div>,
+    );
+  await draw();
+  click(host.querySelector('[data-chip-kind="ui"] button[aria-expanded]')!);
+  act(() => root?.unmount());
+  root = undefined;
+  await draw();
+  expect(host.querySelector('[data-chip-kind="ui"]')!.hasAttribute("data-open")).toBe(true);
+});
+
+test("Find reads a placed pick as its chip draws it: the report, not its name and fence", async () => {
+  const { findBodyText } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
+  const text = findBodyText(await foldedPickParts());
+  expect(text).toContain(REPORT);
+  expect(text).not.toContain("UI: span");
+  expect(text).not.toContain("```");
+});
+
+test("a sent pick is estimated as its chip, not its report's lines", async () => {
+  const { layoutConversation, SENT_UI_PICK_CHIP } = await import("../src/agent-session/acpmux/model");
+  const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
+  const { inlineToken, promptText } = await import("../src/agent-session/acpmux/attachments");
+  const { inlinePrompt } = await import("../src/agent-session/acpmux/inlinePrompt");
+  const [pick] = designSelectionChips(SELECTION);
+  const height = (row: object) =>
+    layoutConversation([{ id: "u", version: 1, at: 0, kind: "user", ...row }] as never, 720).heights[0]!;
+  const plain = height({ text: "Why is this cut off?" });
+  const chip = SENT_UI_PICK_CHIP.height + 2 * SENT_UI_PICK_CHIP.marginY;
+  // Sent with the strip (the report a fenced block of the text) and placed in the text: one line and
+  // the chip, never the report's seven lines in a code block.
+  expect(height({ text: promptText("Why is this cut off?", [pick!]) })).toBeCloseTo(plain + chip, 0);
+  const placed = inlinePrompt(`Why is this cut off?\n${inlineToken(pick!.id)}`, [pick!])!;
+  expect(height({ text: "Why is this cut off?", inlineParts: placed.parts })).toBeCloseTo(plain + chip, 0);
+});

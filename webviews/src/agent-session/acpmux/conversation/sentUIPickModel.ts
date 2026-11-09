@@ -33,3 +33,11 @@ export function sentUIPickSegments(text: string): SentPromptSegment[] | undefine
   if (after.trim()) segments.push({ kind: "text", text: after });
   return segments;
 }
+
+/// A text file's stored body when it is one inspector pick's block, as the composer sends a pick
+/// placed in the prompt (inlinePrompt.ts): its chip draws it (InlinePromptContent.tsx).
+export function sentUIPick(stored: string): Extract<SentPromptSegment, { kind: "pick" }> | undefined {
+  const segments = sentUIPickSegments(stored);
+  const only = segments?.length === 1 ? segments[0] : undefined;
+  return only?.kind === "pick" ? only : undefined;
+}

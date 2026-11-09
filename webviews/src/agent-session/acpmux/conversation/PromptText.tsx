@@ -39,7 +39,7 @@ import { Bot } from "./icons";
 import { agentText } from "../agentText";
 import { experimentArm } from "../../../experiments/experiment";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
-import { SentUIPicks } from "./SentUIPick";
+import { SentPromptFoldContext, SentUIPicks } from "./SentUIPick";
 import { sentUIPickSegments } from "./sentUIPickModel";
 
 export function PromptText({
@@ -86,6 +86,8 @@ export function PromptText({
   const huge = hugeTyped ?? hasHugeTypedPart(parts);
   const long = huge || (measured?.parts === parts ? measured.long : guess);
   const collapsed = long && !open;
+  // What a pick's chip in the body opens with it (SentUIPick.tsx SentUIPickChip).
+  const fold = useMemo(() => ({ rowId, collapsed, open: () => setOpen(true) }), [rowId, collapsed, setOpen]);
   // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
   const head = huge && collapsed;
@@ -217,15 +219,23 @@ export function PromptText({
   return (
     <>
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
-        {children
-          ? children(() => setOpen(true), head, collapsed)
-          : shownParts.map((part, index) =>
-              part.kind === "text" ? (
-                <PromptTyped key={index} text={part.text} show={show} plain={"huge" in part && part.huge === true} />
-              ) : (
-                <PastedText key={index} text={part.text} collapsed={collapsed} />
-              ),
-            )}
+        <SentPromptFoldContext.Provider value={fold}>
+          {children
+            ? children(() => setOpen(true), head, collapsed)
+            : shownParts.map((part, index) =>
+                part.kind === "text" ? (
+                  <PromptTyped
+                    key={index}
+                    text={part.text}
+                    show={show}
+                    plain={"huge" in part && part.huge === true}
+                    slot={`typed:${index}`}
+                  />
+                ) : (
+                  <PastedText key={index} text={part.text} collapsed={collapsed} />
+                ),
+              )}
+        </SentPromptFoldContext.Provider>
       </div>
       {long && (
         <ExpandRow
@@ -258,9 +268,12 @@ export function PromptTyped({
   text,
   show,
   plain,
+  slot = "typed:0",
 }: {
   text: string;
   show: (text: string) => string;
+  /// Which typed part of the prompt it is, keying its picks' disclosures (SentUIPick.tsx).
+  slot?: string;
   /// Draw it as one literal text node (a huge prompt's part; promptCollapse.ts HUGE_PROMPT_CHARS).
   plain?: boolean;
 }) {
@@ -272,7 +285,13 @@ export function PromptTyped({
   // literal (`plain` passed on, and a huge part is still huge).
   const picks = sentUIPickSegments(text);
   if (picks)
-    return <SentUIPicks segments={picks} typed={(part) => <PromptTyped text={part} show={show} plain={plain} />} />;
+    return (
+      <SentUIPicks
+        segments={picks}
+        slot={slot}
+        typed={(part) => <PromptTyped text={part} show={show} plain={plain} />}
+      />
+    );
   if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{plainWithForeignFiles(shown)}</span>;
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.

@@ -12,7 +12,7 @@
 // Leo, 2026-11-08, on the inspector's pick: "clicking it should be able to show the raw/full
 // thing... idk how possible it'd be to also be able to have a well-designed button to click to
 // re-collapse it too."
-import { type ReactNode, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useRef, useState } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { DialogButton } from "../../../ui/DialogButton";
 import { ChevronDown, Close } from "../conversation/icons";
@@ -42,6 +42,8 @@ export function ContentChip({
   text,
   sheetSize,
   actions = [],
+  open: shownOpen,
+  onOpenChange,
 }: {
   host: ChipHost;
   /// What it holds (`paste`, `ui`), for its styles.
@@ -65,9 +67,19 @@ export function ContentChip({
   /// The sheet's size line under its title (a paste's lines and characters).
   sheetSize?: string[];
   actions?: ChipAction[];
+  /// Whether it is open, when the host keeps that (a sent message's disclosure, which outlives the
+  /// row's mount and which Find opens); else the chip keeps it.
+  open?: boolean;
+  /// Told of each open and fold, the host's own `open` included.
+  onOpenChange?: (open: boolean) => void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = shownOpen ?? ownOpen;
+  const setOpen = (next: boolean) => {
+    if (shownOpen === undefined) setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   // The content stays drawn once opened, so folding it back shrinks a full panel, never an empty one.
   const [drawn, setDrawn] = useState(false);
   const face = useRef<HTMLButtonElement>(null);
@@ -93,7 +105,7 @@ export function ContentChip({
     </DialogButton>
   ));
   const collapseButton = (
-    <button type="button" className="acpmux-chip-collapse" data-place={collapse} onClick={fold}>
+    <button type="button" className="acpmux-chip-collapse" data-place={collapse} data-find-skip="" onClick={fold}>
       <ChevronDown size={12} className="acpmux-chip-collapse__glyph" />
       <span>{t("composer.chip.collapse")}</span>
     </button>
@@ -126,9 +138,12 @@ export function ContentChip({
         aria-label={accessibleName}
         aria-haspopup={sheet ? "dialog" : undefined}
         aria-expanded={open}
+        // Its rows are a label, not the content: Find counts the content and paints none here, so the
+        // drawn matches keep Find's order (the file chip's face did the same).
+        data-find-skip=""
         onClick={() => {
           setDrawn(true);
-          setOpen((was) => (sheet ? true : !was));
+          setOpen(sheet ? true : !open);
         }}
       >
         <span className="acpmux-paste-chip__glyph" aria-hidden="true">
@@ -173,8 +188,15 @@ export function ContentChip({
         <span className="acpmux-paste-chip__panel" aria-hidden={!open} inert={!open}>
           <span className="acpmux-paste-chip__panel-inner">
             {collapse === "corner" ? collapseButton : null}
-            {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the text's scroller to read it with the keys. */}
-            <span className="acpmux-paste-view__text" role="document" tabIndex={0} dir="auto">
+            {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- its keys only scroll the read-only text (readInEditor). */}
+            <span
+              className="acpmux-paste-view__text"
+              role="document"
+              // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the text's scroller to read it with the keys.
+              tabIndex={0}
+              dir="auto"
+              onKeyDown={host === "inline" ? readInEditor : undefined}
+            >
               {open || drawn ? text : null}
             </span>
             {buttons.length || collapse === "footer" ? (
@@ -188,6 +210,31 @@ export function ContentChip({
       )}
     </Chip>
   );
+}
+
+/// The keys of an opened chip's text in the composer's editor (inlineNode.ts keeps the editor from
+/// handling them): inside an editable field the browser reads the arrows as caret moves and never
+/// scrolls a focused box, so the reading keys scroll it here; Enter, Backspace and typing do nothing
+/// to the read-only text and never reach the draft. Escape (the chip folds), Tab and shortcuts
+/// (Command-C copies the selected text) go on as they would.
+const LINE_STEP = 40;
+function readInEditor(event: KeyboardEvent<HTMLElement>) {
+  if (event.key === "Escape" || event.key === "Tab" || event.metaKey || event.ctrlKey || event.altKey) return;
+  const box = event.currentTarget;
+  const page = Math.max(LINE_STEP, box.clientHeight - LINE_STEP);
+  const step: Record<string, number> = {
+    ArrowDown: LINE_STEP,
+    ArrowUp: -LINE_STEP,
+    PageDown: page,
+    PageUp: -page,
+    " ": event.shiftKey ? -page : page,
+    Home: -box.scrollHeight,
+    End: box.scrollHeight,
+  };
+  event.preventDefault();
+  event.stopPropagation();
+  const by = step[event.key];
+  if (by !== undefined) box.scrollBy({ top: by });
 }
 
 /// A row of label parts: one line that wraps only between parts and shows only its first row.

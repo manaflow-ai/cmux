@@ -76,6 +76,7 @@ import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
 import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
 import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
+import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
 import { SENT_IMAGE_HEIGHT, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
 import { fileSizeLabel } from "./fileAttachmentModel";
@@ -2638,6 +2639,7 @@ function measuredRowHeight(
     !chiefEnvelope(row.text) &&
     isPlainUserPrompt(row.text);
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - userBubbleSides() : width);
+  const picks = row.kind === "user" && !inline && !pasted && !plainUser ? sentUIPickSegments(row.text) : undefined;
   const usedPrepared = new Set<string>();
   let contentHeight: number;
   if (plainUser) {
@@ -2651,11 +2653,15 @@ function measuredRowHeight(
       entry.plainHeight = { key: plainKey, height: contentHeight };
     }
   } else {
-    if (!inline && !pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
+    if (!inline && !pasted && !picks && (entry.text !== row.text || entry.lexedLength === 0)) {
       lexIncrementally(entry, row.text);
     }
     if (inline) {
       contentHeight = inlinePromptHeight(row, inline, contentWidth, entry.prepared, usedPrepared);
+    } else if (picks) {
+      // A prompt with inspector picks draws each as its chip (conversation/SentUIPick.tsx), the text
+      // around it as before: never the report's fenced lines.
+      contentHeight = pickedPromptHeight(picks, contentWidth, entry.prepared, usedPrepared);
     } else if (pasted) {
       // A prompt with pasted blocks: one body of its typed text and the person's pastes, and a paste
       // another agent wrote apart under its "Pasted from" line (conversation/PromptText.tsx). A huge
@@ -2704,6 +2710,10 @@ export const INLINE_ATTACHMENT_MARGIN = { x: 4, y: 2 };
 /// A sent file's chip (composerAttachments.css `.acpmux-file-chip`): 32px tall, at most 340px wide,
 /// 8px each side of its 16px glyph, its name and its size, 6px apart.
 export const INLINE_FILE_CHIP = { height: 32, maxWidth: 340, side: 8, glyph: 16, gap: 6 };
+/// An inspector pick's chip in a sent message (composerAttachments.css `.cv-user__chip`): a block of
+/// its own, its face two control rows tall, 4px above and below. Closed: an opened one is measured.
+export const SENT_UI_PICK_CHIP = { height: 48, marginY: 4 };
+const SENT_UI_PICK_BOX = SENT_UI_PICK_CHIP.height + 2 * SENT_UI_PICK_CHIP.marginY;
 
 /// `text` prepared for a walk of its lines, kept in the row's prepared map with its text heights.
 function preparedLines(
@@ -2897,11 +2907,40 @@ function inlinePromptHeight(
       else text(part.text);
     } else if (part.kind === "pasted" && part.text) {
       block(PASTE_FROM_HEIGHT + measure(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS)));
+    } else if (part.kind === "file" && !part.uri && part.text && sentUIPick(part.text)) {
+      // An inspector pick placed in the text: its chip, a block of its own (InlinePromptContent.tsx).
+      block(SENT_UI_PICK_BOX);
     } else {
       attachment(attachmentBox(part, videos, width, prepared, used));
     }
   });
   close();
+  return height;
+}
+
+/// A legacy prompt with inspector picks (`sentUIPickSegments` of its text), as PromptText.tsx
+/// PromptTyped draws it: each text segment its lines, each pick its chip.
+function pickedPromptHeight(
+  segments: readonly SentPromptSegment[],
+  width: number,
+  prepared: PreparedRow["prepared"],
+  used: Set<string>,
+): number {
+  const { lineHeight } = metrics();
+  let height = 0;
+  for (const segment of segments)
+    height +=
+      segment.kind === "pick"
+        ? SENT_UI_PICK_BOX
+        : Math.max(
+            lineHeight,
+            textHeight(
+              isHugePrompt(segment.text) ? promptHead(segment.text, HUGE_PROMPT_HEAD_CHARS) : segment.text,
+              width,
+              prepared,
+              used,
+            ),
+          );
   return height;
 }
 

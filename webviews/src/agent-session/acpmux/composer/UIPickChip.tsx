@@ -18,6 +18,8 @@ export function UIPickChip({
   name,
   text,
   remove,
+  open,
+  onOpenChange,
 }: {
   host: ChipHost;
   /// The attachment's name ("UI: span").
@@ -26,6 +28,9 @@ export function UIPickChip({
   text: string;
   /// The host's × (shown on hover or focus); none in a sent message.
   remove?: ReactNode;
+  /// Kept by the host when given (a sent message's disclosure: SentUIPick.tsx SentUIPickChip).
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const t = useT();
   const { label: form, collapse } = useContext(UIPickDesignContext);
@@ -42,6 +47,8 @@ export function UIPickChip({
       label={caption}
       accessibleName={read}
       {...(remove ? { remove } : {})}
+      {...(open === undefined ? {} : { open })}
+      {...(onOpenChange ? { onOpenChange } : {})}
       text={text}
     />
   );
