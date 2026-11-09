@@ -16,6 +16,7 @@ import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextLayout
+import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -35,11 +36,14 @@ final class HomeHostView: PaneMotionFollowingView {
     let settingsView: HomeChiefSettingsView
     /// The Chief pet's rows in the popover's Appearance section.
     private let petRows: ChiefPetSettingsRows
-    private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels(); watchNeedsYou() } } }
+    private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels(); watchNeedsYou(); watchSetupCard() } } }
     /// The header's top-right panel toggles follow their panels (HomeHostView+HeaderPanels.swift).
     var headerPanelsWatch: Task<Void, Never>?
     /// A Chief's pinned Needs you section follows the Feed's open requests (HomeHostView+NeedsYou.swift).
     var needsYouWatch: Task<Void, Never>?
+    /// A Chief's Set Up cmux card at first run follows ``FirstRunSetup`` (HomeHostView+SetupCard.swift).
+    var setupCardWatch: Task<Void, Never>?
+    var setupCard: SetupCardHost?
     private var engineWatch: Task<Void, Never>?
     /// Each Chief's avatar beside this conversation's group bubbles, as its Home row draws it.
     private var avatarsWatch: Task<Void, Never>?
@@ -431,12 +435,15 @@ final class HomeHostView: PaneMotionFollowingView {
     // main actor: the transcript's stop, which releases its dictation claim in the app's claim registry and
     // cancels its wake on the app's timer (both outlive this view). A guard that returned off main skipped it.
     nonisolated deinit {
-        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, needsYouWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, needsYouWatch, setupCardWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
             task?.cancel()
         }
-        let transcript = transcript
-        // task-owner: the main-actor half of this view's release; one call, then it ends
-        Task { @MainActor in transcript.stop() }
+        let transcript = transcript, setupCard = setupCard
+        // task-owner: the main-actor half of this view's release; one call each, then it ends
+        Task { @MainActor in
+            setupCard?.close()
+            transcript.stop()
+        }
     }
 
     nonisolated override var wantsUpdateLayer: Bool { true }

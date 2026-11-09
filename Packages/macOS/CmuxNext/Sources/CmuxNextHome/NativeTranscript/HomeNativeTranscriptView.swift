@@ -177,6 +177,8 @@ public final class HomeNativeTranscriptView: NSView {
     var pinned: (view: NSView, height: CGFloat?)?
     /// The Chief computer popup (``setFloatingAccessory(_:)``).
     var floatingAccessory: NSView?
+    /// The Set Up cmux card under the pinned section (HomeNativeTranscriptView+PinnedSection.swift) and its height.
+    var setupCard: (view: NSView, height: CGFloat)?
     /// The window's key and occlusion observers; each token removes itself when released (on any thread).
     private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).

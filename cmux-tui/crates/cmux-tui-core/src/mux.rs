@@ -225,7 +225,7 @@ use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
 mod agent_prompts;
 pub use agent_presence::{AgentActivity, AgentPresence};
-pub(crate) use agent_prompts::{with_agent_session, with_last_reply};
+pub(crate) use agent_prompts::{with_agent_list_replies, with_agent_session, with_last_reply};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -600,6 +600,10 @@ pub struct Mux {
     reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     #[cfg(test)]
     viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in an effectful topology operation after its intent is marked
+    /// executing and before the effect runs (tests).
+    #[cfg(test)]
+    topology_effect_before_execute: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_mutation_metrics: Mutex<Option<ResourceMutationMetrics>>,
     #[cfg(test)]
