@@ -589,6 +589,38 @@ fn a_check_that_returns_early_after_a_pause_starts_the_connect_hold() {
     assert_eq!(gate::Gate::new(&paths).held_left(T0_MS), None);
 }
 
+/// Design review of #39049 (cloud-v0-lead): a spare paused 3 minutes during
+/// a check and then claimed must be held, whether the check returns early
+/// (its busy look timed out across the pause) or goes on to its flip. A
+/// 5-minute bound over the whole check let pauses of 2 to 5 minutes through.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_three_minute_pause_during_a_check_that_returns_early_holds() {
+    use std::cell::Cell;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let resumed = T0_MS + 3 * 60_000;
+    let times = Cell::new(0);
+    let clock = || {
+        times.set(times.get() + 1);
+        if times.get() == 1 { T0_MS } else { resumed }
+    };
+    role::check_step(&paths, &clock, |_| role::Outcome::Busy(vec!["acpmux: timed out".to_owned()]));
+    assert!(gate::Gate::new(&paths).held_left(resumed).is_some(), "a 3 min pause was let through");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_three_minute_pause_during_a_check_holds_its_flip() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let resumed = T0_MS + 3 * 60_000;
+    // The flip's own look, as check_inner makes it right before the gate.
+    role::hold_if_stopped(&paths, T0_MS, resumed, role::CHECK_BOUND);
+    assert!(gate::Gate::new(&paths).held_left(resumed).is_some(), "a 3 min pause was let through");
+}
+
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
 /// sessions are attached, looking again every minute, and stops waiting when
 /// the role stops.
