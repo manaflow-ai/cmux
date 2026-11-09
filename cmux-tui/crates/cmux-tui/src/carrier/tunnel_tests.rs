@@ -693,3 +693,43 @@ async fn a_stop_before_hub_ready_kills_a_hub_that_ignores_sigterm() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+
+/// A child whose exit-event wait fails: it records what the owner did.
+struct NoEventChild {
+    log: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl HubChild for NoEventChild {
+    fn id(&self) -> u32 {
+        0
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        Ok(None)
+    }
+    fn wait_timeout(&mut self, _: Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.log.lock().unwrap().push("wait_timeout");
+        Err(std::io::Error::from_raw_os_error(libc::EMFILE))
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        self.log.lock().unwrap().push("kill");
+        Ok(())
+    }
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        self.log.lock().unwrap().push("wait");
+        use std::os::unix::process::ExitStatusExt as _;
+        Ok(std::process::ExitStatus::from_raw(libc::SIGKILL))
+    }
+}
+
+#[test]
+fn a_failed_exit_wait_kills_and_reaps_the_hub_before_it_is_ended() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let (requests, asked) = std::sync::mpsc::channel();
+    let (done, mut ended) = watch::channel(None);
+    let child = NoEventChild { log: Arc::clone(&log) };
+    std::thread::spawn(move || own_hub(child, asked, done, Duration::from_secs(5))).join().unwrap();
+    drop(requests);
+    assert_eq!(*log.lock().unwrap(), ["wait_timeout", "kill", "wait"]);
+    let why = ended.borrow_and_update().clone().expect("ended after the reap");
+    assert!(why.contains("after"), "{why}");
+}
