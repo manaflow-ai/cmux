@@ -167,6 +167,31 @@ fn a_restart_keeps_a_status_key_that_only_looks_like_a_tail() {
 }
 
 #[test]
+fn only_the_daemon_sets_a_reserved_tail_key() {
+    let f = fixture("tail-pin-reserved");
+    let terminal = f.surface.terminal_public_id().cloned().unwrap();
+    let selectors = f.mux.local_workspace_selectors(&f.workspace);
+    let refused = f
+        .mux
+        .state_workspace_status(
+            &WorkspaceMutation::by_local_user("forge-1", "test").unwrap(),
+            "workspace_status.set",
+            None,
+            &selectors,
+            WorkspaceStatusChange::Set {
+                key: format!("{RESERVED_TAIL_KEY_PREFIX}{}", &terminal.as_str()[5..]),
+                text: "forged".into(),
+                icon: Some("terminal".into()),
+                color: None,
+                meta: Box::default(),
+            },
+        )
+        .unwrap_err();
+    assert!(refused.to_string().contains("reserved"), "{refused}");
+    assert_eq!(f.tails(), Vec::new());
+}
+
+#[test]
 fn an_unpin_during_a_publication_is_never_undone() {
     let f = fixture("tail-pin-race");
     f.mux.set_terminal_tail_pin(f.surface.id, true).unwrap();

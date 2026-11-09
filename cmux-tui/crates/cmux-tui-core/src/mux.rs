@@ -327,6 +327,7 @@ mod terminal_progress;
 mod terminal_publisher;
 mod terminal_reap;
 mod terminal_tail_pins;
+pub(crate) use terminal_tail_pins::RESERVED_TAIL_KEY_PREFIX;
 #[cfg(unix)]
 mod terminal_rehost;
 mod terminal_relaunch;

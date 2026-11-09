@@ -5037,7 +5037,14 @@ makes the commits and runs only while a terminal is pinned. Unpinning removes
 the entry; the terminal's exit removes it through its owner. A tab moved to
 another workspace moves the entry with its next line. Pins live in the owner's
 memory: an owner restart unpins every terminal and removes the tail entries an
-earlier run left.
+earlier run left. Keys starting with `tail:term_` are reserved for these
+entries: `workspace_status.set` refuses one from any caller but the owner
+itself. An incognito terminal is refused (`terminal_private`), and a pin ends
+once its terminal turns private, so its output never reaches the status store.
+When the tab the pin was made from closes, the pin follows another tab that
+shows the terminal, or ends. The native sidebar draws workspace status entries
+when its Agent Status row element is on (`sidebar.workspaceRow.agentStatus`,
+off by default).
 
 Params:
 

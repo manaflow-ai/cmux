@@ -16,8 +16,6 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use serde_json::json;
-
 use super::*;
 use crate::state::WorkspaceStatusChange;
 use crate::state::status_meta::StatusMeta;
@@ -26,6 +24,10 @@ use crate::workspace_registry::WorkspaceMutation;
 
 /// The status key prefix of a tail entry.
 pub(crate) const TAIL_KEY_PREFIX: &str = "tail:";
+/// Keys under this prefix are the daemon's own (`tail:term_…`): a request
+/// may clear one but never set one (`state/workspace.rs`), so a key of this
+/// form marks a pin's record.
+pub(crate) const RESERVED_TAIL_KEY_PREFIX: &str = "tail:term_";
 const TAIL_ICON: &str = "terminal";
 
 #[derive(Default)]
@@ -129,6 +131,7 @@ impl Mux {
     }
 
     /// Whether `view`'s terminal is pinned.
+    #[cfg(test)]
     pub(crate) fn terminal_tail_pinned(&self, view: SurfaceId) -> bool {
         self.surface(view).and_then(|surface| surface.tail_pin().map(|slot| slot.is_pinned()))
             == Some(true)
@@ -189,7 +192,8 @@ impl Mux {
     pub(crate) fn clear_stale_terminal_tails(&self) {
         let stale = self.read_registry_state(|connection| {
             let mut statement = connection.prepare(
-                // Only this feature's records: key `tail:<term id>`, icon
+                // Only this feature's records: a reserved key
+                // `tail:term_<id>` (only the daemon sets one), icon
                 // `terminal`, owned by that same terminal. A person's or a
                 // script's own `tail:` key is never one of them.
                 "SELECT entry.workspace_id, entry.status_key
@@ -197,12 +201,12 @@ impl Mux {
                  JOIN workspace_status_meta AS meta
                    ON meta.workspace_id = entry.workspace_id
                   AND meta.status_key = entry.status_key
-                 WHERE substr(entry.status_key, 1, 5) = ?1
+                 WHERE substr(entry.status_key, 1, 10) = ?1
                    AND entry.icon = ?2
                    AND meta.owner_terminal = substr(entry.status_key, 6)
                    AND meta.target_terminal = meta.owner_terminal",
             )?;
-            let rows = statement.query_map([TAIL_KEY_PREFIX, TAIL_ICON], |row| {
+            let rows = statement.query_map([RESERVED_TAIL_KEY_PREFIX, TAIL_ICON], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
             Ok(rows.collect::<Result<Vec<_>, _>>()?)
