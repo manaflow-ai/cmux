@@ -21,6 +21,7 @@ pub(in crate::server) struct ConnectionFacts {
     pub(in crate::server) remote_device: bool,
     /// A unix connection that declared `cloud-mobile-chat-v1`: a phone's carrier channel
     /// (phone_carrier.rs), held to hostd's adapter commands on every line.
+    #[cfg(unix)]
     pub(in crate::server) phone_carrier: bool,
     /// The connection's base actor (`ConnectionOrigin::actor`).
     pub(in crate::server) actor: crate::workspace_registry::Actor,
@@ -47,6 +48,7 @@ impl ClientFacts {
                 let facts = ConnectionFacts {
                     transport: record.transport,
                     remote_device: record.remote_device,
+                    #[cfg(unix)]
                     phone_carrier: matches!(record.transport, ClientTransport::Unix)
                         && record.capabilities.contains(
                             super::super::agent_session_attach::CLOUD_MOBILE_CHAT_CAPABILITY,
