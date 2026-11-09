@@ -174,6 +174,11 @@ test("a send asks the first harness named outside code, and keeps the rest of it
   expect(guestMention("Explain what `@codex hi` does", catalog)).toBeUndefined();
   expect(guestMention("```sh\nunclosed\n@codex run", catalog)).toBeUndefined();
   expect(guestMention("email me@codex please", catalog)).toBeUndefined();
+  // A folder's own profile cannot answer as a guest yet, so a send never asks one.
+  const folder = [
+    { id: "local", name: "Local", models: [], pickable: true, folder: { folder: "/w", state: "enabled" } },
+  ];
+  expect(guestMention("@local look", folder as never)).toBeUndefined();
 });
 
 test("a bare @ also offers recently picked files, and a query fuzzy-matches them", () => {

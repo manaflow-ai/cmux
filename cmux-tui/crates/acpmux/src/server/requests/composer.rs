@@ -58,7 +58,16 @@ pub(super) async fn handle(
             Some(_) => return Err(RpcError::invalid_params("targetHarness must be a string")),
         };
         // Boxed: the side-question state machine is too large for a debug build's request stack.
-        return Box::pin(hub.btw(&s, question, model, target_harness, &conn.label(), inline, opts())).await;
+        return Box::pin(hub.btw(
+            &s,
+            question,
+            model,
+            target_harness,
+            &conn.label(),
+            inline,
+            opts(),
+        ))
+        .await;
     }
     if m == method::MUX_COMPOSERS {
         return Ok(hub.composers_view(&s));

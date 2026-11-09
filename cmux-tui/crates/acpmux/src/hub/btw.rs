@@ -233,7 +233,8 @@ impl Hub {
         } else {
             Box::pin(self.harness_env(&meta)).await
         };
-        let target_harness = target_harness.map(str::trim).filter(|h| !h.is_empty()).map(str::to_owned);
+        let target_harness =
+            target_harness.map(str::trim).filter(|h| !h.is_empty()).map(str::to_owned);
         let (family, harness_env) = if let Some(target) = target_harness.as_deref() {
             let cfg = self.config.read().await;
             let profile = cfg.resolve_harness(target).map_err(RpcError::invalid_params)?;

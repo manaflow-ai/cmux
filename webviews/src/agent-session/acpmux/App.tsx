@@ -674,7 +674,7 @@ import { steerQueueExperiment } from "./steerQueue/steerQueue.experiment";
 import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion } from "./btwCapability";
 import { SecondOpinionContext } from "./conversation/secondOpinion";
-import { guestMention } from "./mentionItems";
+import { canBeGuest, guestMention } from "./mentionItems";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
 import { clearHeldFork, prepareHeldFork, sendHeldFork } from "./forkHold";
 import { setSuggestedTasks } from "./offer/offersShown";
@@ -4120,9 +4120,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const client = directClient.current;
       if (!sessionId || !client) return;
       const current = snapshot.summary?.harness;
-      const target = snapshot.catalog.find(
-        (entry) => entry.id !== current && entry.pickable !== false && (!entry.unavailable || entry.probeFailed),
-      );
+      const target = snapshot.catalog.find((entry) => entry.id !== current && canBeGuest(entry));
       // A second opinion is another harness's: with no other one installed there is nobody to ask.
       if (!target) return;
       const files = changedFiles.filter(Boolean).slice(0, 40);

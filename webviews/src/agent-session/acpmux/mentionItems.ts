@@ -196,20 +196,25 @@ function sessionItems(
 export const hasOtherChats = (sessions: readonly AcpmuxSessionEntry[], chatId: string | undefined) =>
   sessions.some((entry) => entry.sessionId !== chatId && listed(entry));
 
+/// A catalog row that can answer as a read-only guest: an installed agent harness the daemon
+/// resolves by name. A folder's own profile is not one yet: the guest path resolves only the
+/// global profiles (hq#8327).
+export function canBeGuest(entry: AcpmuxSnapshot["catalog"][number]): boolean {
+  return (
+    Boolean(entry.id) &&
+    entry.pickable !== false &&
+    (!entry.unavailable || Boolean(entry.probeFailed)) &&
+    entry.kind !== "terminal" &&
+    entry.kind !== "unknown" &&
+    !isModelRouterKind(entry.kind) &&
+    entry.folder === undefined
+  );
+}
+
 function harnessItems(catalog: readonly AcpmuxSnapshot["catalog"][number][], query: string): MentionItem[] {
   const ranked: { entry: AcpmuxSnapshot["catalog"][number]; score: number; indexes: number[]; label: string }[] = [];
   for (const entry of catalog) {
-    const raw = entry as AcpmuxSnapshot["catalog"][number] & { folder?: { state?: string } };
-    if (
-      !entry.id ||
-      entry.pickable === false ||
-      (entry.unavailable && !entry.probeFailed) ||
-      entry.kind === "terminal" ||
-      entry.kind === "unknown" ||
-      isModelRouterKind(entry.kind) ||
-      (raw.folder?.state && raw.folder.state !== "enabled")
-    )
-      continue;
+    if (!canBeGuest(entry)) continue;
     const label = entry.name?.trim() || entry.id;
     // A harness answers only to its own name's start: "@ini" is a file, never Gemini.
     const lower = query.toLowerCase();
@@ -240,12 +245,7 @@ export function guestMention(
   const outsideCode = text.replace(/(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g, (code) => code.replace(/[^\n]/g, " "));
   for (const match of outsideCode.matchAll(/(^|\s)@([A-Za-z0-9_.:/-]+)(?=\s|$)/g)) {
     const id = match[2]!.toLowerCase();
-    const entry = catalog.find(
-      (candidate) =>
-        candidate.id.toLowerCase() === id &&
-        candidate.pickable !== false &&
-        (!candidate.unavailable || candidate.probeFailed),
-    );
+    const entry = catalog.find((candidate) => candidate.id.toLowerCase() === id && canBeGuest(candidate));
     if (!entry) continue;
     const start = match.index! + match[1]!.length;
     const question = `${text.slice(0, start)}${text.slice(start + 1 + match[2]!.length)}`.trim();
