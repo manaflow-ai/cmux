@@ -89,7 +89,7 @@ const MAX_SUBPATH_PARTS: usize = 32;
 impl HeadFirst {
     /// `None` when the subpath has a part a non-cone pattern cannot name literally: such a
     /// seed fills whole before it answers, as it did before heads.
-    fn of(subpath: Option<&str>) -> Option<Self> {
+    pub(super) fn of(subpath: Option<&str>) -> Option<Self> {
         let subpath = subpath.unwrap_or("").trim_matches('/');
         if subpath.is_empty() {
             return Some(Self { subpath: Vec::new() });

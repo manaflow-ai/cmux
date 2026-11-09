@@ -212,6 +212,21 @@ import Testing
         #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
     }
 
+    /// Automatic Updates is an opt-in (off on every channel since Leo 2026-10-27), so a stored `true`
+    /// is the person's pick, never a stale copy: the pass keeps it on a file it has not seen yet
+    /// (a new install's first launch, an older cmux-next.json copied in). Lawrence 2026-11-08: "i keep
+    /// enabling auto updates but it keeps getting toggled off": each fresh build's pass dropped it
+    /// as a copy of the former default `true`, and the running NIGHTLY turned automatic downloads off.
+    @Test func thePassKeepsAutomaticUpdatesTurnedOn() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "updates": { "downloadAutomatically": true } }"#)
+
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
+        #expect(report.dropped[UpdatesSettings.downloadAutomaticallyPath.joined(separator: ".")] == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(settings.snapshot.updates.downloadAutomatically)
+    }
+
     /// A null the first builds of this change stored for a default write goes once; a set value stays.
     @Test func strayNullsGoOnce() async throws {
         defer { try? FileManager.default.removeItem(at: home) }

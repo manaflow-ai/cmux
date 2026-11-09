@@ -44,6 +44,10 @@ pub const CLI_NAME: &str = "acpmux-cli";
 pub const KIND_TERMINAL: &str = "terminal";
 /// The `callerKind` of a CLI inside an acpmux session's environment.
 pub const KIND_AGENT: &str = "agent";
+/// The `callerKind` of a CLI an app's guest MCP server runs (`acpmux_mcp_guest.rs`, with
+/// `desktop_link::GUEST_ENV` set to the app): a program, never the owner's terminal. A daemon
+/// reads it as any kind but `terminal` ([`Declared::Agent`]), an older daemon too.
+pub const KIND_GUEST: &str = "guest";
 /// The env var that gives each session's harness its daemon's own acpmux, an absolute path.
 pub const BIN_ENV: &str = "ACPMUX_BIN";
 /// `claimed` key of an unverified prompt from an old acpmux CLI: "acpmux-cli 0.1.0".
@@ -111,7 +115,14 @@ pub fn in_session_env(env: impl Fn(&str) -> Option<String>) -> bool {
 
 /// Adds this CLI's declaration to the `_meta.acpmux` of its `initialize`.
 pub fn declare(mux: &mut Map<String, Value>, env: impl Fn(&str) -> Option<String>) {
-    let kind = if in_session_env(env) { KIND_AGENT } else { KIND_TERMINAL };
+    let guest = env(crate::desktop_link::GUEST_ENV).is_some_and(|v| !v.trim().is_empty());
+    let kind = if in_session_env(&env) {
+        KIND_AGENT
+    } else if guest {
+        KIND_GUEST
+    } else {
+        KIND_TERMINAL
+    };
     mux.insert(PROTOCOL_FIELD.to_owned(), json!(PROTOCOL));
     mux.insert(KIND_FIELD.to_owned(), json!(kind));
 }
@@ -235,19 +246,28 @@ fn shell_word(word: &str) -> String {
     format!("'{}'", word.replace('\'', "'\\''"))
 }
 
-/// Where the daemon whose home is `home` keeps its [`BinChoice::Wrapper`] script.
+/// Where the daemon whose home is `home` keeps its [`BinChoice::Wrapper`] script: an absolute
+/// path, since agents run it from their own working folders (F2 of #39020: a relative
+/// `ACPMUX_HOME` is taken from this process's working folder).
 pub fn wrapper_path(home: &std::path::Path) -> std::path::PathBuf {
-    home.join("bin").join(CLI_ALIAS)
+    let path = home.join("bin").join(CLI_ALIAS);
+    std::path::absolute(&path).unwrap_or(path)
 }
 
-/// Writes `script` at `path`, owner-only and executable (0700, its folder too), unless the
-/// regular file there holds it already: a new file renamed over the old one, so an agent that
-/// starts it meanwhile runs either the old text or the new one, whole.
+/// Writes `script` at `path`, owner-only and executable (0700, its folder private state:
+/// `config::private_state_dir`), unless the regular file there holds it already: a new file
+/// renamed over the old one, so an agent that starts it meanwhile runs either the old text or
+/// the new one, whole.
 #[cfg(unix)]
 pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = path.parent().ok_or_else(|| std::io::Error::other("the wrapper has no folder"))?;
+    // Private state, as every folder in the acpmux home: owner-only, and refused when another
+    // user could write it or an ancestor (F1 of #39020): they could swap the script agents run.
+    // Checked before the same-text return too: a folder an older build left open is refused.
+    crate::config::private_state_dir(dir).map_err(|e| std::io::Error::other(format!("{e:#}")))?;
     if let Ok(meta) = std::fs::symlink_metadata(path)
         && meta.is_file()
         && meta.permissions().mode() & 0o777 == 0o700
@@ -255,13 +275,20 @@ pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<
     {
         return Ok(());
     }
-    let dir = path.parent().ok_or_else(|| std::io::Error::other("the wrapper has no folder"))?;
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    remove_dead_temporaries(dir);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = dir.join(format!(".{CLI_ALIAS}.{}.{n}.tmp", std::process::id()));
+    let create = || std::fs::OpenOptions::new().write(true).create_new(true).mode(0o700).open(&tmp);
     let written = (|| {
-        let mut file =
-            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o700).open(&tmp)?;
+        // A file with this name is a dead writer's that had this pid (no live process but this
+        // one has it, and this one takes each `n` once): removed, then created once more.
+        let mut file = match create() {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::fs::remove_file(&tmp)?;
+                create()?
+            }
+            opened => opened?,
+        };
         file.write_all(script.as_bytes())?;
         file.sync_all()?;
         // The mode a umask may have narrowed: the script must run.
@@ -272,6 +299,34 @@ pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<
         let _ = std::fs::remove_file(&tmp);
     }
     written
+}
+
+/// Removes the temporary wrappers (`.acpmux.<pid>.<n>.tmp`) in `dir` whose writer process is
+/// gone: one that died between its create and its rename left it there (F5 of #39020). A live
+/// writer's file stays: it is about to be renamed.
+#[cfg(unix)]
+fn remove_dead_temporaries(dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let prefix = format!(".{CLI_ALIAS}.");
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid) = name
+            .to_str()
+            .and_then(|n| n.strip_prefix(prefix.as_str()))
+            .and_then(|n| n.strip_suffix(".tmp"))
+            .and_then(|n| n.split_once('.'))
+            .and_then(|(pid, n)| n.parse::<u64>().ok().and(pid.parse::<libc::pid_t>().ok()))
+        else {
+            continue;
+        };
+        // SAFETY: kill with signal 0 only checks that the process exists.
+        let gone = pid > 0
+            && unsafe { libc::kill(pid, 0) } == -1
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        if gone {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// [`install_wrapper`] where a shell script cannot run: refused, so [`BIN_ENV`] is not set.
@@ -331,6 +386,100 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// F1 of #39020: the wrapper's folder is private state. A `bin` folder another user can
+    /// write (group or world writable) could swap the script every agent runs: it is refused,
+    /// and no wrapper is written there.
+    #[cfg(unix)]
+    #[test]
+    fn w5s_a_wrapper_folder_others_can_write_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("w5s-wrapper-open-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = wrapper_path(&home);
+        let bin = path.parent().unwrap();
+        std::fs::create_dir_all(bin).unwrap();
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(bin, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let written = install_wrapper(&path, "#!/bin/sh\nexec '/a/cmux' 'acp' \"$@\"\n");
+        assert!(written.is_err(), "a wrapper was written in a world-writable folder");
+        assert!(!path.exists(), "a wrapper was left in a world-writable folder");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Review of #39613: a wrapper already in place (an older build wrote it, or the folder was
+    /// opened later) does not skip the folder check: a `bin` folder another user can write is
+    /// refused even when the script there holds the same text.
+    #[cfg(unix)]
+    #[test]
+    fn w5s_an_existing_wrapper_in_a_folder_others_can_write_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("w5s-wrapper-reopen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = wrapper_path(&home);
+        let script = "#!/bin/sh\nexec '/a/cmux' 'acp' \"$@\"\n";
+        install_wrapper(&path, script).unwrap();
+        let bin = path.parent().unwrap();
+        std::fs::set_permissions(bin, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let again = install_wrapper(&path, script);
+        std::fs::set_permissions(bin, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::fs::remove_dir_all(&home);
+        assert!(again.is_err(), "the same wrapper was accepted in a world-writable folder");
+    }
+
+    /// Review of #39613: a new daemon may get the pid of a dead writer whose temporary file is
+    /// still there (`.acpmux.<pid>.<n>.tmp`, the pid now its own, so it is not removed as dead):
+    /// its write still succeeds.
+    #[cfg(unix)]
+    #[test]
+    fn w5s_a_leftover_temporary_with_this_processs_pid_does_not_block_the_write() {
+        let home = std::env::temp_dir().join(format!("w5s-wrapper-reuse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = wrapper_path(&home);
+        install_wrapper(&path, "#!/bin/sh\nexec '/a/cmux' 'acp' \"$@\"\n").unwrap();
+        let bin = path.parent().unwrap();
+        // A dead writer had this process's pid: every name this process's next writes could
+        // take (the tests of this binary write a few wrappers between them).
+        for n in 0..256 {
+            let name = format!(".{CLI_ALIAS}.{}.{n}.tmp", std::process::id());
+            std::fs::write(bin.join(name), "half").unwrap();
+        }
+        let written = install_wrapper(&path, "#!/bin/sh\nexec '/b/cmux' 'acp' \"$@\"\n");
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&home);
+        assert!(written.is_ok(), "a leftover temporary file blocked the write: {written:?}");
+        assert!(text.contains("/b/cmux"), "the wrapper was not written: {text}");
+    }
+
+    /// F2 of #39020: `ACPMUX_BIN` is run from an agent's own working folder, so the wrapper's
+    /// path is absolute even when the acpmux home is named relative to the daemon's.
+    #[test]
+    fn w5s_the_wrapper_path_is_absolute_under_a_relative_home() {
+        let path = wrapper_path(std::path::Path::new("rel/acpmux-home"));
+        assert!(path.is_absolute(), "{}", path.display());
+        assert!(path.ends_with("rel/acpmux-home/bin/acpmux"), "{}", path.display());
+    }
+
+    /// F5 of #39020: a temporary file a writer left when it died (its process is gone) is
+    /// removed on the next write; one of a live process stays.
+    #[cfg(unix)]
+    #[test]
+    fn w5s_a_dead_writers_temporary_wrapper_is_removed_on_write() {
+        let home = std::env::temp_dir().join(format!("w5s-wrapper-tmp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = wrapper_path(&home);
+        install_wrapper(&path, "#!/bin/sh\nexec '/a/cmux' 'acp' \"$@\"\n").unwrap();
+        let bin = path.parent().unwrap();
+        // No process has this pid (above every pid limit), so its writer is gone.
+        let dead = bin.join(format!(".{CLI_ALIAS}.2147483646.0.tmp"));
+        std::fs::write(&dead, "half").unwrap();
+        let live = bin.join(format!(".{CLI_ALIAS}.{}.99.tmp", std::process::id()));
+        std::fs::write(&live, "half").unwrap();
+        install_wrapper(&path, "#!/bin/sh\nexec '/b/cmux' 'acp' \"$@\"\n").unwrap();
+        assert!(!dead.exists(), "the dead writer's temporary file stayed");
+        assert!(live.exists(), "a live writer's temporary file was removed");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn this_cli_declares_terminal_outside_a_session_and_agent_inside_one() {
         let mut mux = Map::new();
@@ -342,6 +491,23 @@ mod tests {
         declare(&mut mux, env(&[("ACPMUX_SESSION_ID", "s1")]));
         let hello = json!({"clientInfo": {"name": CLI_NAME}, "_meta": {"acpmux": mux}});
         assert_eq!(of_initialize(&hello), Some(Declared::Agent));
+    }
+
+    /// Review F1 (#39320): the CLI a guest MCP server runs (`acpmux_mcp_guest.rs` `new`) says
+    /// it is a guest, so the daemon never takes its prompt for the owner's terminal send.
+    #[test]
+    fn a_guest_cli_declares_no_terminal() {
+        let mut mux = Map::new();
+        declare(&mut mux, env(&[(crate::desktop_link::GUEST_ENV, "claude-desktop")]));
+        assert_eq!(mux.get(KIND_FIELD), Some(&json!(KIND_GUEST)));
+        let hello = json!({"clientInfo": {"name": CLI_NAME}, "_meta": {"acpmux": mux}});
+        let declared = of_initialize(&hello).unwrap();
+        assert_eq!(declared, Declared::Agent);
+        assert!(!declared.may_be_owner_terminal());
+        // A blank value is no guest.
+        let mut mux = Map::new();
+        declare(&mut mux, env(&[(crate::desktop_link::GUEST_ENV, " ")]));
+        assert_eq!(mux.get(KIND_FIELD), Some(&json!(KIND_TERMINAL)));
     }
 
     #[test]
