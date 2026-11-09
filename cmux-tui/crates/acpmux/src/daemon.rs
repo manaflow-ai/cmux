@@ -530,6 +530,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     crate::hub::watches::Watches::start(&hub);
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
     let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
+    // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
+    // relay slot, and its peers dial over it. A copied home is off, as WireGuard is.
+    #[cfg(feature = "hub-carrier")]
+    let _hub_carrier = if clone_unsettled {
+        None
+    } else {
+        let websocket = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
+        // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
+        let held = wireguard.as_ref().and_then(|transport| transport.key_holder());
+        crate::hub_carrier::start_configured(&hub, &home(), websocket, held).await
+    };
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
