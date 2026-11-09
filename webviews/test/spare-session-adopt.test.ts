@@ -305,10 +305,11 @@ test("an adopted chat the daemon does not list yet keeps its saved transcript on
   const painted: AcpmuxSnapshot[] = [];
   let turn: AcpmuxSnapshot | undefined;
   const page = await spare(daemon, (snapshot) => {
-    if (turn === undefined) queueMicrotask(() => {
-      painted.push(turn!);
-      turn = undefined;
-    });
+    if (turn === undefined)
+      queueMicrotask(() => {
+        painted.push(turn!);
+        turn = undefined;
+      });
     turn = snapshot;
   });
   expect(await page.client.adoptSession(chat)).toBeUndefined();
