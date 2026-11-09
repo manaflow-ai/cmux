@@ -109,8 +109,7 @@
   gap: var(--ds-space-2);
 }
 
-.cu-tile,
-.cu-card {
+.cu-tile {
   padding: var(--ds-space-3);
   border: 1px solid var(--page-separator);
   border-radius: var(--ds-radius-lg);
@@ -150,16 +149,6 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   column-gap: var(--ds-space-5);
-}
-
-.cu-multiples {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--ds-space-2);
-}
-
-.cu-card .cu-chart {
-  margin-top: var(--ds-space-2);
 }
 
 /* Charts */
@@ -366,33 +355,6 @@
   background: var(--cu-ink);
   opacity: 0.45;
 }
-
-.cu-receipt td {
-  min-width: 110px;
-}
-
-.cu-receipt td .cu-num {
-  display: block;
-  text-align: start;
-}
-
-.cu-inline-track {
-  display: block;
-  height: 4px;
-  margin-top: var(--ds-space-1);
-  border-radius: 2px;
-  background: var(--page-hover);
-  overflow: hidden;
-}
-
-.cu-inline-bar {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-}
-
-.cu-inline-bar.cu-cost { background: var(--cu-ink); }
-.cu-inline-bar.cu-hit-line { background: var(--cu-hit); }
 
 .cu-top {
   margin: 0;

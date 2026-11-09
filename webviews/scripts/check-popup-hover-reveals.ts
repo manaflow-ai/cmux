@@ -107,7 +107,6 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/subagents/subagents.css|.cv-subagent-done-row:hover .cv-subagent-done__actions",
     "copy affordance",
   ],
-  ["agent-session/acpmux/prototype/prototype.css|.proto-tab:hover .proto-tab-close", "close affordance"],
   ["pages/settings/styles.css|.backdrop-pending:hover .backdrop-thumb", "pending wallpaper brightness"],
   ["pages/settings/styles.css|.backdrop-own:hover .backdrop-remove:not(:disabled)", "remove affordance"],
   ["gallery/fixtures/VisualMediaBoard.css|.cmux-gallery-media-stage:hover img", "gallery preview brightness"],

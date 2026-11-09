@@ -6,7 +6,7 @@
 //   /markdown?file=   the markdown editor (markdown-page.html, src/pages/markdown) on a repo file
 //   /markdown/viewer?file=  the classic markdown viewer shell (Resources/markdown-viewer/shell.html)
 //   /editor?file=     the code editor (editor-page.html, src/pages/editor) on any file in the home folder
-//   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it);
+//   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html);
 //                     POST /__dev-host/read answers its git and file-search reads (agentGitHost.ts)
 //   /history/ /apps/ /settings/ ...  React pages (every src/pages/<page>/main.tsx); `?mock` uses the page's in-memory provider
 //   /gallery/         every component and page in named fixture states (src/gallery, galleryHost.ts)
@@ -291,7 +291,7 @@ const indexPage = `<!doctype html>
 <li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>
 <li><a href="/debug-settings/?mock">/debug-settings/?mock</a>: Debug Settings page against the in-page mock tunables</li>
 <li><a href="/gallery/">/gallery/</a>: every component and page in named fixture states, with locale, theme, font, scale and width controls</li>
-<li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL); <a href="/agent-pane/prototype.html?mock">prototype.html</a></li>
+<li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL)</li>
 </ul>
 </body></html>`;
 
@@ -309,7 +309,6 @@ const devEntries = [
   "src/diff/dev.ts",
   "src/diff-worker.ts",
   "src/agent-session/acpmux/dev.tsx",
-  "src/agent-session/acpmux/prototype/dev.tsx",
   "src/markdown-viewer/devHost.ts",
   "src/pages/markdown/devBridge.ts",
   "src/pages/markdown/main.tsx",

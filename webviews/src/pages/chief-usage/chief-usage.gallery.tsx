@@ -1,44 +1,29 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // The Chief Usage page (cmux-page://cmux.chief-usage/): the same ChiefUsagePage main.tsx mounts,
-// over the mock `cmux.chief_usage.summary` provider instead of the host bridge, in each of the
-// four designs (plans/cmux-next/chief-usage-analytics-DESIGN.md section 5). Ledger ships.
-import { useEffect, useState, type ComponentType } from "react";
+// over the mock `cmux.chief_usage.summary` provider instead of the host bridge, in the Ledger design
+// that ships (plans/cmux-next/chief-usage-analytics-DESIGN.md section 5).
+import { useEffect, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import { ChiefUsagePage } from "./ChiefUsagePage";
-import type { DesignProps } from "./designs/DesignProps";
-import { LedgerDesign } from "./designs/LedgerDesign";
-import { ReceiptDesign } from "./designs/ReceiptDesign";
-import { SmallMultiplesDesign } from "./designs/SmallMultiplesDesign";
-import { TabsDesign } from "./designs/TabsDesign";
 import table from "./generated/strings.json";
 import { MockChiefUsageProvider, type MockUsageKind } from "./mockProvider";
 import { ChiefUsageStore } from "./store";
 import type { UsageWindow } from "./types";
 
-type Design = "ledger" | "tabs" | "multiples" | "receipt";
-
-const DESIGNS: Record<Design, ComponentType<DesignProps>> = {
-  ledger: LedgerDesign,
-  tabs: TabsDesign,
-  multiples: SmallMultiplesDesign,
-  receipt: ReceiptDesign,
-};
-
 type Props = {
-  design?: Design;
   kind?: MockUsageKind;
   window?: UsageWindow;
   failure?: { code: string; message: string };
 };
 
-function ChiefUsageGallery({ design = "ledger", kind = "busy", window = "30d", failure }: Props) {
+function ChiefUsageGallery({ kind = "busy", window = "30d", failure }: Props) {
   const [store] = useState(() => new ChiefUsageStore(new MockChiefUsageProvider(kind, failure), { window }));
   const [strings] = useState(() => createStrings(table));
   useEffect(() => {
     void store.setWindow(window);
   }, [store, window]);
-  return <ChiefUsagePage store={store} strings={strings} design={DESIGNS[design]} />;
+  return <ChiefUsagePage store={store} strings={strings} />;
 }
 
 export default componentEntry<Props>({
@@ -54,9 +39,6 @@ export default componentEntry<Props>({
     "pages/chief-usage/charts.tsx",
     "pages/chief-usage/parts.tsx",
     "pages/chief-usage/designs/LedgerDesign.tsx",
-    "pages/chief-usage/designs/TabsDesign.tsx",
-    "pages/chief-usage/designs/SmallMultiplesDesign.tsx",
-    "pages/chief-usage/designs/ReceiptDesign.tsx",
   ],
   keywords: ["cost", "tokens", "cache", "usage", "chief", "analytics"],
   load: async () => ChiefUsageGallery,
@@ -69,15 +51,6 @@ export default componentEntry<Props>({
     ledger: {
       note: "Recommended. Ledger: tiles, tokens by kind with the cost line, cache hit and turn time, table and top list on one scroll. 30 days; the cache fix on Oct 19 shows as the hit jump.",
       props: {},
-    },
-    tabs: { note: "Tabs: one chart at a time behind Cost | Tokens | Cache | Latency.", props: { design: "tabs" } },
-    multiples: {
-      note: "Small multiples: a 2×2 grid of sparkline cards, each with its own total.",
-      props: { design: "multiples" },
-    },
-    receipt: {
-      note: "Receipt: one row per bucket with cost, tokens and hit as inline bars; no axes.",
-      props: { design: "receipt", window: "7d" },
     },
     day: { note: "Ledger over the last 24 hours: hourly buckets.", props: { window: "24h" } },
     year: { note: "Ledger over a year: weekly buckets, only the last weeks have a ledger.", props: { window: "1y" } },

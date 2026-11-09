@@ -10,7 +10,6 @@ webviews/src/agent-session/acpmux/diffTheme.ts	size	3
 webviews/src/agent-session/acpmux/handoff/styles.css	size	3
 webviews/src/agent-session/acpmux/keys.css	size	1
 webviews/src/agent-session/acpmux/mockFixture.ts	size	2
-webviews/src/agent-session/acpmux/prototype/prototype.css	size	17
 webviews/src/agent-session/acpmux/styles.css	size	32
 webviews/src/agent-session/acpmux/subagents/subagents.css	size	2
 webviews/src/gallery/env.ts	size	1
@@ -34,5 +33,4 @@ webviews/src/pages/settings/components/ThemePreview.tsx	size	1
 webviews/src/pages/settings/layout.css	size	1
 webviews/src/pages/settings/styles.css	size	9
 webviews/src/pages/shared/pageBase.css	size	1
-webviews/src/sidebar/AllChatsDesigns.css	size	3
 webviews/src/styles.css	size	8
