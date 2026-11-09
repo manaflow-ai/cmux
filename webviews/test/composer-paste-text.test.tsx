@@ -409,6 +409,20 @@ const chipButtons = (view: AttachmentView) =>
         open: () => host.querySelector<HTMLButtonElement>(".acpmux-attachment-pasted-open"),
       };
 
+/// Opens a pasted chip's whole text as a click on it does (composer/PastedTextChip.tsx) and returns
+/// the opened view's button named `label`: Edit in Prompt and Keep as .txt live there, never on the
+/// chip (Leo, 2026-11-08: "normally in chatgpt you can just click it to expand or smth and maybe in
+/// claude you see it in a viewer?").
+async function inOpenedChip(view: AttachmentView, label: string): Promise<HTMLButtonElement> {
+  await act(async () => chipButtons(view).open()!.click());
+  const find = () =>
+    [...host.ownerDocument.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (button) => button.textContent === label,
+    );
+  await until(() => Boolean(find()), `${label} in the opened chip`);
+  return find()!;
+}
+
 test.each(["inline", "strip"] as const)("× removes the chip and puts nothing in the prompt (%s view)", async (view) => {
   const composer = await openComposer();
   await showAttachments(view);
@@ -423,15 +437,14 @@ test.each(["inline", "strip"] as const)("× removes the chip and puts nothing in
 });
 
 test.each(["inline", "strip"] as const)(
-  "a click on the chip puts its text back in the prompt to edit, exactly as pasted, and the chip goes (%s view)",
+  "a click on the chip opens its text; Edit in Prompt there puts it back exactly as pasted, and the chip goes (%s view)",
   async (view) => {
     const sent: Sent[] = [];
     const composer = await openComposer(sent);
     await showAttachments(view);
     await paste(SPACED);
-    const open = chipButtons(view).open()!;
-    expect(open).not.toBeNull();
-    await act(async () => open.click());
+    const edit = await inOpenedChip(view, "Edit in Prompt");
+    await act(async () => edit.click());
     expect(chips(composer)).toEqual([]);
     expect(placed()).toEqual([]);
     expect(field().textContent).toContain("line 1 of the build log");
@@ -452,8 +465,9 @@ test.each(["inline", "strip"] as const)(
 
 // Leo, 2026-11-07 (ask-48544d7525): "you can either just paste it and it just becomes this, like,
 // .txt, kind of like an attachment, um, or you can just make it raw". An oversized paste's chip offers
-// both: a click on its card puts the text in the prompt (above), Keep as .txt sends it as a file.
-const keepButton = (view: AttachmentView) =>
+// both in the view a click on it opens: Edit in Prompt puts the text in the prompt (above), Keep as
+// .txt sends it as a file. Nothing of either floats on the closed chip.
+const keepOnChip = (view: AttachmentView) =>
   (view === "inline" ? field() : host).querySelector<HTMLButtonElement>(".acpmux-attachment-keep-file");
 
 test.each(["inline", "strip"] as const)(
@@ -463,8 +477,8 @@ test.each(["inline", "strip"] as const)(
     await showAttachments(view);
     await paste(LOG);
     expect(chipButtons(view).open()).not.toBeNull();
-    const keep = keepButton(view)!;
-    expect(keep?.textContent).toBe("Keep as .txt");
+    expect(keepOnChip(view)).toBeNull();
+    const keep = await inOpenedChip(view, "Keep as .txt");
     await act(async () => keep.click());
     await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
     expect(chips(composer).map((chip) => [chip.kind === "pasted", chip.name])).toEqual([[false, "Pasted text.txt"]]);
@@ -480,7 +494,8 @@ test("Keep as .txt places the file where its chip was, not at the caret", async 
   await paste(LOG);
   await typeDraft(" after");
   await act(async () => markdownField().setCaret(0));
-  await act(async () => keepButton("inline")!.click());
+  const keep = await inOpenedChip("inline", "Keep as .txt");
+  await act(async () => keep.click());
   await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
   const file = chips(composer).find((chip) => chip.name === "Pasted text.txt")!;
   await until(() => placed().includes(file.id), "its place");
@@ -501,7 +516,8 @@ test.each(["inline", "strip"] as const)(
     await paste(LOG);
     await typeDraft(" after");
     await act(async () => markdownField().selectAll());
-    await act(async () => keepButton(view)!.click());
+    const keep = await inOpenedChip(view, "Keep as .txt");
+    await act(async () => keep.click());
     await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
     expect(words()).toContain("before");
     expect(words()).toContain("after");
@@ -535,7 +551,8 @@ test("Keep as .txt on a chip with no place keeps its file through an undo", asyn
   expect(placed()).not.toContain(pasted.id);
   // The caret leaves the block before the click.
   await act(async () => markdownField().selectAll());
-  await act(async () => keepButton("strip")!.click());
+  const keep = await inOpenedChip("strip", "Keep as .txt");
+  await act(async () => keep.click());
   await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
   const file = chips(composer).find((chip) => chip.name === "Pasted text.txt")!;
   await settle();
@@ -601,7 +618,8 @@ test.each(["inline", "strip"] as const)(
     await typeDraft(" after");
     expect(placed()).toEqual([chips(composer)[0]!.id]);
     // The caret is after " after", past the chip.
-    await act(async () => chipButtons(view).open()!.click());
+    const edit = await inOpenedChip(view, "Edit in Prompt");
+    await act(async () => edit.click());
     expect(chips(composer)).toEqual([]);
     expect(placed()).toEqual([]);
     expect(markdownField().agentText(markdownField().value())).toBe(`before ${LOG} after`);
@@ -621,7 +639,8 @@ test.each(["inline", "strip"] as const)(
     await paste(LOG);
     await typeDraft(" after");
     const id = chips(composer)[0]!.id;
-    await act(async () => chipButtons(view).open()!.click());
+    const edit = await inOpenedChip(view, "Edit in Prompt");
+    await act(async () => edit.click());
     expect(chips(composer)).toEqual([]);
     // One undo: the open alone, never the typing before it.
     await act(async () => markdownField().undo());

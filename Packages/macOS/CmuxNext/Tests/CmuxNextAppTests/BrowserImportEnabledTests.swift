@@ -7,6 +7,7 @@ import CmuxNextDesign
 @testable import CmuxNextImportCards
 import CmuxNextImportSuggestions
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -203,7 +204,7 @@ struct BrowserImportOffScanTests {
     }
 
     @Test func turningOffDropsTheScanInFlightAndOnAgainScansAgain() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "import-off-scan-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "import-off-scan-\(UUID().uuidString)"))
         let ledger = FileManager.default.temporaryDirectory.appending(path: "import-jobs-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: ledger) }
         let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: ledger)

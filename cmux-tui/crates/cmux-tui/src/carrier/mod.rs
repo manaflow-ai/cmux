@@ -92,6 +92,12 @@
 //! ([`fault::capabilities`]). It needs no network, sign-in or app. The probe
 //! account's fault switch, `cmux cloud start-chat --carrier-fault`, is
 //! [`fault`]'s.
+//!
+//! `cmux carrier tunnel --machine-id machine_… --name NAME --socket PATH`
+//! keeps this Mac's tunnel into the team's provider Cloud mesh up (attach,
+//! a `wg hub` on PATH, refresh, re-attach) so the ssh carrier reaches a
+//! machine's mesh address through `cmux wg dial --hub PATH %h %p`
+//! ([`tunnel`], [`tunnel_cli`]).
 
 mod answer;
 mod client;
@@ -103,6 +109,9 @@ mod noise_key;
 mod route_log;
 mod secrets;
 mod serve;
+mod source;
+pub(crate) mod tunnel;
+mod tunnel_cli;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -240,6 +249,19 @@ pub(crate) fn with_team_env(mut args: DialArgs, env: Option<String>) -> Option<D
     Some(args)
 }
 
+/// `team`, else a non-empty `CMUX_CLOUD_TEAM`, checked: `None` when the
+/// value is not a team id, `Some(None)` when neither names one.
+fn with_team_env_value(team: Option<String>) -> Option<Option<String>> {
+    if team.is_some() {
+        return Some(team);
+    }
+    let env = std::env::var(TEAM_ENV).ok().map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
+    if env.as_deref().is_some_and(|t| !contract::valid_team(t)) {
+        return None;
+    }
+    Some(env)
+}
+
 fn reply(line: &str) {
     let mut stderr = std::io::stderr().lock();
     let _ = stderr.write_all(line.as_bytes());
@@ -302,7 +324,8 @@ fn runtime() -> Result<tokio::runtime::Runtime, i32> {
         .map_err(|_| fail(&Failure::fatal(contract::Step::Relay, "no async runtime")))
 }
 
-/// The full-jitter draw of the session's own reconnect policy.
+/// The full-jitter draw of the session's own reconnect policy (the
+/// tunnel's retry waits, [`tunnel_cli`]).
 fn jitter(ceiling: Duration) -> Duration {
     cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
 }
@@ -438,6 +461,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "key") {
         return key(args);
     }
+    if args.first().is_some_and(|verb| verb == "tunnel") {
+        return tunnel_cli::run(args);
+    }
     if args.first().is_some_and(|verb| verb == "capabilities") {
         return capabilities(args);
     }
@@ -488,7 +514,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         // before the desktop opened is dialed fresh, from the same budget
         // as the dial's own fresh sessions (`MAX_FRESH_SESSIONS` in all).
         let (dialed, desktop) = loop {
-            let dialed = client::dial(&plan, jitter).await;
+            let dialed = client::dial(&plan).await;
             match (dialed, args.service) {
                 (Ok(dialed), DialService::Desktop) => {
                     match open_desktop(&dialed.multiplexer, plan.deadline).await {

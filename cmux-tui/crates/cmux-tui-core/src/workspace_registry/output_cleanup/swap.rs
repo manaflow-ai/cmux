@@ -22,12 +22,14 @@ use super::super::{
     sqlite_filesystem_path,
 };
 use super::codec::{SegmentWriter, encode_hex};
-use super::stage::{Staged, open_existing_staging, stage_segments, state, state_u64};
+use super::stage::{
+    Staged, open_existing_staging, stage_segments, staged_records, state, state_u64,
+};
 use super::{
     DONE_META_KEY, OUTPUT_KIND, PRUNED_RANGES_SCHEMA, REBUILT_TABLES, STAGED_WORK_CHANGED,
-    copied_bytes, failed_for_this_build, file_len, free_space_refusal, is_temporary, mebibytes,
-    previous_path, remove_if_present, remove_staging, rollback_pending_path, staging_path,
-    write_failure_marker,
+    copied_bytes, failed_for_this_build, file_len, free_space_refusal, is_temporary, kept_refusal,
+    live_records, mebibytes, previous_path, remove_if_present, remove_staging,
+    rollback_pending_path, staged_bytes_refusal, staging_path, write_failure_marker,
 };
 use crate::platform;
 
@@ -41,6 +43,9 @@ pub(crate) type VerifyOpen<'a> = &'a dyn Fn(&Path) -> anyhow::Result<()>;
 enum Swap {
     NotReady,
     Refused(String),
+    /// The swap would copy too much inside the open (`output_cleanup`
+    /// module docs).
+    Abandoned(String),
     Done(SwapStats),
 }
 
@@ -74,6 +79,16 @@ pub(crate) fn swap_at_open(db_path: &Path, verify_open: VerifyOpen<'_>) -> bool 
         Ok(Swap::NotReady) => false,
         Ok(Swap::Refused(reason)) => {
             eprintln!("cmux-tui: output cleanup: swap deferred, not enough free space: {reason}");
+            false
+        }
+        Ok(Swap::Abandoned(reason)) => {
+            eprintln!(
+                "cmux-tui: output cleanup: abandoned before the copy, the registry is unchanged \
+                 and the staging file deleted: {reason}"
+            );
+            if let Err(error) = remove_staging(db_path) {
+                eprintln!("cmux-tui: output cleanup: could not delete the staging file: {error:#}");
+            }
             false
         }
         Ok(Swap::Done(stats)) => {
@@ -435,6 +450,18 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
     if state(&staged, "complete")? != "1" {
         return Ok(Swap::NotReady);
     }
+    // Before anything is copied: the kept records are what the open copies.
+    let (staged_kept, staged_total) = staged_records(&staged)?;
+    let (live_kept, live_total) = {
+        let source = open_registry_database_read_only(db_path)?;
+        source.busy_timeout(Duration::from_secs(5))?;
+        live_records(&source)?
+    };
+    if let Some(reason) = staged_bytes_refusal(db_path)
+        .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
+    {
+        return Ok(Swap::Abandoned(reason));
+    }
     if let Err(reason) = free_space_refusal(db_path, copied)? {
         return Ok(Swap::Refused(reason));
     }
@@ -458,7 +485,7 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         check_staged_prefix(&source, &staged)?;
         match stage_segments(&source, &staged, &|| true, None)? {
             Staged::Finished => {}
-            Staged::Stopped | Staged::Refused(_) => {
+            Staged::Stopped | Staged::Refused(_) | Staged::Abandoned(_) => {
                 anyhow::bail!("staging the last segments stopped")
             }
         }

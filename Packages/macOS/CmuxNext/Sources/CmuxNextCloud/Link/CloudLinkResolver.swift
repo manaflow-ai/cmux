@@ -3,10 +3,9 @@ public import Foundation
 // The one seam between a Cloud machine and the socket its daemon connection
 // opens (cloud-client-contract.md 2.3, C13b). A resolver turns a machine
 // into the local socket of the machine's link; `CloudLinkSession` hands that
-// socket to one `DaemonConnection` per connect. Implementations:
-// - `CloudCarrierResolver` (now): the session's `cmux carrier serve` socket;
-// - `CloudTerminalLinkResolver` (after the Cloud pump): the daemon's
-//   `apps-terminal-links` request and `apps-terminal-link` event.
+// socket to one `DaemonConnection` per connect. `CloudCarrierResolver` is the one
+// implementation: the session's `cmux carrier serve` socket, whose dial, reconnect and
+// resume run in Rust (cmux-tui `carrier/`).
 
 /// Resolves a Cloud machine to its link socket.
 public protocol CloudLinkResolver: Sendable {
@@ -41,22 +40,6 @@ public struct CloudEndedLinkResolver: CloudLinkResolver {
     public init(error: CloudLinkError) { self.error = error }
 
     public func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket { throw error }
-
-    public func close(_ key: CloudLinkKey) async {}
-}
-
-/// Adapter 2, after the Cloud pump lands (contract 2.3): the daemon owns one
-/// relay socket per connector link and tells its clients through
-/// `apps-terminal-links` and `apps-terminal-link {channel, id, target, state,
-/// socket?, end?}`; `CloudLinkKey(app:target:)` matches a link to its machine.
-/// Not built yet: the Cloud server opens no connector link, so there is no
-/// link to find. A drop-in for ``CloudCarrierResolver``.
-public struct CloudTerminalLinkResolver: CloudLinkResolver {
-    public init() {}
-
-    public func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
-        throw CloudLinkError.unsupported
-    }
 
     public func close(_ key: CloudLinkKey) async {}
 }
