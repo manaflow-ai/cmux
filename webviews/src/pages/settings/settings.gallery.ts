@@ -439,7 +439,11 @@ Object.assign(variants, {
       command: "cmux agent hook install",
       providers: [
         {
-          ...linkRow("claude-desktop", "~/Library/Application Support/Claude/claude_desktop_config.json", "unavailable"),
+          ...linkRow(
+            "claude-desktop",
+            "~/Library/Application Support/Claude/claude_desktop_config.json",
+            "unavailable",
+          ),
           reason: "unreadable",
         },
         { ...linkRow("codex", "~/.codex/config.toml", "conflict"), reason: "not_owned" },

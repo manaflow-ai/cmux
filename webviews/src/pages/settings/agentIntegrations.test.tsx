@@ -142,7 +142,14 @@ test("a cmux server another tool added is named, with no Connect and no command 
   page.provider.integrations = {
     ...page.provider.integrations,
     providers: [
-      { id: "link-codex", path: "~/.codex/config.toml", state: "conflict", reason: "not_owned", detail: null, error: null },
+      {
+        id: "link-codex",
+        path: "~/.codex/config.toml",
+        state: "conflict",
+        reason: "not_owned",
+        detail: null,
+        error: null,
+      },
     ],
   };
   const element = card(page.container);
