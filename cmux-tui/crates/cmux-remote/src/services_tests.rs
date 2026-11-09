@@ -1313,16 +1313,17 @@ async fn mux_control_delivers_a_large_snapshot_before_the_output_after_it() {
         MuxUploadBudget::new(),
     ));
 
-    let opened = stream.receive().await.unwrap().unwrap();
-    let opened: serde_json::Value = serde_json::from_slice(&opened.payload).unwrap();
-    assert_eq!(opened["type"], "opened", "{opened}");
     let read = async {
         let mut assembler = crate::mux_codec::MuxLineAssembler::<()>::default();
         let mut events = Vec::new();
         while events.len() < 2 {
             let chunk = stream.receive().await.unwrap().expect("stream ended early");
-            // Empty frames carry flow control, not mux packets.
-            if chunk.payload.is_empty() {
+            // Empty frames carry flow control, and every lane opens with the
+            // service's `opened` answer; neither is a mux packet.
+            if chunk.payload.is_empty()
+                || serde_json::from_slice::<serde_json::Value>(&chunk.payload)
+                    .is_ok_and(|answer| answer["type"] == "opened")
+            {
                 continue;
             }
             if let Some(line) = assembler.push_retaining(chunk.lane, chunk.payload, ()).unwrap() {
