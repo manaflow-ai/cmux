@@ -67,15 +67,20 @@ struct FreshGroupDaemonWritesTests {
         return Launched(services: services, root: root, notices: notices)
     }
 
-    /// A new group with the launch workspace, as Group Workspace makes it; returns the id the sidebar shows it under.
-    private static func freshGroup(_ name: String, _ launched: Launched) throws -> CmuxNextSidebar.GroupID {
+    private static func shown(_ name: String, in bridge: SidebarBridge) -> CmuxNextSidebar.GroupID? {
+        bridge.model.sections.flatMap(\.nodes).compactMap { node -> CmuxNextSidebar.GroupID? in
+            if case let .group(group) = node, group.name == name { group.id } else { nil }
+        }.first
+    }
+
+    /// A new group with the launch workspace, as Group Workspace makes it; the id the sidebar shows it under as soon
+    /// as it shows (on the sidebar document a turn later; before the home session's personal store has it).
+    private static func freshGroup(_ name: String, _ launched: Launched) async throws -> CmuxNextSidebar.GroupID {
         let bridge = try #require(launched.bridge)
         let workspace = try #require(launched.services.daemon.store.workspaces.first?.id)
         bridge.groupFlow.newGroup(of: [CmuxNextSidebar.WorkspaceID(workspace)], name: name, byUser: false)
-        let shown = bridge.model.sections.flatMap(\.nodes).compactMap { node -> CmuxNextSidebar.GroupID? in
-            if case let .group(group) = node, group.name == name { group.id } else { nil }
-        }.first
-        return try #require(shown, "the new group does not show")
+        await Self.wait(within: .seconds(10)) { Self.shown(name, in: bridge) != nil }
+        return try #require(Self.shown(name, in: bridge), "the new group does not show")
     }
 
     private static func perform(_ action: ActionID, on group: CmuxNextSidebar.GroupID, _ launched: Launched, _ arguments: [String: ActionValue] = [:]) {
@@ -87,7 +92,7 @@ struct FreshGroupDaemonWritesTests {
     @Test func collapseAndRenameRightAfterTheCreateAreSaved() async throws {
         let launched = try await Self.launch()
         let personal = launched.services.machines.local.store.personal
-        let group = try Self.freshGroup("fresh-fold", launched)
+        let group = try await Self.freshGroup("fresh-fold", launched)
         Self.perform("workspaceGroup.collapse", on: group, launched)
         Self.perform("workspaceGroup.rename", on: group, launched, ["name": .string("fresh-fold-renamed")])
         await Self.wait(within: .seconds(30)) { personal.groups.contains { $0.name == "fresh-fold-renamed" && $0.collapsed } }
@@ -101,26 +106,24 @@ struct FreshGroupDaemonWritesTests {
         #expect(notices.isEmpty, "a write right after the create was refused: \(notices)")
     }
 
-    /// Ungroup in the create's own turn: the daemon's group goes, the workspace stays, and no error shows.
-    @Test func ungroupRightAfterTheCreateRemovesTheDaemonsGroup() async throws {
+    /// Ungroup right after the create: the group goes from the sidebar and the home session, stays gone, the
+    /// workspace stays, and no error shows.
+    @Test func ungroupRightAfterTheCreateRemovesTheGroup() async throws {
         let launched = try await Self.launch()
         let services = launched.services, personal = services.machines.local.store.personal
         let bridge = try #require(launched.bridge)
-        let group = try Self.freshGroup("fresh-gone", launched)
-        let local = WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue))
+        let group = try await Self.freshGroup("fresh-gone", launched)
         Self.perform("workspaceGroup.ungroup", on: group, launched)
-        // The create landed, and its group is gone again.
-        await Self.wait(within: .seconds(30)) {
-            bridge.groupEditor.created[local] != nil && !personal.groups.contains { $0.name == "fresh-gone" }
-        }
-        let landed = bridge.groupEditor.created[local] != nil
+        func gone() -> Bool { Self.shown("fresh-gone", in: bridge) == nil && !personal.groups.contains { $0.name == "fresh-gone" } }
+        await Self.wait(within: .seconds(20)) { gone() && !launched.notices.shown.isEmpty } // a refusal comes in this time
+        let shownAgain = Self.shown("fresh-gone", in: bridge) != nil
         let left = personal.groups.filter { $0.name == "fresh-gone" }.map(\.id.rawValue)
         let listed = !services.daemon.store.workspaces.isEmpty
         let notices = launched.notices.shown
         await launched.stop()
 
-        #expect(landed, "the create never landed")
-        #expect(left.isEmpty, "the daemon still has the ungrouped group: \(left)")
+        #expect(!shownAgain, "the sidebar still shows the ungrouped group")
+        #expect(left.isEmpty, "the home session still has the ungrouped group: \(left)")
         #expect(listed, "Ungroup lost the workspace")
         #expect(notices.isEmpty, "the Ungroup right after the create was refused: \(notices)")
     }

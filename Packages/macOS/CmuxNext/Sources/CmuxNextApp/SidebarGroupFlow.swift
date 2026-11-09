@@ -115,9 +115,8 @@ struct SidebarGroupFlow {
         let token = bridge.rows.edits.add(intent), (settleFailed, applied) = bridge.rows.edits.outcome(token, failed: bridge.saveFailed(intent))
         let editor = editor
         let failed: @MainActor (ActionWorkFailure) -> Void = { failure in
-            // Edits made meanwhile go with the group that was not made.
-            for edit in editor.creating.removeValue(forKey: id) ?? [] { bridge.rows.edits.settle(edit.token) }
-            bridge.rows.edits.settle(editor.removing.removeValue(forKey: id))
+            // Writes made meanwhile go with the group that was not made.
+            for write in editor.creating.removeValue(forKey: id) ?? [] { bridge.rows.edits.settle(write.shown) }
             settleFailed(failure)
         }
         // Mixed order: the new group's place where the model formed it,
@@ -132,7 +131,7 @@ struct SidebarGroupFlow {
         }
         let top = place.topIndex, flow = self
         editor.creating[id] = []
-        let settled: @MainActor () -> Void = { applied?(); bridge.rows.edits.settle(editor.removing.removeValue(forKey: id)) }
+        let settled: @MainActor () -> Void = { applied?(); for write in editor.waited.removeValue(forKey: id) ?? [] { bridge.rows.edits.settle(write) } }
         life.commit("create-personal-group", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, failed: failed,
                     applied: settled, landed: { created in flow.landed(id, as: created) }) { connection -> WorkspaceGroupID in
             // The v2 operation names the group itself.
@@ -148,39 +147,32 @@ struct SidebarGroupFlow {
         }
     }
 
-    /// The daemon made the group under `created`: edits made meanwhile go to it.
+    /// The daemon made the group under `created`: the writes made meanwhile go to it.
     private func landed(_ local: WorkspaceGroupID, as created: WorkspaceGroupID) {
         editor.created[local] = created
-        guard let pending = editor.creating.removeValue(forKey: local) else { return }
-        for edit in pending { send(created, name: edit.name, color: edit.color, edit: edit.token) }
-        if editor.removing[local] != nil { ungroup(CmuxNextSidebar.GroupID(created.rawValue), .ungroup(CmuxNextSidebar.GroupID(created.rawValue))) }
+        let pending = editor.creating.removeValue(forKey: local) ?? []
+        editor.waited[local, default: []] += pending.compactMap(\.shown)
+        for write in pending { write.send(CmuxNextSidebar.GroupID(created.rawValue)) }
     }
 
-    /// `.ungroup` on the personal path, pending until the store has the delete (#26382): under the daemon's id for a group
-    /// the sidebar made under its own (the sidebar's was refused), after its create (the local edit goes in `create`).
-    func ungroup(_ group: CmuxNextSidebar.GroupID, _ intent: SidebarIntent) {
-        let id = WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue)), token = bridge.rows.edits.add(intent)
-        if editor.creating[id] != nil { return bridge.rows.edits.settle(editor.removing.updateValue(token, forKey: id)) }
-        let target = editor.created[id] ?? id, v2 = bridge.statePersonal
-        bridge.rows.send("delete-personal-group", edit: token, on: bridge.services.machines.local, failed: bridge.saveFailed(intent)) {
-            if v2 { return try await $0.state.deleteWorkspaceGroup(target.rawValue) }
-            try await $0.deletePersonalGroup(target)
+    /// A personal write to a group the sidebar made goes under the daemon's id, after its create; true when taken.
+    func sendsUnderDaemonID(_ intent: SidebarIntent) -> Bool {
+        guard let group = intent.writtenGroup else { return false }
+        let local = WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue)), bridge = bridge
+        if let created = editor.created[local], created != local { bridge.handle(intent.writing(group: .init(created.rawValue))); return true }
+        guard editor.creating[local] != nil else { return false }
+        var send: @MainActor (CmuxNextSidebar.GroupID) -> Void = { bridge.handle(intent.writing(group: $0)) }
+        if case .toggleCollapse = intent, let shown = bridge.model.group(group)?.isCollapsed { // the fold asked for, not a toggle then
+            _ = bridge.model.setGroupCollapsed(group, !shown)
+            send = { bridge.saveFold($0, collapsed: !shown) }
         }
+        editor.creating[local, default: []].append((intent.showsAsPendingEdit ? bridge.rows.edits.add(intent) : nil, send))
+        return true
     }
 
-    /// `.renameGroup` / `.setGroupColor`. The editor opens on a new group at
-    /// once, under the sidebar's own id: an edit before the daemon made the
-    /// group waits for it, and later ones go to the daemon's id.
+    /// `.renameGroup` / `.setGroupColor`, a pending edit until the store holds it: no recompute shows the old value.
     func edit(_ group: CmuxNextSidebar.GroupID, name: String? = nil, color: GroupTint? = nil, _ intent: SidebarIntent) {
-        // A pending edit until the store holds it, so a recompute (or the
-        // pending new group's own edit) never shows the old name or color.
-        let token = bridge.rows.edits.add(intent)
-        let id = WorkspaceGroupID(rawValue: group.rawValue)
-        if editor.creating[id] != nil {
-            editor.creating[id]?.append(PersonalGroupEditorState.Edit(name: name, color: color, token: token))
-            return
-        }
-        send(editor.created[id] ?? id, name: name, color: color, edit: token)
+        send(WorkspaceGroupID(rawValue: group.rawValue), name: name, color: color, edit: bridge.rows.edits.add(intent))
     }
 
     private func send(_ id: WorkspaceGroupID, name: String?, color: GroupTint?, edit: SidebarPendingEdits.Token) {

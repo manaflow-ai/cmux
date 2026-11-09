@@ -20,10 +20,10 @@ enum WorkspaceGroupHandlers {
         WorkspaceGroupPlaces.bind(into: registry, context: context)
         // The header menu's toggles read as the change they make on the right-clicked group.
         ActionTargetTitles.set("workspaceGroup.togglePin", in: registry) { invocation in
-            (try? context.shownGroup(invocation)).map { $0.sidebar.model.group($0.id)?.isPinned == true ? WorkspaceVerbStrings.unpinGroup : WorkspaceVerbStrings.pinGroup }
+            (try? context.shownGroup(invocation)).map { saved($0, context).pinned ? WorkspaceVerbStrings.unpinGroup : WorkspaceVerbStrings.pinGroup }
         }
         ActionTargetTitles.set("toggleFocusedWorkspaceGroupCollapsed", in: registry) { invocation in
-            (try? context.shownGroup(invocation)).map { $0.sidebar.model.group($0.id)?.isCollapsed == true ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
+            (try? context.shownGroup(invocation)).map { saved($0, context).collapsed ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
         }
         registry.bind("nextWorkspaceGroup", requires: DaemonCapability.profiles.rawValue, daemon: context.services.machines.local,
                       run: { _ in try selectGroup(context, offset: 1) })
@@ -145,7 +145,7 @@ enum WorkspaceGroupHandlers {
             // On the sidebar document a pinned group is one in Pinned, as shown (pending changes included).
             // A `pinned` argument (CLI, MCP, scripts) sets that state instead of toggling.
             let group = try context.shownGroup(invocation), sidebar = group.sidebar, id = group.id
-            let pinned = invocation["pinned"]?.boolValue ?? !(context.services.sidebarDoc.store?.showsPinned(group: id.rawValue) ?? sidebar.model.group(id)?.isPinned ?? false)
+            let pinned = invocation["pinned"]?.boolValue ?? !(context.services.sidebarDoc.store?.showsPinned(group: id.rawValue) ?? saved(group, context).pinned)
             sidebar.handle(.setGroupPinned(id, pinned))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.
@@ -274,6 +274,12 @@ enum WorkspaceGroupHandlers {
         if byUser, name.isEmpty { try context.sidebar().groupFlow.editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
 
+    /// The fold and pin the group shows in the active sidebar, else its saved ones (a group of another space).
+    private static func saved(_ group: (id: CmuxNextSidebar.GroupID, personalID: String, name: String, sidebar: SidebarBridge), _ context: AppActionContext) -> (collapsed: Bool, pinned: Bool) {
+        let shown = group.sidebar.model.group(group.id), stored = context.personal.group(.init(rawValue: group.personalID))
+        return (shown?.isCollapsed ?? stored?.collapsed ?? false, shown?.isPinned ?? stored?.pinned ?? false)
+    }
+
     private static func createGroup(named name: String, members: [SidebarWorkspaceID], byUser: Bool, _ context: AppActionContext) throws {
         try context.sidebar().groupFlow.newGroup(of: members, name: name, byUser: byUser)
     }
@@ -319,7 +325,7 @@ enum WorkspaceGroupHandlers {
     /// nil toggles.
     private static func setCollapsed(_ collapsed: Bool?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let group = try context.shownGroup(invocation), sidebar = group.sidebar
-        guard collapsed == nil || collapsed != sidebar.model.group(group.id)?.isCollapsed else { return }
+        guard collapsed == nil || collapsed != saved(group, context).collapsed else { return }
         sidebar.handle(.toggleCollapse(.group(group.id)))
     }
 

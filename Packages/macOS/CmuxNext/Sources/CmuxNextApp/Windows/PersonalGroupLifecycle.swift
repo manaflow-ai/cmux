@@ -144,17 +144,10 @@ struct PersonalGroupLife {
 final class PersonalGroupEditorState {
     var pending: WorkspaceGroupID?
     var explicit: Set<WorkspaceGroupID> = []
-    /// Groups the sidebar made that the daemon is still creating: name and
-    /// color edits made meanwhile (the editor is open on the new group).
-    var creating: [WorkspaceGroupID: [Edit]] = [:]
-
-    /// A name or color edit waiting for the daemon's id, with its pending row edit.
-    struct Edit {
-        var name: String?
-        var color: GroupTint?
-        var token: SidebarPendingEdits.Token
-    }
+    /// Groups the sidebar made that the daemon is still creating: the writes made meanwhile (name, color, Ungroup, a
+    /// fold, a move, a pin), each sent with the daemon's id once it made the group, and the row edit showing it until then.
+    var creating: [WorkspaceGroupID: [(shown: SidebarPendingEdits.Token?, send: @MainActor (CmuxNextSidebar.GroupID) -> Void)]] = [:]
     /// The daemon's id for a group the sidebar made under its own id.
     var created: [WorkspaceGroupID: WorkspaceGroupID] = [:]
-    var removing: [WorkspaceGroupID: SidebarPendingEdits.Token] = [:] // ungrouped during their create: the edit hiding them
+    var waited: [WorkspaceGroupID: [SidebarPendingEdits.Token]] = [:] // their row edits, until the store holds the group
 }
