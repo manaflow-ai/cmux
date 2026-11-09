@@ -193,9 +193,10 @@ the person's prompt. What the receiver gets depends on who you are to it:
   lead, saying `This report is for your TYPE subagent ID`. If it ended with no
   `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
   end message of a background task it started (`bg_start`, `run_wait`) takes
-  the same rule. On a path that names no subagent (a cmux workflow script), a
-  subagent passes `notify: false` and reads the task
-  with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
+  the same rule. A cmux workflow it starts (`cmux.cmux_workflow`) runs as it:
+  the workflow's commands and its script's sends name it. On a path that names
+  no subagent, a subagent passes `notify: false` and reads the task with
+  `bg_output`. The receiver reads `From another agent (LEAD's TYPE
   subagent ID)` and ends its turn with its answer; it does not send it to the
   lead.
   `acpmux send LEAD` reaches the lead.
@@ -266,16 +267,23 @@ cooperatively.
 
 To try a build or a daemon restart, use a daemon of your own, never the one
 every session on this machine shares. Point `ACPMUX_HOME` and `ACPMUX_SOCKET`
-at a folder you made (acpmux never creates a missing `ACPMUX_HOME`), and unset
-`ACPMUX_SESSION_ID` and `ACPMUX_SESSION_TOKEN` there, so your sends are the
-person's and not your session's:
+at a folder you made (acpmux never creates a missing `ACPMUX_HOME`). Unset every
+other `ACPMUX_*` variable and Claude Code's `CLAUDE_CODE_MESSAGING_*` there: they
+name your own session, its token and its daemon, so your sends would be your
+session's (or go to the shared daemon) and not the person's. The first command
+starts the daemon in the background by itself (detached; no background shell
+needed). A new home has no `defaults`: set the profile you want (`claude-sr2`
+for sr2), or `-m claude` runs plain `claude`.
 
 ```bash
+X=/abs/path/to/acpmux                       # the build you try (in a session, "$ACPMUX_BIN" is its daemon's)
 mkdir -p /tmp/try-acpmux
+for v in $(env | grep -oE '^(ACPMUX|CLAUDE_CODE_MESSAGING)_[A-Z0-9_]*'); do unset "$v"; done
 export ACPMUX_HOME=/tmp/try-acpmux ACPMUX_SOCKET=/tmp/try-acpmux/acpmux.sock
-acpmux daemon status                        # this home's sessions and live agents: check before a restart
-acpmux daemon restart                       # the new daemon adopts every live agent; they keep their conversation
-acpmux daemon shutdown --end-agents         # done: end its agents too
+$X defaults claude prefer=claude-sr2,claude  # as the shared home has it (`acpmux defaults` there)
+$X daemon status                            # starts it; this home's sessions and live agents
+$X daemon restart                           # the new daemon adopts every live agent; they keep their conversation
+$X daemon shutdown --end-agents             # done: end its agents too, then rm -rf /tmp/try-acpmux
 ```
 
 ## 5. Permissions

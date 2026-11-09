@@ -840,8 +840,14 @@ jobs:
         shell: bash
         run: ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER" --test-threads=2
 
+      # The fixed Mac test groups below run in full mode only. A focused run is
+      # clippy plus the requested filter: before, every focused dispatch also ran
+      # all of these groups and held a shared Mac runner for the whole job while
+      # about 100 jobs queued for the pool (2026-11-09). The full merge gate still
+      # runs every group. With test_filter optchat_chief, the Chief tests run in
+      # the Linux optchat-chief job and this job is clippy only.
       - name: Mac discovery and socket tests
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         # The platform module contains the macOS discovery, socket and cwd
         # checks. Run its one test binary once instead of rebuilding it for
@@ -849,14 +855,14 @@ jobs:
         run: '../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib platform::tests:: -- --test-threads=2'
 
       - name: Mac link caller signature tests
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         # cmux-link checks a caller's code signature only on macOS
         # (caller_macos.rs); the Linux suites cover only the uid check.
         run: '../scripts/ci/cargo-test-selected.sh -p cmux-link --lib caller::tests:: -- --test-threads=2'
 
       - name: Mac browser host provider tests
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         # The provider socket's peer pid differs by platform (macOS reports
         # the last process that used the server end), and the inherited
@@ -866,7 +872,7 @@ jobs:
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib server::browser_host_command::tests:: -- --test-threads=2
 
       - name: Mac process and PTY tests
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         run: |
           # macOS always has /bin/zsh; the Linux runner has none, so this
@@ -876,7 +882,7 @@ jobs:
             -- --exact
 
       - name: Mac theme, layout and launchd tests
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         run: |
           ../scripts/ci/cargo-test-selected.sh -p cmux-theme-tokens --test load \
@@ -890,7 +896,7 @@ jobs:
       # run it here against the release-pinned daemon, the one release users
       # update from.
       - name: Previous release upgrade adoption
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         run: |
           ../scripts/cmux-next/pin-cmux-tui.sh fetch --pin
@@ -902,7 +908,7 @@ jobs:
       # The macOS arm64 host snapshot digests that the GhosttyNextKit cross
       # check compares against (schemas/terminal-corpus/crosscheck/run.sh).
       - name: Terminal corpus host snapshots (macOS arm64)
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         run: cargo test -p ghostty-vt --test terminal_corpus
 

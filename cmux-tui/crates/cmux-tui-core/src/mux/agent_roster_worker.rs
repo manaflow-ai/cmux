@@ -188,9 +188,17 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// (`agent_roster_rebuild.rs`); only the owner takes it, a slice after
     /// each pass.
     pub(in crate::mux) rebuild: Mutex<Option<agent_roster_rebuild::AgentRosterRebuild>>,
-    /// A rebuild is under way: the roster is stale, so the projection
-    /// reconcile waits for it.
+    /// A rebuild is under way: the owner takes its slices.
     pub(in crate::mux) rebuilding: AtomicBool,
+    /// The live roster may hold state the current reducer would not have
+    /// folded, until a rebuild replaces it; a rebuild that gave up leaves it
+    /// set. The projection reconcile waits for it.
+    pub(in crate::mux) stale: AtomicBool,
+    /// The reducer version the stale roster was migrated from when the
+    /// start could not mark it stale (0: marked, or not stale). Live passes
+    /// save the roster at this version, so a stop before the rebuild cannot
+    /// leave it passing for the current reducer's fold.
+    pub(in crate::mux) unmarked_from: std::sync::atomic::AtomicU32,
 }
 
 impl Drop for AgentRosterWorker {
