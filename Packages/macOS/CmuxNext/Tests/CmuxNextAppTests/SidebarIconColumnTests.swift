@@ -101,7 +101,23 @@ import Testing
         }
     }
 
-    /// Each leading glyph sits on its own title's center line.
+    /// The center line of a title's capitals in the list: the label's baseline less half its cap height, from the
+    /// label's own frame and font, independent of the rows' placement helpers. A title's frame is taller than its
+    /// capitals by the font's ascender and descender, so its frame's middle is off that line by an amount that
+    /// changes with the face (the system font replaced Inter in ab5bc5a1).
+    static func capitalsMidY(_ list: SidebarListView, frame: CGRect, baseline: CGFloat, capHeight: CGFloat, in row: NSView) -> CGFloat {
+        // The rows are flipped: the baseline is `baseline` below the label's top.
+        list.convert(CGPoint(x: frame.midX, y: frame.minY + baseline - capHeight / 2), from: row).y
+    }
+
+    /// The capitals' center line of a band or pinned row's title, in the list.
+    static func capitalsMidY(_ list: SidebarListView, of item: SidebarItemRowView) throws -> CGFloat {
+        let font = try #require(item.title.font)
+        return capitalsMidY(list, frame: item.title.frame, baseline: item.title.firstBaselineOffsetFromTop, capHeight: font.capHeight, in: item)
+    }
+
+    /// Each leading glyph sits on its own title's center line: the line through the middle of its capitals, where
+    /// a row centers its title (#27598).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func leadingGlyphsSitOnTheirTitlesCenterLine(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
@@ -110,10 +126,13 @@ import Testing
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
+            // A marquee title draws its one line from its top, so its baseline is the font's ascender below it.
+            let iconTitle = Self.capitalsMidY(list, frame: iconRow.title.frame, baseline: iconRow.title.font.ascender,
+                                              capHeight: iconRow.title.font.capHeight, in: iconRow)
             let pairs: [(String, CGFloat, CGFloat)] = [
-                ("Home", Self.center(list, try #require(home.glyphInkFrame), in: home).y, Self.center(list, home.titleFrame, in: home).y),
-                ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, Self.center(list, pin.titleFrame, in: pin).y),
-                ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, Self.center(list, iconRow.title.frame, in: iconRow).y),
+                ("Home", Self.center(list, try #require(home.glyphInkFrame), in: home).y, try Self.capitalsMidY(list, of: home)),
+                ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, try Self.capitalsMidY(list, of: pin)),
+                ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, iconTitle),
             ]
             for (name, glyph, text) in pairs {
                 #expect(abs(glyph - text) <= Self.tolerance, "\(c.testDescription): \(name) glyph centers at y \(glyph), its title at \(text)")
