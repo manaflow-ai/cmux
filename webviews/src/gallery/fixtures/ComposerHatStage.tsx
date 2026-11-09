@@ -6,10 +6,24 @@
 // is a number, it can, like, you know, grow into that." Arms: composerHat.experiment.ts (view Compare
 // arms); the arms that did not ship draw from composerHatArms.css.
 import { useState, type CSSProperties } from "react";
+import type { TrayHandleSide } from "../../agent-session/acpmux/chatDisplay";
 import { TrayPullTab } from "../../agent-session/acpmux/subagents/TrayPullTab";
 import "./composerHatArms.css";
 
-export function ComposerHatStage({ start = 0, waits = false }: { start?: number; waits?: boolean }) {
+export function ComposerHatStage({
+  start = 0,
+  waits = false,
+  before = false,
+  side = "middle",
+}: {
+  start?: number;
+  waits?: boolean;
+  /** As before the line stopped at the hat: a spacer between the hat and the composer breaks the
+   *  `.acpmux-tray-pull + .acpmux-composer` pairing, so the card's top line runs under the pill. */
+  before?: boolean;
+  /** Where the handle sits on the card's top edge (agentPane.display.trayHandle). */
+  side?: TrayHandleSide;
+}) {
   const [running, setRunning] = useState(start);
   const [waiting, setWaiting] = useState(waits ? 1 : 0);
   const set = (next: number, wait = 0) => {
@@ -49,18 +63,15 @@ export function ComposerHatStage({ start = 0, waits = false }: { start?: number;
       >
         <div style={{ flex: 1 }} />
         <div className="acpmux-dock" style={{ "--cv-inset": "16px" } as CSSProperties}>
-          <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side="middle" />
+          <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side={side} />
+          {before && <span hidden />}
+          {/* The real card's classes, so its ring and lit top rim (composerStates.css) are the
+              line the hat sits on (Leo, 2026-11-09: "theres a line behind the hat toggle"). */}
           <div className="acpmux-composer">
             <div
-              className="acpmux-composer-box"
+              className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
               data-stage-composer=""
-              style={{
-                margin: "0 16px 16px",
-                height: 72,
-                borderRadius: 12,
-                background: "var(--acpmux-composer-tray)",
-                boxShadow: "inset 0 0 0 1px var(--agent-border)",
-              }}
+              style={{ height: 72, background: "var(--acpmux-composer-tray)" }}
             />
           </div>
         </div>
