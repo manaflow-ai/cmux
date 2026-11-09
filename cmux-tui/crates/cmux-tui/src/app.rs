@@ -106,6 +106,8 @@ use crate::ui::{
 mod attention_jump;
 pub(crate) mod copy_mode;
 mod host_notify_ops;
+#[cfg(test)]
+mod test_deadline;
 
 #[cfg(test)]
 thread_local! {
@@ -7388,6 +7390,9 @@ pub struct App {
     pub config: Config,
     #[cfg(test)]
     config_reload_applications: usize,
+    /// Ends the test binary when a test that owns this `App` hangs.
+    #[cfg(test)]
+    _test_deadline: Option<test_deadline::TestDeadline>,
     pub chrome: ChromeTheme,
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
@@ -9707,6 +9712,8 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         config,
         #[cfg(test)]
         config_reload_applications: 0,
+        #[cfg(test)]
+        _test_deadline: None,
         chrome,
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
@@ -46979,6 +46986,7 @@ mod tests {
             durable_notice_ack_retry_at: None,
             config: Config::default(),
             config_reload_applications: 0,
+            _test_deadline: Some(test_deadline::TestDeadline::arm()),
             chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
