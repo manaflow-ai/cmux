@@ -142,14 +142,18 @@ pub(crate) fn replace_if_unresponsive(spec: &OwnerSpec) -> Result<Option<Replace
     let pid = listener_pid(key.as_deref()).and_then(|pid| u32::try_from(pid).ok());
     let before = pid.and_then(super::restore_bound::process_work);
     let probe_started = Instant::now();
-    if !unresponsive(spec, probe) {
+    let Some(stuck) = unresponsive(spec, probe) else {
         return replace_if_wedged(spec);
-    }
+    };
     // Silent through the probe, but working (CPU time or disk bytes advanced
     // over it): an owner restoring a large registry, not a stuck one. A
     // replace would throw its restore away and the next owner would start it
-    // over (2026-11-08), so it is kept and the normal ensure awaits it.
-    if let (Some(pid), Some(before)) = (pid, before)
+    // over (2026-11-08), so it is kept and the normal ensure awaits it. Only
+    // a silent owner gets this: a restoring owner accepts and parks the
+    // probe. One that refused every connection at its limit is saturated,
+    // and its clients' work is no sign of a restore, so it is replaced.
+    if stuck == Stuck::Silent
+        && let (Some(pid), Some(before)) = (pid, before)
         && super::restore_bound::process_work(pid)
             .is_some_and(|after| after.advanced_from(before, probe_started.elapsed()))
     {
@@ -379,15 +383,25 @@ enum Probe {
     Refused,
 }
 
-/// Whether the owner gives no answer for `PROBE_DEADLINE`: one `identify`
-/// stays unanswered, or every connection is refused at the connection limit
-/// (re-asked on a new connection, since a healthy owner frees a slot as soon
-/// as one of its clients leaves). Any answer, also "still starting", or a
-/// closed connection is not a stuck owner.
+/// How an owner gave no answer for `PROBE_DEADLINE`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stuck {
+    /// One `identify` stayed unanswered: a wedged owner, or one that parks
+    /// connections while it restores.
+    Silent,
+    /// Every connection was refused at the connection limit.
+    Saturated,
+}
+
+/// Whether the owner gives no answer for `PROBE_DEADLINE`, and how: one
+/// `identify` stays unanswered, or every connection is refused at the
+/// connection limit (re-asked on a new connection, since a healthy owner
+/// frees a slot as soon as one of its clients leaves). `None`: any answer,
+/// also "still starting", or a closed connection, is not a stuck owner.
 fn unresponsive(
     spec: &OwnerSpec,
     mut stream: Box<dyn cmux_tui_core::platform::transport::Stream>,
-) -> bool {
+) -> Option<Stuck> {
     let deadline = Instant::now() + PROBE_DEADLINE;
     loop {
         // Refusals consume the busy budget, not the next accepted client's
@@ -395,9 +409,9 @@ fn unresponsive(
         // still gets the full silent-probe bound to answer.
         let read_until = Instant::now() + PROBE_DEADLINE;
         match probe(stream, read_until) {
-            Probe::Answered => return false,
-            Probe::Silent => return true,
-            Probe::Refused if Instant::now() >= deadline => return true,
+            Probe::Answered => return None,
+            Probe::Silent => return Some(Stuck::Silent),
+            Probe::Refused if Instant::now() >= deadline => return Some(Stuck::Saturated),
             Probe::Refused => {}
         }
         std::thread::sleep(super::BUSY_POLL_INTERVAL);
@@ -405,7 +419,7 @@ fn unresponsive(
             cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived)
         else {
             // Nothing listens any more: the normal ensure starts an owner.
-            return false;
+            return None;
         };
         stream = next;
     }

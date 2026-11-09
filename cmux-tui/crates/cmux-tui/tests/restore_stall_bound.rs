@@ -92,11 +92,13 @@ fn alive(pid: i32) -> bool {
 #[test]
 fn restore_stall_ensure_awaits_an_owner_that_works_past_the_restore_bound() {
     let fixture = Fixture::new("restore-works");
-    let (ok, value, took) = fixture.ensure(&[], &[("CMUX_TUI_DEBUG_SLOW_RESTORE_MS", "9000")]);
+    // Well past the 10 s contact floor the bound keeps, and many times the
+    // 3 s stall bound: only the owner's work can keep the wait this long.
+    let (ok, value, took) = fixture.ensure(&[], &[("CMUX_TUI_DEBUG_SLOW_RESTORE_MS", "25000")]);
     assert!(ok, "a working owner was given up on after {took:?}: {value}");
     assert_eq!(value["status"], "started", "{value}");
-    assert!(took >= Duration::from_secs(9), "the restore did not run: {took:?}");
-    eprintln!("restore_stall_bound: working owner, 9 s restore, 3 s bound: ready after {took:?}");
+    assert!(took >= Duration::from_secs(25), "the restore did not run: {took:?}");
+    eprintln!("restore_stall_bound: working owner, 25 s restore, 3 s bound: ready after {took:?}");
 }
 
 #[test]
