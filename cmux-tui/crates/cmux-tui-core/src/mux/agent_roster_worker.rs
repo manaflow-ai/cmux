@@ -51,6 +51,9 @@ struct RosterRequests {
     /// a caller waits until the pass that took its request is done.
     asked: u64,
     done: u64,
+    /// The owner takes another pass at this time with no request (a retry
+    /// of background work: a rebuild read that failed).
+    retry_at: Option<Instant>,
     /// The owner finishes what is recorded, then ends.
     stopping: bool,
     /// The owner's thread runs; once it ended, nobody waits for it.
@@ -139,6 +142,17 @@ impl RosterControl {
         }
     }
 
+    /// Asks the owner for another pass after `delay`, unless it is stopping:
+    /// a stop drops the retry, and the work resumes at the next start.
+    fn continue_after(&self, delay: Duration) {
+        let mut requests = self.lock();
+        if !requests.stopping {
+            let at = Instant::now() + delay;
+            requests.retry_at = Some(requests.retry_at.map_or(at, |retry| retry.min(at)));
+            self.wake.notify_one();
+        }
+    }
+
     /// The owner finishes the work recorded so far, then ends.
     fn stop(&self) {
         self.lock().stopping = true;
@@ -206,7 +220,21 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
         let (pass, ticket) = {
             let mut requests = control.lock();
             while !requests.pending && !requests.stopping {
-                requests = control.wake.wait(requests).unwrap_or_else(PoisonError::into_inner);
+                let Some(retry_at) = requests.retry_at else {
+                    requests = control.wake.wait(requests).unwrap_or_else(PoisonError::into_inner);
+                    continue;
+                };
+                let now = Instant::now();
+                if now >= retry_at {
+                    requests.retry_at = None;
+                    requests.pending = true;
+                    break;
+                }
+                requests = control
+                    .wake
+                    .wait_timeout(requests, retry_at - now)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
             }
             if !requests.pending {
                 return;
@@ -297,6 +325,12 @@ impl Mux {
     /// Asks the owner for another pass of the roster rebuild.
     pub(in crate::mux) fn continue_agent_roster_rebuild_later(&self) {
         self.agent_roster_worker.control.continue_later();
+    }
+
+    /// Asks the owner for another pass of the roster rebuild after `delay`,
+    /// with no request to wake it: a retry after a failed read.
+    pub(in crate::mux) fn retry_agent_roster_rebuild_after(&self, delay: Duration) {
+        self.agent_roster_worker.control.continue_after(delay);
     }
 
     /// Records roster work for the owner and wakes it: a fold through

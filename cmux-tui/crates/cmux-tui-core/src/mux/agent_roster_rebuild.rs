@@ -34,12 +34,31 @@ const REBUILD_SLICE: Duration = Duration::from_millis(250);
 /// Records per journal page of the rebuild, as the start's fold.
 const REBUILD_PAGE: usize = 512;
 
-/// A roster folded from the first journal record, and the ranges the fold
-/// skipped because they did not decode.
+/// The first retry of a rebuild read that failed; each failure in a row
+/// doubles it, up to [`REBUILD_RETRY_LONGEST`].
+#[cfg(not(test))]
+const REBUILD_RETRY_FIRST: Duration = Duration::from_millis(100);
+#[cfg(test)]
+const REBUILD_RETRY_FIRST: Duration = Duration::from_millis(5);
+#[cfg(not(test))]
+const REBUILD_RETRY_LONGEST: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const REBUILD_RETRY_LONGEST: Duration = Duration::from_millis(20);
+/// Failed reads in a row after which the rebuild gives up for this run
+/// (about 3 min of retries): the stale mark stays, and the next start
+/// rebuilds again.
+#[cfg(not(test))]
+const REBUILD_READ_ATTEMPTS: u32 = 15;
+#[cfg(test)]
+const REBUILD_READ_ATTEMPTS: u32 = 4;
+
+/// A roster folded from the first journal record, the ranges the fold
+/// skipped because they did not decode, and the reads that failed in a row.
 #[derive(Default)]
 pub(in crate::mux) struct AgentRosterRebuild {
     host: AgentRosterHost,
     skipped: Vec<SkippedJournalRange>,
+    failed_reads: u32,
 }
 
 /// Faults a test puts into one session's rebuild: a held rebuild takes no
@@ -102,7 +121,9 @@ impl Mux {
     /// live roster's cursor for at most [`REBUILD_SLICE`], and replace the
     /// live roster once there. Only the owner moves the live cursor and this
     /// runs on it, so the cursor holds still for the slice. A read that fails
-    /// is tried again after the next pass.
+    /// is tried again after a backoff, with no request needed to wake the
+    /// owner, at most [`REBUILD_READ_ATTEMPTS`] times in a row; then the
+    /// rebuild ends for this run with the roster still marked stale.
     pub(in crate::mux) fn run_agent_roster_rebuild_slice(&self) {
         if !self.agent_roster_rebuilding() {
             return;
@@ -142,6 +163,7 @@ impl Mux {
                     rebuild.host.roster.apply(&RosterEvent::from_record(record));
                 }
                 rebuild.host.cursor = reached;
+                rebuild.failed_reads = 0;
                 continue;
             }
             // As the start does: a range that does not decode is skipped.
@@ -164,6 +186,7 @@ impl Mux {
                         reached = Some(record.sequence);
                     }
                     rebuild.host.cursor = reached.unwrap_or(target);
+                    rebuild.failed_reads = 0;
                 }
                 Ok(SalvagedJournalPage::Skipped(skip)) => {
                     eprintln!(
@@ -173,9 +196,37 @@ impl Mux {
                     );
                     rebuild.host.cursor = skip.end_sequence.clamp(cursor.saturating_add(1), target);
                     rebuild.skipped.push(skip);
+                    rebuild.failed_reads = 0;
                 }
                 Err(error) => {
-                    eprintln!("cmux-tui: the agent roster rebuild read failed: {error}");
+                    rebuild.failed_reads += 1;
+                    let failed = rebuild.failed_reads;
+                    if failed >= REBUILD_READ_ATTEMPTS {
+                        *slot = None;
+                        worker.rebuilding.store(false, Ordering::Release);
+                        drop(slot);
+                        drop(fold);
+                        eprintln!(
+                            "cmux-tui: the agent roster rebuild gave up after {failed} failed \
+                             reads: {error:#}; the roster stays marked stale and the next start \
+                             rebuilds it"
+                        );
+                        self.report_internal_diagnostic(format!(
+                            "agent roster rebuild gave up after {failed} failed reads: {error:#}"
+                        ));
+                        return;
+                    }
+                    let delay = REBUILD_RETRY_FIRST
+                        .saturating_mul(1 << (failed - 1).min(16))
+                        .min(REBUILD_RETRY_LONGEST);
+                    eprintln!(
+                        "cmux-tui: the agent roster rebuild read failed ({failed} in a row), \
+                         retried in {} ms: {error:#}",
+                        delay.as_millis()
+                    );
+                    drop(slot);
+                    drop(fold);
+                    self.retry_agent_roster_rebuild_after(delay);
                     return;
                 }
             }
