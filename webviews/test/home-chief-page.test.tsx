@@ -449,6 +449,7 @@ test("Bring your own: Cancel after a failed check, or closing during a held chec
   expect(second.checks).toHaveLength(1);
   act(() => root!.unmount());
   root = undefined;
+  await flush();
   expect(removed(second.calls)).toEqual(["acme"]);
   await act(async () => second.checks[0]!.answer({ ok: true, steps: [{ name: "prompt", ok: true }] }));
   await flush();

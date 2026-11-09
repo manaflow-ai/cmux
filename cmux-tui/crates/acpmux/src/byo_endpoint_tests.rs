@@ -601,6 +601,9 @@ async fn byo_endpoint_fetches_the_model_list_and_fills_in_star() {
     assert_eq!(p.models, ["served-a", "served-b"]);
 }
 
+/// Added to `written` once the fake is done writing (far past any byte count).
+const DONE: usize = 1 << 40;
+
 /// A fake `/v1/models` that answers 200 with a body past the cap: chunked (no
 /// length), or with a declared length past it and nothing after; the bytes it
 /// managed to write, for the reader's stop.
@@ -632,8 +635,9 @@ fn fake_huge_models(declared: bool) -> (u16, Arc<AtomicUsize>) {
                 "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ntransfer-encoding: chunked\r\n\r\n"
             );
             let chunk = vec![b' '; 64 * 1024];
-            // Up to eight times the cap; a reader that stops at the cap closes the socket first.
-            for _ in 0..(MAX_LIST_BYTES * 8 / chunk.len()) {
+            // Up to sixteen times the cap (more than the cap and every socket buffer between); a
+            // reader that stops at the cap closes the socket, and a write fails first.
+            for _ in 0..(MAX_LIST_BYTES * 16 / chunk.len()) {
                 if write!(stream, "{:x}\r\n", chunk.len()).is_err()
                     || stream.write_all(&chunk).is_err()
                     || stream.write_all(b"\r\n").is_err()
@@ -643,6 +647,8 @@ fn fake_huge_models(declared: bool) -> (u16, Arc<AtomicUsize>) {
                 count.fetch_add(chunk.len(), Ordering::SeqCst);
             }
             let _ = stream.write_all(b"0\r\n\r\n");
+            // Done writing: `written` holds what went out before the reader closed.
+            count.fetch_add(DONE, Ordering::SeqCst);
         }
     });
     (port, written)
@@ -656,9 +662,14 @@ async fn byo_endpoint_a_model_list_past_the_cap_is_refused_while_it_streams() {
         .await
         .unwrap_err();
     assert!(e.contains("too large"), "{e}");
-    // The reader stopped near the cap, not after the whole body.
-    std::thread::sleep(Duration::from_millis(200));
-    assert!(written.load(Ordering::SeqCst) < MAX_LIST_BYTES * 8, "the whole body was read");
+    // The reader stopped near the cap, not after the whole body: the writer's next writes failed.
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while written.load(Ordering::SeqCst) < DONE && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let sent = written.load(Ordering::SeqCst);
+    assert!(sent >= DONE, "the writer never finished");
+    assert!(sent - DONE < MAX_LIST_BYTES * 16, "the whole body was read");
     // A declared length past the cap is refused before any of the body is read.
     let (port, _) = fake_huge_models(true);
     let e = fetch_models(Kind::OpenAi, &format!("http://127.0.0.1:{port}/v1"), None, t)
