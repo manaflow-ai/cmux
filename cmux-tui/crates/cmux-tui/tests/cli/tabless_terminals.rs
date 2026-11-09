@@ -262,13 +262,15 @@ fn w5o_worktree_close_spares_the_callers_terminal_and_kept_terminals() {
     let _ = fs::remove_dir_all(root);
 }
 
-/// Build skew (W5-O follow-up review): a daemon older than `terminal.close`
-/// `if_unplaced` refuses the field as an unknown parameter. The test daemon
-/// stands in for one by hiding the capability. The close still ends the
-/// shells it left with no tab, with the plain end (so a kept one ends too:
-/// an older daemon cannot spare it), and still spares the caller's terminal.
+/// W5-O follow-up review: the guard must not depend on `identify`. An
+/// `identify` that fails or does not list `terminal-close-if-unplaced-v1`
+/// (Windows has no identify path in the CLI, and `--machine` asked the local
+/// daemon, not the target) sent the plain end, which ended a kept terminal
+/// on a daemon that takes the guard. The test daemon hides the capability:
+/// the close still sends the guard, so the kept terminal and the caller's
+/// stay, and only the plain one ends.
 #[test]
-fn w5o_worktree_close_on_a_daemon_without_if_unplaced_still_ends_the_shells() {
+fn w5o_worktree_close_guards_the_ends_whatever_identify_lists() {
     let root = unique_temp_dir("tabless-skew");
     let home = root.join("home");
     let repo = root.join("project");
@@ -302,21 +304,16 @@ fn w5o_worktree_close_on_a_daemon_without_if_unplaced_still_ends_the_shells() {
     let plain = created(&run(&server, &["pane", &pane, "split", "--down"]), "terminal_id");
 
     let closed = run_in(&server, &caller, &["workspace", &workspace, "close", "--remove-worktree"]);
-    let mut ended: Vec<String> = closed
+    let ended = closed
         .pointer("/ended_terminals")
         .or_else(|| closed.pointer("/value/ended_terminals"))
-        .and_then(Value::as_array)
-        .unwrap_or_else(|| panic!("no ended_terminals in {closed}"))
-        .iter()
-        .filter_map(Value::as_str)
-        .map(str::to_owned)
-        .collect();
-    ended.sort();
-    let mut expected = vec![kept.clone(), plain.clone()];
-    expected.sort();
-    assert_eq!(ended, expected, "the plain end of an older daemon: {closed}");
-    let record = terminal(&server, &caller);
-    assert_eq!(record["lifecycle"], "running", "the caller's terminal was ended: {record}");
+        .cloned()
+        .unwrap_or_else(|| panic!("no ended_terminals in {closed}"));
+    assert_eq!(ended, serde_json::json!([plain]), "the guard was not sent: {closed}");
+    for id in [&caller, &kept] {
+        let record = terminal(&server, id);
+        assert_eq!(record["lifecycle"], "running", "{record}");
+    }
 
     drop(server);
     let _ = fs::remove_dir_all(root);

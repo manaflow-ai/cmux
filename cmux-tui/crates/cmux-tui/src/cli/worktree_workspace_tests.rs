@@ -385,3 +385,31 @@ fn w5o_worktree_close_on_an_older_daemon_ends_without_if_unplaced() {
     assert!(end.get("if_unplaced").is_none(), "an older daemon refuses the field: {end}");
     assert_eq!(result["ended_terminals"], json!([HERE]));
 }
+
+/// W5-O follow-up review: a daemon whose `identify` cannot be read (Windows,
+/// a timeout) or does not list the capability still gets the guard; only
+/// the daemon's own refusal of the field picks the plain end.
+#[test]
+fn w5o_worktree_close_guards_the_end_when_identify_cannot_tell() {
+    const HERE: &str = "term_11111111111111111111111111111111";
+    let session = |tab_ids: Value| {
+        json!({
+            "screens": [{"id": "screen_a", "workspace_id": WORKSPACE}],
+            "panes": [{"id": "pane_a", "screen_id": "screen_a"}],
+            "tabs": [{"id": "tab_1", "pane_id": "pane_a"}],
+            "terminals": [{"id": HERE, "lifecycle": "running", "tab_ids": tab_ids}],
+        })
+    };
+    let mut daemon = FakeDaemon::new(vec![
+        ("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {"agent_folder": "/w"}}))),
+        ("git.worktree.remove", Ok(json!({"value": {"root": "/w"}}))),
+        ("session.snapshot", Ok(session(json!(["tab_1"])))),
+        ("session.snapshot", Ok(session(json!([])))),
+    ]);
+    daemon.capabilities.clear();
+    let request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
+    let result = close(&daemon, &request, "key-9").expect("closed");
+    let end = daemon.params("terminal.close");
+    assert_eq!(end["if_unplaced"], true, "the guard must not depend on identify: {end}");
+    assert_eq!(result["ended_terminals"], json!([HERE]));
+}
