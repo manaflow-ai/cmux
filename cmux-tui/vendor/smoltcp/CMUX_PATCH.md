@@ -36,7 +36,8 @@ repeated loss it found one hole per round trip and cut the window again at each
 one. With recovery on, and only when the peer permitted SACK, the socket keeps a
 scoreboard of up to 16 SACKed ranges and, in one recovery episode, resends only
 the holes it deems lost (three segments' worth or three ranges SACKed above a
-hole, or everything sent after it SACKed, or three duplicate ACKs for the head),
+hole, or everything sent after it SACKed with fewer than four segments outstanding
+from the hole on, or three duplicate ACKs for the head),
 several per round trip when the window has room. An episode cuts the window
 once, and only when a hole is lost by the duplicate threshold: a hole lost only
 because everything after it arrived (a short frame's loss) is resent with no
