@@ -9,6 +9,9 @@ mod effects;
 mod session;
 mod topology;
 mod wait_text;
+
+#[cfg(test)]
+mod screen_focus_tests;
 pub(crate) use wait_text::WaitText;
 
 use std::collections::{HashMap, HashSet};

@@ -321,7 +321,7 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list
+agent list [--state working|blocked|done|idle|unknown|ended] [--terminal <id>]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
@@ -337,13 +337,14 @@ workspace <selector> show|rename|move|focus|close|run
 workspace <selector> layout apply
 workspace <selector> screen ...
 
-screen list|create
+screen list|create [--workspace <selector>] [--focus]
 screen <selector> show|rename|focus|close
 screen <selector> layout export|undo
 screen <selector> pane ...
 
 pane list|create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
+pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--focus]
 pane <selector> focus direction <left|right|up|down>
 pane <selector> split ratio set
 pane <selector> viewport width set
@@ -404,6 +405,63 @@ text printed below the line the cursor is on when the wait starts, soft wraps
 joined, and `text` is then that new text: the echo of a command typed on that
 line and older output never match. Output printed before the wait starts is
 not new, so start the wait before the command prints.
+
+A `--pattern` regex (`screen wait`, and the raw `wait-for` command) is
+multi-line: `^` and `$` match at the start and end of each line, so
+`'^READY$'` matches a line that is only `READY`. Start the pattern with
+`(?-m)` to anchor at the start and end of the whole text.
+
+`screen create` does not move the focus: the workspace's focused screen
+stays, unless `--focus` is given (`screen.create.focus`, default false for a
+caller; the TUI's own new screen still shows it) or the workspace had no
+screen. It takes `--workspace <selector>` to choose the workspace. A
+`screen.create` in a session with no workspace makes one, which takes the
+focus as before (main's `workspace.create` has no focus option).
+
+`pane <p> move` moves a whole pane: every tab in it, in order, with one
+`tab.move` each (the daemon has no pane move), and the emptied pane closes.
+`--to-pane <q>` appends the tabs to pane q; with `--split right|down|left|up`
+they go into a new pane split off q. `--to-tab <t>` puts them after tab t in
+its pane. `--to-workspace <w>` and `--new-screen` (alias `--new-tab`, the
+pane's own workspace) put them into a new screen there, named `--name`. A new
+pane's shell tab closes once the tabs are in, and the new pane takes the
+moved pane's name. `tab.move` focuses what it moved, so afterwards the command
+focuses the pane that had the focus before (`--focus`: the destination pane);
+when the moved pane had the focus, the focus stays with its tabs. A
+destination in the pane itself is a usage error. The result is `{pane,
+moved_tabs, destination: {workspace, screen, pane, index}, created,
+focused_pane}`, `created` being `{screen, pane}`, `{pane}` or null. The
+command resolves every selector (ids, unique id prefixes, `name:` and exact
+names, `focused`, `current`, `caller`) against one `session.snapshot` and
+sends ids only. Each step is its own request, its idempotency key derived from
+the command's (`--idempotency-key`, else a random one). A failed step names
+itself and what already moved in `details.step` and `details.made`; running
+the command again does not resume it (`details.retry`), so move the remaining
+tabs with `tab move`.
+
+`agent list` is one `agent.list` read and one `notification.list` read; the
+daemon's rows are unchanged except that the CLI adds `status`, the word the
+TUI sidebar shows: `blocked`, `done` (idle with an unread notification on its
+terminal), `working`, `idle` or `unknown`, and `null` for an agent whose
+session ended. The daemon's `state` field (`working`, `blocked`, `idle`,
+`done` = ended, `unknown`) stays as it was. `--state` takes the status words
+and `ended` and asks the daemon for its state: `done` and `idle` ask for
+`idle` (the CLI then keeps the rows with that status), `ended` asks for the
+daemon's `done`, the others for themselves. `--state done` used to select the
+ended sessions; that is `--state ended` now. A refused notification read (an
+older daemon) leaves every idle agent `idle`.
+
+`agent hook status` reports each provider on its own row. A provider whose
+config cannot be read is `state: unavailable`, `reason: unreadable`, with the
+cause in `detail`; the other providers still answer and the command exits 0.
+A failed `agent hook install|uninstall` names each cause in its message
+(`<provider>: <cause>`). `agent|sidebar plugin list` with no plugin installed
+prints how to install one (`--json` prints `[]`).
+
+A selector that starts with an id prefix (`term_`, `ws_`, `pane_`, ...) but is
+not an id (not 32 lowercase hex digits) is refused as a mistyped id: the
+message names the id shape, the list command that prints real ids, and the
+`name:` escape for a name.
 
 With OSC 133 shell integration the terminal record carries
 `extra.last_command` (`terminal-exit-status-v1`): the last command the shell

@@ -8787,6 +8787,14 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make the new screen its workspace's focused screen. Default false: the focused screen stays."
+          },
           "expected_revision": {
             "required": false,
             "type": {

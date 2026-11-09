@@ -8,7 +8,6 @@ use ghostty_vt::{
     KeyEncoder, Mods, MouseAction, MouseButton, MouseInput, StyledRun, UnderlineStyle,
     key_input_from_chord, rows_to_runs,
 };
-use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::effects::{self, EffectPreparation, PreparedEffect};
@@ -230,7 +229,7 @@ fn terminal_output_read(
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
     let pattern = required_string(&request.fields, "pattern")?;
-    let regex = Regex::new(pattern).map_err(|error| {
+    let regex = crate::wait_pattern::compile(pattern).map_err(|error| {
         validation_error(
             "terminal wait pattern is not a valid regular expression",
             json!({"pattern":pattern,"error":error.to_string()}),
