@@ -58,10 +58,14 @@ jobs:
           persist-credentials: false
           # pr_status.py: the guard imports it to write its section of the PR status
           # comment (feat-cmux-next #28451). A base before that has no such file; the
-          # pattern then matches nothing.
+          # pattern then matches nothing. receipt_grammar.py: the guard imports it to read a review
+          # receipt (feat-cmux-next #36941), the same way. risk_tier.py: #36950 moved that grammar
+          # into it, so a base at or after #36950 imports it, a base before it matches nothing.
           sparse-checkout: |
             scripts/ci/defaults_guard.py
             scripts/ci/pr_status.py
+            scripts/ci/receipt_grammar.py
+            scripts/ci/risk_tier.py
             .github/defaults-call-owners.json
           sparse-checkout-cone-mode: false
 

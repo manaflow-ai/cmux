@@ -6,6 +6,11 @@
       "reason": "Not a wait: ghw retries one gh call refused for the API rate limit, at most 3 tries and 15 minutes in total, sleeping until the reset GitHub names. Runs in CI, where glaeda-gh does not exist."
     },
     {
+      "path": ".github/workflows/cmux-next-remote-browser-host-publish.yml",
+      "match": "for attempt in 1 2 3 4 5; do",
+      "reason": "Not a wait: retries one tag create that GitHub answered with a transient error (run 42541124658 got a 502), at most 5 tries 10 to 80 s apart (150 s in all), then the step fails. Runs in CI, where glaeda-gh does not exist."
+    },
+    {
       "path": ".github/workflows/coderouter-release.yml",
       "match": "for _ in 1 2 3 4 5; do",
       "reason": "Read-after-write check of a draft release's asset list right after gh release upload: at most 5 reads 2 s apart (about 10 s), then the release fails. No event or glaeda-gh exists for it in CI."
@@ -39,6 +44,11 @@
       "path": "scripts/install-cmux-tui-client.sh",
       "match": "while :; do",
       "reason": "Not a wait: retries gh attestation verify only when GitHub answers with a rate limit, with doubling backoff (4 retries from 1 minute by default, CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES and CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS change them); any other answer is final. Runs on user machines and nightly legs without glaeda-gh."
+    },
+    {
+      "path": "scripts/verify-cmux-tui-hosted.sh",
+      "match": "for try in 1 2 3; do",
+      "reason": "Not a wait: retries one workflow dispatch that got HTTP 5xx or a transport error, at most 3 tries 10 and 20 s apart, and before each new try reads the run list once so it never dispatches a second run; a 4xx fails at once. The run itself is waited for with glaeda-gh."
     },
     {
       "path": "workers/presence/scripts/local-proof.sh",

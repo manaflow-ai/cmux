@@ -6267,7 +6267,7 @@ struct ContentView: View {
         return TerminalDirectoryOpenTarget.availableTargets()
     }
 
-    private nonisolated static func resolveCommandPaletteAgentLauncherProviders(
+    nonisolated static func resolveCommandPaletteAgentLauncherProviders(
         environment: [String: String],
         bundleResourceURL: URL?,
         configuredExecutablePaths: [AgentSessionProviderID: String]
@@ -6277,7 +6277,7 @@ struct ContentView: View {
             bundleResourceURL: bundleResourceURL,
             configuredExecutablePaths: configuredExecutablePaths
         )
-        return Set([AgentSessionProviderID.claude, .codex].filter {
+        return Set(AgentSessionProviderID.allCases.filter {
             (try? resolver.resolve($0)) != nil
         })
     }
