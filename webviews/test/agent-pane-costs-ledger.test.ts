@@ -15,6 +15,7 @@ import {
   ledgerJson,
   ledgerLines,
   ledgerParams,
+  ledgerShortfall,
   readLedger,
   tokensIn,
 } from "../src/agent-session/acpmux/ledger/ledgerModel";
@@ -337,4 +338,17 @@ test("Export saves through the host's save panel, and copies when the host canno
   expect(await save("{}", "cmux-costs", "json")).toBe("copied");
   expect(copied).toEqual(["{}"]);
   await expect(save("refused", "cmux-costs", "csv")).rejects.toThrow();
+});
+
+test("a session export short of the range's sessions says how many it holds, and a rollup never is", () => {
+  const short = readLedger({ ...JSON.parse(JSON.stringify(titled)), totals: totals({ sessions: 7 }) });
+  expect(ledgerShortfall(short, "session")).toEqual({ shown: 3, total: 7 });
+  expect(ledgerShortfall(titled, "session")).toBeUndefined();
+  expect(ledgerShortfall(short, "repo")).toBeUndefined();
+  const body = JSON.parse(ledgerJson(short, "7d", "session"));
+  expect(body.truncated).toBe(true);
+  expect(body.sessionsTotal).toBe(7);
+  expect(JSON.parse(ledgerJson(titled, "7d", "session")).truncated).toBe(false);
+  // A rollup holds every group: no such fields.
+  expect("truncated" in JSON.parse(ledgerJson(short, "7d", "repo"))).toBe(false);
 });

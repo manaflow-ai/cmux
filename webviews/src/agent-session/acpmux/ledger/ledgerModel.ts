@@ -425,7 +425,17 @@ export function ledgerCsv(reply: LedgerReply, group: LedgerGroup): string {
   return `${lines.join("\r\n")}\r\n`;
 }
 
-/// The range and grouping as JSON: the range, the price table, the totals and every row.
+/// Sessions the read counted but did not return: grouped by session, a range with more sessions
+/// than acpmux's most (`LEDGER_EXPORT_LIMIT`) holds only the most expensive. Undefined when every
+/// session is there, and for a rollup, which always holds every group.
+export function ledgerShortfall(reply: LedgerReply, group: LedgerGroup): { shown: number; total: number } | undefined {
+  if (group !== "session" || reply.totals.sessions <= reply.rows.length) return undefined;
+  return { shown: reply.rows.length, total: reply.totals.sessions };
+}
+
+/// The range and grouping as JSON: the range, the price table, the totals and every row. When the
+/// read could not return every session, `truncated` is true and `sessionsTotal` says how many
+/// there were; the totals always count them all.
 export function ledgerJson(reply: LedgerReply, range: LedgerRange, group: LedgerGroup): string {
   const rows = exportRows(reply, group).map((row) =>
     Object.fromEntries(
@@ -434,9 +444,13 @@ export function ledgerJson(reply: LedgerReply, range: LedgerRange, group: Ledger
       ),
     ),
   );
+  const shortfall = ledgerShortfall(reply, group);
   const body = {
     range: { name: range, since: iso(reply.range.since), until: iso(reply.range.until) },
     groupBy: group,
+    ...(group === "session"
+      ? { truncated: shortfall !== undefined, sessionsTotal: reply.totals.sessions }
+      : {}),
     ...(reply.priceTable ? { priceTable: reply.priceTable } : {}),
     totals: exportNumbers(reply.totals),
     rows,

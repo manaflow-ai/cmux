@@ -32,6 +32,7 @@ import {
   ledgerJson,
   ledgerLines,
   ledgerParams,
+  ledgerShortfall,
   readLedger,
   tokensIn,
   type CostSource,
@@ -121,7 +122,13 @@ export function LedgerScreen({
   const loadRef = useRef(load);
   loadRef.current = load;
   // How the last export ended, for the range and grouping it wrote.
-  const [lastExport, setLastExport] = useState<{ range: LedgerRange; group: LedgerGroup; outcome: ExportWord }>();
+  const [lastExport, setLastExport] = useState<{
+    range: LedgerRange;
+    group: LedgerGroup;
+    outcome: ExportWord;
+    /// Sessions the file is missing: more than acpmux returns in one read.
+    shortfall?: { shown: number; total: number };
+  }>();
 
   const read = useCallback(
     (which: LedgerRange) => {
@@ -163,11 +170,13 @@ export function LedgerScreen({
     cache?.keep({ range, group, ...(reply ? { reply } : {}) });
   }, [cache, range, group, reply]);
   // A new range or grouping is a new file: the last export's word shows only for its own.
-  const exported = lastExport?.range === range && lastExport.group === group ? lastExport.outcome : undefined;
+  const shown = lastExport?.range === range && lastExport.group === group ? lastExport : undefined;
+  const exported = shown?.outcome;
 
   const runExport = async (kind: LedgerExportKind) => {
     if (!reply || !save) return;
-    const done = (outcome: ExportWord | undefined) => setLastExport(outcome ? { range, group, outcome } : undefined);
+    const done = (outcome: ExportWord | undefined, shortfall?: { shown: number; total: number }) =>
+      setLastExport(outcome ? { range, group, outcome, ...(shortfall ? { shortfall } : {}) } : undefined);
     try {
       // The page holds the top sessions only: the file reads them all, for the same range.
       const data =
@@ -178,7 +187,8 @@ export function LedgerScreen({
           : reply;
       const text = kind === "csv" ? ledgerCsv(data, group) : ledgerJson(data, range, group);
       const outcome = await save(text, ledgerFileName(data, range, group), kind);
-      done(outcome === "cancelled" ? undefined : outcome);
+      // A file short of sessions says so, saved or copied: its rows are not the whole range.
+      done(outcome === "cancelled" ? undefined : outcome, ledgerShortfall(data, group));
     } catch {
       done("failed");
     }
@@ -264,8 +274,18 @@ export function LedgerScreen({
           <span>{t("ledger.unpriced", { n: formatCount(reply.totals.unpricedTurns, locale) })}</span>
         )}
         {exported && (
-          <output className="cst-exported" data-tone={exported === "failed" ? "error" : undefined}>
+          <output
+            className="cst-exported"
+            data-tone={exported === "failed" ? "error" : shown?.shortfall ? "warning" : undefined}
+          >
             {t(`ledger.export.${exported}`)}
+            {/* Whole numbers: a compact 5K of 6K would hide how many are missing. */}
+            {shown?.shortfall && exported !== "failed"
+              ? ` · ${t("ledger.export.partial", {
+                  shown: new Intl.NumberFormat(locale).format(shown.shortfall.shown),
+                  total: new Intl.NumberFormat(locale).format(shown.shortfall.total),
+                })}`
+              : null}
           </output>
         )}
         {moreSessions !== undefined && (

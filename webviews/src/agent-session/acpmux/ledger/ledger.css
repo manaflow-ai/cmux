@@ -37,3 +37,4 @@ button.cst-row:focus-visible{outline:none;background:color-mix(in srgb,var(--age
 .cst-link{height:24px;padding:0 var(--ds-space-2);border:0;border-radius:var(--radius-control);background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-detail)}
 .cst-legend{display:inline-flex;align-items:center;gap:var(--ds-space-1)}
 .cst-exported[data-tone="error"]{color:var(--agent-error,var(--agent-text))}
+.cst-exported[data-tone="warning"]{color:var(--warning,var(--agent-text))}

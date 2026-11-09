@@ -55,7 +55,11 @@ which reads every member's shared usage. Account is the sign-in or profile a ses
 Export saves the range and grouping on screen as CSV (RFC 4180, CRLF, a header row) or JSON
 (`ledgerModel.ts` `ledgerCsv`, `ledgerJson`). It writes every row of the read, not the visible ones;
 grouped by session, when acpmux returned only the top sessions, it reads the same range again at
-acpmux's most (5,000). Each row carries its cost source, the price table version and the range.
+acpmux's most (5,000). A range with more sessions than that exports the 5,000 most expensive and
+says so: the note line adds "Exported 5,000 of 6,001 sessions" (whole numbers, never compact),
+and the JSON has `truncated: true` and `sessionsTotal`. The CSV stays a plain table, with no
+summary line a spreadsheet would read as a row. Each row carries its cost source, the price table
+version and the range.
 Text a spreadsheet would run as a formula gets a leading apostrophe. The file goes through the
 host's save panel (`pane.saveFile`, kinds `csv` and `json`); a host that cannot save it copies it
 to the clipboard and says so. The note line says Saved, Copied to the clipboard, or that the export
