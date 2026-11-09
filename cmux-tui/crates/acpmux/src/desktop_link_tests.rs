@@ -208,6 +208,72 @@ fn codex_gets_a_table_and_keeps_the_persons_comments_and_order() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
 }
 
+/// Review (#39320): a Codex link waits for the lock every cmux writer of config.toml takes
+/// (`cmux_tui_platform::codex_config_lock`). The test plays the Cloud devbox provider merge: it
+/// holds the lock, writes its block while the link waits, and releases; the link then keeps it.
+#[cfg(unix)]
+#[test]
+fn a_codex_link_waits_for_the_config_lock_and_keeps_the_other_writers_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    let path = env.config_path(App::Codex);
+    std::fs::write(&path, "# my settings\n").unwrap();
+    let lock_path = path.with_file_name(cmux_tui_platform::codex_config_lock::LOCK_FILE);
+    let lock = std::fs::OpenOptions::new().create(true).append(true).open(&lock_path).unwrap();
+    lock.lock().unwrap();
+    std::thread::scope(|scope| {
+        let linking = scope.spawn(|| link(&env, App::Codex, false));
+        // A bound on how long the link must not finish, not a wait for it.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(!linking.is_finished(), "the link wrote while another writer held the lock");
+        let merged = "# my settings\n[model_providers.cmux]\nname = \"cmux\"\n";
+        std::fs::write(&path, merged).unwrap();
+        drop(lock);
+        assert_eq!(linking.join().unwrap().state, State::Linked);
+    });
+    let doc: toml::Table = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(doc["model_providers"]["cmux"]["name"].as_str(), Some("cmux"));
+    assert_eq!(doc["mcp_servers"]["cmux"]["env"][GUEST_ENV].as_str(), Some("codex"));
+}
+
+/// Review (#39320): a writer outside the lock (Codex itself) that changes config.toml between
+/// the read and the rename is not replaced: the edit is done again on its text, and a file that
+/// keeps changing is refused and left as that writer wrote it.
+#[test]
+fn an_edit_from_outside_the_lock_between_read_and_rename_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, "model = \"a\"\n").unwrap();
+    let renders = std::cell::Cell::new(0);
+    let render = |text: &str| {
+        renders.set(renders.get() + 1);
+        render_toml(&path, text, &|servers: &mut toml_edit::Table| {
+            servers.insert(SERVER_KEY, toml_edit::value("ours"));
+        })
+    };
+    let mut first = true;
+    let mut codex = || {
+        if std::mem::take(&mut first) {
+            std::fs::write(&path, "model = \"a\"\ntrusted = true\n").unwrap();
+        }
+    };
+    edit_file_raced(&path, None, render, &mut codex).unwrap();
+    assert_eq!(renders.get(), 2);
+    let doc: toml::Table = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(doc["trusted"].as_bool(), Some(true));
+    assert_eq!(doc["mcp_servers"][SERVER_KEY].as_str(), Some("ours"));
+
+    let mut n = 0;
+    let mut always = || {
+        n += 1;
+        std::fs::write(&path, format!("edit = {n}\n")).unwrap();
+    };
+    let render = |text: &str| render_toml(&path, text, &|_: &mut toml_edit::Table| {});
+    let e = edit_file_raced(&path, None, render, &mut always).unwrap_err();
+    assert!(e.to_string().contains("kept changing"), "{e}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), format!("edit = {EDIT_TRIES}\n"));
+}
+
 #[test]
 fn an_app_that_is_not_here_is_not_linked() {
     let dir = tempfile::tempdir().unwrap();

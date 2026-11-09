@@ -4,6 +4,7 @@
 //! scope, and the Windows process queries. cmux-tui-core re-exports each
 //! module at its old path (`cmux_tui_core::platform`, ...).
 
+pub mod codex_config_lock;
 #[cfg(unix)]
 pub mod host_exe;
 mod kinfo_proc;

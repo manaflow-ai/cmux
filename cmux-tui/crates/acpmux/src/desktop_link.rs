@@ -13,7 +13,8 @@
 //!   every running Claude Code rewrites, so acpmux never writes that file itself). Claude
 //!   desktop's Code tab runs the same Claude Code with the same user config.
 //! - Codex: `[mcp_servers.cmux]` in `$CODEX_HOME/config.toml` (`~/.codex`), which the Codex
-//!   desktop app and CLI share, edited with `toml_edit` so comments and order stay.
+//!   desktop app and CLI share, edited with `toml_edit` so comments and order stay, under the
+//!   lock every cmux writer of it takes (`cmux_tui_platform::codex_config_lock`).
 //!
 //! The entry runs this acpmux binary as `acpmux acpmux-mcp` with [`GUEST_ENV`] set to the app's
 //! id: the server's guest mode (`acpmux_mcp_guest.rs`), which lists the tools that make sense
@@ -391,15 +392,14 @@ fn remove_entry(env: &Env, app: App) -> Result<()> {
 }
 
 /// Read `path` as JSON (none or empty: `{}`), change its `mcpServers`, and write it back whole
-/// through a temp file and a rename, so the app never reads half a file. The top level and
-/// `mcpServers` keep the person's key order (serde_json's own map would sort them).
-fn edit_json(path: &Path, change: impl FnOnce(&mut Ordered<Value>)) -> Result<()> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-    };
-    let text = if text.trim().is_empty() { "{}" } else { text.as_str() };
+/// ([`edit_file`]). The top level and `mcpServers` keep the person's key order (serde_json's own
+/// map would sort them).
+fn edit_json(path: &Path, change: impl Fn(&mut Ordered<Value>)) -> Result<()> {
+    edit_file(path, None, |text| render_json(path, text, &change))
+}
+
+fn render_json(path: &Path, text: &str, change: &impl Fn(&mut Ordered<Value>)) -> Result<String> {
+    let text = if text.trim().is_empty() { "{}" } else { text };
     let doc: Value =
         serde_json::from_str(text).with_context(|| format!("{} is not JSON", path.display()))?;
     let Some(top) = doc.as_object() else {
@@ -439,7 +439,7 @@ fn edit_json(path: &Path, change: impl FnOnce(&mut Ordered<Value>)) -> Result<()
     }
     let mut out = serde_json::to_string_pretty(&Ordered(out))?;
     out.push('\n');
-    write_atomic(path, &out)
+    Ok(out)
 }
 
 /// The key of Claude's MCP servers.
@@ -491,13 +491,15 @@ impl<T: serde::Serialize> serde::Serialize for Ordered<T> {
     }
 }
 
-/// The same for Codex's TOML, through `toml_edit` so the person's comments and order stay.
-fn edit_toml(path: &Path, change: impl FnOnce(&mut toml_edit::Table)) -> Result<()> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-    };
+/// The same for Codex's TOML, through `toml_edit` so the person's comments and order stay, under
+/// the lock every cmux writer of it takes (`cmux_tui_platform::codex_config_lock`: the hook
+/// installer's trust state and the Cloud devbox provider merge).
+fn edit_toml(path: &Path, change: impl Fn(&mut toml_edit::Table)) -> Result<()> {
+    let lock = path.parent().map(|dir| dir.join(cmux_tui_platform::codex_config_lock::LOCK_FILE));
+    edit_file(path, lock.as_deref(), |text| render_toml(path, text, &change))
+}
+
+fn render_toml(path: &Path, text: &str, change: &impl Fn(&mut toml_edit::Table)) -> Result<String> {
     let mut doc: toml_edit::DocumentMut =
         text.parse().with_context(|| format!("{} is not TOML", path.display()))?;
     let servers = doc.entry("mcp_servers").or_insert_with(|| {
@@ -509,22 +511,68 @@ fn edit_toml(path: &Path, change: impl FnOnce(&mut toml_edit::Table)) -> Result<
         bail!("mcp_servers in {} is not a table", path.display());
     };
     change(servers);
-    write_atomic(path, &doc.to_string())
+    Ok(doc.to_string())
 }
 
-fn write_atomic(path: &Path, text: &str) -> Result<()> {
+/// How many times an edit is done again on a file another writer changed under it.
+const EDIT_TRIES: usize = 3;
+
+/// Read `path` (none: empty), `render` its new text, and write it whole through a temp file and a
+/// rename, so the app never reads half a file. `lock` is held from the read to the rename: a
+/// writer that takes it too never has its change replaced by a stale read. A writer outside it
+/// (the app itself, a person's editor) is caught by reading the file again just before the
+/// rename: changed, the edit is done again on its new text, and refused after [`EDIT_TRIES`].
+fn edit_file(
+    path: &Path,
+    lock: Option<&Path>,
+    render: impl Fn(&str) -> Result<String>,
+) -> Result<()> {
+    edit_file_raced(path, lock, render, &mut || {})
+}
+
+/// [`edit_file`], running `before_rename` after the temp file is written and before the file is
+/// read again: the tests' other writer.
+fn edit_file_raced(
+    path: &Path,
+    lock: Option<&Path>,
+    render: impl Fn(&str) -> Result<String>,
+    before_rename: &mut dyn FnMut(),
+) -> Result<()> {
     let dir = path.parent().ok_or_else(|| anyhow!("{} has no folder", path.display()))?;
     std::fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
+    let _lock = lock.and_then(cmux_tui_platform::codex_config_lock::lock);
+    for _ in 0..EDIT_TRIES {
+        let text = read_text(path)?;
+        let tmp = temp_beside(path, &render(&text)?)?;
+        before_rename();
+        if read_text(path)? != text {
+            continue;
+        }
+        tmp.persist(path).map_err(|e| anyhow!("replacing {}: {}", path.display(), e.error))?;
+        return Ok(());
+    }
+    bail!("{} kept changing while it was edited; run it again", path.display())
+}
+
+fn read_text(path: &Path) -> Result<String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+/// `text` in a temp file beside `path`, with its mode (a person may have made it 0600).
+fn temp_beside(path: &Path, text: &str) -> Result<tempfile::NamedTempFile> {
+    let dir = path.parent().ok_or_else(|| anyhow!("{} has no folder", path.display()))?;
     let mut tmp = tempfile::NamedTempFile::new_in(dir)
         .with_context(|| format!("writing beside {}", path.display()))?;
     std::io::Write::write_all(&mut tmp, text.as_bytes())?;
-    // Keep the file's mode (a person may have made it 0600).
     #[cfg(unix)]
     if let Ok(meta) = std::fs::metadata(path) {
         let _ = std::fs::set_permissions(tmp.path(), meta.permissions());
     }
-    tmp.persist(path).map_err(|e| anyhow!("replacing {}: {}", path.display(), e.error))?;
-    Ok(())
+    Ok(tmp)
 }
 
 /// Run the `claude` CLI with `args`, bounded; its last stderr line is the error.
