@@ -71,6 +71,7 @@ impl HeadlessServer {
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
             .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
+            .env("RUST_BACKTRACE", "1")
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -376,9 +377,12 @@ impl Drop for HeadlessServer {
                     let flags = libc::fcntl(fd, libc::F_GETFL);
                     libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
                 }
-                let mut buffer = vec![0u8; 1 << 20];
-                if let Ok(read) = pipe.read(&mut buffer) {
-                    stderr = String::from_utf8_lossy(&buffer[..read]).into_owned();
+                let mut buffer = vec![0u8; 1 << 16];
+                while let Ok(read) = pipe.read(&mut buffer) {
+                    if read == 0 {
+                        break;
+                    }
+                    stderr.push_str(&String::from_utf8_lossy(&buffer[..read]));
                 }
             }
             eprintln!("--- daemon stderr ---\n{stderr}\n--- end daemon stderr ---");

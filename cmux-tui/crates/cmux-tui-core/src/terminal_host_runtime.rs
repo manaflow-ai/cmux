@@ -2156,7 +2156,8 @@ mod unix {
             .stdout(Stdio::piped())
             // A host outlives its daemon, so it must not retain a daemon log
             // pipe whose EOF is itself used as a lifecycle signal.
-            .stderr(Stdio::null());
+            // DIAG ONLY (not for merge): surface host panics in the test log.
+            .stderr(Stdio::inherit());
         // A durable host must not share the daemon's controlling terminal,
         // session, or process group. Otherwise a shell hangup or group
         // interrupt intended for the daemon can also kill every hosted PTY.
