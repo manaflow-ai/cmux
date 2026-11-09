@@ -29,6 +29,7 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type ConnectorsState,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -526,6 +527,11 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
       "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
       "cmux.settings.shares.list": () => this.shares,
+      "cmux.settings.connectors.list": () => this.connectorsState,
+      "cmux.settings.connectors.connect": (params) =>
+        this.connectConnector(params as { provider: string; sharing: "private" | "team" }),
+      "cmux.settings.connectors.disconnect": (params) =>
+        this.disconnectConnector(params as { provider: string; connection: string }),
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
       "cmux.settings.environments.state": () => this.environments,
@@ -649,6 +655,9 @@ export class MockSettingsProvider {
       "cmux.settings.environments.run",
       "cmux.settings.shares.list",
       "cmux.settings.shares.revoke",
+      "cmux.settings.connectors.list",
+      "cmux.settings.connectors.connect",
+      "cmux.settings.connectors.disconnect",
       "cmux.settings.tailnet.state",
       "cmux.settings.tailnet.start",
       "cmux.settings.tailnet.login",
@@ -723,6 +732,43 @@ export class MockSettingsProvider {
   setDevices(devices: DevicesState): void {
     this.devices = devices;
     for (const ctx of this.devicesChanged) ctx.emit(devices);
+  }
+
+  /** Settings > Accounts and Devices > Connectors as cmux-platform answers it (mockConnectors). */
+  connectorsState: ConnectorsState = mockConnectors();
+  /** Every Connect and Disconnect the page sent, in order (tests). */
+  connectorRuns: Array<{ action: string; provider: string; sharing?: string; connection?: string }> = [];
+
+  /** Connect opens the provider's page in the real app; here the connection waits for approval. */
+  private connectConnector(params: { provider: string; sharing: "private" | "team" }) {
+    this.connectorRuns.push({ action: "connect", ...params });
+    const connector = this.connectorsState.connectors?.find((row) => row.provider === params.provider);
+    if (!connector?.configured) throw new ProtocolError(ProtocolErrorCode.invalidParams, "connector.not_configured");
+    const id = `conn_mock${String(this.connectorRuns.length).padStart(16, "0")}`;
+    connector.connections = [
+      ...(connector.connections ?? []),
+      {
+        id,
+        status: "pending",
+        sharing: params.sharing,
+        account: null,
+        mine: true,
+        canDisconnect: true,
+        createdAt: Date.now(),
+      },
+    ];
+    this.connectorsState = structuredClone(this.connectorsState);
+    return { opened: true };
+  }
+
+  private disconnectConnector(params: { provider: string; connection: string }) {
+    this.connectorRuns.push({ action: "disconnect", ...params });
+    const connector = this.connectorsState.connectors?.find((row) => row.provider === params.provider);
+    const connection = connector?.connections?.find((row) => row.id === params.connection);
+    if (!connector || !connection) throw new ProtocolError(ProtocolErrorCode.invalidParams, "selector.not_found");
+    connector.connections = connector.connections?.filter((row) => row.id !== params.connection);
+    this.connectorsState = structuredClone(this.connectorsState);
+    return { ...connection, status: "revoked" };
   }
 
   /** Settings > Privacy and Security > Shared Links as this Mac's daemon answers it: a guest link with
@@ -1850,6 +1896,64 @@ export function mockDevicesState(): DevicesState {
         detail: "Declined on this Mac",
         duration: "",
       },
+    ],
+  };
+}
+
+/** cmux-platform's connectors for a signed-in person on a team: GitHub connected for the team, Google
+ * Drive not set up on this server, Linear connected only for the person and waiting on sign-in, and
+ * Slack, Gmail and Google Calendar ready to connect. */
+export function mockConnectors(): ConnectorsState {
+  return {
+    available: true,
+    signedIn: true,
+    team: "team_0123456789abcdef0123",
+    connectors: [
+      {
+        provider: "github",
+        name: "GitHub",
+        state: "installed",
+        configured: true,
+        connections: [
+          {
+            id: "conn_aaaaaaaaaaaaaaaaaaaa",
+            status: "active",
+            sharing: "team",
+            account: { name: "acme-labs", url: "https://github.com/acme-labs" },
+            mine: true,
+            canDisconnect: true,
+            createdAt: 1_762_600_000_000,
+          },
+        ],
+      },
+      {
+        provider: "google-drive",
+        name: "Google Drive",
+        state: "unavailable",
+        detail: "not_configured",
+        configured: false,
+        connections: [],
+      },
+      {
+        provider: "linear",
+        name: "Linear",
+        state: "needs-auth",
+        configured: true,
+        connections: [
+          {
+            id: "conn_bbbbbbbbbbbbbbbbbbbb",
+            status: "needs_reauth",
+            sharing: "private",
+            account: { name: "Acme" },
+            mine: true,
+            canDisconnect: true,
+            createdAt: 1_762_500_000_000,
+          },
+        ],
+      },
+      { provider: "slack", name: "Slack", state: "available", configured: true, connections: [] },
+      { provider: "gmail", name: "Gmail", state: "available", configured: true, connections: [] },
+      { provider: "google-calendar", name: "Google Calendar", state: "available", configured: true, connections: [] },
     ],
   };
 }

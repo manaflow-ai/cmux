@@ -9,7 +9,7 @@ extension SettingsPageLayout {
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [agentsCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
-        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory, devicesCategory, serverCategory]),
+        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, connectorsCategory, mobileCategory, devicesCategory, serverCategory]),
         SidebarSection(id: "system", title: SettingsText.keyed("settings.sidebarSection.system", "Data and System"), categories: [importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory]),
     ]
 
@@ -240,6 +240,13 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.cloudWorkspaces"),
         ],
         lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines]
+    )
+
+    /// The accounts the person lets their agents use (cmux-platform /v1/connectors): GitHub, Google Drive and the rest, connected only on a click, each Only You or the team's (Leo, 2026-11-09: "not everybody necessarily wants to have GitHub connected"). Deep link: #/settings/connectors.
+    private static let connectorsCategory = CategorySpec(
+        id: "connectors", title: SettingsText.keyed("settings.category.connectors", "Connectors"), symbol: "link",
+        groups: [],
+        lead: [.connectors]
     )
 
     /// Phones reaching this Mac: the iPhone host's switch, then its live status and phones.

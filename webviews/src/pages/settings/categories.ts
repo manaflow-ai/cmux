@@ -38,6 +38,7 @@ export const CATEGORY_CARDS = [
   "contextMenus",
   "personalization",
   "sharedLinks",
+  "connectors",
   "tailnet",
 ] as const;
 

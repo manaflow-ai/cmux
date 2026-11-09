@@ -39,6 +39,7 @@ import type {
   HarnessesState,
   HostLists,
   IntegrationsState,
+  ConnectorsState,
   SharesState,
   TailnetState,
 } from "../pages/settings/ops";
@@ -62,6 +63,8 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
+  /** Settings > Accounts and Devices > Connectors fixture state; default the mock's connectors. */
+  connectors?: ConnectorsState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */

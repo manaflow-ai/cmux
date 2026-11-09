@@ -1,3 +1,4 @@
+import { ConnectorsCard } from "./ConnectorsCard";
 import { CloudEnvironmentsCard } from "./CloudEnvironmentsCard";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import type { ReactNode } from "react";
@@ -77,6 +78,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   voiceInput: () => <VoiceInputCard />,
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
+  connectors: () => <ConnectorsCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   tailnet: () => <TailnetCard />,
