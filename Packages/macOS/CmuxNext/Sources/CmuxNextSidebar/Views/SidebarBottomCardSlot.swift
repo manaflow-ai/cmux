@@ -32,6 +32,7 @@ struct SidebarBottomCardSlot {
         nowPlaying.onClose = { [weak sidebar] in sidebar?.model.send(.hideNowPlayingCard) }
         nowPlaying.menuProvider = { [weak sidebar] in sidebar?.contextMenuProvider?(.nowPlaying) }
         updated.onDismiss = { [weak sidebar] in sidebar?.model.send(.dismissUpdated) }
+        updated.notes.hoverCards = { [weak sidebar] in sidebar?.list.hoverCards }
         sidebar.addSubview(update)
         sidebar.addSubview(nowPlaying)
         sidebar.addSubview(updated)

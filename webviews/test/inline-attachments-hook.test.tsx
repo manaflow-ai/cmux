@@ -110,6 +110,8 @@ type Controls = {
   setPlacing(on: boolean): void;
   setText(next: string): void;
   sent(ids: string[]): void;
+  setScope(next: string): void;
+  keepInStrip(chips: PendingAttachment[]): void;
 };
 
 /// A field and the hook, as the New Tab page wires them: the consumer holds the value and the
@@ -137,10 +139,12 @@ async function render(initial: {
     const [attachments, setAttachmentsState] = useState<ComposerAttachment[]>(initial.attachments ?? []);
     const [placing, setPlacing] = useState(initial.placing ?? true);
     const [pending, setPending] = useState<PendingAttachment[]>(initial.pending ?? []);
+    const [scope, setScope] = useState("first");
     const attachmentsRef = useRef(attachments);
     attachmentsRef.current = attachments;
     const inline = useInlineAttachments({
       field,
+      scope,
       text,
       attachments,
       attachmentsRef,
@@ -168,6 +172,8 @@ async function render(initial: {
       setPlacing,
       setText,
       sent: (ids) => inline.sent(ids),
+      setScope,
+      keepInStrip: (chips) => inline.place(chips, undefined, true),
     };
     return (
       <>
@@ -219,6 +225,24 @@ test("attachments added while nothing is placed go into the text when placing st
   await act(async () => controls.setPlacing(true));
   await until(() => nodes().includes(FILE.id));
   expect(nodes()).toEqual([FILE.id]);
+});
+
+// A chip kept as a file where it had no place in the text (pastedChips.ts keepAsFile) stays in the
+// strip when the composer's scope changes and the attachment comes along: no ready() puts it in the
+// prompt (review of #37516).
+test("a file kept in the strip stays out of the text across a scope change", async () => {
+  const { controls } = await render({ text: "look", placing: true });
+  await act(async () => {
+    controls.keepInStrip([{ ...FILE } as unknown as PendingAttachment]);
+    controls.setAttachments([FILE]);
+  });
+  for (let turn = 0; turn < 5; turn++) await settle();
+  expect(nodes()).toEqual([]);
+  await act(async () => controls.setScope("second"));
+  for (let turn = 0; turn < 5; turn++) await settle();
+  await act(async () => controls.setAttachments([{ ...FILE }]));
+  for (let turn = 0; turn < 5; turn++) await settle();
+  expect(nodes()).toEqual([]);
 });
 
 test("an undo of a send's clear brings back no node of what was sent", async () => {

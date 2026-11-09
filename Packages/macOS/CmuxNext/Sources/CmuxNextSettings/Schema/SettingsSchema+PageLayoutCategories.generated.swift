@@ -5,7 +5,7 @@ extension SettingsPageLayout {
     /// The sidebar's sections: what a person looks for together sits together under one small header.
     public static let sidebarSections: [SidebarSection] = [
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
-        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [themeCategory, appearanceCategory]),
+        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, themeCategory, appearanceCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [agentsCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
@@ -56,6 +56,13 @@ extension SettingsPageLayout {
         lead: [.appUpdate], trail: [.webUpdates, .channels]
     )
 
+    /// Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key.
+    private static let personalizationCategory = CategorySpec(
+        id: "personalization", title: SettingsText.keyed("settings.category.personalization", "Personalization"), symbol: "wand.and.stars",
+        groups: [],
+        lead: [.personalization]
+    )
+
     /// appearance.theme and appearance.appTheme are drawn by the theme studio (search still shows them as rows).
     private static let themeCategory = CategorySpec(
         id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
@@ -71,7 +78,8 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(group: "settings.group.terminalFont"),
             GroupSpec(group: "settings.group.densityMotion"),
-            GroupSpec(keys: ["app.uiScale", "appearance.metrics.chromeFontSize", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap", "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"], title: SettingsText.keyed("settings.pageGroup.sizes", "Sizes")),
+            // Text Size (appearance.metrics.chromeFontSize) is in the Density card.
+            GroupSpec(keys: ["app.uiScale", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap", "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"], title: SettingsText.keyed("settings.pageGroup.sizes", "Sizes")),
             // Motion holds ui.animations.enabled and the per-area switches (f35023e54c1c); without a group here they had no row on the page.
             GroupSpec(group: "settings.group.motion"),
             GroupSpec(group: "settings.group.colorTransition"),
@@ -82,7 +90,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.sidebar"),
             GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
             // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card.
-            GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),
+            GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),
             GroupSpec(keys: ["sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps", "home.channelsEnabled"], title: SettingsText.keyed("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces")),
             GroupSpec(keys: ["sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting", "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.maxRows"], title: SettingsText.keyed("settings.pageGroup.workspaceCards", "Workspace Hover Cards")),
             GroupSpec(keys: ["sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups", "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers", "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members", "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git", "sidebar.hoverCards.groups.sections.ports"], title: SettingsText.keyed("settings.pageGroup.groupCards", "Group Hover Cards")),
@@ -145,7 +153,7 @@ extension SettingsPageLayout {
         id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
         groups: [
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
-            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
+            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
             GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
             GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
             GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
@@ -161,6 +169,8 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.agentGuidance"),
             // Whether a turn a rate limit or a lost connection ended is tried again, how often.
             GroupSpec(group: "settings.group.agentRetry"),
+            // Whether an idle Claude chat is compacted while its prompt cache is warm.
+            GroupSpec(group: "settings.group.agentCache"),
             // Folders that start an agent without the trust question.
             GroupSpec(group: "settings.group.folderTrust"),
         ],
@@ -252,7 +262,7 @@ extension SettingsPageLayout {
     private static let serverCategory = CategorySpec(
         id: "server", title: SettingsText.keyed("settings.category.server", "Server"), symbol: "server.rack",
         groups: [],
-        lead: [.server]
+        lead: [.server, .tailnet]
     )
 
     /// Bring things over from other browsers, agents and terminals on this Mac.
@@ -276,7 +286,10 @@ extension SettingsPageLayout {
 
     private static let advancedCategory = CategorySpec(
         id: "advanced", title: section(.advanced), symbol: "curlybraces",
-        groups: [],
+        groups: [
+            // Inspect Element and developer tools for cmux's own pages.
+            GroupSpec(group: "settings.group.developerTools"),
+        ],
         lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]
     )
 

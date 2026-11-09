@@ -49,16 +49,32 @@ struct AgentPaneProcessViewerTests {
         #expect(opened.map(\.argv) == [["/opt/acpmux", "process", "show", "--follow", "--session", "chat-1", "--tool-call", "toolu_9"]])
     }
 
-    @Test func aChatOnAnotherMachineOrWithoutADaemonIsRefused() async {
+    @Test func aLocalChatWithoutADaemonIsRefused() async {
         let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
         var opened = 0
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
                                             openProcess: { _ in opened += 1; return true })
         #expect(await model.respond(to: Self.request("toolu_9"))["ok"] as? Bool != true, "no socket from a handshake")
-        model.transport.acpmuxSocket = "/tmp/acpmux.sock"
-        model.transport.acpmuxExecutable = URL(fileURLWithPath: "/opt/acpmux")
-        model.remoteChat = true
-        #expect(await model.respond(to: Self.request("toolu_9"))["ok"] as? Bool != true, "another machine's chat")
         #expect(opened == 0)
+    }
+
+    /// "Whatever works on a local chat should work on a Cloud chat" (Leo, cmuxterm-hq#7856): a
+    /// Cloud or SSH chat's viewer runs on its own machine and reads that machine's acpmux.
+    @Test func aChatOnAnotherMachineOpensTheViewerOnThatMachine() async throws {
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
+        var opened: [AgentPaneProcessViewer] = []
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
+                                            openProcess: { opened.append($0); return true })
+        model.remoteChat = true
+        let reply = await model.respond(to: Self.request("toolu_9"))
+        #expect((reply["value"] as? [String: Any])?["opened"] as? Bool == true)
+        let viewer = try #require(opened.first)
+        #expect(viewer.onChatMachine)
+        #expect(viewer.environment.isEmpty, "this Mac's acpmux socket never reaches the other machine")
+        #expect(viewer.argv.first == "/bin/sh")
+        #expect(viewer.argv.suffix(2) == ["chat-1", "toolu_9"], "the ids are the script's arguments")
+        #expect(viewer.argv[2].contains(#"acp process show --follow --session "$1" --tool-call "$2""#))
+        #expect(!viewer.argv[2].contains("chat-1") && !viewer.argv[2].contains("toolu_9"))
+        #expect(AgentPaneProcessViewer(onChatMachine: "chat-1", toolCall: "$(reboot)") == nil)
     }
 }

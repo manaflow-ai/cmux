@@ -50,9 +50,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-// The paste tests below cover the paste card (sentPasteLook `card`); the default draws a paste as the
-// bubble's own text, which "a paste drawn as text ..." covers with the arm set for its run.
-globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "sent-paste-look": "card" };
 
 const { act, Profiler } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -60,7 +57,8 @@ const { UserBubble } = await import("../src/agent-session/acpmux/conversation/Us
 const { PromptText } = await import("../src/agent-session/acpmux/conversation/PromptText");
 const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
 const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
-const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+const { resetTranscriptDisclosure } =
+  await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
 const { paintFindHighlights } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
@@ -319,182 +317,35 @@ try {
     expect(repainted).toBeGreaterThan(0);
   });
 
-  test("a pasted block is a card, its first lines over its size, that opens in place", async () => {
+  // ask-14d16a6247 (Leo, 2026-11-07: "Like just don't separate these out. And, like, I thought we
+  // said, you know, remove these inner bubbles, inner, inner cards."): a paste is part of the
+  // message's one text body, under the bubble's one fold, which Find opens. Copy is the prompt as sent.
+  test("a paste is part of the message's one body under one fold, which Find opens", async () => {
     resetTranscriptDisclosure();
-    const typed = "Why does this fail?";
-    const paste = lines(2300, "error at frame");
-    const text = `${typed}\n${paste}`;
+    const typed = "See the log";
+    const paste = lines(50, "frame");
     const start = typed.length + 1;
-    const row = prompt("user-6", text, { pasted: [{ start, end: start + paste.length }] });
-    // A fresh mount: the last test's Copy still shows its check.
+    const text = `${typed}\n${paste}`;
+    const row = prompt("user-text-paste", text, { pasted: [{ start, end: start + paste.length }] });
     remount(row);
-    const chip = host.querySelector<HTMLButtonElement>(".cv-user__paste")!;
-    expect(chip).not.toBeNull();
-    // The composer's label, without its remove button.
-    expect(chip.querySelector(".cv-user__paste-name")?.textContent).toBe(translate("composer.pastedText"));
-    expect(chip.querySelector(".cv-user__paste-lines")?.textContent).toBe(
-      `${translate("transcript.pastedLines", { n: 2300, count: "2,300" })} · ${translate("composer.pastedChars", {
-        count: new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(paste.length),
-      })}`,
-    );
-    expect(host.querySelector(".cv-user__paste-text")?.textContent?.split("\n")[0]).toBe("error at frame 1");
-    expect(chip.getAttribute("aria-expanded")).toBe("false");
-    expect(host.querySelector(".acpmux-attachment-remove, [aria-label='Remove']")).toBeNull();
-    // Closed, only the paste's head is drawn; the typed words are.
-    expect(body().textContent).toContain(typed);
-    expect(body().textContent).not.toContain("error at frame 2300");
-    click(chip);
-    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
-    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe(paste);
-    // Copy is the prompt as sent, paste included.
+    expect(host.querySelector(".cv-user__paste, .cv-user__paste-card, .cv-user__pasted")).toBeNull();
+    expect(body().querySelectorAll(".cv-user__typed")).toHaveLength(1);
+    expect(body().textContent).toBe(text);
+    // Fifty lines fold under the prompt's one Show more.
+    expect(body().classList.contains("is-clamped")).toBe(true);
+    expect(toggle()?.textContent).toBe(MORE);
+    expect(host.querySelectorAll("[aria-expanded]")).toHaveLength(1);
     copied.length = 0;
     await act(async () => {
       host.querySelector(COPY)!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
     expect(copied).toEqual([text]);
+    render(row, { rowId: "user-text-paste", card: false, needle: "frame 42", repaint: () => {} });
+    expect(body().classList.contains("is-clamped")).toBe(false);
   });
 
-  // Leo, 2026-11-05, on the sent bubble's chip: "I think this is almost kind of interesting, but
-  // it's, like, really awkward". It said "1 line" over a paragraph of hundreds of words, in an
-  // outlined box that showed its first five words above the whole text once opened.
-  test("a one-paragraph paste's chip previews its first lines, says its size and opens in place", () => {
-    resetTranscriptDisclosure();
-    const typed = "Can you tighten this up?";
-    const paste = Array.from({ length: 900 }, (_, index) => `word${index}`).join(" ");
-    const text = `${typed}\n${paste}`;
-    const start = typed.length + 1;
-    remount(prompt("user-9", text, { pasted: [{ start, end: start + paste.length }] }));
-    const chip = host.querySelector<HTMLButtonElement>(".cv-user__paste")!;
-    // The composer's label: what it is and its size, never "1 line" for one long paragraph.
-    expect(chip.querySelector(".cv-user__paste-name")?.textContent).toBe(translate("composer.pastedText"));
-    const chars = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(paste.length);
-    expect(chip.querySelector(".cv-user__paste-lines")?.textContent).toBe(
-      translate("composer.pastedChars", { count: chars }),
-    );
-    // No outlined attachment box inside the bubble.
-    expect(host.querySelector(".cv-user__paste-block .acpmux-attachment")).toBeNull();
-    // Closed, the paste's own first lines show, wrapped at the bubble's width: far more than five
-    // words, never the whole paste, and outside Find.
-    const preview = host.querySelector<HTMLElement>(".cv-user__paste-text")!;
-    expect(preview).not.toBeNull();
-    expect(preview.textContent!.length).toBeGreaterThan(200);
-    expect(preview.textContent!.length).toBeLessThan(paste.length);
-    expect(paste.startsWith(preview.textContent!)).toBe(true);
-    expect(preview.closest("[data-find-skip]")).not.toBeNull();
-    click(chip);
-    // Open, the same text grows to the whole paste in place, and Find reads it.
-    const opened = host.querySelector<HTMLElement>(".cv-user__paste-text")!;
-    expect(opened).toBe(preview);
-    expect(opened.textContent).toBe(paste);
-    expect(opened.closest("[data-find-skip]")).toBeNull();
-    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
-    // The label closes it again; a click on the closed preview opens it too.
-    click(host.querySelector(".cv-user__paste")!);
-    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("false");
-    click(host.querySelector(".cv-user__paste-text")!);
-    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
-  });
-
-  // In a browser the closed card's preview runs past its three lines, clipped. A range over the
-  // prompt's text counted those lines, so the prompt measured long, clamped, measured short (its
-  // clamped box) and unclamped, until React gave up and the pane could not be drawn.
-  test("a closed paste card's clipped preview never makes the prompt measure long", () => {
-    act(() => root.unmount());
-    resetTranscriptDisclosure();
-    root = createRoot(host);
-    const computed = dom.window.getComputedStyle;
-    const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
-    const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
-    const elementBox = dom.window.Element.prototype.getBoundingClientRect;
-    Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
-    // Clamped, the box is the typed line and the card.
-    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 140 });
-    // Its text: the typed line, and the preview's 30 wrapped lines, most of them clipped.
-    Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
-      configurable: true,
-      value(this: Range) {
-        const start = this.startContainer as Element;
-        const preview =
-          start.nodeType === 1 &&
-          (start.matches(".cv-user__paste-text") || start.querySelector(".cv-user__paste-text"));
-        return preview ? { top: 28, bottom: 628, height: 600 } : { top: 0, bottom: 20, height: 20 };
-      },
-    });
-    dom.window.Element.prototype.getBoundingClientRect = function (this: Element) {
-      return this.classList.contains("cv-user__paste-block")
-        ? ({ top: 20, bottom: 128, height: 108 } as DOMRect)
-        : elementBox.call(this);
-    };
-    try {
-      const typed = "Can you tighten this up?";
-      const paste = Array.from({ length: 900 }, (_, index) => `word${index}`).join(" ");
-      const text = `${typed}\n${paste}`;
-      const start = typed.length + 1;
-      act(() =>
-        root.render(
-          <div className="cv-user__bubble">
-            <PromptText
-              rowId="clipped-preview"
-              text={text}
-              pasted={[{ start, end: text.length }]}
-              show={(value) => value}
-            />
-          </div>,
-        ),
-      );
-      expect(body().classList.contains("is-clamped")).toBe(false);
-      expect(toggle()).toBeNull();
-    } finally {
-      act(() => root.unmount());
-      root = createRoot(host);
-      Object.assign(dom.window, { getComputedStyle: computed });
-      dom.window.Element.prototype.getBoundingClientRect = elementBox;
-      if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
-      else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
-      if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
-      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
-    }
-  });
-
-  // Leo, 2026-11-07: "we do not want to have this card thing going on, this double card thing ...
-  // We want to show the actual characters." The default draws a paste as the bubble's own text:
-  // no card, no label, its characters under the prompt's one fold, which Find opens.
-  test("a paste drawn as text is the bubble's own characters under one fold, which Find opens", () => {
-    const before = globalThis.cmuxExperiments;
-    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "text" };
-    try {
-      resetTranscriptDisclosure();
-      const typed = "See the log";
-      const paste = lines(50, "frame");
-      const start = typed.length + 1;
-      const row = prompt("user-text-paste", `${typed}\n${paste}`, { pasted: [{ start, end: start + paste.length }] });
-      remount(row);
-      expect(host.querySelector(".cv-user__paste, .cv-user__paste-card")).toBeNull();
-      expect(host.querySelector(".cv-user__pasted")?.textContent).toBe(paste);
-      expect(body().textContent).toBe(`${typed}${paste}`);
-      // Fifty lines fold under the prompt's one Show more.
-      expect(body().classList.contains("is-clamped")).toBe(true);
-      expect(toggle()?.textContent).toBe(MORE);
-      render(row, { rowId: "user-text-paste", card: false, needle: "frame 42", repaint: () => {} });
-      expect(body().classList.contains("is-clamped")).toBe(false);
-    } finally {
-      globalThis.cmuxExperiments = before;
-    }
-  });
-
-  test("Find opens the closed paste chip that holds the match", () => {
-    resetTranscriptDisclosure();
-    const typed = "See the log";
-    const paste = lines(50, "frame");
-    const start = typed.length + 1;
-    const row = prompt("user-7", `${typed}\n${paste}`, { pasted: [{ start, end: start + paste.length }] });
-    render(row, { rowId: "user-7", card: false, needle: "frame 42", repaint: () => {} });
-    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
-    expect(host.querySelector(".cv-user__paste-text")?.textContent).toContain("frame 42");
-  });
-
-  test("Find's current match lands in the opened paste, never on the chip's name or line count", () => {
+  test("Find's matches in a paste land in the message's body text", () => {
     resetTranscriptDisclosure();
     const typed = "Why does this fail?";
     const paste = lines(30, "error at frame");
@@ -518,10 +369,8 @@ try {
     try {
       const current = paintFindHighlights(host, "error at frame", { rowId: "user-8", card: false, occurrence: 0 });
       expect(current).toBeDefined();
-      expect(current!.startContainer.parentElement?.closest(".cv-user__paste-text")).not.toBeNull();
-      // Nothing in the chip itself is a match: its name and count are labels, not the prompt's text.
+      expect(current!.startContainer.parentElement?.closest(".cv-user__typed")).not.toBeNull();
       const all = [...((set.get("acpmux-find") as { ranges: Range[] } | undefined)?.ranges ?? []), current!];
-      expect(all.some((range) => range.startContainer.parentElement?.closest(".cv-user__paste"))).toBe(false);
       expect(all.length).toBe(30);
     } finally {
       Object.assign(globalThis, { CSS: css, Highlight: highlight });

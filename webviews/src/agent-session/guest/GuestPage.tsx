@@ -50,6 +50,8 @@ export type GuestEnded = GuestEnd | "used";
 export type TranscriptModule = typeof import("./GuestTranscript");
 let transcriptChunk: Promise<TranscriptModule> | undefined;
 let pageSetup: ((chunk: TranscriptModule) => void) | undefined;
+/** The page's transcript stylesheet (main.tsx startGuestPage), loaded with the chunk. */
+let pageSheet: (() => Promise<unknown>) | undefined;
 /**
  * Loads the transcript's chunk once (a failed load is forgotten, so the next call tries again). The
  * page's own setup (`startGuestPage`) runs on it before any caller sees it.
@@ -58,7 +60,10 @@ export function loadGuestTranscript(): Promise<TranscriptModule> {
   // The import is its own step: the bundler wraps `import()` with its preload of the chunk's CSS and
   // shared modules, and a callback chained on the import would sit inside that wrapper, so a failed
   // preload would skip the reset below and keep the rejected promise for good (#38101 F4).
-  const fetchChunk = async (): Promise<TranscriptModule> => await import("./GuestTranscript");
+  const fetchChunk = async (): Promise<TranscriptModule> => {
+    const [chunk] = await Promise.all([import("./GuestTranscript"), pageSheet?.()]);
+    return chunk;
+  };
   transcriptChunk ??= fetchChunk().then(
     (chunk) => {
       pageSetup?.(chunk);
@@ -74,9 +79,12 @@ export function loadGuestTranscript(): Promise<TranscriptModule> {
 
 /**
  * The page (main.tsx, never the gallery): the chunk's no-owner host is installed as it arrives,
- * before anything from it draws, and its load starts beside the first frame.
+ * before anything from it draws, and its load starts beside the first frame. `loadSheet` loads the
+ * transcript's stylesheet (the pane's sheet past the first frame's part); the chunk counts as loaded
+ * only once it is in, so no row draws unstyled, and a failed load is tried again with the chunk.
  */
-export function startGuestPage(): void {
+export function startGuestPage(loadSheet?: () => Promise<unknown>): void {
+  pageSheet = loadSheet;
   pageSetup = (chunk) => chunk.installGuestPage();
   void loadGuestTranscript().catch(() => undefined);
 }
@@ -482,10 +490,15 @@ export function LiveChat({
       }),
     [snapshot?.historyFrom],
   );
-  const toggle = useCallback((id: string) => {
+  // A joined run's line is open under any of its keys (turns.ts `foldCovers`): closing it clears them
+  // all, as turns.ts `toggleTurnFold` does. Inline, so this first chunk does not load the transcript's.
+  const toggle = useCallback((id: string, covers: readonly string[] = []) => {
     setExpanded((open) => {
       const next = new Set(open);
-      if (!next.delete(id)) next.add(id);
+      const keys = [id, ...covers];
+      const wasOpen = keys.some((key) => open.has(key));
+      for (const key of keys) next.delete(key);
+      if (!wasOpen) next.add(id);
       return next;
     });
   }, []);

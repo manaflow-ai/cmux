@@ -118,6 +118,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     # The app's daemon client: the cmux SDK and its C ABI.
                     "cmux-sdk",
                     "cmux-sdk-ffi",
+                    # Predictive local echo for remote terminals (cmux-terminal-prediction).
+                    "cmux-terminal-prediction",
                     # The window handlers' rules (cmux-window-rules).
                     "cmux-window-rules",
                 ]

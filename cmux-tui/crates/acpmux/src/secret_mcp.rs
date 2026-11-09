@@ -155,6 +155,7 @@ where
         let verb = message["method"].as_str().unwrap_or_default().to_owned();
         let reply = match verb.as_str() {
             "initialize" => {
+                crate::sender_harness::note_mcp_client(&message["params"]);
                 let mut reply = json!({
                     "protocolVersion": protocol_version(&message["params"]),
                     "capabilities": {"tools": {}},

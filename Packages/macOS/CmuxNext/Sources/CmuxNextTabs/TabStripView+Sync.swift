@@ -49,17 +49,15 @@ extension TabStripView {
 
     private func syncSelection(_ input: ModelSnapshot) {
         let selected = input.selectedID
-        // Only a cell that lost the selection drops the indicator: flipping the still-selected
-        // one off and on would rebuild its layers and lose a hover or press on it.
+        // Only a cell that lost the selection drops its zoomed state (VoiceOver).
         if let lastSelectedID, lastSelectedID != selected, let cell = cells[lastSelectedID] {
             cell.isSelected = false
             cell.showsZoom = false
         }
         if let selected, let cell = cells[selected] {
             cell.isSelected = true
-            cell.showsZoom = input.zoomsSelected // the zoom indicator follows the selection
+            cell.showsZoom = input.zoomsSelected // VoiceOver's zoomed state follows the selection
         }
-        dropStaleZoomHover()
         let multiChanged = input.multiSelection != lastSyncedInput?.multiSelection
         if multiChanged { applyMultiSelection() }
         lastSyncedInput = input
@@ -192,13 +190,12 @@ extension TabStripView {
             cell?.showsZoom = model.zoomsSelected && item.id == model.selectedID
             cell?.style = model.style
         }
-        dropStaleZoomHover()
         applyMultiSelection()
         if newTabButton.isHidden == model.showsNewTabButton {
             newTabButton.isHidden = !model.showsNewTabButton
             needsLayout = true
         }
-        newTabMenuButton.isHidden = !model.showsNewTabButton || !showsNewTabMenuButton
+        newTabMenuButton.isHidden = !model.showsNewTabButton || !showsTypeChooser
 
         relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
                  token: cellsAnimate && removing && !adding ? .tabClose : nil)
@@ -226,13 +223,6 @@ extension TabStripView {
             if let next = successor[item.id] { return .some(next) }
         }
         return .some(left.first?.id)
-    }
-
-    /// The zoom indicator under a still pointer went (an unzoom, a selection): its tooltip and hover
-    /// go too, so the next one under the pointer starts unhovered.
-    private func dropStaleZoomHover() {
-        guard let zoomHoveredID, cells[zoomHoveredID]?.showsZoom != true else { return }
-        setAudioHovered(audioHoveredID, zoom: nil)
     }
 
     /// Creates the layers for a new tab and returns its id.
@@ -298,8 +288,6 @@ extension TabStripView {
         if closeHoveredID == id { closeHoveredID = nil }
         if audioHoveredID == id { setAudioHovered(nil) }
         if pressedAudioID == id { pressedAudioID = nil }
-        if zoomHoveredID == id { zoomHoveredID = nil }
-        if pressedZoomID == id { pressedZoomID = nil }
     }
 
     /// Drops `id`'s place and the moves that tracked it.

@@ -30,5 +30,7 @@ pub use roots::{
 };
 pub use scan::{AdapterConfig, FileRead, RootScan, read_file, scan_root};
 pub use stamp::{Change, FileStamp, FileState, HeadPrint, Tally};
+/// A private state file (0600, written whole and renamed into place), as the index saves its own.
+pub use store_file::write_json_private;
 pub use text::{title_line, without_client_context};
 pub use time::parse_rfc3339_ms;

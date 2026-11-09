@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextWakeups
 
 /// The one toast presenter (R96). Toasts show on their window's overlay
-/// (`CmuxToastHosting`, the R84 `WindowOverlayHost` in the app), at most
+/// (`CmuxToastHosting`: the web toast stack on the R84 `WindowOverlayHost` in the app), at most
 /// three per window with the newest at the bottom (`CmuxToastStack`). Each
 /// ends after its duration on the injected clock; the pointer on a toast
 /// holds it. Cmd-Z runs the newest undo toast only when the focused
@@ -14,15 +14,21 @@ public final class CmuxToastCenter {
 
     private struct Entry {
         let handle: CmuxToastHandle
-        let view: CmuxToastView
         weak var window: NSWindow?
         let timer: DemandTimer
+        /// Details is on: the whole message and its detail show.
+        var showsDetails = false
     }
 
-    public let host: any CmuxToastHosting
+    /// Draws the toasts. The app sets its web host once at startup (its composition root), before
+    /// any toast shows; until then toasts are kept and timed but drawn nowhere.
+    public var host: any CmuxToastHosting
     private let clock: any Clock<Duration>
     private var entries: [Int: Entry] = [:]
     private var stacks: [ObjectIdentifier: CmuxToastStack] = [:]
+    /// The window of each stack that shows toasts, so the host hears when its last toast goes.
+    private var windows: [ObjectIdentifier: WeakWindow] = [:]
+    private struct WeakWindow { weak var window: NSWindow? }
     private var nextSerial = 1
     /// Notices the person closed, quiet until their timer ends.
     private var quieted: [QuietKey: DemandTimer] = [:]
@@ -43,7 +49,7 @@ public final class CmuxToastCenter {
         }
     }
 
-    public init(clock: any Clock<Duration> = ContinuousClock(), host: any CmuxToastHosting = CmuxToastOverlayHost()) {
+    public init(clock: any Clock<Duration> = ContinuousClock(), host: any CmuxToastHosting = CmuxToastNoHost()) {
         self.clock = clock
         self.host = host
     }
@@ -66,14 +72,6 @@ public final class CmuxToastCenter {
             handle.finish(.closed)
             return handle
         }
-        let view = CmuxToastView(toast: toast)
-        view.onAction = { [weak handle] in handle?.runAction() }
-        view.onClose = { [weak self] in self?.closedByPerson(serial) }
-        view.onResize = { [weak self] in self?.resized(serial) }
-        view.onHover = { [weak self, weak handle] hovered in
-            guard let handle else { return }
-            self?.setHovered(hovered, handle)
-        }
         let key = ObjectIdentifier(window)
         var stack = stacks[key] ?? CmuxToastStack()
         let newest = stack.serials.last
@@ -81,31 +79,15 @@ public final class CmuxToastCenter {
         let repeats = newest.flatMap { entries[$0]?.handle.toast } == toast
         let replaced = stack.push(serial: serial, id: toast.id, undo: toast.action?.isUndo == true)
         stacks[key] = stack
-        entries[serial] = Entry(handle: handle, view: view, window: window, timer: DemandTimer(owner: "toast", clock: clock))
-        // A same-id toast goes at once (its successor takes the slot, and two
-        // different toasts never crossfade); one pushed over the limit fades.
-        // A successor of the newest toast shows in its slot at once, so a
-        // repeated toast never blinks out and fades back in.
-        let inPlace = newest.map { replaced.contains($0) && entries[$0]?.handle.toast.id == toast.id } ?? false
-        // A same-id predecessor goes at once; one pushed over the limit fades once the stack has its
-        // final heights (below), so it never overlaps a taller toast moving into its slot.
-        var fading: [Int] = []
-        for old in replaced {
-            if entries[old]?.handle.toast.id != toast.id { fading.append(old) } else { end(old, .replaced, relayout: false, animated: false) }
-        }
-        host.show(view, in: window, slot: 0, appearing: !inPlace) { [weak self] in self?.windowClosed(key) }
-        relayout(key)
-        for old in fading {
-            // One pushed out fades a slot above the stack, clear of the toast moving into its slot.
-            if let view = entries[old]?.view { host.move(view, to: stack.serials.count) }
-            end(old, .replaced, relayout: false, animated: true)
-        }
+        entries[serial] = Entry(handle: handle, window: window, timer: DemandTimer(owner: "toast", clock: clock))
+        // The host draws the change as one transition: a same-id predecessor goes at once (its
+        // successor takes its slot, and two different toasts never crossfade); one pushed over the
+        // limit fades out while the rest restack.
+        for old in replaced { end(old, .replaced, render: false) }
+        render(key)
         startTimer(serial)
-        host.settled(in: window)
-        // A toast that appears under a still pointer holds at once.
-        if view.isHovered { setHovered(true, handle) }
         if !repeats {
-            NSAccessibility.post(element: view, notification: .announcementRequested, userInfo: [
+            NSAccessibility.post(element: window, notification: .announcementRequested, userInfo: [
                 .announcement: toast.message, .priority: NSAccessibilityPriorityLevel.high.rawValue,
             ])
         }
@@ -145,7 +127,7 @@ public final class CmuxToastCenter {
         let serials = stacks[ObjectIdentifier(window)]?.serials ?? []
         guard let serial = serials.reversed().first(where: { entries[$0]?.handle.toast.id == id }),
               let entry = entries[serial], let action = entry.handle.toast.action else { return false }
-        if action.revealsDetails { entry.view.setShowsDetails(!entry.view.showsDetails) } else { entry.handle.runAction() }
+        if action.revealsDetails { toggleDetails(serial) } else { entry.handle.runAction() }
         return true
     }
 
@@ -203,53 +185,76 @@ public final class CmuxToastCenter {
         end(serial, .closed)
     }
 
+    // MARK: The host's reports
+
+    /// The person clicked the toast's action button: Details shows or hides the details in place;
+    /// any other action runs and ends the toast.
+    public func personRanAction(serial: Int) {
+        guard let entry = entries[serial], let action = entry.handle.toast.action else { return }
+        if action.revealsDetails { toggleDetails(serial) } else { entry.handle.runAction() }
+    }
+
+    /// The person clicked the toast's close button.
+    public func personClosed(serial: Int) {
+        guard entries[serial] != nil else { return }
+        closedByPerson(serial)
+    }
+
+    /// The pointer came onto or left the toast `serial`: on it, the toast holds.
+    public func pointer(onToast serial: Int, _ hovered: Bool) {
+        guard let handle = entries[serial]?.handle else { return }
+        setHovered(hovered, handle)
+    }
+
+    /// `window` closed: its toasts end.
+    public func windowClosed(_ window: NSWindow) {
+        let key = ObjectIdentifier(window)
+        for serial in stacks[key]?.serials ?? [] { end(serial, .closed, render: false) }
+        stacks[key] = nil
+        windows[key] = nil
+    }
+
     // MARK: Details
 
-    /// A toast's Details turned on or off: it takes its new size, growing up from its bottom edge,
-    /// and its window's toasts stack again above it.
-    private func resized(_ serial: Int) {
-        guard let entry = entries[serial], let window = entry.window else { return }
-        entry.view.layoutSubtreeIfNeeded()
-        entry.view.setFrameSize(entry.view.fittingSize)
-        relayout(ObjectIdentifier(window))
-        host.settled(in: window)
+    /// Details on or off: the toast shows its whole message and detail, or hides them again; the
+    /// host restacks the window's toasts on its new height.
+    private func toggleDetails(_ serial: Int) {
+        guard var entry = entries[serial], let window = entry.window else { return }
+        entry.showsDetails.toggle()
+        entries[serial] = entry
+        render(ObjectIdentifier(window))
     }
+
+    /// Whether the toast `serial` shows its details now.
+    public func showsDetails(serial: Int) -> Bool { entries[serial]?.showsDetails ?? false }
 
     // MARK: Ending
 
-    func end(_ serial: Int, _ reason: CmuxToastDismissReason, relayout again: Bool = true, animated: Bool = true) {
+    func end(_ serial: Int, _ reason: CmuxToastDismissReason, render again: Bool = true) {
         guard let entry = entries.removeValue(forKey: serial) else { return }
         entry.timer.cancel()
-        host.hide(entry.view, animated: animated)
         if let window = entry.window {
             let key = ObjectIdentifier(window)
             stacks[key]?.remove(serial)
-            if again {
-                relayout(key)
-                host.settled(in: window)
-            }
+            if again { render(key) }
         }
         entry.handle.finish(reason)
     }
 
-    private func windowClosed(_ key: ObjectIdentifier) {
-        for serial in stacks[key]?.serials ?? [] { end(serial, .closed, relayout: false) }
-        stacks[key] = nil
-    }
-
-    private func relayout(_ key: ObjectIdentifier) {
+    /// Gives the host the window's toasts as they are now, oldest first.
+    private func render(_ key: ObjectIdentifier) {
         let serials = stacks[key]?.serials ?? []
         let newestUndo = stacks[key]?.newestUndo
-        for (index, serial) in serials.reversed().enumerated() {
-            guard let view = entries[serial]?.view else { continue }
-            host.move(view, to: index)
-            // Cmd-Z runs the newest undo toast only: only its Undo shows the key.
-            view.showsUndoKey = serial == newestUndo
+        guard let window = serials.lazy.compactMap({ self.entries[$0]?.window }).first ?? windows[key]?.window else { return }
+        windows[key] = serials.isEmpty ? nil : WeakWindow(window: window)
+        // Cmd-Z runs the newest undo toast only: only its Undo shows the key.
+        let shown = serials.compactMap { serial in
+            entries[serial].map {
+                CmuxToastShown(serial: serial, toast: $0.handle.toast, showsDetails: $0.showsDetails,
+                               showsUndoKey: serial == newestUndo)
+            }
         }
-        // The toasts moved under a possibly still pointer: a hovered toast
-        // that moved away loses its hold and its timer starts again (cx-3wu5).
-        // Window-wide: the toasts' buttons moved too.
-        PointerHover.refresh(in: serials.lazy.compactMap { self.entries[$0]?.view.window }.first)
+        host.show(shown, in: window, center: self)
     }
 
     private func startTimer(_ serial: Int) {
