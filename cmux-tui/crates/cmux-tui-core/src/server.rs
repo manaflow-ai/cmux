@@ -145,6 +145,11 @@ pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
 /// Advertises `set-terminal-idle-policy` and the owner-side reaper that
 /// closes a terminal once it has had no attached view for its policy.
 pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
+/// `identify` lists it while this owner's unplaced-terminal reaper runs (an
+/// owner started with `--terminal-reap-grace-seconds`): a terminal whose last
+/// tab closed then ends after the reap grace instead of running until the
+/// session ends. Not in the static set, because the reaper is started per owner.
+pub const TERMINAL_REAPER_ACTIVE_CAPABILITY: &str = "terminal-reaper-active-v1";
 /// `terminal.screen.read` takes `unwrap` (soft wraps joined into logical
 /// lines) and `lines` (the last N lines of scrollback and screen), and
 /// `terminal.copy` takes `unwrap`.
@@ -282,6 +287,13 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
     capabilities
+}
+
+/// `identify`'s capabilities: [`advertised_capabilities`] plus
+/// [`TERMINAL_REAPER_ACTIVE_CAPABILITY`] while the unplaced-terminal reaper runs.
+fn identify_capabilities(_mux: &Mux) -> Vec<&'static str> {
+    // Red stub: the reaper is never advertised.
+    advertised_capabilities(cfg!(unix))
 }
 
 macro_rules! protocol_keys {
@@ -12240,7 +12252,7 @@ fn handle_command_with_cancellation(
                 "build_commit": stamped_build_commit(),
                 "ghostty_commit": stamped_ghostty_commit(),
                 "protocol": PROTOCOL_VERSION,
-                "capabilities": advertised_capabilities(cfg!(unix)),
+                "capabilities": identify_capabilities(mux),
                 "session": mux.session,
                 "pid": std::process::id(),
                 "registry_id": registry_id,
@@ -15185,6 +15197,21 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    /// A client decides from `identify` whether a closed tab's terminal ends
+    /// after the reap grace: the capability is listed only while the reaper runs.
+    #[test]
+    fn terminal_reap_identify_advertises_the_reaper_only_while_it_runs() {
+        let mux = test_mux();
+        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        let reaper = crate::start_terminal_reaper(&mux).unwrap();
+        assert!(
+            identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
+            "identify does not advertise the running terminal reaper"
+        );
+        reaper.stop();
+        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
     }
 
     fn sizing_browser(mux: &Arc<Mux>, size: (u16, u16)) -> Arc<crate::Surface> {

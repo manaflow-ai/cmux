@@ -54,6 +54,8 @@ struct RecoveryHarness {
     /// `false` launches shells without Ghostty shell integration, so they
     /// emit no OSC 7 or OSC 133 reports that commit registry revisions.
     shell_integration: bool,
+    /// Extra daemon options, passed on every start.
+    extra_args: Vec<String>,
 }
 
 impl RecoveryHarness {
@@ -73,8 +75,16 @@ impl RecoveryHarness {
             template_completion_failures: None,
             adopt_template_terminal: false,
             shell_integration: true,
+            extra_args: Vec::new(),
             dir,
         };
+        harness.restart();
+        harness
+    }
+
+    fn start_with_args(name: &str, args: &[&str]) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.extra_args = args.iter().map(|arg| (*arg).to_string()).collect();
         harness.restart();
         harness
     }
@@ -134,6 +144,7 @@ impl RecoveryHarness {
             template_completion_failures: None,
             adopt_template_terminal: false,
             shell_integration: true,
+            extra_args: Vec::new(),
             dir,
         }
     }
@@ -152,6 +163,7 @@ impl RecoveryHarness {
             .arg(&self.socket)
             .arg("--state")
             .arg(&self.state)
+            .args(&self.extra_args)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if let Some(delay_ms) = self.host_ready_delay_ms {
@@ -5082,3 +5094,6 @@ fn detached_template_terminal_survives_a_daemon_restart_without_wedging_mutation
 
 #[path = "terminal_host_recovery/idle_template.rs"]
 mod idle_template;
+
+#[path = "terminal_host_recovery/restart_host_leak.rs"]
+mod restart_host_leak;

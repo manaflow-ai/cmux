@@ -8,11 +8,16 @@ mod resource_content;
 mod resource_topology;
 mod terminal_directory;
 mod terminal_last_command;
+mod terminal_reap;
 
 pub(crate) use agent_last_sessions::with_agent_session;
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::SCREEN_CREATE_FOCUS_FIELD;
+pub use terminal_reap::{
+    DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
+    validate_terminal_reap_grace,
+};
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -2705,6 +2710,11 @@ pub struct Mux {
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
+    /// The unplaced-terminal reap grace in milliseconds (`terminal_reap.rs`).
+    terminal_reap_grace_ms: AtomicU64,
+    /// The running unplaced-terminal reaper's event receiver; `Some` while it
+    /// runs (`terminal-reaper-active-v1`).
+    terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -3118,6 +3128,10 @@ impl Mux {
             control_clients: crate::server::ClientRegistry::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
+            terminal_reap_grace_ms: AtomicU64::new(
+                u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
+            ),
+            terminal_reaper_events: Mutex::new(None),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
