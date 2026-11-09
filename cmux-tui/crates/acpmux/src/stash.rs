@@ -566,6 +566,21 @@ mod tests {
     }
 
     #[test]
+    fn chats_whose_moved_drafts_were_used_push_out_no_stack() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        push(&dir, "kept", "an older draft", Vec::new(), None, 1).unwrap();
+        // 49 chats each take a move and have its draft restored: their files hold only receipts.
+        for n in 0..STASH_CHATS as u64 - 1 {
+            push(&dir, "new", "moved", Vec::new(), None, 10 + n).unwrap();
+            let moved = move_stack(&dir, "new", &format!("session {n}")).unwrap();
+            assert!(remove(&dir, &format!("session {n}"), &moved.ids[0]).unwrap());
+        }
+        push(&dir, "another", "a new draft", Vec::new(), None, 100).unwrap();
+        assert_eq!(load(&chat_path(&dir, "kept")).unwrap()[0].text, "an older draft");
+    }
+
+    #[test]
     fn a_move_at_the_chat_limit_loses_no_draft_of_the_new_chat() {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
