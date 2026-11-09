@@ -266,14 +266,15 @@ pub(super) async fn handle(
             let forget_key = params.get("forgetKey").and_then(Value::as_bool).unwrap_or(false);
             let cfg = hub.config.read().await.clone();
             let removed = tokio::task::spawn_blocking(move || {
-                let forget: &dyn Fn(&_) -> _ = &crate::cli::harness_secret::run_store;
+                let forget: &dyn Fn(&_) -> _ = &crate::cli::harness_secret::run_delete;
                 admin::remove(&id, &cfg, &sources, &home, forget_key.then_some(forget))
             })
             .await
             .map_err(joined)?
             .map_err(rpc_error)?;
             hub.reload_and_announce().await;
-            json!({"id": removed.id, "backup": removed.backup})
+            // A key `forgetKey` could not delete: removed (Undo still works), and `keyError` says why.
+            json!({"id": removed.id, "backup": removed.backup, "keyError": removed.key_error})
         }
         method::MUX_HARNESS_RESTORE => {
             let backup = text("backup")

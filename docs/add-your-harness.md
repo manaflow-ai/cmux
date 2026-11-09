@@ -257,7 +257,10 @@ cmux harness doctor acme                              # one real hello turn
   `cmux-harness/<id>/<KEY>` and points the profile's env at it) works with no config rewrite. Removing an endpoint keeps its key in the Keychain (the backup holds only the reference,
   never the key), so Undo (`cmux harness restore`) brings back a working endpoint.
   `cmux harness remove ID --forget-key` (`_acpmux/harness/remove {id, forgetKey: true}`) also
-  deletes the keys in its own `cmux-harness/<id>/...` items; a restore then needs the key again. With
+  deletes the keys in its own `cmux-harness/<id>/...` items; a restore then needs the key again. An
+  item already gone is fine; any other failure is reported, never taken for a deleted key: the CLI
+  prints "removed ID, but its key could not be deleted from Keychain: REASON" and exits non-zero,
+  and the daemon's remove answers `keyError`. With
   `--keychain-item`, the profile reads the item you name (`service` or `service/account`).
 - A family or global route binding never rewrites an endpoint harness; a chat's or
   workspace's route still does.

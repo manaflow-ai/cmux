@@ -1276,3 +1276,63 @@ fn byo_endpoint_a_taken_id_is_refused_before_the_models_read() {
     let free = params("openai-endpoint", "fresh", "http://127.0.0.1:9/v1", "*", None);
     admin::endpoint_id_free(&free, &src, &|_| false).unwrap();
 }
+
+#[test]
+fn byo_endpoint_a_key_that_cannot_be_deleted_is_reported_never_claimed_gone() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = scratch("forget-fails");
+    let src = sources(&root);
+    let home = root.join("home");
+    let (_, store) = recording(false);
+    let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
+    let key =
+        admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE };
+    let added = admin::add_endpoint_keyed(&p, &src, &key).unwrap();
+    let (profile, meta) = load(&added.path, "team");
+    let cfg = config("team", profile, meta);
+    let refuse = |_: &StoreCommand| -> anyhow::Result<()> {
+        anyhow::bail!("security failed (exit status: 51)")
+    };
+    let removed = admin::remove("team", &cfg, &src, &home, Some(&refuse)).unwrap();
+    // The profile is gone (Undo works), and the answer says the key stayed, with the reason.
+    assert!(!added.path.exists());
+    assert_eq!(removed.key_error.as_deref(), Some("security failed (exit status: 51)"));
+    assert_eq!(
+        removed.key_warning().as_deref(),
+        Some(
+            "removed team, but its key could not be deleted from Keychain: security failed (exit status: 51)"
+        )
+    );
+    let json = serde_json::to_value(&removed).unwrap();
+    assert_eq!(json["keyError"], json!("security failed (exit status: 51)"));
+    assert!(!json.to_string().contains(GOOD_KEY));
+    // A delete that worked says nothing, and a remove that keeps the key (Undo) deletes nothing.
+    let added = admin::add_endpoint_keyed(&p, &src, &key).unwrap();
+    let (profile, meta) = load(&added.path, "team");
+    let cfg = config("team", profile, meta);
+    let removed = admin::remove("team", &cfg, &src, &home, Some(&|_| Ok(()))).unwrap();
+    assert!(removed.key_error.is_none() && removed.key_warning().is_none());
+    assert!(serde_json::to_value(&removed).unwrap().get("keyError").is_none());
+    let added = admin::add_endpoint_keyed(&p, &src, &key).unwrap();
+    let (profile, meta) = load(&added.path, "team");
+    let cfg = config("team", profile, meta);
+    let kept = admin::remove("team", &cfg, &src, &home, None).unwrap();
+    assert!(kept.key_error.is_none());
+    // run_delete: an item already gone (`security` exits 44) is fine; any other failure is not.
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let script = |name: &str, code: i32| {
+        let path = bin.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\nexit {code}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        StoreCommand { argv: vec![path.display().to_string()], stdin: Default::default() }
+    };
+    use crate::cli::harness_secret::run_delete;
+    run_delete(&script("security", 44)).unwrap();
+    run_delete(&script("security", 0)).unwrap();
+    let failed = run_delete(&script("security", 51)).unwrap_err().to_string();
+    assert!(failed.contains("failed"), "{failed}");
+    // Exit 44 means "not found" only for `security`.
+    std::fs::remove_file(bin.join("security")).unwrap();
+    assert!(run_delete(&script("secret-tool", 44)).is_err());
+}
