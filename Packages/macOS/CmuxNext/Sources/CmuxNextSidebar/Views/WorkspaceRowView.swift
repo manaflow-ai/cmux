@@ -286,8 +286,9 @@ final class WorkspaceRowView: SidebarRowView {
         isQuiet = ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         isArchived = ws.isArchived
         icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
+        // Roll is for renames: a first name over the loading bar arrives at once, as under instant.
         let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
-            && tunables.workspaceTitleMotion != .instant && Motion.sidebar.animatesMovement
+            && ![.instant, .roll].contains(tunables.workspaceTitleMotion) && Motion.sidebar.animatesMovement
         if arrival {
             titleArrivalPending = true
             titleArrivalVariant = tunables.workspaceTitleMotion
@@ -364,6 +365,9 @@ final class WorkspaceRowView: SidebarRowView {
         case .instant: return
         case .crossfade: transition = Motion.crossfadeAction
         case .lift: transition = Motion.pushUpAction
+        case .roll:
+            title.rollText(from: old)
+            return
         }
         transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
         transition.timingFunction = Motion.fadeCurve
@@ -383,8 +387,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.isHidden = false
         placeholderBar.isHidden = false
         let transition: CATransition = switch variant {
-        case .instant: Motion.crossfadeAction
-        case .crossfade: Motion.crossfadeAction
+        case .instant, .crossfade, .roll: Motion.crossfadeAction
         case .lift: Motion.pushUpAction
         }
         transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
