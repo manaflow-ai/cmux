@@ -772,6 +772,8 @@ export type AcpmuxRow = {
     label?: string;
     sender: string;
     preview: string;
+    /// The newest message whole, when acpmux sent it (inboxNotice.ts `newest`).
+    newest?: string;
     count: number;
     promptIds: readonly string[];
     fromSession?: string;
@@ -2638,13 +2640,22 @@ function measuredRowHeight(
       const read = threadRead(sessionId, openKey, readForIds(row.inboxThread.promptIds)) ?? undefined;
       return finish(line + inboxThreadCard(sessionId, openKey, read, row.incoming.message.text, width));
     }
-    if (!messageOpened(sessionId, openKey)) return finish(line + messagePreviewLine(!row.incoming.message.notice));
+    const message = row.incoming.message;
+    // The one message row (not a tool's notice or a lane's report, which keep their own line): its
+    // card is under the line shut too, the words cut to CLAMPED_LINES lines with Show more.
+    const card = !message.notice && !laneNotice(message);
+    const opened = messageOpened(sessionId, openKey);
+    if (!opened && !card) return finish(line + messagePreviewLine(!message.notice));
     const { lineHeight } = metrics();
-    const text = row.incoming.message.text;
+    const text = message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
-    const lines = text ? textHeight(text, Math.max(80, width - 44), receivedPrepared) : lineHeight;
-    const details = row.incoming.message.raw.trim() === text ? 0 : 24;
-    return finish(line + 2 + 4 + 16 + lines + (row.images?.length ? 128 : 0) + details);
+    const whole = text ? textHeight(text, Math.max(80, width - 44), receivedPrepared) : lineHeight;
+    const cut = card && whole > CLAMPED_LINES * lineHeight + 1;
+    const lines = cut && !opened ? CLAMPED_LINES * lineHeight : whole;
+    const details = opened && message.raw.trim() !== text ? 24 : 0;
+    return finish(
+      line + 2 + 4 + 16 + lines + (cut ? CLAMP_MORE_HEIGHT : 0) + (row.images?.length ? 128 : 0) + details,
+    );
   }
   if (row.incoming?.kind === "notice") return finish(lineRow());
   if (row.incoming?.kind === "inbox") {
@@ -3406,6 +3417,7 @@ import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversation/inboxThreadRead";
 import { inboxThreadLook } from "./conversation/inboxThreadLook";
 import { CLAMP_MORE_HEIGHT, CLAMPED_LINES } from "./conversation/lineCut";
+import { laneNotice } from "./conversation/laneReport";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import { planOpen } from "./conversation/planOpen";

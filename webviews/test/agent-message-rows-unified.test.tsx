@@ -754,8 +754,8 @@ test("two preview-only notices from one sender whose previews clean to nothing b
 // Opening a received line or an inbox thread keeps the line as it was, as the disclosure line these
 // rows drew before kept its label: the chevron after the words stays on its pixel instead of jumping
 // back to the chip (gallery health, agent-pane.inbox-notice#one-open, whose layout-shift row is 0).
-// A received line keeps its first line; an inbox thread's line carries none in either state, its
-// text in the card under it (Leo, 2026-11-09). Leo, 2026-11-04: "we move all our affected, possibly
+// Neither a received line nor an inbox thread's line carries a first line in either state: the text
+// is in the card under it (Leo, 2026-11-09). Leo, 2026-11-04: "we move all our affected, possibly
 // affected elements in the cohesive way".
 test("an opened received line or inbox thread keeps its line as it was, so its chevron does not move", async () => {
   const message = received(
@@ -764,9 +764,12 @@ test("an opened received line or inbox thread keeps its line as it was, so its c
     "vm/lane-a",
   );
   const line = await render(<IncomingMessageLine id="m-keep" message={message} onOpen={() => undefined} />);
+  expect(line.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
+  expect(line.querySelector(".cv-agentmsg__card")?.textContent).toContain("Next: the cold-start numbers.");
   await openAll(line);
   expect(line.querySelector(".cv-agentmsg[data-open]")).not.toBeNull();
-  expect(line.querySelector(".cv-agentmsg__preview")?.textContent).toContain("Matrix run 14 is green.");
+  expect(line.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
+  expect(line.querySelector(".cv-agentmsg__card")?.textContent).toContain("Next: the cold-start numbers.");
 
   const notice: InboxNotice = {
     threads: [

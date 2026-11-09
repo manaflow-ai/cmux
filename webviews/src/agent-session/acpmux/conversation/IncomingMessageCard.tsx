@@ -40,6 +40,7 @@ import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
+import { ClampedText } from "./ClampedText";
 import { hasAgentMark, MonogramMark } from "../../shared/AgentMark";
 import { useMachineChats, useSenderChat, useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
@@ -519,27 +520,29 @@ export function IncomingMessageLine({
     if (!next && editing) setReply("closed");
     show(next);
   };
-  // The words: its card, from the card's corner, its images and files.
-  const words = (
+  // The words: its card, from the card's corner, its images and files. On the one message row
+  // (`clamped`), cut between whole lines past eight with Show more, which opens the message as its
+  // line does (ClampedText.tsx).
+  const markdown = text ? (
+    <Markdown githubRepository={repository} commits="quiet" thumbnails={host === undefined} messageAt={messageAt}>
+      {body}
+    </Markdown>
+  ) : (
+    t("message.noText")
+  );
+  const wordsOf = (clamped: boolean) => (
     <>
       {/* The sender's words, as written, from the card's corner. */}
       <CardCopy text={agentNotice ? `${agentNotice.title}\n\n${text}`.trim() : text} />
       {/* The chips read whose files these are (chips/messageScope.ts). */}
       <MessageScopeContext.Provider value={scope}>
-        <div className="cv-received__text selectable">
-          {text ? (
-            <Markdown
-              githubRepository={repository}
-              commits="quiet"
-              thumbnails={host === undefined}
-              messageAt={messageAt}
-            >
-              {body}
-            </Markdown>
-          ) : (
-            t("message.noText")
-          )}
-        </div>
+        {clamped ? (
+          <ClampedText className="cv-received__text selectable" expanded={open} onExpand={toggled} watch={body}>
+            {markdown}
+          </ClampedText>
+        ) : (
+          <div className="cv-received__text selectable">{markdown}</div>
+        )}
       </MessageScopeContext.Provider>
       {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
       {files && files.length > 0 && (
@@ -625,15 +628,17 @@ export function IncomingMessageLine({
     </span>
   );
   // Another agent's message is the one message row (AgentMessageRow.tsx), as a send and a subagent's
-  // report are: the sender's name after its family's mark in the icon column, the first
-  // line, and the card that opens to the whole message (Leo, 2026-11-07: "They should look basically
-  // the same as the other ones"). A tool's notice, a lane's report and a person's held message keep
-  // their own line below.
+  // report are: the sender's name after its family's mark in the icon column, and its words in the
+  // card under it, whole up to eight lines, never a first line alone to click open (Leo, 2026-11-07:
+  // "They should look basically the same as the other ones"; 2026-11-09, on reading other agents'
+  // messages: "we should keep going further into the whole messaging system type situation").
+  // Opened (the line, its chevron, Show more, Reply), the card holds every line, with Details and the
+  // reply under it. A tool's notice, a lane's report and a person's held message keep their own line
+  // below.
   if (!agentNotice && !notice && !person)
     return (
       <AgentMessageRow
         direction="received"
-        keepsPreviewOpen
         className="cv-received"
         // Find counts the message's text (chatFind.ts rowText), never the line that sums it up: the
         // sender's chip and machine and the first line add no matches, as DisclosureRow's line added
@@ -651,9 +656,9 @@ export function IncomingMessageLine({
         label={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
         open={open}
         onToggle={() => toggled(!open)}
-        animates={() => played.current}
         actions={hover}
-        body={words}
+        peek={wordsOf(true)}
+        body={wordsOf(true)}
         under={below}
       />
     );
@@ -707,7 +712,7 @@ export function IncomingMessageLine({
       // the chevron, which ends every message's line at the same place (conversation.css).
       actions={hover}
     >
-      {words}
+      {wordsOf(false)}
       {below}
     </DisclosureRow>
   );

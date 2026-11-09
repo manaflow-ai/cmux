@@ -12,13 +12,15 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { InboxNoticeCard } from "./InboxNoticeCard";
+import { IncomingMessageLine } from "./IncomingMessageCard";
+import type { IncomingMessage } from "./incomingMessage";
 import { inboxThreadKey, type InboxMessage, type InboxNotice } from "./inboxNotice";
 import { setMessageOpened } from "./incomingOpened";
 import { configureInboxThreadLook, type InboxThreadLook } from "./inboxThreadLook";
 import { newestWholeKey } from "./inboxThreadRead";
 
 type Kind = "short" | "long" | "several";
-type Props = { kind: Kind; look?: InboxThreadLook; open?: boolean; whole?: boolean };
+type Props = { kind: Kind; look?: InboxThreadLook; open?: boolean; whole?: boolean; direct?: boolean };
 
 const MINUTE = 60_000;
 const NOW = Date.now();
@@ -102,13 +104,20 @@ function noticeOf(kind: Kind): InboxNotice {
   };
 }
 
-function Stage({ kind, look = "inline", open = false, whole = false }: Props) {
-  const session = `gallery-inbox-thread-${kind}-${look}-${open}-${whole}`;
+/// A message another agent sent this chat directly (`acpmux send`), the newest of `kind`'s thread.
+function directOf(kind: Kind): IncomingMessage {
+  const { messages, session } = THREADS[kind];
+  const newest = messages.at(-1)!;
+  return { name: newest.from, sessionId: session, text: newest.text, raw: newest.text, msgId: newest.promptId };
+}
+
+function Stage({ kind, look = "inline", open = false, whole = false, direct = false }: Props) {
+  const session = `gallery-inbox-thread-${kind}-${look}-${open}-${whole}-${direct}`;
   const rowId = `row-${kind}`;
   const [notice] = useState(() => {
     configureInboxThreadLook(look);
     const key = inboxThreadKey(rowId, THREADS[kind].threadId);
-    setMessageOpened(session, key, open);
+    setMessageOpened(session, direct ? rowId : key, open);
     setMessageOpened(session, newestWholeKey(key), whole);
     return noticeOf(kind);
   });
@@ -117,7 +126,11 @@ function Stage({ kind, look = "inline", open = false, whole = false }: Props) {
     <PromptMarksSession.Provider value={session}>
       <div className="acpmux-shell" style={{ padding: 16, maxWidth: 800, alignItems: "flex-start" }}>
         <div className="cv-incoming" style={{ width: "100%", minWidth: 0 }}>
-          <InboxNoticeCard rowId={rowId} notice={notice} onOpen={() => undefined} readThread={readThread} />
+          {direct ? (
+            <IncomingMessageLine id={rowId} message={directOf(kind)} onOpen={() => undefined} />
+          ) : (
+            <InboxNoticeCard rowId={rowId} notice={notice} onOpen={() => undefined} readThread={readThread} />
+          )}
         </div>
       </div>
     </PromptMarksSession.Provider>
@@ -131,7 +144,7 @@ const read: Play = async (ctx) => {
 
 export default componentEntry<Props>({
   id: "agent-pane.inbox-thread",
-  title: "An inbox thread read in place",
+  title: "Other agents' messages read in place",
   area: "Agent pane",
   pane: true,
   height: 460,
@@ -139,6 +152,7 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/conversation/InboxNoticeCard.tsx#InboxNoticeCard",
     "agent-session/acpmux/conversation/ClampedText.tsx#ClampedText",
+    "agent-session/acpmux/conversation/IncomingMessageCard.tsx#IncomingMessageLine",
   ],
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   load: async () => Stage,
@@ -167,6 +181,18 @@ export default componentEntry<Props>({
       props: { kind: "several", open: true },
       note: '"+2 more" (or the line) opened: every message in the same card, oldest first and newest last, each under its sender and age. Picked as the default: one click shows all the words.',
       play: read,
+    },
+    "direct-short": {
+      props: { kind: "short", direct: true },
+      note: "A message another agent sent this chat directly (acpmux send), short: the sender's line and the whole message under it, nothing to open.",
+    },
+    "direct-long": {
+      props: { kind: "long", direct: true },
+      note: "A direct message past eight lines: its first eight whole, cut between lines, with Show more under them; Show more opens it as the line does.",
+    },
+    "direct-long-open": {
+      props: { kind: "long", direct: true, open: true },
+      note: "The long direct message opened (the line, its chevron or Show more): every line, Show less under it, the line above unmoved.",
     },
     "drill-several": {
       props: { kind: "several", look: "drill", open: true },
