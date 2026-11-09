@@ -38,7 +38,8 @@
   backdrop-filter: var(--glass-material-backdrop, var(--tooltip-blur, none));
   /* The popup rim and drop; a page that loads no popupSurface.css (the code editor) gets the drop. */
   box-shadow: var(--glass-material-rim, 0 0 transparent), var(--ui-popup-shadow, var(--elevation-2));
-  color: var(--cmux-text, CanvasText);
+  /* The ink the host pairs with the tooltip tint, as tooltips draw (desktop.css). */
+  color: var(--cmux-tooltip-ink, var(--cmux-text, CanvasText));
   font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: 1;
@@ -100,7 +101,16 @@
   -webkit-appearance: none;
   appearance: none;
 }
+/* Full ink on the see-through tint, which keeps only full ink 4.5:1; dimmed on the opaque surface. */
 .find-pill__field::placeholder {
+  color: inherit;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .find-pill__field::placeholder {
+    color: color-mix(in srgb, currentColor 55%, transparent);
+  }
+}
+:root[data-reduce-transparency] .find-pill__field::placeholder {
   color: color-mix(in srgb, currentColor 55%, transparent);
 }
 .find-pill__field::-webkit-search-cancel-button {
