@@ -483,4 +483,45 @@ mod tests {
         drop(connection);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn a_wal_a_reader_pinned_shrinks_under_the_limit_once_the_reader_is_gone() {
+        const WAL_SIZE_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
+        let (dir, connection) = database("pinned");
+        let path = dir.join("r.sqlite");
+        let durability = WalDurability::attach(&connection, &path, None, false);
+        let wal = dir.join("r.sqlite-wal");
+        let reader = Connection::open(&path).unwrap();
+        reader.execute_batch("BEGIN").unwrap();
+        let _: i64 = reader.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();
+        let blob = vec![7u8; 64 * 1024];
+        let commits = (WAL_SIZE_LIMIT_BYTES * 3 / 2) / blob.len() as u64;
+        for commit in 0..commits {
+            connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+            if commit % 64 == 0 {
+                durability.request_flush();
+            }
+        }
+        durability.wait_durable();
+        let pinned = std::fs::metadata(&wal).unwrap().len();
+        assert!(pinned > WAL_SIZE_LIMIT_BYTES, "the pinned WAL is only {pinned} bytes");
+        reader.execute_batch("COMMIT").unwrap();
+        drop(reader);
+        connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+        durability.request_flush();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let after = loop {
+            let len = std::fs::metadata(&wal).map_or(0, |meta| meta.len());
+            if len <= WAL_SIZE_LIMIT_BYTES || std::time::Instant::now() > deadline {
+                break len;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert!(
+            after <= WAL_SIZE_LIMIT_BYTES,
+            "the WAL stayed at {after} bytes after its reader ended ({pinned} while pinned)"
+        );
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
