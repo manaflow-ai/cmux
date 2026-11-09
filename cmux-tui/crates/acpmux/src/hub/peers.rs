@@ -1092,7 +1092,7 @@ impl Hub {
                         .find_mux(&peer, &id)
                         .map(|(_, r)| r.summary.clone())
                         .unwrap_or(Value::Null);
-                    let record = match m.as_str() {
+                    let mut record = match m.as_str() {
                         method::SESSION_UPDATE => EventRecord {
                             seq: params
                                 .pointer("/_meta/acpmux/seq")
@@ -1190,6 +1190,22 @@ impl Hub {
                         },
                         _ => return,
                     };
+                    // A suggestion of the peer's chat reaches the person through their own
+                    // tally and switch, not the peer's (`suggestion_gate::regate_relayed`).
+                    if record.dir == "in"
+                        && record.kind == "prompt_suggestion"
+                        && let Some(update) = record.msg.pointer_mut("/params/update")
+                    {
+                        let harness = summary.get("harness").and_then(Value::as_str).unwrap_or("");
+                        crate::suggestion_gate::regate_relayed(
+                            &self.suggestion_gate,
+                            &peer,
+                            &id,
+                            harness,
+                            update,
+                            crate::claude_stdio::prompt_suggestions::enabled_in_settings(),
+                        );
+                    }
                     self.capture_peer_record((&peer, generation, link), &id, &summary, &record);
                     let _ = self.events.send(HubEvent {
                         session_id: id,
