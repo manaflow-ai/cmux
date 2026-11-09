@@ -13,6 +13,13 @@
 //!   (RFB or the rd stream carrier through the Cloud tunnel).
 //! - `wg-dgram`: cmux-wg's datagram service, frames cut into datagrams with
 //!   no retransmission (the floor an rd media path could reach).
+//! - `rd-link`: Cloud desktop media on the datagram path (cmuxterm-hq#7976):
+//!   the rd media engine (FEC, NACK resends, recovery keyframes) and the Mac
+//!   viewer's receiver and input channel, sealed by a `cmux-rd-link`
+//!   endpoint on each side over UDP, with input and feedback going back as
+//!   datagrams too (see `remote_stream_rd/link.rs`). `--rd-frames-in-flight`
+//!   overrides the engine's frames in flight (default: the link host's rule)
+//!   and `--rd-deadline-ms` the viewer's reassembly deadline (200).
 //!
 //! Fast-path selection (`wg-tcp` only):
 //! - `--paths lan:1,relay:40` gives the viewer one multipath underlay with a
@@ -26,6 +33,9 @@
 //!   on the other (any labels; `--seed` must match). The viewer dials every
 //!   peer address as a path and reports which one carried the stream. Only
 //!   viewer-clock numbers (input to photon, frame gaps, bulk) are reported.
+//!   `--drop-at 4:0` on the viewer cuts its path to the first `--peer` 4 s in:
+//!   the viewer drops that path's datagrams both ways, the host's
+//!   interfaces stay as they are.
 //!
 //! `longest_frame_gap_ms` is the longest wait between two frames at the
 //! viewer: a path that dropped shows up there as a stall.
@@ -37,8 +47,10 @@
 //!
 //! `--rtt-ms` and `--loss-pct` put the WireGuard paths' UDP through an
 //! in-process link with that round trip and that loss in each direction;
-//! kernel TCP runs on plain loopback only. `scripts/remote-stream-bench.sh`
-//! runs the matrix, `scripts/remote-stream-ultra-bench.sh` the ultra-mode one.
+//! kernel TCP runs on plain loopback only. `--bulk-bytes 0` skips the bulk
+//! transfer after the stream. `scripts/remote-stream-bench.sh`
+//! runs the matrix, `scripts/remote-stream-ultra-bench.sh` the ultra-mode one,
+//! `scripts/remote-stream-rd-link-bench.sh` `wg-tcp` against `rd-link`.
 //! Prints one JSON object.
 //!
 //! ```text
@@ -72,6 +84,17 @@ const KIND_INPUT: u8 = 1;
 /// kind, seq, sent_us, echo_us.
 const HEADER: usize = 1 + 4 + 8 + 8;
 
+// The Mac viewer's Rust (cmux-rd-ffi is its own workspace, built only for
+// the app), compiled in from its source so the bench runs that exact code.
+#[allow(dead_code)]
+#[path = "../../cmux-rd-ffi/src/input.rs"]
+mod input;
+#[path = "remote_stream_rd/link.rs"]
+mod rd_link;
+#[allow(dead_code)]
+#[path = "../../cmux-rd-ffi/src/receiver.rs"]
+mod receiver;
+
 #[derive(Clone)]
 struct Args {
     path: String,
@@ -93,9 +116,18 @@ struct Args {
     /// `--peer LABEL=ADDR`, the viewer's paths in a two-host run.
     peers: Vec<(String, SocketAddr)>,
     seed: u64,
+    /// `--rd-frames-in-flight`: the rd engine's frames in flight (0: the
+    /// link host's rule).
+    rd_frames_in_flight: u32,
+    /// `--rd-deadline-ms`: how long the rd viewer waits for a frame's shards.
+    rd_deadline_ms: u64,
 }
 
 fn args() -> Args {
+    args_from(std::env::args().skip(1))
+}
+
+fn args_from(flags: impl IntoIterator<Item = String>) -> Args {
     let mut parsed = Args {
         path: "tcp".into(),
         keyframe_bytes: 200_000,
@@ -111,8 +143,10 @@ fn args() -> Args {
         listen: None,
         peers: Vec::new(),
         seed: 1,
+        rd_frames_in_flight: 0,
+        rd_deadline_ms: 200,
     };
-    let mut iter = std::env::args().skip(1);
+    let mut iter = flags.into_iter();
     while let Some(flag) = iter.next() {
         let value = iter.next().unwrap_or_default();
         let number = || value.parse::<u64>().unwrap_or(0);
@@ -141,6 +175,8 @@ fn args() -> Args {
                 }
             }
             "--seed" => parsed.seed = number(),
+            "--rd-frames-in-flight" => parsed.rd_frames_in_flight = number() as u32,
+            "--rd-deadline-ms" => parsed.rd_deadline_ms = number(),
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -654,6 +690,52 @@ async fn run_remote_host(args: &Args, clock: Arc<Clock>, record: Shared) -> io::
     Ok(())
 }
 
+/// A viewer socket `--drop-at` can cut: once cut, it drops what it would send
+/// and discards what arrives, as a pulled cable does to both directions, with
+/// no change to the machine's interfaces.
+struct CutSocket {
+    socket: UdpSocket,
+    cut: Arc<AtomicBool>,
+}
+
+impl cmux_wg::DatagramSocket for CutSocket {
+    fn poll_recv_from(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        buffer: &mut [u8],
+    ) -> std::task::Poll<io::Result<(usize, SocketAddr)>> {
+        loop {
+            let ready = cmux_wg::DatagramSocket::poll_recv_from(&mut self.socket, cx, buffer);
+            if !self.cut.load(Ordering::Relaxed) || !matches!(ready, std::task::Poll::Ready(Ok(_)))
+            {
+                return ready;
+            }
+        }
+    }
+
+    fn poll_send_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        cmux_wg::DatagramSocket::poll_send_ready(&mut self.socket, cx)
+    }
+
+    fn try_send_to(&mut self, datagram: &[u8], target: SocketAddr) -> io::Result<usize> {
+        if self.cut.load(Ordering::Relaxed) {
+            return Ok(datagram.len());
+        }
+        cmux_wg::DatagramSocket::try_send_to(&mut self.socket, datagram, target)
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.socket.local_addr()
+    }
+
+    fn grow_receive_buffer(&self) {
+        cmux_wg::DatagramSocket::grow_receive_buffer(&self.socket);
+    }
+}
+
 /// The viewer end of a two-host run: a path per `--peer`, chosen by the
 /// selector.
 async fn run_remote_viewer(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
@@ -663,9 +745,18 @@ async fn run_remote_viewer(args: &Args, clock: Arc<Clock>, record: Shared) -> io
     let (underlay, control) =
         Multipath::with_probes(cmux_transport::SelectorConfig::default(), ProbeConfig::default());
     let mut labels = Vec::new();
-    for (label, address) in &args.peers {
+    for (index, (label, address)) in args.peers.iter().enumerate() {
         let bind = if address.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
-        let socket = UdpSocket::bind(bind).await?;
+        let socket = CutSocket { socket: UdpSocket::bind(bind).await?, cut: Arc::default() };
+        if let Some((at, cut_index)) = args.drop_at
+            && cut_index == index
+        {
+            let cut = socket.cut.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(at)).await;
+                cut.store(true, Ordering::Relaxed);
+            });
+        }
         let kind = if label.starts_with("lan") || label.starts_with("tb") {
             PathKind::DirectLan
         } else {
@@ -713,6 +804,9 @@ async fn run_wg_tcp(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Resul
     lock(&record).note = ultra_note(&viewer_net, &host_net);
     viewer_net.shutdown().await;
     host_net.shutdown().await;
+    if args.bulk_bytes == 0 {
+        return Ok(());
+    }
     // A fresh tunnel, so frames still queued from the stream cannot share it.
     let (viewer_net, host_net, _, target) = start_wg(args).await?;
     let mut listener = host_net.listen(BULK_PORT).await.map_err(err)?;
@@ -909,6 +1003,7 @@ async fn run_one_process(
         "tcp" => run_tcp(&args, clock, record.clone()).await?,
         "wg-tcp" => run_wg_tcp(&args, clock, record.clone()).await?,
         "wg-dgram" => run_wg_dgram(&args, clock, record.clone()).await?,
+        "rd-link" => rd_link::run(&args, clock, record.clone()).await?,
         other => return Err(io::Error::other(format!("unknown path {other}"))),
     }
     Ok(())

@@ -82,7 +82,7 @@ class WorkflowShape(unittest.TestCase):
         # The reconciled Linux pool is the default for every trusted job; fork
         # pull requests retain their ephemeral Blacksmith branch, and reruns
         # accept bounded overflow explicitly.
-        guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["crash-ratchet"]["runs-on"]
+        guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["own-change-checks"]["runs-on"]
         self.assertNotEqual(doc["jobs"]["resolve"]["runs-on"], guards_runner)
         self.assertNotEqual(doc["jobs"]["post"]["runs-on"], guards_runner)
         fast_runner = doc["jobs"]["fast-gates"]["runs-on"]

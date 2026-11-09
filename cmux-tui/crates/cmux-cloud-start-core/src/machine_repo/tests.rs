@@ -144,7 +144,8 @@ fn a_checkout_cloned_through_cmux_keeps_its_helper_for_push() {
     // chat keeps it after its fetch (review F2, cmux#38997 aafeae5053e).
     let keep = at("\nkeep_helper\n");
     let cloned = at("status=cloned");
-    let result = at(r#"sha=$(g -C "$dir" rev-parse"#);
+    // The step's own record, the last read of its commit (an inline warm update reads it too).
+    let result = step.rfind(r#"sha=$(g -C "$dir" rev-parse"#).unwrap();
     assert!(cloned < keep && keep < result);
     let fetched = at(r#"if g -C "$dir" fetch --quiet --tags origin; then"#);
     assert!(
@@ -887,4 +888,25 @@ fn a_warm_update_that_cannot_fetch_keeps_the_checkout() {
     let exit = std::fs::read_to_string(machine.0.join("home/update-exit")).unwrap();
     assert_eq!(exit.trim(), "0", "the update ends well, so the barrier opens");
     assert_eq!(machine.git(&["rev-parse", "HEAD"]), before);
+}
+
+#[cfg(unix)]
+/// Review F1 (cmux#38997, d8bce39df2d): a warm start whose update could not run behind the chat
+/// updated inline after the step had read its commit, so the record named the commit before the
+/// update. It now reads it again after the update.
+#[test]
+fn a_warm_update_made_inline_records_the_updated_commit() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    machine.commit_upstream("z.txt");
+    // A hold that is there but cannot start: the update falls back to inline.
+    std::fs::write(machine.0.join("bin/systemd-run"), "#!/bin/sh\nexit 1\n").unwrap();
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("none")), "{record}");
+    let head = machine.git(&["rev-parse", "HEAD"]);
+    assert!(machine.checkout().join("z.txt").is_file(), "updated inline");
+    assert_eq!(record["sha"].as_str(), Some(head.as_str()), "the record names the updated commit");
 }

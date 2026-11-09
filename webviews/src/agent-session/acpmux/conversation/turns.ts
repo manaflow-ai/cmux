@@ -10,6 +10,7 @@
 import {
   isLineRow,
   pathKey,
+  SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxActivity,
   type AcpmuxFileDiff,
@@ -23,8 +24,9 @@ import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
+import { PLAN_BUILD_KIND } from "../planBuild/planBuild";
 import { QUESTION_RECORD } from "../question/record";
-import { chosenAnswer, nextStepAsk, pickedAnswer } from "./nextStepAsk";
+import { answerOf, chosenAnswer, nextStepAsk, pickedAnswer } from "./nextStepAsk";
 import { lastWrapUp, withoutWrapUp } from "./wrapUp";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
@@ -83,7 +85,8 @@ export const DATE = "date";
 export const THINKING = "thinking";
 /// The last turn's Thinking line has one id from send to the first output: the sent prompt's row
 /// changes id when acpmux echoes it, the line keeps its place (cx-ncc.58).
-const LIVE_THINKING = `${THINKING}-live`;
+/// The running turn's line, its last row from the send to the turn's end (turnEndFold.ts reads it).
+export const LIVE_THINKING = `${THINKING}-live`;
 export const WORKING = "working";
 /// The running turn's activity line under its todo list (Debug Settings `agent.sessionStatus`,
 /// cx-ncc.102): what the agent is doing now and how long the turn has run.
@@ -695,8 +698,12 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
     if (!row.nextStep!.ask.question) continue;
     const claim = answerClaim(askKey(row));
     if (!claim) continue;
+    const { question } = row.nextStep!.ask;
     for (let later = at + 1; later < out.length; later += 1) {
-      if (claimed.has(later) || personPrompt(out[later]!) !== claim.text) continue;
+      if (claimed.has(later)) continue;
+      // The click sent the answer under its quote of the ask (nextStepAsk.ts `answerPrompt`).
+      const said = personPrompt(out[later]!);
+      if (said === undefined || answerOf(question, said) !== claim.text) continue;
       if (out[later]!.at < claim.at - CLAIM_SLACK_MS) continue;
       claimed.set(later, index);
       own.set(index, later);
@@ -711,7 +718,7 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
     let answer: string | undefined;
     if (mine !== undefined) {
       const said = personPrompt(out[mine]!)!;
-      answer = pickedAnswer(ask, said) ?? said;
+      answer = pickedAnswer(ask, said) ?? answerOf(ask.question, said);
     }
     let first: string | undefined;
     if (ask.question)
@@ -1812,6 +1819,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === "failover" ||
   // A recap is about the whole chat, not the turn above it.
   row.kind === "recap" ||
+  // So is where the person left off (SinceDivider.tsx): folded, nobody would find it.
+  row.kind === SINCE_DIVIDER ||
   // A memory offer waits for the person's Accept or Dismiss (MemoryOfferCard.tsx).
   row.kind === MEMORY_OFFER ||
   // A policy the harness cannot keep: the agent runs without the asks the person chose.
@@ -1824,6 +1833,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === "sessionOffer" ||
   // A chat the turn started keeps its card in sight (started/startedSessions.ts).
   row.kind === STARTED_SESSIONS ||
+  // So do the builds a plan approval started (planBuild/PlanBuildCard.tsx).
+  row.kind === PLAN_BUILD_KIND ||
   // So does a Claude workflow it started (Labs, summary/WorkflowCard.tsx).
   row.kind === WORKFLOW_CARD ||
   // What the person answered an agent's question, which shaped the rest of the turn.
@@ -2009,7 +2020,7 @@ function withoutDrafts(row: AcpmuxRow): AcpmuxRow[] {
 /// is doing now ("Thinking" before any output, the call in flight) and the turn's time, which ticks
 /// until the turn ends, so the bottom of a running chat always moves. It keeps one id from the
 /// Thinking line the prompt opened (LIVE_THINKING), so its row never leaves and comes back. Each
-/// finished run of calls folds into its summary line as it will once the turn ends (``codexLiveTurn``).
+/// finished run of calls stays in sight until the turn ends (``codexRuns``).
 /// The client's empty "typing" placeholder gives way to it.
 /// With `sessionStatus` and a todo list, the list sits under the work and the activity line under
 /// it takes the status's place (cx-ncc.102, Claude Code desktop's in-session status).
@@ -2062,8 +2073,12 @@ function shapeLiveTurn(
   // The Codex-style live line names the call in flight; a command still running in an earlier run
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = last ? lineCall(drawn, last) : undefined;
-  // A reply before a steer never joins a run, as in the ended turn (steerDialogueIn).
-  const rows = codexRuns(mergeShortNotes(drawn, steerDialogueIn(drawn)), named?.tool.id);
+  // While the turn streams nothing folds or regroups: each run keeps its calls in sight and a short
+  // note between two runs stays its own row, so no row leaves while the turn is live. The turn's end
+  // shapes it once, as its family's finished turn (turnEndFold.ts plays that), as Leo asked (2026-11-08:
+  // "while you're working on stuff, you expose it. You show it ... and you only do the overarching
+  // fold at the very end").
+  const rows = codexRuns(drawn, named?.tool.id);
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   const start = turnStartedAtMs ?? user.at;
@@ -2368,9 +2383,10 @@ const RUN_STATES = 5;
 /// closed. (Not a sixth `RUN_STATES`: the minimap's edit-card versions are pinned to five.)
 const OPEN_RUN_STATES = 2;
 
-/// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
-/// summary line between the paragraphs ("Read 6 files, ran 4 commands", or one group's "Ran 3
-/// commands"), the latest one too as its calls finish, and opens on a click. The call in flight and
+/// A running turn's runs: each keeps its calls in sight, in their groups (`foldRun: false`, open),
+/// the latest one too as its calls finish; nothing folds into a summary line until the turn ends,
+/// when its family's finished turn takes the work in one fold (Leo, 2026-11-08: "you only do the overarching
+/// fold at the very end ... you know what the target line height will be"). The call in flight and
 /// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
 /// (a background shell) stays in its run, except the command the live line names (`named`,
@@ -2381,11 +2397,10 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   return rows.flatMap((row, index) => {
     if (row.kind !== "activity") return [row];
-    // A run that edited folds too, its edits named on the line ("Edited 2 files, read 3 files, ran a
-    // command"), as the Codex app collapses a run (Leo 2026-10-22: "this is pretty good ui: … the
-    // collapsing i mean"); the turn's edited-files card lists them when it ends. One with a file
-    // change still waiting for its permission stays as it is, so the change it asks about stays in
-    // sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx `staysInSight`).
+    // A run that edited is shaped as the others; the turn's edited-files card lists its edits when
+    // it ends. One with a file change still waiting for its permission stays as it is, so the change
+    // it asks about stays in sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx
+    // `staysInSight`).
     if (
       (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
     )
@@ -2400,7 +2415,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
         // differs from every other state of the run (`RUN_STATES`).
         const lined = shown.length !== items.length;
         return [
-          { ...kept, items: shown, settled: true, foldRun: true, version: row.version * RUN_STATES + (lined ? 4 : 2) },
+          { ...kept, items: shown, settled: true, foldRun: false, version: row.version * RUN_STATES + (lined ? 4 : 2) },
         ];
       });
     // The latest run: what is happening now leaves it for the live line, so the run holds only
@@ -2411,7 +2426,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
       (item, at) => !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool"),
     );
     if (!items.length) return [];
-    return [{ ...row, items, settled: true, foldRun: true, version: row.version * RUN_STATES + 1 }];
+    return [{ ...row, items, settled: true, foldRun: false, version: row.version * RUN_STATES + 1 }];
   });
 }
 

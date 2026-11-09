@@ -123,15 +123,28 @@ nav input:focus {
 
 /* The session list gives up width first in a narrow pane (down to 200px, from 46% of the page), so
    the selected agent's detail keeps room for its title and actions. */
+/* Dragging its edge (SplitEdge sets --agent-activity-list-width here) overrides that; the track
+   reads invalid while it is unset, and the detail keeps 320px. */
 .split {
+  --activity-list-track: clamp(180px, var(--agent-activity-list-width), 100% - 320px);
   display: grid;
-  grid-template-columns: clamp(200px, 46%, 270px) minmax(0, 1fr);
+  grid-template-columns: var(--activity-list-track, clamp(200px, 46%, 270px)) minmax(0, 1fr);
   min-height: 0;
   flex: 1;
 }
 
+/* Still, so its edge stays put while the list scrolls inside it. */
 aside {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-right: 1px solid var(--activity-line);
+}
+
+aside > .groups {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 
