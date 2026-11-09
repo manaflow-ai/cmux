@@ -23,7 +23,8 @@ import Testing
         #expect(Motion.sidebar.rollTitle(text, from: "Fix login", flipped: true, in: nil))
         let out = host.sublayers?.compactMap { $0 as? ChromeTextLayer }.first { $0.name == MotionGate.rollOutName }
         #expect(out?.string == "Fix login")
-        #expect(out?.frame == text.frame)
+        #expect(out?.bounds == text.bounds)
+        #expect(out?.position == text.position)
         #expect(out?.animation(forKey: "opacity") != nil)
         #expect(out?.animation(forKey: "transform.translation.y") != nil)
         #expect(text.animation(forKey: "opacity") != nil)
