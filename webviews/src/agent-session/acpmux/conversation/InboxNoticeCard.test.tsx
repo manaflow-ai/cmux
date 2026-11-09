@@ -6,12 +6,12 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { InboxNoticeCard } from "./InboxNoticeCard";
-import type { InboxMessage, InboxNotice } from "./inboxNotice";
+import { inboxThreadKey, type InboxMessage, type InboxNotice } from "./inboxNotice";
 import { PendingMessagesCard } from "./PendingMessagesCard";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { pendingMessagesRow } from "./pendingMessages";
 import type { AcpmuxRow } from "../model";
-import { setMessageOpened } from "./incomingOpened";
+import { setDigestOpened, setMessageOpened } from "./incomingOpened";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -308,70 +308,62 @@ test("a click on the digest's own line opens a preview-only inbox thread and rea
   expect(container.querySelectorAll(".cv-received__text")).toHaveLength(0);
 });
 
-test("the row estimator gives a preview-only thread its opened height once the digest's head opens it", async () => {
+test("the row estimator gives a preview-only thread its newest message's height, shut or opened", async () => {
   const { layoutConversation } = await import("../model");
-  // A preview long enough to wrap, so the opened panel is several lines taller than the line.
+  // A preview long enough to wrap, so the card under the line is several lines taller than a short one's.
   const long = Array.from({ length: 12 }, (_, index) => `Step ${index + 1} of the landing report is done.`).join(" ");
-  const thread = (threadId: string, from: string, promptId: string) => ({
+  const thread = (threadId: string, from: string, promptId: string, preview: string) => ({
     threadId,
     label: "",
     from: [from],
     count: 1,
-    preview: long,
+    preview,
     blocker: false,
     promptIds: [promptId],
   });
-  const notice: AcpmuxRow = {
-    id: "notice-estimate",
+  const noticeOf = (id: string, preview: string): AcpmuxRow => ({
+    id,
     version: 1,
     at: 1,
     kind: "queuedMessage",
     text: "[inbox] New messages from other agents in 2 threads.",
     incoming: {
       kind: "inbox",
-      notice: { threads: [thread("from:lane-a/pr:9", "lane-a", "a1"), thread("from:lane-b/pr:10", "lane-b", "b1")] },
+      notice: {
+        threads: [
+          thread("from:lane-a/pr:9", "lane-a", "a1", preview),
+          thread("from:lane-b/pr:10", "lane-b", "b1", preview),
+        ],
+      },
     },
-    queuedMessage: { promptId: "notice-estimate" },
-  };
-  const group = pendingMessagesRow([], [notice])!;
-  const height = () => layoutConversation([group], 720, new Map()).heights[0]!;
-  // The group open with its threads' lines shut: the height an opened thread must exceed.
+    queuedMessage: { promptId: id },
+  });
+  const height = (group: AcpmuxRow) => layoutConversation([group], 720, new Map()).heights[0]!;
+  const short = pendingMessagesRow([], [noticeOf("notice-short", "done")])!;
+  const group = pendingMessagesRow([], [noticeOf("notice-estimate", long)])!;
+  setMessageOpened(undefined, short.id, true);
   setMessageOpened(undefined, group.id, true);
-  const shutLines = height();
-  setMessageOpened(undefined, group.id, false);
-  const container = await render(
-    <PendingMessagesCard
-      row={group}
-      onOpen={() => undefined}
-      renderMessage={(row) =>
-        row.inboxThread ? (
-          <InboxNoticeCard
-            rowId={row.id}
-            notice={{
-              threads: [
-                {
-                  threadId: row.inboxThread.threadId,
-                  label: row.inboxThread.label ?? "",
-                  from: [row.inboxThread.sender],
-                  count: row.inboxThread.count,
-                  preview: row.inboxThread.preview,
-                  blocker: false,
-                  promptIds: [...row.inboxThread.promptIds],
-                },
-              ],
-            }}
-            onOpen={() => undefined}
-          />
-        ) : null
-      }
-    />,
-  );
-  const head = container.querySelector<HTMLButtonElement>(".cv-pending__toggle")!;
-  await act(async () => head.click());
   try {
-    // Both threads opened by the head: each adds its panel's lines to the estimate.
-    expect(height()).toBeGreaterThan(shutLines + 2 * 40);
+    // Shut, each thread's card holds its newest message whole: two long ones are taller than two
+    // one-line ones by their wrapped lines.
+    const shut = height(group);
+    expect(shut).toBeGreaterThan(height(short) + 2 * 40);
+    // Opened (the digest's head opens every thread), a thread of one message adds nothing: its card
+    // held the message already.
+    setDigestOpened(
+      undefined,
+      group.id,
+      (group.pendingMessages?.displayRows ?? []).map((row) => inboxThreadKey(row.id, row.inboxThread!.threadId)),
+      true,
+    );
+    expect(height(group)).toBe(shut);
   } finally {
-    await act(async () => head.click());
+    setDigestOpened(
+      undefined,
+      group.id,
+      (group.pendingMessages?.displayRows ?? []).map((row) => inboxThreadKey(row.id, row.inboxThread!.threadId)),
+      false,
+    );
+    setMessageOpened(undefined, short.id, false);
   }
 });
