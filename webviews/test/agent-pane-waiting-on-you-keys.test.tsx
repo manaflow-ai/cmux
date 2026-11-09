@@ -219,13 +219,13 @@ test("a question is answered in its chat; on a pull request Deny asks for the ch
 test("another machine's pull request offers no verdict here and keeps its row", async () => {
   const peer = { ...items[2]!, id: "pr:peer", host: "studio" };
   const { calls } = await render(async () => ({ items: [peer], now: 10 }));
-  expect(host.querySelector("#wq-row-pr_peer .wq-button")).toBeNull();
-  expect(host.querySelector("#wq-row-pr_peer .wq-answers")?.textContent).toBe(
+  expect(host.querySelector("#wq-row-pr_peer_studio_s3 .wq-button")).toBeNull();
+  expect(host.querySelector("#wq-row-pr_peer_studio_s3 .wq-answers")?.textContent).toBe(
     translate("waiting.answerThere", { host: "studio" }),
   );
   await shortcut("AllowOnce");
   expect(calls.verdicts).toEqual([]);
-  expect(host.querySelector("#wq-row-pr_peer")?.hasAttribute("data-leaving")).toBe(false);
+  expect(host.querySelector("#wq-row-pr_peer_studio_s3")?.hasAttribute("data-leaving")).toBe(false);
 });
 
 test("a refused Request changes brings its box back with what was typed", async () => {
