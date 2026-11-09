@@ -1,6 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 public import Observation
 import os
 
@@ -460,8 +460,14 @@ public final class DaemonStore: StateResourceQueries {
     private(set) var parkedBeforeDisconnect = false
     /// Connections the store applied (``DaemonConnectionChange/connected(_:_:)``).
     public private(set) var connects = 0
+    /// The last connection the store applied: its connection and serial (``DaemonEventEnvelope``).
+    private(set) var connectedSerial: (source: UUID, serial: UInt64)?
 
-    public func noteRetriesSpent(_ spent: Bool) {
+    /// `source` and `serial`: the connection and attempt that parked. A park from an attempt older
+    /// than the last connection applied is stale (the link recovered before the delivery landed)
+    /// and changes nothing, so it never marks the next disconnect offline.
+    public func noteRetriesSpent(_ spent: Bool, source: UUID? = nil, serial: UInt64? = nil) {
+        if spent, let source, let serial, let last = connectedSerial, last.source == source, last.serial > serial { return }
         if spent, case .connected = connectionState {
             parkedBeforeDisconnect = true
             return
@@ -477,8 +483,9 @@ public final class DaemonStore: StateResourceQueries {
         noteRetriesSpent(true)
     }
 
-    func noteConnected() {
+    func noteConnected(_ envelope: DaemonEventEnvelope? = nil) {
         connects += 1
+        connectedSerial = envelope.flatMap { envelope in envelope.sourceID.map { ($0, envelope.connectionSerial) } }
         noteRetriesSpent(false)
     }
 
