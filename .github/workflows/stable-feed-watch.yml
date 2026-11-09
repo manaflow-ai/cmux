@@ -26,7 +26,7 @@ concurrency:
 jobs:
   watch:
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
