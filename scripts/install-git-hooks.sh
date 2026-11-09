@@ -164,6 +164,8 @@ install -m 0644 scripts/cmux-next/prepush-gate.py "$TRUSTED_HOOK_DIR/cmux_next_p
 install -m 0644 scripts/git-hooks/refresh_checks.py "$TRUSTED_HOOK_DIR/refresh_checks.py"
 # The gate loads its git helper from its own folder (guardrails.py loads the snapshot's copy below).
 install -m 0644 scripts/cmux-next/git_batch.py "$TRUSTED_HOOK_DIR/git_batch.py"
+# ...and its lint-tool download fallback (shared with scripts/ci/base_red_excuse.py, which runs from scripts/ci alone).
+install -m 0644 scripts/ci/github_release_download.py "$TRUSTED_HOOK_DIR/github_release_download.py"
 install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_warning.py"
 # The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another
 # worktree can run while this installs, so each install writes a new versioned copy and points the

@@ -290,6 +290,7 @@ impl Hub {
                     trust_gate,
                     reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
+                    asked: opts.provenance.clone(),
                 },
             };
             now.sent.insert(prompt_id.clone(), sent);
@@ -379,6 +380,8 @@ impl Hub {
             Some(&held as &(dyn Fn() -> bool + Send + Sync)),
             || {
                 written.notify_one();
+                // A question it carries is answered by this turn (`question_replies.rs`).
+                self.question_reply_in_turn(session, &prompt_id, turn_id);
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
                 }

@@ -55,6 +55,7 @@ extension SidebarListViewComponents {
     private func rebuildRowCaches() {
         workspaces = [:]
         groups = [:]
+        var ordered: [SidebarGroup] = []
         groupSubtrees = [:]
         sections = [:]
         listItems = [:]
@@ -65,6 +66,7 @@ extension SidebarListViewComponents {
                 switch node {
                 case let .workspace(ws): workspaces[ws.id] = ws
                 case let .group(group):
+                    if groups[group.id] == nil { ordered.append(group) }
                     groups[group.id] = group
                     if groupSubtrees[group.id] == nil { groupSubtrees[group.id] = [group.id] }
                     var ancestor = group.parent, seen: Set<GroupID> = [group.id]
@@ -79,6 +81,9 @@ extension SidebarListViewComponents {
                 }
             }
         }
+        let sections = DesignSettings.shared.sidebarSections
+        drawnTints = SidebarGroup.drawnTints(ordered, palette: sections.groupPalette, gradient: sections.groupGradient,
+                                             wallpaper: DesignSettings.shared.groupWallpaperTint?.bands ?? [])
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
@@ -90,7 +95,6 @@ extension SidebarListViewComponents {
             o.chatHistory = SidebarChatHistory.shared.state
         }
         o.excludedWorkspaces.formUnion(leaving)
-        (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         // A drag keeps the "Done (N)" rows folded, so its lift and its drop move no other row (ask-13d9bbd5e3): a drop
         // resolves by the drawn rows' model indexes, which a fold leaves as they are, and a drop gap at an index the
         // fold hides opens before the next drawn row (`SidebarLayout.gapEntry`). "Show N more" (off by default) still
@@ -480,7 +484,7 @@ extension SidebarListViewComponents {
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
             guard var group = groups[id] ?? model.group(id) else { return }
             // `sidebar.showColors` off: the header draws as a group with no color; its stored color stays.
-            if !model.showsColors { group.tint = .none }
+            if !model.showsColors { group.tint = .none } else if let drawn = drawnTints[id] { group.tint = drawn }
             var details = model.groupHeaderDetails
             details.otherStates = model.detailedStatus
             // A collapsed group holding subgroups shows their unread and loading too (nested-groups prototype):

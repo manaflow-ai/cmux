@@ -187,6 +187,11 @@ export default agentPaneEntry({
       note: "The lead chat, narrow: it starts a Codex review as a sub-session and posts progress replies while it runs.",
       snapshot: lead(false),
     },
+    "lead-running-hover": {
+      note: "The sub-session's line under the pointer: its name lights all the way through, as a tool row's words do (Leo, 2026-11-09).",
+      snapshot: lead(false),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-disclosure__open .cv-disclosure__label" }),
+    },
     "lead-finished": {
       note: "The lead chat once the review finished: its work folds, and the review stays in sight as one line that opens its report.",
       snapshot: lead(true),

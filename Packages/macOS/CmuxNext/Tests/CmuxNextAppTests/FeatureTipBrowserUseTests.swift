@@ -31,7 +31,7 @@ import Testing
     @Test func aLocalBrowserTabMarksTheBrowserUsed() throws {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "FeatureTipBrowserUseTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         let store = AgentPaneFeatureTipRecords(defaults: defaults)
         var notes = 0

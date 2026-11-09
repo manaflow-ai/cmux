@@ -621,6 +621,7 @@ impl ClientRegistry {
         self.browser_runtimes.disconnect(client);
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
             state.daemon_handoff = None;
+            state.daemon_handoff_restart = None;
         }
         let mut detached = false;
         for surface in record.attached.keys() {
@@ -706,5 +707,23 @@ impl ClientRegistry {
     /// Drop the attach epoch of a surface that no longer exists.
     pub(crate) fn forget_surface_attach_epoch(&self, surface: SurfaceId) {
         self.state.lock().recover_poison().attach_epochs.remove(&surface);
+    }
+}
+
+#[cfg(test)]
+impl ClientRegistry {
+    /// Tests outside `server`: a new local client with an attach stream on
+    /// `surface`. Returns the client id.
+    pub(crate) fn attach_test_stream(&self, surface: SurfaceId) -> u64 {
+        let writer = super::MessageWriter::new(super::QueuedSink {
+            outbound: Arc::new(super::BoundedOutbound::default()),
+            control: None,
+        });
+        let client = self.register(super::ClientTransport::Unix, writer.clone());
+        let stream = writer
+            .start_stream(&super::terminal_snapshot::attach_overflow_json(surface))
+            .expect("start the test attach stream");
+        self.attach_surface(client, surface, stream).expect("attach the test stream");
+        client
     }
 }

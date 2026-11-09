@@ -52,6 +52,8 @@ declare namespace Cmux {
   type ChiefRetryResult = { retried: boolean; reason?: string }
   type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
   type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string; restarted?: Array<string>; errors?: Array<string> }
+  type ClassicImportPlanResult = { ledger: "none" | "ledger" | "newer" | "unreadable" | "failed"; decision: Cmux.JsonValue | null; source: Cmux.JsonValue | null; backups: Array<string>; error: string | null; plan: Cmux.JsonValue | null; preview: Cmux.JsonValue | null }
+  type ClassicImportRecordResult = { state: "inProgress" | "completed" | null; runs: number; workspaces: number; changed: boolean }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
   type ClientToken = string
@@ -74,7 +76,7 @@ declare namespace Cmux {
   type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; hourly_rate_usd?: unknown | null; running_since?: number | null; desktop?: boolean; revision: Cmux.Revision }
   type CloudMachineSize = { cpu?: number; memory_mb?: number; disk_mb?: number }
   type CloudMachineStatus = "provisioning" | "starting" | "running" | "pausing" | "paused" | "deleting" | "failed"
-  type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown | null; period_end: number } }
+  type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown | null; vm_hours_used_by_you?: unknown | null; period_end: number } }
   type CloudSnapshot = { id: Cmux.SnapshotId; machine: Cmux.MachineId; name: string | null; size_mb: number; status: "creating" | "ready" | "deleting" | "failed"; created_at: number; revision: Cmux.Revision }
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
@@ -294,7 +296,7 @@ declare namespace Cmux {
   type MachineSnapshot = { id: string /* machine_… */; name: string; origin: "local" | "cloud" | "ssh" | "server"; status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable"; connectable: boolean; deleted: boolean; recoverable: boolean; extra?: Record<string, Cmux.JsonValue>; platform?: Cmux.MachinePlatform | null; capabilities?: Array<string> }
   type ManagedDevice = { install: Cmux.InstallId; user: string; via: "token" | "accept"; token: Cmux.EnrollmentTokenId | null; at: number }
   type MessageId = string
-  type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
+  type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd" | "cloud.machine_usd"
   type MovedAutomation = { id: Cmux.AutomationId; name: string; moved_to: string; moved_id: string; epoch: number; moved_at: number }
   type NativeDeviceId = string
   type NativeMeshId = string
@@ -1388,7 +1390,7 @@ interface CmuxGlobal {
   }
   screen: {
     /** `screen.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; argv?: Array<string>; shell?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; argv?: Array<string>; shell?: string; focus?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `screen.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
     /** `screen.get` (read, scope `workspace:read`) */
@@ -1697,7 +1699,7 @@ interface CmuxGlobal {
     /** `terminal.attach` (stream_open, scope `terminal:execute`) */
     attach: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; stream_id: string /* stream_… */; cols?: number; rows?: number; read_only?: boolean }, Cmux.ViewAttachmentStreamOpened>
     /** `terminal.copy` (read, scope `terminal:read`) */
-    copy: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; mode?: "screen" | "selection" | "scrollback" }, Cmux.TerminalCopyResult>
+    copy: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; mode?: "screen" | "selection" | "scrollback"; unwrap?: boolean }, Cmux.TerminalCopyResult>
     /** `terminal.get` (read, scope `terminal:read`) */
     get: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.TerminalSnapshot>
     history: {
@@ -1728,7 +1730,7 @@ interface CmuxGlobal {
     project: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; destination_workspace: unknown; destination_screen: unknown; destination_pane: unknown; index: number; name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
     screen: {
       /** `terminal.screen.read` (read, scope `terminal:read`) */
-      read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.TerminalScreenResult>
+      read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; unwrap?: boolean; lines?: number }, Cmux.TerminalScreenResult>
     }
     state: {
       /** `terminal.state.read` (read, scope `terminal:read`) */
@@ -1739,7 +1741,7 @@ interface CmuxGlobal {
       scroll: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; delta_rows: number; expected_revision?: string }, Cmux.MutationResult<Cmux.EmptyResult>>
     }
     /** `terminal.wait` (read, scope `terminal:read`) */
-    wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string }, Cmux.TerminalWaitResult>
+    wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string; new?: boolean }, Cmux.TerminalWaitResult>
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
   }

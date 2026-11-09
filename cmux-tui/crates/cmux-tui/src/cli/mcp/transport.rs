@@ -238,6 +238,7 @@ pub(super) fn session_events(
         stream: true,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     };
     if let Some(cursor) = cursor {
         plan.params.set("cursor", cursor.clone());

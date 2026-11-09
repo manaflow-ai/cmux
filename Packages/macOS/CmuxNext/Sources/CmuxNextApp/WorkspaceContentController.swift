@@ -21,9 +21,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let daemon: DaemonService
     let layoutModel = LayoutModel()
     // Built in init in this order (lazy because they hold self; no IUOs).
-    // A Command scroll over a Chromium page asks the page first (layout.pagesHandleCommandScroll).
+    // A Command scroll over a Chromium page asks the page first (layout.pagesHandleCommandScroll); hidden screens mount at idle.
     private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self,
-                                                      pageCommandScroll: services.cache.cef)
+                                                      pageCommandScroll: services.cache.cef, hiddenScreens: FrameBatchQueue(owner: "HiddenScreens", budgeted: .background, on: services.mainWork))
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?

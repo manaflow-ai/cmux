@@ -24,7 +24,8 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
 
     /// `avatar` is drawn in the current-profile row's image column. `chiefPetShown` (the
     /// `home.chiefPetEnabled` that applies now) adds Show Chief or Hide Chief above Settings; nil
-    /// leaves the row out.
+    /// leaves the row out. Personalization… follows it (Leo 2026-11-07: the profile menu's fast
+    /// path to the look of the app).
     public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, chiefPetShown: Bool? = nil,
                      spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
         let menu = NSMenu()
@@ -44,6 +45,7 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             menu.addItem(item)
         }
         if let chiefPetShown, let chief = chiefPetRow(shown: chiefPetShown) { menu.addItem(chief) }
+        if let personalization = row(spec.personalization) { menu.addItem(personalization) }
         if let settings = row(spec.settings) { menu.addItem(settings) }
         if let updates = row(spec.updates) { menu.addItem(updates) }
         spec.account.compactMap(row).forEach(menu.addItem)
@@ -56,10 +58,11 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         return menu
     }
 
-    /// The account rows: signed in (`who` is the name, then the email), who it is (not a command)
-    /// and the team (its row opens the team picker) on top and Sign Out at the end; signed out
-    /// (`who` nil), Sign In at the end.
-    public func addAccountRows(to menu: NSMenu, who: [String]?, team: String?) {
+    /// The account rows: signed in (`who` is the name, then the email), who it is (not a command,
+    /// its first line drawing `avatar`, the person's picture or initials) and the team (its row
+    /// opens the team picker) on top and Sign Out at the end; signed out (`who` nil), Sign In at
+    /// the end.
+    public func addAccountRows(to menu: NSMenu, who: [String]?, team: String?, avatar: NSImage? = nil) {
         defer { Self.keepOneTextColumn(menu) }
         let auth: ActionID = who == nil ? "palette.auth.signIn" : "palette.auth.signOut"
         if let item = registry.makeMenuItem(for: auth) {
@@ -74,9 +77,13 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             item.image = Self.symbol("person.2", label: team)
             menu.insertItem(item, at: 0)
         }
-        for line in who.reversed() {
+        for (index, line) in who.enumerated().reversed() {
             let header = NSMenuItem(title: line, action: nil, keyEquivalent: "")
             header.isEnabled = false
+            if index == 0 {
+                header.image = avatar
+                header.identifier = NSUserInterfaceItemIdentifier("profileMenu.person")
+            }
             menu.insertItem(header, at: 0)
         }
     }

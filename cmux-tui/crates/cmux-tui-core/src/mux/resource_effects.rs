@@ -339,6 +339,21 @@ impl Mux {
         )
     }
 
+    /// Records why a resource effect's outcome is unknown. A
+    /// `mutation.indeterminate` response carries no cause, so this log line is
+    /// the only evidence of it. `cause` must not hold raw transport text that
+    /// can name private sockets or credentials.
+    pub(crate) fn report_resource_effect_indeterminate(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        cause: &str,
+    ) {
+        self.report_internal_diagnostic(format!(
+            "resource effect {operation} (idempotency key {idempotency_key}) is indeterminate: {cause}"
+        ));
+    }
+
     #[track_caller]
     pub(crate) fn mark_resource_effect_indeterminate(
         &self,

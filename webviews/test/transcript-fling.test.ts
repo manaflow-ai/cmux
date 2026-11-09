@@ -185,6 +185,52 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     expect(settledMounted).toBeLessThan(movingMounted);
     await page.close();
   });
+  // Leo, 2026-11-08: scrolling up and down quickly shows "hard cutoffs where there's no text at
+  // all for a brief second". Each reversal moves the view back over rows it just passed.
+  test("quick up-and-down scrolling keeps every painted viewport covered", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+      await page.waitForFunction(() => "__debug" in window);
+      await page.evaluate(`window.__debug.seedRows(3000)`);
+      await page.locator(".acpmux-scroll").hover();
+      await page.mouse.wheel(0, -100);
+      await page.evaluate(async () => {
+        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        node.scrollTop = (node.scrollHeight - node.clientHeight) / 2;
+        for (let frame = 0; frame < 12; frame += 1) await window.cmuxPaintFrame();
+      });
+      await page.evaluate(startScrollCoverage, { timeoutMs: 20_000 });
+      // A trackpad shaken up and down: half to one and a half viewports a frame, turning every
+      // few frames, each burst a little longer than the last.
+      const steps = await page.evaluate(async () => {
+        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const sizes = [0.5, 0.9, 1.3, 1.5, 1.1, 0.7];
+        let moved = 0;
+        for (let turn = 0; turn < 16; turn += 1) {
+          const sign = turn % 2 === 0 ? 1 : -1;
+          for (let frame = 0; frame < 4 + (turn % 3); frame += 1) {
+            const by = sizes[(turn + frame) % sizes.length]! * node.clientHeight * sign;
+            await window.cmuxPaintFrame(() => {
+              node.scrollTop += by;
+            });
+            moved += 1;
+          }
+        }
+        await window.cmuxPaintFrame();
+        return moved;
+      });
+      const result = await page.evaluate(() => window.__stopScrollCoverage!());
+      console.log(`transcript-reversal: ${JSON.stringify({ steps, ...result })}`);
+      expect(result.timed_out).toBe(false);
+      expect(result.frames).toBeGreaterThan(30);
+      expect(result.blank_frames).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
   for (const input of ["motion", "wheel"] as const) {
     test(`${input}: first movement from rest keeps every painted viewport covered`, async () => {
       const { port } = vite!.httpServer!.address() as { port: number };

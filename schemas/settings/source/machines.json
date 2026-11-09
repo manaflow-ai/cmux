@@ -569,6 +569,36 @@
             "background",
             "device hub"
           ]
+        },
+        {
+          "key": "remote.ultraMode",
+          "name": "ultraMode",
+          "note": "Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra_mode): on, cmux-wg tunnels this Mac starts use UltraMode::SETTING (rs:4:4); CMUX_WG_ULTRA still wins.",
+          "title": {
+            "key": "settings.remote.ultraMode",
+            "text": "Ultra Connection Mode"
+          },
+          "help": {
+            "key": "settings.remote.ultraMode.help",
+            "text": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."
+          },
+          "summary": {
+            "key": "settings.remote.ultraMode.summary",
+            "text": "Uses more data to stay fast on lossy networks"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "ultra",
+            "lossy",
+            "packet loss",
+            "bandwidth",
+            "data",
+            "wireguard",
+            "cloud",
+            "latency",
+            "fec"
+          ]
         }
       ]
     },

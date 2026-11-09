@@ -65,6 +65,8 @@ pub static PANE_FOCUS_ALIASES: &[Binding] = &[
 pub static FOCUS_HISTORY_ALIASES: &[Binding] = &[
     Binding { keys: &[Shortcut { key: "[", modifiers: CMD }], command: "focusHistoryBack", argument: None, arguments: &[], when: Some("surfaceKind != page && !codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "]", modifiers: CMD }], command: "focusHistoryForward", argument: None, arguments: &[], when: Some("surfaceKind != page && !codeEditorFocused"), source: "default" },
+    Binding { keys: &[Shortcut { key: "-", modifiers: CTRL }], command: "focusHistoryBack", argument: None, arguments: &[], when: Some("surfaceKind != terminal"), source: "default" },
+    Binding { keys: &[Shortcut { key: "-", modifiers: CTRL | SHIFT }], command: "focusHistoryForward", argument: None, arguments: &[], when: Some("surfaceKind != terminal"), source: "default" },
 ];
 
 #[rustfmt::skip]
@@ -74,6 +76,8 @@ pub static ZOOM_ALIASES: &[Binding] = &[
 
 #[rustfmt::skip]
 pub static SPACE_ALIASES: &[Binding] = &[
+    Binding { keys: &[Shortcut { key: "\u{f702}", modifiers: CTRL | OPT | CMD }], command: "space.previous", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
+    Binding { keys: &[Shortcut { key: "\u{f703}", modifiers: CTRL | OPT | CMD }], command: "space.next", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "[", modifiers: OPT | CMD }], command: "space.previous", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "]", modifiers: OPT | CMD }], command: "space.next", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "1", modifiers: CTRL | OPT | CMD }], command: "space.selectByNumber", argument: Some("1"), arguments: &[], when: None, source: "default" },
@@ -147,8 +151,6 @@ pub static YIELDS_TO_CODE_EDITOR: &[&str] = &[
 ];
 pub static YIELDS_TO_TERMINAL: &[&str] = &[
     "decreaseWorkspaceTerminalFontSize",
-    "focusHistoryBack",
-    "focusHistoryForward",
     "groupSelectedWorkspaces",
     "increaseWorkspaceTerminalFontSize",
     "resetWorkspaceTerminalFontSize",

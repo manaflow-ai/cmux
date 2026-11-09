@@ -18,15 +18,20 @@ struct CloudAPIClientProvisionAPITests {
             guard let url = request.url else { return }
             let body = Self.body(of: request).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             Self.seen.append((request.httpMethod ?? "", url.path, body))
-            let key = #"{"id":"key-1","publicationId":"pub-1","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":null}"#
+            let key = #"{"id":"key-1","publicationId":"vm_abc:3000","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":null}"#
+            let publication = #"{"id":"vm_abc:3000","hostname":"p3000-abc.preview.test","url":"https://p3000-abc.preview.test","domainKind":"managed","vmId":"vm_abc","port":3000,"targetPort":3000,"protocol":"https","accessMode":"personal","teamId":"team-1","state":"active"}"#
             let answer: String
             switch (request.httpMethod ?? "", url.path) {
-            case ("POST", "/api/vm/apis"):
-                answer = #"{"url":"https://hello--owner--3000.cmux.sh","publication":{"id":"pub-1","hostname":"hello--owner--3000.cmux.sh","url":"https://hello--owner--3000.cmux.sh","vmId":"vm-1","port":3000,"accessMode":"personal","state":"active"},"apiKey":\#(key),"token":"cmux_api_secret","cookieName":"__Host-cmux-api-key","cookie":"__Host-cmux-api-key=cmux_api_secret"}"#
+            case ("POST", "/v1/cloud/machines/vm_abc/previews/3000/api-keys"):
+                answer = #"{"url":"https://p3000-abc.preview.test","publication":\#(publication),"apiKey":\#(key),"token":"k1.secret","cookieName":"__Host-cmux-preview","cookie":"__Host-cmux-preview=k1.secret"}"#
+            case ("GET", "/v1/cloud/previews"):
+                answer = #"{"previews":[\#(publication)]}"#
+            case ("GET", "/v1/cloud/domains"):
+                answer = #"{"domains":[{"id":"preview.test","hostname":"preview.test","kind":"managed","verificationState":"verified","certificateState":"managed","publications":[]}]}"#
             case ("GET", _):
                 answer = #"{"apiKeys":[\#(key)]}"#
             default:
-                answer = #"{"apiKey":{"id":"key-1","publicationId":"pub-1","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":"2026-10-26T12:05:00.000Z"}}"#
+                answer = #"{"apiKey":{"id":"key-1","publicationId":"vm_abc:3000","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":"2026-10-26T12:05:00.000Z"}}"#
             }
             guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
                                                  headerFields: ["Content-Type": "application/json"]) else { return }
@@ -54,56 +59,78 @@ struct CloudAPIClientProvisionAPITests {
         }
     }
 
-    private func api() -> CloudAPIClient {
-        let configuration = CloudConfiguration.resolve(
-            bundleID: nil,
-            bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
-            process: [:],
-            isDebugBuild: true
-        )
+    private func session() -> URLSession {
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [APIRoutes.self]
-        return CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
-                              session: URLSession(configuration: sessionConfiguration))
+        return URLSession(configuration: sessionConfiguration)
+    }
+
+    /// The app's preview client (CloudService.previewAPI): the person's session at the platform origin.
+    private func api() throws -> CloudAPIClient {
+        CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")), accessToken: { "access" },
+                                      teamID: { "team-1" }, session: session())
+            .previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
     }
 
     @Test func provisionPublishesThePortAndAnswersTheURLAndKeyOnce() async throws {
         APIRoutes.seen = []
-        let provisioned = try await api().provisionAPI(machineID: "vm-1", port: 3000, keyName: "agent")
+        let provisioned = try await api().provisionAPI(machineID: "vm_abc", port: 3000, keyName: "agent")
         #expect(APIRoutes.seen.map(\.method) == ["POST"])
-        #expect(APIRoutes.seen.map(\.path) == ["/api/vm/apis"])
+        #expect(APIRoutes.seen.map(\.path) == ["/v1/cloud/machines/vm_abc/previews/3000/api-keys"])
         let body = try #require(APIRoutes.seen.first?.body)
-        #expect(body["vmId"] as? String == "vm-1")
-        #expect(body["port"] as? Int == 3000)
         #expect(body["name"] as? String == "agent")
-        #expect(body["accessMode"] == nil)
+        #expect(body.count == 1)
 
-        let fields = CloudHandlers.machineFields("vm-1", provisioned.actionFields.mapValues(ActionResultValue.string))
-        #expect(fields["url"] == .string("https://hello--owner--3000.cmux.sh"))
-        #expect(fields["key"] == .string("cmux_api_secret"))
-        #expect(fields["cookie"] == .string("__Host-cmux-api-key=cmux_api_secret"))
+        let fields = CloudHandlers.machineFields("vm_abc", provisioned.actionFields.mapValues(ActionResultValue.string))
+        #expect(fields["url"] == .string("https://p3000-abc.preview.test"))
+        #expect(fields["key"] == .string("k1.secret"))
+        #expect(fields["cookie"] == .string("__Host-cmux-preview=k1.secret"))
         #expect(fields["api_key_id"] == .string("key-1"))
-        #expect(fields["publication_id"] == .string("pub-1"))
+        #expect(fields["publication_id"] == .string("vm_abc:3000"))
         #expect(fields["access"] == .string("personal"))
-        #expect(fields["target"] == .string("machine:vm-1"))
+        #expect(fields["target"] == .string("machine:vm_abc"))
         // The person's sheet carries the same URL, key and a working request.
         let text = CloudStrings.provisionedAPI(url: provisioned.url, key: provisioned.token, cookie: provisioned.cookie)
-        #expect(text.contains("curl -H 'Cookie: __Host-cmux-api-key=cmux_api_secret' https://hello--owner--3000.cmux.sh"))
+        #expect(text.contains("curl -H 'Cookie: __Host-cmux-preview=k1.secret' https://p3000-abc.preview.test"))
     }
 
-    @Test func listAndRevokeAddressThePublicationAndKey() async throws {
+    @Test func listAndRevokeFindThePublicationsMachinePortByIDOrHostname() async throws {
         APIRoutes.seen = []
-        let api = api()
-        let keys = try await api.listPublicationAPIKeys("hello--owner--3000.cmux.sh")
+        let api = try api()
+        let keys = try await api.listPublicationAPIKeys("p3000-abc.preview.test")
         #expect(keys.map(\.id) == ["key-1"])
         #expect(keys.first?.hint == "wxyz")
-        let revoked = try await api.revokePublicationAPIKey("pub-1", keyID: "key-1")
+        let revoked = try await api.revokePublicationAPIKey("vm_abc:3000", keyID: "key-1")
         #expect(revoked.revokedAt == "2026-10-26T12:05:00.000Z")
-        #expect(APIRoutes.seen.map(\.method) == ["GET", "DELETE"])
+        #expect(APIRoutes.seen.map(\.method) == ["GET", "GET", "GET", "DELETE"])
         #expect(APIRoutes.seen.map(\.path) == [
-            "/api/vm/publications/hello--owner--3000.cmux.sh/api-keys",
-            "/api/vm/publications/pub-1/api-keys/key-1",
+            "/v1/cloud/previews", "/v1/cloud/machines/vm_abc/previews/3000/api-keys",
+            "/v1/cloud/previews", "/v1/cloud/machines/vm_abc/previews/3000/api-keys/key-1",
         ])
+        await #expect(throws: CloudAPIError.self) { try await api.listPublicationAPIKeys("vm_other:80") }
+    }
+
+    @Test func domainsAndPublicationsComeFromThePlatform() async throws {
+        APIRoutes.seen = []
+        let api = try api()
+        #expect(try await api.listDomains().map(\.hostname) == ["preview.test"])
+        let publications = try await api.listPublications()
+        #expect(publications.map(\.id) == ["vm_abc:3000"])
+        #expect(publications.first?.accessMode == "personal")
+        #expect(APIRoutes.seen.map(\.path) == ["/v1/cloud/domains", "/v1/cloud/previews"])
+    }
+
+    /// No platform preview origin: the classic client refuses and sends nothing to classic Cloud.
+    @Test func aClassicClientSendsNothing() async throws {
+        APIRoutes.seen = []
+        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
+                                                       process: [:], isDebugBuild: true)
+        let classic = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" }, session: session())
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
+            try await classic.listPublications()
+        }
+        await #expect(throws: CloudAPIError.self) { try await classic.provisionAPI(machineID: "vm_abc", port: 3000) }
+        #expect(APIRoutes.seen.isEmpty)
     }
 
     @Test func theActionsAreCatalogedForTheCLIAndAgents() throws {

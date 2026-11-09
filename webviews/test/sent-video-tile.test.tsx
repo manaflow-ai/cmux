@@ -227,6 +227,15 @@ try {
     const view = shown();
     expect(view.tile).toBeNull();
     expect(view.files.join("")).toContain("screen-demo.mp4");
+    // Its frames are what make it a tile: the same chip with one is one.
+    const { sentVideosOf } = await import("../src/agent-session/acpmux/conversation/sentVideos");
+    expect(sentVideosOf({ text: "look", retryAttachments: [chip] })).toEqual([]);
+    expect(
+      sentVideosOf({
+        text: "look",
+        retryAttachments: [{ ...chip, video: { ...chip.video, frames: [{ atMs: 2_000, data: "AA==" }] } }],
+      }),
+    ).toHaveLength(1);
   });
 
   test("a person's own line that only reads like a note, with no frame or link, draws no tile", async () => {
@@ -378,6 +387,31 @@ try {
     } finally {
       proto.play = original;
     }
+  });
+  // Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop up anymore :(". In a
+  // chat on another machine the host granted no stream and Quick Look refused too, and the click
+  // did nothing at all. When nothing can play it, the tile says so.
+  test("a video nothing can play says so on the tile instead of a click that does nothing", async () => {
+    const path = "/home/dev/project/remote-demo.mp4";
+    await grantedVideo("user-9", path, "unused");
+    const refusal = { ok: false, error: { code: "media_refused", message: "refused" } };
+    setChipHost(async (method, params) => {
+      calls.push({ method, params });
+      return method === "media.load" || method === "video.quickLook" ? refusal : null;
+    });
+    calls.length = 0;
+    const tile = host.querySelector<HTMLElement>(".cv-user__video")!;
+    expect(tile.querySelector(".cv-user__video-unplayable")).toBeNull();
+    await act(async () => tile.click());
+    await settle();
+    expect(calls.map((call) => call.method)).toEqual(["media.load", "video.quickLook"]);
+    const note = host.querySelector(".cv-user__video .cv-user__video-unplayable");
+    expect(note?.textContent).toBe("Can't play this video here");
+    // The tile stays, and a later click asks again.
+    calls.length = 0;
+    await act(async () => host.querySelector<HTMLElement>(".cv-user__video")!.click());
+    await settle();
+    expect(calls.map((call) => call.method)).toEqual(["media.load", "video.quickLook"]);
   });
 } finally {
   afterAll(() => {

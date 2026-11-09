@@ -28,6 +28,9 @@ final class SidebarListView: NSView {
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
+    /// What placed groups draw in under the gradient palette (`SidebarGroup.drawnTints`), set with `groups`; empty
+    /// under every other palette. A header and its line draw this instead of the group's own tint.
+    var drawnTints: [GroupID: GroupTint] = [:]
     /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
     /// after its parent, not inside it, so a parent's card reads its members through this.
     var groupSubtrees: [GroupID: [GroupID]] = [:]
@@ -130,10 +133,16 @@ final class SidebarListView: NSView {
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
-    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): view state, kept for this list only.
-    var openDoneFolds: Set<SidebarDoneFoldID> = []
-    /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
-    var openShowMore: Set<SidebarDoneFoldID> = []
+    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): kept on the model, which numbers what they show.
+    var openDoneFolds: Set<SidebarDoneFoldID> {
+        get { model.openDoneFolds }
+        set { model.openDoneFolds = newValue }
+    }
+    /// The lists whose "Show N more" row the person opened: kept on the model, as `openDoneFolds`.
+    var openShowMore: Set<SidebarDoneFoldID> {
+        get { model.openShowMore }
+        set { model.openShowMore = newValue }
+    }
     /// The brief highlight Reveal Workspace in Sidebar draws over the row it revealed (`SidebarListView+RevealInSidebar`).
     var revealFlash: SidebarRevealFlash?
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
@@ -141,7 +150,17 @@ final class SidebarListView: NSView {
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
     let groupEditor = SidebarGroupEditor()
     var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
-    var onGroupEditorItem: ((GroupID, String) -> Void)?
+    /// Runs a group editor row's action; a group header's + and Unpin and the empty group's + exist only with it.
+    /// Live rows take a new one at once (as `contextMenuProvider` does): the rows wire it on dequeue, and a row
+    /// realized before it was set would keep no + (its header lays the + out on its next layout).
+    var onGroupEditorItem: ((GroupID, String) -> Void)? {
+        didSet {
+            for (key, view) in rowViews {
+                wire(view, key: key)
+                view.needsLayout = true
+            }
+        }
+    }
     /// The group editor's Sort menu for a group: the App's `workspaceGroup.setSort` choices, the group's sort checked.
     var groupSortMenu: ((GroupID) -> NSMenu?)?
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
@@ -197,6 +216,9 @@ final class SidebarListView: NSView {
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// Makes a row of a workspace's drive indicator menu from a registered action (filled by the App;
+    /// ``SidebarView/driveMenuItem``). Nil, or nil for a row, leaves the row out.
+    var driveMenuItem: ((WorkspaceID, SidebarDriveCommand, String) -> NSMenuItem?)?
     /// Opens a menu a row's button asked for at `anchor` (the button's frame in `view`):
     /// under the button, on the anchor's edge. Tests inject a recorder (popUp tracks modally).
     var menuPresenter: (NSMenu, PopupAnchor, NSView) -> Void = { menu, anchor, view in
@@ -236,6 +258,7 @@ final class SidebarListView: NSView {
                 }
             })
         }
+        BackdropImageStore.shared.desktop.follow(self)
         // A favicon arrived: the link rows draw it (one configure per realized link row).
         faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main

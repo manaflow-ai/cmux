@@ -232,12 +232,12 @@ sleep "$WAIT_SECONDS"; seed; seed_worked_turn; sleep "$WAIT_SECONDS"; still 01-m
 still 02-agent-chat-tools-footer
 call debug.agent_pane '{"action":"open_changes"}'
 sleep 1; still 03-diff-viewer
-surface 04-inbox feed.show; surface 05-sidebar toggleSidebar
+surface 04-inbox switchRightSidebarToFeed; surface 05-sidebar toggleSidebar
 surface 06-settings openSettings
 record_id="cmux-next-showcase-$CAPTURE_DATE-$TAG"; cua record-start "$HOST" --id "$record_id" --cursor --clicks
 remote "open -n $(printf '%q' "$APP_PATH") --env CMUX_NEXT_SHOWCASE=1 --env CMUX_TAG=$(printf '%q' "$TAG") --env CMUX_NEXT_SOCKET_MODE=automation --args --showcase"; sleep "$WAIT_SECONDS"
 cua state "$HOST" "$TARGET" --out "$REEL_ROOT/01-launch" --quiet; seed; seed_worked_turn; sleep 1; cua state "$HOST" "$TARGET" --out "$REEL_ROOT/02-rail" --quiet
-seed; seed_worked_turn; cua state "$HOST" "$TARGET" --out "$REEL_ROOT/03-worked-turn" --quiet; socket_action feed.show
+seed; seed_worked_turn; cua state "$HOST" "$TARGET" --out "$REEL_ROOT/03-worked-turn" --quiet; socket_action switchRightSidebarToFeed
 cua state "$HOST" "$TARGET" --out "$REEL_ROOT/04-inbox" --quiet; cua record-end "$HOST" "$record_id" --out "$REEL_ROOT"; [[ -s "$REEL_ROOT/recording.mov" && -s "$REEL_ROOT/meta.json" && -s "$REEL_ROOT/events.jsonl" ]] || die "recording metadata missing"
 python3 - "$OUT_ROOT/captures/manifest.json" "$CAPTURE_DATE" "$ARCHIVE" "$TAG" "${REF:-}" "$HOST" "$REMOTE_BACKDROP_PATH" "$BACKDROP_SHA256" "$BACKDROP_ENTRY_JSON" "$wallpaper_readback" <<'PY'
 import json,pathlib,sys
