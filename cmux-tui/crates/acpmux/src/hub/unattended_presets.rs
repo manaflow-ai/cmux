@@ -134,7 +134,10 @@ impl Hub {
                 "description": preset.description,
             });
             self.append(&s, "mux", "preset_approval_request", card);
-            log("asked", json!({"preset": name, "digest": preset.approval_digest(), "host": host, "caller": s.id}));
+            log(
+                "asked",
+                json!({"preset": name, "digest": preset.approval_digest(), "host": host, "caller": s.id}),
+            );
             return Err(RpcError::new(
                 -32000,
                 format!(
@@ -144,7 +147,10 @@ impl Hub {
             .with_data(json!({"reason": APPROVAL_REQUIRED, "preset": name, "host": host})));
         }
         if !preset.env.is_empty() || preset.shapes_command() {
-            log("refused", json!({"preset": name, "host": host, "caller": s.id, "why": "env, args or system prompt"}));
+            log(
+                "refused",
+                json!({"preset": name, "host": host, "caller": s.id, "why": "env, args or system prompt"}),
+            );
             return Err(RpcError::invalid_params(format!(
                 "preset {name} sets an env, args or a system prompt, which stay on this machine: a preset that starts unattended chats on {host} sets only harness, model, effort and policy"
             )));
