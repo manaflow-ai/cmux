@@ -186,11 +186,21 @@ export function EnvironmentPicker({
   // When the list last opened: which machines are unavailable is read then, so no row moves into or
   // out of the group while the list stays open.
   const [openedAt, setOpenedAt] = useState(() => Date.now());
+  const [listOpen, setListOpen] = useState(false);
   // Which list is open: This Mac and Cloud, or every machine (Machines… on the right-click menu).
   const [list, setList] = useState<"main" | "machines">("main");
   const trigger = useRef<HTMLButtonElement>(null);
   const escaped = useRef(false);
   const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  // The time is read in the render that opens the list, and its rows group by it in that same render,
+  // so a machine that crossed UNAVAILABLE_AFTER_MS while the list was closed is never drawn and then
+  // shrunk away (rowPresence.ts animates a row that leaves an open list).
+  const openingAt = open && !listOpen ? Date.now() : undefined;
+  if (open !== listOpen) {
+    setListOpen(open);
+    if (openingAt !== undefined) setOpenedAt(openingAt);
+  }
+  const groupedAt = openingAt ?? openedAt;
   const setOpen = (next: boolean) => {
     if (next && closeOnTrustAsk) return;
     setPopoverOpen(next);
@@ -424,7 +434,7 @@ export function EnvironmentPicker({
   const unavailableRow = (value: string) => {
     const environment = positions.get(value)?.environment;
     return (
-      environment !== undefined && !isCloudMachineRow(environment) && environmentUnavailable(environment, openedAt)
+      environment !== undefined && !isCloudMachineRow(environment) && environmentUnavailable(environment, groupedAt)
     );
   };
   const grouped = (rows: readonly string[], tail: readonly string[]) =>
@@ -508,9 +518,7 @@ export function EnvironmentPicker({
   const latest = useRef({ ordered, current: checkedRow, onPick, persistent });
   latest.current = { ordered, current: checkedRow, onPick, persistent };
   useMachineRefresh(open, onOpen);
-  useEffect(() => {
-    if (open) setOpenedAt(Date.now());
-  }, [open]);
+
   const close = () => {
     setOpen(false);
     reset();

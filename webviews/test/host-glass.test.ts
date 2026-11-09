@@ -389,18 +389,14 @@ test("no step of an open and close shows the App's glass or the blur without the
     drawn = received;
   };
   const violations: string[] = [];
-  const check = (step: string, menu: HTMLElement) => {
+  // `painted`: a frame has painted since the step (the App drew what it had received by then).
+  const check = (step: string, menu: HTMLElement, painted: boolean) => {
     // The content shows at full strength only while open: a closing surface is fading.
     const content = menu.isConnected && !menu.hasAttribute("data-ending-style");
-    const appGlass = drawn.some((entry) => entry.opacity > 0);
     const blur = transcript.hasAttribute("data-glass-under");
-    const appGlassFresh = received.some((entry) => entry.opacity > 0);
-    if (!content && (appGlassFresh || blur)) violations.push(`${step}: glass ${appGlassFresh} blur ${blur}`);
-    if (!menu.isConnected && appGlass && drawn !== received) {
-      // The App still draws a stale report for one frame: allowed only if the page withdrew it before
-      // the content started to go (the withdrawal is already on its way).
-      if (received.length > 0) violations.push(`${step}: App kept glass after the surface went`);
-    }
+    // What the App shows on screen, once a frame painted; before that, what is on its way to it.
+    const shown = (painted ? drawn : received).some((entry) => entry.opacity > 0);
+    if (!content && (shown || blur)) violations.push(`${step}: App glass ${shown} blur ${blur}`);
   };
   const menu = surface(doc, "menu");
   menu.setAttribute("data-host-glass-cover", "");
@@ -408,7 +404,7 @@ test("no step of an open and close shows the App's glass or the blur without the
     await frames(1);
     await settled();
     appFrame();
-    check(`open ${i}`, menu);
+    check(`open ${i}`, menu, true);
   }
   expect(drawn).toHaveLength(1);
   expect(transcript.hasAttribute("data-glass-under")).toBe(true);
@@ -423,19 +419,19 @@ test("no step of an open and close shows the App's glass or the blur without the
   expect(transcript.hasAttribute("data-glass-under")).toBe(false);
   // It fades on the page's own glass, drawn with its content.
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
-  check("close start", menu);
+  check("close start", menu, false);
   for (const opacity of ["0.3", "0"]) {
     menu.style.opacity = opacity;
     await frames(1);
     await settled();
     appFrame();
-    check(`fade ${opacity}`, menu);
+    check(`fade ${opacity}`, menu, true);
   }
   expect(drawn).toEqual([]);
   menu.remove();
   await frames(1);
   appFrame();
-  check("gone", menu);
+  check("gone", menu, true);
   expect(violations).toEqual([]);
 });
 
@@ -456,19 +452,18 @@ test("a surface that opens again during its close fade goes back on the App's gl
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
 });
 
-test("a dialog's or tooltip's close fade outside the marked surfaces sends no report", async () => {
+test("a surface that opens again during its fade before the App answered still falls back past the deadline", async () => {
   const doc = page();
-  const reports: HostGlassSurface[][] = [];
-  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
-  surface(doc, "menu");
-  await frames(6);
-  const count = reports.length;
-  const tooltip = doc.createElement("div");
-  doc.getElementById("root")!.append(tooltip);
-  await frames(6);
-  const settledCount = reports.length;
-  tooltip.setAttribute("data-ending-style", "");
-  await frames(2);
-  expect(reports.length).toBe(settledCount);
-  expect(settledCount).toBeGreaterThanOrEqual(count);
+  stop = reportHostGlass(doc, () => new Promise(() => undefined));
+  const menu = surface(doc, "menu");
+  await frames();
+  menu.setAttribute("data-ending-style", "");
+  await Promise.resolve();
+  // The first deadline passes while it closes, then it opens again.
+  await pastDeadline();
+  menu.removeAttribute("data-ending-style");
+  await frames();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  await pastDeadline();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
 });

@@ -1886,3 +1886,29 @@ test("a machine is unavailable once acpmux has not reached it for a while; one o
   expect(environmentUnavailable(machine({ kind: "cloud" }), now)).toBe(false);
   expect(environmentUnavailable({ id: "local", label: "Mac", kind: "local" }, now)).toBe(false);
 });
+
+test("a machine that crosses the unavailable time while the list is closed is grouped in the frame the list opens", async () => {
+  const { UNAVAILABLE_AFTER_MS } = await import("../src/agent-session/acpmux/environments");
+  const realNow = Date.now;
+  const start = realNow();
+  let now = start;
+  Date.now = () => now;
+  try {
+    await mount(true, {
+      peerConnected: { "gpu-box": false, "cloud-1": true },
+      peerStates: { "gpu-box": "reconnecting", "cloud-1": "connected" },
+      peerLinks: { "gpu-box": { link: "reconnecting", since: start - 1000 } },
+    });
+    await openMachines();
+    expect(unavailableRow()).toBeNull();
+    await press(doc().querySelector(".acpmux-env-popover input")!, { key: "Escape" });
+    now = start + UNAVAILABLE_AFTER_MS;
+    await openMachines();
+    // Grouped at once: no gpu-box row drawn and then shrunk away.
+    expect(unavailableRow()?.textContent).toBe(t("composer.envUnavailableGroup", { n: 1 }));
+    expect(machineRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).not.toContain("gpu-box");
+    expect(doc().querySelector(".acpmux-env-popover [data-row-motion]")).toBeNull();
+  } finally {
+    Date.now = realNow;
+  }
+});

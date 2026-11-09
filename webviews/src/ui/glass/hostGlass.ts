@@ -219,7 +219,13 @@ export function reportHostGlass(
   const closing = (element: Element) => {
     const ending = element.hasAttribute(HOST_GLASS_ENDING_ATTRIBUTE);
     if (ending) leaving.add(element);
-    else leaving.delete(element);
+    else if (leaving.delete(element) && live && !answered.has(element) && !timedOut.has(element)) {
+      // Opened again before the App answered: a deadline that passed while it closed skipped it, so
+      // it gets a new one (a slow App still never leaves it on no glass).
+      const timer = deadlines.get(element);
+      if (timer !== undefined) clearTimeout(timer);
+      arm(element, view.performance.now(), false);
+    }
     return ending;
   };
   const measure = (): string => {
