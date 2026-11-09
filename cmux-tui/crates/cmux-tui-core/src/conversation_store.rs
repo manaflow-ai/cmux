@@ -951,3 +951,28 @@ pub(crate) struct ConversationHost {
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }
+
+#[cfg(test)]
+mod launch_open_timing_diag {
+    #[test]
+    fn diag_store_open_timing_fresh_home() {
+        for round in 0..3 {
+            let dir = std::env::temp_dir().join(format!("cmux-open-timing-{}-{round}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let started = std::time::Instant::now();
+            let mut store = super::ConversationStore::open(Some(&dir)).unwrap();
+            let opened = started.elapsed();
+            let listed = std::time::Instant::now();
+            let _ = store.list().unwrap();
+            let list = listed.elapsed();
+            let chief = std::time::Instant::now();
+            let _chiefs = crate::chief_registry::ChiefStore::open(Some(&dir)).unwrap();
+            let chief = chief.elapsed();
+            let reopen = std::time::Instant::now();
+            drop(store);
+            let _again = super::ConversationStore::open(Some(&dir)).unwrap();
+            println!("DIAG round {round}: conversations open {opened:?}, list {list:?}, chief store open {chief:?}, reopen existing {:?}", reopen.elapsed());
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+}
