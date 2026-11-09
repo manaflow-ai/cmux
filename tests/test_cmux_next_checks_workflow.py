@@ -342,10 +342,12 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.repo), "rev-parse", ref], check=True, capture_output=True,
                               text=True).stdout.strip()
 
-    def run_step(self, path_prefix: Path | None = None) -> subprocess.CompletedProcess:
+    def run_step(self, path_prefix: Path | None = None, home: Path | None = None) -> subprocess.CompletedProcess:
         step = next(step for step in steps() if step.get("id") == "app-ffi-pin")
         env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
         env.update(EVENT_NAME="pull_request", GITHUB_SHA=self.merge, RUNNER_TEMP=str(self.runner_temp))
+        if home is not None:
+            env["HOME"] = str(home)
         if path_prefix is not None:
             env["PATH"] = f"{path_prefix}:{env.get('PATH', '/usr/bin:/bin')}"
         return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env, capture_output=True,
@@ -375,6 +377,26 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         (self.repo / "cmux-tui/crates/cmux-app-ffi/Cargo.toml").unlink()
         manifest = self.repo / "Packages/macOS/CmuxNext/Package.swift"
         manifest.write_text(manifest.read_text().replace(self.pinned, self.merge))
+        self.assert_own_stale_pin(self.run_step())
+
+    def planted_hook(self, directory: Path) -> None:
+        """A post-checkout hook that rewrites the extracted base check (beside the worktree it runs in)."""
+        directory.mkdir(parents=True, exist_ok=True)
+        hook = directory / "post-checkout"
+        hook.write_text("#!/bin/sh\nprintf '#!/usr/bin/env bash\\necho \"app FFI pin: sources match (planted)\"\\n' "
+                        "> ../scripts/cmux-next/check-app-ffi-pin.sh\n")
+        hook.chmod(0o755)
+
+    def test_a_hook_in_the_home_git_config_does_not_run(self):
+        # An earlier step's code writes ~/.gitconfig: its hooks path holds a post-checkout hook.
+        home = self.tmp / "home"
+        self.planted_hook(home / "hooks")
+        (home / ".gitconfig").write_text(f"[core]\n\thooksPath = {home / 'hooks'}\n")
+        self.assert_own_stale_pin(self.run_step(home=home))
+
+    def test_a_hook_in_the_checkout_does_not_run(self):
+        # An earlier step's code puts a post-checkout hook in the checkout's .git/hooks.
+        self.planted_hook(self.repo / ".git/hooks")
         self.assert_own_stale_pin(self.run_step())
 
     def test_a_changed_path_does_not_reach_the_check(self):
