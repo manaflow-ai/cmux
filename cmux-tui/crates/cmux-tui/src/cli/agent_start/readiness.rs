@@ -378,14 +378,16 @@ pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
             if let Some(at) = item.get("cursor") {
                 latest = Some(at.clone());
             }
-            changed |= !(item["kind"] == "snapshot" && item["reset_reason"] == "initial");
+            let field = |name: &str| item.get(name).and_then(Value::as_str);
+            changed |=
+                !(field("kind") == Some("snapshot") && field("reset_reason") == Some("initial"));
         }
         changed && started.elapsed() >= EVENT_GAP
     });
     if latest.is_some() {
         *cursor = latest;
     } else if let Err(failure) = &streamed
-        && failure.error["code"] == "cursor.invalid"
+        && failure.error.get("code").and_then(Value::as_str) == Some("cursor.invalid")
     {
         // A cursor ahead of the daemon (another daemon's journal): open from a snapshot next.
         *cursor = None;
