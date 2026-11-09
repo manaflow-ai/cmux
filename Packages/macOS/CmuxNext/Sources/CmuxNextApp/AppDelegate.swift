@@ -44,6 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
     private let openedURLs = OpenedURLDelivery()
+    private lazy var appCopyGuide = AppCopyGuide(open: { [weak self] urls in for url in urls { self?.routeOpenedURL(url) } },
+                                                 relaunching: { [weak self] in self?.services?.updater.willRelaunch?() })
     /// A second quit signal's exit (`QuitSignal`): the Home cache's and the state files' last writes, bounded, then the end.
     private lazy var forcedQuitExit = Self.secondSignalExit { [weak self] in self?.services }
 
@@ -152,12 +154,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An agent launch must never come back by itself: without this, loginwindow reopens it at the
         // next login (without the agent's environment, so it activates and takes the tag's socket).
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
-        // A `cmux` shim outside this app runs the CLI of the app opened last
-        // (plans/cmux-next/version-skew.md); an isolated launch never claims it.
-        if LastAppCLIPointer.shouldPublish(environment: ProcessInfo.processInfo.environment),
-           let cli = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux").path {
-            Task.detached(priority: .utility) { LastAppCLIPointer().publish(cliPath: cli) }
-        }
+        // A `cmux` shim outside this app runs the CLI of the app opened last (plans/cmux-next/version-skew.md).
+        LastAppCLIPointer.publishAtLaunch()
+        // Other copies of this app: a second copy opened says which kept running; a passing copy offers a move.
+        appCopyGuide.start(activates: !environment.noActivate)
         // cmux.json's appearance goes on the Ghostty overrides before the
         // runtime's first config load, so the first frame needs no reload.
         let settingsRead = SettingsController.readAtLaunch(
