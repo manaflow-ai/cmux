@@ -196,3 +196,48 @@ async fn a_turn_end_logs_its_checks_once_before_turn_end() {
     assert_eq!(last.msg["claims"][0]["verdict"], "none");
     hub.shutdown_all().await;
 }
+
+#[test]
+fn a_chain_with_a_hiding_step_backs_nothing() {
+    // Review F2: `|| true` after `&&` still hides the tests' status.
+    for command in ["cargo test && echo done || true", "cargo test && cargo build | tee log"] {
+        let runs = turn(&[("t1", command, 0)]);
+        assert!(check("All tests pass.", &runs).is_empty(), "{command}");
+    }
+}
+
+#[test]
+fn a_failed_chain_does_not_say_which_step_failed() {
+    let runs = turn(&[("c1", "cargo test && cargo build", 1)]);
+    assert!(check("Tests pass and the build succeeds.", &runs).is_empty());
+    // Green, every step of the chain passed.
+    let runs = turn(&[("c1", "cargo test && cargo build", 0)]);
+    let checks = check("Tests pass and the build succeeds.", &runs);
+    assert_eq!(checks.iter().map(|c| c.verdict).collect::<Vec<_>>(), vec!["backed", "backed"]);
+}
+
+#[test]
+fn every_adapter_reports_its_exit_code() {
+    // Review F1: OpenCode's `rawOutput.metadata.exit` and pi's `_meta.terminal_exit`.
+    let mut runs = ClaimRuns::default();
+    runs.observe(&start("o1", "bun test"));
+    runs.observe(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "o1",
+                         "status": "completed", "rawOutput": {"metadata": {"exit": 1}}}));
+    assert_eq!(check("Tests pass.", &runs)[0].verdict, "failed");
+    // pi names its command only in its title.
+    let mut runs = ClaimRuns::default();
+    runs.observe(&json!({"sessionUpdate": "tool_call", "toolCallId": "p1", "kind": "execute",
+                         "title": "cargo test", "_meta": {"terminal_info": {"cwd": "/w"}}}));
+    runs.observe(
+        &json!({"sessionUpdate": "tool_call_update", "toolCallId": "p1", "status": "completed",
+                         "_meta": {"terminal_exit": {"exit_code": 0}}}),
+    );
+    assert_eq!(check("Tests pass.", &runs)[0].verdict, "backed");
+}
+
+#[test]
+fn pnpm_run_runs_a_package_script() {
+    // Review F5.
+    let runs = turn(&[("b1", "pnpm run build", 0)]);
+    assert_eq!(check("The build succeeds.", &runs)[0].verdict, "backed");
+}
