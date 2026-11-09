@@ -90,6 +90,11 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     }
     if !origin.web_class() {
         v.set("host", json!(crate::hub::host_label()));
+        // The install this machine's cmux link runs as, so a daemon that reaches it over ssh
+        // and is paired with that install adds the link as a backup path (`peer_overlay.rs`).
+        if let Some(install) = crate::peer::overlay::own_install() {
+            v.set("link", json!({"install": install}));
+        }
     }
     // The public node identity is safe to show in status and is what the
     // platform join/registry APIs use to address this machine. The private

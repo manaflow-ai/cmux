@@ -35,6 +35,8 @@ pub use dual::DualStats;
 mod features;
 #[path = "peer_health.rs"]
 mod health;
+#[path = "peer_overlay.rs"]
+pub(crate) mod overlay;
 
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]

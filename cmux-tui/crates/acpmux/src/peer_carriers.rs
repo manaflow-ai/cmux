@@ -713,7 +713,7 @@ impl Peer {
 
     /// The probe of path `via`: while the link does not run on it, a WebSocket of its own,
     /// pinged each [`PROBE_EVERY`]; a dead one is dialed again on its recovery backoff.
-    async fn probe(self: Arc<Self>, via: Via) {
+    pub(super) async fn probe(self: Arc<Self>, via: Via) {
         let mut stopped = self.stop_changed.subscribe();
         loop {
             if *stopped.borrow() {
