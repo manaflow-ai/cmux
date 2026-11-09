@@ -651,8 +651,9 @@ def start_locked(args, path, ident, tag, root):
     holds = root / "derived-data.commit"
     current = holds.read_text().strip() if holds.is_file() else ""
     built_from = entry / "sources.json"
-    if not reused and not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file()
-                           and current == head and built_from.is_file()):
+    # --fresh builds even when HEAD's own build is cached: a layout change the app refused needs it.
+    if not reused and (args.fresh or not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file()
+                                          and current == head and built_from.is_file())):
         print(f"live mode: building the live code build of {head[:12]} (once per commit; log {log})",
               file=sys.stderr, flush=True)
         holds.unlink(missing_ok=True)  # a build that stops half way leaves no commit's intermediates

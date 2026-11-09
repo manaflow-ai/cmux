@@ -88,7 +88,7 @@ class LiveModeTests(unittest.TestCase):
 
     def bundle(self, name, executable="cmux"):
         app = Path(self.dir) / name
-        (app / "Contents/MacOS").mkdir(parents=True)
+        (app / "Contents/MacOS").mkdir(parents=True, exist_ok=True)
         (app / "Contents/MacOS" / executable).write_text(name)
         import plistlib
         with open(app / "Contents/Info.plist", "wb") as f:
@@ -416,14 +416,14 @@ class LiveModeTests(unittest.TestCase):
         self.assertIsNone(live_mode.reusable_build(root, tree))
         self.assertTrue(entry.is_dir())
 
-    def start_with(self, tree, fresh):
-        """start_locked with a fake app at another commit than the checkout, the swap, setting and
+    def start_with(self, tree, fresh, head="2222222222222222222222222222222222222222"):
+        """start_locked with a fake app at abcdef12 and the checkout at `head`, the swap, setting and
         patch compile stubbed; what it returned, and whether it built."""
         app = self.bundle("cmux DEV t.app")  # CMUXCommit abcdef1234567890
         root = live_mode.cache_root("t")
         built, applied = [], []
         stubs = {
-            "git": lambda tree_, *argv: "2222222222222222222222222222222222222222",
+            "git": lambda tree_, *argv: head,
             "build_live": lambda *a: built.append(a) or 1.0,
             "live_code_setting": lambda *a: "set",
             "swap": lambda path, ident, into, keep_as, swapped=None: {
@@ -465,6 +465,15 @@ class LiveModeTests(unittest.TestCase):
         with self.assertRaises(live_mode.Refused) as refused:
             self.start_with(tree, fresh=True)  # building HEAD: the app must be at HEAD, as before
         self.assertIn("check that commit out", str(refused.exception))
+
+    def test_start_fresh_builds_even_when_heads_own_build_is_cached(self):
+        tree, _ = self.app_tree()
+        head = "abcdef1234567890abcdef1234567890abcdef12"  # the app's commit, so the commit check passes
+        self.live_build(live_mode.cache_root("t"), head, tree)
+        _, built, _ = self.start_with(tree, fresh=False, head=head)
+        self.assertEqual(built, [])  # cached: a restart and a patch
+        _, built, _ = self.start_with(tree, fresh=True, head=head)
+        self.assertEqual(len(built), 1)
 
     def test_status_line_says_what_the_reused_build_was_patched_up_to(self):
         line = live_mode.line({"mode": "live", "tag": "t", "commit": "2222222222222222", "since": "now",
