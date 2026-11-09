@@ -68438,13 +68438,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Variables"
+            "value": "Variables de entorno"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Variables"
+            "value": "Variables d’environnement"
           }
         },
         "it": {

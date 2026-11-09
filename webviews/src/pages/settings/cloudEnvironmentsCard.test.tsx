@@ -82,8 +82,7 @@ test("Add Environment saves the typed name, repository and setup command", async
 
 test("Edit opens the environment with its script and variables and saves only what changed", async () => {
   const page = await open();
-  const row = () =>
-    card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
   await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
   const form = () => row().querySelector<HTMLElement>("[data-environments-form]")!;
   expect(form().querySelector<HTMLInputElement>('[data-environment-field="name"]')!.value).toBe("web");
@@ -123,8 +122,7 @@ test("Edit opens the environment with its script and variables and saves only wh
 
 test("a rename alone sends only the name, and Cancel sends nothing", async () => {
   const page = await open();
-  const row = () =>
-    card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
   await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
   await click(row().querySelector<HTMLButtonElement>('[data-environments="cancel"]')!);
   expect(row().querySelector("[data-environments-form]")).toBeNull();

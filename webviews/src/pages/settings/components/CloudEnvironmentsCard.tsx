@@ -197,8 +197,7 @@ export type EnvironmentDraft = {
   env: CloudEnvironmentVariable[];
 };
 
-const variableValue = (variable: CloudEnvironmentVariable) =>
-  "secret" in variable ? variable.secret : variable.value;
+const variableValue = (variable: CloudEnvironmentVariable) => ("secret" in variable ? variable.secret : variable.value);
 
 const sameEnv = (a: CloudEnvironmentVariable[], b: CloudEnvironmentVariable[]) =>
   JSON.stringify(a) === JSON.stringify(b);
