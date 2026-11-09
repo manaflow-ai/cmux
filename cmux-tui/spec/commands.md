@@ -8033,7 +8033,8 @@ Actions and their params:
 
 Ids are 1–128 ASCII letters, digits, underscores or hyphens. No action accepts an
 arbitrary path, header, scope or account. Secret values are write-only: replies
-retain only each secret's `name` and `updated_at`; diagnostics redact params and
+retain only each secret's `name`, `updated_at`, `hosts` (strings) and a whole `header`
+(`name` and `format`, both strings; a partial header is dropped); diagnostics redact params and
 the install token. Upstream error messages are sanitized.
 The app requires the Save click for `update`. Platform `cloud_environment.*`
 refusals preserve their code; invalid fields fail before an HTTP call. Neither

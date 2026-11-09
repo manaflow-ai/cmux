@@ -43,7 +43,9 @@ cursorHide, hibernateIcon, the attention swell and the agent cursor glide limit
 ceiling kept their damping and got a shorter response: zoom 0.2 (was 0.30,
 354 ms visible), exit 0.2 (0.24, 283 ms), split 0.23 (0.28, 287 ms), popover
 0.24 (0.25, 248 ms), pinDrag 0.215 (0.351, 390 ms); scroll and screen 0.2,
-panel 0.165 and popoverClose 0.15 now end by 180 ms. `settle` stays at 235 ms
+panel 0.165 and popoverClose 0.15 now end by 180 ms. Split went to 0.11 (113 ms
+visible, 80% of its travel by 50 ms) on 2026-11-08, when Leo set Claude desktop's
+split as the bar ("our animations should be so fast"). `settle` stays at 235 ms
 (it carries the release velocity). Exceptions: the long ambient fades
 `highlight` (1.2 s) and `hibernateRing` (1 s), loops, and hover-intent
 delays (tooltip, hover card aim and grace, marquee, launch), which are waits,
@@ -109,7 +111,7 @@ would do it, spring curves", "proper physics". Design:
   pointer's speed, a column edge's from rest (resize-modifiers.md; the fling snap and
   `motion.divider.releaseProjection` went 2026-11-03: no hold or jump in a drag,
   FRAME OWNER REFACTOR KEYS).
-  A split (Cmd-D, Cmd-Shift-D) moves on its own `split` spring (0.28 s, damping 0.95; Lawrence
+  A split (Cmd-D, Cmd-Shift-D) moves on its own `split` spring (0.11 s since 2026-11-08, damping 0.95; Lawrence
   2026-10-19: "resize all of them while adding a new one"), and the even sizing of its chain
   shows in the key's frame with the split (`LayoutModel.showSplitSizing`), not after the
   daemon's reply: one target, one motion (split-spring-animation/DESIGN.md).
@@ -352,7 +354,7 @@ rest).
 | Browser progress line | CATransaction 0.2 s | `move` (timed equivalent) | 200 ms | 192 ms | - |
 | strip column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
 | Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms |
-| Splits (Cmd-D, Cmd-Shift-D) | one frame | `split` (0.28 / 0.95, 2026-10-19; was `move`): the new pane grows from the far edge of the pane it split while its whole even chain makes room on the same spring, and the divider slides in from that edge (cx-f6i7, split-spring-animation) | 0 | 195 ms (95%) / 375 ms (700 pt) | - |
+| Splits (Cmd-D, Cmd-Shift-D) | one frame | `split` (0.11 / 0.95 since 2026-11-08; 0.28 from 2026-10-19, was `move`): the new pane grows from the far edge of the pane it split while its whole even chain makes room on the same spring, and the divider slides in from that edge (cx-f6i7, split-spring-animation) | 0 | 77 ms (95%) / 175 ms (700 pt) | - |
 | Pane close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |
