@@ -1031,7 +1031,7 @@ class Wiring(unittest.TestCase):
         # entry alone publishes the app-host product.
         runs_on, own, _ = seed_pools()
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
-        larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
+        larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26'"
         self.assertIn(larger, runs_on)
         # Any other pool value is admission's pull-request pool, unchanged.
         fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"

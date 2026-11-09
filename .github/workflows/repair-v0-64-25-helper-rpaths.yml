@@ -65,7 +65,7 @@ jobs:
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26_large }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     env:
       TARGET_TAG: v0.64.25

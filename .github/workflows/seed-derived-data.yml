@@ -74,7 +74,7 @@ jobs:
           XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           # The pools that seed; see the seed job. Each decides alone, so one
           # pool's failing seed never makes every push rebuild the others.
-          SEED_POOL_1: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26_large || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          SEED_POOL_1: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
           SEED_POOL_2: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
           SEED_POOL_3: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
           # The owned std minis compile at -j14, and a j12 seed re-emits
