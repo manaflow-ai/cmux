@@ -60,19 +60,19 @@ struct AgentTurnInterruptTargetTests {
         let json = try #require(String(data: JSONEncoder().encode(started), encoding: .utf8))
         #expect(center.handleAppendCommand(json) == "OK 1")
 
-        center.recordUserInterrupt(surfaceId: surface, workspaceId: workspace, agentKey: "claude_code", source: "claude")
+        let receipt = center.recordUserInterrupt(
+            surfaceId: surface,
+            workspaceId: workspace,
+            agentKey: "claude_code",
+            source: "claude"
+        )
+        await receipt.wait()
 
-        var interrupt: AgentJournalEventDraft?
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(10))
-        while interrupt == nil && clock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-            let store = try AgentJournalStore(databaseURL: url)
-            interrupt = try store.events(afterSequence: 1, limit: 10)
-                .map(\.draft)
-                .first { $0.nativeEvent == AgentJournalEventDraft.userInterruptNativeEvent }
-            store.close()
-        }
+        let store = try AgentJournalStore(databaseURL: url)
+        let interrupt = try store.events(afterSequence: 1, limit: 10)
+            .map(\.draft)
+            .first { $0.nativeEvent == AgentJournalEventDraft.userInterruptNativeEvent }
+        store.close()
         let settled = try #require(interrupt, "The interrupt is journaled for the running session")
         #expect(settled.sessionId == "session-1")
         #expect(settled.kind == .turnCompleted)
@@ -108,7 +108,7 @@ struct AgentTurnInterruptTargetTests {
         }
 
         try append(draft(id: "turn-started", occurredAtMs: 1_000, nativeEvent: "UserPromptSubmit"))
-        center.recordUserInterrupt(
+        let receipt = center.recordUserInterrupt(
             surfaceId: surface,
             workspaceId: workspace,
             agentKey: "claude_code",
@@ -117,7 +117,7 @@ struct AgentTurnInterruptTargetTests {
         try append(draft(id: "pre-tool-use", occurredAtMs: 1_001, nativeEvent: "PreToolUse"))
         gate.continuation.yield(())
         gate.continuation.finish()
-        await center.waitForPendingOperationsForTesting()
+        await receipt.wait()
 
         let store = try AgentJournalStore(databaseURL: url)
         let events = try store.events(afterSequence: 0, limit: 10)
@@ -161,7 +161,7 @@ struct AgentTurnInterruptTargetTests {
         let started = draft(id: "turn-started", occurredAtMs: 1_000, nativeEvent: "UserPromptSubmit")
         let startedJSON = try #require(String(data: JSONEncoder().encode(started), encoding: .utf8))
         #expect(center.handleAppendCommand(startedJSON) == "OK 1")
-        center.recordUserInterrupt(
+        let receipt = center.recordUserInterrupt(
             surfaceId: surface,
             workspaceId: workspace,
             agentKey: "claude_code",
@@ -177,7 +177,7 @@ struct AgentTurnInterruptTargetTests {
         hookStore.close()
         gate.continuation.yield(())
         gate.continuation.finish()
-        await center.waitForPendingOperationsForTesting()
+        await receipt.wait()
 
         let store = try AgentJournalStore(databaseURL: url)
         let events = try store.events(afterSequence: 0, limit: 10)
@@ -250,10 +250,11 @@ struct TerminalAgentTurnControlTests {
         fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panel.id, lifecycle: .running)
         defer { _ = fixture.workspace.clearAgentLifecycle(key: "claude_code", panelId: fixture.panel.id) }
         let before = fixture.panel.surface.debugPendingSocketInputForTesting()
+        let stopButton = try #require(stopButton(in: fixture.panel.hostedView.agentTurnControlView))
 
-        fixture.panel.hostedView.agentTurnControlView.clickStopForTesting()
+        stopButton.performClick(nil)
 
-        fixture.panel.hostedView.agentTurnControlView.clickStopForTesting()
+        stopButton.performClick(nil)
 
         let after = fixture.panel.surface.debugPendingSocketInputForTesting()
         #expect(after.keyEvents == before.keyEvents + 1, "A quick second click sends no second Escape")
@@ -350,5 +351,13 @@ struct TerminalAgentTurnControlTests {
     private func closeWindow(_ windowID: UUID) {
         let identifier = "cmux.main.\(windowID.uuidString)"
         NSApp.windows.first { $0.identifier?.rawValue == identifier }?.performClose(nil)
+    }
+
+    private func stopButton(in view: NSView) -> NSButton? {
+        if let button = view as? NSButton { return button }
+        for subview in view.subviews {
+            if let button = stopButton(in: subview) { return button }
+        }
+        return nil
     }
 }

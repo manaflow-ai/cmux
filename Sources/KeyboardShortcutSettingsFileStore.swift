@@ -399,7 +399,7 @@ final class CmuxSettingsFileStore {
             parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let agentActionsSection = root["agentActions"] as? [String: Any] {
-            applyBooleanSettings(AgentActionsSettingsFileMapping.booleanSettings, from: agentActionsSection, sourcePath: sourcePath, snapshot: &snapshot)
+            applyBooleanSettings(AgentActionsSettingsFileMapping().booleanSettings, from: agentActionsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)

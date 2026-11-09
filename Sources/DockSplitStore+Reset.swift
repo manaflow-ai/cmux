@@ -19,7 +19,7 @@ extension DockSplitStore {
             discardPanelStateAndClose(panelId: panelId)
         }
         removeAllDetachedSurfaceTransfers()
-        agentRuntimeByPanelId.removeAll()
+        replaceAgentRuntimes([:])
         agentNeedsInputAttention.replace(with: [])
         restoredTerminalScrollbackByPanelId.removeAll()
         terminalStartupRestoreCoordinator.removeAllRestores()

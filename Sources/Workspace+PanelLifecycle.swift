@@ -31,13 +31,23 @@ extension Workspace {
     }
 
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
-        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
-        set {
-            let previous = sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId
-            sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue)
-            for panelId in Set(previous.keys).union(newValue.keys) where previous[panelId] != newValue[panelId] {
-                (panels[panelId] as? TerminalPanel)?.refreshAgentTurnControl()
-            }
+        sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId
+    }
+
+    func replaceAgentLifecycleStatesByPanelId(
+        _ states: [UUID: [String: AgentHibernationLifecycleState]]
+    ) {
+        let previous = sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId
+        sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(states)
+        let changedPanelIds = Set(previous.keys).union(states.keys).filter {
+            previous[$0] != states[$0]
+        }
+        refreshAgentTurnControls(panelIds: Set(changedPanelIds))
+    }
+
+    func refreshAgentTurnControls(panelIds: Set<UUID>) {
+        for panelId in panelIds {
+            (panels[panelId] as? TerminalPanel)?.refreshAgentTurnControl()
         }
     }
 

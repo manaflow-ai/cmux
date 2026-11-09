@@ -284,6 +284,31 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         #expect(workspace.title == "User Edit")
         withExtendedLifetime(observationStream) {}
     }
+
+    @Test func lifecycleMutationKeepsTheChangedPanelIdentity() {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        let changedPanel = UUID()
+        let untouchedPanel = UUID()
+        model.setAgentLifecycleStatesByPanelId([
+            untouchedPanel: ["codex": .running],
+        ])
+        let generation = model.changeGeneration
+
+        #expect(model.setAgentLifecycle(
+            key: "claude_code",
+            panelId: changedPanel,
+            lifecycle: .running
+        ))
+        #expect(model.agentLifecycleStatesByPanelId[changedPanel] == ["claude_code": .running])
+        #expect(model.agentLifecycleStatesByPanelId[untouchedPanel] == ["codex": .running])
+        #expect(model.changeGeneration == generation + 1)
+        #expect(!model.setAgentLifecycle(
+            key: "claude_code",
+            panelId: changedPanel,
+            lifecycle: .running
+        ))
+        #expect(model.changeGeneration == generation + 1)
+    }
 }
 
 @MainActor

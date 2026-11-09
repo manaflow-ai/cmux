@@ -12,8 +12,11 @@ import Foundation
 /// replay request. The consumer awaits every main-actor application before
 /// taking the next operation, so sidebar assignments always apply in journal
 /// order — a startup replay can never land after a newer live event's
-/// assignment. The store itself is opened lazily off-main (see
-/// ``AgentJournalLazyStore``), so main-actor callers only ever enqueue.
+/// assignment. Derived interrupt events additionally reconcile through the
+/// durable store head and conditionally append at that head, covering the
+/// socket worker's commit-before-enqueue window. The store itself is opened
+/// lazily off-main (see ``AgentJournalLazyStore``), so main-actor callers only
+/// ever enqueue.
 final class AgentJournalLifecycleCenter: Sendable {
     static let shared = AgentJournalLifecycleCenter()
 
@@ -22,27 +25,38 @@ final class AgentJournalLifecycleCenter: Sendable {
         case submit(AgentJournalEventDraft, UUID?)
         case feed(AgentFeedSemanticInput, UUID?)
         case append(AgentJournalEventDraft)
-        case requestInterrupt(surfaceId: String, workspaceId: String, agentKey: String, source: String)
+        case requestInterrupt(
+            surfaceId: String,
+            workspaceId: String,
+            agentKey: String,
+            source: String,
+            receipt: AgentJournalOperationReceipt
+        )
         case settleInterrupt(
             surfaceId: String,
             workspaceId: String,
             agentKey: String,
             source: String,
-            sessionBoundary: [String: Int64]
+            sessionBoundary: [String: Int64],
+            receipt: AgentJournalOperationReceipt
         )
         case recordAliases(workspaces: [String: String], surfaces: [String: String])
         case startupReplay
-#if DEBUG
-        case barrier(UUID)
-#endif
 
         var admissionID: UUID? {
             switch self {
             case .submit(_, let id), .feed(_, let id): id
-#if DEBUG
-            case .barrier(let id): id
-#endif
             default: nil
+            }
+        }
+
+        var receipt: AgentJournalOperationReceipt? {
+            switch self {
+            case .requestInterrupt(_, _, _, _, let receipt),
+                 .settleInterrupt(_, _, _, _, _, let receipt):
+                receipt
+            default:
+                nil
             }
         }
     }
@@ -154,6 +168,20 @@ final class AgentJournalLifecycleCenter: Sendable {
                     admissions.complete(id, accepted: false)
                 }
             }
+            func reconcileCommittedRows(
+                store: AgentJournalStore,
+                afterSequence: Int64
+            ) async throws -> Int64 {
+                var cursor = afterSequence
+                while true {
+                    let page = try store.readPage(afterSequence: cursor, limit: 2_048)
+                    if page.isEmpty { return cursor }
+                    for event in page.events {
+                        _ = await reconcile(event, store: store, deliver: true)
+                    }
+                    cursor = max(cursor, page.scannedThroughSequence)
+                }
+            }
             for await operation in channel.stream {
                 guard let store = lazyStore.store() else {
                     // Fails closed (no badges), but never silently: the open
@@ -163,6 +191,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                     cmuxDebugLog("agentJournal.op.dropped reason=storeUnavailable")
 #endif
                     admissions.complete(operation.admissionID, accepted: false)
+                    operation.receipt?.finish()
                     continue
                 }
                 if let id = operation.admissionID, !admissions.contains(id) { continue }
@@ -177,12 +206,21 @@ final class AgentJournalLifecycleCenter: Sendable {
                     } else {
                         admissions.complete(id, accepted: false)
                     }
-                case .requestInterrupt(let surfaceId, let workspaceId, let agentKey, let source):
+                case .requestInterrupt(
+                    let surfaceId,
+                    let workspaceId,
+                    let agentKey,
+                    let source,
+                    let receipt
+                ):
                     let sessionBoundary = state.userInterruptSessionBoundary(
                         surfaceId: surfaceId,
                         agentKey: agentKey
                     )
-                    guard !sessionBoundary.isEmpty else { continue }
+                    guard !sessionBoundary.isEmpty else {
+                        receipt.finish()
+                        continue
+                    }
                     // The second phase enters at the back of this FIFO so hook
                     // ingress already queued behind the click is reconciled
                     // before the synthetic completion is derived.
@@ -191,45 +229,65 @@ final class AgentJournalLifecycleCenter: Sendable {
                         workspaceId: workspaceId,
                         agentKey: agentKey,
                         source: source,
-                        sessionBoundary: sessionBoundary
+                        sessionBoundary: sessionBoundary,
+                        receipt: receipt
                     ))
                 case .settleInterrupt(
                     let surfaceId,
                     let workspaceId,
                     let agentKey,
                     let source,
-                    let sessionBoundary
+                    let sessionBoundary,
+                    let receipt
                 ):
-                    // Append and reconcile in this causal operation. Re-enqueueing
-                    // either half would let later ingress overtake the completion.
-                    for draft in state.userInterruptDrafts(
-                        surfaceId: surfaceId,
-                        workspaceId: workspaceId,
-                        agentKey: agentKey,
-                        source: source,
-                        sessionBoundary: sessionBoundary
-                    ) {
+                    defer { receipt.finish() }
+                    // The hook worker commits before it enqueues `.ingest`.
+                    // Fold every durable row first, then append only if the
+                    // store head is unchanged in the append transaction.
+                    settlement: while true {
                         do {
-                            let outcome = try store.append(draft)
-                            _ = await reconcile(
-                                AgentJournalEvent(
-                                    sequence: outcome.sequence,
-                                    committedAtMs: outcome.committedAtMs,
-                                    draft: draft
-                                ),
+                            var expectedHead = try await reconcileCommittedRows(
                                 store: store,
-                                deliver: true
+                                afterSequence: state.headSequence
                             )
+                            let drafts = state.userInterruptDrafts(
+                                surfaceId: surfaceId,
+                                workspaceId: workspaceId,
+                                agentKey: agentKey,
+                                source: source,
+                                sessionBoundary: sessionBoundary
+                            )
+                            guard !drafts.isEmpty else { break settlement }
+                            for draft in drafts {
+                                guard let outcome = try store.append(
+                                    draft,
+                                    ifHeadSequence: expectedHead
+                                ) else {
+                                    continue settlement
+                                }
+                                expectedHead = outcome.sequence
+                                _ = await reconcile(
+                                    AgentJournalEvent(
+                                        sequence: outcome.sequence,
+                                        committedAtMs: outcome.committedAtMs,
+                                        draft: draft
+                                    ),
+                                    store: store,
+                                    deliver: true
+                                )
+                            }
+                            break settlement
                         } catch {
                             CmuxEventBus.shared.publish(
                                 name: "agent.journal.append_failed",
                                 category: "agent",
                                 source: "journal",
-                                payload: ["kind": draft.kind.rawValue]
+                                payload: ["kind": AgentJournalEventKind.turnCompleted.rawValue]
                             )
 #if DEBUG
                             cmuxDebugLog("agentJournal.interrupt.error \(String(describing: error))")
 #endif
+                            break settlement
                         }
                     }
                 case .append(let draft):
@@ -299,10 +357,6 @@ final class AgentJournalLifecycleCenter: Sendable {
                             }
                         }
                     }
-#if DEBUG
-                case .barrier(let id):
-                    admissions.complete(id, accepted: true)
-#endif
                 }
             }
         }
@@ -385,23 +439,30 @@ final class AgentJournalLifecycleCenter: Sendable {
 
     /// Journals a user interrupt for every session of `agentKey` the journal
     /// has running on the surface (see ``AgentJournalEventDraft/userInterrupt``).
-    func recordUserInterrupt(surfaceId: UUID, workspaceId: UUID, agentKey: String, source: String) {
-        operations?.yield(.requestInterrupt(
+    ///
+    /// - Returns: A receipt that completes after committed hook rows and any
+    ///   derived interrupt events have been reconciled.
+    @discardableResult
+    func recordUserInterrupt(
+        surfaceId: UUID,
+        workspaceId: UUID,
+        agentKey: String,
+        source: String
+    ) -> AgentJournalOperationReceipt {
+        let receipt = AgentJournalOperationReceipt()
+        guard let operations else {
+            receipt.finish()
+            return receipt
+        }
+        operations.yield(.requestInterrupt(
             surfaceId: surfaceId.uuidString,
             workspaceId: workspaceId.uuidString,
             agentKey: agentKey,
-            source: source
+            source: source,
+            receipt: receipt
         ))
+        return receipt
     }
-
-#if DEBUG
-    /// Waits until operations already admitted, including their one-step
-    /// follow-up operations, have left the consumer FIFO.
-    func waitForPendingOperationsForTesting() async {
-        _ = await admit { .barrier($0) }
-        _ = await admit { .barrier($0) }
-    }
-#endif
 
     /// Records the workspace/panel identity remaps produced by one restored
     /// workspace, so journaled history re-attaches to the restored panels.
