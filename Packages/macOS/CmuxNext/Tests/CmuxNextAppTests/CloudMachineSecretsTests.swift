@@ -163,6 +163,18 @@ struct CloudMachineSecretsTests {
         #expect(!CloudMachineSecrets.receiver.contains("s3cr3t"), "the receiver, uploaded with the file API, holds no value")
     }
 
+    /// A set of any total size is typed whole: nothing on the Mac refuses it for its size (it once
+    /// stopped at 4 MiB of base64, or of the file the machine writes).
+    @Test func aSetOfAnySizeIsTypedWhole() async throws {
+        // 300 values of 16 KiB: about 6.5 MiB of base64, and a file of about 19 MiB on the machine.
+        let values = (0..<300).map { (name: "SECRET_\($0)", value: String(repeating: "'", count: 16 * 1024)) }
+        let recorder = Recorder()
+        recorder.answers = ["CMUX-SECRETS-READY n0nce\n", "CMUX-SECRETS-OK 300 \(CloudMachineSecrets.okToken(key: "k3y", count: 300))\n"]
+        let written = try await CloudMachineSecrets.deliver(values, over: recorder.link, nonce: "n0nce", key: "k3y")
+        #expect(written == 300)
+        #expect(recorder.typed == [CloudMachineSecrets.payload(values, key: "k3y")], "the whole set is typed, once")
+    }
+
     @Test func aRefusalClosesTheTerminalAndCarriesOnlyAKnownCode() async {
         let recorder = Recorder()
         recorder.answers = ["CMUX-SECRETS-READY n0nce\n", "CMUX-SECRETS-ERR bad-name\n"]
