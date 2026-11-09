@@ -1042,6 +1042,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "appearance.personalize",
+        group: GROUP,
+        title: t("ActionCatalog", "action.appearance.personalize", "Personalization…"),
+        keywords: &["personalization", "personalize", "appearance", "theme", "accent", "background", "wallpaper", "glass", "chief", "pet", "font", "density", "sounds", "make it yours"],
+        category: "settings",
+        symbol: "wand.and.stars",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "settings personalize",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "appearance.interfaceSize.increase",
         group: GROUP,
         title: t("ActionCatalog", "action.appearance.interfaceSize.increase", "Increase Interface Size"),

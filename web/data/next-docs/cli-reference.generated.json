@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 857,
-    "mcp": 771
+    "verbs": 859,
+    "mcp": 773
   },
   "nouns": [
     {
@@ -601,6 +601,13 @@
           "id": "app.install",
           "mcp": true,
           "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps reload",
+          "title": "Reload Custom Views",
+          "id": "app.reloadCustomViews",
+          "mcp": true,
+          "mcpTool": "app_apps_reload"
         },
         {
           "command": "cmux apps remove",
@@ -2085,6 +2092,13 @@
           "id": "home.showHiddenConversations",
           "mcp": true,
           "mcpTool": "app_home_show_hidden"
+        },
+        {
+          "command": "cmux home start-agent",
+          "title": "Start Queued Agent Now",
+          "id": "home.startQueuedAgent",
+          "mcp": true,
+          "mcpTool": "app_home_start_agent"
         },
         {
           "command": "cmux home switch-view",

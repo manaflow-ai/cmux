@@ -12,7 +12,7 @@
   gap: var(--ds-space-2);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text);
   font-variant-numeric: tabular-nums;
   cursor: default;
@@ -857,7 +857,17 @@ button.cv-subagent > :last-child {
      2026-11-03: the lines' Stop squares and chevrons sat left of the header's). */
   max-height: calc(var(--acpmux-tray-lines) * var(--ui-row-height, 28px) + 2px);
 }
-.acpmux-running-tray__head + .acpmux-running-tray__fold {
+/* The header's divider is drawn inside the fold's box, as its first item, not as a border on it: a
+   border lies outside the height the fold animates, so it came in whole on the first frame of an
+   expand and left whole a frame after a collapse had landed, a hairline-tall step of the dock that
+   Jump to latest caught a frame late (composer-hat-fold-balance.test.ts). Inside the box it grows in
+   and folds away with the list, and stays put while the list scrolls under it. */
+.acpmux-running-tray__head + .acpmux-running-tray__fold::before {
+  content: "";
+  flex: none;
+  /* A zero-height box whose top border is the hairline: the same line, off the height scale the
+     design-token check holds. */
+  height: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
 /* The list, in the box the shared fold sizes (conversation/fold.ts `useFold`): it gives

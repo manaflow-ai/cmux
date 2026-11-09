@@ -13,8 +13,11 @@
 //!   worktree remove` of the workspace's agent folder, else of the worktree
 //!   its current terminal works in (refused, closing
 //!   nothing, with uncommitted or unpushed work unless `--discard`), then the
-//!   workspace close. The result is the close result with the removal as
-//!   `worktree`.
+//!   workspace close, then the end of each terminal that had a tab only in
+//!   that workspace: they worked in the folder the removal took, and a plain
+//!   close left their shells running with no tab (W5-O). The result is the
+//!   close result with the removal as `worktree` and the ended terminals as
+//!   `ended_terminals`.
 //!
 //! Each step is its own daemon request. With `--idempotency-key` each step's
 //! key derives from it, so retrying the whole command after a lost reply
@@ -57,7 +60,7 @@ pub(in crate::cli) fn run(global: &GlobalArgs, words: &[String]) -> Option<i32> 
     }
 }
 
-fn usage(global: &GlobalArgs, error: &UsageError) -> i32 {
+pub(in crate::cli) fn usage(global: &GlobalArgs, error: &UsageError) -> i32 {
     super::app::failure("usage.invalid", &format!("cmux: {}", error.0), global.output, 2)
 }
 
@@ -179,7 +182,7 @@ pub(in crate::cli) struct StepFailure {
 }
 
 impl StepFailure {
-    fn usage(message: impl Into<String>) -> Self {
+    pub(in crate::cli) fn usage(message: impl Into<String>) -> Self {
         Self {
             error: json!({"code": "usage.invalid", "message": message.into(), "details": {},
                           "retryable": false}),
@@ -189,7 +192,12 @@ impl StepFailure {
 
     /// `failure` of `step`, naming the command key that retries the whole
     /// command and what the steps before it made.
-    fn step(failure: CallFailure, step: &str, command_key: &str, made: Value) -> Self {
+    pub(in crate::cli) fn step(
+        failure: CallFailure,
+        step: &str,
+        command_key: &str,
+        made: Value,
+    ) -> Self {
         let mut error = failure.error;
         if !error.get("details").is_some_and(Value::is_object) {
             error.set("details", json!({}));
@@ -203,8 +211,12 @@ impl StepFailure {
     }
 }
 
-/// The plan `words` make, with `key` when it is a mutation.
-fn plan(words: &[String], key: Option<String>) -> Result<RequestPlan, StepFailure> {
+/// The plan `words` make, with `key` when it is a mutation (pane_move.rs
+/// builds its steps with it too).
+pub(in crate::cli) fn plan(
+    words: &[String],
+    key: Option<String>,
+) -> Result<RequestPlan, StepFailure> {
     match command::parse(words, Surface::CmuxTui) {
         Ok(CommandPlan::Protocol(plan)) if plan.resolve.is_empty() => {
             let mut plan = *plan;
@@ -216,11 +228,12 @@ fn plan(words: &[String], key: Option<String>) -> Result<RequestPlan, StepFailur
     }
 }
 
-fn words(parts: &[&str]) -> Vec<String> {
+pub(in crate::cli) fn words(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
 }
 
-fn command_key(global: &GlobalArgs) -> Result<String, StepFailure> {
+/// The command's key: `--idempotency-key`, else a new random one.
+pub(in crate::cli) fn command_key(global: &GlobalArgs) -> Result<String, StepFailure> {
     match &global.idempotency_key {
         Some(key) => {
             cmux_tui_core::resource::validate_idempotency_key(key)
@@ -301,7 +314,8 @@ fn created_workspace(result: &Value) -> Option<String> {
 }
 
 /// Runs `workspace <ws> close --remove-worktree`; the result is the close
-/// result with the removal as `worktree`.
+/// result with the removal as `worktree` and the terminals it ended as
+/// `ended_terminals`.
 pub(in crate::cli) fn close<B: Daemon + ?Sized>(
     backend: &B,
     request: &CloseRequest,
@@ -326,19 +340,68 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
         .map_err(|failure| StepFailure::step(failure, "remove", command_key, Value::Null))?;
     let removed = removed.get("value").cloned().unwrap_or(removed);
     let made = json!({"worktree": removed});
+    // Read before the close: the terminals whose every tab is in this
+    // workspace. A snapshot that fails only leaves them to the reaper.
+    let only_here = backend
+        .request(None, plan(&words(&["session", "current", "snapshot"]), None)?)
+        .map(|snapshot| terminals_only_in(&snapshot, &id))
+        .unwrap_or_default();
     let mut result = backend
         .request(
             None,
             plan(&words(&["workspace", &id, "close"]), Some(step_key(command_key, "close")))?,
         )
         .map_err(|failure| StepFailure::step(failure, "close", command_key, made))?;
+    // Each ends with its shell, which worked in the removed folder. A failed
+    // end leaves that terminal to the session's reaper; the close stands.
+    let mut ended = Vec::new();
+    for terminal in only_here {
+        let key = step_key(command_key, &format!("end-{terminal}"));
+        if let Ok(end) = plan(&words(&["terminal", &terminal, "close"]), Some(key))
+            && backend.request(None, end).is_ok()
+        {
+            ended.push(terminal);
+        }
+    }
     if let Some(object) = result.as_object_mut() {
         object.insert("worktree".into(), removed);
+        object.insert("ended_terminals".into(), json!(ended));
     }
     Ok(result)
 }
 
-fn finish(global: &GlobalArgs, outcome: Result<Value, StepFailure>) -> i32 {
+/// The terminals of `snapshot` (`session current snapshot`) that have a tab
+/// and whose every tab is in `workspace`.
+fn terminals_only_in(snapshot: &Value, workspace: &str) -> Vec<String> {
+    let list = |key: &str| snapshot.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+    let text =
+        |record: &Value, key: &str| record.get(key).and_then(Value::as_str).map(str::to_owned);
+    // The ids of `key`'s records whose `parent` field is one of `parents`.
+    let children = |key: &str, parent: &str, parents: &[String]| -> Vec<String> {
+        list(key)
+            .iter()
+            .filter(|record| text(record, parent).is_some_and(|id| parents.contains(&id)))
+            .filter_map(|record| text(record, "id"))
+            .collect()
+    };
+    let screens = children("screens", "workspace_id", &[workspace.to_owned()]);
+    let panes = children("panes", "screen_id", &screens);
+    let tabs = children("tabs", "pane_id", &panes);
+    list("terminals")
+        .iter()
+        .filter(|terminal| text(terminal, "lifecycle").as_deref() != Some("exited"))
+        .filter(|terminal| {
+            let tab_ids: Vec<String> = match terminal.get("tab_ids").and_then(Value::as_array) {
+                Some(all) => all.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
+                None => text(terminal, "tab_id").into_iter().collect(),
+            };
+            !tab_ids.is_empty() && tab_ids.iter().all(|tab| tabs.contains(tab))
+        })
+        .filter_map(|terminal| text(terminal, "id"))
+        .collect()
+}
+
+pub(in crate::cli) fn finish(global: &GlobalArgs, outcome: Result<Value, StepFailure>) -> i32 {
     match outcome {
         Ok(result) => wire::print_local_success(&result, global.output),
         Err(failure) => wire::print_local_error(&failure.error, global.output, failure.exit),

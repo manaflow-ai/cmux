@@ -4,6 +4,8 @@
 //! fake mux socket behind it. Every key is generated here.
 #![allow(dead_code)]
 
+pub mod host;
+
 use std::io::BufRead;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -37,6 +39,10 @@ pub const TOKEN: &str = "person-test-credential";
 /// the platform answers for.
 pub const JWT_A: &str = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJwZXJzb24tYSJ9.sig";
 pub const JWT_B: &str = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJwZXJzb24tYiJ9.sig";
+/// Two opaque dotted credentials, not JWTs, whose middle segments are the
+/// same `sub` person-a claim; the platform answers for both.
+pub const OPAQUE_1: &str = "opaque.eyJzdWIiOiJwZXJzb24tYSJ9.one";
+pub const OPAQUE_2: &str = "other.eyJzdWIiOiJwZXJzb24tYSJ9.two";
 pub const TEAM: &str = "team_00000000000000000001";
 pub const BIN: &str = env!("CARGO_BIN_EXE_cmux-tui");
 
@@ -140,9 +146,12 @@ pub async fn platform(
                     if let Some(value) = header.strip_prefix("content-length:") {
                         length = value.trim().parse().unwrap();
                     }
-                    if let Some(bearer) = [TOKEN, JWT_A, JWT_B].into_iter().find(|token| {
-                        header == format!("authorization: bearer {}", token.to_ascii_lowercase())
-                    }) {
+                    if let Some(bearer) =
+                        [TOKEN, JWT_A, JWT_B, OPAQUE_1, OPAQUE_2].into_iter().find(|token| {
+                            header
+                                == format!("authorization: bearer {}", token.to_ascii_lowercase())
+                        })
+                    {
                         authorized = true;
                         bearers.lock().unwrap().push(bearer);
                     }

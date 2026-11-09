@@ -293,7 +293,7 @@ final class AppServices {
     /// The live preview card of computer use in agent chats (`computerUse.livePreview`); its live
     /// view runs only while the person can see the chat's page.
     private(set) lazy var computerUsePreview = ComputerUseLivePreview(
-        host: self, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[$0] })
+        host: self, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[AgentTabKey(relaunchStorageKey: $0)] })
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
@@ -396,7 +396,7 @@ final class AppServices {
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
     /// The sidebar's workspace group editor: one warm page in a glass panel (GroupEditorService).
-    private(set) lazy var groupEditor = GroupEditorService()
+    private(set) lazy var groupEditor = GroupEditorService(overlayProcess: overlayProcess)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -549,8 +549,9 @@ final class AppServices {
     /// The one owner of hover cards in the app: at most one card, ever
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
-    let dialogs = OverlayDialogDrawing(drawing: .shared) // the shared center's dialogs draw on the overlay page
-    let toasts = CmuxToastWebHost(drawing: .shared) // the shared center's toasts draw on the overlay page
+    let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
+    let dialogs: OverlayDialogDrawing // the shared center's dialogs draw on the overlay page
+    let toasts: CmuxToastWebHost // the shared center's toasts draw on the overlay page
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -590,6 +591,7 @@ final class AppServices {
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
+        (dialogs, toasts) = (OverlayDialogDrawing(drawing: .shared, overlayProcess: overlayProcess), CmuxToastWebHost(drawing: .shared, overlayProcess: overlayProcess))
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))

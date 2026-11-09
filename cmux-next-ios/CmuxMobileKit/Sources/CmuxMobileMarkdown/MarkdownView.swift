@@ -34,7 +34,7 @@ public struct MarkdownView: View {
             ForEach(document.blocks) { block in
                 MarkdownBlockView(block: block, margin: margin)
                     .modifier(MarkdownBlockMarker(block: block.id, marks: marks))
-                    .transition(animatesBlocks ? .opacity.animation(.easeOut(duration: 0.15)) : .identity)
+                    .transition(animatesBlocks ? .opacity.animation(.easeOut(duration: 0.15).unlessReduceMotion) : .identity)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

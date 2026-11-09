@@ -21,7 +21,10 @@ and in each cell every transition of --transitions, each sent through the real i
   bottom_open   Cmd-Shift-D on the bottom-left pane: a pane grows up from the window's bottom edge
   bottom_close  Cmd-W on it: the pane above grows back down (Leo's 2026-11-08 recording: a page above a terminal)
   divider_drag  the first divider dragged 120 pt left (and back, untimed); cells with one pane have none
-  side_open     Option-Cmd-B: the right side pane opens       side_close    Option-Cmd-B again
+  side_open     Option-Cmd-B: the right sidebar opens         side_close    Option-Cmd-B again
+                (Toggle Right Sidebar, a window panel at its remembered section; it needs no chat or tab. Which way
+                the toggle went is read from the trace's pane widths: a press that went the other way is dropped and
+                the key pressed once more, and a press that moved nothing fails the round)
 
 Per transition, from two recordings of the same gesture (split_scale_metrics.py has the definitions):
 
@@ -297,9 +300,13 @@ def show_tab(run, workspace, pane, kinds):
                                     if t.get("kind") in kinds and not STRESS.provisional(t)), None), 20, step=0.1)
     if not tab:
         raise RuntimeError(f"no {sorted(kinds)} tab in pane {pane}")
-    stress.action("tab.focus", target=f"tab:{tab}", focus=False)
-    if not STRESS.wait(lambda: any(t.get("id") == tab and t.get("selected") for t in stress.tabs(workspace, pane)), 10, step=0.05):
-        raise RuntimeError(f"pane {pane} never showed its {sorted(kinds)} tab {tab}")
+    # With focus: tab.focus reveals only under the run's view-change permission, which focus=False withholds
+    # (TabHandlers.reveal); the measured workspace is the shown one, so focusing in it moves nothing else.
+    stress.action("tab.focus", target=f"tab:{tab}")
+    # The pane carries its shown tab as `selected_tab`; tabs have no selected flag (ControlTopology+JSON.swift).
+    shown = lambda: next((p.get("selected_tab") for p in stress.panes(stress.workspace(workspace)) if p.get("id") == pane), None)
+    if not STRESS.wait(lambda: shown() == tab, 10, step=0.05):
+        raise RuntimeError(f"pane {pane} never showed its {sorted(kinds)} tab {tab}: {stress.refusals[-2:]}")
 
 
 def fill(run, workspace, pane, content, chats):
@@ -329,34 +336,48 @@ def fill(run, workspace, pane, content, chats):
 
 
 def background(run, count, measured):
-    """Makes the window hold exactly `count` workspaces, `measured` among them: the others (the launch workspace is
-    one) each run a terminal that prints a line every 20 ms; extra ones are closed, missing ones made. Checks the
-    count before the cell is measured."""
+    """Makes the window hold exactly `count` workspaces besides Home, `measured` among them: the others each run a
+    terminal that prints a line every 20 ms; extra ones are closed, missing ones made. Checks the count before the
+    cell is measured. Home can't be closed and the topology carries no home flag, so a workspace whose close is
+    refused is remembered as Home and left out of the count (it stays idle, as a user's Home does)."""
     stress = run.stress
     busy = getattr(run, "busy_workspaces", set())
-    for _ in range(count + 8):
-        others = [w["id"] for w in stress.workspaces() if w["id"] != measured]
+    home = getattr(run, "home_workspaces", set())
+    run.home_workspaces = home
+    # One pass closes, makes or finds Home once: a window restored with many workspaces needs one pass for each.
+    for _ in range(len(stress.workspaces()) + count + 8):
+        others = [w["id"] for w in stress.workspaces() if w["id"] != measured and w["id"] not in home]
         if len(others) > count - 1:
             extra = next((w for w in others if w not in busy), others[-1])
-            stress.action("closeWorkspace", target=f"workspace:{extra}", focus=False)
-            STRESS.wait(lambda: stress.workspace(extra) is None, 15, step=0.1)
+            reply = stress.action("closeWorkspace", {"confirm": True}, target=f"workspace:{extra}", focus=False)
+            if not STRESS.wait(lambda: stress.workspace(extra) is None, 15, step=0.1):
+                if isinstance(reply, dict) and reply.get("error") and extra not in home:
+                    home.add(extra)  # refused: Home (the launch workspace)
+                    busy.discard(extra)
+                    continue
+                raise RuntimeError(f"closeWorkspace left {extra}: {stress.refusals[-2:]}")
             busy.discard(extra)
         elif len(others) < count - 1:
             if not stress.new_workspace():
                 raise RuntimeError(f"no background workspace {len(others) + 1}: {stress.refusals[-2:]}")
         else:
             break
+    else:
+        raise RuntimeError(f"the window never held {count} workspaces: {stress.refusals[-2:]}")
     for workspace in others:
         if workspace in busy:
             continue
         pane = STRESS.wait(lambda w=workspace: (stress.panes(stress.workspace(w)) or [{}])[0].get("id"), 20)
         tab = next((t.get("id") for t in stress.settled_tabs(workspace, pane) if t.get("kind") == "terminal"), None)
+        if not tab:  # a workspace that opened on a page (the launch one can): give it the busy terminal
+            stress.add_tab(workspace, pane, "terminal")
+            tab = next((t.get("id") for t in stress.settled_tabs(workspace, pane) if t.get("kind") == "terminal"), None)
         if not tab:
-            raise RuntimeError(f"background workspace {workspace} has no terminal to keep busy")
+            raise RuntimeError(f"background workspace {workspace} has no terminal to keep busy: {stress.refusals[-2:]}")
         stress.make_busy(tab)
         busy.add(workspace)
     run.busy_workspaces = busy
-    have = len(stress.workspaces())
+    have = len([w for w in stress.workspaces() if w["id"] not in home])
     if have != count:
         raise RuntimeError(f"the cell has {have} workspaces, not {count}")
     stress.show(measured)
@@ -388,6 +409,29 @@ def record(run, gesture, label, content="focused", static=True):
     if key.get("error"):
         strip = {"error": f"input: {key['error']}"}
     return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+
+
+def side_toggle(run, label, want, static):
+    """Option-Cmd-B recorded as the side pane's `want` ("opened" or "closed"). The key toggles, and the app keeps the
+    right sidebar's visibility across launches (RightSidebarModel, UserDefaults), so a sidebar left open by an earlier
+    run or a key that missed would swap open and close for every later cell: the trace says which way the panes went
+    (ssm.side_way), and a press that went the other way restored `want`'s starting state, so it is pressed again and
+    that press is the record. A press that moved no pane is the round's error."""
+    for attempt in range(2):
+        row = record(run, OPT_CMD_B, label if not attempt else f"{label}-again", content="none", static=static)
+        way = ssm.side_way(row)
+        if way == want:
+            if ssm.side_returned(row):
+                problem = f"Option-Cmd-B {way} the right sidebar and the panes went back to their width"
+                row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
+            return row
+        if way is None:
+            problem = "Option-Cmd-B moved no pane (the right sidebar neither opened nor closed)"
+            row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
+            return row
+        time.sleep(opts.settle)  # test script: the wrong-way toggle's motion ends before the press that is timed
+    row["error"] = f"Option-Cmd-B {way} the right sidebar twice in a row, not {want}"
+    return row
 
 
 def pane_ids(run, workspace):
@@ -442,20 +486,22 @@ def run_cell(run, workspace, columns, results, cell, content):
         if "divider_drag" in WANTED and len(pane_ids(run, workspace)) > 1:
             stress.focus_pane(top_left)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
+            # Diagonal: "first" is the divider area lowest in the window, a column's row divider as often as a column
+            # divider, and a drag along a divider moves nothing; this moves either kind.
             add("divider_drag", record(run, {"gesture": "mouse", "mouse": {"action": "drag", "divider": "first",
-                                                                            "by_x": -120, "steps": 30}},
+                                                                            "by_x": -120, "by_y": -60, "steps": 30}},
                                        f"{cell}-divider_drag-{rnd}", static=static))
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
-            run.rpc("debug.mouse", {"action": "drag", "divider": "first", "by_x": 120, "steps": 30})  # untimed: back
+            run.rpc("debug.mouse", {"action": "drag", "divider": "first", "by_x": 120, "by_y": 60, "steps": 30})  # untimed: back
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
         if "side_open" in WANTED or "side_close" in WANTED:
             stress.focus_pane(top_left)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
-            opened = record(run, OPT_CMD_B, f"{cell}-side_open-{rnd}", content="none", static=static)
+            opened = side_toggle(run, f"{cell}-side_open-{rnd}", "opened", static)
             if "side_open" in WANTED:
                 add("side_open", opened)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
-            closed = record(run, OPT_CMD_B, f"{cell}-side_close-{rnd}", content="none", static=static)
+            closed = side_toggle(run, f"{cell}-side_close-{rnd}", "closed", static)
             if "side_close" in WANTED:
                 add("side_close", closed)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
@@ -478,9 +524,15 @@ def build_cell(run, splits, content, chats):
 
 
 def close_cell(run, workspace):
-    run.stress.action("closeWorkspace", target=f"workspace:{workspace}", focus=False)
-    STRESS.wait(lambda: run.stress.workspace(workspace) is None, 15, step=0.1)
+    """Closes the cell's workspace; returns why it stayed, or None. A workspace left behind is background load the
+    next cells never asked for, so the caller records it as the cell's error (the run cannot pass)."""
+    run.stress.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
+    left = None
+    if not STRESS.wait(lambda: run.stress.workspace(workspace) is None, 15, step=0.1):
+        left = f"closeWorkspace left {workspace}: {run.stress.refusals[-2:]}"
+        say(f"split-scale: {left}")
     time.sleep(1)  # test script: the close's own work ends before the next cell builds
+    return left
 
 
 # ---------------------------------------------------------------------------------------------
@@ -549,7 +601,10 @@ def main():
         run = Run(env)
         run.launch()
         results["app_version"] = (run.app.identify() or {}).get("version")
-        STRESS.place_window(run.rpc)
+        _, problem = STRESS.place_window(run.rpc)
+        if problem:  # a window off its screen or the wrong size measures nothing comparable; fail the run
+            results["errors"]["placement"] = problem
+            raise SystemExit(f"split-scale: {problem}: run with a 1920 x 1200 display (--vdisplay=120 makes one)")
         time.sleep(4)  # test script: launch work ends before the first cell
         for count in WORKSPACES:
             for splits in SPLITS:
@@ -565,7 +620,9 @@ def main():
                         results["errors"][cell] = f"{type(error).__name__}: {str(error)[:500]}"
                         say(f"split-scale: {cell} did not finish: {results['errors'][cell]}")
                     if workspace:
-                        close_cell(run, workspace)
+                        left = close_cell(run, workspace)
+                        if left:
+                            results["errors"][cell] = results["errors"].get(cell) or f"cleanup: {left}"
     finally:
         try:
             finish(results)  # before teardown: a teardown that stalls never loses the run

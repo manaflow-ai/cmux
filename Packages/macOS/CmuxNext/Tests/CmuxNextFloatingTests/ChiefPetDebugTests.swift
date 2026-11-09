@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextFloating
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -15,7 +16,7 @@ import Testing
 
     static func controller(_ sent: Sent) -> ChiefPetController {
         let name = "ChiefPetDebugTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name) ?? .standard
+        let defaults = UserDefaults(testSuiteName: name) ?? .standard
         defaults.removePersistentDomain(forName: name)
         return ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                   actions: ChiefPetActions(open: { _ in }, send: { target, text in
@@ -71,7 +72,7 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let name = "ChiefPetDebugTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name) ?? .standard
+        let defaults = UserDefaults(testSuiteName: name) ?? .standard
         defaults.removePersistentDomain(forName: name)
         let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }), appIsActive: { false })

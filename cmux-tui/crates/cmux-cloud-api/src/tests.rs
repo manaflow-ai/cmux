@@ -240,46 +240,16 @@ fn a_worker_refusal_names_its_nested_code_and_the_header_code_wins() {
 
 #[test]
 fn classic_calls_send_the_stack_session_and_the_team() {
-    let (origin, seen) = fake(|_| ok(r#"{"snapshots":[{"id":"s-1"}]}"#));
-    let answer =
-        go(&request(&origin, Auth::Stack, "vm.snapshots", json!({ "id": "vm-1" }))).unwrap();
-    assert_eq!(answer, json!([{ "id": "s-1" }]));
+    let (origin, seen) = fake(|_| ok(r#"{"networks":[{"id":"net-1"}]}"#));
+    let answer = go(&request(&origin, Auth::Stack, "vm.networks", json!({}))).unwrap();
+    assert_eq!(answer, json!([{ "id": "net-1" }]));
     let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "GET /api/vm/vm-1/snapshots");
+    assert_eq!(seen[0].target(), "GET /api/vm/network");
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team-1"));
     assert_eq!(seen[0].header("x-cmux-client").as_deref(), Some("cmux-mac"));
     assert_eq!(seen[0].header("x-cmux-app-version").as_deref(), Some("cmux-next"));
-}
-
-#[test]
-fn a_snapshot_sends_its_idempotency_key() {
-    let (origin, seen) = fake(|s| match s.header("idempotency-key") {
-        Some(_) => ok(r#"{"id":"snapshot-1","name":null}"#),
-        None => Some((400, r#"{"error":"vm_idempotency_key_required"}"#.into())),
-    });
-    let args = json!({ "id": "machine-1", "idempotencyKey": "key-1" });
-    let answer = go(&request(&origin, Auth::Stack, "vm.snapshot", args)).unwrap();
-    assert_eq!(answer["id"], "snapshot-1");
-    assert_eq!(seen.lock().unwrap()[0].json(), json!({}));
-}
-
-#[test]
-fn a_resize_sends_only_the_dimensions_given() {
-    let (origin, seen) = fake(|_| ok("{}"));
-    for args in [
-        json!({ "id": "vm-1", "storageMb": 65536 }),
-        json!({ "id": "vm-1", "cpu": 4, "memoryMb": 16384, "storageMb": 131072 }),
-        json!({ "id": "vm-1", "cpu": 2, "memoryMb": 8192 }),
-    ] {
-        assert_eq!(go(&request(&origin, Auth::Stack, "vm.resize", args)).unwrap(), Value::Null);
-    }
-    let seen = seen.lock().unwrap();
-    assert!(seen.iter().all(|s| s.target() == "POST /api/vm/vm-1/resize"));
-    assert_eq!(seen[0].json(), json!({ "storageMb": 65536 }));
-    assert_eq!(seen[1].json(), json!({ "cpu": 4, "memoryMb": 16384, "storageMb": 131072 }));
-    assert_eq!(seen[2].json(), json!({ "cpu": 2, "memoryMb": 8192 }));
 }
 
 #[test]
@@ -343,10 +313,10 @@ fn firewall_and_tunnel_queries_are_encoded_and_the_purpose_defaults_to_browser()
 #[test]
 fn an_scp_endpoint_is_used_only_when_it_is_safe() {
     let good = json!({ "host": "h", "port": 22, "username": "cmux", "hostPublicKey": "ssh-ed25519 AAA", "expiresAtUnix": 2000 });
-    assert!(classic::safe_scp_endpoint(&good, 1000));
+    assert!(machine::safe_scp_endpoint(&good, 1000));
     let snake = json!({ "port": 22, "username": "cmux", "host_public_key": "ssh-ed25519 AAA", "expires_at_unix": 2000 });
-    assert!(classic::safe_scp_endpoint(&snake, 1000));
-    assert!(!classic::safe_scp_endpoint(&good, 2000));
+    assert!(machine::safe_scp_endpoint(&snake, 1000));
+    assert!(!machine::safe_scp_endpoint(&good, 2000));
     for (field, bad) in [
         ("port", json!(2222)),
         ("username", json!("root")),
@@ -354,8 +324,62 @@ fn an_scp_endpoint_is_used_only_when_it_is_safe() {
     ] {
         let mut endpoint = good.clone();
         endpoint[field] = bad;
-        assert!(!classic::safe_scp_endpoint(&endpoint, 1000), "{field}");
+        assert!(!machine::safe_scp_endpoint(&endpoint, 1000), "{field}");
     }
+}
+
+#[test]
+fn an_scp_endpoint_comes_from_the_platform_never_classic() {
+    let route = r#"{"host":"10.0.0.7","port":22,"username":"cmux","hostPublicKey":"ssh-ed25519 AAA","expiresAtUnix":4102444800}"#;
+    let (origin, seen) = fake(move |_| ok(route));
+    let args = json!({ "id": VM, "publicKey": "ssh-ed25519 CALLER" });
+    let endpoint = go(&request(&origin, Auth::Worker, "vm.scp_endpoint", args.clone())).unwrap();
+    assert_eq!(endpoint["host"], "10.0.0.7");
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].target(), format!("POST /v1/cloud/machines/{VM}/ssh-endpoint"));
+        assert_eq!(seen[0].json(), json!({ "publicKey": "ssh-ed25519 CALLER" }));
+        assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
+        assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
+        assert_eq!(seen[0].header("x-stack-refresh-token"), None);
+    }
+    // A classic session and an id that is not a Worker machine's send nothing.
+    assert!(matches!(
+        go(&request(&origin, Auth::Stack, "vm.scp_endpoint", args)),
+        Err(Failure::Transport(_))
+    ));
+    let bad_id = json!({ "id": "vm_x/../../api/vm", "publicKey": "ssh-ed25519 CALLER" });
+    assert!(matches!(
+        go(&request(&origin, Auth::Worker, "vm.scp_endpoint", bad_id)),
+        Err(Failure::Transport(_))
+    ));
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn an_unsafe_platform_scp_endpoint_or_refusal_is_not_answered() {
+    let (origin, _) = fake(|_| {
+        ok(
+            r#"{"host":"h","port":2222,"username":"cmux","hostPublicKey":"ssh-ed25519 AAA","expiresAtUnix":4102444800}"#,
+        )
+    });
+    let args = json!({ "id": VM, "publicKey": "ssh-ed25519 CALLER" });
+    assert!(matches!(
+        go(&request(&origin, Auth::Worker, "vm.scp_endpoint", args.clone())),
+        Err(Failure::Decoding(_))
+    ));
+    let (origin, _) = fake(|_| {
+        Some((
+            409,
+            r#"{"ok":false,"error":{"code":"machine.not_running","message":"Start it first."}}"#
+                .into(),
+        ))
+    });
+    assert_eq!(
+        go(&request(&origin, Auth::Worker, "vm.scp_endpoint", args)),
+        Err(Failure::http(409, Some("machine.not_running".into()), Some("Start it first.".into())))
+    );
 }
 
 // MARK: Runs (CloudAPIClientRunTests)

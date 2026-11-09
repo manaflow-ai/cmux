@@ -146,4 +146,17 @@ out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show 2>&1) || stat
 printf '%s\nbrowser_host_url=https://example.com/cmux-browser-host\nbrowser_host_sha256=%s\n' "$good" "$(printf 'd%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
 out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh browser-host-path --pin)
 [[ "$out" == */cmux-tui/target/hosted/$(printf 'a%.0s' {1..40})/cmux-browser-host ]] || { printf 'browser-host-path --pin printed %s\n' "$out" >&2; exit 1; }
+# The agent screen-detection plugin pin fields go together the same way, and
+# agent-screen-detection-path names the file fetch puts beside the pinned binary.
+printf '%s\nagent_screen_detection_sha256=%s\n' "$good" "$(printf 'e%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
+status=0
+out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show 2>&1) || status=$?
+[[ "$status" == 1 ]] && grep -q 'agent_screen_detection_url= and agent_screen_detection_sha256= go together' <<<"$out" \
+  || { printf 'a half agent_screen_detection pin was not refused (exit %s):\n%s\n' "$status" "$out" >&2; exit 1; }
+printf '%s\nagent_screen_detection_url=https://example.com/cmux-agent-screen-detection\nagent_screen_detection_sha256=%s\n' "$good" "$(printf 'e%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
+out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh agent-screen-detection-path --pin)
+[[ "$out" == */cmux-tui/target/hosted/$(printf 'a%.0s' {1..40})/cmux-agent-screen-detection ]] || { printf 'agent-screen-detection-path --pin printed %s\n' "$out" >&2; exit 1; }
+# An old pin without the plugin fields stays valid.
+printf '%s\n' "$good" > "$pin_dir/cmux-tui.pin"
+(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show >/dev/null) || { echo 'a pin without plugin fields was refused' >&2; exit 1; }
 printf 'pin-cmux-tui tests: ok\n'

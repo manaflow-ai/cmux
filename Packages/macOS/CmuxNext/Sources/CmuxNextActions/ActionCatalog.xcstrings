@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.appearance.personalize": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التخصيص…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizacija…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalisering…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalisierung…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalization…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalización…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnalisation…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizzazione…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パーソナライズ…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការកំណត់ផ្ទាល់ខ្លួន…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개인화…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalisering…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizacja…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalização…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Персонализация…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การปรับแต่งส่วนตัว…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kişiselleştirme…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Персоналізація…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cá nhân hóa…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个性化…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個人化…"
+          }
+        }
+      }
+    },
     "action.new.agentChat": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Agent Chat"}}, "de": {"stringUnit": {"state": "translated", "value": "Agent-Chat"}}, "fr": {"stringUnit": {"state": "translated", "value": "Chat d’agent"}}, "ar": {"stringUnit": {"state": "translated", "value": "دردشة الوكيل"}}, "es": {"stringUnit": {"state": "translated", "value": "Chat de agente"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "代理聊天"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理聊天"}}, "ko": {"stringUnit": {"state": "translated", "value": "에이전트 채팅"}}, "ja": {"stringUnit": {"state": "translated", "value": "エージェントチャット"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Chat agente"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Agentchat"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Agentchat"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Chat agenta"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Czat agenta"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Chat do agente"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Чат агента"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Чат агента"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Ajan sohbeti"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trò chuyện tác tử"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แชทเอเจนต์"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ការជជែកភ្នាក់ងារ"}}}},
     "action.new.agentChat.columnLeft": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Agent Chat to New Column Left"}}, "de": {"stringUnit": {"state": "translated", "value": "Neuer Agent-Chat in neuer Spalte links"}}, "fr": {"stringUnit": {"state": "translated", "value": "Nouveau chat d’agent dans une nouvelle colonne à gauche"}}, "ar": {"stringUnit": {"state": "translated", "value": "دردشة وكيل جديدة في عمود جديد إلى اليسار"}}, "es": {"stringUnit": {"state": "translated", "value": "Nuevo chat de agente en nueva columna a la izquierda"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在左侧新列中新建代理聊天"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在左側新欄中新增代理聊天"}}, "ko": {"stringUnit": {"state": "translated", "value": "왼쪽 새 열에 새 에이전트 채팅"}}, "ja": {"stringUnit": {"state": "translated", "value": "左の新規列に新規エージェントチャット"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Nuova chat agente in una nuova colonna a sinistra"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ny agentchat i ny kolonne til venstre"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ny agentchat i ny kolonne til venstre"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Novi chat agenta u novoj koloni lijevo"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Nowy czat agenta w nowej kolumnie po lewej"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Novo chat do agente em nova coluna à esquerda"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Новый чат агента в новой колонке слева"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Новий чат агента у новій колонці ліворуч"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Soldaki yeni sütuna yeni ajan sohbeti"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trò chuyện tác tử mới trong cột mới bên trái"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แชทเอเจนต์ใหม่ในคอลัมน์ใหม่ทางซ้าย"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ការជជែកភ្នាក់ងារថ្មី ក្នុងជួរឈរថ្មីខាងឆ្វេង"}}}},
     "action.new.agentChat.columnRight": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "New Agent Chat to New Column Right"}}, "de": {"stringUnit": {"state": "translated", "value": "Neuer Agent-Chat in neuer Spalte rechts"}}, "fr": {"stringUnit": {"state": "translated", "value": "Nouveau chat d’agent dans une nouvelle colonne à droite"}}, "ar": {"stringUnit": {"state": "translated", "value": "دردشة وكيل جديدة في عمود جديد إلى اليمين"}}, "es": {"stringUnit": {"state": "translated", "value": "Nuevo chat de agente en nueva columna a la derecha"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在右侧新列中新建代理聊天"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在右側新欄中新增代理聊天"}}, "ko": {"stringUnit": {"state": "translated", "value": "오른쪽 새 열에 새 에이전트 채팅"}}, "ja": {"stringUnit": {"state": "translated", "value": "右の新規列に新規エージェントチャット"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Nuova chat agente in una nuova colonna a destra"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Ny agentchat i ny kolonne til højre"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Ny agentchat i ny kolonne til høyre"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Novi chat agenta u novoj koloni desno"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Nowy czat agenta w nowej kolumnie po prawej"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Novo chat do agente em nova coluna à direita"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Новый чат агента в новой колонке справа"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Новий чат агента у новій колонці праворуч"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Sağdaki yeni sütuna yeni ajan sohbeti"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trò chuyện tác tử mới trong cột mới bên phải"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แชทเอเจนต์ใหม่ในคอลัมน์ใหม่ทางขวา"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ការជជែកភ្នាក់ងារថ្មី ក្នុងជួរឈរថ្មីខាងស្ដាំ"}}}},
@@ -103339,6 +103470,136 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cuộc trò chuyện tác nhân mới trên…"
+          }
+        }
+      }
+    },
+    "action.palette.newCloudChat": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud Chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Cloud-Chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle discussion Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محادثة Cloud جديدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo chat en Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增 Cloud 對話"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建 Cloud 对话"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 Cloud 채팅"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規 Cloud チャット"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi Cloud razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny Cloud-chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova chat Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែក Cloud ថ្មី"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny Cloud-chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy czat w Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova conversa no Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новый чат в Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชท Cloud ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Cloud sohbeti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новий чат у Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện Cloud mới"
           }
         }
       }

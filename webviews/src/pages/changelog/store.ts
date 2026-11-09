@@ -11,6 +11,7 @@ import {
   type NewsLayout,
   type SheetLayout,
   type SheetLinks,
+  type CompareMode,
   type ReleaseNotes,
 } from "./types";
 
@@ -93,6 +94,13 @@ export function parseSheetLayout(hash: string): SheetLayout {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const sheet = new URLSearchParams(query).get("sheet");
   return sheet === "stack" || sheet === "grid" ? sheet : "inline";
+}
+
+/** How a before/after pair shows (`compare=side|toggle`); the dragged split by default. */
+export function parseCompareMode(hash: string): CompareMode {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const compare = new URLSearchParams(query).get("compare");
+  return compare === "side" || compare === "toggle" ? compare : "slider";
 }
 
 export function parseSheetLinks(hash: string): SheetLinks {
