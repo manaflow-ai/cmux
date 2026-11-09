@@ -100,7 +100,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 return ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
             }
             if ready { readyRestored.store(restored, ordering: .releasing) }
-            if restored { prediction?.missedOutput(alternateScreen: ready ? Self.alternateScreen(surface) : nil) }
+            if restored { prediction?.restoredSnapshot(alternateScreen: ready ? Self.alternateScreen(surface) : nil) }
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed, restored { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), nil) }
             #endif
@@ -135,7 +135,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             }
             // A local READY replaces the old one: no history chunk may follow it.
             readyRestored.store(false, ordering: .releasing)
-            prediction?.missedOutput(alternateScreen: Self.alternateScreen(surface))
+            prediction?.restoredSnapshot(alternateScreen: Self.alternateScreen(surface))
             if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) {
                 Self.logger.error("local-history restore result \(result) (\(data.count) bytes)")
             }

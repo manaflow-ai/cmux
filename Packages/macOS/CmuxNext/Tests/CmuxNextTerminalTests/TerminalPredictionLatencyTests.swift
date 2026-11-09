@@ -275,7 +275,8 @@ struct TerminalPredictionLatencyTests {
     /// answers whether any glyph was drawn after the mode's output was parsed.
     /// `replacesScreen`: the output arrives as a VT replay of the screen, not as output after the keys.
     static func drawsAfter(_ mode: Remote.Mode, entering output: String,
-                           replacesScreen: Bool = false) async throws -> (drew: Bool, engaged: Bool) {
+                           replacesScreen: Bool = false,
+                           restoresSnapshot: Bool = false) async throws -> (drew: Bool, engaged: Bool) {
         let harness = try await harness(roundTripMs: 150, loss: 0, predict: true, seed: 7)
         defer { harness.close() }
         let (session, remote) = (harness.session, harness.remote)
@@ -293,6 +294,8 @@ struct TerminalPredictionLatencyTests {
         remote.mode = mode
         remote.feed(Data(output.utf8), replacesScreen: replacesScreen)
         await session.surfaceView.lane?.drained()
+        // What the lane does after a GHOSTSNP restore, whose pen the engine cannot read.
+        if restoresSnapshot { session.surfaceView.lane?.prediction?.restoredSnapshot(alternateScreen: false) }
         watch.watching = true
         for key in "hunter2 secret".map(String.init) {
             session.sendText(key)
@@ -332,5 +335,13 @@ struct TerminalPredictionLatencyTests {
         let result = try await Self.drawsAfter(.shell, entering: "$ \u{1B}[8m", replacesScreen: true)
         #expect(result.engaged, "prediction never engaged at the shell prompt, so the check proves nothing")
         #expect(!result.drew, "a typed key was drawn in the clear after a replay that conceals")
+    }
+
+    /// A reattach restores a binary snapshot of `cat` after `printf '\033[8m'`: Ghostty keeps the concealing pen, and
+    /// the engine, which cannot read it, draws nothing until output reveals text.
+    @Test func noGlyphAfterASnapshotRestore() async throws {
+        let result = try await Self.drawsAfter(.shell, entering: "", restoresSnapshot: true)
+        #expect(result.engaged, "prediction never engaged at the shell prompt, so the check proves nothing")
+        #expect(!result.drew, "a typed key was drawn after a snapshot restore whose pen may conceal")
     }
 }

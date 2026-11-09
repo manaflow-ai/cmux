@@ -108,6 +108,18 @@ nonisolated final class TerminalEchoPrediction: Sendable {
         askRedraw(changed)
     }
 
+    /// A binary snapshot replaced the screen (a reattach): everything starts over as for ``missedOutput(alternateScreen:)``,
+    /// and since the snapshot's pen is not readable, the engine treats it as concealing until output reveals it (an SGR
+    /// reset, as every prompt redraw sends). A reattach to `cat` after `printf '\033[8m'` then draws nothing.
+    func restoredSnapshot(alternateScreen: Bool?) {
+        missedOutput(alternateScreen: alternateScreen)
+        let concealUntilRevealed: [UInt8] = [0x1B, 0x5B, 0x38, 0x6D]
+        let changed = concealUntilRevealed.withUnsafeBufferPointer { buffer in
+            cmux_terminal_prediction_output(handle, buffer.baseAddress, buffer.count, Self.now())
+        }
+        askRedraw(changed)
+    }
+
     /// The grid changed under the glyphs with no output lost (a resize): what is drawn goes, and what the engine knows
     /// of the screen and its pen stays.
     func layoutChanged() {
@@ -198,7 +210,9 @@ nonisolated final class TerminalEchoPrediction: Sendable {
     private func askRedraw(_ changed: Bool) {
         guard changed || drawing.load(ordering: .relaxed) else { return }
         guard !redrawQueued.exchange(true, ordering: .acquiringAndReleasing) else { return }
-        MainDelivery().run { [self] in
+        // Always a later turn, never inline: Ghostty sends a mouse report from inside its input callback while it holds
+        // the renderer lock, and the redraw reads grid metrics, which take that lock too.
+        MainDelivery().later { [self] in
             redrawQueued.store(false, ordering: .releasing)
             redraw.withLock { $0 }?()
         }
