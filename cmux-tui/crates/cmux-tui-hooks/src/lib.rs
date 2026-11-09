@@ -2290,21 +2290,32 @@ pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-thread_local! {
-    /// Durable syncs [`atomic_write`] made on this thread (a file or its folder each).
-    static DURABLE_SYNCS: Cell<u64> = const { Cell::new(0) };
+/// The durable syncs [`atomic_write`] makes, counted per thread for tests.
+mod durable_syncs {
+    use std::cell::Cell;
+    use std::fs::File;
+    use std::io;
+
+    thread_local! {
+        /// Durable syncs made on this thread (a file or its folder each).
+        static SYNCS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn on_this_thread() -> u64 {
+        SYNCS.with(Cell::get)
+    }
+
+    pub(super) fn sync(file: &File) -> io::Result<()> {
+        SYNCS.with(|syncs| syncs.set(syncs.get() + 1));
+        file.sync_all()
+    }
 }
 
 /// The durable syncs [`atomic_write`] made on this thread so far: a test reads it around a
 /// write path to tell a durable write from a replaceable one.
 #[doc(hidden)]
 pub fn durable_syncs_on_this_thread() -> u64 {
-    DURABLE_SYNCS.with(Cell::get)
-}
-
-fn durable_sync(file: &fs::File) -> io::Result<()> {
-    DURABLE_SYNCS.with(|syncs| syncs.set(syncs.get() + 1));
-    file.sync_all()
+    durable_syncs::on_this_thread()
 }
 
 /// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
@@ -2343,7 +2354,7 @@ fn replace_file(path: &Path, bytes: &[u8], mode: Option<u32>, durable: bool) -> 
             options.open(&temporary).with_context(|| format!("create {}", temporary.display()))?;
         file.write_all(bytes)?;
         if durable {
-            durable_sync(&file)?;
+            durable_syncs::sync(&file)?;
         }
         drop(file);
         #[cfg(unix)]
@@ -2354,7 +2365,7 @@ fn replace_file(path: &Path, bytes: &[u8], mode: Option<u32>, durable: bool) -> 
         fs::rename(&temporary, path).with_context(|| format!("replace {}", path.display()))?;
         if durable {
             fs::File::open(parent)
-                .and_then(|directory| durable_sync(&directory))
+                .and_then(|directory| durable_syncs::sync(&directory))
                 .with_context(|| format!("sync {}", parent.display()))?;
         }
         Ok(())
