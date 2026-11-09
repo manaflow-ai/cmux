@@ -5852,7 +5852,13 @@ export class AcpmuxDirectClient {
   /// to the page: with the page's own chunks of it, that is the reply as acpmux holds it, which
   /// replaces the joined record (`mergeEventRecords`), a chunk the tail missed live included. The
   /// joined record stays drawn until then, and stays when acpmux no longer holds the reply's start.
-  private readJoinedRun(sessionId: string, generation: number, run: EventRecord, pageFrom: number, page: EventRecord[]) {
+  private readJoinedRun(
+    sessionId: string,
+    generation: number,
+    run: EventRecord,
+    pageFrom: number,
+    page: EventRecord[],
+  ) {
     const through = run.coalescedThrough!;
     void this.readTurnRecords(sessionId, generation, run.seq - 1, pageFrom - 1).then(
       (stored) => {
