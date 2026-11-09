@@ -57,6 +57,15 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   if (!view || installed.has(doc)) return;
   installed.add(doc);
   installScrollingMarks(doc);
+  // A field's text before the person first edits it: typing needs focus, so the first focus sees it.
+  doc.addEventListener(
+    "focusin",
+    (event) => {
+      const field = draftField(event.target as Element | null);
+      if (field && isTextArea(field) && !loadedText.has(field)) loadedText.set(field, field.value);
+    },
+    { capture: true },
+  );
 
   let handled = 0;
   const count = () => void handled++;
@@ -167,12 +176,17 @@ export function captureState(doc: Document): KeptState {
       if (isTextArea(field)) {
         state.draft.start = field.selectionStart;
         state.draft.end = field.selectionEnd;
-        if (field.defaultValue) state.draft.base = field.defaultValue;
+        const base = loadedText.get(field) ?? field.defaultValue;
+        if (base) state.draft.base = base;
       }
     }
   }
   return state;
 }
+
+/** Each draft field's text as the page loaded it, kept apart from `defaultValue`, which a React
+ * controlled textarea keeps equal to its current value. */
+const loadedText = new WeakMap<HTMLTextAreaElement, string>();
 
 // Element checks by name, not `instanceof`: the page's constructors belong to its own window.
 const isTextArea = (element: Element): element is HTMLTextAreaElement => element.localName === "textarea";
@@ -246,6 +260,8 @@ function putDraft(field: HTMLElement, draft: NonNullable<KeptState["draft"]>): v
   const view = field.ownerDocument.defaultView;
   if (isTextArea(field)) {
     if (!view || (field.value && field.value !== draft.base) || field.value === draft.text) return;
+    // The page's own text stays the field's base after the edit comes back.
+    if (!loadedText.has(field)) loadedText.set(field, field.value);
     // The prototype's setter, not the property: React tracks the property and would drop the event.
     Object.getOwnPropertyDescriptor(view.HTMLTextAreaElement.prototype, "value")?.set?.call(field, draft.text);
     field.dispatchEvent(new view.Event("input", { bubbles: true }));
