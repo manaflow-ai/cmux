@@ -26,6 +26,11 @@ path = "tests/test_web_ota_publication_contract.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_overlay_exit_watch.py"
+lane = "manual"
+reason = "Run by the lane that changes web-overlay.sh (no new CI tests): python3 tests/test_web_overlay_exit_watch.py; Linux only (its fake bun names itself with prctl), needs bash, lsof and python3."
+
+[[test]]
 path = "tests/test_web_overlay_manifest_commit.py"
 lane = "manual"
 reason = "Run by the lane that changes web-overlay.sh (no new CI tests): python3 tests/test_web_overlay_manifest_commit.py; needs only bash, git and python3."

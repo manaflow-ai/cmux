@@ -62,6 +62,17 @@ export function navItemContentLocale(item: NavLink, locale: string): Locale {
   return item.contentLocales[0];
 }
 
+/**
+ * The language of a docs page's body when the reader's locale is `locale`. A page listed only
+ * for some locales (the English-only cmux-next and Base pages) serves its own text under any
+ * other locale that negotiation picks, so its body is in its first listed locale.
+ */
+export function docsContentLang(path: string, locale: string): Locale {
+  const item = flatNavItems(navItems).find((each) => each.href === path);
+  if (item?.locales && !item.locales.includes(locale as Locale)) return item.locales[0]!;
+  return locale as Locale;
+}
+
 export function hasNavItemContent(item: NavLink, locale: string): boolean {
   return navItemContentLocale(item, locale) === locale;
 }
@@ -174,6 +185,9 @@ export const navItems: NavEntry[] = [
       { titleKey: "nextUpdates", href: "/docs/next/updates", locales: baseDocsLocales },
       { titleKey: "nextHome", href: "/docs/next/home-and-chief", locales: baseDocsLocales },
       { titleKey: "nextAgents", href: "/docs/next/agents", locales: baseDocsLocales },
+      { titleKey: "nextOwnKeys", href: "/docs/next/own-keys", locales: baseDocsLocales },
+      { titleKey: "nextAgentSpend", href: "/docs/next/agent-spend", locales: baseDocsLocales },
+      { titleKey: "nextOpenModels", href: "/docs/next/open-models", locales: baseDocsLocales },
       { titleKey: "nextWorkspaces", href: "/docs/next/workspaces", locales: baseDocsLocales },
       { titleKey: "nextSpaces", href: "/docs/next/spaces", locales: baseDocsLocales },
       { titleKey: "nextPalette", href: "/docs/next/command-palette", locales: baseDocsLocales },

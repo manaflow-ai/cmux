@@ -1427,6 +1427,12 @@ while True:
             result["total_cost_usd"] = COST
             result["usage"] = {"input_tokens": 100, "output_tokens": 20,
                                "cache_read_input_tokens": 300, "cache_creation_input_tokens": 40}
+        # "cache-tier-probe": a turn whose writes were mostly hour-long, its result's usage naming
+        # the tiers (`cache_creation`) as Claude Code's does.
+        if said.strip() == "cache-tier-probe":
+            result["usage"] = {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 0,
+                               "cache_creation_input_tokens": 1000,
+                               "cache_creation": {"ephemeral_1h_input_tokens": 800, "ephemeral_5m_input_tokens": 200}}
         if said.strip() == "calls-probe":
             keys = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
             result["usage"] = {k: sum(u[k] for u in CALLS_PROBE) for k in keys}

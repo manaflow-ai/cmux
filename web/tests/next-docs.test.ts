@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import cliGenerated from "../data/next-docs/cli-reference.generated.json";
 import paletteGenerated from "../data/next-docs/palette-reference.generated.json";
 import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
-import { nextDocHref, nextDocPage, nextDocPages } from "../data/next-docs/pages";
+import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
+import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
+import { sitemapEntries } from "../app/sitemap";
 import {
   buildCliReference,
   buildPaletteReference,
@@ -14,7 +16,7 @@ import {
   mcpToolName,
 } from "../scripts/export-next-docs";
 import { docsChannelUrl, docsPathAvailableInChannel } from "../app/lib/docs-channel";
-import { flatNavItems, navItemsForLocale } from "../app/[locale]/components/docs-nav-items";
+import { docsContentLang, flatNavItems, navItemsForLocale } from "../app/[locale]/components/docs-nav-items";
 
 // The cmux-next docs reference pages are generated from the action catalog and
 // the settings schema (plans/cmux-next/docs-DESIGN.md). web/ never reads those
@@ -93,10 +95,14 @@ describe("cmux-next docs", () => {
 
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
     const verbs = new Set(buildCliReference(surfaces).nouns.flatMap((noun) => noun.verbs.map((verb) => verb.command)));
-    // Commands of the Rust CLI itself, not app actions (cmux --help).
+    // Commands of the Rust CLI itself, not app actions (cmux --help). `cmux harness` and
+    // `cmux acp` are acpmux's CLI (cmux-tui/crates/acpmux/src/cli/harness.rs, ledger.rs,
+    // host_enroll.rs); `cloud secret` and `machine vault` are cmux-tui's
+    // (src/cli/cloud_secret.rs, src/cli/machine_join/vault.rs).
     const allowed = new Set([
       "cmux action list", "cmux action run", "cmux <noun> <verb>", "cmux mcp serve", "cmux mcp tools",
-      "cmux settings set", "cmux version",
+      "cmux settings set", "cmux version", "cmux harness add", "cmux harness secret", "cmux harness doctor",
+      "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault",
     ]);
     const unknown: string[] = [];
     for (const page of nextDocPages) {
@@ -118,6 +124,81 @@ describe("cmux-next docs", () => {
     expect(hrefs("nightly").sort()).toEqual(expected.sort());
     expect(hrefs("release")).toEqual([]);
     expect(flatNavItems(navItemsForLocale("ja", "nightly")).some((item) => item.href.startsWith("/docs/next"))).toBe(false);
+  });
+
+  // The pages were in neither the sitemap nor llms.txt, so search and answer engines
+  // never found them.
+  test("the sitemap and llms.txt list every page at its nightly URL", () => {
+    const urls = sitemapEntries().map((entry) => entry.url);
+    const llms = buildLlmsText("https://cmux.com");
+    for (const page of nextDocPages) {
+      const path = nextDocPublicPath(page.slug);
+      expect(urls).toContain(`https://cmux.com${path}`);
+      expect(urls).not.toContain(`https://cmux.com/ja${path}`);
+      expect(llms).toContain(`https://cmux.com${path}.md`);
+    }
+    expect(nextDocPublicPath("getting-started")).toBe("/docs/nightly/next");
+    expect(nextDocPublicPath("own-keys")).toBe("/docs/nightly/next/own-keys");
+  });
+
+  test("Markdown variants resolve on cmux.com and in the nightly zone", () => {
+    // The nightly zone gets the path without /nightly (next.config.ts rewrites).
+    for (const path of ["/docs/nightly/next/own-keys.md", "/docs/next/own-keys.md", "/docs/next.txt"]) {
+      expect(resolveAgentPageVariant(path)).not.toBeNull();
+    }
+    expect(resolveAgentPageVariant("/docs/next/no-such-page.md")).toBeNull();
+  });
+
+  // The pages are English only. A NEXT_LOCALE=ja cookie or Accept-Language: ja sent a reader to
+  // /ja/docs/next/..., which the route answered with 404.
+  test("every locale serves the English page, with the English URL as canonical", async () => {
+    const saved = process.env.CMUX_DOCS_CHANNEL;
+    process.env.CMUX_DOCS_CHANNEL = "nightly";
+    try {
+      const slugRoute = await import("../app/[locale]/(landing)/docs/next/[slug]/page");
+      const indexRoute = await import("../app/[locale]/(landing)/docs/next/page");
+      for (const locale of ["ja", "de", "en"]) {
+        const params = Promise.resolve({ locale, slug: "own-keys" });
+        const element = await slugRoute.default({ params });
+        expect(element.props.page.slug).toBe("own-keys");
+        const metadata = await slugRoute.generateMetadata({ params: Promise.resolve({ locale, slug: "own-keys" }) });
+        expect(metadata.alternates.canonical).toBe("https://cmux.com/docs/nightly/next/own-keys");
+        expect(indexRoute.default().props.page.slug).toBe("getting-started");
+        const index = await indexRoute.generateMetadata({ params: Promise.resolve({ locale }) });
+        expect(index.alternates.canonical).toBe("https://cmux.com/docs/nightly/next");
+      }
+      await expect(slugRoute.default({ params: Promise.resolve({ locale: "ja", slug: "no-such-page" }) })).rejects.toThrow();
+    } finally {
+      if (saved === undefined) delete process.env.CMUX_DOCS_CHANNEL;
+      else process.env.CMUX_DOCS_CHANNEL = saved;
+    }
+  });
+
+  // A lang="en" wrapper around the page put an element between .docs-content and the page's
+  // h1 and p, which globals.css styles as its direct children (`.docs-content > p`,
+  // `.docs-content > h1 + p`, `.docs-content > h1:first-of-type`).
+  test("a page's blocks are direct children of .docs-content, which carries its language", async () => {
+    const { NextDocView } = await import("../app/[locale]/(landing)/docs/next/next-doc-view");
+    const { DocsHeading } = await import("../app/[locale]/components/docs-heading");
+    const { Fragment } = await import("react");
+    const page = nextDocPage("own-keys")!;
+    const tree = NextDocView({ page }) as { type: unknown; props: { children: unknown[] } };
+    expect(tree.type).toBe(Fragment);
+    const children = tree.props.children.flat().filter(Boolean) as { type: unknown }[];
+    const headingAt = children.findIndex((child) => child.type === DocsHeading);
+    expect(headingAt).toBeGreaterThanOrEqual(0);
+    expect(children[headingAt + 1]?.type).toBe("p");
+    // One child per body block (each renders one h2, p, ul, code block or callout), none wrapped.
+    expect(children.length).toBeGreaterThanOrEqual(page.body.length + 3);
+    expect(children.some((child) => child.type === "div" || child.type === "section")).toBe(false);
+
+    for (const path of ["/docs/next", "/docs/next/own-keys", "/docs/base"]) {
+      expect(docsContentLang(path, "ja")).toBe("en");
+      expect(docsContentLang(path, "en")).toBe("en");
+    }
+    expect(docsContentLang("/docs/getting-started", "ja")).toBe("ja");
+    const layout = readFileSync(join(repo, "web/app/[locale]/(landing)/docs/docs-nav.tsx"), "utf8");
+    expect(layout).toMatch(/className="docs-content[^"]*"\s+lang=\{/);
   });
 
   test("release docs fall back to Getting Started for a next page", () => {

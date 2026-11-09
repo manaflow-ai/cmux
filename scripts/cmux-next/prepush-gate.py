@@ -300,6 +300,12 @@ PICTURES_CLIPS_DIR = "release-notes/next/clips/"
 PICTURES_HINT = ("Give each one a picture: change the webview *.gallery.ts(x) state that shows it on this branch "
                  "(whats-new-gallery.yml picks it), or add a line such as `gallery: agent-pane.composer-send-menu/idle`, "
                  "or, for a native change, write release-notes/next/clips/<id>.json (a clip spec).")
+# A variant a gallery file marks as the look its change replaced: its note opens "Before:" (or "Before ("), or its
+# name ends in an old-look word (whats-new-gallery.py marked_before reads the same marks).
+PICTURES_BEFORE_MARK = re.compile(r"""note:\s*["'`]Before\s*[:(]|(?:^|[-"'\s])(?:before|old|solid|previous)["']?\s*:""", re.M)
+PICTURES_BEFORE_HINT = ("An Improved entry's before is its state at the commit before it, and a gallery file the branch "
+                        "adds has none there: add the variant that draws the old look, its note opening \"Before:\", "
+                        "or name both with `gallery:` and `before:` lines.")
 # Run in its own interpreter: argv[1] holds digest.py and validate.py, argv[2] is the result file, then pairs of
 # (file name, path to its text). Each file is judged alone, as test_the_repository_highlights_validate judges it: read
 # as strict UTF-8 like the test's open() (a file it cannot decode is a test error there, so a finding here), and a file
@@ -1376,8 +1382,11 @@ def picture_problems(repo: Path, base: str, head: str, restrict: set[str] | None
     picture; on 2026-11-08, 61 of the 166 in 21 days changed only Swift, where whats-new-gallery.yml finds no state,
     and none named one. A highlight passes with a `clip:` or `gallery:` line, with a clip spec
     (release-notes/next/clips/<id>.json) at HEAD, or when the branch changes a webview *.gallery.ts(x) file since it
-    left origin/feat-cmux-next (a gallery change pushed before the highlight counts). Fixed and Security entries need
-    no picture; a highlight already on the base is never judged. It fails open, with a warning."""
+    left origin/feat-cmux-next (a gallery change pushed before the highlight counts). An Improved one passing on
+    gallery files the branch only adds also needs a variant there marked as the old look (PICTURES_BEFORE_MARK): its
+    before is otherwise the same state at the commit before it, where the file is not (agent-file-result-cards and
+    agent-web-result-cards shipped with none, 2026-11-09). Fixed and Security entries need no picture; a highlight
+    already on the base is never judged. It fails open, with a warning."""
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=A", "-z", base, head, "--",
                 HIGHLIGHTS_DIR).decode()
     files = sorted(n for n in names.split("\0") if n.endswith(".md") and "/" not in n[len(HIGHLIGHTS_DIR):]
@@ -1390,9 +1399,14 @@ def picture_problems(repo: Path, base: str, head: str, restrict: set[str] | None
             if rev_ok(repo, ref):
                 since = git(repo, "merge-base", ref, head).decode().strip() or base
                 break
-        changed = git(repo, "diff", "--name-only", "--no-renames", "-z", since, head).decode().split("\0")
-        if any(PICTURES_GALLERY_FILE.fullmatch(p) for p in changed):
-            return []
+        changed = [p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", since, head).decode().split("\0")
+                   if PICTURES_GALLERY_FILE.fullmatch(p)]
+        added = set(git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=A", "-z", since, head, "--",
+                        *changed).decode().split("\0")) if changed else set()
+        # Only new gallery files: an improvement's before has no state at its parent unless one marks the old look.
+        no_before = bool(changed) and set(changed) <= added and not any(
+            PICTURES_BEFORE_MARK.search((text or b"").decode("utf-8", "replace"))
+            for text in git_batch.cat_file(repo, [f"{head}:{p}" for p in changed]).values())
         clips = set(git(repo, "ls-tree", "--name-only", "-z", head, "--", PICTURES_CLIPS_DIR).decode().split("\0"))
         blobs = git_batch.cat_file(repo, [f"{head}:{p}" for p in files])
         found = []
@@ -1407,7 +1421,10 @@ def picture_problems(repo: Path, base: str, head: str, restrict: set[str] | None
                     or meta.get("gallery") or f"{PICTURES_CLIPS_DIR}{highlight_id}.json" in clips):
                 continue
             category = (meta.get("category") or "new").lower()
-            found.append(f"{p}: a {category} highlight with no picture source")
+            if not changed:
+                found.append(f"{p}: a {category} highlight with no picture source")
+            elif category == "improved" and no_before:
+                found.append(f"{p}: an improved highlight whose gallery file is new, with no before")
         return found
     except (Exception, SystemExit) as error:  # noqa: BLE001 - fail open: the NOW count still shows a miss
         log(f"prepush-gate: WARNING: the What's New pictures were not checked ({type(error).__name__}: {error}).")
@@ -2097,7 +2114,11 @@ def main(argv: list[str] | None = None) -> int:
     if any(name == HIGHLIGHTS_CHECK for name, _ in found_any):
         print(HIGHLIGHTS_HINT)
     if any(name == PICTURES_CHECK for name, _ in found_any):
-        print(PICTURES_HINT)
+        lines = [line for name, found in found_any if name == PICTURES_CHECK for line in found]
+        if any("no picture source" in line for line in lines):
+            print(PICTURES_HINT)
+        if any("with no before" in line for line in lines):
+            print(PICTURES_BEFORE_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
