@@ -685,6 +685,9 @@ fn run_response(
                         _ => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
+                    // The agent status words come from terminal_talk, which is unix
+                    // only; elsewhere the program's own records stay as they are.
+                    #[cfg(unix)]
                     let result = program_status_view::with_agent_status(reader, plan, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
@@ -884,6 +887,7 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
         .then(|| result.pointer("/extra/last_command").cloned())
         .flatten();
     let mut result = plan.view.project(result);
+    #[cfg(unix)]
     if global.output == OutputMode::Human
         && plan.view == super::command::ResponseView::TerminalProgramStatus
     {
@@ -1197,6 +1201,7 @@ mod hints;
 mod human;
 mod list_order;
 mod notify_desktop;
+#[cfg(unix)]
 mod program_status_view;
 mod retry;
 mod sanitize;

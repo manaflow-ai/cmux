@@ -398,6 +398,7 @@ pub(super) fn shape(
 /// Adds each terminal agent's `name` (W5-Q): its tab's name when that is an
 /// agent name, the name `terminal list --agents` shows (roster_names.rs),
 /// else null. An acpmux chat keeps its own `name`.
+#[cfg(unix)]
 pub(super) fn add_names(result: &mut Value, terminals: &[Value], tabs: &[Value]) {
     let facts = super::super::terminal_talk::roster_names::facts(
         &json!({"tabs": tabs, "terminals": terminals}),
@@ -408,6 +409,22 @@ pub(super) fn add_names(result: &mut Value, terminals: &[Value], tabs: &[Value])
         let name = facts.get(terminal).and_then(|facts| facts.name()).map(str::to_owned);
         if let Some(object) = agent.as_object_mut() {
             object.insert("name".into(), json!(name));
+        }
+    }
+}
+
+/// [`add_names`] where the roster names (terminal_talk, unix only) are not
+/// built: every terminal agent gets `name: null`, so the field is always
+/// there. An acpmux chat keeps its own `name`.
+#[cfg(not(unix))]
+pub(super) fn add_names(result: &mut Value, _terminals: &[Value], _tabs: &[Value]) {
+    let Some(agents) = result.get_mut("agents").and_then(Value::as_array_mut) else { return };
+    for agent in agents {
+        if agent.get("terminal_id").and_then(Value::as_str).is_none() {
+            continue;
+        }
+        if let Some(object) = agent.as_object_mut() {
+            object.insert("name".into(), Value::Null);
         }
     }
 }

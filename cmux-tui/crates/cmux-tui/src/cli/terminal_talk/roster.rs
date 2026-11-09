@@ -144,6 +144,12 @@ fn unseen_terminals(snapshot: &Value) -> HashSet<&str> {
     super::super::wire::unseen_terminals(notifications.unwrap_or_default())
 }
 
+/// Whether `terminal` carries an unread notification in `snapshot`: its
+/// finished turn is `done` until somebody views it.
+pub(in crate::cli) fn unseen(snapshot: &Value, terminal: &str) -> bool {
+    unseen_terminals(snapshot).contains(terminal)
+}
+
 /// The shared status of a status word: a daemon agent record's state or an
 /// OSC 7501 program status state. `done` there is a finished turn
 /// (program status) and `idle` an agent at its prompt; either one is `done`

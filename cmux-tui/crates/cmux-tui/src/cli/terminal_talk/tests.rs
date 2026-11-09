@@ -1086,3 +1086,51 @@ fn w5q_send_reply_from_the_screen_has_no_footer_and_never_an_older_turn() {
     }
     assert!(reply.starts_with("⏺ Canberr"), "{reply:?}");
 }
+
+/// W5-Q (lead decision on PR A findings 6-7): the send receipt's `status`
+/// is the word `terminal list --agents` shows for the same turn: `done`
+/// while nobody viewed the finished turn (an unread notification), `idle`
+/// once somebody did, `blocked` at a dialog, `working` after a timeout.
+/// `state` stays as it was.
+#[test]
+fn w5q_send_receipt_status_is_the_lists_word_for_the_turn() {
+    let answer = "> what is 2+2\n\n⏺ 4\n\n──────────────────────\n> \n──────────────────────";
+    let screens = [(1, "> what is 2+2\n\n✻ Thinking"), (2, answer)];
+    let receipt = send::run(&FakeDaemon::new(snapshot(), &screens), None, &quick("what is 2+2"))
+        .expect("sent");
+    assert_eq!(
+        (receipt["state"].as_str(), receipt["status"].as_str()),
+        (Some("idle"), Some("idle"))
+    );
+
+    let mut unseen = snapshot();
+    unseen["notifications"] = json!([
+        {"id": "notification_1", "terminal_id": "term_c1a0de00000000000000000000000001",
+         "unread": true, "title": "Claude finished"},
+    ]);
+    let listed = roster::agent_rows(&unseen);
+    let row = listed
+        .iter()
+        .find(|row| row.terminal == "term_c1a0de00000000000000000000000001")
+        .expect("the claude row");
+    assert_eq!(row.status_word(), "done");
+    let receipt =
+        send::run(&FakeDaemon::new(unseen, &screens), None, &quick("what is 2+2")).expect("sent");
+    assert_eq!(receipt["state"], "idle", "{receipt}");
+    assert_eq!(receipt["status"], row.status_word(), "{receipt}");
+
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let receipt =
+        send::run(&daemon, None, &quick("Run the shell command `touch /tmp/w4i-perm` now."))
+            .expect("sent");
+    assert_eq!(receipt["status"], "blocked", "{receipt}");
+
+    let screens: Vec<(u64, String)> =
+        (1..400).map(|n| (n, format!("> q\n\nworking {n}"))).collect();
+    let screens: Vec<(u64, &str)> = screens.iter().map(|(n, text)| (*n, text.as_str())).collect();
+    let daemon = FakeDaemon::new(snapshot(), &screens);
+    let request = SendRequest { timeout: Duration::from_millis(100), ..quick("q") };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["status"], "working", "{receipt}");
+}
