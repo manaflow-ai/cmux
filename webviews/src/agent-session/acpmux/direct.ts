@@ -1167,6 +1167,16 @@ export function settleOptimisticPrompt(
   return rowId;
 }
 
+/// Where the chat's journal ends now, from a read refused because its cursor is past it
+/// (`cursor_future: afterSeq N is beyond the last event M`, acpmux `server/requests/events.rs`):
+/// its machine is back on a shorter log, so the records this pane holds past `M` are not its
+/// chat's any more. Undefined for any other failure.
+export function journalEndOf(error: unknown): number | undefined {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const end = /cursor_future: afterSeq \d+ is beyond the last event (\d+)/.exec(message)?.[1];
+  return end === undefined ? undefined : Number(end);
+}
+
 export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
   const bySequence = new Map<number, EventRecord>();
   for (const event of batches.flat()) bySequence.set(event.seq, event);
@@ -4099,6 +4109,7 @@ export class AcpmuxDirectClient {
       this.asks.pending(notification.params);
       this.applyPermission(notification.params);
     } else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    else if (notification.method === "_acpmux/rewound") this.journalRewound(notification.params);
     // acpmux took a prompt this connection sent; it comes even when the event stream lags.
     else if (notification.method === "_acpmux/prompt_accepted") {
       const promptId = notification.params?.promptId;
@@ -4169,6 +4180,40 @@ export class AcpmuxDirectClient {
     this.emit("resyncing");
     void this.permissions.refresh().catch(() => {});
     this.readMissedAfterLag(sessionId, this.selectionGeneration, this.lastSeq, 0);
+  }
+
+  /// The chat's journal on its machine went back to `lastSeq` (`_acpmux/rewound`: a Cloud machine
+  /// back from a hard stop lost the records it had not synced yet), and its new records take the
+  /// seqs of the ones this pane drew past it. The pane drops those, so the new ones are drawn
+  /// instead of refused as already seen, and reads the chat on from `lastSeq`. Before the attach
+  /// answers there is nothing to drop: its reply decides (`attachWatched`).
+  private journalRewound(params: any): void {
+    const sessionId = this.selectedSessionId;
+    const end = Number(params?.lastSeq);
+    if (!sessionId || params?.sessionId !== sessionId || !Number.isSafeInteger(end) || end < 0) return;
+    if (this.attachedGeneration !== this.selectionGeneration) return;
+    if (!this.dropPastJournal(sessionId, end)) return;
+    this.emit("resyncing");
+    this.readMissedAfterLag(sessionId, this.selectionGeneration, end, 0);
+  }
+
+  /// Drops every record this pane holds of `sessionId` past `end`, where its journal ends now, and
+  /// draws the chat again without them: their seqs are the next records' (`journalRewound`). The
+  /// seqs read state was taken at go back with them. False: nothing was past it.
+  private dropPastJournal(sessionId: string, end: number): boolean {
+    if (this.selectedSessionId !== sessionId) return false;
+    if (this.lastSeq <= end && !this.events.some((event) => event.seq > end)) return false;
+    console.warn(`acpmux: the journal of ${sessionId} went back to ${end}; the pane held through ${this.lastSeq}`);
+    this.events = this.events.filter((event) => event.seq <= end);
+    if (this.copyLive) for (const seq of [...this.copyLive.keys()]) if (seq > end) this.copyLive.delete(seq);
+    if (this.turnOpener && this.turnOpener.seq > end) this.turnOpener = undefined;
+    for (const [key, gap] of this.gapReads) if (gap.sessionId === sessionId && gap.seq > end) this.gapReads.delete(key);
+    this.configSeq = Math.min(this.configSeq, end);
+    this.limitsSeq = Math.min(this.limitsSeq, end);
+    this.goalSeq = Math.min(this.goalSeq, end);
+    // `rebuild` takes lastSeq from the records kept.
+    this.rebuild();
+    return true;
   }
 
   /// Reads the events a lag dropped, again after a failed read: a daemon too busy to answer
@@ -4274,13 +4319,29 @@ export class AcpmuxDirectClient {
     replayLiveState = true,
   ): Promise<void> {
     const key = ++this.gapReadKeys;
+    let rewound = false;
     for (let cursor = afterSeq; ;) {
       this.gapReads.set(key, { sessionId, seq: cursor });
-      const result = await this.typed("_acpmux/events", {
-        sessionId,
-        afterSeq: cursor,
-        limit: 5_000,
-      });
+      let result: any;
+      try {
+        result = await this.typed("_acpmux/events", {
+          sessionId,
+          afterSeq: cursor,
+          limit: 5_000,
+        });
+      } catch (error) {
+        // Refused because the cursor is past the chat's journal: its machine went back to a
+        // shorter log (a hard stop before it synced), so what this pane holds past that end goes
+        // and the read starts there. Once: a journal that keeps going back fails the read.
+        const end = journalEndOf(error);
+        if (end === undefined || end >= cursor || rewound) throw error;
+        if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+        rewound = true;
+        this.dropPastJournal(sessionId, end);
+        afterSeq = Math.min(afterSeq, end);
+        cursor = end;
+        continue;
+      }
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       const missed = records(result?.events);
       this.events = mergeEventRecords(this.events, missed);
@@ -5563,6 +5624,9 @@ export class AcpmuxDirectClient {
     // (`drawKeptTail`) until this attach answers is held until it says whether they are this
     // session's.
     if (keptThrough > 0 || this.peerCopy?.sessionId === sessionId) this.copyLive ??= new Map();
+    // How far the rows this pane holds of the chat went when the attach was asked (a reconnect's,
+    // a kept tail's): the machine's log was at least there then, unless it went back since.
+    const heldAtAsk = Math.max(this.lastSeq, keptThrough);
     // The machine the row names when the attach is asked: a reply that comes after the session
     // moved to another is that machine's journal, not the one the row names now.
     // The session it names too: a row that changed while the attach was out may name another.
@@ -5693,6 +5757,21 @@ export class AcpmuxDirectClient {
       this.lastSeq = this.events.at(-1)?.seq ?? 0;
       this.firstSeq = this.events[0]?.seq;
     }
+    // The same session, whose log now ends before rows this pane held when it asked: its machine
+    // came back from a hard stop on what it had synced (a Cloud machine's power loss or a disk
+    // restored on resume), and its new records reuse the seqs of the ones lost. Those rows go, or
+    // the page's records would not replace them and every live one up to the old cursor would be
+    // refused as seen; the older rows stay. What came live while this attach was out is read again
+    // from the log's end once it is attached (below). On any machine, a chat on this Mac too.
+    const logEnd = typeof result?.lastSeq === "number" ? result.lastSeq : hostLast;
+    const rewoundTo = !replaced && logEnd !== undefined && heldAtAsk > logEnd ? logEnd : undefined;
+    if (rewoundTo !== undefined) {
+      console.warn(`acpmux: the journal of ${sessionId} went back to ${rewoundTo}; the pane held through ${heldAtAsk}`);
+      this.events = this.events.filter((event) => event.seq <= rewoundTo);
+      this.lastSeq = Math.min(this.lastSeq, rewoundTo);
+      for (const [key, gap] of this.gapReads)
+        if (gap.sessionId === sessionId && gap.seq > rewoundTo) this.gapReads.delete(key);
+    }
     if (replaced || (keptThrough > 0 && oldest > keptThrough + 1)) {
       if (!replaced) this.events = this.events.filter((event) => event.seq >= oldest);
       this.turnOpener = undefined;
@@ -5786,6 +5865,7 @@ export class AcpmuxDirectClient {
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
+    if (rewoundTo !== undefined) this.readMissedAfterLag(sessionId, generation, rewoundTo, 0);
     // The machine answered: these rows are its chat now, not the Mac's copy.
     this.peerCopy = undefined;
     if (this.copyBack === sessionId) this.copyBack = undefined;

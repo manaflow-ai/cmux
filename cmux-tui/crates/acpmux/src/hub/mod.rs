@@ -67,6 +67,8 @@ mod ledger_hub_tests;
 #[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
+mod peer_rewound_tests;
+#[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
 mod review_queue_tests;
@@ -270,7 +272,7 @@ pub use peer_lease::PeerLease;
 mod peers;
 mod remote_rows;
 pub(crate) use peers::{
-    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask,
+    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_REWOUND, PEER_SETTLE_BUDGET, is_permission_ask,
 };
 mod permission_groups;
 mod permissions;

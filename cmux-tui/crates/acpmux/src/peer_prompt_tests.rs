@@ -277,12 +277,17 @@ async fn replay_during_handshake(late_attach: bool, rollback: bool) {
     assert!(!peer.connected.load(Ordering::SeqCst), "all bounded pages must finish");
     reply(&mut server, &next, json!({"events": [event(cursor + 3)], "hasMore": false})).await;
     let mut seqs = Vec::new();
+    let mut rewinds = Vec::new();
     loop {
         let (_, _, notice) =
             tokio::time::timeout(Duration::from_secs(2), notices.recv()).await.unwrap().unwrap();
         match notice {
             PeerNotice::Notification { method: m, params, .. } if m == method::MUX_EVENT => {
                 seqs.push(params["seq"].as_u64().unwrap())
+            }
+            PeerNotice::Notification { method: m, params, .. } if m == method::MUX_REWOUND => {
+                assert!(seqs.is_empty(), "the rewind notice goes ahead of the replay");
+                rewinds.push(params);
             }
             PeerNotice::Connected => break,
             _ => {}
@@ -293,6 +298,12 @@ async fn replay_during_handshake(late_attach: bool, rollback: bool) {
         vec![cursor + 1, cursor + 2, cursor + 3],
         "subscribers receive each gap event once, before readiness"
     );
+    // A machine back from a hard stop on a log that ends at 3, where this daemon relayed up to
+    // 1000: its clients are told where its journal ends now, once. A replay that only goes on
+    // from its cursor tells nothing.
+    let told: Vec<Value> =
+        if rollback { vec![json!({"sessionId": "s", "lastSeq": 3})] } else { vec![] };
+    assert_eq!(rewinds, told);
     assert!(peer.connected.load(Ordering::SeqCst));
     if rollback {
         server

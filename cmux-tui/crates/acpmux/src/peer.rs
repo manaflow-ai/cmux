@@ -1726,15 +1726,30 @@ impl Peer {
             // A restored journal may be shorter than the copy we saw on
             // the previous link. Reset both cursors before requesting its
             // bounded pages, or every new live event below `after` is lost.
-            if page.get("lastSeq").and_then(Value::as_u64).is_some_and(|last| last < after) {
+            if let Some(last) = page.get("lastSeq").and_then(Value::as_u64).filter(|last| *last < after) {
                 if rewound {
                     tracing::warn!(peer = %self.name, session = %sid, "the peer's journal kept moving backwards during replay");
                     self.clear_attached(&sid);
                     break;
                 }
-                let mut highwater = self.replay_highwater.lock_or_recover();
-                self.cursors.lock_or_recover().insert(sid.clone(), 0);
-                highwater.insert(sid.clone(), 0);
+                {
+                    let mut highwater = self.replay_highwater.lock_or_recover();
+                    self.cursors.lock_or_recover().insert(sid.clone(), 0);
+                    highwater.insert(sid.clone(), 0);
+                }
+                // The clients here hold records past `last` that the machine no longer has (it
+                // hard-stopped before syncing them, `store/durability.rs`), and its new records
+                // reuse those seqs: told first, ahead of the replay, they drop theirs past `last`
+                // and read on from it, or every new record up to their old cursor is lost.
+                tracing::warn!(peer = %self.name, session = %sid, last, after, "the peer's journal went backwards");
+                let notice = PeerNotice::Notification {
+                    method: method::MUX_REWOUND.to_owned(),
+                    params: json!({"sessionId": sid, "lastSeq": last}),
+                    link,
+                };
+                if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
+                    return Err(RpcError::internal("peer replay notice channel closed"));
+                }
                 after = 0;
                 rewound = true;
                 continue;

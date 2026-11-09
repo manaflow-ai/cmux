@@ -359,6 +359,11 @@ pub mod method {
     /// Client-side only: the reader puts this on the notification stream
     /// when the daemon closes the socket, so stream consumers notice.
     pub const MUX_DISCONNECTED: &str = "_acpmux/disconnected";
+    /// `{sessionId, lastSeq, peer?}`: the chat's journal on its machine now ends at `lastSeq`,
+    /// below records this daemon relayed before (a Cloud machine back from a hard stop lost what
+    /// it had not synced yet, `store/durability.rs`). A client drops its records above `lastSeq`
+    /// and reads the chat from there: the new records reuse those seqs (`peer.rs` `replay_chat`).
+    pub const MUX_REWOUND: &str = "_acpmux/rewound";
     pub const MUX_PRESETS: &str = "_acpmux/presets";
     /// Read or update the effective prompt context for a session.
     pub const MUX_CONTEXT: &str = "_acpmux/context";

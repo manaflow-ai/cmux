@@ -86,6 +86,10 @@ pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
 /// A peer left events out of this daemon's link (`_acpmux/lagged`, `Conn::send`): each client
 /// reading one of that peer's chats here reads it again from its last record.
 pub(crate) const PEER_LAGGED: &str = "peer_lagged";
+/// A peer's journal of one chat went back below what this daemon relayed of it
+/// (`_acpmux/rewound`, `peer.rs` `replay_chat`): each client reading it here drops its records
+/// past the journal's new end and reads on from there.
+pub(crate) const PEER_REWOUND: &str = "peer_rewound";
 
 /// Removes peer `name`'s rows from `map`, answering their summaries (for the purge notices).
 fn take_peer_rows(map: &mut super::remote_rows::RemoteRows, name: &str) -> Vec<Value> {
@@ -1076,6 +1080,23 @@ impl Hub {
                             update_line: Default::default(),
                         });
                     }
+                }
+                PeerNotice::Notification { method: m, params, .. } if m == method::MUX_REWOUND => {
+                    let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
+                    let Some(last) = params.get("lastSeq").and_then(Value::as_u64) else { return };
+                    let _ = self.events.send(HubEvent {
+                        session_id: id.to_owned(),
+                        record: Arc::new(EventRecord {
+                            seq: 0,
+                            at: now_ms(),
+                            dir: "peer".into(),
+                            kind: PEER_REWOUND.into(),
+                            msg: json!({"sessionId": id, "lastSeq": last}),
+                            host_seq: None,
+                        }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                        update_line: Default::default(),
+                    });
                 }
                 PeerNotice::Notification { method: m, mut params, link } => {
                     let Some(id) =
