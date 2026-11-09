@@ -166,6 +166,8 @@ fn secret_content(patch: &[u8]) -> Vec<String> {
             if line.starts_with("@@") {
                 in_header = false;
             } else if let Some(name) = line.strip_prefix("+++ ") {
+                // git ends the line with a tab when the name has a space in it.
+                let name = name.strip_suffix('\t').unwrap_or(name);
                 current = unquote(name).and_then(|n| n.strip_prefix("b/").map(str::to_owned));
             }
             continue;
@@ -527,12 +529,18 @@ fi
 trap done_ EXIT
 # The files the last run in the shared worktree brought: one the repository ignores (a sent
 # .env) would outlive `git clean` into a run that left it out. Checkout restores tracked ones.
-if [ -e "$work/.git" ] && [ -f "$work.sent" ]; then
-  (cd "$work" && xargs -0 rm -f -- <"$work.sent") || true
-fi
+# Each goes only where no folder on its path is a link, so a run that turned `data/` into a link
+# never makes this one delete outside the worktree.
 if [ -e "$work/.git" ]; then
   git -C "$work" checkout -q -f --detach "$base"
   git -C "$work" clean -fdq
+  if [ -f "$work.sent" ]; then
+    while IFS= read -r -d '' p; do
+      d=$(dirname -- "$p")
+      while [ "$d" != . ] && [ "$d" != / ] && [ ! -L "$work/$d" ]; do d=$(dirname -- "$d"); done
+      if [ "$d" = . ]; then rm -f -- "$work/$p"; fi
+    done <"$work.sent"
+  fi
 else
   rm -rf "$work"
   git -C "$repo" worktree prune
