@@ -28,20 +28,34 @@ const AUDIT_PAGE = 1000;
 
 /// What the queue's read depends on, as one key the pane's snapshot gives for free: this Mac's
 /// pending asks (by permission id), and for every listed chat, this Mac's and other machines',
-/// how many asks it holds, whether it waits on the person, and its pull request (state, review
-/// ready, links). It changes when an ask or a pull request the queue lists comes, goes or moves,
-/// on any machine the snapshot lists, so the tab reads again then and never on a timer. One pass
-/// over the snapshot; a chat with none of these adds nothing.
+/// what it waits on (its ask count, `waitingOn`, its status dot), its status (acpmux lists a chat's
+/// pull request only while the chat is idle), its title and name (a row names its chat), and every
+/// pull request field a row shows: number,
+/// title, state, review ready, checks and each URL. It changes when an ask or a pull request the
+/// queue lists comes, goes or moves, on any machine the snapshot lists, so the tab reads again then
+/// and never on a timer. One pass over the snapshot; a chat with none of these adds nothing.
 export function queueKey(asks: readonly WatchedAsk[], sessions: readonly AcpmuxSessionEntry[] = []): string {
   const parts = asks.map((ask) => ask.permission.permissionId);
   for (const session of sessions) {
     const pending = session.pendingPermissions ?? 0;
     const input = session.indicator === "input";
+    const waiting = session.waitingOn?.on ?? "";
     const pr = session.pullRequest;
-    const links = session.pullRequestUrls?.length ?? 0;
-    if (!pending && !input && !pr && !links) continue;
+    const urls = session.pullRequestUrls ?? [];
+    if (!pending && !input && !waiting && session.status !== "waiting" && !pr && urls.length === 0) continue;
+    const prKey = pr ? JSON.stringify([pr.number, pr.title, pr.state, pr.reviewReady ?? false, pr.checks ?? ""]) : "";
     parts.push(
-      `${session.sessionId}:${pending}:${input ? "i" : ""}:${pr ? `${pr.number}${pr.state}${pr.reviewReady ? "r" : ""}` : ""}:${links}`,
+      JSON.stringify([
+        session.sessionId,
+        pending,
+        input,
+        waiting,
+        session.status ?? "",
+        session.title ?? "",
+        session.name ?? "",
+        prKey,
+        urls,
+      ]),
     );
   }
   return parts.join(",");
@@ -99,14 +113,25 @@ export function historyPages({
           peer: Boolean(item.host),
           open: () => open(item),
         }),
-      verdict: async (item, verdict) => {
+      verdict: async (item, verdict, comment) => {
         // Another machine's pull request is reviewed there (its row offers no verdict): refused, so
         // the row stays rather than hiding while acpmux still lists it.
         // l10n-allow: a rejection reason for the wire log only; the row shows its own localized failure text
         if (item.host) throw new Error("answered on its machine");
-        const params = verdictParams(item, verdict);
+        const params = verdictParams(item, verdict, comment);
         if (!params) throw new Error("unanswerable");
-        return connected().reviewVerdict(params);
+        const reply = await connected().reviewVerdict(params);
+        // An acpmux that predates the comment (or a chat that did not take it) records the verdict
+        // without the words reaching the chat: they go to the clipboard and the chat opens, so
+        // the person pastes what should change rather than writing it again. When the clipboard
+        // refuses too, the page stays: its notice holds the only copy of the words.
+        const words = typeof params.comment === "string" ? params.comment : undefined;
+        if (words && (reply as { commentDelivered?: unknown } | null)?.commentDelivered !== true) {
+          const copied = await copy(words);
+          if (copied) open(item);
+          return { ...(reply as object | null), commentCopied: copied };
+        }
+        return reply;
       },
       open,
       exportAudit: async () => {
@@ -124,6 +149,19 @@ export function historyPages({
     ledger: {
       load: async (params) => connected().ledger(params),
       openSession: selectSession,
+      copy,
+      // The host's save panel, as a side panel document's Save (`pane.saveFile`); a host that
+      // cannot save it (one that predates the kind, or a failed write) copies it instead.
+      save: async (text, suggestedName, kind) => {
+        try {
+          const saved = await callNative<boolean>("pane.saveFile", { text, suggestedName, kind });
+          return saved === true ? "saved" : "cancelled";
+        } catch {
+          // l10n-allow: a rejection reason for the wire log only; the page shows its own localized failure text
+          if (!(await copy(text))) throw new Error("clipboard refused");
+          return "copied";
+        }
+      },
     },
   };
 }

@@ -879,7 +879,16 @@ pub(crate) fn write_workspace_presentation(
         anyhow::ensure!(exists, "unknown workspace group {group}");
     }
     let mut record = read_workspace_presentation(transaction, workspace_key)?;
+    let before = record.clone();
     update.apply_to(&mut record);
+    if record == before {
+        // A repeated update (a script setting the same task status at ~10 Hz) writes no row and
+        // journals no fact.
+        if update.pinned.is_some() {
+            crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
+        }
+        return Ok(());
+    }
     if record.is_empty() {
         transaction.execute(
             "DELETE FROM workspace_presentation WHERE workspace_key = ?1",

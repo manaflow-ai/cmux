@@ -171,6 +171,10 @@ impl Hub {
             peer.set_link_host(host);
         }
         peer.set_last_good(self.peer_paths.clone());
+        // A plain ssh machine found to be a paired install on an earlier run keeps the cmux
+        // link as its backup path (`peer_overlay.rs`), before its first dial.
+        peer.set_explicit_route(pc.names_route());
+        peer.recall_overlay();
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
@@ -674,7 +678,7 @@ impl Hub {
         let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
             return;
         };
-        let _ = self.events.send(HubEvent {
+        let _ = self.events.send_remote(HubEvent {
             session_id: id,
             record: Arc::new(EventRecord {
                 seq: 0,
@@ -686,6 +690,7 @@ impl Hub {
             }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
             update_line: Default::default(),
+            row: Default::default(),
         });
     }
 
@@ -963,7 +968,7 @@ impl Hub {
                             removed
                         };
                         self.save_peer_cache(&peer, generation, false);
-                        let _ = self.events.send(HubEvent {
+                        let _ = self.events.send_remote(HubEvent {
                             session_id: mux_id.clone(),
                             record: Arc::new(EventRecord {
                                 seq,
@@ -978,6 +983,7 @@ impl Hub {
                                 summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
                             }),
                             update_line: Default::default(),
+                            row: Default::default(),
                         });
                         return;
                     }
@@ -1027,7 +1033,7 @@ impl Hub {
                         self.held_peer_asks.forget(&peer, &mux_id, None);
                     }
                     self.save_peer_cache(&peer, generation, false);
-                    let _ = self.events.send(HubEvent {
+                    let _ = self.events.send_remote(HubEvent {
                         session_id: mux_id,
                         record: Arc::new(EventRecord {
                             seq,
@@ -1039,6 +1045,7 @@ impl Hub {
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
                         update_line: Default::default(),
+                        row: Default::default(),
                     });
                     // The rest of its live asks that came before the session was listed, after
                     // the row.
@@ -1049,6 +1056,29 @@ impl Hub {
                     if m == method::MUX_PROMPT_ACCEPTED =>
                 {
                     self.peer_accepts.accepted(&peer, &params);
+                }
+                // The link attached one of its chats again without history (a reconnect that had
+                // no replay cursor for it): its clients here read on from their own last record.
+                // Only that chat's: the link dropped nothing else, and the copy (`peer_snapshot.rs`)
+                // takes none of the new link's records until a page joins it anyway.
+                PeerNotice::Notification { method: m, params, .. }
+                    if m == crate::peer::REATTACHED_NOTICE =>
+                {
+                    let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
+                    let _ = self.events.send_remote(HubEvent {
+                        session_id: id.to_owned(),
+                        record: Arc::new(EventRecord {
+                            seq: 0,
+                            at: now_ms(),
+                            dir: "peer".into(),
+                            kind: PEER_LAGGED.into(),
+                            msg: json!({"sessionIds": [id], "reason": "peer_reattached"}),
+                            host_seq: None,
+                        }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                        update_line: Default::default(),
+                        row: Default::default(),
+                    });
                 }
                 PeerNotice::Notification { method: m, params, link } if m == "_acpmux/lagged" => {
                     // This link's live records have a hole now: none of it is kept until a page
@@ -1062,7 +1092,7 @@ impl Hub {
                         .map(|(_, r)| r.receipt.mux_session_id.clone())
                         .collect();
                     for id in ids {
-                        let _ = self.events.send(HubEvent {
+                        let _ = self.events.send_remote(HubEvent {
                             session_id: id,
                             record: Arc::new(EventRecord {
                                 seq: 0,
@@ -1074,6 +1104,7 @@ impl Hub {
                             }),
                             remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
                             update_line: Default::default(),
+                            row: Default::default(),
                         });
                     }
                 }
@@ -1092,7 +1123,7 @@ impl Hub {
                         .find_mux(&peer, &id)
                         .map(|(_, r)| r.summary.clone())
                         .unwrap_or(Value::Null);
-                    let record = match m.as_str() {
+                    let mut record = match m.as_str() {
                         method::SESSION_UPDATE => EventRecord {
                             seq: params
                                 .pointer("/_meta/acpmux/seq")
@@ -1190,12 +1221,29 @@ impl Hub {
                         },
                         _ => return,
                     };
+                    // A suggestion of the peer's chat reaches the person through their own
+                    // tally and switch, not the peer's (`suggestion_gate::regate_relayed`).
+                    if record.dir == "in"
+                        && record.kind == "prompt_suggestion"
+                        && let Some(update) = record.msg.pointer_mut("/params/update")
+                    {
+                        let harness = summary.get("harness").and_then(Value::as_str).unwrap_or("");
+                        crate::suggestion_gate::regate_relayed(
+                            &self.suggestion_gate,
+                            &peer,
+                            &id,
+                            harness,
+                            update,
+                            crate::claude_stdio::prompt_suggestions::enabled_in_settings(),
+                        );
+                    }
                     self.capture_peer_record((&peer, generation, link), &id, &summary, &record);
-                    let _ = self.events.send(HubEvent {
+                    let _ = self.events.send_remote(HubEvent {
                         session_id: id,
                         record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                         update_line: Default::default(),
+                        row: Default::default(),
                     });
                 }
             }
@@ -1528,7 +1576,10 @@ impl Hub {
         }
     }
 
-    /// This daemon's own sessions' summaries, without retaining the JSON trees.
+    /// This daemon's own sessions' summaries, without retaining the JSON trees: each closed row
+    /// parsed back from its bytes. Tests compare with it; a list copies the bytes in their kept
+    /// order instead (`Hub::own_rows_in_order`).
+    #[cfg(test)]
     pub(super) fn visit_own_session_summaries(
         &self,
         with_tools: bool,
@@ -1539,7 +1590,8 @@ impl Hub {
         }
     }
 
-    /// Each summary once, local before remote, without retaining the JSON trees.
+    /// Each summary once, local before remote, without retaining the JSON trees (tests).
+    #[cfg(test)]
     pub(super) fn visit_session_summaries(&self, with_tools: bool, mut visit: impl FnMut(Value)) {
         self.visit_own_session_summaries(with_tools, &mut visit);
         self.visit_remote_rows(

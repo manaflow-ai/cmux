@@ -239,6 +239,9 @@ struct Inner {
     /// Every chat was read once since the daemon started (a query before then may find more later).
     filled: bool,
     saved_at: Option<Instant>,
+    /// How many docs searches read (tests count a query's work with it).
+    #[cfg(test)]
+    scanned: usize,
 }
 
 /// The saved copy as it is written: the held docs, borrowed.
@@ -381,24 +384,39 @@ impl ChatText {
     }
 
     /// Every held chat whose messages hold every word of `needle`, by chat key. The answer is
-    /// kept until the text changes: the same query again is not searched again.
+    /// kept until the text changes: the same query again is not searched again, and a query that
+    /// narrows the last one (each of its words inside one of the new words, as a key typed onto the
+    /// query makes it) searches only the chats the last one found. Any text change moves the
+    /// generation, so a narrowed search never reads an answer older than the text.
     pub fn search(&self, needle: &Needle) -> Arc<HashMap<String, Found>> {
         let mut inner = lock(&self.inner);
-        if let Some((words, generation, found)) = &inner.answer
+        let now = inner.generation;
+        let last = inner.answer.as_ref().filter(|(_, generation, _)| *generation == now);
+        if let Some((words, _, found)) = last
             && words.as_slice() == needle.words()
-            && *generation == inner.generation
         {
             return found.clone();
         }
-        let matcher = Matcher::new(needle);
-        let found: HashMap<String, Found> = inner
-            .docs
-            .iter()
-            .filter_map(|(key, doc)| {
-                let matched = doc.find(needle, &matcher)?;
-                Some((key.clone(), Found { doc: doc.clone(), matched }))
+        // A message holding every new word holds every old word inside one of them, under either
+        // pass (`Doc::find`): the new hits are among the old.
+        let narrowed = last
+            .filter(|(words, _, _)| {
+                words.iter().all(|old| needle.words().iter().any(|new| new.contains(old.as_str())))
             })
-            .collect();
+            .map(|(_, _, found)| found.clone());
+        let matcher = Matcher::new(needle);
+        let search = |key: &String, doc: &Arc<Doc>| {
+            let matched = doc.find(needle, &matcher)?;
+            Some((key.clone(), Found { doc: doc.clone(), matched }))
+        };
+        let found: HashMap<String, Found> = match &narrowed {
+            Some(last) => last.iter().filter_map(|(key, found)| search(key, &found.doc)).collect(),
+            None => inner.docs.iter().filter_map(|(key, doc)| search(key, doc)).collect(),
+        };
+        #[cfg(test)]
+        {
+            inner.scanned += narrowed.as_ref().map_or(inner.docs.len(), |last| last.len());
+        }
         let found = Arc::new(found);
         inner.answer = Some((needle.words().to_vec(), inner.generation, found.clone()));
         found
@@ -426,6 +444,12 @@ impl ChatText {
     /// (before then, more may come as the chats are read).
     pub fn filled(&self) -> bool {
         lock(&self.inner).filled
+    }
+
+    /// How many docs searches have read so far.
+    #[cfg(test)]
+    pub(crate) fn scanned(&self) -> usize {
+        lock(&self.inner).scanned
     }
 
     /// How many chats and bytes of text are held.

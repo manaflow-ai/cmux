@@ -2,7 +2,7 @@
 //! the ssh backup carrier reach `<VM mesh ip>:22` with
 //! `ssh -o ProxyCommand='cmux wg dial --hub S %h %p'`.
 //!
-//! One supervisor per Mac (an flock on `<socket>.lock`; a second one gets
+//! One supervisor per Mac (an flock on `<socket>.tunnel-lock`, 0600; a second one gets
 //! [`StartError::Held`] and uses the first one's socket):
 //!
 //! 1. **Attach.** `POST /v1/mesh/nodes/{machineId}/attach` with the person's
@@ -20,7 +20,9 @@
 //!    `cmux wg dial`; port 22 needs no hub token.
 //! 3. **Refresh.** Every [`TunnelTiming::refresh_every`] the device reads its
 //!    tunnel straight from the VM API, `POST /v1/devices/{id}/signed/tunnel`
-//!    (install-key signed, purpose `tunnel`, no credential). A changed config
+//!    (install-key signed, purpose `tunnel`, no credential), at the origin
+//!    attach named in `vm_api_origin` (else the plan's derived one). The read
+//!    replaces the attach's routes, gateway and keys; a changed config
 //!    restarts the hub; 404 (device deleted, rotated away, team left the
 //!    experiment) re-attaches.
 //! 4. **Re-attach** on 409 `mesh.device.superseded` (the machine was rekeyed
@@ -112,6 +114,9 @@ pub(crate) struct DeviceTunnel {
     pub allowed_ips: Vec<String>,
     pub mtu: u16,
     pub persistent_keepalive_seconds: u16,
+    /// The VM API origin attach named for this device's own reads
+    /// (`vm_api_origin`); `None` uses the plan's derived origin.
+    pub vm_api_origin: Option<String>,
 }
 
 /// Characters a config value may hold: addresses, ports, prefixes, host
@@ -132,6 +137,16 @@ fn text<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
     value.get(name)?.as_str().filter(|s| !s.is_empty())
 }
 
+/// A non-empty route list whose every entry is safe in the config.
+fn routes(value: &Value) -> Option<Vec<String>> {
+    let routes: Vec<String> = value
+        .as_array()?
+        .iter()
+        .map(|ip| ip.as_str().filter(|ip| config_safe(ip)).map(str::to_owned))
+        .collect::<Option<_>>()?;
+    (!routes.is_empty()).then_some(routes)
+}
+
 fn small(value: &Value, name: &str, min: u64, max: u64) -> Option<u16> {
     value.get(name)?.as_u64().filter(|n| (min..=max).contains(n)).and_then(|n| n.try_into().ok())
 }
@@ -141,12 +156,6 @@ impl DeviceTunnel {
     /// would not be safe in a wg-quick config.
     pub(crate) fn from_attach(body: &Value) -> Option<Self> {
         let config = body.get("client_config").filter(|c| c.is_object())?;
-        let allowed_ips: Vec<String> = config
-            .get("allowed_ips")?
-            .as_array()?
-            .iter()
-            .map(|ip| ip.as_str().filter(|ip| config_safe(ip)).map(str::to_owned))
-            .collect::<Option<_>>()?;
         let tunnel = Self {
             tunnel_id: text(body, "tunnel_id")?.to_owned(),
             device_id: text(body, "device_id").filter(|d| d.starts_with("dev_"))?.to_owned(),
@@ -159,17 +168,22 @@ impl DeviceTunnel {
             interface_address: text(config, "interface_address")
                 .filter(|a| config_safe(a))?
                 .to_owned(),
-            allowed_ips,
+            allowed_ips: routes(config.get("allowed_ips")?)?,
             mtu: small(config, "mtu", 576, 9000)?,
             persistent_keepalive_seconds: small(config, "persistent_keepalive_seconds", 0, 3600)?,
+            // An origin that is not a bare https one (or loopback http) is
+            // ignored: the derived origin serves instead.
+            vm_api_origin: text(body, "vm_api_origin")
+                .and_then(|origin| crate::cli::secure_cloud_origin(origin).ok()),
         };
-        (!tunnel.allowed_ips.is_empty()).then_some(tunnel)
+        Some(tunnel)
     }
 
-    /// This tunnel after a VM API `TunnelConfig` read (camelCase). The routes
-    /// stay the attach's (the platform narrows them to the mesh range); the
-    /// gateway, address and timers come from the read. `None` when the read
-    /// names another device or a field is not safe.
+    /// This tunnel after a VM API `TunnelConfig` read (camelCase). The read
+    /// is newer than the attach, so its routes, gateway, keys, address and
+    /// timers replace the attach's; the attach's routes stay only when the
+    /// read has no `allowedIps`. `None` when the read names another device
+    /// or a field is not safe.
     pub(crate) fn refreshed(&self, body: &Value) -> Option<Self> {
         if text(body, "deviceId") != Some(self.device_id.as_str()) {
             return None;
@@ -188,9 +202,13 @@ impl DeviceTunnel {
             interface_address: text(body, "interfaceAddress")
                 .filter(|a| config_safe(a))?
                 .to_owned(),
-            allowed_ips: self.allowed_ips.clone(),
+            allowed_ips: match body.get("allowedIps").filter(|ips| !ips.is_null()) {
+                Some(ips) => routes(ips)?,
+                None => self.allowed_ips.clone(),
+            },
             mtu: small(body, "mtu", 576, 9000)?,
             persistent_keepalive_seconds: small(body, "persistentKeepaliveSeconds", 0, 3600)?,
+            vm_api_origin: self.vm_api_origin.clone(),
         })
     }
 
@@ -380,15 +398,32 @@ pub(crate) fn start(plan: TunnelPlan) -> Result<TunnelHandle, StartError> {
 }
 
 /// The one-per-Mac lock beside the socket.
-fn hold(socket: &Path) -> Result<File, StartError> {
+/// The supervisor's own lock: `<socket>.tunnel-lock`, owner-only (0600) and
+/// never followed through a symlink. Never `<socket>.lock`: that one is the
+/// hub's (`OwnedUnixListener::bind` leases it), and holding it here would
+/// keep the hub from binding.
+pub(crate) fn lock_path(socket: &Path) -> PathBuf {
     let mut path = socket.as_os_str().to_owned();
-    path.push(".lock");
+    path.push(".tunnel-lock");
+    PathBuf::from(path)
+}
+
+fn hold(socket: &Path) -> Result<File, StartError> {
+    use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+    let io = |e: std::io::Error| StartError::Io(format!("{:?}", e.kind()));
+    // The hub secures (and checks) the socket's directory; it must exist
+    // first for the lock beside the socket, owner-only like the hub makes it.
+    if let Some(parent) = socket.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent).map_err(io)?;
+    }
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(PathBuf::from(path))
-        .map_err(|e| StartError::Io(format!("{:?}", e.kind())))?;
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(lock_path(socket))
+        .map_err(io)?;
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(std::fs::TryLockError::WouldBlock) => {
@@ -483,21 +518,32 @@ impl Supervisor {
 
     /// Counts a failure and waits out its delay; `Some` when the supervisor
     /// should end (out of attempts, or stopped while it waited).
+    /// The wait before retry number `failures` (1-based): the floor doubling
+    /// per failure up to the ceiling, full jitter, never under half the floor.
+    fn retry_delay(&self, failures: u32) -> Duration {
+        let timing = &self.plan.timing;
+        let exponent = failures.saturating_sub(1).min(16);
+        let ceiling = timing.retry_floor.saturating_mul(1 << exponent).min(timing.retry_ceiling);
+        (self.plan.jitter)(ceiling).max(timing.retry_floor.checked_div(2).unwrap_or_default())
+    }
+
+    fn ready(&self, tunnel: &DeviceTunnel) {
+        self.status.send_replace(TunnelStatus::Ready {
+            socket: self.plan.socket.clone(),
+            tunnel_id: tunnel.tunnel_id.clone(),
+            device_id: tunnel.device_id.clone(),
+            mesh_id: tunnel.mesh_id.clone(),
+            address_v4: tunnel.address_v4.clone(),
+        });
+    }
+
     async fn failed(&mut self, failures: &mut u32, why: String) -> Option<TunnelStatus> {
         *failures = failures.saturating_add(1);
         if *failures >= self.plan.timing.max_failures {
             return Some(TunnelStatus::Failed(format!("{why} ({failures} attempts)")));
         }
         self.status.send_replace(TunnelStatus::Retrying(why));
-        let exponent = failures.saturating_sub(1).min(16);
-        let ceiling = self
-            .plan
-            .timing
-            .retry_floor
-            .saturating_mul(1 << exponent)
-            .min(self.plan.timing.retry_ceiling);
-        let delay = (self.plan.jitter)(ceiling)
-            .max(self.plan.timing.retry_floor.checked_div(2).unwrap_or_default());
+        let delay = self.retry_delay(*failures);
         tokio::select! {
             _ = tokio::time::sleep(delay) => None,
             _ = self.stop.wait_for(|stop| *stop) => Some(TunnelStatus::Stopped),
@@ -542,7 +588,8 @@ impl Supervisor {
         tunnel: &DeviceTunnel,
     ) -> Result<DeviceTunnel, Miss> {
         let proof = identity.proof("tunnel", &tunnel.device_id, "", "").map_err(Miss::Fatal)?;
-        let url = format!("{}/v1/devices/{}/signed/tunnel", self.plan.vm_api, tunnel.device_id);
+        let origin = tunnel.vm_api_origin.as_deref().unwrap_or(&self.plan.vm_api);
+        let url = format!("{origin}/v1/devices/{}/signed/tunnel", tunnel.device_id);
         let response = client
             .post(url)
             .json(&proof)
@@ -591,17 +638,17 @@ impl Supervisor {
                     continue;
                 }
             };
-            self.status.send_replace(TunnelStatus::Ready {
-                socket: self.plan.socket.clone(),
-                tunnel_id: tunnel.tunnel_id.clone(),
-                device_id: tunnel.device_id.clone(),
-                mesh_id: tunnel.mesh_id.clone(),
-                address_v4: tunnel.address_v4.clone(),
-            });
+            self.ready(&tunnel);
             // The hub runs until it ends, the config changes, or the device
             // must attach again.
             let next = loop {
-                let tick = tokio::time::sleep(self.plan.timing.refresh_every);
+                // After a failed read the next one comes on the retry
+                // backoff, never later than the usual refresh.
+                let wait = match failures {
+                    0 => self.plan.timing.refresh_every,
+                    n => self.retry_delay(n).min(self.plan.timing.refresh_every),
+                };
+                let tick = tokio::time::sleep(wait);
                 // `None` is the refresh tick.
                 let event = tokio::select! {
                     _ = self.stop.wait_for(|stop| *stop) => Some(None),
@@ -635,9 +682,32 @@ impl Supervisor {
                         return HubEnd::Final(TunnelStatus::Failed(why));
                     }
                 }
-                match self.refresh(&client, &identity, &tunnel).await {
-                    Ok(fresh) if fresh == tunnel => failures = 0,
-                    Ok(fresh) => break Some(fresh),
+                // A stop cancels a read in flight: the hub stops and the
+                // supervisor ends `Stopped`, never `Failed`.
+                // A clone: the read borrows `self` while the stop is watched.
+                let mut stop = self.stop.clone();
+                let read = tokio::select! {
+                    read = self.refresh(&client, &identity, &tunnel) => read,
+                    () = stopped(&mut stop) => {
+                        hub.stop().await;
+                        return HubEnd::Stopped;
+                    }
+                };
+                match read {
+                    Ok(fresh) if fresh == tunnel => {
+                        // A read that works again after a failure: the
+                        // tunnel the hub serves is current, so it is ready.
+                        if failures > 0 {
+                            failures = 0;
+                            self.ready(&tunnel);
+                        }
+                    }
+                    // A read that worked ends the failure streak, changed or
+                    // not; the restarted hub publishes Ready.
+                    Ok(fresh) => {
+                        failures = 0;
+                        break Some(fresh);
+                    }
                     Err(Miss::Reattach(_) | Miss::NoMesh(_)) => {
                         hub.stop().await;
                         return HubEnd::Reattach;
@@ -646,12 +716,16 @@ impl Supervisor {
                         hub.stop().await;
                         return HubEnd::Final(TunnelStatus::Failed(why));
                     }
-                    // The hub keeps serving the config it has.
+                    // The hub keeps serving the config it has until the
+                    // reads have failed `max_failures` times in a row, which
+                    // is final: a re-attach would reset the count and an
+                    // unreachable VM API would loop for good.
                     Err(Miss::Retry(why)) => {
                         failures = failures.saturating_add(1);
                         if failures >= self.plan.timing.max_failures {
                             hub.stop().await;
-                            return HubEnd::Reattach;
+                            let why = format!("{why} ({failures} attempts)");
+                            return HubEnd::Final(TunnelStatus::Failed(why));
                         }
                         self.status.send_replace(TunnelStatus::Retrying(why));
                     }
@@ -663,7 +737,13 @@ impl Supervisor {
                     tunnel = fresh;
                 }
                 // The hub ended: read the tunnel before starting another.
-                None => match self.refresh(&client, &identity, &tunnel).await {
+                None => match {
+                    let mut stop = self.stop.clone();
+                    tokio::select! {
+                        read = self.refresh(&client, &identity, &tunnel) => read,
+                        () = stopped(&mut stop) => return HubEnd::Stopped,
+                    }
+                } {
                     Ok(fresh) => tunnel = fresh,
                     Err(Miss::Reattach(_) | Miss::NoMesh(_)) => return HubEnd::Reattach,
                     Err(Miss::Fatal(why)) => return HubEnd::Final(TunnelStatus::Failed(why)),
@@ -672,6 +752,13 @@ impl Supervisor {
             }
         }
     }
+}
+
+/// Resolves once a stop is asked (or its sender is gone), holding no
+/// borrow of the channel's value: a `watch::Ref` kept across the hub's stop
+/// would make the supervisor's future not `Send`.
+async fn stopped(stop: &mut watch::Receiver<bool>) {
+    let _ = stop.wait_for(|stop| *stop).await;
 }
 
 fn now_ms() -> u64 {
@@ -688,6 +775,8 @@ pub(crate) struct ProcessHubLauncher {
     exe: PathBuf,
     token: Zeroizing<String>,
     ready_timeout: Duration,
+    /// How long a hub gets after SIGTERM before SIGKILL.
+    kill_after: Duration,
 }
 
 impl ProcessHubLauncher {
@@ -698,38 +787,173 @@ impl ProcessHubLauncher {
         SystemRandom::new().fill(bytes.as_mut()).map_err(|_| "no random source".to_owned())?;
         let token = Zeroizing::new(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
         // Covers endpoint resolution and the first handshake inside `wg hub`.
-        Ok(Self { exe, token, ready_timeout: Duration::from_secs(45) })
+        Ok(Self { exe, token, ready_timeout: Duration::from_secs(45), kill_after: HUB_KILL_AFTER })
     }
 }
 
+/// What the hub's owner thread is asked to do with its child.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HubSignal {
+    /// SIGTERM: the hub removes its socket and exits.
+    Term,
+    /// SIGKILL, through the owned `Child`.
+    Kill,
+}
+
+/// How often the owner thread looks for a signal request while it waits on
+/// the child's exit event (the wait itself is an event, not a poll).
+const HUB_OWNER_TICK: Duration = Duration::from_millis(50);
+
+/// SIGTERM to SIGKILL, for a stop and for an abandoned hub alike.
+const HUB_KILL_AFTER: Duration = Duration::from_secs(5);
+
+/// The owner thread: the one place that holds the `Child`, waits on it, and
+/// signals it. A signal goes out only after `try_wait` said the child still
+/// runs and before this same thread reaps it, so its pid cannot have been
+/// reused; nothing else ever signals the hub. A dropped `ProcessHub` (its
+/// sender gone) counts as `Term`.
+/// What the owner thread needs of the hub's child; a seam so a test can
+/// make the exit-event wait fail.
+trait HubChild {
+    fn id(&self) -> u32;
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn wait_timeout(
+        &mut self,
+        limit: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn kill(&mut self) -> std::io::Result<()>;
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus>;
+}
+
+impl HubChild for cmux_process::Child {
+    fn id(&self) -> u32 {
+        cmux_process::Child::id(self)
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        cmux_process::Child::try_wait(self)
+    }
+    fn wait_timeout(
+        &mut self,
+        limit: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>> {
+        cmux_process::Child::wait_timeout(self, limit)
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        cmux_process::Child::kill(self)
+    }
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        cmux_process::Child::wait(self)
+    }
+}
+
+/// The child can no longer be watched (its exit event could not be set up,
+/// say with no descriptors left): it is still this thread's, so it is killed
+/// and reaped here, and only then reported ended. Dropping it instead would
+/// leave a live hub no stop could reach, holding its socket's lock.
+///
+/// `ECHILD` is the one exception: the child was already reaped elsewhere (an
+/// inherited `SIGCHLD = SIG_IGN` makes the kernel reap it), so this thread no
+/// longer owns its pid, which may now be another process's. It is never
+/// signaled; the hub is reported ended as it is.
+fn kill_and_reap(child: &mut impl HubChild, why: &std::io::Error) -> String {
+    if why.raw_os_error() == Some(libc::ECHILD) {
+        // `carrier tunnel` resets SIGCHLD at start (`reap_own_children`), so
+        // this should never happen.
+        eprintln!("carrier tunnel: hub reaped elsewhere (unexpected); not signaled");
+        return format!("{:?} (reaped elsewhere)", why.kind());
+    }
+    eprintln!("carrier tunnel: hub wait failed ({:?}); killing and reaping it", why.kind());
+    let _ = child.kill();
+    match child.wait() {
+        Ok(status) => format!("{status} (after {:?})", why.kind()),
+        Err(e) => format!("{:?} (after {:?})", e.kind(), why.kind()),
+    }
+}
+
+/// Takes back the default `SIGCHLD` disposition for this process. A parent
+/// that ran us with `SIGCHLD = SIG_IGN` (inherited across exec) would make the
+/// kernel reap the hub the moment it exits, behind the owner thread's back;
+/// its pid could then be reused, and any pid-based signal (the stop's SIGTERM,
+/// the SIGKILL after a failed wait) could hit an unrelated process. With the
+/// default disposition an exited hub stays a zombie until its owner thread
+/// reaps it, so while that thread holds the `Child` its pid is the hub's and
+/// kill-then-wait is safe on every path. Call it before the first hub spawn.
+pub(crate) fn reap_own_children() -> bool {
+    // SAFETY: `signal` with `SIG_DFL` installs no handler code; it only
+    // changes this process's disposition, before any hub is spawned.
+    unsafe { libc::signal(libc::SIGCHLD, libc::SIG_DFL) != libc::SIG_ERR }
+}
+
+fn own_hub(
+    mut child: impl HubChild,
+    requests: std::sync::mpsc::Receiver<HubSignal>,
+    done: watch::Sender<Option<String>>,
+    kill_after: Duration,
+) {
+    use std::sync::mpsc::TryRecvError;
+    let mut asked_term = false;
+    // When the `ProcessHub` went away (a stop during startup drops it), the
+    // owner ends the child itself: SIGTERM, then SIGKILL after `kill_after`,
+    // so a hub that ignores SIGTERM cannot outlive its supervisor (its stdout
+    // reader would hold the runtime's shutdown).
+    let mut orphaned_at: Option<std::time::Instant> = None;
+    let why = loop {
+        let request = match requests.try_recv() {
+            Ok(signal) => Some(signal),
+            Err(TryRecvError::Disconnected) => {
+                let since = *orphaned_at.get_or_insert_with(std::time::Instant::now);
+                if !asked_term {
+                    Some(HubSignal::Term)
+                } else if since.elapsed() >= kill_after {
+                    Some(HubSignal::Kill)
+                } else {
+                    None
+                }
+            }
+            Err(TryRecvError::Empty) => None,
+        };
+        if let Some(signal) = request {
+            match child.try_wait() {
+                Ok(Some(status)) => break status.to_string(),
+                Err(e) => break kill_and_reap(&mut child, &e),
+                Ok(None) => match signal {
+                    HubSignal::Kill => {
+                        let _ = child.kill();
+                    }
+                    HubSignal::Term if !asked_term => {
+                        asked_term = true;
+                        if let Ok(pid) = libc::pid_t::try_from(child.id()) {
+                            // SAFETY: this thread owns the unreaped child
+                            // (try_wait just saw it running) and is the only
+                            // one that reaps it, so `pid` is still the hub's.
+                            unsafe { libc::kill(pid, libc::SIGTERM) };
+                        }
+                    }
+                    HubSignal::Term => {}
+                },
+            }
+        }
+        match child.wait_timeout(HUB_OWNER_TICK) {
+            Ok(Some(status)) => break status.to_string(),
+            Ok(None) => {}
+            Err(e) => break kill_and_reap(&mut child, &e),
+        }
+    };
+    done.send_replace(Some(why));
+}
+
 struct ProcessHub {
-    pid: libc::pid_t,
-    /// Set once the reaper thread has waited the child out.
+    requests: std::sync::mpsc::Sender<HubSignal>,
+    /// Set once the owner thread has reaped the child.
     ended: watch::Receiver<Option<String>>,
 }
 
 impl ProcessHub {
-    fn signal(&self, signal: libc::c_int) {
-        // Never after the reaper's wait: the pid could be another process's.
-        if self.ended.borrow().is_none() {
-            // SAFETY: `pid` is this supervisor's own child, not yet reaped.
-            unsafe { libc::kill(self.pid, signal) };
-        }
-    }
-
     async fn wait_ended(&mut self) -> String {
         match self.ended.wait_for(Option::is_some).await {
             Ok(why) => why.clone().unwrap_or_default(),
-            Err(_) => "the hub's reaper ended".into(),
+            Err(_) => "the hub's owner ended".into(),
         }
-    }
-}
-
-impl Drop for ProcessHub {
-    fn drop(&mut self) {
-        // A supervisor dropped without `stop` still ends its hub (the hub's
-        // `--exit-with-parent` covers this process ending).
-        self.signal(libc::SIGTERM);
     }
 }
 
@@ -740,9 +964,9 @@ impl RunningHub for ProcessHub {
     }
 
     async fn stop(mut self: Box<Self>) {
-        self.signal(libc::SIGTERM);
-        if tokio::time::timeout(Duration::from_secs(5), self.wait_ended()).await.is_err() {
-            self.signal(libc::SIGKILL);
+        let _ = self.requests.send(HubSignal::Term);
+        if tokio::time::timeout(HUB_KILL_AFTER, self.wait_ended()).await.is_err() {
+            let _ = self.requests.send(HubSignal::Kill);
             self.wait_ended().await;
         }
     }
@@ -765,20 +989,15 @@ impl HubLauncher for ProcessHubLauncher {
             .stderr(cmux_process::Stdio::inherit())
             .spawn()
             .map_err(|e| format!("could not start wg hub ({:?})", e.kind()))?;
-        let pid = libc::pid_t::try_from(child.id()).map_err(|_| "wg hub has no pid")?;
+        // Both pipes leave the child before its owner thread waits on it
+        // (a wait closes stdin, and the config still has to go in).
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let (done, ended) = watch::channel(None);
-        // The reaper: the only wait on the child, so the pid stays ours
-        // until it reports.
-        std::thread::spawn(move || {
-            let why = match child.wait() {
-                Ok(status) => status.to_string(),
-                Err(e) => format!("{:?}", e.kind()),
-            };
-            done.send_replace(Some(why));
-        });
-        let hub = ProcessHub { pid, ended };
+        let (requests, asked) = std::sync::mpsc::channel();
+        let kill_after = self.kill_after;
+        std::thread::spawn(move || own_hub(child, asked, done, kill_after));
+        let hub = ProcessHub { requests, ended };
         let mut input = Zeroizing::new(Vec::with_capacity(self.token.len() + 1 + config.len()));
         input.extend_from_slice(self.token.as_bytes());
         input.push(b'\n');

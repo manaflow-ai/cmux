@@ -247,10 +247,11 @@ struct AgentPaneCloudStartTests {
         ]])
     }
 
-    /// Yields until `ready` holds, a bounded number of times.
+    /// Yields until `ready` holds or a generous deadline passes; the caller asserts `ready` after.
+    /// A deadline, not a yield count: a busy runner needs more reschedules, not a failure.
     private static func settle(_ ready: () -> Bool) async {
-        for _ in 0..<1_000 {
-            if ready() { return }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !ready(), ContinuousClock.now < deadline {
             await Task.yield()
         }
     }

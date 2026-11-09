@@ -690,6 +690,10 @@ fn run_response(
                         Err(error) => return print_operation_error(&error, global.output),
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
+                    // The agent status words come from terminal_talk, which is unix
+                    // only; elsewhere the program's own records stay as they are.
+                    #[cfg(unix)]
+                    let result = program_status_view::with_agent_status(reader, plan, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -887,7 +891,13 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
         && plan.view == super::command::ResponseView::TerminalProgramStatus)
         .then(|| result.pointer("/extra/last_command").cloned())
         .flatten();
-    let result = plan.view.project(result);
+    let mut result = plan.view.project(result);
+    #[cfg(unix)]
+    if global.output == OutputMode::Human
+        && plan.view == super::command::ResponseView::TerminalProgramStatus
+    {
+        result = program_status_view::human_records(result);
+    }
     if global.output == OutputMode::Human
         && plan.view == super::command::ResponseView::ScreenText
         && let Some(text) = result.get("text").and_then(Value::as_str)
@@ -970,8 +980,29 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
                 .collect(),
         )),
         Some(rows) if is_closed_list(plan) => std::borrow::Cow::Owned(closed_view::summarize(rows)),
+        // A screen's `layout` is its whole split tree as JSON: one cell of it
+        // made every row wider than the terminal (W5-P). `--json` keeps it,
+        // and `screen <s> layout export` prints it.
+        Some(rows) if is_screen_list(plan) => std::borrow::Cow::Owned(Value::Array(
+            rows.iter()
+                .map(|row| {
+                    let mut row = row.clone();
+                    if let Some(object) = row.as_object_mut() {
+                        object.remove("layout");
+                    }
+                    row
+                })
+                .collect(),
+        )),
         _ => std::borrow::Cow::Borrowed(result),
     }
+}
+
+fn is_screen_list(plan: &RequestPlan) -> bool {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::ScreenList)
+    )
 }
 
 fn is_closed_list(plan: &RequestPlan) -> bool {
@@ -1197,6 +1228,8 @@ mod human;
 mod list_filter;
 mod list_order;
 mod notify_desktop;
+#[cfg(unix)]
+mod program_status_view;
 mod retry;
 mod sanitize;
 mod socket;

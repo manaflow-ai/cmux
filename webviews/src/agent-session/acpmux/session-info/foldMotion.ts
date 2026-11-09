@@ -9,7 +9,7 @@
 // Base UI's (sessionInfo.css `.ui-disclosure-panel`), on the same duration and curve.
 //
 // Cost: one height read before the change and one after, per toggle; one Web Animation on the box,
-// which ends by itself (265 ms, the motion scale's settle). No observer, no frame loop. Under
+// which ends by itself (180 ms, the motion scale's settle). No observer, no frame loop. Under
 // Reduce Motion, the pane's animations off, or a hidden page (ui/motion/motionMode.ts), it is instant.
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
