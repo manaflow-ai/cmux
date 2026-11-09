@@ -670,6 +670,51 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(f.deletes).toEqual([]);
   });
 
+  test("each delete ends within its 5 min bound, whatever its requests take: 60 s deletes and 30 s reads", async () => {
+    const bound = 180_000 + 120_000;
+    // A fake clock and a server whose every delete answers indeterminate after 60 s and every read after 30 s,
+    // unless the request's own timeout cuts it first (as AbortSignal.timeout does).
+    const run = async (opts: { deleteMs: number; readMs: number; deletes: boolean }) => {
+      let t = now;
+      const timeouts: number[] = [];
+      const slow = async (took: number, timeoutMs: number) => {
+        timeouts.push(timeoutMs);
+        expect(timeoutMs).toBeGreaterThan(0);
+        if (took > timeoutMs) { t += timeoutMs; throw new Error(`timed out after ${timeoutMs} ms`); }
+        t += took;
+      };
+      let removed = false;
+      const scope: MachineScope = {
+        scope: "personal",
+        list: async () => [machine()],
+        get: async (_m, timeoutMs) => { await slow(opts.readMs, timeoutMs); return removed ? { ...machine(), status: "deleting" } : machine(); },
+        remove: async (_m, _k, timeoutMs) => {
+          // From the third attempt on, the provider deletes it; its answer is still cut off.
+          if (opts.deletes && t - now > 100_000) removed = true;
+          await slow(opts.deleteMs, timeoutMs);
+          return { status: 409, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } };
+        },
+      };
+      const sleeps: number[] = [];
+      const start = t;
+      const r = await deleteJourneyMachines([id(1)], [scope], "t", { now: () => t, sleep: async (ms) => { sleeps.push(ms); expect(ms).toBeGreaterThan(0); t += ms; }, log: () => undefined });
+      return { r, took: t - start, timeouts, sleeps };
+    };
+    // Never deleted: the retries and read back run their whole time and stop at the bound, not a request past it.
+    for (const [deleteMs, readMs] of [[60_000, 30_000], [59_000, 29_000], [61_000, 31_000], [1_000, 1_000]]) {
+      const { r, took, timeouts } = await run({ deleteMs, readMs, deletes: false });
+      expect(r.deleted).toEqual([]);
+      // A 31 s read is cut at its 30 s timeout: the read before the delete fails, which deletes nothing.
+      expect(r.failed[0]!.reason).toMatch(readMs > 30_000 ? /read before delete: timed out after 30000 ms/ : /by its 300 s deadline/);
+      expect(took).toBeLessThanOrEqual(bound);
+      for (const ms of timeouts) expect(ms).toBeLessThanOrEqual(60_000);
+    }
+    // Deleted on a late attempt: read back deleting within the bound.
+    const late = await run({ deleteMs: 60_000, readMs: 30_000, deletes: true });
+    expect(late.r.deleted).toEqual([id(1)]);
+    expect(late.took).toBeLessThanOrEqual(bound);
+  });
+
   test("a delete that never reads back gone fails", async () => {
     const f = fake([machine()]);
     const scope = { ...f.scope, get: async () => machine() };
