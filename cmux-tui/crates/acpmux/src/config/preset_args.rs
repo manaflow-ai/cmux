@@ -134,7 +134,8 @@ impl Preset {
     pub fn unattended_approved(&self) -> bool {
         match (&self.unattended, self.approval_digest()) {
             (Some(a), Some(now)) => {
-                self.unattended_blocker().is_none() && cmux_local_auth::tokens_match(&a.digest, &now)
+                self.unattended_blocker().is_none()
+                    && cmux_local_auth::tokens_match(&a.digest, &now)
             }
             _ => false,
         }

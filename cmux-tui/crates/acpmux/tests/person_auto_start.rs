@@ -917,12 +917,18 @@ async fn unattended_only_the_person_approves_a_preset_for_the_contents_it_saw() 
     assert_eq!(reason(&r), REASON, "{r}");
     // The person approves only what they saw.
     let r = app
-        .call("_acpmux/preset_approve", json!({"name": "agent-lane", "approve": true, "digest": "00"}))
+        .call(
+            "_acpmux/preset_approve",
+            json!({"name": "agent-lane", "approve": true, "digest": "00"}),
+        )
         .await;
     assert_eq!(reason(&r), "preset_approval.changed", "{r}");
     assert_eq!(r["error"]["data"]["digest"], digest.as_str(), "{r}");
     let row = app.ok("_acpmux/preset_approve", approve.clone()).await;
-    assert_eq!(row["approval"]["digest"], digest.as_str(), "{row}");
+    // The row names the approved contents by its digest; the approval says who, where and when.
+    assert_eq!(row["digest"], digest.as_str(), "{row}");
+    assert_ne!(row["approval"], Value::Null, "{row}");
+    assert!(row["approval"]["by"].as_str().is_some_and(|b| !b.is_empty()), "{row}");
     let view = cli.ok("_acpmux/presets", json!({"name": "agent-lane"})).await;
     assert_eq!(view["unattendedApproved"], true, "{view}");
     // The approval and the log are in the daemon's home.
@@ -940,9 +946,13 @@ async fn unattended_only_the_person_approves_a_preset_for_the_contents_it_saw() 
     assert!(log.lines().any(|l| l.contains("\"cleared\"")), "{log}");
     // Approved again, then revoked by anyone (the CLI).
     let digest = row["digest"].as_str().unwrap().to_owned();
-    app.ok("_acpmux/preset_approve", json!({"name": "agent-lane", "approve": true, "digest": digest}))
-        .await;
-    let row = cli.ok("_acpmux/preset_approve", json!({"name": "agent-lane", "approve": false})).await;
+    app.ok(
+        "_acpmux/preset_approve",
+        json!({"name": "agent-lane", "approve": true, "digest": digest}),
+    )
+    .await;
+    let row =
+        cli.ok("_acpmux/preset_approve", json!({"name": "agent-lane", "approve": false})).await;
     assert_eq!(row["approval"], Value::Null, "{row}");
     let log = std::fs::read_to_string(d.dir.join("unattended-presets.jsonl")).unwrap();
     assert!(log.lines().any(|l| l.contains("\"revoked\"")), "{log}");
@@ -958,12 +968,26 @@ async fn unattended_a_preset_that_asks_or_carries_more_than_a_harness_cannot_be_
         json!({"name": "env", "set": {"harness": "fake", "policy": "approve-all", "env": {"A": "b"}}}),
     )
     .await;
+    // The card lists only presets that could run unattended: one whose policy asks is not
+    // listed, and an approve of it is refused all the same.
+    let all = app.ok("_acpmux/preset_approvals", json!({})).await;
+    let listed = |name: &str| {
+        all["presets"].as_array().is_some_and(|rows| rows.iter().any(|r| r["name"] == name))
+    };
+    assert!(!listed("asks"), "{all}");
     for (name, why) in [("asks", "preset.policy_asks"), ("env", "preset.env")] {
-        let row = approval_row(&mut app, name).await;
-        assert_eq!(row["blocked"], why, "{row}");
-        let digest = row["digest"].as_str().unwrap_or_default().to_owned();
+        let digest = if listed(name) {
+            let row = approval_row(&mut app, name).await;
+            assert_eq!(row["blocked"], why, "{row}");
+            row["digest"].as_str().unwrap_or_default().to_owned()
+        } else {
+            String::new()
+        };
         let r = app
-            .call("_acpmux/preset_approve", json!({"name": name, "approve": true, "digest": digest}))
+            .call(
+                "_acpmux/preset_approve",
+                json!({"name": name, "approve": true, "digest": digest}),
+            )
             .await;
         assert_eq!(reason(&r), "preset_approval.blocked", "{r}");
         assert_eq!(r["error"]["data"]["blocked"], why, "{r}");

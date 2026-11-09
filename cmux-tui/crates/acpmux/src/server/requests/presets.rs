@@ -41,7 +41,10 @@ pub(super) async fn handle(
         let mut new_prompt: Option<Option<String>> = None;
         if clear {
             if cfg.presets.remove(&name).is_some_and(|old| old.unattended.is_some()) {
-                crate::hub::unattended::record("cleared", json!({"preset": name, "why": "removed"}));
+                crate::hub::unattended::record(
+                    "cleared",
+                    json!({"preset": name, "why": "removed"}),
+                );
             }
             if let Some(dir) = &presets_dir {
                 crate::config::remove_preset_dir(dir, &name)

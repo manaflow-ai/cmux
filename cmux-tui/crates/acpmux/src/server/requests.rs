@@ -534,7 +534,14 @@ async fn dispatch_brief(
                 )));
             }
         };
-        unattended_result(&unattended, &peer_name, &starter, &mut result, "/brief/sessionId", Some(&id));
+        unattended_result(
+            &unattended,
+            &peer_name,
+            &starter,
+            &mut result,
+            "/brief/sessionId",
+            Some(&id),
+        );
         if let Some(row) = result.get("brief").cloned() {
             if let Some(identity) = &identity {
                 let row = workflow_dispatch::cache_remote(hub, &id, identity, row).await?;
@@ -1561,7 +1568,14 @@ async fn dispatch_request_with_identity(
                     );
                 }
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
-                unattended_result(&unattended, &peer.name, &starter, &mut result, "/sessionId", None);
+                unattended_result(
+                    &unattended,
+                    &peer.name,
+                    &starter,
+                    &mut result,
+                    "/sessionId",
+                    None,
+                );
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);

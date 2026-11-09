@@ -300,7 +300,8 @@ impl Hub {
 /// Whether a start names a harness, model, effort or policy other than the preset's own.
 fn overrides(shape: Shape, params: &Value, preset: &Preset) -> bool {
     let text = |k: &str| shape.get(params, k).and_then(Value::as_str).map(str::to_owned);
-    let differs = |asked: Option<String>, own: Option<&str>| asked.is_some_and(|a| Some(a.as_str()) != own);
+    let differs =
+        |asked: Option<String>, own: Option<&str>| asked.is_some_and(|a| Some(a.as_str()) != own);
     let policy = preset.policy.map(|p| p.to_string());
     // A dispatch's `model` may be `HARNESS/MODEL`.
     let (harness, model) = match (text("harness"), text("model")) {
@@ -373,7 +374,8 @@ fn row(name: &str, preset: &Preset, log: &[Value]) -> Value {
     let recent = &mine[since..];
     let approval = preset.unattended.as_ref().filter(|_| preset.unattended_approved());
     let approved = approval.is_some();
-    let runs: Vec<&Value> = recent.iter().copied().filter(|l| field(l, "kind") == "started").collect();
+    let runs: Vec<&Value> =
+        recent.iter().copied().filter(|l| field(l, "kind") == "started").collect();
     let asks: Vec<Value> = recent
         .iter()
         .rev()
@@ -382,7 +384,11 @@ fn row(name: &str, preset: &Preset, log: &[Value]) -> Value {
         .take(ASKS_SHOWN)
         .map(|l| pick(l, &["at", "host", "from", "why"]))
         .collect();
-    let last_run = runs.last().copied().filter(|_| approved).map(|l| pick(l, &["at", "host", "sessionId", "from"]));
+    let last_run = runs
+        .last()
+        .copied()
+        .filter(|_| approved)
+        .map(|l| pick(l, &["at", "host", "sessionId", "from"]));
     json!({
         "name": name,
         "harness": preset.harness,

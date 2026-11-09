@@ -54,9 +54,18 @@ fn only_a_preset_a_peer_starts_exactly_as_approved_can_be_approved() {
         (json!({"harness": "claude", "policy": "ask"}), "preset.policy_asks"),
         (json!({"harness": "claude", "policy": "deny-all"}), "preset.policy_asks"),
         (json!({"harness": "claude", "policy": "approve-all", "env": {"A": "b"}}), "preset.env"),
-        (json!({"harness": "claude", "policy": "approve-all", "args": ["--tools", ""]}), "preset.args"),
-        (json!({"harness": "claude", "policy": "approve-all", "systemPromptSha256": "ab"}), "preset.system_prompt"),
-        (json!({"harness": "claude", "policy": "approve-all", "mode": "bypassPermissions"}), "preset.mode"),
+        (
+            json!({"harness": "claude", "policy": "approve-all", "args": ["--tools", ""]}),
+            "preset.args",
+        ),
+        (
+            json!({"harness": "claude", "policy": "approve-all", "systemPromptSha256": "ab"}),
+            "preset.system_prompt",
+        ),
+        (
+            json!({"harness": "claude", "policy": "approve-all", "mode": "bypassPermissions"}),
+            "preset.mode",
+        ),
     ];
     for (v, why) in cases {
         let p = preset(v.clone());
@@ -64,7 +73,10 @@ fn only_a_preset_a_peer_starts_exactly_as_approved_can_be_approved() {
         // Even with an approval record (a hand edit), such a preset is not approved.
         assert!(!approved(&p).unattended_approved(), "{v}");
     }
-    assert_eq!(preset(json!({"harness": "claude", "policy": "approve-reads"})).unattended_blocker(), None);
+    assert_eq!(
+        preset(json!({"harness": "claude", "policy": "approve-reads"})).unattended_blocker(),
+        None
+    );
 }
 
 #[test]
@@ -103,7 +115,8 @@ fn a_dispatch_carries_the_approved_contents_and_never_the_preset_name() {
 #[test]
 fn a_new_session_carries_the_approved_contents_in_its_meta() {
     let p = preset(json!({"harness": "claude", "policy": "approve-all"}));
-    let mut params = json!({"cwd": "/w", "_meta": {"acpmux": {"preset": "agent-lane", "name": "lane"}}});
+    let mut params =
+        json!({"cwd": "/w", "_meta": {"acpmux": {"preset": "agent-lane", "name": "lane"}}});
     put_contents(Shape::SessionNew, &mut params, &p);
     let meta = &params["_meta"]["acpmux"];
     assert_eq!(meta.get("preset"), None, "{params}");
@@ -140,11 +153,17 @@ fn a_start_that_names_its_own_contents_is_not_the_approved_one() {
 
 #[test]
 fn a_stamp_counts_only_with_its_fields_and_a_client_one_is_dropped() {
-    let mut params = json!({"_meta": {"acpmux": {STAMP_FIELD: {"preset": "agent-lane", "digest": "ab"}}}});
+    let mut params =
+        json!({"_meta": {"acpmux": {STAMP_FIELD: {"preset": "agent-lane", "digest": "ab"}}}});
     assert!(stamp_of(&params).is_some());
     strip_stamp(&mut params);
     assert!(stamp_of(&params).is_none());
-    for bad in [json!({"preset": "agent-lane"}), json!({"digest": "ab"}), json!(true), json!({"preset": "", "digest": "ab"})] {
+    for bad in [
+        json!({"preset": "agent-lane"}),
+        json!({"digest": "ab"}),
+        json!(true),
+        json!({"preset": "", "digest": "ab"}),
+    ] {
         let params = json!({"_meta": {"acpmux": {STAMP_FIELD: bad}}});
         assert!(stamp_of(&params).is_none(), "{params}");
     }
@@ -174,7 +193,8 @@ fn a_row_counts_runs_under_the_approval_and_tries_since_the_last_change() {
     assert_eq!(r["approval"], Value::Null, "{r}");
     assert_eq!(r["runs"], 0);
     assert_eq!(r["lastRun"], Value::Null);
-    let asks: Vec<u64> = r["asks"].as_array().unwrap().iter().map(|a| a["at"].as_u64().unwrap()).collect();
+    let asks: Vec<u64> =
+        r["asks"].as_array().unwrap().iter().map(|a| a["at"].as_u64().unwrap()).collect();
     assert_eq!(asks, vec![4, 3], "{r}");
     // An approval for other contents is none.
     let mut changed = approved(&lane());

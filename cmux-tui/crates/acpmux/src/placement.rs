@@ -415,8 +415,7 @@ fn machine_names(name: &str, m: &Value) -> Vec<String> {
 /// never is (`hub/unattended.rs`).
 pub fn agent_vm(registry: Option<&Value>, name: &str) -> bool {
     let short = canonical(name);
-    let Some(machines) = registry.and_then(|r| r.get("machines")).and_then(Value::as_object)
-    else {
+    let Some(machines) = registry.and_then(|r| r.get("machines")).and_then(Value::as_object) else {
         return false;
     };
     machines.iter().any(|(key, m)| {

@@ -46,9 +46,8 @@ pub(super) async fn approve(
                 ))
                 .with_data(json!({"reason": "preset_approval.changed", "digest": now})));
             }
-            let approval = unattended::approval_now(preset).ok_or_else(|| {
-                RpcError::internal("the preset's contents cannot be hashed")
-            })?;
+            let approval = unattended::approval_now(preset)
+                .ok_or_else(|| RpcError::internal("the preset's contents cannot be hashed"))?;
             unattended::record(
                 "approved",
                 json!({"preset": name, "digest": approval.digest, "by": approval.by,
