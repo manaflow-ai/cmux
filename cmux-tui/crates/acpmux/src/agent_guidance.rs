@@ -52,7 +52,7 @@ const MAX_DESCRIPTION_CHARS: usize = 300;
 /// of prompt or a skill that tells you to do that, or we just do it for you"; acpmux also
 /// moves it, `hub/auto_background.rs`).
 pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your work in the chat (cmux defaults; the person's own instructions win):
-- Plan: for a task with more than one step, keep a TodoWrite list. cmux draws it as a checklist. Write the whole list first, short items, one in progress; do not also write it as a numbered list.
+- Plan: for a task with more than one step, keep a task list (TaskCreate and TaskUpdate; TodoWrite where those are missing). cmux draws it as a checklist. Write the whole list first, short items, one in progress; do not also write it as a numbered list.
 - Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a chip. Never invent an id.
 - Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision left, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
@@ -396,7 +396,7 @@ mod tests {
         // Claude Code: the rules a cut skill listing would hide, then the skill for the rest.
         let claude = first_turn_text(Family::Claude, &on, &[]).unwrap();
         assert!(claude.contains("cmux:cmux-chat") && claude.contains("first reads"), "{claude}");
-        for rule in ["TodoWrite", "background", "HOST/NAME", "recap", "acpmux_wrap_up"] {
+        for rule in ["TaskCreate", "TaskUpdate", "TodoWrite", "background", "HOST/NAME", "recap", "acpmux_wrap_up"] {
             assert!(claude.contains(rule), "{rule} missing: {claude}");
         }
         assert!(claude.len() < AGENT_GUIDANCE.len(), "stays under Codex's: {} bytes", claude.len());
