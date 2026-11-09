@@ -35,10 +35,14 @@ public struct ScreenFeatures: OptionSet, Sendable {
     /// A Direct Touch / Trackpad choice in the options menu
     /// (`ScreenPreferences.inputMode`).
     public static let inputModeToggle = ScreenFeatures(rawValue: 1 << 11)
+    /// A Trackpad button (closed by default) that opens a draggable overlay:
+    /// a trackpad surface that moves the Mac's pointer, with the viewer
+    /// settings inside it instead of on the screen's top bar.
+    public static let trackpadOverlay = ScreenFeatures(rawValue: 1 << 12)
 
     public static let all: ScreenFeatures = [.shortcutsBar, .qualityMenu, .orientationLock, .fitToggle, .displayPaging, .stats,
                                              .keyboard, .sendKeysMenu, .refresh, .hideToolbar, .resumeOnForeground,
-                                             .inputModeToggle]
+                                             .inputModeToggle, .trackpadOverlay]
     public static let minimal: ScreenFeatures = [.displayPaging, .resumeOnForeground]
 }
 
@@ -59,6 +63,11 @@ public struct ScreenSessionView: View {
     @State private var signInUser = ""
     @State private var signInPassword = ""
     @State private var orientation = OrientationLock.saved
+    /// The trackpad overlay is closed until its button opens it.
+    @State private var trackpadOpen = false
+    @State private var trackpadPlacement = TrackpadOverlayPlacement()
+    @GestureState private var trackpadDrag = CGSize.zero
+    @State private var trackpadLink = ScreenTrackpadLink()
     @Environment(\.scenePhase) private var scenePhase
 
     public init(session: ScreenSession, features: ScreenFeatures = .all,
@@ -73,7 +82,8 @@ public struct ScreenSessionView: View {
         ZStack(alignment: .top) {
             ScreenView(session: session, fitToDisplay: session.preferences.fitToDisplay,
                        displayPaging: features.contains(.displayPaging), keyboardVisible: $keyboardVisible,
-                       inputMode: session.preferences.inputMode)
+                       inputMode: session.preferences.inputMode, trackpadLink: trackpadLink,
+                       trackpadPadActive: hasTrackpadOverlay && trackpadOpen)
                 .ignoresSafeArea()
             if chromeVisible {
                 VStack(spacing: 6) {
@@ -85,6 +95,7 @@ public struct ScreenSessionView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
             stateCard
+            if hasTrackpadOverlay, case .connected = session.phase { trackpadLayer }
         }
         .background(.black)
         // Remote screens sit on black: dark chrome keeps the bar and stats legible.
@@ -124,7 +135,8 @@ public struct ScreenSessionView: View {
                 if features.contains(.stats), session.preferences.showStats, case .connected = session.phase { stats }
             }
             Spacer(minLength: 8)
-            if hasMenu { optionsMenu }
+            // With the trackpad overlay, the viewer settings live inside it, not on the screen.
+            if hasMenu, !hasTrackpadOverlay { optionsMenu }
             if features.contains(.keyboard) {
                 Button("Keyboard", systemImage: keyboardVisible ? "keyboard.chevron.compact.down" : "keyboard") {
                     keyboardVisible.toggle()
@@ -142,50 +154,154 @@ public struct ScreenSessionView: View {
 
     private var optionsMenu: some View {
         Menu {
-            if features.contains(.inputModeToggle) {
-                Picker("Input", systemImage: session.preferences.inputMode.symbol, selection: $session.preferences.inputMode) {
-                    ForEach(ScreenInputMode.allCases) { mode in Label(mode.title, systemImage: mode.symbol).tag(mode) }
-                }
-                .pickerStyle(.menu)
-            }
-            if features.contains(.fitToggle) {
-                checkItem("Fit to Display", systemImage: "rectangle.dashed", isOn: $session.preferences.fitToDisplay)
-            }
-            if features.contains(.orientationLock) {
-                Picker("Orientation", systemImage: orientation.symbol, selection: $orientation) {
-                    ForEach(OrientationLock.allCases) { lock in Label(lock.title, systemImage: lock.symbol).tag(lock) }
-                }
-                .pickerStyle(.menu)
-            }
-            if features.contains(.qualityMenu), session.isStream {
-                Picker("Quality", systemImage: "dial.medium", selection: $session.preferences.quality) {
-                    ForEach(ScreenQuality.allCases) { quality in Text(quality.title).tag(quality) }
-                }
-                .pickerStyle(.menu)
-            }
-            if features.contains(.stats) {
-                checkItem("Stream stats", systemImage: "gauge.with.dots.needle.33percent", isOn: $session.preferences.showStats)
-            }
-            if features.contains(.sendKeysMenu) {
-                Section("Send") {
-                    Button("Control-Option-Delete", systemImage: "command") { session.tap(.deleteForward, modifiers: [.control, .option]) }
-                    Button("Command-Tab", systemImage: "rectangle.stack") { session.tap(.tab, modifiers: [.command]) }
-                    Button("Command-Space", systemImage: "magnifyingglass") { session.tap(.space, modifiers: [.command]) }
-                    Button("Escape", systemImage: "escape") { session.tap(.escape) }
-                }
-            }
-            if features.contains(.refresh) {
-                Button("Refresh Screen", systemImage: "arrow.clockwise") { session.refresh() }
-            }
-            if features.contains(.hideToolbar) {
-                Button("Hide Toolbar", systemImage: "chevron.up") { withAnimation { chromeVisible = false } }
-            }
+            optionsItems
         } label: {
             // Icon-only on the trigger alone: on the Menu it also stripped the titles of the
             // Toggle and Picker rows inside (empty rows with only a checkmark).
             Label("Options", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
         }
         .accessibilityIdentifier("screen.options")
+    }
+
+    // MARK: Trackpad overlay
+
+    private var hasTrackpadOverlay: Bool { features.contains(.trackpadOverlay) }
+
+    /// Room the overlay is kept inside, from the screen's edges.
+    private static let trackpadMargin: CGFloat = 12
+    /// The overlay's height, for keeping it on screen while it is dragged.
+    private static let trackpadPanelHeight: CGFloat = 300
+
+    /// The Trackpad button while the overlay is closed, the overlay while open.
+    private var trackpadLayer: some View {
+        GeometryReader { geometry in
+            if trackpadOpen {
+                trackpadPanel(container: geometry.size)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            } else {
+                showTrackpadButton
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            }
+        }
+        .padding(Self.trackpadMargin)
+    }
+
+    private var showTrackpadButton: some View {
+        Button {
+            trackpadOpen = true
+        } label: {
+            Label("Trackpad", systemImage: "rectangle.and.hand.point.up.left")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("screen.trackpad.show")
+    }
+
+    private func trackpadPanel(container: CGSize) -> some View {
+        let panel = CGSize(width: min(container.width, 380), height: Self.trackpadPanelHeight)
+        let offset = TrackpadOverlayPlacement.clamped(
+            CGSize(width: trackpadPlacement.offset.width + trackpadDrag.width,
+                   height: trackpadPlacement.offset.height + trackpadDrag.height),
+            panel: panel, container: container, margin: 0)
+        return VStack(spacing: 10) {
+            trackpadHeader(panel: panel, container: container)
+            ScreenTrackpadPad(link: trackpadLink)
+                .frame(maxWidth: .infinity)
+                .frame(height: 170)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.18)))
+            if hasMenu {
+                Menu {
+                    optionsItems
+                } label: {
+                    Label("Viewer Settings", systemImage: "slider.horizontal.3")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                }
+                .accessibilityIdentifier("screen.options")
+            }
+        }
+        .padding(12)
+        .frame(width: panel.width)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .offset(offset)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("screen.trackpad.overlay")
+    }
+
+    /// The overlay's grip (drag it to move the overlay), its title and its hide button.
+    private func trackpadHeader(panel: CGSize, container: CGSize) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text("Trackpad").font(.subheadline.weight(.semibold))
+            Spacer(minLength: 8)
+            Button("Hide Trackpad", systemImage: "xmark.circle.fill") { trackpadOpen = false }
+                .labelStyle(.iconOnly)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("screen.trackpad.hide")
+        }
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(coordinateSpace: .global)
+                .updating($trackpadDrag) { value, drag, _ in drag = value.translation }
+                .onEnded { value in
+                    trackpadPlacement.offset = TrackpadOverlayPlacement.clamped(
+                        CGSize(width: trackpadPlacement.offset.width + value.translation.width,
+                               height: trackpadPlacement.offset.height + value.translation.height),
+                        panel: panel, container: container, margin: 0)
+                }
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("screen.trackpad.grip")
+    }
+
+    /// The viewer settings: the top bar's options menu, or the trackpad overlay's.
+    @ViewBuilder private var optionsItems: some View {
+        if features.contains(.inputModeToggle) {
+            Picker("Input", systemImage: session.preferences.inputMode.symbol, selection: $session.preferences.inputMode) {
+                ForEach(ScreenInputMode.allCases) { mode in Label(mode.title, systemImage: mode.symbol).tag(mode) }
+            }
+            .pickerStyle(.menu)
+        }
+        if features.contains(.fitToggle) {
+            checkItem("Fit to Display", systemImage: "rectangle.dashed", isOn: $session.preferences.fitToDisplay)
+        }
+        if features.contains(.orientationLock) {
+            Picker("Orientation", systemImage: orientation.symbol, selection: $orientation) {
+                ForEach(OrientationLock.allCases) { lock in Label(lock.title, systemImage: lock.symbol).tag(lock) }
+            }
+            .pickerStyle(.menu)
+        }
+        if features.contains(.qualityMenu), session.isStream {
+            Picker("Quality", systemImage: "dial.medium", selection: $session.preferences.quality) {
+                ForEach(ScreenQuality.allCases) { quality in Text(quality.title).tag(quality) }
+            }
+            .pickerStyle(.menu)
+        }
+        if features.contains(.stats) {
+            checkItem("Stream stats", systemImage: "gauge.with.dots.needle.33percent", isOn: $session.preferences.showStats)
+        }
+        if features.contains(.sendKeysMenu) {
+            Section("Send") {
+                Button("Control-Option-Delete", systemImage: "command") { session.tap(.deleteForward, modifiers: [.control, .option]) }
+                Button("Command-Tab", systemImage: "rectangle.stack") { session.tap(.tab, modifiers: [.command]) }
+                Button("Command-Space", systemImage: "magnifyingglass") { session.tap(.space, modifiers: [.command]) }
+                Button("Escape", systemImage: "escape") { session.tap(.escape) }
+            }
+        }
+        if features.contains(.refresh) {
+            Button("Refresh Screen", systemImage: "arrow.clockwise") { session.refresh() }
+        }
+        if features.contains(.hideToolbar) {
+            Button("Hide Toolbar", systemImage: "chevron.up") { withAnimation { chromeVisible = false } }
+        }
     }
 
     /// An on/off item in the options menu: a Button that flips the value and shows a checkmark.
@@ -287,25 +403,36 @@ public struct ScreenView: UIViewControllerRepresentable {
     let fitToDisplay: Bool
     let displayPaging: Bool
     let inputMode: ScreenInputMode?
+    let trackpadLink: ScreenTrackpadLink?
+    let trackpadPadActive: Bool
     @Binding var keyboardVisible: Bool
 
+    /// `trackpadLink` lets a trackpad overlay's pad drive this screen's pointer;
+    /// `trackpadPadActive` (the overlay is open) shows the cursor the pad moves.
     public init(session: ScreenSession, fitToDisplay: Bool = true, displayPaging: Bool = true,
-                keyboardVisible: Binding<Bool> = .constant(false), inputMode: ScreenInputMode? = nil) {
+                keyboardVisible: Binding<Bool> = .constant(false), inputMode: ScreenInputMode? = nil,
+                trackpadLink: ScreenTrackpadLink? = nil, trackpadPadActive: Bool = false) {
         self.session = session
         self.fitToDisplay = fitToDisplay
         self.displayPaging = displayPaging
         self.inputMode = inputMode
+        self.trackpadLink = trackpadLink
+        self.trackpadPadActive = trackpadPadActive
         _keyboardVisible = keyboardVisible
     }
 
     public func makeUIViewController(context: Context) -> ScreenViewController {
-        ScreenViewController(session: session)
+        let controller = ScreenViewController(session: session)
+        trackpadLink?.controller = controller
+        return controller
     }
 
     public func updateUIViewController(_ controller: ScreenViewController, context: Context) {
         controller.fitToDisplay = fitToDisplay
         controller.allowsDisplayPaging = displayPaging
         controller.inputMode = inputMode ?? session.preferences.inputMode
+        controller.trackpadPadActive = trackpadPadActive
+        trackpadLink?.controller = controller
         if controller.isKeyboardVisible != keyboardVisible { controller.isKeyboardVisible = keyboardVisible }
     }
 }

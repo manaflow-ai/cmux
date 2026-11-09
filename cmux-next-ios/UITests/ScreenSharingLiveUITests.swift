@@ -95,8 +95,8 @@ final class ScreenSharingLiveUITests: XCTestCase {
             }
         }
 
-        // Trackpad mode (Options › Input): one finger moves the pointer, a tap clicks where it is.
-        app.buttons["screen.options"].tap()
+        // Trackpad mode (Trackpad › Viewer Settings › Input): one finger moves the pointer, a tap clicks where it is.
+        openViewerSettings(app)
         let input = app.buttons["Input"].firstMatch
         if input.waitForExistence(timeout: 5) {
             input.tap()
@@ -109,17 +109,17 @@ final class ScreenSharingLiveUITests: XCTestCase {
             settle(app, 1.5)
             attach(app, "10b-trackpad-move-and-tap")
             // The menu's on/off items: Stream stats off hides the stats line, on brings it back.
-            app.buttons["screen.options"].tap()
+            openViewerSettings(app)
             if app.buttons["Stream stats"].firstMatch.waitForExistence(timeout: 5) {
                 app.buttons["Stream stats"].firstMatch.tap()
                 settle(app, 1)
                 attach(app, "10c-stats-off")
                 XCTAssertFalse(app.staticTexts["screen.stats"].exists, "stats line still shown")
-                app.buttons["screen.options"].tap()
+                openViewerSettings(app)
                 app.buttons["Stream stats"].firstMatch.tapIfExists()
             }
             // Back to Direct Touch for the rest of the run.
-            app.buttons["screen.options"].tap()
+            openViewerSettings(app)
             if app.buttons["Input"].firstMatch.waitForExistence(timeout: 5) {
                 app.buttons["Input"].firstMatch.tap()
                 if app.buttons["Direct Touch"].firstMatch.waitForExistence(timeout: 5) { app.buttons["Direct Touch"].firstMatch.tap() }
@@ -142,6 +142,14 @@ final class ScreenSharingLiveUITests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    /// The viewer settings live in the trackpad overlay (CMUX-14): open it first when it is closed.
+    @MainActor
+    func openViewerSettings(_ app: XCUIApplication) {
+        let show = app.buttons["screen.trackpad.show"]
+        if show.exists { show.tap() }
+        app.buttons["screen.options"].firstMatch.tap()
+    }
 
     /// First-run setup on a fresh simulator: personal space, then past the optional steps.
     @MainActor
