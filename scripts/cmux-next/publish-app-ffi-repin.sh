@@ -4,7 +4,22 @@ set -euo pipefail
 branch=app-ffi-repin
 staging="${branch}-stage-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
 manifest=Packages/macOS/CmuxNext/Package.swift
-remote_head() { git ls-remote origin "refs/heads/$1" | cut -f1; }
+# Read heads from GitHub itself, not `git ls-remote origin`: the runner serves
+# git reads of origin from a cache that can lag a push made a second earlier
+# (run 42493097381 failed "the re-pin head moved" right after its own push).
+# Prints nothing for a missing branch; any other failed read fails loud.
+# gh prints a failed call's error body on stdout too, so print only a head read.
+remote_head() {
+  local err="$RUNNER_TEMP/remote-head.err" head
+  if head="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$1" --jq '.object.sha' 2>"$err")"; then
+    [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::refs/heads/$1 read as '$head'" >&2; return 1; }
+    echo "$head"
+    return 0
+  fi
+  grep -q 'HTTP 404' "$err" && return 0
+  echo "::error::could not read refs/heads/$1 from GitHub: $(cat "$err")" >&2
+  return 1
+}
 
 # Latest wins: pin the newest published release on feat-cmux-next, whichever run
 # published it, never this run's tag by default and never an unpublished head.

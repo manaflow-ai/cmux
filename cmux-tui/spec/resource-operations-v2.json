@@ -3062,7 +3062,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. prompt ({since_ms: decimal}) is the shell sitting at its prompt, from OSC 133 A until the next C; a shell without shell integration never shows it. last_output ({at_ms: decimal}) is when the terminal last printed anything, with or without shell integration (absent until its first output after a daemon starts or adopts the terminal); a read gives the exact time, while output alone pushes a terminal upsert at most once every 5 s, plus once when the system clock is set. All are absent once the terminal exits. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. prompt ({since_ms: decimal}) is the shell sitting at its prompt, from OSC 133 A until the next C; a shell without shell integration never shows it. last_output ({at_ms: decimal}) is when the terminal last printed anything, with or without shell integration (absent until its first output after a daemon starts or adopts the terminal); a read gives the exact time, while output alone pushes a terminal upsert at most once every 5 s, plus once when the system clock is set. last_command ({exit_code?: int32, started_at_ms?: decimal, finished_at_ms: decimal}) is the last command the shell finished, from OSC 133 C and D (terminal-exit-status-v1): exit_code is the status D reported and is absent when the shell reported none or the next prompt came without D; the field is absent until a shell with shell integration finishes a command, so its absence never means success. All are absent once the terminal exits. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -14484,6 +14484,135 @@
       },
       "extra": false
     },
+    "ClassicImportPlanResult": {
+      "kind": "object",
+      "fields": {
+        "ledger": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "none",
+              "ledger",
+              "newer",
+              "unreadable",
+              "failed"
+            ]
+          },
+          "description": "What the ledger file held before this read; failed is a ledger that is there but could not be read, which is left as it is."
+        },
+        "decision": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "With automatic: whether the launch's run starts ({decision: first_run | resume | merge | skip, reason}); null with manual."
+        },
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The save read: path, bundleID, size, modifiedAt, createdAt; null when classic saved nothing readable."
+        },
+        "backups": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The file read, then the other candidates: what begin backs up."
+        },
+        "error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Why the only session file did not read, or why a manual run has no plan."
+        },
+        "plan": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "What the run makes (the cmux-classic-import crate's Plan: windows with their workspaces, groups, cleanup, skipped); null when nothing is read or the run does not start."
+        },
+        "preview": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The plan's counts for the confirmation (the crate's Preview)."
+        }
+      },
+      "extra": false
+    },
+    "ClassicImportRecordResult": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "enum",
+              "values": [
+                "inProgress",
+                "completed"
+              ]
+            }
+          }
+        },
+        "runs": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Runs started, after this step."
+        },
+        "workspaces": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Classic workspaces the ledger records."
+        },
+        "changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the ledger exists after this step."
+        }
+      },
+      "extra": false
+    },
     "ConductorImportFound": {
       "kind": "object",
       "fields": {
@@ -18878,6 +19007,234 @@
         "Stops the Chief's running turn as a newer message would: a running tool call finishes first, the turn posts its partial reply and then '(turn stopped)'. replayed is always false; a retry after the turn ended stops nothing (stopped false). With name, only that subagent stops (its report says the user stopped it); an unknown or still-starting name answers stopped false."
       ]
     },
+    "classic_import.plan": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "bundle_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 255
+            },
+            "description": "This app's bundle id: the ledger is kept per app, in ~/Library/Application Support/cmux-next/<bundle id>/classic-migration."
+          },
+          "mode": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "automatic",
+                "manual"
+              ]
+            },
+            "description": "automatic for the launch's own run, manual for Import Workspaces from Classic cmux."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Reads classic's session files under the daemon's HOME, never a path from the caller: the classic channel matching bundle_id, else the one saved last, trying its session file, -previous copy and newest archive in turn.",
+          "Plans against the ledger, the workspaces open now and the workspace groups that exist now: a workspace recorded done stays left out unless a manual run finds its cmux workspace closed.",
+          "A ledger from a newer cmux stops both modes (decision ledger_not_usable, or error \"ledger from a newer cmux\"); it is left as it is. An unreadable ledger is moved aside."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ClassicImportPlanResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "classic_import.record": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "bundle_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 255
+            },
+            "description": "This app's bundle id: the ledger is kept per app, in ~/Library/Application Support/cmux-next/<bundle id>/classic-migration."
+          },
+          "event": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "seen",
+                "baseline",
+                "begin",
+                "workspace",
+                "group",
+                "finish"
+              ]
+            },
+            "description": "seen and baseline record a launch's first contact (nothing made); begin starts a confirmed run; workspace and group record what was made; finish completes the run."
+          },
+          "source": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "The plan's source, as classic_import.plan returned it. Required with begin; with finish it records the save the run read."
+          },
+          "backups": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 4096
+              },
+              "max_items": 16
+            },
+            "description": "With begin: the plan's backups, copied into the migration's backups folder (five kept). Only classic's own session files are taken."
+          },
+          "cloud_vm_keys": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 256
+              },
+              "max_items": 1000
+            },
+            "description": "With begin or finish: the Cloud VM workspaces the plan leaves, recorded as skipped."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The app version that wrote the ledger."
+          },
+          "key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "With workspace: the classic workspace's key."
+          },
+          "stage": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "pending",
+                "created",
+                "done",
+                "skipped"
+              ]
+            },
+            "description": "With workspace: pending before the app makes it, created once it exists, done once made."
+          },
+          "next_workspace": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "With workspace: the cmux workspace made for it; required with created and done."
+          },
+          "reason": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "With workspace: why it was skipped."
+          },
+          "classic_group": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "With group: the classic group's id."
+          },
+          "next_group": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "With group: the cmux workspace group made for it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The ledger is the file earlier builds kept, written atomically inside the commit; a newer cmux's ledger is refused with validation.invalid and not written over."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ClassicImportRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "client.cell_pixels.set": {
       "class": "connection_control",
       "idempotency": "forbidden",
@@ -21612,128 +21969,6 @@
         "validation.invalid"
       ]
     },
-    "cloud.vm.delete_snapshot": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "session",
-      "ancestors": [
-        "machine"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
-        "fields": {
-          "api": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 2048
-            },
-            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
-          },
-          "auth": {
-            "required": true,
-            "type": {
-              "kind": "enum",
-              "values": [
-                "stack",
-                "owner",
-                "worker"
-              ]
-            },
-            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
-          },
-          "access_token": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
-          },
-          "refresh_token": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
-          },
-          "team": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 256
-            },
-            "description": "The team the call acts for."
-          },
-          "app_version": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            },
-            "description": "stack: X-Cmux-App-Version (default cmux-next)."
-          },
-          "local_only": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            },
-            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
-          },
-          "args": {
-            "required": false,
-            "type": {
-              "kind": "map",
-              "values": {
-                "kind": "ref",
-                "name": "JsonValue"
-              }
-            },
-            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
-          }
-        },
-        "extra": false,
-        "constraints": [
-          "Calls classic cmux.com's /api/vm route for the call (stack auth).",
-          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
-          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
-          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
-          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
-        ]
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JsonValue"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "operation.failed",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
     "cloud.vm.domains": {
       "class": "read",
       "idempotency": "forbidden",
@@ -22320,128 +22555,6 @@
         "validation.invalid"
       ]
     },
-    "cloud.vm.fork": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "session",
-      "ancestors": [
-        "machine"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
-        "fields": {
-          "api": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 2048
-            },
-            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
-          },
-          "auth": {
-            "required": true,
-            "type": {
-              "kind": "enum",
-              "values": [
-                "stack",
-                "owner",
-                "worker"
-              ]
-            },
-            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
-          },
-          "access_token": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
-          },
-          "refresh_token": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
-          },
-          "team": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 256
-            },
-            "description": "The team the call acts for."
-          },
-          "app_version": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            },
-            "description": "stack: X-Cmux-App-Version (default cmux-next)."
-          },
-          "local_only": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            },
-            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
-          },
-          "args": {
-            "required": false,
-            "type": {
-              "kind": "map",
-              "values": {
-                "kind": "ref",
-                "name": "JsonValue"
-              }
-            },
-            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
-          }
-        },
-        "extra": false,
-        "constraints": [
-          "Calls classic cmux.com's /api/vm route for the call (stack auth).",
-          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
-          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
-          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
-          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
-        ]
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JsonValue"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "operation.failed",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
     "cloud.vm.networks": {
       "class": "read",
       "idempotency": "forbidden",
@@ -22906,250 +23019,6 @@
         "validation.invalid"
       ]
     },
-    "cloud.vm.resize": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "session",
-      "ancestors": [
-        "machine"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
-        "fields": {
-          "api": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 2048
-            },
-            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
-          },
-          "auth": {
-            "required": true,
-            "type": {
-              "kind": "enum",
-              "values": [
-                "stack",
-                "owner",
-                "worker"
-              ]
-            },
-            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
-          },
-          "access_token": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
-          },
-          "refresh_token": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
-          },
-          "team": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 256
-            },
-            "description": "The team the call acts for."
-          },
-          "app_version": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            },
-            "description": "stack: X-Cmux-App-Version (default cmux-next)."
-          },
-          "local_only": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            },
-            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
-          },
-          "args": {
-            "required": false,
-            "type": {
-              "kind": "map",
-              "values": {
-                "kind": "ref",
-                "name": "JsonValue"
-              }
-            },
-            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
-          }
-        },
-        "extra": false,
-        "constraints": [
-          "Calls classic cmux.com's /api/vm route for the call (stack auth).",
-          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
-          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
-          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
-          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
-        ]
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JsonValue"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "operation.failed",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
-    "cloud.vm.restore": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "session",
-      "ancestors": [
-        "machine"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
-        "fields": {
-          "api": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 2048
-            },
-            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
-          },
-          "auth": {
-            "required": true,
-            "type": {
-              "kind": "enum",
-              "values": [
-                "stack",
-                "owner",
-                "worker"
-              ]
-            },
-            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
-          },
-          "access_token": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
-          },
-          "refresh_token": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
-          },
-          "team": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 256
-            },
-            "description": "The team the call acts for."
-          },
-          "app_version": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            },
-            "description": "stack: X-Cmux-App-Version (default cmux-next)."
-          },
-          "local_only": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            },
-            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
-          },
-          "args": {
-            "required": false,
-            "type": {
-              "kind": "map",
-              "values": {
-                "kind": "ref",
-                "name": "JsonValue"
-              }
-            },
-            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
-          }
-        },
-        "extra": false,
-        "constraints": [
-          "Calls classic cmux.com's /api/vm route for the call (stack auth).",
-          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
-          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
-          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
-          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
-        ]
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JsonValue"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "operation.failed",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
     "cloud.vm.revoke_publication_api_key": {
       "class": "mutation",
       "idempotency": "required",
@@ -23386,242 +23255,6 @@
       },
       "errors": [
         "idempotency.conflict",
-        "operation.failed",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
-    "cloud.vm.snapshot": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "session",
-      "ancestors": [
-        "machine"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
-        "fields": {
-          "api": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 2048
-            },
-            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
-          },
-          "auth": {
-            "required": true,
-            "type": {
-              "kind": "enum",
-              "values": [
-                "stack",
-                "owner",
-                "worker"
-              ]
-            },
-            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
-          },
-          "access_token": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
-          },
-          "refresh_token": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
-          },
-          "team": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 256
-            },
-            "description": "The team the call acts for."
-          },
-          "app_version": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            },
-            "description": "stack: X-Cmux-App-Version (default cmux-next)."
-          },
-          "local_only": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            },
-            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
-          },
-          "args": {
-            "required": false,
-            "type": {
-              "kind": "map",
-              "values": {
-                "kind": "ref",
-                "name": "JsonValue"
-              }
-            },
-            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
-          }
-        },
-        "extra": false,
-        "constraints": [
-          "Calls classic cmux.com's /api/vm route for the call (stack auth).",
-          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
-          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
-          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
-          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
-        ]
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JsonValue"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "operation.failed",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
-    "cloud.vm.snapshots": {
-      "class": "read",
-      "idempotency": "forbidden",
-      "target": "session",
-      "ancestors": [
-        "machine"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
-        "fields": {
-          "api": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 2048
-            },
-            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
-          },
-          "auth": {
-            "required": true,
-            "type": {
-              "kind": "enum",
-              "values": [
-                "stack",
-                "owner",
-                "worker"
-              ]
-            },
-            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
-          },
-          "access_token": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
-          },
-          "refresh_token": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
-          },
-          "team": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 256
-            },
-            "description": "The team the call acts for."
-          },
-          "app_version": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            },
-            "description": "stack: X-Cmux-App-Version (default cmux-next)."
-          },
-          "local_only": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            },
-            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
-          },
-          "args": {
-            "required": false,
-            "type": {
-              "kind": "map",
-              "values": {
-                "kind": "ref",
-                "name": "JsonValue"
-              }
-            },
-            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
-          }
-        },
-        "extra": false,
-        "constraints": [
-          "Calls classic cmux.com's /api/vm route for the call (stack auth).",
-          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
-          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
-          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure."
-        ]
-      },
-      "result": {
-        "kind": "ref",
-        "name": "JsonValue"
-      },
-      "errors": [
         "operation.failed",
         "origin.forbidden",
         "selector.ambiguous",
@@ -31718,6 +31351,14 @@
             },
             "description": "Script the new screen's first terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
           },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make the new screen its workspace's focused screen. Default false: the focused screen stays."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -37356,6 +36997,15 @@
               ]
             },
             "default": "screen"
+          },
+          "unwrap": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "For screen and scrollback: join soft-wrapped rows into the logical lines the program printed. A selection keeps its own rules. Capability terminal-read-unwrap-v1."
           }
         },
         "extra": false
@@ -38277,7 +37927,27 @@
           "tab": "optional",
           "terminal": "required"
         },
-        "fields": {},
+        "fields": {
+          "unwrap": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Join soft-wrapped rows into the logical lines the program printed (a line longer than the pane reads back as one line). Default false: one line per row."
+          },
+          "lines": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "description": "Read the last N lines of scrollback and screen together instead of the screen, oldest first, without the blank rows below the last printed line. With unwrap, N logical lines. The cursor fields still describe the screen. Capability terminal-read-unwrap-v1."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -38555,6 +38225,15 @@
               "kind": "primitive",
               "name": "decimal"
             }
+          },
+          "new": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Match only text printed below the line the cursor is on when the wait starts (soft wraps joined); text is then that new text. The echo of a command typed on that line and older output never match. Output printed before the wait starts is not new: to wait on a command's output, start the wait first or use the CLI's terminal send --pattern. Capability terminal-wait-new-v1."
           }
         },
         "extra": false

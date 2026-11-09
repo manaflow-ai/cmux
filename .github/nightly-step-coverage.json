@@ -18,6 +18,10 @@
       "await-release-surface-ack": {
         "Record the decision": {"plumbing": true}},
       "promote-nightly-next-acked": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
+        "Claim the whole Mac for the release App key": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Decide again and check the approver": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"},
         "Mint release App token": {"nightly_only": "mints release GitHub App token"},
         "Move nightly-next": {"nightly_only": "moves nightly-next with release token (logic tested by tests/test_nightly_next_promotion_queue.py)"}},
@@ -53,8 +57,8 @@
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true}, "Install Zig": {"plumbing": true},
         "Key the Ghostty CLI helper cache": {"plumbing": true, "note": "hashes the helper cache manifest inputs into the actions/cache key; no product check. tests/test_nightly_ghostty_helper_cache.py holds the key to the script's manifest"},
         "Build Ghostty CLI helper": {"nightly_only": "zig builds the Ghostty CLI helper for macOS (universal or arm64) and checks it with lipo on a Mac; ci-macos.yml swift-package-tests builds it only for pull requests into main (ci.yml's static-preflight skips feat-cmux-next)"},
-        "Build the cmux-next source archive": {"nightly_only": "zig fetches every Ghostty and ghostty-next package on the macOS helper runner (network, minutes); a new package without a pinned license shows only here. The collector and verifier run on fixtures in cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures; cmux-next-source-archive.yml runs it for real on ghosttykit-pin/** pushes"},
-        "libghostty-vt Zig packages are covered by the notices": {"pr": "cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures", "note": "check_ghostty_vt_notices.py --license-manifest on fixture manifests; the real manifests come from the source archive"},
+        "Build the cmux-next source archive": {"nightly_only": "zig fetches every Ghostty and ghostty-next package on the macOS helper runner (network, minutes); a new package without a pinned license shows only here. The collector and verifier run on fixtures in cmux-next-guards.yml:static-checks:The nightly's Ghostty license checks pass on fixtures; cmux-next-source-archive.yml runs it for real on ghosttykit-pin/** pushes"},
+        "libghostty-vt Zig packages are covered by the notices": {"pr": "cmux-next-guards.yml:static-checks:The nightly's Ghostty license checks pass on fixtures", "note": "check_ghostty_vt_notices.py --license-manifest on fixture manifests; the real manifests come from the source archive"},
         "Strip the Ghostty CLI helper": {"nightly_only": "Apple strip -S -x of the Zig-built helper (the pass prepare-nightly-variant made, now on Linux); only the nightly builds this helper for macOS"}},
       "build-nightly-app": {
         "Mint the routing token for the light-job placement": {"plumbing": true},
@@ -138,6 +142,7 @@
       "resolve-nightly-cmux-tui-client": {
         "Fix this run's build number": {"plumbing": true},
         "Install gh if this runner lacks it": {"plumbing": true},
+        "Leave a sign stage a newer published build superseded": {"nightly_only": "reads the published feeds for a sign stage's build number (nightly_version.py check-build --superseded-ok; tests/test_nightly_next_pipeline.py)"},
         "Compute portable OptChat Chief input key": {"plumbing": true, "note": "computes the source key before the Mac build so the Chief cache is portable across nightly runs; no product check"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Validate the saved unsigned nightly source": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
@@ -157,7 +162,7 @@
         "Restore unsigned nightly products": {"plumbing": true},
         "Prove the browser-data import is compiled out (cx-f58x notary test)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly API tag finalization"},
         "Inject universal Ghostty CLI helper": {"plumbing": true},
-        "Inject the Ghostty dependency licenses (cmux-next)": {"pr": "cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures", "note": "verify-ghostty-license-bundle.py on fixture trees (test_ghostty_licenses.py, test_check_bundle_notices.py); the real trees come from the source archive"},
+        "Inject the Ghostty dependency licenses (cmux-next)": {"pr": "cmux-next-guards.yml:static-checks:The nightly's Ghostty license checks pass on fixtures", "note": "verify-ghostty-license-bundle.py on fixture trees (test_ghostty_licenses.py, test_check_bundle_notices.py); the real trees come from the source archive"},
         "Thin bundle to the variant architecture": {"nightly_only": "lipo-thins the Release app and drops CEF slices; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac). thin-app-bundle.sh alone is tested by ci-macos.yml release-build on pull requests into main"},
         "Verify shipped libintl has its source": {"pr": "ci-guards.yml:workflow-guard-tests:Validate shipped libintl check"},
         "Verify nightly binary architectures": {"nightly_only": "lipo -archs and file on every bundled binary of the thinned Release app; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
@@ -175,7 +180,7 @@
         "Restore unsigned nightly products": {"plumbing": true},
         "Prove the browser-data import is compiled out (cx-f58x notary test)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly API tag finalization"},
         "Inject universal Ghostty CLI helper": {"plumbing": true},
-        "Inject the Ghostty dependency licenses (cmux-next)": {"pr": "cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures", "note": "verify-ghostty-license-bundle.py on fixture trees (test_ghostty_licenses.py, test_check_bundle_notices.py); the real trees come from the source archive"},
+        "Inject the Ghostty dependency licenses (cmux-next)": {"pr": "cmux-next-guards.yml:static-checks:The nightly's Ghostty license checks pass on fixtures", "note": "verify-ghostty-license-bundle.py on fixture trees (test_ghostty_licenses.py, test_check_bundle_notices.py); the real trees come from the source archive"},
         "Thin bundle to the variant architecture": {"nightly_only": "lipo-thins the Release app and drops CEF slices; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac). thin-app-bundle.sh alone is tested by ci-macos.yml release-build on pull requests into main"},
         "Verify shipped libintl has its source": {"pr": "ci-guards.yml:workflow-guard-tests:Validate shipped libintl check"},
         "Verify nightly binary architectures": {"nightly_only": "lipo -archs and file on every bundled binary of the thinned Release app; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
@@ -320,8 +325,13 @@
         "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"}},
       "sentry-dsyms-nightly": {
-        "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the build's dSYMs to Sentry with the Sentry token, off build-nightly-app's critical path"}},
+        "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and its dSYM artifacts; a pull request has no published nightly build"},
+        "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the published build's dSYMs to Sentry with the Sentry token, in the tail run outside the push group"}},
       "keep-published-dsyms": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
@@ -350,6 +360,10 @@
         "Select Xcode": {"plumbing": true},
         "Generate deltas and revised appcast": {"nightly_only": "Sparkle key signs deltas (step env, after the claim; generate-nightly-deltas.sh tested by tests/test_generate_nightly_deltas.sh)"}},
       "republish-nightly-deltas": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Mint the release App token that reads the Dev ring switch": {"nightly_only": "mints release GitHub App token"},
         "Read the Dev ring switch live": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the Dev ring switch is read live when publishing"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
@@ -361,6 +375,8 @@
       "dispatch-published-in": {
         "Record the published build": {"nightly_only": "records a publication's job outputs (scripts/ci/nightly_published_build.py pack; tests/test_nightly_next_tail_off_push_group.py)"},
         "Ask for this build's post-publication run": {"nightly_only": "dispatches nightly.yml with nightly_next_post_publish naming this run (tests/test_nightly_next_tail_off_push_group.py)"}},
+      "dispatch-nightly-next-sign": {
+        "Ask for this build's sign run": {"nightly_only": "dispatches nightly.yml with nightly_next_sign_stage and this run's unsigned app (tests/test_nightly_next_pipeline.py)"}},
       "retry-nightly-next": {
         "Ask the push group for the newest head": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after a failed nightly-next run whose commit is still the head (tests/test_nightly_next_single_loop.py)"}},
       "published-build": {

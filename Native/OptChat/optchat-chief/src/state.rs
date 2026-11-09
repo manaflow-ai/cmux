@@ -930,6 +930,13 @@ impl StateFile {
             .join("attachments")
     }
 
+    /// The Chief's home (`$MUX_HOME`): the state is `<home>/optchat/host.json`
+    /// (paths.rs), so its folder's parent.
+    pub fn mux_home(&self) -> PathBuf {
+        let optchat = self.path.parent().unwrap_or_else(|| Path::new("."));
+        optchat.parent().unwrap_or(optchat).to_path_buf()
+    }
+
     pub fn new(path: &Path) -> StateFile {
         StateFile {
             path: path.to_owned(),

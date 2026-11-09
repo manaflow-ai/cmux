@@ -24,7 +24,19 @@
 //! Sequences never change: cursors, checkpoints and hook deliveries keep
 //! pointing at the same records. The journal readers accept a missing run of
 //! sequences exactly when one pruned range covers it ([`pruned_gap`]).
+//!
+//! Both phases copy every kept record, and Phase B does it inside the open.
+//! That is cheap only while output is most of the journal; a registry whose
+//! journal is mostly other records (one held 12M rows, 96.6% of them session
+//! records) staged 38 GB and would have spent hours of a start copying it. So
+//! the cleanup runs only while the kept records stay under
+//! [`MAX_KEPT_RECORDS`] and at most half of the journal, and the staging file
+//! under [`MAX_STAGED_BYTES`]: Phase A checks an estimate before it stages and
+//! the staged count as it goes, Phase B the staged count before it copies
+//! anything. Past a bound the staging file is deleted and the registry stays
+//! as it is; the next start estimates again.
 
+mod chunks;
 mod codec;
 mod pruned;
 mod stage;
@@ -32,7 +44,7 @@ mod swap;
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 
 use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
@@ -60,6 +72,11 @@ const ROLLBACK_PENDING_SUFFIX: &str = ".output-cleanup-rollback";
 /// Free space beyond the staged file that both phases require.
 const DISK_MARGIN_BYTES: u64 = 1 << 30;
 const OUTPUT_KIND: &str = "terminal.output";
+/// Kept records past which the cleanup does not run: Phase B copies each of
+/// them inside the open.
+const MAX_KEPT_RECORDS: u64 = 1_000_000;
+/// Staging file size past which the cleanup is abandoned.
+const MAX_STAGED_BYTES: u64 = 2 << 30;
 
 pub(crate) fn staging_path(db_path: &Path) -> PathBuf {
     sidecar_path(db_path, STAGING_SUFFIX)
@@ -134,6 +151,65 @@ fn copied_bytes(source: &Connection) -> anyhow::Result<u64> {
         }
     }
     Ok(total)
+}
+
+/// `Some(reason)` when a cleanup that keeps `kept` of `total` journal
+/// records would copy too much: over [`MAX_KEPT_RECORDS`], or over half of
+/// the journal (output is not what fills it).
+fn kept_refusal(kept: u64, total: u64) -> Option<String> {
+    if kept > MAX_KEPT_RECORDS {
+        Some(format!(
+            "{kept} of {total} journal records would be kept, over the bound of {MAX_KEPT_RECORDS}"
+        ))
+    } else if kept.saturating_mul(2) > total {
+        Some(format!("{kept} of {total} journal records are not terminal output"))
+    } else {
+        None
+    }
+}
+
+/// `Some(reason)` when the staging file is over [`MAX_STAGED_BYTES`].
+fn staged_bytes_refusal(db_path: &Path) -> Option<String> {
+    let staged = file_len(&staging_path(db_path));
+    (staged > MAX_STAGED_BYTES).then(|| {
+        format!(
+            "the staging file is {}, over the bound of {}",
+            mebibytes(staged),
+            mebibytes(MAX_STAGED_BYTES)
+        )
+    })
+}
+
+/// (non-output, all) live journal rows after the sealed segments. The
+/// non-output count (two index ranges on either side of the output kind)
+/// stops one past [`MAX_KEPT_RECORDS`], so it reads at most that many index
+/// entries; the total is the sequence range (two index seeks).
+fn live_records(source: &Connection) -> anyhow::Result<(u64, u64)> {
+    let archive_end: i64 = source.query_row(
+        "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+        [],
+        |row| row.get(0),
+    )?;
+    let head: i64 = source.query_row(
+        "SELECT COALESCE(MAX(sequence), ?1) FROM session_journal",
+        [archive_end],
+        |row| row.get(0),
+    )?;
+    let mut kept = 0_u64;
+    for range in ["kind < ?1", "kind > ?1"] {
+        let limit = i64::try_from((MAX_KEPT_RECORDS + 1).saturating_sub(kept))?;
+        let rows: i64 = source.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM (
+                   SELECT 1 FROM session_journal INDEXED BY session_journal_by_kind_sequence
+                   WHERE {range} AND sequence > ?2 LIMIT ?3)"
+            ),
+            params![OUTPUT_KIND, archive_end, limit],
+            |row| row.get(0),
+        )?;
+        kept = kept.saturating_add(u64::try_from(rows)?);
+    }
+    Ok((kept, u64::try_from((head - archive_end).max(0))?))
 }
 
 /// `Err(reason)` when the directory of `db_path` has less free space than
@@ -252,6 +328,10 @@ fn remove_staging(db_path: &Path) -> anyhow::Result<()> {
 fn mebibytes(bytes: u64) -> String {
     format!("{:.1} MiB", bytes as f64 / (1024.0 * 1024.0))
 }
+
+#[cfg(test)]
+#[path = "output_cleanup/guard_tests.rs"]
+mod guard_tests;
 
 impl WorkspaceRegistry {
     /// The cleanup ran (or found no output) for this registry.

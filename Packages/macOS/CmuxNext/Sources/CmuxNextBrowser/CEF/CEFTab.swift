@@ -158,6 +158,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
     /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
     @ObservationIgnored public var pageResources: (@MainActor (URL, String?) async -> CEFPageResponse)?
+    /// Answers a dynamic path at once, in the turn Chromium asks, when it can; nil from it, or no
+    /// answerer, asks ``pageResources``.
+    @ObservationIgnored public var readyPageResource: (@MainActor (URL) -> CEFPageResponse?)?
     /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
     /// to its host); nil ignores it.
     @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?
@@ -194,7 +197,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// and its file chooser goes back to Chromium.
     public func clearPageHooks() {
         clearPageEventHooks()
-        pageResources = nil
+        (pageResources, readyPageResource) = (nil, nil)
         pageFilesChosen = nil
     }
 

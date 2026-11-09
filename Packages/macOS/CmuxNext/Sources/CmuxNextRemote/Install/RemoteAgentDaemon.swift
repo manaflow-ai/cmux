@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 public import Foundation
 
 /// What `cmux-tui acp --json daemon status` says about a machine's agent daemon (acpmux), read
@@ -22,6 +23,19 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
         remoteSessions = object["remoteSessions"] as? Int
         personKey = object["personKey"] as? Bool == true
         personInstance = object["personInstance"] as? String
+    }
+
+    /// The status of a Cloud machine's daemon, through the authenticated Cloud machine route (`api`'s exec), for older
+    /// cmux-tui builds that do not serve `agent-session-start-keyed-reason-v1`. Nil when it could not be read.
+    public static func read(cloudMachine machine: String, api: CloudAPIClient) async -> RemoteAgentDaemonStatus? {
+        let command = [
+            "set -eu",
+            #"b="$HOME/.cmux/bin/cmux-tui""#,
+            #"[ -x "$b" ] || exit 82"#,
+            #""$b" acp --json daemon status </dev/null""#,
+        ].joined(separator: "; ")
+        guard let result = try? await api.exec(machine, command: command, timeoutMs: 10_000), result.exitCode == 0 else { return nil }
+        return RemoteAgentDaemonStatus(json: result.stdout)
     }
 
     public static func read(_ host: SSHHost, environment: [String: String]) async -> RemoteAgentDaemonStatus? {
@@ -135,6 +149,20 @@ public actor RemoteApprovalPreparations {
         running[machine] = nil
         if keepBusy || bound { busyUntil[machine] = bound ? nil : ContinuousClock.now.advanced(by: .seconds(60)) }
         return bound
+    }
+
+    /// A new chat's keyed restart. `daemonSaidSafe` (the daemon answered that it may restart): at once. Else (an older
+    /// daemon, or a start turning approvals on ahead of its chat): done when a run already holds the key (`held`), and
+    /// only an `idle` daemon restarts, a busy answer kept for a minute. False: the chat starts unkeyed, and its Allow
+    /// shows the normal restart notice.
+    public func prepare(machine: String, daemonSaidSafe: Bool, held: Bool, idle: @escaping @Sendable () async -> Bool,
+                        restart: @escaping @Sendable () async -> Bool) async -> Bool {
+        if daemonSaidSafe { return await run(machine: machine, keepBusy: false, restart) }
+        if held { return true }
+        return await run(machine: machine, keepBusy: true) {
+            guard await idle() else { return false }
+            return await restart()
+        }
     }
 }
 

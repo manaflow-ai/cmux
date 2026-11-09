@@ -15,22 +15,30 @@ pub(super) fn parse(flags: &mut Flags) -> Result<CommandPlan, UsageError> {
         validate_prefixed_id("terminal", "term", &terminal)?;
         params.insert("terminal_id".into(), Value::String(terminal));
     }
-    if let Some(state) = flags.take("state") {
-        validate_one_of("--state", &state, &["working", "blocked", "idle", "done", "unknown"])?;
-        params.insert("state".into(), Value::String(state));
-    }
-    // `--needs-me` is the daemon's blocked filter.
+    // `--state` takes the shared status words (`done` is a finished turn
+    // nobody has viewed; `ended` a session that ended). The daemon filters by
+    // its own state, the CLI then by status (wire/agent_roster.rs).
+    let mut status = match flags.take("state") {
+        Some(state) => {
+            validate_one_of("--state", &state, &STATUS_WORDS)?;
+            STATUS_WORDS.iter().copied().find(|word| *word == state)
+        }
+        None => None,
+    };
+    // `--needs-me` is the blocked filter.
     if flags.boolean("needs-me") {
-        match params.get("state").and_then(Value::as_str) {
-            None | Some("blocked") => {
-                params.insert("state".into(), Value::String("blocked".into()));
-            }
+        match status {
+            None | Some("blocked") => status = Some("blocked"),
             Some(state) => {
                 return Err(UsageError::new(format!(
                     "--needs-me lists blocked agents; it conflicts with --state {state}"
                 )));
             }
         }
+    }
+    if let Some(status) = status {
+        let state = crate::cli::wire::daemon_state_for_status(status);
+        params.insert("state".into(), Value::String(state.to_owned()));
     }
     let sort = match flags.take("sort").as_deref() {
         None | Some("needs-me") => AgentSort::NeedsMe,
@@ -50,8 +58,12 @@ pub(super) fn parse(flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     };
     let counts = flags.boolean("counts");
     Ok(request(ResourceOperation::AgentList, &Selectors::default(), flags, params)?
-        .agent_roster(AgentRosterView { sort, limit, counts }))
+        .agent_roster(AgentRosterView { sort, limit, counts, status }))
 }
+
+/// The words `agent list --state` takes: the shared status vocabulary and
+/// `ended`.
+const STATUS_WORDS: [&str; 6] = ["working", "blocked", "done", "idle", "unknown", "ended"];
 
 #[cfg(test)]
 mod tests {
@@ -93,7 +105,8 @@ mod tests {
                 ResponseView::AgentRoster(AgentRosterView {
                     sort: expected,
                     limit: Some(5),
-                    counts: false
+                    counts: false,
+                    status: None,
                 })
             );
         }
@@ -108,13 +121,36 @@ mod tests {
         assert_eq!(needs_me.params["terminal_id"], TERMINAL);
         let both = protocol(&["agent", "list", "--needs-me", "--state", "blocked"]);
         assert_eq!(both.params["state"], "blocked");
+        let ResponseView::AgentRoster(view) = needs_me.view else { panic!("a roster") };
+        assert_eq!(view.status, Some("blocked"));
         for invalid in [
             &["agent", "list", "--needs-me", "--state", "working"][..],
+            &["agent", "list", "--state", "busy"],
             &["agent", "list", "--sort", "oldest"],
             &["agent", "list", "--limit", "0"],
             &["agent", "list", "--limit", "many"],
         ] {
             assert!(parsed(invalid).is_err(), "accepted {invalid:?}");
+        }
+    }
+
+    /// `--state` takes the shared status words: `done` and `idle` both ask
+    /// the daemon for `idle` (the unread marker tells them apart), `ended`
+    /// asks for the daemon's `done` (a session that ended).
+    #[test]
+    fn w4j_agent_list_state_takes_the_shared_status_words() {
+        for (status, daemon) in [
+            ("done", "idle"),
+            ("idle", "idle"),
+            ("ended", "done"),
+            ("working", "working"),
+            ("blocked", "blocked"),
+            ("unknown", "unknown"),
+        ] {
+            let list = protocol(&["agent", "list", "--state", status]);
+            assert_eq!(list.params["state"], daemon, "--state {status}");
+            let ResponseView::AgentRoster(view) = list.view else { panic!("a roster") };
+            assert_eq!(view.status, Some(status));
         }
     }
 }

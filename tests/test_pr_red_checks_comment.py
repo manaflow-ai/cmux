@@ -21,6 +21,8 @@ import pr_status  # noqa: E402
 LEGACY = "<!-- cmux-red-checks -->"
 BOT = {"login": "github-actions[bot]"}
 RED_LINE = "red: web / react-apps-check; do not merge until green; see lane-rules"
+# cmux-next-guards.yml own-change-checks: the size cap and the crash ratchet are steps of this one job.
+OWN_CHANGE_JOB = "cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files"
 
 
 def status(**sections):
@@ -172,10 +174,10 @@ def test_red_web_check_creates_one_comment_naming_it():
 
 
 def test_size_check_and_web_check_both_listed():
-    writes = FakeGitHub([run("cmux-next CmuxNextApp size cap", "failure"), run("web / Web status", "timed_out", id_=2)], []).run()
+    writes = FakeGitHub([run(OWN_CHANGE_JOB, "failure"), run("web / Web status", "timed_out", id_=2)], []).run()
     assert len(writes) == 1
     body = pr_status.parse(writes[0][2])["checks"]
-    assert "red: cmux-next CmuxNextApp size cap;" in body and "red: web / Web status;" in body
+    assert f"red: {OWN_CHANGE_JOB};" in body and "red: web / Web status;" in body
 
 
 def test_unchanged_red_list_writes_nothing():
@@ -344,7 +346,7 @@ def test_an_aggregate_red_with_no_red_job_blocks():
 def test_an_unrelated_base_red_never_excuses_an_aggregate_whose_job_was_cancelled():
     # Review (gpt-6-astra), 2026-10-30: React Doctor cancelled, both web aggregates red, and a size-cap red that the
     # base has too. The size cap is no job either aggregate gathers, and the cancelled job is the aggregates' own.
-    size = "cmux-next CmuxNextApp size cap"
+    size = OWN_CHANGE_JOB
     fake = FakeGitHub(
         [run("web / react-apps-check", "failure", id_=11), run("web / Web status", "failure", id_=12),
          run("web / react-doctor", "cancelled", id_=13), run(size, "failure", id_=14), run(RAC, "success", id_=15)], [],
@@ -396,8 +398,8 @@ def test_a_green_caller_still_turns_a_red_line_green():
 
 
 def test_a_green_caller_keeps_another_workflows_red():
-    fake = FakeGitHub([run("cmux-next crash ratchet", "failure")],
-                      [{"id": 5, "body": status(checks="red: cmux-next crash ratchet; do not merge until green; see lane-rules")}],
+    fake = FakeGitHub([run(OWN_CHANGE_JOB, "failure")],
+                      [{"id": 5, "body": status(checks=f"red: {OWN_CHANGE_JOB}; do not merge until green; see lane-rules")}],
                       env=GREEN)
     assert fake.run() == []
     assert read_check_runs(fake)

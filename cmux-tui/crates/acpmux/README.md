@@ -376,8 +376,17 @@ acpmux ls --since 24h --limit 100 --json                     # sessions changed 
 acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
+# Race CLI commands run inside an authenticated acpmux agent session:
+acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "task"
+acpmux race show RACE                                          # candidate replies, worktrees and reviewer choice
+acpmux race stats                                              # each model's wins / completed races
+acpmux race stop RACE                                          # cancel this race's work, retain its record
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
 ```
+
+Race commands default to the authenticated calling agent's own chat. `--parent CHAT` may
+name that chat or a descendant it can manage; it does not authenticate an ordinary terminal.
+Use the chat's **menu → Tools → Race models** control in cmux NEXT from an ordinary terminal.
 
 Waits run in the daemon: a per-session `stateSeq` bumps on every status, permission and
 turn change and the wait subscribes to hub events, so nothing is missed between the check
@@ -1472,7 +1481,9 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude`, `claude-cr` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH (or a CodeRouter route is configured), an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
-  `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
+  `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), `deny-all`, and `review`
+  (a reviewer's read-only shell: reads, searches and read-only shell commands such as `git log/diff/show`, `grep`,
+  `rg`, `ls`, `cat`, `sed -n` run unasked; every write or other command is denied at once) answer locally. Per-session override with
   `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`acpmux new|run`,
   `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
   (`defaultPermissionMode`, the daemon policy), as a start with no proven session does; a starter in full access passes
@@ -1672,6 +1683,14 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
 
 Each session logs every JSON-RPC line in both directions plus acpmux records, with a
 per-session sequence number. Clients resume from a sequence number after a disconnect.
+
+That sequence number is the one resume cursor of a chat, on every route: a client attaches
+with `afterSeq` = the last `seq` it holds and drops duplicates by `seq`. Transports below
+acpmux keep their own positions only to replay frames within one connection: the Cloud
+carrier's lanes (interactive, control, bulk, tunnel) are transport scheduling, are never
+persisted, and are never a cursor a client sees or sends. After a relay drop, a route switch
+or a new dial, the chat resumes from acpmux's `seq`, so nothing is lost or shown twice
+([Cloud carrier roles](docs/carrier-roles.md#the-resume-cursor)).
 
 `acpmux export` writes a bundle: `session.json`, `events/*.ndjson`, the adapter's own session
 files under `native/` when the adapter is known (Codex rollouts, Claude Code project files),

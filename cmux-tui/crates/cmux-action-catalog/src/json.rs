@@ -118,6 +118,7 @@ pub fn action(value: &Action, locale: usize) -> Value {
         "id": value.id,
         "group": value.group,
         "title": text(&value.title, locale),
+        "hint": opt(value.hint.as_ref(), |t| text(t, locale)),
         "description": value.description,
         "keywords": value.keywords,
         "defaultShortcut": opt(value.default_shortcut.as_ref(), shortcut),

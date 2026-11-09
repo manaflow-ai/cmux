@@ -15,12 +15,15 @@ export const PendingAsks = memo(function PendingAsks({
   onAnswer,
   registerKey,
   onDismiss,
+  asker,
 }: {
   asks: readonly AcpmuxRow[];
   /// Sends an answer; absent where this pane cannot send.
   onAnswer?: (text: string) => Promise<unknown>;
   registerKey?: (fire: () => void) => () => void;
   onDismiss: (key: string) => void;
+  /// Who asked: an answer quotes the ask under this name (NextStepCard.tsx).
+  asker?: string;
 }) {
   const t = useT();
   return (
@@ -43,6 +46,7 @@ export const PendingAsks = memo(function PendingAsks({
               onAnswer={onAnswer}
               registerKey={index === asks.length - 1 ? registerKey : undefined}
               answerKey={askKey(row)}
+              asker={asker}
             />
           </section>
         );
