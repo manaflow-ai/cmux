@@ -74,6 +74,7 @@ afterAll(() => {
 
 const { Composer } = await import("../src/pages/home-channels/Composer");
 const { createStrings } = await import("../src/pages/shared/i18n");
+const { QUOTE_EVENT } = await import("../src/pages/home-channels/quoteSelection");
 const table = (await import("../src/pages/home-channels/generated/strings.json")).default;
 type MarkdownFieldElement = import("../src/agent-session/acpmux/MarkdownField").MarkdownFieldElement;
 
@@ -173,6 +174,13 @@ async function mount() {
         editable().dispatchEvent(
           new dom.window.InputEvent("beforeinput", { inputType, bubbles: true, cancelable: true }),
         );
+      });
+      await settle();
+    },
+    /// Quote in Reply: the page hands the composer the selected text.
+    async quote(text: string) {
+      await act(async () => {
+        container.querySelector(".hc-composer")!.dispatchEvent(new dom.window.CustomEvent(QUOTE_EVENT, { detail: text }));
       });
       await settle();
     },
@@ -299,4 +307,33 @@ test("a file edit after a text undo ends the text's redo, as typing would", asyn
   await composer.key(true);
   expect(composer.text()).toBe("kept");
   await composer.unmount();
+});
+
+test("a quote the composer writes is an edit: it redoes, and it ends a file's redo", async () => {
+  const composer = await mount();
+  await composer.type("keep");
+  await composer.pick("f.txt");
+  await composer.type(" gone");
+  await composer.key(false);
+  expect(composer.text()).toBe("keep");
+  await composer.pick("g.txt");
+  await composer.quote("q");
+  expect(composer.text()).toContain("q");
+  await composer.key(false);
+  expect(composer.text()).toBe("keep");
+  // The quote comes back: only the text undone before the file edit stays out.
+  await composer.key(true);
+  expect(composer.text()).toContain("q");
+  await composer.unmount();
+
+  const other = await mount();
+  await other.type("a");
+  await other.pick("h.txt");
+  await other.key(false);
+  expect(other.files()).toEqual([]);
+  await other.quote("q");
+  // The quote ended the file's redo, as typing does.
+  await other.key(true);
+  expect(other.files()).toEqual([]);
+  await other.unmount();
 });
