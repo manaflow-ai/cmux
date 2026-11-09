@@ -145,6 +145,8 @@ type Recording = {
   /// The layout-shift entries' sum over the recording (none with recent input).
   layoutShift: number;
   latestAt: number;
+  /// When the live page itself (no copy over it) first showed the newest answer, else 0.
+  liveLatestAt: number;
   changedAt: number;
   done: boolean;
   stop: () => void;
@@ -209,6 +211,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     frames: [] as Frame[],
     layoutShift: 0,
     latestAt: 0,
+    liveLatestAt: 0,
     changedAt: 0,
     done: false,
     stop: () => {
@@ -245,6 +248,8 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
           .map((element) => element.getBoundingClientRect())
           .find((box) => box.height > 0);
     if (!recording.latestAt && rows.some((row) => row.text.includes(latest))) recording.latestAt = performance.now();
+    if (!recording.liveLatestAt && !host && !rootHidden && rows.some((row) => row.text.includes(latest)))
+      recording.liveLatestAt = performance.now();
     return {
       t: performance.now(),
       copyShown: !!host,
@@ -280,6 +285,9 @@ type Round = {
   mode: Mode;
   metrics: FrameMetrics;
   frames: Painted[];
+  /// When the live page, with no copy over it, first showed the newest answer (ms from navigation),
+  /// else null: a round whose copy never gave way to the read chat has not loaded.
+  liveLatestMs: number | null;
   layoutShift: number;
   /// When the copy drew and when the live page took over (chatSnapshot/paint.ts, live.ts), ms from navigation.
   copyShownMs: number | null;
@@ -551,6 +559,7 @@ const bottomBand = () => {
           miss: w.__cmuxChatSnapshotMiss ?? null,
           shown: w.__cmuxChatSnapshotShown ?? null,
           tailAskedAt: w.__benchHost.tailAskedAt,
+          liveLatestAt: w.__firstLoad.liveLatestAt,
         };
       });
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
@@ -558,6 +567,7 @@ const bottomBand = () => {
         mode,
         metrics: classifyFrames(got.frames),
         frames: got.frames,
+        liveLatestMs: got.liveLatestAt || null,
         layoutShift: got.layoutShift,
         copyShownMs: got.shown?.at ?? null,
         swapMs: got.shown?.swappedAt ?? null,
@@ -647,7 +657,12 @@ const bottomBand = () => {
         ].join(" | "),
       );
     for (const r of rounds) if (r.copyShownMs === null) console.log(`  warning: a round drew no copy (${r.copyMiss})`);
-    const bad = rounds.filter((r) => r.metrics.blankAfterContent > 0 || r.metrics.shiftFrames > 0);
+    // A round that never handed over to the live chat proves nothing: a copy held over the whole
+    // recording paints no blank and no shift.
+    for (const r of rounds) if (r.liveLatestMs === null) console.log("  failed: the live chat never showed the newest answer");
+    const bad = rounds.filter(
+      (r) => r.metrics.blankAfterContent > 0 || r.metrics.shiftFrames > 0 || r.liveLatestMs === null,
+    );
     if (bad.length > 0) failed = true;
     if (TRACE) {
       const score = (r: Round) => r.metrics.blankAfterContent + r.metrics.shiftFrames;
