@@ -50,7 +50,14 @@ impl MeshDriver {
                 found => found.map(|(key, _)| key),
             },
             Ok(Packet::HandshakeResponse(response)) => {
-                self.table.by_receiver(response.receiver_idx)
+                let key = self.table.by_receiver(response.receiver_idx);
+                // An answer to a probe from the current key (`WgMesh::probe_current`).
+                if let Some(key) = key
+                    && self.answer_on_current(key, datagram, source)
+                {
+                    return;
+                }
+                key
             }
             Ok(Packet::PacketCookieReply(cookie)) => self.table.by_receiver(cookie.receiver_idx),
             Ok(Packet::PacketData(data)) => self.table.by_receiver(data.receiver_idx),
@@ -107,6 +114,35 @@ impl MeshDriver {
         }
         let on_retired = self.table.get_mut(&key).is_some_and(|peer| peer.on_retired);
         Some((key, !retired && on_retired))
+    }
+
+    /// A handshake response for a peer on the retired key that its session on
+    /// the current key takes (the peer answered a probe from it): the peer
+    /// moves there. False when that session does not take it (an answer to
+    /// the retired session, or a forgery), which then goes on as usual.
+    fn answer_on_current(
+        &mut self,
+        key: PeerKey,
+        datagram: &[u8],
+        source: Option<PeerRoute>,
+    ) -> bool {
+        let Some(peer) = self.table.get_mut(&key) else { return false };
+        let Some(current) = peer.current.as_mut() else { return false };
+        let from = source.map(|route| route.address().ip());
+        match current.decapsulate(from, datagram, &mut self.scratch) {
+            TunnResult::WriteToNetwork(packet) => {
+                peer.move_to_current();
+                peer.authenticated(source, &self.local.networks, Instant::now());
+                self.out.send(source, packet);
+                true
+            }
+            TunnResult::Done if current.time_since_last_handshake().is_some() => {
+                peer.move_to_current();
+                peer.authenticated(source, &self.local.networks, Instant::now());
+                true
+            }
+            _ => false,
+        }
     }
 
     /// A handshake initiation to the current key from a peer whose session is

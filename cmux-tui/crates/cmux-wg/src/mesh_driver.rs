@@ -481,12 +481,35 @@ impl MeshDriver {
             MeshCommand::PeerPaths { public_key, reply } => {
                 let _ = reply.send(self.table.get_mut(&public_key).map(|peer| peer.paths.views()));
             }
+            MeshCommand::ProbeCurrent { public_key, reply } => {
+                self.probe_current(public_key, reply)
+            }
             MeshCommand::Connect { remote, reply } => self.begin_connect(remote, reply),
             MeshCommand::Listen { port, reply } => {
                 let _ = reply.send(self.stack.begin_listen(port));
             }
             MeshCommand::Close { .. } | MeshCommand::Shutdown => {}
         }
+    }
+
+    /// [`crate::WgMesh::probe_current`]: an initiation from the peer's
+    /// session on the current key; `reply` answers once that session is the
+    /// peer's ([`crate::mesh_peers::Peer::move_to_current`]).
+    fn probe_current(&mut self, key: [u8; 32], reply: oneshot::Sender<bool>) {
+        let Some(peer) = self.table.get_mut(&key) else {
+            let _ = reply.send(false);
+            return;
+        };
+        let Some(current) = peer.current.as_mut() else {
+            let _ = reply.send(false);
+            return;
+        };
+        if let TunnResult::WriteToNetwork(packet) =
+            current.format_handshake_initiation(&mut self.scratch, false)
+        {
+            deliver(&mut peer.paths, &mut self.out, Instant::now(), packet);
+        }
+        peer.probing = Some(reply);
     }
 
     fn add_peer(&mut self, peer: WgPeer, retired: bool) -> Result<(), WgError> {

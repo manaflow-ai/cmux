@@ -17,6 +17,8 @@ use tokio::net::{UnixListener, UnixStream};
 use super::acpmux::AcpmuxTarget;
 use super::dial::{Overlay, serve_dial_line};
 use super::inbound::{InboundRefused, serve_inbound_watched};
+use cmux_link::stamp::LinkPeer;
+
 use super::key_adoption::RetiringPeers;
 use super::lines::read_line;
 use super::paired_streams::{OpenStreams, Revocations};
@@ -60,14 +62,24 @@ impl RekeyTarget {
     /// with one would stop every start of the mesh. The caller answers the
     /// peer first, then calls [`Self::reload`]: the reload closes the old
     /// key's streams, the answering one included.
-    pub(super) async fn apply(&self, install: &str, key: &[u8; 32]) -> io::Result<bool> {
+    ///
+    /// `from` is the pairing that authenticated the change, as it was then
+    /// (`from_key` its key): under the lock the change is made only while the
+    /// stored record is still that one, so a `link peer add` that replaced
+    /// it in the meantime wins.
+    pub(super) async fn apply(
+        &self,
+        from: &LinkPeer,
+        from_key: &[u8; 32],
+        key: &[u8; 32],
+    ) -> io::Result<bool> {
         if self.own.contains(key) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "own_key"));
         }
         // The file's own lock, which `link peer add|remove` and install moves take too.
-        let (path, install, key) = (self.path.clone(), install.to_owned(), *key);
+        let (path, from, from_key, key) = (self.path.clone(), from.clone(), *from_key, *key);
         tokio::task::spawn_blocking(move || {
-            Pairings::update(&path, |pairings| pairings.rekey(&install, &key))
+            Pairings::update(&path, |pairings| pairings.rekey_from(&from, &from_key, &key))
         })
         .await
         .map_err(io::Error::other)?

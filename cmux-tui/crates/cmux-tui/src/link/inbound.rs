@@ -55,7 +55,8 @@ pub(super) use super::paired_streams::Revocations;
 /// moves to the new one; a key another install's record holds is refused.
 async fn serve_rekey<S>(
     stream: &mut S,
-    install: &str,
+    from: &cmux_link::stamp::LinkPeer,
+    from_key: &[u8; 32],
     target: Option<&RekeyTarget>,
 ) -> Result<(), InboundRefused>
 where
@@ -66,12 +67,12 @@ where
     let request = parse_line::<RekeyRequest>(&text).ok_or(InboundRefused::BadHello)?;
     let refused = |why: String| RekeyReply { ok: false, error: Some(why), public_key: None };
     let (reply, changed) = match rekey_key(&request.public_key) {
-        Some(key) => match target.apply(install, &key).await {
+        Some(key) => match target.apply(from, from_key, &key).await {
             Ok(changed) => {
                 // This link adopted a key too and still keeps the asker on its old one: the
                 // answer names the new key (`key_adoption.rs`). The same rekey again (a reply
                 // lost on the way) gets the same answer.
-                let public_key = target.answer_for(install).map(|ours| STANDARD.encode(ours));
+                let public_key = target.answer_for(&from.install).map(|ours| STANDARD.encode(ours));
                 (RekeyReply { ok: true, error: None, public_key }, changed)
             }
             Err(error) => (refused(error.to_string()), false),
@@ -230,7 +231,7 @@ where
                 revocations.as_mut(),
                 peer_key,
                 &peer,
-                serve_rekey(&mut stream, &record.install, rekey),
+                serve_rekey(&mut stream, &record.peer(), &peer_key, rekey),
             )
             .await,
             false,

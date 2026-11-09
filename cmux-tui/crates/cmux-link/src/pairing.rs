@@ -157,6 +157,25 @@ impl Pairings {
     /// said so over its old key's session. Refused when `install` has no record or another
     /// install's record holds the key (a peer never takes over another's pairing); false when
     /// the record already holds it.
+    /// [`Pairings::rekey`] of `from`'s install, only while its stored record
+    /// is still the one that authenticated the request: the same key
+    /// (`from_key`) and the same identity (`from`). A record that `link peer
+    /// add` replaced or removed meanwhile is never written over.
+    pub fn rekey_from(
+        &mut self,
+        from: &LinkPeer,
+        from_key: &[u8; 32],
+        public_key: &[u8; 32],
+    ) -> io::Result<bool> {
+        let current = self
+            .by_install(&from.install)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not_paired"))?;
+        if current.key().as_ref() != Some(from_key) || current.peer() != *from {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "pairing_changed"));
+        }
+        self.rekey(&from.install, public_key)
+    }
+
     pub fn rekey(&mut self, install: &str, public_key: &[u8; 32]) -> io::Result<bool> {
         if self.by_key(public_key).is_some_and(|record| record.install != install) {
             return Err(io::Error::new(io::ErrorKind::AlreadyExists, "key_in_use"));

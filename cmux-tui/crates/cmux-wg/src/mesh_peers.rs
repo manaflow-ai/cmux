@@ -60,6 +60,8 @@ pub(crate) struct Peer {
     /// (static key, timestamp, replay), and only one it accepts moves the
     /// peer there ([`Peer::move_to_current`]).
     pub(crate) current: Option<Tunn>,
+    /// Answered when the peer moves to the current key (`WgMesh::probe_current`).
+    pub(crate) probing: Option<tokio::sync::oneshot::Sender<bool>>,
 }
 
 impl Peer {
@@ -101,6 +103,9 @@ impl Peer {
         if let Some(current) = self.current.take() {
             self.tunn = current;
             self.on_retired = false;
+        }
+        if let Some(probing) = self.probing.take() {
+            let _ = probing.send(true);
         }
     }
 
@@ -289,6 +294,7 @@ impl PeerTable {
             initiated: None,
             on_retired,
             current,
+            probing: None,
         };
         self.by_index.insert(index, peer.public_key);
         self.peers.entry(peer.public_key).or_insert(entry)

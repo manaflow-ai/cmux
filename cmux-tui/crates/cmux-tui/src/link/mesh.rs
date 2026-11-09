@@ -7,8 +7,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use cmux_link::pairing::Pairings;
+use cmux_link::pairing::{PairingRecord, Pairings};
 use cmux_wg::{IpNetwork, PeerRoute, WgMesh, WgMeshListener, WgPeer, WgStream};
 
 use super::control::OverlayListener;
@@ -47,6 +48,15 @@ impl MeshOverlay {
     #[cfg(test)]
     pub(super) fn holds(&self, key: &[u8; 32]) -> bool {
         locked(&self.peers).contains_key(key)
+    }
+
+    /// A handshake from the current key to `record`'s peer, while its
+    /// session stays on the retired key: whether the peer answered within
+    /// `wait` (it then is on the current key). The retired session carries
+    /// the peer throughout.
+    pub(super) async fn probe_current(&self, record: &PairingRecord, wait: Duration) -> bool {
+        let Some(key) = record.key() else { return false };
+        matches!(tokio::time::timeout(wait, self.mesh.probe_current(key)).await, Ok(Ok(true)))
     }
 
     /// Who stays on the retired key, shared with the inbound rekeys.
@@ -90,7 +100,7 @@ impl Overlay for MeshOverlay {
     /// keeps its install's `/128`, which would overlap). Replace endpoint-only
     /// changes in place so the stack preserves the same peer's streams.
     async fn sync_peers(&self, pairings: &Pairings) -> io::Result<()> {
-        let retiring = self.retiring.on_retired();
+        let retiring = self.retiring.installs();
         let wanted = wanted(pairings, &retiring)?;
         let current = locked(&self.peers).clone();
         for (key, shape) in &current {

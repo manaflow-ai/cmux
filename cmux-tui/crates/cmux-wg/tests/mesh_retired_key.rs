@@ -216,3 +216,30 @@ async fn a_replayed_initiation_to_the_current_key_is_not_answered() {
     socket.send_to(&initiation(b_private, a.public), a.udp).await.expect("send");
     assert!(answered(&socket, TIMEOUT).await, "a newer initiation was not answered");
 }
+
+/// A probe from the current key to a peer that only knows the retired one
+/// goes unanswered, and the retired session keeps carrying its stream the
+/// whole time; to a peer that knows the current key, it moves the session.
+#[tokio::test]
+async fn a_probe_of_the_current_key_never_interrupts_the_retired_session() {
+    let (old_private, old_public) = random_keypair();
+    let a = retiring(overlay(1), old_private).await;
+    let b = node(&[overlay(2)]).await;
+    within(a.mesh.add_peer_on_retired_key(peer_of(&b, &[overlay(2)], true))).await.unwrap();
+    within(b.mesh.add_peer(known_as(&a, old_public, true))).await.unwrap();
+    let (_echo, _accepted) = spawn_echo(within(b.mesh.listen(LINK_PORT)).await.unwrap());
+    let mut stream = within(a.mesh.connect(SocketAddr::new(overlay(2), LINK_PORT))).await.unwrap();
+    echo_round_trip(&mut stream, 512).await;
+    for _ in 0..3 {
+        let probed = timeout(Duration::from_millis(700), a.mesh.probe_current(b.public)).await;
+        assert!(!matches!(probed, Ok(Ok(true))), "a peer that does not know the key answered");
+        echo_round_trip(&mut stream, 4096).await;
+    }
+
+    // B learns A's current key: the next probe is answered.
+    within(b.mesh.remove_peer(old_public)).await.unwrap();
+    within(b.mesh.add_peer(peer_of(&a, &[overlay(1)], true))).await.unwrap();
+    assert!(within(a.mesh.probe_current(b.public)).await.unwrap());
+    let mut fresh = within(a.mesh.connect(SocketAddr::new(overlay(2), LINK_PORT))).await.unwrap();
+    echo_round_trip(&mut fresh, 512).await;
+}

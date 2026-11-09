@@ -43,7 +43,7 @@ use base64::engine::general_purpose::STANDARD;
 use cmux_link::LINK_PORT;
 use cmux_link::dial::{RekeyReply, RekeyRequest, Service, ServiceHello, line};
 use cmux_link::key_holder::KeyHolder;
-use cmux_link::pairing::Pairings;
+use cmux_link::pairing::{PairingRecord, Pairings};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt as _;
 use zeroize::Zeroizing;
@@ -288,8 +288,6 @@ pub(super) const RETRY: Retry = Retry {
 #[derive(Default)]
 pub(super) struct RetiringPeers {
     installs: std::sync::Mutex<BTreeSet<String>>,
-    /// The installs of `installs` tried on the current key for now.
-    via_current: std::sync::Mutex<BTreeSet<String>>,
     node_public: std::sync::OnceLock<[u8; 32]>,
     /// Woken when an inbound rekey from one of them was answered.
     answered: tokio::sync::Notify,
@@ -302,16 +300,6 @@ impl RetiringPeers {
 
     pub(super) fn installs(&self) -> BTreeSet<String> {
         super::locked(&self.installs).clone()
-    }
-
-    /// The installs whose session is on the retired key now.
-    pub(super) fn on_retired(&self) -> BTreeSet<String> {
-        let via_current = super::locked(&self.via_current).clone();
-        self.installs().difference(&via_current).cloned().collect()
-    }
-
-    fn try_on_current(&self, installs: BTreeSet<String>) {
-        *super::locked(&self.via_current) = installs;
     }
 
     pub(super) fn answer_with(&self, node_public: [u8; 32]) {
@@ -373,36 +361,39 @@ pub(super) async fn finish_retiring(
                 .cloned()
                 .collect(),
         };
-        // On the retired key first; who did not answer there is tried on the current key,
-        // which a peer that already took the node key (its answer lost) knows this link by.
-        let mut told = tell_all(overlay, node_public, &left, retry.tell_for).await;
+        // On the retired key first. A peer no stream reached there may already have taken
+        // the node key (its answer lost): a handshake from the current key is tried next to
+        // the retired session, which keeps carrying the peer until that one is answered
+        // (`WgMesh::probe_current`). A peer that said no keeps its session as it is; the
+        // backoff below spaces the next try.
+        let mut told = tell_each(overlay, node_public, &left, retry.tell_for).await;
         let target = peers.rekey_target();
         apply_answers(&target, &told).await;
-        let untold: BTreeSet<String> = left
-            .peers
+        let unreached: Vec<PairingRecord> = told
             .iter()
-            .map(|peer| peer.install.clone())
-            .filter(|install| !told.iter().any(|(told, _)| told == install))
+            .filter(|(_, tell)| *tell == Tell::Unreached)
+            .map(|(record, _)| record.clone())
             .collect();
-        if !untold.is_empty() {
-            retiring.try_on_current(untold.clone());
-            if let Err(error) = peers.reload(overlay).await {
-                eprintln!("cmux link: trying the peers left on the new key failed: {error}");
+        let mut moved_to_current = Vec::new();
+        for record in &unreached {
+            if overlay.probe_current(record, retry.tell_for).await {
+                moved_to_current.push(record.clone());
             }
-            let fresh = peers.snapshot();
-            let on_current = Pairings {
-                peers: fresh
-                    .peers
-                    .iter()
-                    .filter(|peer| untold.contains(&peer.install))
-                    .cloned()
-                    .collect(),
-            };
-            let also = tell_all(overlay, node_public, &on_current, retry.tell_for).await;
-            apply_answers(&target, &also).await;
-            told.extend(also);
-            retiring.try_on_current(BTreeSet::new());
         }
+        if !moved_to_current.is_empty() {
+            let on_current = Pairings { peers: moved_to_current };
+            let also = tell_each(overlay, node_public, &on_current, retry.tell_for).await;
+            apply_answers(&target, &also).await;
+            told.retain(|(record, _)| on_current.by_install(&record.install).is_none());
+            told.extend(also);
+        }
+        let told: Vec<(String, Option<[u8; 32]>)> = told
+            .into_iter()
+            .filter_map(|(record, tell)| match tell {
+                Tell::Took(theirs) => Some((record.install, theirs)),
+                _ => None,
+            })
+            .collect();
         let still = retiring.installs();
         let pending: BTreeSet<String> = record
             .pending
@@ -413,7 +404,7 @@ pub(super) async fn finish_retiring(
             .cloned()
             .collect();
         let expired = now_secs() >= deadline;
-        let moved = pending != record.pending || !untold.is_empty();
+        let moved = pending != record.pending;
         let result = if pending.is_empty() || expired {
             let record = Adopted { pending, ..record };
             retiring.retain(&BTreeSet::new());
@@ -447,57 +438,92 @@ pub(super) async fn finish_retiring(
     }
 }
 
-/// Apply the new keys peers named in their answers (they adopted too).
-async fn apply_answers(target: &RekeyTarget, told: &[(String, Option<[u8; 32]>)]) {
-    for (install, key) in told {
-        if let Some(key) = key
-            && let Err(error) = target.apply(install, key).await
+/// How one peer took a tell ([`tell_each`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Tell {
+    /// It took the key; with the new key it named back when it adopted too.
+    Took(Option<[u8; 32]>),
+    /// A session reached it and it said no (a link without rekeys, or a
+    /// refusal): the session works, so nothing about it changes.
+    Refused,
+    /// No stream reached it on this key in time.
+    Unreached,
+}
+
+/// Apply the new keys peers named in their answers (they adopted too), each
+/// only while the peer's stored record is still the one that was told.
+async fn apply_answers(target: &RekeyTarget, told: &[(PairingRecord, Tell)]) {
+    for (record, tell) in told {
+        if let Tell::Took(Some(key)) = tell
+            && let Some(from_key) = record.key()
+            && let Err(error) = target.apply(&record.peer(), &from_key, key).await
         {
-            eprintln!("cmux link: {install}'s new key in its answer was refused: {error}");
+            eprintln!("cmux link: {}'s new key in its answer was refused: {error}", record.install);
         }
     }
 }
 
 /// Tell every peer of `pairings` the key `new_public`, at once, each within
-/// `budget`; the installs that took it, each with the new key it named back
-/// when it adopted one too.
-pub(super) async fn tell_all<O: super::dial::Overlay>(
+/// `budget`: how each took it.
+pub(super) async fn tell_each<O: super::dial::Overlay>(
     overlay: &O,
     new_public: &[u8; 32],
     pairings: &Pairings,
     budget: Duration,
-) -> Vec<(String, Option<[u8; 32]>)> {
+) -> Vec<(PairingRecord, Tell)> {
     let request = line(&RekeyRequest { public_key: STANDARD.encode(new_public) });
     let tells = pairings.peers.iter().map(|record| {
         let request = request.clone();
         let remote = SocketAddr::new(IpAddr::V6(record.overlay_address()), LINK_PORT);
         async move {
             let told = async {
-                let mut stream = overlay.connect(remote).await?;
-                let hello = line(&ServiceHello::paired(Service::Rekey));
-                stream.write_all(hello.as_bytes()).await?;
-                stream.write_all(request.as_bytes()).await?;
-                let answer = read_line(&mut stream, cmux_link::dial::MAX_LINE_BYTES).await?;
-                // Close at once: the receiver reloads (and drops this session) once it sees it.
-                let _ = stream.shutdown().await;
-                let reply: RekeyReply = serde_json::from_str(answer.trim())
-                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-                io::Result::Ok(reply)
-            };
-            match tokio::time::timeout(budget, told).await {
-                Ok(Ok(reply)) if reply.ok => {
-                    let theirs = reply
-                        .public_key
-                        .as_deref()
-                        .and_then(super::inbound::rekey_key)
-                        .filter(|theirs| theirs != new_public);
-                    Some((record.install.clone(), theirs))
+                let mut stream = match overlay.connect(remote).await {
+                    Ok(stream) => stream,
+                    Err(_) => return Tell::Unreached,
+                };
+                let asked = async {
+                    let hello = line(&ServiceHello::paired(Service::Rekey));
+                    stream.write_all(hello.as_bytes()).await?;
+                    stream.write_all(request.as_bytes()).await?;
+                    let answer = read_line(&mut stream, cmux_link::dial::MAX_LINE_BYTES).await?;
+                    // Close at once: the receiver reloads (and drops this session) once it sees it.
+                    let _ = stream.shutdown().await;
+                    serde_json::from_str::<RekeyReply>(answer.trim())
+                        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+                };
+                match asked.await {
+                    Ok(reply) if reply.ok => Tell::Took(
+                        reply
+                            .public_key
+                            .as_deref()
+                            .and_then(super::inbound::rekey_key)
+                            .filter(|theirs| theirs != new_public),
+                    ),
+                    _ => Tell::Refused,
                 }
-                _ => None,
-            }
+            };
+            let tell = tokio::time::timeout(budget, told).await.unwrap_or(Tell::Unreached);
+            (record.clone(), tell)
         }
     });
-    futures_util::future::join_all(tells).await.into_iter().flatten().collect()
+    futures_util::future::join_all(tells).await
+}
+
+/// [`tell_each`], keeping the installs that took the key.
+pub(super) async fn tell_all<O: super::dial::Overlay>(
+    overlay: &O,
+    new_public: &[u8; 32],
+    pairings: &Pairings,
+    budget: Duration,
+) -> Vec<(String, Option<[u8; 32]>)> {
+    tell_each(overlay, new_public, pairings, budget)
+        .await
+        .into_iter()
+        .filter_map(|(record, tell)| match tell {
+            Tell::Took(theirs) => Some((record.install, theirs)),
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]

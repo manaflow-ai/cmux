@@ -114,6 +114,7 @@ pub(crate) enum MeshCommand {
     AddPeer { peer: WgPeer, retired: bool, reply: oneshot::Sender<Result<(), WgError>> },
     RemovePeer { public_key: [u8; 32], reply: oneshot::Sender<bool> },
     PeerPaths { public_key: [u8; 32], reply: oneshot::Sender<Option<Vec<MeshPathView>>> },
+    ProbeCurrent { public_key: [u8; 32], reply: oneshot::Sender<bool> },
     Connect { remote: SocketAddr, reply: oneshot::Sender<Result<WgStream, WgError>> },
     Listen { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<MeshAccepted>, WgError>> },
     // `WgMesh::close`: deliver what was written, then stop, by the deadline.
@@ -202,6 +203,19 @@ impl WgMesh {
     pub async fn remove_peer(&self, public_key: [u8; 32]) -> Result<bool, WgError> {
         let (reply, answer) = oneshot::channel();
         self.send(MeshCommand::RemovePeer { public_key, reply }).await?;
+        answer.await.map_err(|_| WgError::Shutdown)
+    }
+
+    /// For a peer on the retired key ([`WgMesh::add_peer_on_retired_key`]):
+    /// start a handshake from the current key, next to the retired session,
+    /// which keeps carrying the peer. Resolves `true` once the peer answered
+    /// it (its session is then on the current key), `false` at once for a
+    /// peer that is not on the retired key. A peer that does not know the
+    /// current key never answers: bound the wait with a timeout, and the
+    /// retired session is untouched.
+    pub async fn probe_current(&self, public_key: [u8; 32]) -> Result<bool, WgError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(MeshCommand::ProbeCurrent { public_key, reply }).await?;
         answer.await.map_err(|_| WgError::Shutdown)
     }
 

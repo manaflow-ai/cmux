@@ -549,7 +549,8 @@ async fn concurrent_rekeys_all_persist() {
     let tasks: Vec<_> = (1..=16u8)
         .map(|n| {
             let target = target.clone();
-            tokio::spawn(async move { target.apply(&format!("inst_{n}"), &[n + 100; 32]).await })
+            let from = record(&format!("inst_{n}"), [n; 32]);
+            tokio::spawn(async move { target.apply(&from.peer(), &[n; 32], &[n + 100; 32]).await })
         })
         .collect();
     for task in tasks {
@@ -616,7 +617,8 @@ async fn a_revoke_racing_a_rekey_stays_revoked() {
             Pairings::update(&path, |pairings| Ok(pairings.remove("inst_x")))
         });
         let new_key = [round + 50; 32];
-        let rekey = target.apply("inst_x", &new_key);
+        let from = record("inst_x", [1; 32]).peer();
+        let rekey = target.apply(&from, &[1; 32], &new_key);
         let (revoked, _) = tokio::join!(revoke, rekey);
         assert!(revoked.unwrap().unwrap(), "round {round}");
         let now = Pairings::load(&file).unwrap();
@@ -650,4 +652,119 @@ async fn an_install_switch_keeps_a_pending_retirement() {
     let again = serve_key(&state, &holder, &pairings).await.unwrap();
     let retiring = again.retiring.expect("the retirement goes on");
     assert_eq!(retiring.pending, BTreeSet::from(["inst_b".into()]));
+}
+
+/// Third review, F1: `link peer add` replaces an install's pairing (a new
+/// key, or another user) while a rekey from the old one waits for the
+/// file's lock. The rekey was authenticated by the old record, so it is
+/// refused: the replacement stays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pairing_replaced_while_a_rekey_waits_is_never_written_over() {
+    for (round, other_user) in [(0u8, false), (1, true), (2, false), (3, true)] {
+        let far = tempfile::tempdir().unwrap();
+        let file = far.path().join("peers.json");
+        let mut theirs = Pairings::default();
+        theirs.upsert(record("inst_x", [1; 32])).unwrap();
+        theirs.save(&file).unwrap();
+        let target = Peers::load(file.clone()).unwrap().rekey_target();
+        let authenticated = record("inst_x", [1; 32]);
+        let replacement = PairingRecord {
+            user: if other_user { "43".into() } else { "42".into() },
+            ..record("inst_x", if other_user { [1; 32] } else { [9; 32] })
+        };
+        // The replacement holds the lock when the rekey asks for it.
+        let lock = Pairings::lock(&file).unwrap();
+        let rekey = {
+            let target = target.clone();
+            let from = authenticated.peer();
+            tokio::spawn(async move { target.apply(&from, &[1; 32], &[round + 60; 32]).await })
+        };
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let mut replaced = Pairings::load(&file).unwrap();
+        replaced.upsert(replacement.clone()).unwrap();
+        replaced.save(&file).unwrap();
+        drop(lock);
+        let refused = rekey.await.unwrap().unwrap_err();
+        assert_eq!(refused.to_string(), "pairing_changed", "round {round}");
+        let now = Pairings::load(&file).unwrap();
+        assert_eq!(now.by_install("inst_x"), Some(&replacement), "round {round}");
+    }
+}
+
+/// A link without rekeys (the version before this one): it reads the hello,
+/// does not know the service and closes. Every other stream is echoed.
+fn spawn_base_link(mut listener: cmux_wg::WgMeshListener) -> tokio::task::JoinHandle<()> {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    tokio::spawn(async move {
+        while let Some((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 16 * 1024];
+                loop {
+                    match stream.read(&mut buffer).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(count) => {
+                            if buffer[..count].windows(5).any(|window| window == b"rekey") {
+                                let _ = stream.write_all(b"{\"ok\":false}\n").await;
+                                break;
+                            }
+                            if stream.write_all(&buffer[..count]).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                let _ = stream.shutdown().await;
+            });
+        }
+    })
+}
+
+/// Third review, F2: during a rolling upgrade the peer is still a link
+/// without rekeys. Each retry is refused, and the old key's tunnel carries
+/// traffic all along: every round trip across the retries answers at once.
+#[tokio::test]
+async fn retries_against_a_link_without_rekeys_never_interrupt_the_old_tunnel() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let a = machine_named("inst_a");
+    let (a_socket, b_socket) = (socket().await, socket().await);
+    let a_endpoint = a_socket.local_addr().unwrap();
+    let b_endpoint = b_socket.local_addr().unwrap();
+    let a_old = LinkState::open(Some(a.link.clone())).unwrap().own_public_key().unwrap();
+    let (b_private, b_public) = cmux_wg::testing::random_keypair();
+    pair(&a, &[paired_at("inst_b", b_public, b_endpoint)]);
+    let b = in_mesh("inst_b", b_private, b_socket);
+    let mut theirs = Pairings::default();
+    theirs.upsert(paired_at("inst_a", a_old, a_endpoint)).unwrap();
+    b.sync_peers(&theirs).await.unwrap();
+    let _base = spawn_base_link(b.listen(LINK_PORT).await.unwrap());
+
+    let running_a = run(&a, true, a_socket).await;
+    let remote = SocketAddr::new(IpAddr::V6(overlay_address("inst_b")), LINK_PORT);
+    let mut stream =
+        tokio::time::timeout(Duration::from_secs(10), running_a.overlay.connect(remote))
+            .await
+            .expect("no tunnel within 10 s")
+            .expect("the old tunnel failed");
+    // FAST retries every 0.2 s to 1 s: 4 s spans several.
+    let started = tokio::time::Instant::now();
+    let mut slowest = Duration::ZERO;
+    let mut rounds = 0;
+    while started.elapsed() < Duration::from_secs(4) {
+        let sent = tokio::time::Instant::now();
+        stream.write_all(b"ping\n").await.expect("the tunnel dropped a write");
+        let mut answer = [0u8; 5];
+        tokio::time::timeout(Duration::from_secs(2), stream.read_exact(&mut answer))
+            .await
+            .expect("the tunnel stalled")
+            .expect("the tunnel closed");
+        assert_eq!(&answer, b"ping\n");
+        slowest = slowest.max(sent.elapsed());
+        rounds += 1;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(rounds > 20, "{rounds} round trips");
+    assert!(slowest < Duration::from_millis(500), "a round trip took {slowest:?}");
+    let state = LinkState::open(Some(a.link.clone())).unwrap();
+    assert!(state.has_link_key(), "the retired key went while the peer was never told");
+    assert_eq!(adopted(&state).unwrap().unwrap().pending, BTreeSet::from(["inst_b".into()]));
 }
