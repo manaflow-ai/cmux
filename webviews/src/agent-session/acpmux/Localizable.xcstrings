@@ -229330,6 +229330,138 @@
         }
       }
     },
+    "watch.composerBridged": {
+      "comment": "Agent pane: the View Only banner hint for a Claude desktop session acpmux delivers messages into, so sending does not take it over",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ما ترسله يصل إلى هذه الجلسة حيث تعمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ono što pošaljete stiže u ovu sesiju tamo gdje radi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det, du sender, går til denne session, hvor den kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Was du sendest, geht an diese Sitzung, dort wo sie läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What you send goes to this session where it runs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo que envíes llega a esta sesión donde se ejecuta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce que vous envoyez va à cette session, là où elle s’exécute"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ciò che invii arriva a questa sessione dove è in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信した内容は、このセッションが動いている場所に届きます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីដែលអ្នកផ្ញើ នឹងទៅដល់វគ្គនេះ នៅកន្លែងដែលវាកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보낸 내용은 이 세션이 실행 중인 곳으로 전달됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det du sender, går til denne økten der den kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To, co wyślesz, trafi do tej sesji tam, gdzie działa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que você enviar vai para esta sessão onde ela está rodando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправленное попадёт в этот сеанс там, где он работает"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ่งที่คุณส่งจะไปยังเซสชันนี้ในที่ที่มันทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderdiğiniz, bu oturuma çalıştığı yerde ulaşır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надіслане потрапить у цей сеанс там, де він працює"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nội dung bạn gửi sẽ đến phiên này tại nơi nó đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你发送的内容会送到此会话正在运行的地方"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你傳送的內容會送到此工作階段正在執行的地方"
+          }
+        }
+      }
+    },
     "newTab.viewOnly": {
       "comment": "Agent pane: All chats menu item that opens a Claude Code or Codex chat to view it without taking it over from the app that runs it",
       "extractionState": "manual",
