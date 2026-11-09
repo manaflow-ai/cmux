@@ -678,4 +678,43 @@ mod tests {
             assert!(state.ended && state.frames.is_empty(), "the connection must end there");
         }
     }
+
+    /// A drop while a Kitty limits acknowledgement is owed keeps the stream
+    /// open for it, but only until the drain deadline: on an idle terminal
+    /// (the host sends nothing) the reader thread's read is already blocked
+    /// and sees neither the deadline nor a read timeout set at the drop, so
+    /// the thread and the socket stayed until the host wrote or exited.
+    #[cfg(unix)]
+    #[test]
+    fn a_drop_owing_a_kitty_ack_ends_the_read_on_an_idle_host() {
+        let version = version();
+        let (client, mut host) = UnixStream::pair().unwrap();
+        let responses = Arc::new(ControlResponses::new_for_test());
+        let frames = HostFrames::spawn(
+            "host-frames-drain-test".into(),
+            client,
+            responses.clone(),
+            version,
+            true,
+        )
+        .unwrap();
+        // One frame through the thread, so its next read is the blocked one.
+        let mut output = Frame::new(MessageKind::Output, b"before".to_vec());
+        output.version = version;
+        crate::terminal_host_protocol::write_frame(&mut host, &output).unwrap();
+        assert!(
+            matches!(frames.recv(), HostFrame::Frame(frame) if frame.kind == MessageKind::Output)
+        );
+        let _kitty = responses.wait_for_test(9, MessageKind::KittyGraphicsLimitsAck);
+        drop(frames);
+        // The client end closes once the thread ends; the host then reads EOF.
+        host.set_read_timeout(Some(CONTROL_RESPONSE_TIMEOUT * 2)).unwrap();
+        let started = std::time::Instant::now();
+        let read = host.read(&mut [0; 1]);
+        assert!(
+            matches!(read, Ok(0)),
+            "the dropped connection was still open {:?} after the drop: {read:?}",
+            started.elapsed()
+        );
+    }
 }
