@@ -54,11 +54,14 @@ await requireBrowserLane("tool-toggle-motion.test.ts", async () => {
     await vite?.close();
   });
 
-  async function samples(extra = ""): Promise<Sample[]> {
+  /// `wall`: on the wall clock (no `clock=frames`), so a frame whose work runs long misses slots, as
+  /// on a loaded host.
+  async function samples(extra = "", wall = false): Promise<Sample[]> {
     const { port } = vite!.httpServer!.address() as { port: number };
-    const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1${extra}`, {
-      clock: "frames",
-    });
+    const frames = await open120Hz(
+      `http://127.0.0.1:${port}${PAGE}?rows=1${wall ? "" : "&clock=frames"}${extra}`,
+      wall ? {} : { clock: "frames" },
+    );
     try {
       await frames.page.waitForFunction(() => "__sendStream" in window);
       await frames.page.getByText("History answer 6.").waitFor();
@@ -91,6 +94,7 @@ await requireBrowserLane("tool-toggle-motion.test.ts", async () => {
       ["close", false],
       ["open-again", true],
       ["reverse", false],
+      ["drag", false],
     ]);
     for (const window of report) {
       // The step, so a failure names it.
@@ -107,6 +111,36 @@ await requireBrowserLane("tool-toggle-motion.test.ts", async () => {
       });
       // An open grows from closed: never drawn whole in its first frame.
       if (window.firstShare !== undefined) expect(window.firstShare).toBeLessThan(0.9);
+    }
+    // A 12 px drag across the line opens nothing and moves nothing.
+    expect(report.find((window) => window.step === "drag")?.edgePx).toBe(0);
+  });
+
+  /// Each frame's callback holds the main thread this long (harness `?load=`): about 25 frames a
+  /// second on the wall clock, as Leo's recording under heavy load drew.
+  const LOAD_MS = 30;
+
+  test("under heavy load the line holds, the rows under ride its foot, and nothing turns back", async () => {
+    const out = await samples(`&load=${LOAD_MS}`, true);
+    if (process.env.CMUX_TOOL_TOGGLE_DUMP)
+      await Bun.write(`${process.env.CMUX_TOOL_TOGGLE_DUMP}-load.json`, JSON.stringify(out));
+    const report = toggleReport(out, STEPS);
+    for (const window of report) console.log(`tool-toggle load ${JSON.stringify(window)}`);
+    expect(report.map((window) => [window.step, window.open])).toEqual([
+      ["open", true],
+      ["close", false],
+      ["open-again", true],
+      ["reverse", false],
+      ["drag", false],
+    ]);
+    for (const window of report) {
+      const got = { step: window.step, anchorPx: window.anchorPx, tearPx: window.tearPx, reversals: window.reversals };
+      expect(got).toEqual({
+        step: window.step,
+        anchorPx: Math.min(window.anchorPx, 0.5),
+        tearPx: Math.min(window.tearPx, 0.5),
+        reversals: 0,
+      });
     }
   });
 });

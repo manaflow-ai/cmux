@@ -62,14 +62,15 @@ export type ToggleTurn = (typeof TOGGLE_TURNS)[number];
 const isToggle = (turn: ScriptedTurn): turn is ToggleTurn => (TOGGLE_TURNS as readonly string[]).includes(turn);
 /// The call the tool-toggle turn's reader clicks (its line is `[data-tool-id="toggle-call"]`).
 export const TOGGLE_CALL_ID = "toggle-call";
-/// When each of the tool-toggle turn's clicks lands, ms after the reply's next segment starts (the
-/// open before it, for the last one): an open, a close once it rested, an open, and a close 60 ms
-/// into that open, while its fold still plays.
+/// When each of the tool-toggle turn's clicks lands, ms after the one before it (the reply's next
+/// segment starting, for the first): an open, a close once it rested, an open, a close 60 ms into
+/// that open while its fold still plays, and a small drag across the closed line.
 export const TOGGLE_CLICKS = [
-  { step: "open", afterMs: 200 },
-  { step: "close", afterMs: 450 },
-  { step: "open-again", afterMs: 450 },
-  { step: "reverse", afterMs: 60 },
+  { step: "open", afterMs: 200, action: "toggle" },
+  { step: "close", afterMs: 450, action: "toggle" },
+  { step: "open-again", afterMs: 450, action: "toggle" },
+  { step: "reverse", afterMs: 60, action: "toggle" },
+  { step: "drag", afterMs: 400, action: "drag" },
 ] as const;
 
 export const SCRIPTED_PROMPT_ID = "live-user";
@@ -94,7 +95,7 @@ export type ScriptedTurnOptions = {
   /// The history's finished turns (streamingTextFixture `history`), 7 by default.
   historyTurns?: number;
   /// What the reader does at a step (the tool-toggle turn's `toggle`: a click on its call's line).
-  act?: (action: "toggle") => void;
+  act?: (action: "toggle" | "drag") => void;
 };
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -294,7 +295,7 @@ const printingCall = (status: string) => ({
 /// reader clicks the call's line at TOGGLE_CLICKS.
 async function playToggle(
   { put, emit, stream, step, wait }: TransitionParts,
-  act: (action: "toggle") => void,
+  act: (action: "toggle" | "drag") => void,
 ): Promise<void> {
   const paragraphs = REPLY.split("\n\n");
   const ANSWER = SCRIPTED_ANSWER_ID;
@@ -311,11 +312,11 @@ async function playToggle(
   await wait(200);
   step("segment");
   // About 2.4 s of text at 1,500 characters a second: the clicks all land while it streams.
-  const streaming = stream("live-answer-2", 100_010, paragraphs.slice(2, 14).join("\n\n"), false);
+  const streaming = stream("live-answer-2", 100_010, paragraphs.slice(2, 16).join("\n\n"), false);
   for (const click of TOGGLE_CLICKS) {
     await wait(click.afterMs);
     step(click.step);
-    act("toggle");
+    act(click.action);
   }
   await streaming;
 }

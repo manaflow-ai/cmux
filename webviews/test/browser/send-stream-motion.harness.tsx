@@ -279,8 +279,17 @@ const sampleFrame = () => {
 // transcript's own (made at its mount), which places the rows under a row that grew this frame.
 if (!sampleRows) new ResizeObserver(sampleFrame).observe(sentinel);
 let lateSampler: ResizeObserver | undefined;
+/// `?load=N`: each frame's callback holds the main thread N ms, as a page under heavy load does (a
+/// long transcript's commits, other panes): frames miss their slots on the wall clock.
+const loadMs = Number(query.get("load")) || 0;
 const tick = (t: number) => {
   frameAt = t;
+  if (loadMs > 0) {
+    const until = performance.now() + loadMs;
+    while (performance.now() < until) {
+      // busy: the load
+    }
+  }
   toggle = !toggle;
   sentinel.style.width = toggle ? "2px" : "1px";
   requestAnimationFrame(tick);
@@ -305,10 +314,11 @@ export function clickLine(target: HTMLElement, moved = 0) {
   target.dispatchEvent(new MouseEvent("click", { ...at(moved), buttons: 0, detail: 1 }));
 }
 
-/// The tool-toggle turn's click: on its call's line (scriptedTurn.ts TOGGLE_CALL_ID).
-const act = () => {
+/// The tool-toggle turn's click on its call's line (scriptedTurn.ts TOGGLE_CALL_ID), or a 12 px drag
+/// across it.
+const act = (action: "toggle" | "drag") => {
   const line = document.querySelector<HTMLElement>(`[data-tool-id="${TOGGLE_CALL_ID}"][aria-expanded]`);
-  if (line) clickLine(line);
+  if (line) clickLine(line, action === "drag" ? 12 : 0);
   else console.warn("send-stream-motion: no line to toggle");
 };
 
