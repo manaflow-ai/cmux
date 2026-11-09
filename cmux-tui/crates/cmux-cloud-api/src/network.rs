@@ -9,8 +9,8 @@ use std::time::Duration;
 use reqwest::Method;
 use serde_json::{Value, json};
 
-use super::http::{Auth, Http, path_text, worker_error};
 use super::Failure;
+use super::http::{Auth, Http, path_text, worker_error};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -22,7 +22,8 @@ pub(crate) async fn networks(http: &Http, auth: Auth) -> Result<Value, Failure> 
     }
     let segments = ["v1", "host", "network", "target"];
     let path = path_text(&segments);
-    let reply = http.send(Method::GET, http.url(&segments, &[]), None, None, TIMEOUT, &path).await?;
+    let reply =
+        http.send(Method::GET, http.url(&segments, &[]), None, None, TIMEOUT, &path).await?;
     if reply.status == 404 {
         return Ok(json!([]));
     }
