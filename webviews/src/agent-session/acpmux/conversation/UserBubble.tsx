@@ -465,14 +465,25 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // Keep the thumbnail's row slot while the host reads the attachment. Without this, the
   // sent-image band appears after the transcript row has already been placed and pushes the
   // prompt and everything below it down by a frame.
+  // The box a send from the latest row lands its chip's copy on (sendMorph.ts): the badge's box when
+  // it names its source, else the thumbnail.
+  const key = image.source ? undefined : image.id;
   if (shown.src === undefined)
-    return <span className="cv-user__image-placeholder" aria-hidden="true" style={{ ...shape, flexBasis: width }} />;
+    return (
+      <span
+        className="cv-user__image-placeholder"
+        aria-hidden="true"
+        data-send-key={key}
+        style={{ ...shape, flexBasis: width }}
+      />
+    );
   const src = shown.src;
   // A pasted image's name is WebKit's "image.png": name it by its size instead (imageLabel.ts).
   const label = imageLabel(t, { name: image.name, width: shown.width, height: shown.height });
   const thumbnail = (
     <img
       className={shown.fresh ? "cv-user__image cv-enter" : "cv-user__image"}
+      data-send-key={key}
       src={src}
       alt={label}
       // Decoded ahead (imageEntries.ts): it paints with the frame that mounts it, no blank frame.
@@ -504,7 +515,7 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   );
   if (!image.source) return opened;
   return (
-    <span className="cv-user__sourced">
+    <span className="cv-user__sourced" data-send-key={image.id}>
       {opened}
       <SourceBadge source={image.source} />
     </span>
