@@ -1676,6 +1676,12 @@ impl Hub {
         session
     }
 
+    /// Changes a session's metadata in place, with no record or save (tests outside the hub).
+    #[cfg(test)]
+    pub(crate) fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
+        edit(&mut session.meta.lock().unwrap());
+    }
+
     #[cfg(test)]
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();

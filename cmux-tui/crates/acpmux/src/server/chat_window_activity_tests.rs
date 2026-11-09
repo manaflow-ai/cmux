@@ -84,7 +84,7 @@ async fn a_session_that_moves_to_another_chat_clears_the_chat_it_left() {
 
     // The session starts on another agent session, one no chat of the window is: the chat it
     // left has no session now, and its row says so.
-    session.meta.lock().unwrap().agent_session_id = Some(session_id(9));
+    hub.edit_test_meta(&session, |m| m.agent_session_id = Some(session_id(9)));
     hub.append(&session, "mux", "status", json!({"status": "idle"}));
     let diff = next_window(&mut out).await;
     assert_eq!(attention_of(&diff, &chat), Some(Value::Null), "{diff}");
