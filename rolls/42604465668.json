@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42604465668",
+  "recorded_at": "2026-11-09T11:05:51Z",
+  "reason": "cmux-tui 79a0cbe2d0b2 changes the image's cmux-tui (pinned 9cb41fa7e922)",
+  "dry_run": false,
+  "cmux_tui": "79a0cbe2d0b2981b5228ca79dddcdb98c90caa7a",
+  "fixes": [
+    {
+      "sha": "b10a73c3e812c735e049e52ddb3d250e0ea2f76d",
+      "mergedAt": "2026-11-09T02:34:57-08:00",
+      "subject": "daemon-registry-start: measure start on an existing registry (registry=) (#39436)"
+    },
+    {
+      "sha": "fb7217a2ef8e7bad13843520e1477439fea6dd54",
+      "mergedAt": "2026-11-09T02:34:55-08:00",
+      "subject": "cmux-tui: worktree close spares the caller's, kept and attached terminals; terminal.close if_unplaced; one Placeholder (W5-O follow-up) (#39092)"
+    },
+    {
+      "sha": "146ad335b7ef056869457f332fc19ef520de857f",
+      "mergedAt": "2026-11-09T02:29:28-08:00",
+      "subject": "acpmux: idle wakeups stay flat as watched chats and live agents grow (#39357)"
+    },
+    {
+      "sha": "dc6acf829fc31430e684e2cd6f9c4e756b86b6a6",
+      "mergedAt": "2026-11-09T02:27:27-08:00",
+      "subject": "All chats search: a keystroke's work no longer grows with the number of chats (#39362)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T11:05:51Z",
+    "snapshot_id": "sh-6b73c552f881477a8a9cf84e22f7e437",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42604465668): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4b02bb0bd04022265916cb28794d33fec8db46da",
+    "image": "cloud-native-auto-79a0cbe2-42604465668-1",
+    "revision": "ci-42604465668-1",
+    "at": "2026-11-09T11:05:51Z"
+  },
+  "rolled_back": false
+}
