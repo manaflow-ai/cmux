@@ -43,7 +43,7 @@ import Testing
 @Suite struct AcpmuxReplayResyncTests {
     enum Overflow: Sendable, CaseIterable, Equatable { case events, pendingChunk, oversizedChunk }
 
-    @Test(arguments: Overflow.allCases)
+    @Test(.timeLimit(.minutes(1)), arguments: Overflow.allCases)
     func newReaderResyncsWithoutInterruptingTheExistingReader(overflow: Overflow) async throws {
         let attaches = ChatOpenSnapshotLiveTests.Attaches()
         let link = MockMacLink { _, data in
@@ -77,10 +77,12 @@ import Testing
         // is weak too. Keep both owners alive until the separately delivered live event
         // reaches each reader, as the app's coordinator and chat store do.
         defer { withExtendedLifetime((hub, source)) {} }
-        let (first, firstTask) = ChatOpenSnapshotLiveTests.collect(source.events())
-        defer { firstTask.cancel() }
-        await ChatOpenSnapshotLiveTests.waitUntil { first.events.contains { if case .batch = $0 { true } else { false } } }
-        try #require(first.events.contains { if case .batch = $0 { true } else { false } })
+        var first = source.events().makeAsyncIterator()
+        let firstEvent = try #require(await first.next())
+        guard case .batch = firstEvent else {
+            Issue.record("the initial reader did not receive a history batch")
+            return
+        }
 
         // Exercise both count overflow and a chunk whose flush is what expires replay.
         let extra = overflow == .events ? 1 : 0
@@ -98,58 +100,82 @@ import Testing
                 ? String(repeating: "x", count: AcpmuxSessionSource.openBytes + 1) : "pending"
             source.receive(record: Self.chunk(text, seq: 90_000))
         }
-        let (second, secondTask) = ChatOpenSnapshotLiveTests.collect(source.events())
-        defer { secondTask.cancel() }
-        await ChatOpenSnapshotLiveTests.waitUntil { second.events.contains { if case .batch = $0 { true } else { false } } }
+        var second = source.events().makeAsyncIterator()
+        let secondEvent = try #require(await second.next())
         try #require(attaches.all == [0, 0], "the new reader fetches a snapshot, not a partial afterSeq replay")
-        guard case .batch(let history)? = second.events.first else {
+        guard case .batch(let history) = secondEvent else {
             Issue.record("the resynced reader did not receive one complete history batch")
             return
         }
         #expect(ChatOpenSnapshotLiveTests.userMessages(history) == ["t1"])
-        #expect(first.events.filter { if case .batch = $0 { true } else { false } }.count == 1,
-                "resync never repeats history into the existing reader")
 
         source.receive(record: Self.chunk("after expiry", seq: 90_001))
         #expect(source.replayCount == 0, "an expired source keeps delivering but retains no new chunks")
 
         // The store still holds the original source after its event stream resyncs.
         // Its actions must reach the new reader, not disappear into the old source.
+        // Drain the overflow before checking actions: a collector task can be
+        // thousands of buffered events behind on a loaded full-kit run. Each
+        // wait consumes the actual FIFO; the test time limit bounds a hang.
+        try await Self.nextLiveEvent(&first) {
+            if case .update(.agentMessageChunk(let text, _)) = $0 { text == "after expiry" }
+            else { false }
+        }
         source.send(.setModel("unavailable"))
-        await ChatOpenSnapshotLiveTests.waitUntil {
-            Self.hasModelError(first.events) && Self.hasModelError(second.events)
-        }
-        #expect(Self.hasModelError(first.events))
-        #expect(Self.hasModelError(second.events))
+        try await Self.nextLiveEvent(&first, matching: Self.hasModelError)
+        try await Self.nextLiveEvent(&second, matching: Self.hasModelError)
         source.loadEarlierHistory()
-        await ChatOpenSnapshotLiveTests.waitUntil {
-            Self.hasOlderTurn(first.events) && Self.hasOlderTurn(second.events)
-        }
-        #expect(Self.hasOlderTurn(first.events))
-        #expect(Self.hasOlderTurn(second.events))
+        try await Self.nextLiveEvent(&first, matching: Self.hasOlderTurn)
+        try await Self.nextLiveEvent(&second, matching: Self.hasOlderTurn)
 
         source.refreshPermissions()
-        await ChatOpenSnapshotLiveTests.waitUntil { attaches.all.count == 4 }
+        try await Self.nextLiveEvent(&first, allowingRefresh: true, matching: Self.isRefresh)
+        try await Self.nextLiveEvent(&second, allowingRefresh: true, matching: Self.isRefresh)
         #expect(attaches.all.suffix(2).sorted() == [10, 90_001], "both replay generations refresh their own state")
 
         _ = try await hub.request("_test/live", .object([:]))
-        await ChatOpenSnapshotLiveTests.waitUntil {
-            ChatOpenSnapshotLiveTests.userMessages(first.events).contains("live")
-                && ChatOpenSnapshotLiveTests.userMessages(second.events).contains("live")
-        }
-        #expect(ChatOpenSnapshotLiveTests.userMessages(first.events).contains("live"))
-        #expect(ChatOpenSnapshotLiveTests.userMessages(second.events).contains("live"))
+        try await Self.nextLiveEvent(&first, matching: Self.isLiveMessage)
+        try await Self.nextLiveEvent(&second, matching: Self.isLiveMessage)
+        // Disconnect after the assertions; releasing the iterators ends their readers.
+        await hub.bind(nil)
     }
 
-    private static func hasModelError(_ events: [AgentSessionEvent]) -> Bool {
-        events.contains { if case .clientError(let text) = $0 { text.localizedCaseInsensitiveContains("model unavailable") } else { false } }
+    private static func nextLiveEvent(
+        _ iterator: inout AsyncStream<AgentSessionEvent>.Iterator,
+        allowingRefresh: Bool = false,
+        matching predicate: (AgentSessionEvent) -> Bool
+    ) async throws {
+        while let event = await iterator.next() {
+            if case .batch(let events) = event {
+                #expect(allowingRefresh, "resync repeated history into an existing reader")
+                #expect(ChatOpenSnapshotLiveTests.userMessages(events).isEmpty,
+                        "permission refresh must not replay already received turns")
+            }
+            if predicate(event) { return }
+        }
+        try Task.checkCancellation()
+        Issue.record("the reader ended before the expected live event")
+        throw CancellationError()
     }
 
-    private static func hasOlderTurn(_ events: [AgentSessionEvent]) -> Bool {
-        events.contains {
-            if case .earlierPage(let page, _) = $0 { ChatOpenSnapshotLiveTests.userMessages(page).contains("t0") }
-            else { false }
-        }
+    private static func hasModelError(_ event: AgentSessionEvent) -> Bool {
+        if case .clientError(let text) = event { text.localizedCaseInsensitiveContains("model unavailable") }
+        else { false }
+    }
+
+    private static func hasOlderTurn(_ event: AgentSessionEvent) -> Bool {
+        if case .earlierPage(let page, _) = event { ChatOpenSnapshotLiveTests.userMessages(page).contains("t0") }
+        else { false }
+    }
+
+    private static func isRefresh(_ event: AgentSessionEvent) -> Bool {
+        if case .batch(let events) = event {
+            events.contains { if case .status = $0 { true } else { false } }
+        } else { false }
+    }
+
+    private static func isLiveMessage(_ event: AgentSessionEvent) -> Bool {
+        if case .userMessage(_, _, let turn, _, _) = event { turn == "live" } else { false }
     }
 
     private static func chunk(_ text: String, seq: Int) -> JSONValue {

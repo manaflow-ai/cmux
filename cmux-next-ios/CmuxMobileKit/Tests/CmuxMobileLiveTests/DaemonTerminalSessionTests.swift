@@ -421,23 +421,39 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     /// TUI scroll tail: a lost reply must not stop input after a few frames
     /// (later sends keep the reverse direction moving, so the loss is
     /// repaired by duplicate ACKs): at least 32 sends may be unanswered.
-    @Test func manyUnansweredSendsStillGoOut() async throws {
+    @Test(.timeLimit(.minutes(1))) func manyUnansweredSendsStillGoOut() async throws {
         let daemon = FakeTerminalDaemon()
         daemon.unansweredSends = true
-        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let (written, didWrite) = AsyncStream<Void>.makeStream()
+        let link = MockMacLink { service, line in
+            let replies = daemon.respond(service, line)
+            for data in line.split(separator: 0x0A) {
+                if let request = try? JSONSerialization.jsonObject(with: Data(data)) as? [String: Any],
+                   request["cmd"] as? String == "send" { didWrite.yield(()) }
+            }
+            return replies
+        }
         let session = DaemonTerminalSession(surface: 7) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
-        session.tailProbeDelay = .seconds(60)
+        // This test owns the window, not expiry. Keep both timers outside its
+        // one-minute hang guard; short request expiry has its own regression.
+        session.inputRequestDeadline = .seconds(120)
+        session.tailProbeDelay = .seconds(120)
         session.now = { 1000 }  // detached-input expiration is not under test
         session.start { _ in }
+        defer { session.stop(); didWrite.finish() }
         try await waitUntil { session.isAttached }
+        try #require(session.isAttached)
+        var writes = written.makeAsyncIterator()
         let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
         let cap = DaemonTerminalSession.maxInputInFlight
         #expect(cap >= 32)
         for n in 1...cap {
             session.send(Data("x".utf8))
-            try await waitUntil { sends() == n }
+            let received = await writes.next()
+            try #require(received != nil, "write stream ended: \(session.lastError ?? "none")")
+            try #require(sends() == n)
         }
         // The cap still holds: the next one waits for an answer.
         session.send(Data("y".utf8))

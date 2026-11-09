@@ -1,6 +1,7 @@
 import CmuxMobileAgentChat
 import CmuxMobileTransport
 import Foundation
+import Observation
 import Testing
 @testable import CmuxMobileLive
 
@@ -101,6 +102,21 @@ import Testing
         }
     }
 
+    /// Wait on the store's publication instead of a scheduler-dependent sleep.
+    /// The test's one-minute hang guard cancels next(); each observation is
+    /// one-shot and its stream is finished before rearming or returning.
+    private static func waitForObservedState(_ done: () -> Bool) async throws {
+        while true {
+            try Task.checkCancellation()
+            let (changes, changed) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+            defer { changed.finish() }
+            let complete = withObservationTracking { done() } onChange: { changed.yield(()) }
+            if complete { return }
+            var updates = changes.makeAsyncIterator()
+            _ = await updates.next()
+        }
+    }
+
     /// Turn n's answer as the chat shows it.
     static func answer(_ store: AgentChatStore, _ n: Int) -> String? {
         guard let turn = store.turns.first(where: { $0.id == "t\(n)" }) else { return nil }
@@ -111,7 +127,7 @@ import Testing
     /// used to apply that record anyway, moving `lastSeq` past the rest of the gap for good.
     /// Now it applies what it read up to its last record, keeps the live one back, and tries
     /// again from there.
-    @Test func aFailedPageIsReadAgainBeforeNewerRecords() async throws {
+    @Test(.timeLimit(.minutes(1))) func aFailedPageIsReadAgainBeforeNewerRecords() async throws {
         let calls = Calls()
         let log = Self.log(turns: Chat.turns + 4)
         let link = Self.fake(calls, log: log, reattach: { id, after, n in
@@ -129,7 +145,7 @@ import Testing
         let (hub, store) = try await Self.openThenReconnect(link)
         defer { withExtendedLifetime(hub) {} }
         let last = Chat.turns + 3
-        await Self.waitUntil { store.turns.last?.id == "t\(last)" && store.turns.last?.status == .completed }
+        try await Self.waitForObservedState { store.turns.last?.id == "t\(last)" && store.turns.last?.status == .completed }
 
         #expect(store.turns.map(\.id) == (0...last).map { "t\($0)" })
         for n in Chat.turns...last {

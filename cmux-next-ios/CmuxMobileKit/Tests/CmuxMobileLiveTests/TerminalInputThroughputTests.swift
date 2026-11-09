@@ -7,19 +7,26 @@ import Testing
 /// target without replacing any production code. A synthetic
 /// daemon acknowledges sends after 500 ms; both runs type 100 keys at 50/s.
 @MainActor @Suite struct TerminalInputThroughputTests {
-    @Test func keystrokeThroughputAt500msRTT() async throws {
+    @Test(.timeLimit(.minutes(1))) func keystrokeThroughputAt500msRTT() async throws {
         for dropFirstReply in [false, true] {
             let channel = LatencyTerminalChannel(dropFirstReply: dropFirstReply)
             let session = DaemonTerminalSession(surface: 7) { DaemonClient(channel: channel) }
             session.tailProbeDelay = .seconds(60)
-            session.start { _ in }
-            defer { session.stop() }
-            let clock = ContinuousClock()
-            let attachDeadline = clock.now.advanced(by: .seconds(3))
-            while !session.isAttached, clock.now < attachDeadline {
-                try await Task.sleep(for: .milliseconds(5))
+            let (attachment, attached) = AsyncStream<Bool>.makeStream()
+            session.start { event in
+                switch event {
+                case .connection(.attached): attached.yield(true)
+                case .connection(.failed): attached.yield(false)
+                default: break
+                }
             }
-            try #require(session.isAttached)
+            defer { session.stop(); attached.finish() }
+            var attachmentEvents = attachment.makeAsyncIterator()
+            // Setup is outside the measurement. Await the actual handshake, not a
+            // three-second scheduling budget shared with every other kit test.
+            let ready = await attachmentEvents.next()
+            try #require(ready == true, "attach failed: \(session.lastError ?? "none"); commands: \(channel.commands)")
+            let clock = ContinuousClock()
             let began = clock.now
             for _ in 0..<100 {
                 session.send(Data("x".utf8))
@@ -58,6 +65,7 @@ private final class LatencyTerminalChannel: LinkChannel, @unchecked Sendable {
     }
 
     var sentBytes: Int { lock.withLock { bytes } }
+    var commands: [String] { daemon.recorded.compactMap { $0["cmd"] as? String } }
 
     func send(_ data: Data) async throws {
         let object = try JSONSerialization.jsonObject(with: data.split(separator: 0x0A)[0]) as? [String: Any]
