@@ -65,7 +65,9 @@ impl Pin {
 
 impl Mux {
     /// Pin or unpin `view`'s terminal. A pin publishes the screen's last line
-    /// at once. Returns the terminal's public id.
+    /// at once. A private (incognito) terminal is never pinned: its output
+    /// stays off disk, and a status entry is durable. Returns the terminal's
+    /// public id.
     pub(crate) fn set_terminal_tail_pin(
         self: &Arc<Self>,
         view: SurfaceId,
@@ -78,16 +80,22 @@ impl Mux {
             .terminal_public_id()
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("terminal_not_hosted"))?;
+        if pinned && self.output_store.is_private(self, &terminal) {
+            anyhow::bail!("terminal_private: an incognito terminal's output is never pinned");
+        }
+        let seed = pinned
+            .then(|| surface.try_with_terminal(|term| term.viewport_text()).ok().and_then(Result::ok))
+            .flatten();
+        let seed = seed.as_deref().and_then(|text| {
+            text.lines().rev().find(|line| !line.trim().is_empty()).map(str::to_owned)
+        });
+        // The whole transition, slot and record, under the publication lock:
+        // a concurrent pin, unpin or publication sees it before or after.
+        let publishing = self.terminal_tail_pins.publishing();
         if pinned {
-            let seed = surface
-                .try_with_terminal(|term| term.viewport_text())
-                .ok()
-                .and_then(|text| text.ok());
-            let seed = seed.as_deref().and_then(|text| {
-                text.lines().rev().find(|line| !line.trim().is_empty()).map(str::to_owned)
-            });
-            if slot.set_pinned(true, seed.as_deref()) {
-                let mut state = self.terminal_tail_pins.lock();
+            let changed = slot.set_pinned(true, seed.as_deref());
+            let mut state = self.terminal_tail_pins.lock();
+            if changed || !state.pins.contains_key(&id) {
                 state.pins.insert(
                     id,
                     Pin {
@@ -99,19 +107,12 @@ impl Mux {
                     },
                 );
                 drop(state);
+                drop(publishing);
                 self.queue_terminal_tail(id);
             }
-        } else if slot.set_pinned(false, None) {
-            let _publishing = self.terminal_tail_pins.publishing();
-            let pin = {
-                let mut state = self.terminal_tail_pins.lock();
-                state.due.remove(&id);
-                state.pins.remove(&id)
-            };
-            if let Some(pin) = pin {
-                self.clear_terminal_tail(&pin);
-            }
-            self.terminal_tail_pins.wake.notify_all();
+        } else {
+            slot.set_pinned(false, None);
+            self.end_terminal_tail_locked(id);
         }
         Ok(terminal)
     }
@@ -161,14 +162,21 @@ impl Mux {
         let (Some(slot), Some(id)) = (surface.tail_pin(), surface.terminal_runtime_id()) else {
             return;
         };
-        if !slot.set_pinned(false, None) {
+        if !slot.is_pinned() {
             return;
         }
         let _publishing = self.terminal_tail_pins.publishing();
+        slot.set_pinned(false, None);
+        self.end_terminal_tail_locked(id);
+    }
+
+    /// Remove `runtime`'s pin record and its entry. The caller holds the
+    /// publication lock and has unpinned the slot (or it is gone).
+    fn end_terminal_tail_locked(&self, runtime: SurfaceId) {
         let pin = {
             let mut state = self.terminal_tail_pins.lock();
-            state.due.remove(&id);
-            state.pins.remove(&id)
+            state.due.remove(&runtime);
+            state.pins.remove(&runtime)
         };
         if let Some(pin) = pin {
             self.clear_terminal_tail(&pin);
@@ -212,29 +220,60 @@ impl Mux {
         }
     }
 
-    /// Publish the tail of `runtime` now, if it changed. Returns false when
-    /// the pin is gone (its terminal closed).
-    fn publish_terminal_tail(self: &Arc<Self>, runtime: SurfaceId) -> bool {
+    /// Publish the tail of `runtime` now, if it changed. When the pin's tab
+    /// closed it follows another tab that shows the terminal; with none, or
+    /// once the terminal ended or turned private, the pin ends (slot, record
+    /// and entry).
+    fn publish_terminal_tail(self: &Arc<Self>, runtime: SurfaceId) {
         let _publishing = self.terminal_tail_pins.publishing();
-        let (view, surface, key, previous) = {
+        let (view, terminal, key, previous) = {
             let state = self.terminal_tail_pins.lock();
-            let Some(pin) = state.pins.get(&runtime) else { return false };
-            (pin.view, pin.surface.clone(), pin.key(), pin.workspace.clone())
+            let Some(pin) = state.pins.get(&runtime) else { return };
+            (pin.view, pin.terminal.clone(), pin.key(), pin.workspace.clone())
         };
-        let Some(surface) = surface.upgrade().filter(|surface| !surface.is_dead()) else {
-            return false;
+        let placed = |view: SurfaceId| {
+            let surface = self.surface(view).filter(|surface| !surface.is_dead())?;
+            let workspace = self.workspace_public_id_of_surface(view)?;
+            Some((view, surface, workspace))
         };
-        let Some(slot) = surface.tail_pin() else { return false };
-        let Some(text) = slot.take_change() else { return true };
-        let Some(workspace) = self.workspace_public_id_of_surface(view) else { return true };
-        let Some(terminal) = surface.terminal_public_id().cloned() else { return false };
+        let found = placed(view).or_else(|| {
+            self.placed_surface_of_terminal(terminal.as_str()).and_then(&placed)
+        });
+        let Some((view, surface, workspace)) = found.filter(|(_, surface, _)| {
+            surface.terminal_runtime_id() == Some(runtime)
+                && !self.output_store.is_private(self, &terminal)
+        }) else {
+            let slot = {
+                let state = self.terminal_tail_pins.lock();
+                state.pins.get(&runtime).and_then(|pin| pin.surface.upgrade())
+            };
+            if let Some(slot) = slot.as_deref().and_then(Surface::tail_pin) {
+                slot.set_pinned(false, None);
+            }
+            self.end_terminal_tail_locked(runtime);
+            return;
+        };
+        {
+            let mut state = self.terminal_tail_pins.lock();
+            if let Some(pin) = state.pins.get_mut(&runtime) {
+                pin.view = view;
+                pin.surface = Arc::downgrade(&surface);
+            }
+        }
+        let Some(slot) = surface.tail_pin() else { return };
         // The tab moved to another workspace: its old row drops the line.
-        if let Some(previous) = previous.filter(|previous| *previous != workspace) {
+        if let Some(previous) = previous.as_ref().filter(|previous| **previous != workspace) {
             self.commit_terminal_tail(
-                &previous,
+                previous,
                 WorkspaceStatusChange::Clear { key: Some(key.clone()) },
             );
+            if let Some(pin) = self.terminal_tail_pins.lock().pins.get_mut(&runtime) {
+                pin.workspace = None;
+            }
+            // Its line goes to the new row even when it did not change.
+            slot.mark_changed();
         }
+        let Some(text) = slot.take_change() else { return };
         let meta = StatusMeta {
             owner_terminal: Some(terminal.as_str().to_owned()),
             target_terminal: Some(terminal.as_str().to_owned()),
@@ -252,12 +291,11 @@ impl Mux {
         );
         if committed {
             crate::state::status_owners::watch_owners(self, Some(terminal.as_str()), None, false);
+            let mut state = self.terminal_tail_pins.lock();
+            if let Some(pin) = state.pins.get_mut(&runtime) {
+                pin.workspace = Some(workspace);
+            }
         }
-        let mut state = self.terminal_tail_pins.lock();
-        if let Some(pin) = state.pins.get_mut(&runtime) {
-            pin.workspace = Some(workspace);
-        }
-        true
     }
 
     fn clear_terminal_tail(&self, pin: &Pin) {
@@ -352,11 +390,7 @@ fn run_publisher(weak: &Weak<Mux>) {
         }
         drop(state);
         for id in ready {
-            if !mux.publish_terminal_tail(id) {
-                let mut state = pins.lock();
-                state.pins.remove(&id);
-                state.due.remove(&id);
-            }
+            mux.publish_terminal_tail(id);
         }
     }
 }

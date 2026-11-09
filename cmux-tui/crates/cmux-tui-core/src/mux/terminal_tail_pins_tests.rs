@@ -193,6 +193,57 @@ fn an_unpin_during_a_publication_is_never_undone() {
 }
 
 #[test]
+fn an_incognito_terminal_is_never_pinned_and_a_pin_ends_when_it_turns_private() {
+    let f = fixture("tail-pin-private");
+    let terminal = f.surface.terminal_public_id().cloned().unwrap();
+    f.print(b"secret output\n");
+    f.mux.output_store.mark_private(&terminal);
+    let refused = f.mux.set_terminal_tail_pin(f.surface.id, true).unwrap_err();
+    assert!(refused.to_string().contains("terminal_private"), "{refused}");
+    assert!(!f.mux.terminal_tail_pinned(f.surface.id));
+    std::thread::sleep(PUBLISH_INTERVAL);
+    assert_eq!(f.tails(), Vec::new(), "a private terminal's line reached the status store");
+
+    // A pin made while public ends, without publishing, once the terminal turns private.
+    let g = fixture("tail-pin-turns-private");
+    let terminal = g.surface.terminal_public_id().cloned().unwrap();
+    g.print(b"public line\n");
+    g.mux.set_terminal_tail_pin(g.surface.id, true).unwrap();
+    wait_for("the public tail published", || g.tail_text().is_some());
+    g.mux.output_store.mark_private(&terminal);
+    g.print(b"private line\n");
+    wait_for("the pin ended", || !g.mux.terminal_tail_pinned(g.surface.id));
+    assert_eq!(g.tails(), Vec::new());
+}
+
+#[test]
+fn concurrent_pins_and_unpins_always_leave_a_working_pin() {
+    let f = fixture("tail-pin-concurrent");
+    let togglers: Vec<_> = (0..4)
+        .map(|index| {
+            let mux = f.mux.clone();
+            let id = f.surface.id;
+            std::thread::spawn(move || {
+                for round in 0..50 {
+                    mux.set_terminal_tail_pin(id, (round + index) % 2 == 0).unwrap();
+                }
+            })
+        })
+        .collect();
+    for toggler in togglers {
+        toggler.join().unwrap();
+    }
+    f.mux.set_terminal_tail_pin(f.surface.id, true).unwrap();
+    f.print(b"after the storm\n");
+    wait_for("a pin after concurrent toggles published", || {
+        f.tail_text().as_deref() == Some("after the storm")
+    });
+    f.mux.set_terminal_tail_pin(f.surface.id, false).unwrap();
+    assert_eq!(f.tails(), Vec::new());
+    assert!(f.mux.terminal_tail_pins.lock().pins.is_empty());
+}
+
+#[test]
 fn a_restart_clears_the_lines_an_earlier_run_left() {
     let f = fixture("tail-pin-stale");
     f.print(b"left over\n");

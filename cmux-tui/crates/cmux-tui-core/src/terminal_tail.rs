@@ -64,6 +64,12 @@ impl TailPinSlot {
         true
     }
 
+    /// Publish the current tail again on the next take (its row moved).
+    pub(crate) fn mark_changed(&self) {
+        let mut line = self.line.lock().unwrap_or_else(PoisonError::into_inner);
+        line.changed = line.tail.is_some();
+    }
+
     pub(crate) fn is_pinned(&self) -> bool {
         self.pinned.load(Ordering::Relaxed)
     }
