@@ -82,6 +82,10 @@ pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<S
 /// The harness command line and environment, as acpmux runs it: the login
 /// environment, no nested-agent markers, the session's `ACPMUX_*` caller
 /// context, and the profile's env. Shared by direct children and hosts.
+///
+/// Every spawn builds through [`harness_command_ready`], never this directly:
+/// the only direct callers are that function and tests that read the built
+/// command without starting it.
 pub(crate) fn harness_command(
     name: &str,
     profile: &HarnessProfile,

@@ -138,7 +138,7 @@ impl Probe {
             crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
             // Never another harness's login (`agent/foreign_login.rs`).
             let runs = crate::agent::foreign_login::Runs::Agent(family.to_owned());
-            crate::agent::foreign_login::remove_foreign(&runs, |key| {
+            crate::agent::foreign_login::remove_foreign(&runs, Some(env), |key| {
                 cmd.env_remove(key);
             });
             cmd.args(rest)

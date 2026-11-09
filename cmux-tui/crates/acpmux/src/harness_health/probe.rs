@@ -50,7 +50,7 @@ pub(super) fn run_for(
         // What the check runs, by its command line or its label's canonical family.
         if let Some(family) = family {
             let runs = crate::agent::foreign_login::classify_command(argv, family);
-            crate::agent::foreign_login::remove_foreign(&runs, |key| {
+            crate::agent::foreign_login::remove_foreign(&runs, Some(env), |key| {
                 cmd.env_remove(key);
             });
         }
