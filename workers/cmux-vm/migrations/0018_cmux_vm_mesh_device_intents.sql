@@ -26,6 +26,4 @@ CREATE TABLE IF NOT EXISTS cmux_vm.mesh_device_intents (
   PRIMARY KEY (tenant_id, mesh_cmux_id, intent_id)
 );
 
--- A device's delete revokes its intent.
-CREATE INDEX IF NOT EXISTS mesh_device_intents_device_idx
-  ON cmux_vm.mesh_device_intents (tenant_id, device_cmux_id) WHERE device_cmux_id IS NOT NULL;
+-- The index a device's delete uses to revoke its intent is 0019 (built concurrently).

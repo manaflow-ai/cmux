@@ -1,4 +1,5 @@
 import deviceIntents from "../../migrations/0018_cmux_vm_mesh_device_intents.sql?raw";
+import deviceIntentsIndex from "../../migrations/0019_cmux_vm_mesh_device_intents_index.sql?raw";
 import clientSessionIndex from "../../migrations/0017_cmux_vm_client_session_index.sql?raw";
 import agentKeys from "../../migrations/0016_cmux_vm_agent_keys.sql?raw";
 import overlayServerCodes from "../../migrations/0015_cmux_vm_overlay_server_codes.sql?raw";
@@ -29,7 +30,7 @@ import uncommittedCreations from "../../migrations/0012_cmux_vm_uncommitted_crea
 import { checkSchema, makeSchemaGate } from "../../src/db/schema-check.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 
-const ALL = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries, deviceAddress, creationReceipts, creationReceiptIndex, uncommittedCreations, overlayPolicy, overlayServers, overlayServerCodes, agentKeys, clientSessionIndex, deviceIntents];
+const ALL = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries, deviceAddress, creationReceipts, creationReceiptIndex, uncommittedCreations, overlayPolicy, overlayServers, overlayServerCodes, agentKeys, clientSessionIndex, deviceIntents, deviceIntentsIndex];
 
 const problemsOn = async (migrations: ReadonlyArray<string>) => {
   const db = new PGlite();
