@@ -44,7 +44,7 @@
     {
       "file": "cmux-tui/crates/cmux-cloud-api/src/classic.rs",
       "pattern": "segments:/api/vm",
-      "count": 14,
+      "count": 13,
       "reason": "debt: newly counted, not a new call: the daemon cloud.vm.* ops' classic /api/vm paths, built as path-part arrays, the guard missed while it read only \"/api/vm\" strings; goes when they move to cmux-platform"
     },
     {

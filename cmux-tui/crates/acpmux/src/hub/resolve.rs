@@ -349,6 +349,9 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         permission_rules: None,
         tags: Default::default(),
         unread: false,
+        seen_seq: None,
+        unread_turns: 0,
+        last_return: None,
         claude_unstored: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
         wait_start: false,

@@ -1,4 +1,4 @@
-import { QUEUED_MESSAGE, PENDING_MESSAGES, LANE_NOTICE_BATCH, MESSAGE_RUN } from "../model";
+import { QUEUED_MESSAGE, PENDING_MESSAGES, LANE_NOTICE_BATCH, MESSAGE_RUN, SINCE_DIVIDER } from "../model";
 import { QUESTION_RECORD } from "../question/record";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { TASK_LINE } from "../conversation/taskLineKind";
@@ -33,7 +33,7 @@ import { PlanRow } from "./PlanRow";
 import { BackgroundTaskRow } from "./BackgroundTaskRow";
 import { CompactionRow } from "./CompactionRow";
 import { FailoverRow } from "./FailoverRow";
-import { ReadOnlyRecapRow, RecapRow } from "./RecapRow";
+import { ReadOnlyRecapRow, ReadOnlySinceRow, RecapRow, SinceRow } from "./RecapRow";
 import { MemoryOfferRow } from "./MemoryOfferRow";
 import { MEMORY_OFFER } from "../conversation/memoryInbox";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
@@ -85,6 +85,7 @@ export const defaultRegistry: NativeRegistry = {
   compaction: CompactionRow,
   failover: FailoverRow,
   recap: RecapRow,
+  [SINCE_DIVIDER]: SinceRow,
   [MEMORY_OFFER]: MemoryOfferRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
@@ -123,6 +124,7 @@ export const readOnlyRegistry: NativeRegistry = {
   [QUEUED_MESSAGE]: ReadOnlyQueuedMessageRow,
   agentPair: ReadOnlyAgentPairRow,
   recap: ReadOnlyRecapRow,
+  [SINCE_DIVIDER]: ReadOnlySinceRow,
   // An offer to write the owner's instructions file is the owner's own.
   [MEMORY_OFFER]: NoRow,
   sessionOffer: NoRow,
