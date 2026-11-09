@@ -420,10 +420,13 @@ jobs:
     name: cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    # The sum of the four former jobs' 5-minute caps; each step keeps its own.
-    timeout-minutes: 20
+    # Each former job's 5-minute cap is split among its steps (vt-link-graph 2+1+2, nightly static capabilities 5,
+    # defaults snapshot 2+1+2, page strings 2+3), so with the checkout's 5 the steps' caps sum to the job's
+    # 25 and no step's stall can use up another's time. A step that times out fails and the next step still runs.
+    timeout-minutes: 25
     steps:
       - name: Checkout
+        timeout-minutes: 5
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -433,7 +436,7 @@ jobs:
 
       - name: vt-link-graph.json is for the libghostty-vt gitlink
         if: ${{ !cancelled() }}
-        timeout-minutes: 5
+        timeout-minutes: 2
         run: python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json
 
       # The release-path package step's own data check: package-notices.json's
@@ -441,7 +444,7 @@ jobs:
       # the graph followed seven hours later) and the pinned texts match.
       - name: package-notices.json covers vt-link-graph.json
         if: ${{ !cancelled() }}
-        timeout-minutes: 5
+        timeout-minutes: 1
         run: python3 cmux-tui/dist/scripts/package_notices.py check-data
 
       # Pull-request dry runs of the nightly's Ghostty notice steps
@@ -451,7 +454,7 @@ jobs:
       # mode behind "libghostty-vt Zig packages are covered by the notices".
       - name: The nightly's Ghostty license checks pass on fixtures
         if: ${{ !cancelled() }}
-        timeout-minutes: 5
+        timeout-minutes: 2
         run: |
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
           python3 scripts/cmux-next/notices/test_check_bundle_notices.py
@@ -464,25 +467,26 @@ jobs:
 
       - name: The defaults snapshot tests
         if: ${{ !cancelled() }}
-        timeout-minutes: 5
+        timeout-minutes: 2
         run: python3 tests/test_defaults_guard.py
 
       # PR #19754 moved the workspace and tab menus' group rows into More and
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
       - name: The group rows stay at the top of the right-click menus
         if: ${{ !cancelled() }}
-        timeout-minutes: 5
+        timeout-minutes: 1
         run: python3 scripts/cmux-next/check-group-menus.py
       # Lawrence 2026-10-19: right-click New Tab Group failed while the palette
       # path worked. A menu row with its own selector is a second path beside
       # the registered action; new ones fail here.
       - name: Menu rows run registered actions, not inline selectors
         if: ${{ !cancelled() }}
-        timeout-minutes: 5
+        timeout-minutes: 2
         run: python3 scripts/cmux-next/check-menu-actions.py
 
       - name: Setup Node
         if: ${{ !cancelled() }}
+        timeout-minutes: 2
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -490,7 +494,7 @@ jobs:
       # No install: the generator reads only the catalogs and the settings schema.
       - name: Every page's strings generate with no missing translation
         if: ${{ !cancelled() }}
-        timeout-minutes: 5
+        timeout-minutes: 3
         env:
           CMUX_STRINGS_BEST_EFFORT: ""
         run: node webviews/scripts/pages/gen-strings.mjs
@@ -568,10 +572,13 @@ jobs:
     name: cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    # The sum of the four former jobs' caps (5, 10, 5, 5 minutes); each step keeps its own.
-    timeout-minutes: 25
+    # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+3), so
+    # with the checkout's 5 the steps' caps sum to the job's 30 and no step's stall can use up another's time. A step
+    # that times out fails and the next step still runs.
+    timeout-minutes: 30
     steps:
       - name: Checkout
+        timeout-minutes: 5
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -646,12 +653,12 @@ jobs:
 
       - name: The generated files guard's own tests
         if: ${{ !cancelled() }}
-        timeout-minutes: 5
+        timeout-minutes: 2
         run: python3 tests/test_generated_files_guard.py
 
       - name: cmux-next no new generated files
         if: ${{ !cancelled() }}
-        timeout-minutes: 5
+        timeout-minutes: 3
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
