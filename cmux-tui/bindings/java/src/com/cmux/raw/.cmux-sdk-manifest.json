@@ -2182,7 +2182,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "be6acfa91080f51f1722ffbc47a7fbed88531368a93b30b9dfc57f1d5686c2e6",
+      "sha256": "a37b7aaca58773e9b8c0a4ee652d5d404455e593994aa8ac48e63878984dd953",
       "size": 7838
     },
     {
@@ -2601,6 +2601,41 @@
       "size": 4689
     },
     {
+      "path": "ServerStatsDisk.java",
+      "sha256": "6553b111b97dea5e564c8a24dcce65a65e5ec2bb253b954d71bc221a46fed0e5",
+      "size": 10460
+    },
+    {
+      "path": "ServerStatsDiskFile.java",
+      "sha256": "7e77f5b45b2a9034b520636c17c201c06aac6ca95b24ed0e505566f586501070",
+      "size": 3208
+    },
+    {
+      "path": "ServerStatsDiskJournal.java",
+      "sha256": "e8e5a38957d482a32a3b5e0e504fbeb5785e33d7a43d260254a021ced108fb2b",
+      "size": 7878
+    },
+    {
+      "path": "ServerStatsDiskJournalKind.java",
+      "sha256": "1010ccc573cca9021cdff0200ef5c33c58f95f90fcb85676f2fb87152f629d26",
+      "size": 6058
+    },
+    {
+      "path": "ServerStatsDiskSegmentCodec.java",
+      "sha256": "4a27f8ef5f2a5fe9d8f030da7526a2c105f80fcaf76dcc01f187c317d534550d",
+      "size": 5270
+    },
+    {
+      "path": "ServerStatsDiskSegmentKind.java",
+      "sha256": "c5e8b5b804acf4463c867d5bb043b34185feaa060721c1fb22efcb6658fbe201",
+      "size": 2695
+    },
+    {
+      "path": "ServerStatsDiskSegments.java",
+      "sha256": "1fa8c5221cd951d1d37e4f6841b745a8b43b786d3dae42e99900ec9696757935",
+      "size": 6264
+    },
+    {
       "path": "ServerStatsHistogram.java",
       "sha256": "be6b34bef5ca0fb182dc46e431f7998f29c4a00302348b01d5c5d5a05d3d93f0",
       "size": 4994
@@ -2662,8 +2697,8 @@
     },
     {
       "path": "ServerStatsResult.java",
-      "sha256": "2fc38593a7b6ad85c13322ac795a2c3b3b5aa5e9c3776fa6ca877f312f64dc0c",
-      "size": 8129
+      "sha256": "33fe999df76ed414568ef4a9bd9e9d93430d39cad14a022a1bd056e4fcaacaf4",
+      "size": 8708
     },
     {
       "path": "ServerStatsWritePath.java",
@@ -3582,7 +3617,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8",
+  "ir_sha256": "24633df1125b80329f55d8fdc1d2f5b149acf3fc2094b3bbb8b25167049dde9a",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

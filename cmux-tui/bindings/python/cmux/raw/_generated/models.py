@@ -1547,6 +1547,83 @@ class ServerStatsConnections:
 
 
 @dataclass(frozen=True)
+class ServerStatsDisk:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDisk'
+    error: Union[str, None]
+    files: List[ServerStatsDiskFile]
+    files_truncated: bool
+    files_unlisted: int
+    freelist_pages: int
+    journal: Union[ServerStatsDiskJournal, None]
+    page_count: int
+    page_size: int
+    registry_bytes: int
+    segments: Union[ServerStatsDiskSegments, None]
+    shm_bytes: int
+    wal_bytes: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskFile:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskFile'
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    files: int
+    name: str
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskJournal:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskJournal'
+    estimated_live_bytes: int
+    first_sequence: int
+    head_sequence: int
+    kinds: List[ServerStatsDiskJournalKind]
+    live_rows: int
+    sample_bytes: int
+    sample_rows: int
+    sample_span_ms: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskJournalKind:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskJournalKind'
+    budget_bytes_per_day: int
+    bytes_per_day: Union[int, None]
+    kind: str
+    over_budget: bool
+    sample_bytes: int
+    sample_rows: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskSegmentCodec:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskSegmentCodec'
+    codec: str
+    compressed_bytes: int
+    records: int
+    segments: int
+    uncompressed_bytes: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskSegmentKind:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskSegmentKind'
+    kind: str
+    segments: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskSegments:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskSegments'
+    by_codec: List[ServerStatsDiskSegmentCodec]
+    compressed_bytes: int
+    kinds: List[ServerStatsDiskSegmentKind]
+    records: int
+    segments: int
+    uncompressed_bytes: int
+
+
+@dataclass(frozen=True)
 class ServerStatsHistogram:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHistogram'
     count: int
@@ -1683,6 +1760,7 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    disk: Union[ServerStatsDisk, MissingType] = field(default=MISSING)
     hook_queue: Union[ServerStatsHookQueue, MissingType] = field(default=MISSING)
     locks: Union[ServerStatsLocks, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
@@ -6386,6 +6464,13 @@ __all__ = [
     'SelectionScreen',
     'SendExpectAgent',
     'ServerStatsConnections',
+    'ServerStatsDisk',
+    'ServerStatsDiskFile',
+    'ServerStatsDiskJournal',
+    'ServerStatsDiskJournalKind',
+    'ServerStatsDiskSegmentCodec',
+    'ServerStatsDiskSegmentKind',
+    'ServerStatsDiskSegments',
     'ServerStatsHistogram',
     'ServerStatsHookQueue',
     'ServerStatsJournalWriter',

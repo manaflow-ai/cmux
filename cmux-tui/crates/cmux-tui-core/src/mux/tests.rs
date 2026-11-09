@@ -19,6 +19,7 @@ mod column_update;
 mod create_entity_cost;
 mod creation_burst;
 mod diagnostics;
+mod disk_budget;
 mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;

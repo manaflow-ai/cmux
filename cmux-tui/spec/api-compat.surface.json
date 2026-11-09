@@ -19716,6 +19716,193 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/disk": {
+        "ty": "object"
+      },
+      "/data/disk/error": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/files": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/files/*": {
+        "ty": "object"
+      },
+      "/data/disk/files/*/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/files/*/files": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/files/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/files_truncated": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/disk/files_unlisted": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/freelist_pages": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/journal/estimated_live_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/first_sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/head_sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*": {
+        "ty": "object"
+      },
+      "/data/disk/journal/kinds/*/budget_bytes_per_day": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/bytes_per_day": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/journal/kinds/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/over_budget": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/sample_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/sample_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/live_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_span_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/page_count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/page_size": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/registry_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/segments/by_codec": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*": {
+        "ty": "object"
+      },
+      "/data/disk/segments/by_codec/*/codec": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/compressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/records": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/uncompressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/compressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/segments/kinds/*": {
+        "ty": "object"
+      },
+      "/data/disk/segments/kinds/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/segments/kinds/*/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/records": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/uncompressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/shm_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/wal_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/hook_queue": {
         "ty": "object"
       },

@@ -8963,6 +8963,633 @@ Result<ServerStatsConnections> Codec<ServerStatsConnections>::decode(const Json&
     return result;
 }
 
+Result<Json> Codec<ServerStatsDisk>::encode(const ServerStatsDisk& value) {
+    (void)value;
+    Json::Object object;
+    if (value.error) {
+        auto encoded = encode_value(*value.error);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("error", std::move(encoded).value());
+    } else {
+        object.emplace("error", Json(nullptr));
+    }
+    auto encoded_files = encode_value(value.files);
+    if (!encoded_files) return std::move(encoded_files).error();
+    object.emplace("files", std::move(encoded_files).value());
+    auto encoded_files_truncated = encode_value(value.files_truncated);
+    if (!encoded_files_truncated) return std::move(encoded_files_truncated).error();
+    object.emplace("files_truncated", std::move(encoded_files_truncated).value());
+    auto encoded_files_unlisted = encode_value(value.files_unlisted);
+    if (!encoded_files_unlisted) return std::move(encoded_files_unlisted).error();
+    object.emplace("files_unlisted", std::move(encoded_files_unlisted).value());
+    auto encoded_freelist_pages = encode_value(value.freelist_pages);
+    if (!encoded_freelist_pages) return std::move(encoded_freelist_pages).error();
+    object.emplace("freelist_pages", std::move(encoded_freelist_pages).value());
+    if (value.journal) {
+        auto encoded = encode_value(*value.journal);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("journal", std::move(encoded).value());
+    } else {
+        object.emplace("journal", Json(nullptr));
+    }
+    auto encoded_page_count = encode_value(value.page_count);
+    if (!encoded_page_count) return std::move(encoded_page_count).error();
+    object.emplace("page_count", std::move(encoded_page_count).value());
+    auto encoded_page_size = encode_value(value.page_size);
+    if (!encoded_page_size) return std::move(encoded_page_size).error();
+    object.emplace("page_size", std::move(encoded_page_size).value());
+    auto encoded_registry_bytes = encode_value(value.registry_bytes);
+    if (!encoded_registry_bytes) return std::move(encoded_registry_bytes).error();
+    object.emplace("registry_bytes", std::move(encoded_registry_bytes).value());
+    if (value.segments) {
+        auto encoded = encode_value(*value.segments);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("segments", std::move(encoded).value());
+    } else {
+        object.emplace("segments", Json(nullptr));
+    }
+    auto encoded_shm_bytes = encode_value(value.shm_bytes);
+    if (!encoded_shm_bytes) return std::move(encoded_shm_bytes).error();
+    object.emplace("shm_bytes", std::move(encoded_shm_bytes).value());
+    auto encoded_wal_bytes = encode_value(value.wal_bytes);
+    if (!encoded_wal_bytes) return std::move(encoded_wal_bytes).error();
+    object.emplace("wal_bytes", std::move(encoded_wal_bytes).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsDisk> Codec<ServerStatsDisk>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsDisk result{};
+    const Json* field_error = value.find("error");
+    if (!field_error) {
+        return make_error(ErrorCode::decode, "missing required field 'error'");
+    }
+    if (field_error) {
+        if (field_error->is_null()) {
+            result.error.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_error);
+            if (!decoded) return std::move(decoded).error();
+            result.error = std::move(decoded).value();
+        }
+    }
+    const Json* field_files = value.find("files");
+    if (!field_files) {
+        return make_error(ErrorCode::decode, "missing required field 'files'");
+    }
+    if (field_files) {
+        auto decoded = decode_value<std::vector<ServerStatsDiskFile>>(*field_files);
+        if (!decoded) return std::move(decoded).error();
+        result.files = std::move(decoded).value();
+    }
+    const Json* field_files_truncated = value.find("files_truncated");
+    if (!field_files_truncated) {
+        return make_error(ErrorCode::decode, "missing required field 'files_truncated'");
+    }
+    if (field_files_truncated) {
+        auto decoded = decode_value<bool>(*field_files_truncated);
+        if (!decoded) return std::move(decoded).error();
+        result.files_truncated = std::move(decoded).value();
+    }
+    const Json* field_files_unlisted = value.find("files_unlisted");
+    if (!field_files_unlisted) {
+        return make_error(ErrorCode::decode, "missing required field 'files_unlisted'");
+    }
+    if (field_files_unlisted) {
+        auto decoded = decode_value<std::uint64_t>(*field_files_unlisted);
+        if (!decoded) return std::move(decoded).error();
+        result.files_unlisted = std::move(decoded).value();
+    }
+    const Json* field_freelist_pages = value.find("freelist_pages");
+    if (!field_freelist_pages) {
+        return make_error(ErrorCode::decode, "missing required field 'freelist_pages'");
+    }
+    if (field_freelist_pages) {
+        auto decoded = decode_value<std::uint64_t>(*field_freelist_pages);
+        if (!decoded) return std::move(decoded).error();
+        result.freelist_pages = std::move(decoded).value();
+    }
+    const Json* field_journal = value.find("journal");
+    if (!field_journal) {
+        return make_error(ErrorCode::decode, "missing required field 'journal'");
+    }
+    if (field_journal) {
+        if (field_journal->is_null()) {
+            result.journal.reset();
+        } else {
+            auto decoded = decode_value<ServerStatsDiskJournal>(*field_journal);
+            if (!decoded) return std::move(decoded).error();
+            result.journal = std::move(decoded).value();
+        }
+    }
+    const Json* field_page_count = value.find("page_count");
+    if (!field_page_count) {
+        return make_error(ErrorCode::decode, "missing required field 'page_count'");
+    }
+    if (field_page_count) {
+        auto decoded = decode_value<std::uint64_t>(*field_page_count);
+        if (!decoded) return std::move(decoded).error();
+        result.page_count = std::move(decoded).value();
+    }
+    const Json* field_page_size = value.find("page_size");
+    if (!field_page_size) {
+        return make_error(ErrorCode::decode, "missing required field 'page_size'");
+    }
+    if (field_page_size) {
+        auto decoded = decode_value<std::uint64_t>(*field_page_size);
+        if (!decoded) return std::move(decoded).error();
+        result.page_size = std::move(decoded).value();
+    }
+    const Json* field_registry_bytes = value.find("registry_bytes");
+    if (!field_registry_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'registry_bytes'");
+    }
+    if (field_registry_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_registry_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.registry_bytes = std::move(decoded).value();
+    }
+    const Json* field_segments = value.find("segments");
+    if (!field_segments) {
+        return make_error(ErrorCode::decode, "missing required field 'segments'");
+    }
+    if (field_segments) {
+        if (field_segments->is_null()) {
+            result.segments.reset();
+        } else {
+            auto decoded = decode_value<ServerStatsDiskSegments>(*field_segments);
+            if (!decoded) return std::move(decoded).error();
+            result.segments = std::move(decoded).value();
+        }
+    }
+    const Json* field_shm_bytes = value.find("shm_bytes");
+    if (!field_shm_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'shm_bytes'");
+    }
+    if (field_shm_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_shm_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.shm_bytes = std::move(decoded).value();
+    }
+    const Json* field_wal_bytes = value.find("wal_bytes");
+    if (!field_wal_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'wal_bytes'");
+    }
+    if (field_wal_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_wal_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.wal_bytes = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsDiskFile>::encode(const ServerStatsDiskFile& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_bytes = encode_value(value.bytes);
+    if (!encoded_bytes) return std::move(encoded_bytes).error();
+    object.emplace("bytes", std::move(encoded_bytes).value());
+    auto encoded_files = encode_value(value.files);
+    if (!encoded_files) return std::move(encoded_files).error();
+    object.emplace("files", std::move(encoded_files).value());
+    auto encoded_name = encode_value(value.name);
+    if (!encoded_name) return std::move(encoded_name).error();
+    object.emplace("name", std::move(encoded_name).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsDiskFile> Codec<ServerStatsDiskFile>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsDiskFile result{};
+    const Json* field_bytes = value.find("bytes");
+    if (!field_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'bytes'");
+    }
+    if (field_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.bytes = std::move(decoded).value();
+    }
+    const Json* field_files = value.find("files");
+    if (!field_files) {
+        return make_error(ErrorCode::decode, "missing required field 'files'");
+    }
+    if (field_files) {
+        auto decoded = decode_value<std::uint64_t>(*field_files);
+        if (!decoded) return std::move(decoded).error();
+        result.files = std::move(decoded).value();
+    }
+    const Json* field_name = value.find("name");
+    if (!field_name) {
+        return make_error(ErrorCode::decode, "missing required field 'name'");
+    }
+    if (field_name) {
+        auto decoded = decode_value<std::string>(*field_name);
+        if (!decoded) return std::move(decoded).error();
+        result.name = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsDiskJournal>::encode(const ServerStatsDiskJournal& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_estimated_live_bytes = encode_value(value.estimated_live_bytes);
+    if (!encoded_estimated_live_bytes) return std::move(encoded_estimated_live_bytes).error();
+    object.emplace("estimated_live_bytes", std::move(encoded_estimated_live_bytes).value());
+    auto encoded_first_sequence = encode_value(value.first_sequence);
+    if (!encoded_first_sequence) return std::move(encoded_first_sequence).error();
+    object.emplace("first_sequence", std::move(encoded_first_sequence).value());
+    auto encoded_head_sequence = encode_value(value.head_sequence);
+    if (!encoded_head_sequence) return std::move(encoded_head_sequence).error();
+    object.emplace("head_sequence", std::move(encoded_head_sequence).value());
+    auto encoded_kinds = encode_value(value.kinds);
+    if (!encoded_kinds) return std::move(encoded_kinds).error();
+    object.emplace("kinds", std::move(encoded_kinds).value());
+    auto encoded_live_rows = encode_value(value.live_rows);
+    if (!encoded_live_rows) return std::move(encoded_live_rows).error();
+    object.emplace("live_rows", std::move(encoded_live_rows).value());
+    auto encoded_sample_bytes = encode_value(value.sample_bytes);
+    if (!encoded_sample_bytes) return std::move(encoded_sample_bytes).error();
+    object.emplace("sample_bytes", std::move(encoded_sample_bytes).value());
+    auto encoded_sample_rows = encode_value(value.sample_rows);
+    if (!encoded_sample_rows) return std::move(encoded_sample_rows).error();
+    object.emplace("sample_rows", std::move(encoded_sample_rows).value());
+    auto encoded_sample_span_ms = encode_value(value.sample_span_ms);
+    if (!encoded_sample_span_ms) return std::move(encoded_sample_span_ms).error();
+    object.emplace("sample_span_ms", std::move(encoded_sample_span_ms).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsDiskJournal> Codec<ServerStatsDiskJournal>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsDiskJournal result{};
+    const Json* field_estimated_live_bytes = value.find("estimated_live_bytes");
+    if (!field_estimated_live_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'estimated_live_bytes'");
+    }
+    if (field_estimated_live_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_estimated_live_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.estimated_live_bytes = std::move(decoded).value();
+    }
+    const Json* field_first_sequence = value.find("first_sequence");
+    if (!field_first_sequence) {
+        return make_error(ErrorCode::decode, "missing required field 'first_sequence'");
+    }
+    if (field_first_sequence) {
+        auto decoded = decode_value<std::uint64_t>(*field_first_sequence);
+        if (!decoded) return std::move(decoded).error();
+        result.first_sequence = std::move(decoded).value();
+    }
+    const Json* field_head_sequence = value.find("head_sequence");
+    if (!field_head_sequence) {
+        return make_error(ErrorCode::decode, "missing required field 'head_sequence'");
+    }
+    if (field_head_sequence) {
+        auto decoded = decode_value<std::uint64_t>(*field_head_sequence);
+        if (!decoded) return std::move(decoded).error();
+        result.head_sequence = std::move(decoded).value();
+    }
+    const Json* field_kinds = value.find("kinds");
+    if (!field_kinds) {
+        return make_error(ErrorCode::decode, "missing required field 'kinds'");
+    }
+    if (field_kinds) {
+        auto decoded = decode_value<std::vector<ServerStatsDiskJournalKind>>(*field_kinds);
+        if (!decoded) return std::move(decoded).error();
+        result.kinds = std::move(decoded).value();
+    }
+    const Json* field_live_rows = value.find("live_rows");
+    if (!field_live_rows) {
+        return make_error(ErrorCode::decode, "missing required field 'live_rows'");
+    }
+    if (field_live_rows) {
+        auto decoded = decode_value<std::uint64_t>(*field_live_rows);
+        if (!decoded) return std::move(decoded).error();
+        result.live_rows = std::move(decoded).value();
+    }
+    const Json* field_sample_bytes = value.find("sample_bytes");
+    if (!field_sample_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'sample_bytes'");
+    }
+    if (field_sample_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_sample_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.sample_bytes = std::move(decoded).value();
+    }
+    const Json* field_sample_rows = value.find("sample_rows");
+    if (!field_sample_rows) {
+        return make_error(ErrorCode::decode, "missing required field 'sample_rows'");
+    }
+    if (field_sample_rows) {
+        auto decoded = decode_value<std::uint64_t>(*field_sample_rows);
+        if (!decoded) return std::move(decoded).error();
+        result.sample_rows = std::move(decoded).value();
+    }
+    const Json* field_sample_span_ms = value.find("sample_span_ms");
+    if (!field_sample_span_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'sample_span_ms'");
+    }
+    if (field_sample_span_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_sample_span_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.sample_span_ms = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsDiskJournalKind>::encode(const ServerStatsDiskJournalKind& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_budget_bytes_per_day = encode_value(value.budget_bytes_per_day);
+    if (!encoded_budget_bytes_per_day) return std::move(encoded_budget_bytes_per_day).error();
+    object.emplace("budget_bytes_per_day", std::move(encoded_budget_bytes_per_day).value());
+    if (value.bytes_per_day) {
+        auto encoded = encode_value(*value.bytes_per_day);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("bytes_per_day", std::move(encoded).value());
+    } else {
+        object.emplace("bytes_per_day", Json(nullptr));
+    }
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    auto encoded_over_budget = encode_value(value.over_budget);
+    if (!encoded_over_budget) return std::move(encoded_over_budget).error();
+    object.emplace("over_budget", std::move(encoded_over_budget).value());
+    auto encoded_sample_bytes = encode_value(value.sample_bytes);
+    if (!encoded_sample_bytes) return std::move(encoded_sample_bytes).error();
+    object.emplace("sample_bytes", std::move(encoded_sample_bytes).value());
+    auto encoded_sample_rows = encode_value(value.sample_rows);
+    if (!encoded_sample_rows) return std::move(encoded_sample_rows).error();
+    object.emplace("sample_rows", std::move(encoded_sample_rows).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsDiskJournalKind> Codec<ServerStatsDiskJournalKind>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsDiskJournalKind result{};
+    const Json* field_budget_bytes_per_day = value.find("budget_bytes_per_day");
+    if (!field_budget_bytes_per_day) {
+        return make_error(ErrorCode::decode, "missing required field 'budget_bytes_per_day'");
+    }
+    if (field_budget_bytes_per_day) {
+        auto decoded = decode_value<std::uint64_t>(*field_budget_bytes_per_day);
+        if (!decoded) return std::move(decoded).error();
+        result.budget_bytes_per_day = std::move(decoded).value();
+    }
+    const Json* field_bytes_per_day = value.find("bytes_per_day");
+    if (!field_bytes_per_day) {
+        return make_error(ErrorCode::decode, "missing required field 'bytes_per_day'");
+    }
+    if (field_bytes_per_day) {
+        if (field_bytes_per_day->is_null()) {
+            result.bytes_per_day.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_bytes_per_day);
+            if (!decoded) return std::move(decoded).error();
+            result.bytes_per_day = std::move(decoded).value();
+        }
+    }
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<std::string>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_over_budget = value.find("over_budget");
+    if (!field_over_budget) {
+        return make_error(ErrorCode::decode, "missing required field 'over_budget'");
+    }
+    if (field_over_budget) {
+        auto decoded = decode_value<bool>(*field_over_budget);
+        if (!decoded) return std::move(decoded).error();
+        result.over_budget = std::move(decoded).value();
+    }
+    const Json* field_sample_bytes = value.find("sample_bytes");
+    if (!field_sample_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'sample_bytes'");
+    }
+    if (field_sample_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_sample_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.sample_bytes = std::move(decoded).value();
+    }
+    const Json* field_sample_rows = value.find("sample_rows");
+    if (!field_sample_rows) {
+        return make_error(ErrorCode::decode, "missing required field 'sample_rows'");
+    }
+    if (field_sample_rows) {
+        auto decoded = decode_value<std::uint64_t>(*field_sample_rows);
+        if (!decoded) return std::move(decoded).error();
+        result.sample_rows = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsDiskSegmentCodec>::encode(const ServerStatsDiskSegmentCodec& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_codec = encode_value(value.codec);
+    if (!encoded_codec) return std::move(encoded_codec).error();
+    object.emplace("codec", std::move(encoded_codec).value());
+    auto encoded_compressed_bytes = encode_value(value.compressed_bytes);
+    if (!encoded_compressed_bytes) return std::move(encoded_compressed_bytes).error();
+    object.emplace("compressed_bytes", std::move(encoded_compressed_bytes).value());
+    auto encoded_records = encode_value(value.records);
+    if (!encoded_records) return std::move(encoded_records).error();
+    object.emplace("records", std::move(encoded_records).value());
+    auto encoded_segments = encode_value(value.segments);
+    if (!encoded_segments) return std::move(encoded_segments).error();
+    object.emplace("segments", std::move(encoded_segments).value());
+    auto encoded_uncompressed_bytes = encode_value(value.uncompressed_bytes);
+    if (!encoded_uncompressed_bytes) return std::move(encoded_uncompressed_bytes).error();
+    object.emplace("uncompressed_bytes", std::move(encoded_uncompressed_bytes).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsDiskSegmentCodec> Codec<ServerStatsDiskSegmentCodec>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsDiskSegmentCodec result{};
+    const Json* field_codec = value.find("codec");
+    if (!field_codec) {
+        return make_error(ErrorCode::decode, "missing required field 'codec'");
+    }
+    if (field_codec) {
+        auto decoded = decode_value<std::string>(*field_codec);
+        if (!decoded) return std::move(decoded).error();
+        result.codec = std::move(decoded).value();
+    }
+    const Json* field_compressed_bytes = value.find("compressed_bytes");
+    if (!field_compressed_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'compressed_bytes'");
+    }
+    if (field_compressed_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_compressed_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.compressed_bytes = std::move(decoded).value();
+    }
+    const Json* field_records = value.find("records");
+    if (!field_records) {
+        return make_error(ErrorCode::decode, "missing required field 'records'");
+    }
+    if (field_records) {
+        auto decoded = decode_value<std::uint64_t>(*field_records);
+        if (!decoded) return std::move(decoded).error();
+        result.records = std::move(decoded).value();
+    }
+    const Json* field_segments = value.find("segments");
+    if (!field_segments) {
+        return make_error(ErrorCode::decode, "missing required field 'segments'");
+    }
+    if (field_segments) {
+        auto decoded = decode_value<std::uint64_t>(*field_segments);
+        if (!decoded) return std::move(decoded).error();
+        result.segments = std::move(decoded).value();
+    }
+    const Json* field_uncompressed_bytes = value.find("uncompressed_bytes");
+    if (!field_uncompressed_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'uncompressed_bytes'");
+    }
+    if (field_uncompressed_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_uncompressed_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.uncompressed_bytes = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsDiskSegmentKind>::encode(const ServerStatsDiskSegmentKind& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    auto encoded_segments = encode_value(value.segments);
+    if (!encoded_segments) return std::move(encoded_segments).error();
+    object.emplace("segments", std::move(encoded_segments).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsDiskSegmentKind> Codec<ServerStatsDiskSegmentKind>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsDiskSegmentKind result{};
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<std::string>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_segments = value.find("segments");
+    if (!field_segments) {
+        return make_error(ErrorCode::decode, "missing required field 'segments'");
+    }
+    if (field_segments) {
+        auto decoded = decode_value<std::uint64_t>(*field_segments);
+        if (!decoded) return std::move(decoded).error();
+        result.segments = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsDiskSegments>::encode(const ServerStatsDiskSegments& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_by_codec = encode_value(value.by_codec);
+    if (!encoded_by_codec) return std::move(encoded_by_codec).error();
+    object.emplace("by_codec", std::move(encoded_by_codec).value());
+    auto encoded_compressed_bytes = encode_value(value.compressed_bytes);
+    if (!encoded_compressed_bytes) return std::move(encoded_compressed_bytes).error();
+    object.emplace("compressed_bytes", std::move(encoded_compressed_bytes).value());
+    auto encoded_kinds = encode_value(value.kinds);
+    if (!encoded_kinds) return std::move(encoded_kinds).error();
+    object.emplace("kinds", std::move(encoded_kinds).value());
+    auto encoded_records = encode_value(value.records);
+    if (!encoded_records) return std::move(encoded_records).error();
+    object.emplace("records", std::move(encoded_records).value());
+    auto encoded_segments = encode_value(value.segments);
+    if (!encoded_segments) return std::move(encoded_segments).error();
+    object.emplace("segments", std::move(encoded_segments).value());
+    auto encoded_uncompressed_bytes = encode_value(value.uncompressed_bytes);
+    if (!encoded_uncompressed_bytes) return std::move(encoded_uncompressed_bytes).error();
+    object.emplace("uncompressed_bytes", std::move(encoded_uncompressed_bytes).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsDiskSegments> Codec<ServerStatsDiskSegments>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsDiskSegments result{};
+    const Json* field_by_codec = value.find("by_codec");
+    if (!field_by_codec) {
+        return make_error(ErrorCode::decode, "missing required field 'by_codec'");
+    }
+    if (field_by_codec) {
+        auto decoded = decode_value<std::vector<ServerStatsDiskSegmentCodec>>(*field_by_codec);
+        if (!decoded) return std::move(decoded).error();
+        result.by_codec = std::move(decoded).value();
+    }
+    const Json* field_compressed_bytes = value.find("compressed_bytes");
+    if (!field_compressed_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'compressed_bytes'");
+    }
+    if (field_compressed_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_compressed_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.compressed_bytes = std::move(decoded).value();
+    }
+    const Json* field_kinds = value.find("kinds");
+    if (!field_kinds) {
+        return make_error(ErrorCode::decode, "missing required field 'kinds'");
+    }
+    if (field_kinds) {
+        auto decoded = decode_value<std::vector<ServerStatsDiskSegmentKind>>(*field_kinds);
+        if (!decoded) return std::move(decoded).error();
+        result.kinds = std::move(decoded).value();
+    }
+    const Json* field_records = value.find("records");
+    if (!field_records) {
+        return make_error(ErrorCode::decode, "missing required field 'records'");
+    }
+    if (field_records) {
+        auto decoded = decode_value<std::uint64_t>(*field_records);
+        if (!decoded) return std::move(decoded).error();
+        result.records = std::move(decoded).value();
+    }
+    const Json* field_segments = value.find("segments");
+    if (!field_segments) {
+        return make_error(ErrorCode::decode, "missing required field 'segments'");
+    }
+    if (field_segments) {
+        auto decoded = decode_value<std::uint64_t>(*field_segments);
+        if (!decoded) return std::move(decoded).error();
+        result.segments = std::move(decoded).value();
+    }
+    const Json* field_uncompressed_bytes = value.find("uncompressed_bytes");
+    if (!field_uncompressed_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'uncompressed_bytes'");
+    }
+    if (field_uncompressed_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_uncompressed_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.uncompressed_bytes = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ServerStatsHistogram>::encode(const ServerStatsHistogram& value) {
     (void)value;
     Json::Object object;
@@ -10040,6 +10667,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
     auto encoded_connections = encode_value(value.connections);
     if (!encoded_connections) return std::move(encoded_connections).error();
     object.emplace("connections", std::move(encoded_connections).value());
+    if (value.disk) {
+        auto encoded = encode_value(*value.disk);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("disk", std::move(encoded).value());
+    }
     if (value.hook_queue) {
         auto encoded = encode_value(*value.hook_queue);
         if (!encoded) return std::move(encoded).error();
@@ -10091,6 +10723,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<ServerStatsConnections>(*field_connections);
         if (!decoded) return std::move(decoded).error();
         result.connections = std::move(decoded).value();
+    }
+    const Json* field_disk = value.find("disk");
+    if (field_disk) {
+        auto decoded = decode_value<ServerStatsDisk>(*field_disk);
+        if (!decoded) return std::move(decoded).error();
+        result.disk = std::move(decoded).value();
     }
     const Json* field_hook_queue = value.find("hook_queue");
     if (field_hook_queue) {

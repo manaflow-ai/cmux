@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8";
+pub const ir_sha256 = "24633df1125b80329f55d8fdc1d2f5b149acf3fc2094b3bbb8b25167049dde9a";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1986,6 +1986,69 @@ pub const ServerStatsConnections = struct {
     refused: u64,
 };
 
+pub const ServerStatsDisk = struct {
+    @"error": wire.Nullable([]const u8),
+    files: []const ServerStatsDiskFile,
+    files_truncated: bool,
+    files_unlisted: u64,
+    freelist_pages: u64,
+    journal: wire.Nullable(ServerStatsDiskJournal),
+    page_count: u64,
+    page_size: u64,
+    registry_bytes: u64,
+    segments: wire.Nullable(ServerStatsDiskSegments),
+    shm_bytes: u64,
+    wal_bytes: u64,
+};
+
+pub const ServerStatsDiskFile = struct {
+    bytes: u64,
+    files: u64,
+    name: []const u8,
+};
+
+pub const ServerStatsDiskJournal = struct {
+    estimated_live_bytes: u64,
+    first_sequence: u64,
+    head_sequence: u64,
+    kinds: []const ServerStatsDiskJournalKind,
+    live_rows: u64,
+    sample_bytes: u64,
+    sample_rows: u64,
+    sample_span_ms: u64,
+};
+
+pub const ServerStatsDiskJournalKind = struct {
+    budget_bytes_per_day: u64,
+    bytes_per_day: wire.Nullable(u64),
+    kind: []const u8,
+    over_budget: bool,
+    sample_bytes: u64,
+    sample_rows: u64,
+};
+
+pub const ServerStatsDiskSegmentCodec = struct {
+    codec: []const u8,
+    compressed_bytes: u64,
+    records: u64,
+    segments: u64,
+    uncompressed_bytes: u64,
+};
+
+pub const ServerStatsDiskSegmentKind = struct {
+    kind: []const u8,
+    segments: u64,
+};
+
+pub const ServerStatsDiskSegments = struct {
+    by_codec: []const ServerStatsDiskSegmentCodec,
+    compressed_bytes: u64,
+    kinds: []const ServerStatsDiskSegmentKind,
+    records: u64,
+    segments: u64,
+    uncompressed_bytes: u64,
+};
+
 pub const ServerStatsHistogram = struct {
     count: u64,
     max: u64,
@@ -2095,6 +2158,7 @@ pub const ServerStatsResourceProjection = struct {
 
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
+    disk: ?ServerStatsDisk = null,
     hook_queue: ?ServerStatsHookQueue = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     locks: ?ServerStatsLocks = null,
@@ -2105,6 +2169,7 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "disk",
         "hook_queue",
         "locks",
         "resource_projection",

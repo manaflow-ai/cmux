@@ -710,6 +710,8 @@ pub struct Mux {
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// Sealed segment sums `server-stats` `disk` keeps between requests.
+    disk_usage: Mutex<crate::diagnostics::DiskUsageCache>,
     /// The one-time stored-output cleanup worker (mux/output_cleanup.rs).
     output_cleanup: output_cleanup::OutputCleanupState,
     /// The maintenance worker's stop and journal-change wake; every

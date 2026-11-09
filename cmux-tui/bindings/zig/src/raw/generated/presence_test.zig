@@ -243,6 +243,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RenderRun, "width_hint");
     try expectExplicitNullRejected(protocol.SavedTabGroupMember, "url");
     try expectExplicitNullRejected(protocol.Screen, "short_id");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "disk");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "hook_queue");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "locks");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "resource_projection");

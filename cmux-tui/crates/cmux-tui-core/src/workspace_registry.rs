@@ -2417,7 +2417,7 @@ pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> 
     open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
 }
 
-fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
+pub(crate) fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
     open_registry_database_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
 }
 
