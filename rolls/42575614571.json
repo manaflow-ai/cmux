@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42575614571",
+  "recorded_at": "2026-11-09T06:59:57Z",
+  "reason": "cmux-tui 17bbeea2ab8f changes the image's cmux-tui (pinned 97de5daadafe)",
+  "dry_run": false,
+  "cmux_tui": "17bbeea2ab8fe06afa3f692a2058e7d9a4b08aeb",
+  "fixes": [
+    {
+      "sha": "978893892b8c2d3f6a68142b7f64e109c3a78f70",
+      "mergedAt": "2026-11-08T22:30:41-08:00",
+      "subject": "cmux-rd-link: the TURN test waits for its relay to resolve, and the credential bound is tested (#39236)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T06:59:57Z",
+    "snapshot_id": "sh-46afce99a73f42c38bda46ffc0d396d9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42575614571): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cd73e06dba24081aad97640b6a0fc299011a3b27",
+    "image": "cloud-native-auto-17bbeea2-42575614571-1",
+    "revision": "ci-42575614571-1",
+    "at": "2026-11-09T06:59:57Z"
+  },
+  "rolled_back": false
+}
