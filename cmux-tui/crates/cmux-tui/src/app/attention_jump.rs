@@ -153,6 +153,7 @@ fn attention_row_label(entry: &AttentionEntry) -> String {
     let messages = &localization::catalog().attention;
     let (marker, detail) = match entry.candidate.kind {
         AttentionKind::Blocked => ("!", messages.blocked),
+        AttentionKind::Done => ("•", messages.done),
         AttentionKind::Unread => ("•", messages.unread),
     };
     let label = format!("{marker} {} › {} · {detail}", entry.workspace, entry.tab);
