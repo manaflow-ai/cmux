@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42569917345",
+  "recorded_at": "2026-11-09T06:01:52Z",
+  "reason": "cmux-tui 96c910bdd0ac changes the image's cmux-tui (pinned 1dea36a86007)",
+  "dry_run": false,
+  "cmux_tui": "96c910bdd0ace85a1ec2f3c04fe58344bcec8753",
+  "fixes": [
+    {
+      "sha": "9ff088ae7492e73703926745121cd8d59d51bf5f",
+      "mergedAt": "2026-11-08T21:39:05-08:00",
+      "subject": "cmux-wg: a quiet or probe-lost held path probes every other path at once (#39209)"
+    },
+    {
+      "sha": "958fd5286d04c24d68d20c4f573a315e9843d4c3",
+      "mergedAt": "2026-11-09T05:35:42Z",
+      "subject": "chore(next): base autofix at 0e1198eec3f8"
+    },
+    {
+      "sha": "b6a0bc4d95e5077abbd8cfefd40838f986d89e79",
+      "mergedAt": "2026-11-09T05:32:45Z",
+      "subject": "cmux-tui: seven writers write only on a real change (write-churn sweep) (#39205)"
+    },
+    {
+      "sha": "dda267c4a532f879b6fd8d811d95291eca8ba39a",
+      "mergedAt": "2026-11-09T05:31:57Z",
+      "subject": "cmux-tui journal: an agent roster replay reads only the kinds it folds (#39183)"
+    },
+    {
+      "sha": "5199a765dde8be18f312eefaab79e018893ec812",
+      "mergedAt": "2026-11-08T21:21:07-08:00",
+      "subject": "feat(chief): MCP hub: the Chief adds MCP servers itself and uses them in code mode"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T06:01:52Z",
+    "snapshot_id": "sh-f6e47b7c158a4506a62067aeaa9ef4f6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42569917345): 29 checks passed"
+  },
+  "promotion": {
+    "result": "nothing",
+    "job": "success",
+    "commit": "",
+    "image": "cloud-native-auto-96c910bd-42569917345-1",
+    "revision": "ci-42569917345-1",
+    "at": null
+  },
+  "rolled_back": false
+}
