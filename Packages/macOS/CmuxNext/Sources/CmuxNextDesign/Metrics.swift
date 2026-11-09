@@ -127,6 +127,8 @@ public struct Metrics {
     /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
     public static var sidebarBorderWidth: CGFloat {
         let border = DesignSettings.shared.sidebarBorder
+        // The flush corner parts the sidebar from the card by the frame's tone, not a straight line.
+        if CornerFlush.current.isOn { return 0 }
         return border.shows ? lineWidth(border.width.map(scale) ?? dividerThickness) : 0
     }
     public static var dividerHitWidth: CGFloat { MetricTunables.dividerHitWidth.value }
@@ -143,6 +145,8 @@ public struct Metrics {
     public static var stripTopOutset: CGFloat { floatingPanes ? 0 : panePadding }
     /// `layout.panePadding`, else the density default (no Debug Settings override).
     static var codePanePadding: CGFloat {
+        // The flush corner (`chrome.cornerFlush`): each strip's first tab starts on its pane's (the card's) edge.
+        if CornerFlush.current.isOn { return 0 }
         let chrome = DesignSettings.shared.paneChrome
         return chrome.padding ?? paneSeparation.impliedPadding ?? densityPanePadding
     }

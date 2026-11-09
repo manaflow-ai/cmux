@@ -632,6 +632,7 @@ import { PlanScopeDriftNotice } from "./PlanScopeDriftNotice";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "./planScopeDriftStore";
 import { setPaneNotices } from "./paneNoticeStore";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
+import { bridgeGone } from "./watchBannerModel";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -11120,7 +11121,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               const send = async () => {
                 // Replying to a View Only chat takes it over first (`takeOver`); while the app that
                 // runs it still does, the pane asks how, and the composer keeps the message.
-                if (snapshot.summary?.watching && !(await directClient.current?.takeOver())) {
+                // A Claude desktop session acpmux delivers into takes the reply where it runs (`bridgedWatch`).
+                if (
+                  snapshot.summary?.watching &&
+                  !snapshot.summary.bridged &&
+                  !(await directClient.current?.takeOver())
+                ) {
                   throw new Error("watch.notTakenOver");
                 }
                 if (projectDraft && !snapshot.sessionId)
@@ -11148,18 +11154,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     },
                   );
                 // A View Only chat, taken over above, answers its waiting question in the chat too.
-                return withdrawForTypedReply(
-                  snapshot.sessionId ? individualPermission : undefined,
-                  directClient.current,
-                  () =>
-                    callNative("chat.send", {
-                      text,
-                      attachments,
-                      accepted: () => accept(true),
-                      steer,
-                      ...(gesture ? { gesture } : {}),
-                    }),
-                );
+                const deliver = () =>
+                  withdrawForTypedReply(
+                    snapshot.sessionId ? individualPermission : undefined,
+                    directClient.current,
+                    () =>
+                      callNative("chat.send", {
+                        text,
+                        attachments,
+                        accepted: () => accept(true),
+                        steer,
+                        ...(gesture ? { gesture } : {}),
+                      }),
+                  );
+                if (!snapshot.summary?.bridged) return deliver();
+                // The app that ran the bridged session is gone: the chat is taken over and the message
+                // stays in the composer. It is not sent again here, since its send gesture is spent;
+                // the next Return sends it to the taken-over chat.
+                // Taken over only while the chat it was sent to is still the one shown.
+                const sender = directClient.current;
+                const sentTo = snapshot.sessionId;
+                const stillShown = () => directClient.current === sender && sessionIdRef.current === sentTo;
+                return deliver().catch(async (error: unknown) => {
+                  if (bridgeGone(error) && stillShown() && (await sender?.takeOver())) {
+                    throw new Error("watch.notTakenOver");
+                  }
+                  throw error;
+                });
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
               // swaps it when the chat's session starts) puts the prompt in the one shown now.
@@ -12211,6 +12232,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}
+                    bridged={snapshot.summary.bridged === true}
                     onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
                     onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
                   />
