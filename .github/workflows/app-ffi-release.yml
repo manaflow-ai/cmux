@@ -530,6 +530,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      checks: read
+      statuses: read
     concurrency:
       group: app-ffi-repin
       cancel-in-progress: false
@@ -593,6 +595,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
         shell: bash
