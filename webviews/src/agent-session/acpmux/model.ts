@@ -1686,6 +1686,41 @@ function foldedGroupHeight(group: ToolGroup, width: number, closed = true): numb
 
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
+
+/// An inbox thread's card under its line (conversation/InboxNoticeCard.tsx), from the messages it
+/// draws (the notice's, else what the line read, else the preview): shut, the newest message, cut to
+/// CLAMPED_LINES lines with Show more under it when it runs past them (whole once the person showed
+/// it all); opened, the newest THREAD_PAGE messages (and "Show earlier messages" over them when there
+/// are more), each under its head when there are several, or, in the drill look, a row per message
+/// under the back control.
+function inboxThreadCard(
+  sessionId: string | undefined,
+  key: string,
+  messages: readonly { text: string }[] | undefined,
+  preview: string,
+  width: number,
+): number {
+  const { lineHeight } = metrics();
+  if (receivedPrepared.size > 256) receivedPrepared.clear();
+  const measure = (text: string) => (text ? textHeight(text, Math.max(80, width - 44), receivedPrepared) : lineHeight);
+  // 2px above, 4px below, 8px padding each side, as an opened received message's panel.
+  const panel = 2 + 4 + 16;
+  if (!messageOpened(sessionId, key)) {
+    const height = measure(messages?.at(-1)?.text ?? preview);
+    const limit = CLAMPED_LINES * lineHeight;
+    if (height <= limit + 1) return panel + height;
+    return panel + (messageOpened(sessionId, newestWholeKey(key)) ? height : limit) + CLAMP_MORE_HEIGHT;
+  }
+  const list = messages ?? [{ text: preview }];
+  // The back control's line over a 22px row per message.
+  if (inboxThreadLook() === "drill" && messages) return panel + 4 + 24 + 22 * list.length;
+  const shown = list.slice(-THREAD_PAGE);
+  // Several each have their 20px head, 8px apart (InboxNoticeCard.css `.cv-inbox__message`).
+  const heads = list.length > 1 ? shown.length * lineHeight + (shown.length - 1) * 8 : 0;
+  const earlier = list.length > shown.length ? CLAMP_MORE_HEIGHT + 8 : 0;
+  return panel + earlier + heads + shown.reduce((sum, m) => sum + measure(m.text), 0);
+}
+
 /// A row keeps no gap of its own on the grid (grid.md 5.5): the stack gives it.
 const TURN_GAP = 0;
 /// The rest gap (Leo 2026-11-01: "more space between composer and latest messages ... tho maybe not
@@ -2598,6 +2633,11 @@ function measuredRowHeight(
     // A preview-only inbox thread's line (rows/MessageRow.tsx `inboxThread`) keeps its open state
     // under its thread's key (inboxNotice.ts `inboxThreadKey`), which the digest's head opens too.
     const openKey = row.inboxThread ? inboxThreadKey(row.id, row.inboxThread.threadId) : row.id;
+    // Its card is always under it, shut or open (inboxThreadCard).
+    if (row.inboxThread) {
+      const read = threadRead(sessionId, openKey, readForIds(row.inboxThread.promptIds)) ?? undefined;
+      return finish(line + inboxThreadCard(sessionId, openKey, read, row.incoming.message.text, width));
+    }
     if (!messageOpened(sessionId, openKey)) return finish(line + messagePreviewLine(!row.incoming.message.notice));
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
@@ -2609,8 +2649,7 @@ function measuredRowHeight(
   if (row.incoming?.kind === "notice") return finish(lineRow());
   if (row.incoming?.kind === "inbox") {
     // acpmux's inbox notice (conversation/InboxNoticeCard.tsx): a received line per thread, under
-    // the group's line when the group look holds two or more; an opened thread adds its panel as
-    // an opened message does, its text read from the notice (else its preview).
+    // the group's line when the group look holds two or more, each with its card (inboxThreadCard).
     const { threads } = row.incoming.notice;
     const line = toolRowHeight();
     // The group's head is a tool row (MessageGroupHead.tsx) on the one-line rows' line.
@@ -2618,19 +2657,13 @@ function measuredRowHeight(
     const grouped = threads.length > 1 && foldsThreads(inboxNoticeLook());
     if (grouped && !messageOpened(sessionId, row.id))
       return finish(head + LINE_FRAME + messagePreviewLine(inboxNoticeLook() !== "group-count"));
-    const { lineHeight } = metrics();
-    if (receivedPrepared.size > 256) receivedPrepared.clear();
     let height = (grouped ? head : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
     for (const thread of threads) {
-      height += line;
-      // Shut, its preview sits under the sender (stacked look).
-      if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) {
-        height += messagePreviewLine(true);
-        continue;
-      }
-      const text = thread.messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
-      const inset = grouped ? 24 : 0;
-      height += 2 + 4 + 16 + (text ? textHeight(text, Math.max(80, width - 44 - inset), receivedPrepared) : lineHeight);
+      const key = inboxThreadKey(row.id, thread.threadId);
+      const messages = thread.messages?.length
+        ? thread.messages
+        : (threadRead(sessionId, key, readForIds(thread.promptIds)) ?? undefined);
+      height += line + inboxThreadCard(sessionId, key, messages, thread.preview, width - (grouped ? 24 : 0));
     }
     return finish(height + LINE_FRAME);
   }
@@ -3370,6 +3403,9 @@ import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversation/inboxThreadRead";
+import { inboxThreadLook } from "./conversation/inboxThreadLook";
+import { CLAMP_MORE_HEIGHT, CLAMPED_LINES } from "./conversation/lineCut";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import { planOpen } from "./conversation/planOpen";

@@ -6,6 +6,7 @@ import { configureSelectionReply } from "./conversation/selectionReplyModel";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/sentMessageLineModel";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { configureInboxThreadLook } from "./conversation/inboxThreadLook";
 import { configureMessageLineLook } from "./conversation/messageLineLook";
 import { configureNoticeLook } from "./conversation/noticeLook";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
@@ -18,6 +19,7 @@ export function applyPaneTheme(theme: Record<string, unknown>): void {
   configureToolRunLook(theme.toolRunLook);
   configureSentLook(theme.sentLook);
   configureInboxNoticeLook(theme.inboxNoticeLook);
+  configureInboxThreadLook(theme.inboxThreadLook);
   configureMessageLineLook(theme.messageLineLook);
   configureNoticeLook(theme.noticeLook);
   configureTurnActionsPlacement(theme.turnActionsPlacement);
