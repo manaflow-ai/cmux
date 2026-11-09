@@ -10,7 +10,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     /// the same `UserDefaults` key; this module does not link CmuxMobileDesign). Rust decides the
     /// mode from it and the network (`set_cellular_path`).
     static func ultraOnCellular(_ defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: "cmuxMobile.settings.ultraOnCellular")
+        defaults.object(forKey: "cmuxMobile.settings.ultraOnCellular") as? Bool ?? true
     }
 
     public func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {

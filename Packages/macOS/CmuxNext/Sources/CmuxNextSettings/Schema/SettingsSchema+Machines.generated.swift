@@ -82,7 +82,7 @@ extension RemoteSettings {
     public nonisolated static let endSharingOnQuitDefault = false
     /// `remote.ultraMode`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra_mode): on, cmux-wg tunnels this Mac starts use UltraMode::SETTING (rs:4:4); CMUX_WG_ULTRA still wins.
     public nonisolated static let ultraModePath = ["remote", "ultraMode"]
-    public nonisolated static let ultraModeDefault = false
+    public nonisolated static let ultraModeDefault = true
 }
 
 extension DeviceHubSettings {
@@ -94,7 +94,7 @@ extension DeviceHubSettings {
 extension CmuxConfigSnapshot {
     /// `imessage.enabled`.
     public nonisolated static let imessageEnabledPath = ["imessage", "enabled"]
-    public nonisolated static let imessageEnabledDefault = false
+    public nonisolated static let imessageEnabledDefault = true
     /// `imessage.automationSkipped`.
     public nonisolated static let imessageAutomationSkippedPath = ["imessage", "automationSkipped"]
     public nonisolated static let imessageAutomationSkippedDefault = false

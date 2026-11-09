@@ -91,11 +91,11 @@ import Testing
         settings.terminalFontSize = 99
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == CmuxMobilePreferences.terminalFontSizes.upperBound)
 
-        // Ultra mode on cellular: off by default, stored under the key the WireGuard dial reads.
-        #expect(!settings.ultraOnCellular)
+        // Ultra mode on cellular: on by default, stored under the key the WireGuard dial reads.
+        #expect(settings.ultraOnCellular)
         #expect(CmuxMobilePreferences.Key.ultraOnCellular == "cmuxMobile.settings.ultraOnCellular")
-        settings.ultraOnCellular = true
-        #expect(defaults.bool(forKey: CmuxMobilePreferences.Key.ultraOnCellular))
+        settings.ultraOnCellular = false
+        #expect(defaults.object(forKey: CmuxMobilePreferences.Key.ultraOnCellular) as? Bool == false)
     }
 
     @Test func liveSessionsHideCheckpoints() {

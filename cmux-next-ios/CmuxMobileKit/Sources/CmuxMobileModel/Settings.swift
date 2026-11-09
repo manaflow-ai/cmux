@@ -191,7 +191,7 @@ public final class SettingsStore {
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
         predictiveEcho = bool("predictiveEcho", true)
-        ultraOnCellular = bool("ultraOnCellular", false)
+        ultraOnCellular = bool("ultraOnCellular", true)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))
             ?? (bool("notifyFinished", true) ? .neededAndFinished : .needed)

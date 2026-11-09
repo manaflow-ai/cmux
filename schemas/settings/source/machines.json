@@ -587,7 +587,7 @@
             "text": "Uses more data to stay fast on lossy networks"
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "ultra",
             "lossy",
@@ -657,7 +657,7 @@
             "text": "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "imessage",
             "messages",

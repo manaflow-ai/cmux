@@ -5,7 +5,7 @@
 /// relaunch. A build without it uses the app's own helper and host.
 /// - `endSharingOnQuit` (off by default): a Screen Sharing session ends when cmux quits. Off,
 ///   cmux Remote keeps this Mac available to the person's devices while cmux is quit.
-/// - `ultraMode` (off by default): Ultra Connection Mode. The Rust tunnel starts read it from the
+/// - `ultraMode` (on by default): Ultra Connection Mode. The Rust tunnel starts read it from the
 ///   file themselves (cmux-tui-util `user_settings::ultra_mode`); kept here so the row reads back.
 public nonisolated struct RemoteSettings: Sendable, Equatable {
     public var endSharingOnQuit = RemoteSettings.endSharingOnQuitDefault
