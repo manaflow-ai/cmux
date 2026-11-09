@@ -689,6 +689,12 @@ async fn stream_prompt_once(
                 let Message::Notification { method: m, params } = m else { continue };
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
+                // Said at once: a send that waits for an unreachable machine is no hang.
+                if m == method::MUX_PROMPT_ACCEPTED && let Some(line) = crate::cli::send_waits::line(&p, &prompt.id) {
+                    eprintln!("{line}");
+                    activity = true; // a queued wait is no stall
+                    continue;
+                }
                 if crate::cli::resolve::routed_id(&p).ok().as_deref() != Some(id) { continue; }
                 if let Some(answer) = steered.heard(&m, &p) { break answer; }
                 if agent_activity(&m, &p) {
@@ -1089,6 +1095,12 @@ async fn collect_once(
                 let Message::Notification { method: m, params } = m else { continue };
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
+                // Said at once: a send that waits for an unreachable machine is no hang.
+                if m == method::MUX_PROMPT_ACCEPTED && let Some(line) = crate::cli::send_waits::line(&p, &prompt.id) {
+                    eprintln!("{line}");
+                    activity = true; // a queued wait is no stall
+                    continue;
+                }
                 if crate::cli::resolve::routed_id(&p).ok().as_deref() != Some(id) { continue; }
                 if let Some(answer) = steered.heard(&m, &p) { break answer; }
                 if agent_activity(&m, &p) {

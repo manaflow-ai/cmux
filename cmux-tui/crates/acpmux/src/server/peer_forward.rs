@@ -272,6 +272,10 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
+    // A prompt that may wait for its peer's link keeps one prompt id from here (`prompt_outbox.rs`).
+    let waits = m == method::SESSION_PROMPT && super::prompt_outbox::may_wait(hub, conn, params);
+    let named = waits.then(|| super::prompt_outbox::with_prompt_id(params)).flatten();
+    let params = named.as_ref().unwrap_or(params);
     let reply = forward_inner(hub, conn, m, params).await.transpose();
     // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
     if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) && matches!(reply, Some(Ok(_)))
@@ -294,6 +298,12 @@ pub(super) async fn forward(
         && let Some(peer) = unreachable_peer(hub, e)
     {
         ask_back(&peer, m, params, conn.origin);
+    }
+    if let Some(Err(e)) = &reply
+        && waits
+        && let Some(peer) = super::prompt_outbox::link_failed(hub, e)
+    {
+        return Some(super::prompt_outbox::queue_unaccepted(hub, conn, params, &peer, e).await);
     }
     if conn.origin == Origin::Peer {
         return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));

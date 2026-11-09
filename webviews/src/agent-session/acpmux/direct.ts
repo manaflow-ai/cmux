@@ -4098,6 +4098,7 @@ export class AcpmuxDirectClient {
       const promptId = notification.params?.promptId;
       if (typeof promptId === "string") {
         this.promptAccepts.get(promptId)?.();
+        this.promptWaits(promptId, notification.params);
         this.promptShown?.(promptId);
       }
     }
@@ -4112,6 +4113,16 @@ export class AcpmuxDirectClient {
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
     // acpmux refused this pane's Stop, which as a notification has no answer of its own.
     else if (notification.method === "_acpmux/cancel_refused") this.stopRefused(notification.params);
+  }
+
+  /// acpmux keeps a prompt for a chat whose machine it cannot reach now (`state: "outbox"`) and sends
+  /// it once the machine is back: its bubble says it waits for that machine until the machine's own
+  /// acceptance comes.
+  private promptWaits(promptId: string, params: any): void {
+    const delivery = this.deliveries.get(promptId)?.delivery;
+    const waitsFor = params?.state === "outbox" ? String(params?.peer ?? "") || undefined : undefined;
+    if (!delivery || delivery.waitsFor === waitsFor) return;
+    if (this.setDelivery(promptId, { waitsFor })) this.emit();
   }
 
   /// A Stop acpmux refused (`_acpmux/cancel_refused`: a chat on another machine that only its owner

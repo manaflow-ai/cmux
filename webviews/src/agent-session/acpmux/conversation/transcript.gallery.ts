@@ -3099,7 +3099,7 @@ export default agentPaneEntry({
       },
     },
     "prompt-delivery": {
-      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, a clock and Sends when the machine is back for one acpmux keeps while the chat's machine is unreachable, and one that failed with Retry, Edit, Remove and Details.",
       snapshot: chat([
         user("Add retries to the client", 6, {
           delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
@@ -3112,6 +3112,16 @@ export default agentPaneEntry({
         user("Then open a PR", 2, {
           pending: true,
           delivery: { state: "sending", promptId: "p3", sessionId: "s", sentAt: 0, slow: true },
+        }),
+        user("And tag the release", 1.5, {
+          delivery: {
+            state: "delivered",
+            promptId: "p3b",
+            sessionId: "s",
+            sentAt: 0,
+            acceptedAt: 30,
+            waitsFor: "build-mac",
+          },
         }),
         user("Ship it", 1, {
           failed: true,

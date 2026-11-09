@@ -60,6 +60,7 @@ pub mod run;
 pub(crate) mod select;
 pub(crate) mod send_notice;
 pub(crate) mod send_relay;
+pub(crate) mod send_waits;
 pub mod sender;
 pub mod session_folder;
 pub mod session_inbox;

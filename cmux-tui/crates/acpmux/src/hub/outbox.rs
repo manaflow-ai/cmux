@@ -45,6 +45,49 @@ pub(crate) const RETRY_DELAYS_SECS: &[u64] = &[2, 5, 10, 30, 60, 120, 300, 600, 
 /// shouldn't time out just bc of load").
 pub(crate) const RETRY_FOR_MS: u64 = KEEP_SETTLED_MS;
 
+/// How long a prompt sent to a peer's chat while its link is down waits for the link: a person
+/// who wrote to a machine that stays away this long gets a clear failure, not a turn that starts
+/// hours later. A `send_queue` message keeps [`RETRY_FOR_MS`].
+pub const INTERACTIVE_WAIT_MS: u64 = 15 * 60 * 1000;
+
+/// How many prompts may wait for one peer's link at once ([`Outbox::add_interactive`]). The next
+/// is refused with [`INTERACTIVE_FULL`] instead of growing the queue without bound.
+pub const INTERACTIVE_MAX_PER_PEER: usize = 32;
+
+/// `data.reason` of the refusal when [`INTERACTIVE_MAX_PER_PEER`] prompts already wait.
+pub const INTERACTIVE_FULL: &str = "outbox.full";
+
+/// `data.reason` (and the status's `reason`) of a waiting prompt whose peer stayed away past
+/// [`INTERACTIVE_WAIT_MS`].
+pub const INTERACTIVE_EXPIRED: &str = "outbox.expired";
+
+/// The start of the error a waiting prompt fails with past [`INTERACTIVE_WAIT_MS`].
+pub const INTERACTIVE_EXPIRED_PREFIX: &str = "not delivered: ";
+
+/// A prompt waiting for a peer's link ([`Delivery::interactive`]).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Interactive {
+    /// This daemon's name for the peer whose link it waits for.
+    pub peer: String,
+    /// When it stops waiting and fails ([`INTERACTIVE_WAIT_MS`] after it was kept).
+    pub expires_at: u64,
+    /// How it is sent once the link is back: the sender's connection in this launch only, never
+    /// saved, so a file someone wrote cannot make a replay the person's. After a restart it goes
+    /// as a unix-socket send, as `send_queue`'s do.
+    #[serde(skip)]
+    pub replay: Replay,
+}
+
+/// The sender's connection a waiting prompt is sent again as ([`Interactive::replay`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Replay {
+    /// The app's own pane (`Origin::LocalApp`), not the unix socket.
+    pub app: bool,
+    /// The connection proved the person (`hub/person.rs`).
+    pub person: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum State {
@@ -91,6 +134,11 @@ pub struct Delivery {
     /// well. Cleared when the hub refuses it outright (`server/outbox.rs` `relay_attempt`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_post: Option<crate::mesh::OutMessage>,
+    /// A `session/prompt` to a peer's chat that the peer's link could not take before the peer
+    /// accepted it (`server/peer_forward.rs` `queue_unaccepted`), kept here instead of failing.
+    /// None for a `send_queue` message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive: Option<Interactive>,
     #[serde(default)]
     pub error: Option<String>,
     /// The target's `_acpmux/prompt_accepted` (or its reply) once delivered.
@@ -134,9 +182,32 @@ impl Delivery {
             "accepted": self.accepted,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
-            // Why it failed, for a program: the target's machine has no such session.
-            "reason": self.no_session().then_some("no_session"),
+            // Why it failed, for a program: the target's machine has no such session, or a
+            // prompt's peer stayed away past its wait.
+            "reason": if self.no_session() {
+                Some("no_session")
+            } else {
+                self.expired_waiting().then_some(INTERACTIVE_EXPIRED)
+            },
+            "waitsFor": self.interactive.as_ref().map(|i| &i.peer),
+            "expiresAt": self.interactive.as_ref().map(|i| i.expires_at),
         })
+    }
+
+    /// When it stops being tried and fails: [`RETRY_FOR_MS`] after it was handed over, or a
+    /// waiting prompt's own [`Interactive::expires_at`].
+    pub fn gives_up_at(&self) -> u64 {
+        match &self.interactive {
+            Some(waiting) => waiting.expires_at,
+            None => self.created_at.saturating_add(RETRY_FOR_MS),
+        }
+    }
+
+    /// A prompt that waited for its peer past [`INTERACTIVE_WAIT_MS`] and failed.
+    pub fn expired_waiting(&self) -> bool {
+        self.state == State::Failed
+            && self.interactive.is_some()
+            && self.error.as_deref().is_some_and(|e| e.starts_with(INTERACTIVE_EXPIRED_PREFIX))
     }
 
     /// It failed because the target's machine has no such session (`server/outbox.rs`).
@@ -258,6 +329,39 @@ impl Outbox {
         (delivery, change)
     }
 
+    /// Records a prompt that waits for peer `waiting.peer`'s link ([`Delivery::interactive`]):
+    /// the same prompt id again answers with the first one, as [`Self::add`]; a new one past
+    /// `max` already waiting for that peer is refused with how many wait.
+    pub fn add_interactive(&self, delivery: Delivery, max: usize) -> Result<Delivery, usize> {
+        let mut book = self.book();
+        let peer = delivery.interactive.as_ref().map(|i| i.peer.as_str()).unwrap_or_default();
+        let prompt_id = delivery.prompt_id();
+        let first = book
+            .deliveries
+            .values()
+            .find(|d| !d.is_team_receipt() && !d.projection_only() && d.prompt_id() == prompt_id);
+        if let Some(first) = first.cloned() {
+            let change = book.changes;
+            drop(book);
+            self.save(change);
+            return Ok(first);
+        }
+        let waiting = book
+            .deliveries
+            .values()
+            .filter(|d| !d.settled() && d.interactive.as_ref().is_some_and(|i| i.peer == peer))
+            .count();
+        if waiting >= max {
+            return Err(waiting);
+        }
+        book.deliveries.insert(delivery.id.clone(), delivery.clone());
+        let change = book.changed();
+        drop(book);
+        self.save(change);
+        self.changed.notify_waiters();
+        Ok(delivery)
+    }
+
     pub fn start_delivery(&self, id: &str) -> bool {
         self.running.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned())
     }
@@ -302,6 +406,7 @@ impl Outbox {
             attempts: 0,
             never_sent: false,
             relay_post: None,
+            interactive: None,
             error: None,
             accepted: None,
             created_at: now,
@@ -534,6 +639,7 @@ mod tests {
             attempts: 0,
             never_sent: false,
             relay_post: None,
+            interactive: None,
             error: None,
             accepted: None,
             created_at: now,
@@ -564,6 +670,57 @@ mod tests {
         }
         assert_eq!(outbox.list(None, 1).1, 1);
         assert_eq!(ids(outbox.list(None, 1)), ["d-0"]);
+    }
+
+    fn waiting(n: usize, peer: &str) -> Delivery {
+        let mut d = delivery(n);
+        d.interactive = Some(Interactive {
+            peer: peer.into(),
+            expires_at: d.created_at + INTERACTIVE_WAIT_MS,
+            replay: Replay { app: true, person: true },
+        });
+        d
+    }
+
+    /// At most `max` prompts wait for one peer; another peer's are not counted, a settled one
+    /// frees its place, and the same prompt id again (a Retry) is the first one, never refused.
+    #[test]
+    fn prompts_waiting_for_a_peer_are_bounded_per_peer_and_deduped_by_prompt_id() {
+        let outbox = Outbox::default();
+        for n in 0..3 {
+            assert_eq!(outbox.add_interactive(waiting(n, "box"), 3).unwrap().id, format!("d-{n}"));
+        }
+        assert_eq!(outbox.add_interactive(waiting(3, "box"), 3).unwrap_err(), 3);
+        assert!(outbox.get("d-3").is_none(), "a refused prompt is kept");
+        let mut retry = waiting(1, "box");
+        retry.id = "d-retry".into();
+        assert_eq!(outbox.add_interactive(retry, 3).unwrap().id, "d-1");
+        assert_eq!(outbox.add_interactive(waiting(4, "other"), 3).unwrap().id, "d-4");
+        outbox.update("d-0", |d| d.state = State::Delivered);
+        assert_eq!(outbox.add_interactive(waiting(5, "box"), 3).unwrap().id, "d-5");
+        // A `send_queue` message to that peer's chat is no prompt waiting on it.
+        outbox.add(delivery(6));
+        assert_eq!(outbox.add_interactive(waiting(7, "box"), 3).unwrap_err(), 3);
+    }
+
+    /// A waiting prompt gives up after its own wait, not a day; its record says why it failed,
+    /// and the replay of the sender's connection is never saved.
+    #[test]
+    fn a_waiting_prompt_gives_up_after_its_wait_and_says_so() {
+        let d = waiting(1, "box");
+        assert_eq!(d.gives_up_at(), d.created_at + INTERACTIVE_WAIT_MS);
+        assert_eq!(delivery(1).gives_up_at(), delivery(1).created_at + RETRY_FOR_MS);
+        let mut failed = d.clone();
+        failed.state = State::Failed;
+        failed.error = Some(format!("{INTERACTIVE_EXPIRED_PREFIX}box stayed unreachable"));
+        assert!(failed.expired_waiting());
+        assert_eq!(failed.status()["reason"], INTERACTIVE_EXPIRED);
+        assert_eq!(failed.status()["waitsFor"], "box");
+        failed.error = Some("refused".into());
+        assert!(!failed.expired_waiting());
+        let saved: Delivery = serde_json::from_value(serde_json::to_value(&d).unwrap()).unwrap();
+        assert_eq!(saved.interactive.as_ref().map(|i| i.replay), Some(Replay::default()));
+        assert_eq!(saved.interactive.map(|i| i.expires_at), Some(d.gives_up_at()));
     }
 
     #[test]
@@ -771,6 +928,7 @@ mod tests {
             attempts: 0,
             never_sent: false,
             relay_post: None,
+            interactive: None,
             error: None,
             accepted: None,
             created_at: 0,

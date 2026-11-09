@@ -299,6 +299,9 @@ export type PromptDelivery = {
   error?: string;
   /// The machine acpmux runs on, when it is not this one.
   connection?: string;
+  /// acpmux took it but keeps it until the chat's machine, unreachable now, is back
+  /// (`_acpmux/prompt_accepted` state `outbox`): that machine's name. Cleared once the machine took it.
+  waitsFor?: string;
 };
 
 /// A prompt waiting for the running turn, with the images it sends, in its order (Leo,

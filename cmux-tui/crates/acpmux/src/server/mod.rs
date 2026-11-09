@@ -1471,12 +1471,14 @@ pub async fn serve_connection_with(
 
 /// The daemon's own outbox delivering a send it kept (`outbox.rs` `attempt_once`): served as
 /// `origin` with its proof, and the one local connection whose `senderHarnessChecked` is the
-/// daemon's own (`sender_harness::check_trust`).
+/// daemon's own (`sender_harness::check_trust`). `person`: a prompt the person's own connection
+/// sent in this launch, which waited for a peer's link (`prompt_outbox.rs`), goes as theirs.
 pub(super) async fn serve_outbox_connection(
     hub: Arc<Hub>,
     inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
     origin: Origin,
+    person: bool,
 ) {
     let auth = ConnAuth::proven_for(origin);
     serve_connection_from(
@@ -1487,7 +1489,7 @@ pub(super) async fn serve_outbox_connection(
         auth,
         None,
         false,
-        SocketPeer::Outbox,
+        if person { SocketPeer::OutboxPerson } else { SocketPeer::Outbox },
         None,
         None,
         None,
@@ -1579,7 +1581,7 @@ async fn serve_connection_from(
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
-        person: AtomicBool::new(false),
+        person: AtomicBool::new(socket_peer == SocketPeer::OutboxPerson),
         trigger: StdMutex::new(None),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
@@ -2118,6 +2120,7 @@ pub mod peer_text;
 mod pending;
 mod place;
 mod processes;
+mod prompt_outbox;
 mod workflow_activity;
 mod workflow_runs;
 mod worktrees;

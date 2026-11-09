@@ -212,7 +212,7 @@ pub enum Command {
     #[command(
         alias = "prompt",
         alias = "send-keys",
-        after_help = "A name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
+        after_help = "A name several live sessions share is refused with the exact command for each.\n\nWhen the session's machine is unreachable, the send prints `waits for HOST, until HH:MM; runs once when it is back` at once and waits (15 minutes at most). The prompt stays queued if this command exits, a `timeout` kill too: to send it again, reuse its id (`--prompt-id ID`, printed on that line), or check it first with `acpmux send --status DELIVERY`. A new id runs it twice.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
     )]
     Send {
         /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
@@ -265,8 +265,11 @@ pub enum Command {
         /// Report prompt_stalled (exit 1) when nothing happens for this many seconds after sending; 0 disables. The default waits for the live peer.
         #[arg(long, default_value_t = 0)]
         stall: u64,
-        /// Send this prompt id again (from a `daemon_closed` error): the daemon runs an id once and
-        /// answers a repeat with the first run's outcome.
+        /// Send this prompt id again (from a `daemon_closed` error, or a send that printed
+        /// "waits for HOST"): the daemon runs an id once and answers a repeat with the first
+        /// run's outcome. A send to a machine that is unreachable stays queued after this command
+        /// exits (killed by `timeout` too) and runs when the machine is back: send again with this
+        /// id, never a new one, or check it first with `acpmux send --status DELIVERY`.
         #[arg(long)]
         prompt_id: Option<String>,
         /// Send it as this agent's message: messages from agents that wait for a busy session go

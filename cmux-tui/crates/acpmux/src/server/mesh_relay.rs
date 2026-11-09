@@ -956,7 +956,7 @@ pub async fn deliver(
         mux.insert(crate::sender_harness::META_KEY.into(), claim);
     }
     use super::outbox::Next;
-    match super::outbox::attempt_once(hub, None, request, Origin::Peer).await {
+    match super::outbox::attempt_once(hub, None, request, Origin::Peer, false).await {
         Ok(_) => Some(Ack::delivered(prompt_id, None)),
         // A paused agent pair holds it in the session's queue: the person's resume runs it.
         Err((why, Next::Held)) => Some(Ack::delivered(prompt_id, Some(format!("held: {why}")))),
