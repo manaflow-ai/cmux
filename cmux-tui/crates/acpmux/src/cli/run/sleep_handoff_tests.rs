@@ -80,3 +80,67 @@ fn a_chat_whose_uncommitted_work_would_not_all_go_stays_and_says_why() {
     let why = refusal_at(repo.path()).unwrap().expect("a refusal");
     assert!(why.contains(" and 1 more can't go with it"), "{why}");
 }
+
+#[test]
+fn a_parent_with_open_child_chats_stays() {
+    assert_eq!(family_refusal(&json!({"sessionId": "p", "children": 0})), None);
+    assert_eq!(family_refusal(&json!({"sessionId": "p"})), None);
+    assert_eq!(
+        family_refusal(&json!({"children": 1})).as_deref(),
+        Some("it has a child chat open here, which can't go with it")
+    );
+    assert_eq!(
+        family_refusal(&json!({"children": 3})).as_deref(),
+        Some("it has 3 child chats open here, which can't go with it")
+    );
+}
+
+#[test]
+fn a_moved_chat_with_no_continuation_reads_stalled() {
+    assert!(stalled(&json!({"status": "idle", "turn": null, "queued": 0})));
+    assert!(
+        !stalled(&json!({"status": "idle", "turn": null, "queued": 1})),
+        "its continuation waits"
+    );
+    assert!(!stalled(&json!({"status": "running", "turn": {"turnId": "t"}, "queued": 0})));
+    assert!(fallback_text("gcp-1").contains("moved to gcp-1"));
+}
+
+#[test]
+fn porcelain_v2_names_only_submodule_entries() {
+    let status = "1 .M N... 100644 100644 100644 aaa bbb src/a file.rs\n\
+                  1 .M SC.. 160000 160000 160000 ccc ccc vendor/lib\n\
+                  2 R. S.M. 160000 160000 160000 ddd ddd R100 deps/new\tdeps/old\n\
+                  ? untracked.txt\n";
+    assert_eq!(submodules_in_status(status), ["vendor/lib", "deps/new"]);
+    assert_eq!(
+        submodule_refusal(&["vendor/lib".into()]).as_deref(),
+        Some("its changes in the submodule vendor/lib can't go with it")
+    );
+    assert_eq!(submodule_refusal(&[]), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_chat_with_edits_inside_a_submodule_stays() {
+    let inner = repo();
+    let outer = repo();
+    let git = |dir: &Path, args: &[&str]| {
+        let ok = StdCommand::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "protocol.file.allow=always", "-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(ok.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&ok.stderr));
+    };
+    git(outer.path(), &["submodule", "add", "-q", inner.path().to_str().unwrap(), "lib"]);
+    git(outer.path(), &["commit", "-q", "-m", "lib"]);
+    assert_eq!(refusal_at(outer.path()).unwrap(), None, "a clean submodule moves");
+    std::fs::write(outer.path().join("lib/a.txt"), "edited in the submodule").unwrap();
+    assert_eq!(
+        refusal_at(outer.path()).unwrap().as_deref(),
+        Some("its changes in the submodule lib can't go with it")
+    );
+}

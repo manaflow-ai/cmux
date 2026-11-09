@@ -78,6 +78,8 @@ pub(crate) struct ContinueThere {
     /// `"sleep"`.
     pub why: &'static str,
     pub tags: Value,
+    /// The prompt that continues the turn there when the move queued none.
+    pub fallback: String,
 }
 
 /// Where the chats being moved live: this machine, or (`--from`) a peer this machine reaches
@@ -466,10 +468,27 @@ async fn move_steps(
         o.resumed = resumed.map_err(|e| format!("{e:#}"));
     }
     if let (Some(then), Some(there)) = (&args.continue_there, o.there.clone()) {
-        // Moved whatever this says: the tags only label it.
+        // Moved whatever this says: the tags only label it, and the fallback prompt only goes
+        // when the move's own continuation did not (automatic retries off or spent).
         let tagged =
             dst.request(method::MUX_TAG, json!({"sessionId": there, "set": then.tags})).await;
-        o.resumed = tagged.map(|_| true).map_err(|e| format!("{e:#}"));
+        let fallback = match tagged {
+            Ok(info) if crate::cli::run::sleep_handoff::stalled(&info) => {
+                crate::cli::output::queue_prompt(
+                    dst.clone(),
+                    &there,
+                    &then.fallback,
+                    false,
+                    None,
+                    &crate::cli::output::PromptId::new(None),
+                )
+                .await
+                .map(|_| ())
+            }
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        };
+        o.resumed = fallback.map(|()| true).map_err(|e| format!("{e:#}"));
     }
     drop(forward);
     if let Some(name) = moved.get("name").and_then(Value::as_str) {
@@ -518,6 +537,17 @@ async fn prepare(
         .await??;
         record.set("branch", json!(branch));
         record.set("commit", json!(commit));
+        // A sleep move refuses edits inside a submodule: the carry has no patch for them.
+        if args.continue_there.is_some() && source.ssh().is_none() {
+            let top = c.top.clone();
+            let subs = tokio::task::spawn_blocking(move || {
+                crate::cli::run::sleep_handoff::dirty_submodules(&top)
+            })
+            .await??;
+            if let Some(why) = crate::cli::run::sleep_handoff::submodule_refusal(&subs) {
+                bail!("{why}");
+            }
+        }
         if *dirty && args.carry_changes {
             // Read after the freeze and the push: what the agent left, against what was pushed.
             let read = tokio::task::spawn_blocking({

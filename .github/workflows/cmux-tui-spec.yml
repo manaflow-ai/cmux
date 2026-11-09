@@ -33,6 +33,7 @@ on:
       - "schemas/link-token/vectors.json"
       - "schemas/settings/source/agent-cache.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/sessions.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
       - "skills/cmux-acpmux/SKILL.md"

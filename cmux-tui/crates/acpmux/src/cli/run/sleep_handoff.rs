@@ -9,13 +9,16 @@
 //!   works at).
 //! - A chat moves when its turn runs, here (not a peer's), and it is no child chat (that runs
 //!   with its parent) and shows no other app's conversation (`running_chats`).
+//!   A parent whose child chats are open here stays (`family_refusal`): a move takes it alone.
 //! - The move is `session move --interrupt --carry-changes` (`session_move::move_running`):
 //!   the turn stops, the chat and its uncommitted work go, and there it is tagged
 //!   `sleepHandoff=moved` with `sleepHandoffFrom` (this machine); the turn goes on there by the
-//!   move's own continuation (`Cut::Move`). Its copy here records where it went (`movedTo`, with
+//!   move's own continuation (`Cut::Move`), or, when automatic retries are off or spent and
+//!   the move queued none, by a prompt that says so (`stalled`, `fallback_text`). Its copy here records where it went (`movedTo`, with
 //!   `why: "sleep"`).
 //! - A chat whose uncommitted work the carry would not take whole (a likely secret such as
-//!   `.env`, a nested repository: `session_move_carry.rs`) stays, before its turn is touched, and
+//!   `.env`, a nested repository, edits inside a submodule: `session_move_carry.rs`,
+//!   `dirty_submodules`) stays, before its turn is touched, and
 //!   is tagged `sleepHandoff=stayed` with `sleepHandoffWhy` for a day (`carry_refusal`). The move
 //!   checks the carry again after its freeze and fails rather than leave a file behind. A chat
 //!   whose move fails stays the same way; a turn the failed move stopped goes on here by the same
@@ -68,6 +71,79 @@ pub(crate) fn running_chats(rows: &[Value]) -> Vec<String> {
         .collect()
 }
 
+/// Why the chat `row` (an `_acpmux/sessions` row) stays for its family: its child chats run on
+/// this daemon, and a move takes the parent alone.
+pub(crate) fn family_refusal(row: &Value) -> Option<String> {
+    match row.get("children").and_then(Value::as_u64).unwrap_or(0) {
+        0 => None,
+        1 => Some("it has a child chat open here, which can't go with it".into()),
+        n => Some(format!("it has {n} child chats open here, which can't go with it")),
+    }
+}
+
+/// Whether the chat `info` (`_acpmux/info`, `_acpmux/tag`'s answer) is between turns with
+/// nothing queued: the move left it no continuation.
+pub(crate) fn stalled(info: &Value) -> bool {
+    info.get("turn").is_none_or(Value::is_null)
+        && info.get("status").and_then(Value::as_str) != Some("running")
+        && info.get("queued").and_then(Value::as_u64).unwrap_or(0) == 0
+}
+
+/// The prompt that continues a moved turn when the move queued none.
+pub(crate) fn fallback_text(host: &str) -> String {
+    format!(
+        "This Mac went to sleep, so this chat moved to {host} to keep going, and your turn was cut off. Continue where you left off."
+    )
+}
+
+/// The submodules of the checkout `top` with changes of any kind (`git status --porcelain=v2`
+/// marks them `S...`): the carry has no patch for them.
+pub(crate) fn dirty_submodules(top: &Path) -> Result<Vec<String>> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(top)
+        .args([
+            "-c",
+            "core.fsmonitor=false",
+            "status",
+            "--porcelain=v2",
+            "--ignore-submodules=none",
+        ])
+        .output()?;
+    if !out.status.success() {
+        anyhow::bail!("git status: {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(submodules_in_status(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// The submodule paths of `git status --porcelain=v2` output.
+pub(crate) fn submodules_in_status(status: &str) -> Vec<String> {
+    status
+        .lines()
+        .filter_map(|line| {
+            let fields = match line.as_bytes().first() {
+                Some(b'1') => 9,
+                Some(b'2') => 10,
+                _ => return None,
+            };
+            let parts: Vec<&str> = line.splitn(fields, ' ').collect();
+            let sub = parts.get(2)?;
+            let path = parts.get(fields - 1)?.split('\t').next()?;
+            sub.starts_with('S').then(|| path.to_owned())
+        })
+        .collect()
+}
+
+/// Why a chat whose checkout has the changed submodules `subs` stays.
+pub(crate) fn submodule_refusal(subs: &[String]) -> Option<String> {
+    let (first, rest) = subs.split_first()?;
+    let more = match rest.len() {
+        0 => String::new(),
+        n => format!(" and {n} more"),
+    };
+    Some(format!("its changes in the submodule {first}{more} can't go with it"))
+}
+
 /// Why a chat whose uncommitted work is `c` stays: the carry would leave some of it here.
 pub(crate) fn carry_refusal(c: &carry::Carry) -> Option<String> {
     let ((path, why), rest) = c.left_out.split_first()?;
@@ -104,7 +180,11 @@ pub(super) async fn run(dry_run: bool, json_out: bool) -> Result<()> {
     let here = crate::pairing::machine_name();
     let mut outcomes = Vec::new();
     for id in running_chats(&rows) {
-        let outcome = handoff(&src, &id, &wanted.machine, &here, dry_run).await;
+        let row = rows.iter().find(|r| r.get("sessionId").and_then(Value::as_str) == Some(&id));
+        let outcome = match row.and_then(family_refusal) {
+            Some(why) => Outcome { session: id.clone(), moved_to: None, stayed: Some(why) },
+            None => handoff(&src, &id, &wanted.machine, &here, dry_run).await,
+        };
         if let Some(why) = outcome.stayed.as_deref().filter(|_| !dry_run) {
             let set = json!({TAG: "stayed", TAG_WHY: why});
             let tag = json!({"sessionId": id, "set": set, "ttlSeconds": STAYED_TTL_SECONDS});
@@ -161,7 +241,11 @@ async fn handoff(
         o.moved_to = Some(machine.to_owned());
         return o;
     }
-    let then = ContinueThere { why: "sleep", tags: json!({TAG: "moved", TAG_FROM: here}) };
+    let then = ContinueThere {
+        why: "sleep",
+        tags: json!({TAG: "moved", TAG_FROM: here}),
+        fallback: fallback_text(machine),
+    };
     match session_move::move_running(src, id, machine, then).await {
         Ok(moved) => {
             if let Err(why) = &moved.resumed {
@@ -190,6 +274,9 @@ async fn uncommitted_refusal(src: &Client, id: &str) -> Result<Option<String>> {
 /// take whole. None for a clean checkout or a folder in none (nothing of it moves).
 pub(crate) fn refusal_at(cwd: &Path) -> Result<Option<String>> {
     let Some(checkout) = session_move::checkout_of(cwd)? else { return Ok(None) };
+    if let Some(why) = submodule_refusal(&dirty_submodules(&checkout.top)?) {
+        return Ok(Some(why));
+    }
     if !checkout.dirty {
         return Ok(None);
     }
