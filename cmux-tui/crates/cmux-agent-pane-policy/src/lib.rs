@@ -64,6 +64,7 @@ pub mod json_keys;
 pub mod params;
 pub mod reply;
 pub mod sessions;
+pub mod share_roles;
 
 pub use check::{Checked, Facts, FrameState, PaneScope, check_frame};
 pub use data::{GestureRule, Policy, ReplyShape, policy};

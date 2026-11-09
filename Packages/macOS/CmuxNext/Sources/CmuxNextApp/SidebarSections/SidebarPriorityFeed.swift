@@ -22,7 +22,7 @@ extension SidebarPriorityFeed {
                                toggleShown: { [weak services] in _ = services?.registry.perform(Self.toggleAction, invocation: ActionInvocation(origin: .user)) },
                                openedSessions: { [weak services] in
                                    guard let tabs = services?.agentTabs else { return [] }
-                                   return Set(tabs.listTabs().compactMap { tabs.sessions[$0.key] ?? $0.record.session })
+                                   return Set(tabs.listTabsScoped().compactMap { tabs.sessions[tabs.tabKey($0.key, machine: $0.machine)] ?? $0.record.session })
                                }),
                   chats: .app)
     }

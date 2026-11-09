@@ -189,7 +189,7 @@ struct CloudStartSession {
         let tabs = services.agentTabs
         for (workspace, _) in services.machines.allWorkspaces {
             for pane in workspace.screens.flatMap(\.panes) {
-                if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.resolve($0.id)] ?? $0.agentSession?.session) == session }) { return tab }
+                if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.tabKey(of: $0)] ?? $0.agentSession?.session) == session }) { return tab }
             }
         }
         return nil
@@ -263,7 +263,7 @@ struct CloudStartSession {
             let listed = await CloudWait.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
             guard listed else { throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))) }
-            switch tabs.remoteHost(tabKey) {
+            switch tabs.host(for: tabs.tabKey(tabKey, machine: id)) {
             case let remote as AgentTabRemoteHost:
                 // Each restart and start try is for the account that asked, checked right before it.
                 let command = request.command

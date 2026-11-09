@@ -6,6 +6,7 @@ import CmuxNextCloudCredentials
 @_exported import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTabs
 import Foundation
 
 /// A new chat's first send with Cloud picked as where it runs (`cloud.startChat`,
@@ -31,7 +32,8 @@ struct CloudStartChat {
         { [weak tabs, weak services] view, start in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Only a tab of this Mac's daemon: the folder it names is copied from this Mac.
-            guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key),
+            guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key,
+                  let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine),
                   services.machines.daemon(forTab: tab).isLocal else {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
@@ -245,8 +247,8 @@ struct CloudStartChat {
             appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
-        services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,
-                                                                                        account: origin.account, machineID: machine.machineID)
+        services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,
+                                                                                                                               account: origin.account, machineID: machine.machineID)
         await origin.close()
         return machine.machine.title
     }

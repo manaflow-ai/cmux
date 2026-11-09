@@ -387,6 +387,13 @@ describe("guest carrier timeline", () => {
       "after create's answer (±100 ms; a claimed spare: bound 231500 ms before create answered): guest boot -760954248 ms; bound.json -231500 ms");
   });
 
+  test("a cold machine that binds while create's answer is on its way back is not a spare", () => {
+    // Create was sent at 997_000 and answered at 1_000_000; the guest bound at 999_000, between the two.
+    const out = ["guest_now 1000000000 60000", "wall bound.json 999999000"].join("\n");
+    expect(guestTimeline(out, 1_000_000_000, 999_999_900, 1_000_000_100, 999_997_000)).toBe(
+      "after create's answer (±100 ms): guest boot -60000 ms; bound.json -1000 ms");
+  });
+
   test("says so when the guest showed nothing", () => {
     expect(guestTimeline("", 10_000, 20_000, 20_100)).toBe("after create's answer (±50 ms): no guest clock read");
   });

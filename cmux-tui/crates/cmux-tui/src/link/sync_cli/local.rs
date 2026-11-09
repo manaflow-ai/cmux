@@ -34,10 +34,10 @@
 //! named with why ([`Skips`]), except the git path's non-UTF-8 paths,
 //! which are counted.
 
+use cmux_process::Command;
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context as _, bail};
 
@@ -50,8 +50,21 @@ pub(super) use super::listed::{add_entry, entry_in, git_text, open_listed, walk_
 #[derive(Clone, Debug)]
 pub(super) enum Source {
     File(PathBuf),
+    /// A file an upload checked below its folder, opened one name at a time
+    /// with no symlink followed, and only while it and the folder are still
+    /// the device and inode they were when checked.
+    Checked(Checked),
     /// Bytes made here (a cleaned git config or reflog).
     Bytes(Vec<u8>),
+}
+
+/// A file an upload checked ([`Source::Checked`]).
+#[derive(Clone, Debug)]
+pub(super) struct Checked {
+    pub root: PathBuf,
+    pub relative: String,
+    pub root_identity: (u64, u64),
+    pub identity: (u64, u64),
 }
 
 /// One file to push, by its path relative to the folder.
@@ -264,6 +277,126 @@ pub(super) fn heavy_folder<'a>(top: &Path, relative: &'a str) -> Option<&'a str>
     None
 }
 
+/// A dropped folder's own files for a one-off upload: git's ignore rules
+/// apply when it is in a working copy, its top or any folder inside one, and
+/// no git state goes, not even a bare repository's (a folder holding `HEAD`
+/// with `objects/`, `refs/` or `commondir`, whatever its name). Another
+/// repository inside it stays whole.
+pub(super) fn collect_files(folder: &Path) -> anyhow::Result<LocalSet> {
+    // The folder or one above it being git's own state (`bare/objects`, say).
+    if folder.ancestors().any(git_state) {
+        bail!("{} is in a git repository's own folder", folder.display());
+    }
+    let mut set = listed_files(folder)?;
+    let mut fenced: BTreeMap<PathBuf, bool> = BTreeMap::new();
+    let before = set.files.len();
+    set.files.retain(|relative, _| {
+        !Path::new(relative).ancestors().skip(1).filter(|dir| !dir.as_os_str().is_empty()).any(
+            |dir| *fenced.entry(dir.to_path_buf()).or_insert_with(|| fenced_dir(&folder.join(dir))),
+        )
+    });
+    let left = u64::try_from(before.saturating_sub(set.files.len())).unwrap_or(u64::MAX);
+    set.skipped = set.skipped.saturating_add(left);
+    Ok(set)
+}
+
+/// A folder of git's own state: a bare repository, a `.git` folder by
+/// another name, or a linked worktree's. Any `HEAD` beside any `objects`,
+/// `refs` or `commondir` counts, a symlink or not, since git takes either.
+fn git_state(dir: &Path) -> bool {
+    let has = |name: &str| std::fs::symlink_metadata(dir.join(name)).is_ok();
+    has("HEAD") && (has("objects") || has("refs") || has("commondir"))
+}
+
+/// A folder inside the dropped one that is git's state or another
+/// repository's working copy (any `.git` in it): its files stay, since
+/// their own ignore rules are not the dropped folder's.
+fn fenced_dir(dir: &Path) -> bool {
+    git_state(dir) || std::fs::symlink_metadata(dir.join(".git")).is_ok()
+}
+
+/// The top of the working copy `folder` is in, or None when it is in none.
+/// A failed answer while `folder` or a folder above it holds a `.git` (a
+/// repository git will not read, for its owner, an extension it does not
+/// know or a `.git` pointing nowhere) is an error, as is `folder` inside
+/// git's own folder: walking the folder plainly would send what git ignores.
+fn work_tree_top(folder: &Path) -> anyhow::Result<Option<PathBuf>> {
+    let output = Command::new("git")
+        .args(["-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"])
+        .args(["-c", "core.hooksPath=/dev/null", "-C"])
+        .arg(folder)
+        .args(["rev-parse", "--show-toplevel"])
+        .output();
+    let in_git =
+        || folder.ancestors().any(|dir| std::fs::symlink_metadata(dir.join(".git")).is_ok());
+    let output = match output {
+        // With no git on this Mac, a folder with no `.git` on its way is plain.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !in_git() => return Ok(None),
+        other => other.context("cannot run git")?,
+    };
+    if !output.status.success() {
+        if !in_git() {
+            return Ok(None);
+        }
+        bail!(
+            "git cannot read the repository {} is in: {}",
+            folder.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let top = String::from_utf8(output.stdout).context("git printed text that is not UTF-8")?;
+    let top = top.trim();
+    if top.is_empty() {
+        bail!("{} is inside a git repository's own folder", folder.display());
+    }
+    Ok(Some(std::fs::canonicalize(top).unwrap_or_else(|_| PathBuf::from(top))))
+}
+
+fn listed_files(folder: &Path) -> anyhow::Result<LocalSet> {
+    let skips = Skips::new(folder);
+    let mut set =
+        LocalSet { files: BTreeMap::new(), links: BTreeMap::new(), skipped: 0, skips, git: false };
+    let Some(top) = work_tree_top(folder)? else {
+        walk_plain(&mut set, Rules::Share, folder, folder)?;
+        return Ok(set);
+    };
+    // A repository whose working copy is somewhere else (its `core.worktree`)
+    // lists files that are not this folder's.
+    if !folder.starts_with(&top) {
+        bail!("{} is not in its repository's working copy {}", folder.display(), top.display());
+    }
+    set.git = true;
+    let handle = place::Dir::open(folder)?;
+    // Run in the folder, git lists only what is under it, by paths from it.
+    for (path, untracked) in working_files(folder, &mut set.skipped)? {
+        // A crafted index can name a file anywhere: only a plain path below
+        // the folder is the folder's.
+        if !below(&path)
+            || untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env"))
+        {
+            set.skipped = set.skipped.saturating_add(1);
+            continue;
+        }
+        // Through the folders on its way, each opened by descriptor, as [`collect`].
+        match place::parent_of(&handle, &path) {
+            Ok(Some((dir, name))) => {
+                let entry = dir.entry(&name)?;
+                add_entry(&mut set, path.clone(), &folder.join(&path), &dir, &name, entry)?;
+            }
+            Ok(None) => {}
+            Err(error) if swapped(&error) => {}
+            Err(error) => return Err(error).with_context(|| format!("cannot read {path}")),
+        }
+    }
+    Ok(set)
+}
+
+/// A relative path that stays below its folder: no root, no empty, `.` or
+/// `..` part.
+pub(super) fn below(path: &str) -> bool {
+    !path.starts_with('/') && path.split('/').all(|part| !matches!(part, "" | "." | ".."))
+}
+
 /// Most alternates levels git follows.
 const ALTERNATES_DEPTH: usize = 5;
 
@@ -398,18 +531,7 @@ impl GitDirs {
     /// None outside git. A subfolder of a working copy is refused: its
     /// repository is above it, so pushing it alone would lose the git state.
     pub(super) fn of(folder: &Path) -> anyhow::Result<Option<Self>> {
-        let top = match git(folder, &["rev-parse", "--show-toplevel"]) {
-            Ok(top) => top,
-            // A `.git` here that git cannot read (a config gone unreadable) fails the
-            // sync rather than going as a plain folder, `.git` and all.
-            Err(error) if folder.join(".git").symlink_metadata().is_ok() => {
-                return Err(
-                    error.context(format!("cannot read the git folder of {}", folder.display()))
-                );
-            }
-            Err(_) => return Ok(None),
-        };
-        let top = std::fs::canonicalize(top.trim()).unwrap_or_else(|_| PathBuf::from(top.trim()));
+        let Some(top) = work_tree_top(folder)? else { return Ok(None) };
         if top != folder {
             bail!(
                 "{} is inside the git working copy {}; push its top folder",
@@ -455,9 +577,17 @@ pub(super) fn git(folder: &Path, args: &[&str]) -> anyhow::Result<String> {
     String::from_utf8(git_bytes(folder, args)?).context("git printed text that is not UTF-8")
 }
 
+/// git reading a folder, never running anything the folder's own config
+/// names (an fsmonitor or a hook) and never taking a bare repository in it
+/// for its own.
 pub(super) fn git_bytes(folder: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
-    let output =
-        Command::new("git").arg("-C").arg(folder).args(args).output().context("cannot run git")?;
+    let output = Command::new("git")
+        .args(["-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"])
+        .args(["-c", "core.hooksPath=/dev/null", "-C"])
+        .arg(folder)
+        .args(args)
+        .output()
+        .context("cannot run git")?;
     if !output.status.success() {
         bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
     }
@@ -736,12 +866,12 @@ fn without_user_info(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use cmux_process::Command;
     use std::path::Path;
-    use std::process::Command;
 
     use super::{
-        LocalFile, LocalSet, Rules, Skips, borrowed_object, borrowed_skipped, collect, entry_in,
-        open_listed, place, unquote, walk_plain,
+        LocalFile, LocalSet, Rules, Skips, below, borrowed_object, borrowed_skipped, collect,
+        entry_in, open_listed, place, unquote, walk_plain,
     };
 
     fn write(top: &Path, relative: &str) {
@@ -875,6 +1005,18 @@ mod tests {
         entry_in(&mut set, Rules::Copy, "a/link", &path, &handle, "link", place::Entry::Link)
             .unwrap();
         assert!(set.files.is_empty(), "took a file from outside: {:?}", set.files.keys());
+    }
+
+    /// Only a plain path below the folder is one of its files: a crafted
+    /// git index naming a root, `..` or an empty part names none.
+    #[test]
+    fn only_a_plain_path_is_below_the_folder() {
+        for kept in ["a.txt", "docs/guide.md", "a/.b/c"] {
+            assert!(below(kept), "{kept}");
+        }
+        for refused in ["", "/etc/passwd", "../x", "a/../../x", "a//b", "./a", "a/."] {
+            assert!(!below(refused), "{refused}");
+        }
     }
 
     #[test]

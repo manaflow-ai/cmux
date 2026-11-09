@@ -62,7 +62,7 @@ extension CloudHandlers {
         guard let chat else { return nil }
         if let cwd = chat.cwd, cwd.hasPrefix("/") { return cwd }
         let tabs = services.agentTabs
-        guard let session = tabs.sessions[tabs.resolve(chat.id)] ?? chat.agentSession?.session else { return nil }
+        guard let session = tabs.sessions[tabs.tabKey(of: chat)] ?? chat.agentSession?.session else { return nil }
         let host = tabs.localSessionHost ?? tabs.host
         guard let folder = try? await host.sessionFolder(sessionId: session), folder.isLocal, folder.cwd.hasPrefix("/") else { return nil }
         return folder.cwd
