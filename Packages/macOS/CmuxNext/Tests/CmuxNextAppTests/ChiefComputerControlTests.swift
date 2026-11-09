@@ -191,6 +191,76 @@ struct ChiefComputerControlTests {
         #expect(throws: Never.self) { try store.checkNotHeld(machine: Self.machine(), byPerson: false) }
     }
 
+    /// A machine's hold ends by itself ten minutes after the person's last input, computed when read
+    /// (the viewer reports input under the id in lower case). Until then automation stays refused; after
+    /// it, a late input does not bring the hold back.
+    @Test func aHoldOnAMachineEndsTenMinutesAfterThePersonsLastInput() throws {
+        let store = ChiefComputerControlStore()
+        var clock: Int64 = 1_000_000
+        store.now = { clock }
+        let idle = ChiefComputerControlStore.leaseIdleMs
+        #expect(idle == 600_000, "the Worker's LEASE_IDLE_MS")
+        let machine = "VM-Lease"
+        let viewer = HomeChiefComputerControlSource.machine(machine.lowercased(), store: store, openInteractive: {})
+        var changes = 0
+        let token = store.observe(.machine(machine)) { changes += 1 }
+        try store.perform(.takeOver, machine: machine, byPerson: true)
+        #expect(changes == 1)
+
+        clock += idle - 1
+        #expect(store.state(.machine(machine))?.holder == .human)
+        viewer.noteInput?()
+        let lastInput = clock
+        clock += idle - 1
+        #expect(store.state(.machine(machine))?.holder == .human, "the input restarted the clock")
+        #expect(throws: ChiefComputerControlStore.Refusal.humanHasControl) { try store.checkNotHeld(machine: machine, byPerson: false) }
+
+        clock += 1
+        #expect(throws: Never.self) { try store.checkNotHeld(machine: machine, byPerson: false) }
+        #expect(store.state(.machine(machine)) == HomeChiefComputerControlState(holder: .chief, sinceMs: lastInput + idle))
+        #expect(changes == 2, "observers hear it once")
+
+        viewer.noteInput?()
+        #expect(store.state(.machine(machine))?.holder == .chief, "a late input does not bring it back")
+        // The person takes it again: a new hold, with its own ten minutes.
+        try store.perform(.takeOver, machine: machine, byPerson: true)
+        #expect(store.state(.machine(machine))?.sinceMs == clock)
+        withExtendedLifetime(token) {}
+    }
+
+    /// A Chief's ask nobody answered ends too, with its notice; a person's take-over of it restarts the clock.
+    @Test func aChiefsAskOnAMachineExpiresAndWithdrawsItsNotice() throws {
+        let store = ChiefComputerControlStore()
+        var clock: Int64 = 1_000_000
+        store.now = { clock }
+        let idle = ChiefComputerControlStore.leaseIdleMs
+        var ended: [String] = []
+        store.onAskEnded = { ended.append($0) }
+        try store.perform(.requestHuman, machine: "vm-ask", reason: "Sign in", byPerson: false)
+        #expect(store.state(.machine("vm-ask"))?.reason == "Sign in")
+        clock += idle
+        #expect(store.state(.machine("vm-ask")) == HomeChiefComputerControlState(holder: .chief, sinceMs: 1_000_000 + idle))
+        #expect(ended == ["vm-ask"])
+        #expect(store.state(.machine("vm-ask"))?.holder == .chief)
+        #expect(ended == ["vm-ask"], "only the read that ended it withdraws the notice")
+
+        try store.perform(.requestHuman, machine: "vm-ask", reason: "Sign in", byPerson: false)
+        clock += idle - 1
+        try store.perform(.takeOver, machine: "vm-ask", byPerson: true)
+        clock += idle - 1
+        #expect(store.state(.machine("vm-ask"))?.holder == .human, "the take-over counts as input")
+    }
+
+    /// A sandbox's lease is the Worker's: this store never ends it by its own clock.
+    @Test func aSandboxLeaseDoesNotExpireHere() {
+        let store = ChiefComputerControlStore()
+        var clock: Int64 = 1_000_000
+        store.now = { clock }
+        store.apply(agent: Self.agent, state: HomeChiefComputerControlState(holder: .human, sinceMs: 1_000_000), entitled: nil)
+        clock += 10 * ChiefComputerControlStore.leaseIdleMs
+        #expect(store.state(.agent(Self.agent))?.holder == .human)
+    }
+
     /// The Worker's since_ms only grows: a status read that left before a take-over's reply never
     /// writes the older lease back.
     @Test func anOlderSandboxAnswerNeverOverwritesANewerOne() {

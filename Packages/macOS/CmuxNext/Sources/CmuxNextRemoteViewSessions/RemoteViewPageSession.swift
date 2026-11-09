@@ -102,7 +102,7 @@ public final class RemoteViewPageSession {
     /// control and Hand back in view (`RemoteModeControl.takeOver`).
     private init(record: RemoteViewTabRecord, first: RemoteRdStreamTransport,
                  make: @escaping @MainActor (_ control: Bool) -> RemoteRdStreamTransport?, closeTab: @escaping @MainActor () -> Void,
-                 displayName: String? = nil) {
+                 displayName: String? = nil, personInput: (@MainActor () -> Void)? = nil) {
         let rdSource = RemoteRdDebugSource(first)
         source = rdSource
         rd = (rdSource, make)
@@ -121,6 +121,7 @@ public final class RemoteViewPageSession {
         }
         pane.handlers.reconnect = { [weak self] in self?.reconnect() }
         pane.handlers.close = closeTab
+        if let personInput { pane.handlers.personInput = personInput }
         if record.cloudDesktop {
             pane.handlers.selectMode = { [weak self] mode in self?.switchMode(control: mode == .control) }
         }
@@ -336,14 +337,15 @@ public final class RemoteViewPageSession {
 
     /// A session for `record`, or nil when this build cannot show it. `cloudTransport` makes the
     /// transports of a Cloud machine's desktop (`via=cloud`) over the app's Cloud tunnel; nil, or
-    /// nil for that machine (signed out, no address), shows "not available".
+    /// nil for that machine (signed out, no address), shows "not available". `personInput` hears the
+    /// person's input to a Cloud machine's `cmux-rd` desktop (it keeps their hold on its computer).
     public static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void,
                             cloudTransport: CloudDesktopTransport? = nil, cloudRd: CloudRdTransport? = nil,
-                            displayName: String? = nil) -> RemoteViewPageSession? {
+                            displayName: String? = nil, personInput: (@MainActor () -> Void)? = nil) -> RemoteViewPageSession? {
         if record.cloudRd {
             guard RemoteViewAvailability().isCloudRdAvailable, let make = cloudRd?(record.host),
                   let first = make(startsInControl(record)) else { return nil }
-            return RemoteViewPageSession(record: record, first: first, make: make, closeTab: closeTab, displayName: displayName)
+            return RemoteViewPageSession(record: record, first: first, make: make, closeTab: closeTab, displayName: displayName, personInput: personInput)
         }
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }

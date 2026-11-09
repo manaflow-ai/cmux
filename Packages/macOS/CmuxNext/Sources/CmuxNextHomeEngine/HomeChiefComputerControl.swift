@@ -56,18 +56,23 @@ public struct HomeChiefComputerControlSource {
     public var send: ((HomeChiefComputerInput) async throws -> Void)?
     /// Opens the computer's full interactive desktop (a Cloud machine). Nil for a sandbox.
     public var openInteractive: (() -> Void)?
+    /// The person's input reached the computer on its desktop, past ``send``: their hold stays theirs
+    /// for its idle time more (a Cloud machine). Nil where the lease's owner sees the input itself.
+    public var noteInput: (() -> Void)?
 
     public init(state: @escaping () -> HomeChiefComputerControlState?,
                 observe: @escaping (_ onChange: @escaping @MainActor () -> Void) -> AnyObject,
                 takeOver: @escaping () async throws -> Void,
                 handBack: @escaping () async throws -> Void,
                 send: ((HomeChiefComputerInput) async throws -> Void)? = nil,
-                openInteractive: (() -> Void)? = nil) {
+                openInteractive: (() -> Void)? = nil,
+                noteInput: (() -> Void)? = nil) {
         self.state = state
         self.observe = observe
         self.takeOver = takeOver
         self.handBack = handBack
         self.send = send
         self.openInteractive = openInteractive
+        self.noteInput = noteInput
     }
 }
