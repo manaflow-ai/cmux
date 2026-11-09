@@ -14,7 +14,7 @@ use super::*;
 const ROUTE_HANG_GUARD: Duration = Duration::from_secs(30);
 
 /// The budget of the stalled route: the runtime's own attempt timer.
-const STALLED_ROUTE_BUDGET: Duration = Duration::from_millis(20);
+const STALLED_ROUTE_BUDGET: Duration = Duration::from_millis(25);
 
 /// The runtime route attempt, with one attempt budget per route index. It
 /// records each failed route's error text by route index.
