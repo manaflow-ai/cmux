@@ -16,8 +16,13 @@ struct MobilePairingScannerGate: Equatable {
     let setupStatus: MobileTailscaleSetupStatus
     let onboardingMethod: MobileConnectionMethod?
 
+    /// Shell entry points follow stored Computers. Onboarding also follows the
+    /// method picked on its connect page: a first-run install has no Computer
+    /// to carry that choice yet, so gating onboarding on Computers alone left
+    /// its "Scan Pairing Code" button inert.
     var allowsScanner: Bool {
-        setupStatus != .notSelected
+        if setupStatus != .notSelected { return true }
+        return entry == .onboarding && onboardingMethod == .tailscale
     }
 }
 #endif
