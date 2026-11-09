@@ -1832,3 +1832,9 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   side inset in from the top and the bottom (updateSurfaces.css), so the text has the same room on all four sides.
   Regression: updated-card-even-insets (browser lane). Sidebar-Look: Lawrence 2026-11-07 11:28pm, "feels like too
   much padding on top".
+- 2026-11-09 (lane tab-group-vibrant-glass, for a590): `GroupGlassPaint` and `SidebarGroupGlass` move unchanged
+  from CmuxNextSidebar to CmuxNextDesign (`GroupGlass/`), so the tab strip's group chips, the saved groups bar and
+  the vertical tab list's group headers draw the same glass with a rim (`GroupChipGlass`) and follow
+  `sidebar.groupGlass` and `sidebar.groupHeader.background`. Ask: "Restyle tab group colors as vibrant glass with
+  rim". Sidebar-Look: no visual change (the headers' paint is the same code; `GroupGlassPaint` only gains an optional
+  ground, nil being the sidebar's background).

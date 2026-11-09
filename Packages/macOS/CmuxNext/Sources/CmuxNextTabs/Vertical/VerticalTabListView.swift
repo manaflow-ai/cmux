@@ -117,7 +117,8 @@ public final class VerticalTabListView: NSView {
         }
         if tokenObservation == nil {
             tokenObservation = Task { [weak self] in
-                for await snapshot in ObservationStream({ (VerticalTabListMetrics.current, Typography.body.pointSize) }) {
+                // The group headers' glass settings (`GroupChipGlass`) too: a change repaints them.
+                for await snapshot in ObservationStream({ (VerticalTabListMetrics.current, Typography.body.pointSize, GroupChipGlass.current) }) {
                     guard let self else { return }
                     if snapshot.0 != self.metrics { self.relayout() } else { self.needsDisplay = true }
                 }
