@@ -30,11 +30,14 @@ use serde_json::{Value, json};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 #[cfg(test)]
 #[path = "watch_seed_tests.rs"]
 mod seed_tests;
+
+#[path = "watch_tick.rs"]
+mod tick;
+pub(crate) use tick::WatchTicker;
 
 #[cfg(test)]
 #[path = "watch_idle_tests.rs"]
@@ -58,9 +61,6 @@ pub(super) mod idle_cost {
         COST.with(|c| c.replace((0, 0)))
     }
 }
-
-/// How often a watched transcript is checked for new lines.
-const POLL: Duration = Duration::from_millis(400);
 
 /// A transcript bigger than this is read from its newest part only.
 const MAX_BYTES: u64 = 64 << 20;
@@ -168,6 +168,14 @@ impl Hub {
         }
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
+            // Woken by the hub's one check of all watched transcripts (`watch_tick.rs`) when
+            // this one's length moved, never on a timer of its own.
+            let check = hub.watch_ticker.register(&session);
+            let over = || {
+                session.meta().watching.is_none()
+                    || session.purged.load(std::sync::atomic::Ordering::SeqCst)
+                    || session.status() == SessionStatus::Closed
+            };
             // Do not start copying the transcript before its older-history
             // boundary is safely journaled and checkpointed. Retry a transient
             // append, fsync, or metadata error while this is still a watch.
@@ -175,19 +183,17 @@ impl Hub {
                 if hub.seek_watch_to_page(&session).await {
                     break;
                 }
-                if session.meta().watching.is_none()
-                    || session.purged.load(std::sync::atomic::Ordering::SeqCst)
-                    || session.status() == SessionStatus::Closed
-                {
+                if over() {
                     return;
                 }
-                tokio::time::sleep(POLL).await;
+                check.retry();
+                check.wait().await;
             }
             loop {
-                let Some(watching) = session.meta().watching else { return };
-                if session.status() == SessionStatus::Closed {
+                if over() {
                     return;
                 }
+                let Some(watching) = session.meta().watching else { return };
                 let file = watching.file.clone();
                 #[cfg(test)]
                 idle_cost::blocking();
@@ -196,15 +202,18 @@ impl Hub {
                 let (lines, offset) = match read {
                     Ok(Ok(read)) => read,
                     // Gone or unreadable for now (the app rotates or rewrites it): try again.
-                    _ => (Vec::new(), watching.offset),
+                    _ => {
+                        check.retry();
+                        (Vec::new(), watching.offset)
+                    }
                 };
-                // Even an oversized skipped chunk is progress; drain the backlog without a poll delay.
+                // Even an oversized skipped chunk is progress; drain the backlog without waiting.
                 let more = offset > watching.offset;
                 if offset != watching.offset {
                     hub.show_watched(&session, &lines, offset).await;
                 }
                 if !more {
-                    tokio::time::sleep(POLL).await;
+                    check.wait().await;
                     #[cfg(test)]
                     idle_cost::wakeup();
                 }
