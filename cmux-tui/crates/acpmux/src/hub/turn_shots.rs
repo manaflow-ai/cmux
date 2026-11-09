@@ -125,13 +125,16 @@ fn host_socket() -> PathBuf {
 }
 
 /// The REPL cell that writes the workspace's page to `out`, printing `TURN_SHOT <json>` when it did.
-/// `tabs.list()` with no `all`: only tabs agents drive already, never one the person alone used.
+/// `tabs.list()` with no `all` names the tabs agents drive already (never one the person alone
+/// used); only `{all: true}` carries each tab's workspace, so the cell reads both and takes a tab in
+/// both. Listing attaches nothing; only `tabs.get` does, on the chosen tab.
 pub(crate) fn capture_code(workspace: &str, out: &Path) -> String {
     let workspace = json!(workspace_key(workspace));
     let out = json!(out.display().to_string());
     format!(
         r#"const key = (id) => String(id || "").replace(/^ws_/, "").replace(/-/g, "").toLowerCase();
-const tab = (await tabs.list()).find((t) => t.active && t.state === "live" && key(t.workspace) === {workspace} && /^https?:\/\//.test(t.url || ""));
+const driven = new Set((await tabs.list()).map((t) => t.id));
+const tab = (await tabs.list({{ all: true }})).find((t) => driven.has(t.id) && t.active && t.state === "live" && key(t.workspace) === {workspace} && /^https?:\/\//.test(t.url || ""));
 if (tab) {{ await screenshot(await tabs.get(tab.id), {{ path: {out} }}); console.log("TURN_SHOT " + JSON.stringify({{ url: tab.url }})); }}"#
     )
 }

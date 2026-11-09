@@ -48,11 +48,13 @@ type CacheEntry = { read: Promise<TurnShotPair | undefined>; settled?: { pair?: 
 /// The pairs read so far, by session and turn, at most `limit` (the oldest read goes first), so a
 /// card that scrolls back into view draws its pair at once, with no reveal, and memory stays bounded
 /// however long the chat is. A read that found nothing is kept too: a turn's pair never appears later.
+/// A read that failed (no answer, or the pair still being taken) is not kept: the next draw asks again.
 export class TurnShotCache {
   private readonly reads = new Map<string, CacheEntry>();
   constructor(private readonly limit = 12) {}
 
-  /// The pair already read for `key`: `{pair}` once settled (pair undefined: none), else undefined.
+  /// The pair already read for `key`: `{pair}` once settled (pair undefined: none), else undefined
+  /// (never read, being read, or the read failed).
   peek(key: string): { pair?: TurnShotPair } | undefined {
     return this.reads.get(key)?.settled;
   }
@@ -71,7 +73,7 @@ export class TurnShotCache {
           return pair;
         },
         () => {
-          entry.settled = {};
+          if (this.reads.get(key) === entry) this.reads.delete(key);
           return undefined;
         },
       ),

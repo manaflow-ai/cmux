@@ -9431,17 +9431,14 @@ export class AcpmuxDirectClient {
   async turnShots(turnId: string): Promise<TurnShotPair | undefined> {
     const sessionId = this.selectedSession;
     if (!sessionId || this.capabilities?.has(TURN_SHOTS_CAPABILITY) !== true) return undefined;
-    try {
-      // A pair still being taken answers `pending` (acpmux waited 30 s): ask again, at most twice
-      // more, past the longest a turn's two captures take; never cache it as no pair.
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const reply = await this.request("_acpmux/turn_shots", { sessionId, turnId });
-        if (objectValue(reply)?.pending !== true) return readTurnShots(reply);
-      }
-    } catch {
-      // No pair.
+    // A pair still being taken answers `pending` (acpmux waited 30 s): ask again, at most twice
+    // more, past the longest a turn's two captures take. Still pending, or a failed request, throws:
+    // the cache keeps only a definite answer, so a later draw asks again.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const reply = await this.request("_acpmux/turn_shots", { sessionId, turnId });
+      if (objectValue(reply)?.pending !== true) return readTurnShots(reply);
     }
-    return undefined;
+    throw new Error("turn pictures still being taken");
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;

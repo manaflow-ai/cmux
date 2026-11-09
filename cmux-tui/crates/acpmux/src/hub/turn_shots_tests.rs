@@ -66,7 +66,7 @@ fn the_cell_names_the_workspace_and_out_path_as_json_strings() {
     // Only a selected live web page: a hibernated tab is never woken for a picture.
     assert!(code.contains(r#"t.state === "live""#) && code.contains("t.active"), "{code}");
     // Only tabs agents drive already: touching one the person alone used would rebuild its page.
-    assert!(code.contains("tabs.list()") && !code.contains("all:"), "{code}");
+    assert!(code.contains("tabs.list()") && code.contains("driven.has(t.id)"), "{code}");
 }
 
 #[cfg(unix)]
@@ -184,4 +184,49 @@ async fn a_pair_still_being_taken_reads_as_pending_not_as_none() {
     assert_eq!(reply.get("pending"), Some(&json!(true)));
     assert!(reply.get("after").is_none());
     finish(&key);
+}
+
+/// The cell itself, run by node against a stand-in of the host's `tabs` API (js/api.js: rows carry
+/// `workspace` only for `{all: true}`, and the plain list holds only the tabs agents drive). It
+/// takes the driven selected page of the workspace, never the person's own tab. Skipped (and said)
+/// where no node is on PATH.
+#[test]
+fn the_cell_takes_only_the_workspaces_driven_tab() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("before.png");
+    let ws = "1A2B3C4D-0000-4000-8000-00000000ABCD";
+    let cell = capture_code("ws_1a2b3c4d00004000800000000000abcd", &out);
+    let script = format!(
+        r#"const rows = [
+  {{ id: "mine", url: "https://bank.test/", active: true, state: "live", workspace: "{ws}", driven: false }},
+  {{ id: "preview", url: "http://127.0.0.1:5173/", active: true, state: "live", workspace: "{ws}", driven: true }},
+  {{ id: "other", url: "http://127.0.0.1:3000/", active: true, state: "live", workspace: "ffff", driven: true }},
+];
+const got = [];
+const tabs = {{
+  async list(options = {{}}) {{
+    return rows.filter((r) => options.all || r.driven).map((r) => {{
+      const row = {{ id: r.id, url: r.url, active: r.active, state: r.state }};
+      if (options.all) row.workspace = r.workspace;
+      return row;
+    }});
+  }},
+  async get(id) {{ got.push("get " + id); return {{ id }}; }},
+}};
+async function screenshot(page, opts) {{ got.push("shot " + page.id + " " + opts.path); }}
+(async () => {{
+{cell}
+console.log("GOT " + JSON.stringify(got));
+}})();"#
+    );
+    let run = std::process::Command::new("node").arg("-e").arg(&script).output();
+    let Ok(run) = run else {
+        eprintln!("skipped: no node on PATH");
+        return;
+    };
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(run.status.success(), "{stdout}{}", String::from_utf8_lossy(&run.stderr));
+    let expected = json!(["get preview", format!("shot preview {}", out.display())]);
+    assert!(stdout.contains(&format!("GOT {expected}")), "{stdout}");
+    assert!(stdout.contains("TURN_SHOT {\"url\":\"http://127.0.0.1:5173/\"}"), "{stdout}");
 }

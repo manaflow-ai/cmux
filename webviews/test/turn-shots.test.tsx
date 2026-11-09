@@ -75,8 +75,11 @@ test("reads are kept once per turn, at most the cache's limit", async () => {
   // The oldest read went: a third turn keeps two.
   expect(cache.peek("t1")).toBeUndefined();
   expect(cache.peek("t3")).toEqual({ pair });
+  // A failed read is not kept: the next draw asks again.
   await cache.read("t4", () => Promise.reject(new Error("gone")));
-  expect(cache.peek("t4")).toEqual({});
+  expect(cache.peek("t4")).toBeUndefined();
+  await cache.read("t4", load);
+  expect(cache.peek("t4")).toEqual({ pair });
 });
 
 const edit = (ended: boolean): AcpmuxRow =>
