@@ -25,7 +25,7 @@
   --agent-motion-move: var(--cmux-motion-standard, 180ms);
   /* A sent prompt's one motion: its room, its bubble and the thread's rise (the scale's send step;
      shared/theme.ts scales it as the host scaled the move step). */
-  --agent-motion-send: var(--cmux-motion-send, 265ms);
+  --agent-motion-send: var(--cmux-motion-send, 180ms);
   --agent-motion-send-fade: var(--agent-motion-send);
   --agent-ease-send: var(--cmux-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   /* Core Animation's easeOut, which the native fades use. */

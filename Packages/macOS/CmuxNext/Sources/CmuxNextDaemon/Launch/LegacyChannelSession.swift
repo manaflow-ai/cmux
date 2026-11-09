@@ -49,6 +49,16 @@ struct LegacyChannelSession: Sendable {
         stateDirectory.deletingLastPathComponent().appendingPathComponent(Self.markerName)
     }
 
+    /// ``marker(stateDirectory:)`` where builds before ``StateFolderMove`` kept it, under classic's `cmux`. It stays
+    /// there when the move found NEXT's folder already in use; the Rust CLI reads it too
+    /// (`legacy_session_marker_before_move`), so the app and the CLI pick the same session.
+    func markerBeforeMove(stateDirectory: URL) -> URL? {
+        let next = DaemonLauncher.nextSupport(applicationSupport).path + "/"
+        guard stateDirectory.path.hasPrefix(next) else { return nil }
+        let classic = applicationSupport.appendingPathComponent("cmux", isDirectory: true)
+        return marker(stateDirectory: classic.appendingPathComponent(String(stateDirectory.path.dropFirst(next.count))))
+    }
+
     /// The channel of an untagged channel build (`com.cmuxterm.app.<channel>`
     /// running `cmux-app-<channel>`), else nil.
     static func channel(bundleID: String?, session: String) -> String? {
@@ -66,6 +76,7 @@ struct LegacyChannelSession: Sendable {
     private func decide(channel: String, session: String, stateDirectory: URL) -> Bool {
         let marker = marker(stateDirectory: stateDirectory)
         if FileManager.default.fileExists(atPath: marker.path) { return true }
+        if let before = markerBeforeMove(stateDirectory: stateDirectory), FileManager.checked.fileExists(atPath: before.path) { return true }
         guard let legacy = rememberedSnapshot(),
               URL(fileURLWithPath: legacy).deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path
                 == legacyRoot.standardizedFileURL.path,

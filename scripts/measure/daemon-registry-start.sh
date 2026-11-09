@@ -12,9 +12,25 @@
 # (identify's lifecycle_ready) and the owner's startup-timings.jsonl laps.
 # Output: DRS-GEN {json} (the generator's report and throughput), DRS {json} per start, and
 # .build/daemon-registry-start/report.json with all of them. Exit 1 when a start did not get ready.
+#
+# On an existing registry instead of a generated one (also runs directly on a Mac):
+#   scripts/measure/daemon-registry-start.sh registry=/path/to/workspace-registry.sqlite3 bump=0 rounds=2
+# The file (and its -wal, -shm) is cloned into the scratch state dir where an owner of its own
+# session (meta session_name) opens it: `cp -c` on macOS (an APFS clone, instant and no extra disk,
+# so CMUX_DRS_SCRATCH must be on the same volume), `cp --reflink=auto` on Linux. Only the clone is
+# ever opened read-write; the source is only read by cp. bump=1 sets the clone's roster snapshot
+# one version behind first (synth_registry --bump-only), bump=0 starts it as it is. An owner opens
+# a registry only with its state root's resource receipt pepper: pepper=/path/to/resource-effect-
+# pepper (default: the one in the registry's state root, two levels up, with machine-id beside it)
+# is copied next to the clone; with pepper=new, or none found, the clone is bound to a new one
+# (synth_registry --rebind-pepper). The pepper is a secret: copied, never printed. DRS-REG {json}
+# replaces DRS-GEN: sizes, journal head and roster version as found. The report holds only sizes,
+# counts, versions and timings, no paths or row contents. The scratch dir with the clone goes at
+# exit. An owner that exits before ready leaves its last log line on stderr (DRS-OWNER-EXIT).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-size_gb=2 bump=1 seal=1 output_gb=0 rounds=1 ready_timeout=3600
+session=drs
+size_gb=2 bump=1 seal=1 output_gb=0 rounds=1 ready_timeout=3600 registry= pepper=
 for kv in "$@"; do
   case "$kv" in
     size_gb=*) size_gb="${kv#*=}" ;;
@@ -23,9 +39,14 @@ for kv in "$@"; do
     output_gb=*) output_gb="${kv#*=}" ;;
     rounds=*) rounds="${kv#*=}" ;;
     ready_timeout=*) ready_timeout="${kv#*=}" ;;
+    registry=*) registry="${kv#*=}" ;;
+    pepper=*) pepper="${kv#*=}" ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
   esac
 done
+if [[ -n "$registry" && ( "$registry" != /* || ! -f "$registry" ) ]]; then
+  echo "error: registry= needs the absolute path of an existing registry file" >&2; exit 2
+fi
 out="$root/.build/daemon-registry-start"
 rm -rf "$out" && mkdir -p "$out"
 # ghostty-vt-sys builds libghostty-vt from the ghostty-next submodule (as cmux-tui-rust-check.sh).
@@ -46,22 +67,104 @@ mkdir -p "$scratch/state" "$scratch/home"
 chmod 700 "$scratch" "$scratch/state"
 free_gb=$(( $(df -Pk "$scratch" | awk 'NR==2 {print $4}') / 1048576 ))
 echo "DRS host $(hostname -s) $(uname -sm) free ${free_gb} GB at $scratch"
-if (( free_gb < size_gb * 3 )); then
-  echo "warning: $free_gb GB free, under 3x the registry; the run may run out of disk"
+
+if [[ -n "$registry" ]]; then
+  if [[ "$(uname -s)" == Darwin ]]; then clone_flag=-c; else clone_flag=--reflink=auto; fi
+  if [[ "$clone_flag" != -c ]]; then
+    source_gb=$(( $(wc -c < "$registry") / 1073741824 ))
+    if (( free_gb < source_gb * 2 )); then
+      echo "warning: $free_gb GB free; a copy without reflink needs ${source_gb} GB and more"
+    fi
+  fi
+  incoming="$scratch/incoming/workspace-registry.sqlite3"
+  mkdir -p "$scratch/incoming"
+  clone_started=$(date +%s)
+  for suffix in "" -wal -shm; do
+    [[ -e "$registry$suffix" ]] || continue
+    if ! cp "$clone_flag" "$registry$suffix" "$incoming$suffix"; then
+      echo "error: could not clone the registry${suffix} (on macOS CMUX_DRS_SCRATCH must be on its volume)" >&2
+      exit 1
+    fi
+    chmod 600 "$incoming$suffix"
+  done
+  # An owner opens a registry only as the session it was made for (meta session_name), at
+  # exactly the path persistent_session_state_dir gives that session. Never printed.
+  session="$(python3 -c 'import sqlite3, sys
+row = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True).execute(
+    "SELECT value FROM meta WHERE key = '"'session_name'"'").fetchone()
+print(row[0] if row else "drs")' "$incoming")"
+  clone="$("$synth" --out "$scratch/state" --session "$session" --print-registry-path)"
+  mkdir -p "$(dirname "$clone")"
+  chmod 700 "$(dirname "$clone")"
+  for suffix in "" -wal -shm; do
+    [[ ! -e "$incoming$suffix" ]] || mv "$incoming$suffix" "$clone$suffix"
+  done
+  # The owner refuses a registry without its root's pepper (resource_effect_pepper_id).
+  source_root="$(dirname "$(dirname "$registry")")"
+  [[ -n "$pepper" ]] || pepper="$source_root/resource-effect-pepper"
+  if [[ "$pepper" != new && -f "$pepper" ]]; then
+    cp "$pepper" "$scratch/state/resource-effect-pepper"
+    chmod 600 "$scratch/state/resource-effect-pepper"
+    if [[ -f "$(dirname "$pepper")/machine-id" ]]; then
+      cp "$(dirname "$pepper")/machine-id" "$scratch/state/machine-id"
+    fi
+    pepper_source=copied
+  else
+    "$synth" --rebind-pepper --out "$scratch/state" --registry "$clone"
+    pepper_source=new
+  fi
+  # Sizes, journal head and roster as found, read-only on the clone.
+  python3 - "$clone" "$(( $(date +%s) - clone_started ))" > "$out/found.json" <<'PY'
+import json, os, sqlite3, sys
+clone, clone_s = sys.argv[1], int(sys.argv[2])
+size = lambda path: os.path.getsize(path) if os.path.exists(path) else 0
+db = sqlite3.connect("file:" + clone + "?mode=ro", uri=True)
+one = lambda sql: db.execute(sql).fetchone()
+roster = one("SELECT value FROM meta WHERE key = 'journal_reducer.agent_roster'")
+roster = json.loads(roster[0]) if roster else {}
+try:
+    segments = one("SELECT count(*), max(end_sequence) FROM journal_segments")
+except sqlite3.OperationalError:  # an older schema without sealed segments
+    segments = (0, 0)
+print(json.dumps({
+    "registry_bytes": size(clone), "wal_bytes": size(clone + "-wal"), "shm_bytes": size(clone + "-shm"),
+    "page_size": one("PRAGMA page_size")[0], "page_count": one("PRAGMA page_count")[0],
+    "freelist_count": one("PRAGMA freelist_count")[0],
+    "schema_version": int(one("SELECT value FROM meta WHERE key = 'schema_version'")[0]),
+    "journal_max_sequence": one("SELECT max(sequence) FROM session_journal")[0] or 0,
+    "segments": segments[0], "sealed_through": segments[1] or 0,
+    "roster_version_found": roster.get("version"),
+    "roster_cursor_found": int(roster["cursor"]) if "cursor" in roster else None,
+    "clone_s": clone_s,
+}))
+PY
+  if [[ "$bump" == 1 ]]; then
+    "$synth" --bump-only --registry "$clone" > "$out/bump.json"
+  else
+    echo "{\"roster_current_version\":$("$synth" --print-roster-version)}" > "$out/bump.json"
+  fi
+  python3 -c 'import json, sys; found, bumped = (json.load(open(p)) for p in sys.argv[1:3])
+found.update(source="registry", pepper=sys.argv[3], bumped=bumped); print(json.dumps(found))' \
+    "$out/found.json" "$out/bump.json" "$pepper_source" > "$out/generate.json"
+  echo "DRS-REG $(cat "$out/generate.json")"
+else
+  if (( free_gb < size_gb * 3 )); then
+    echo "warning: $free_gb GB free, under 3x the registry; the run may run out of disk"
+  fi
+
+  # Rows: a ~6 KiB put costs about 6.6 KiB of file; agent events are 4% of the rows.
+  puts=$(( size_gb * 1024 * 1024 * 1024 * 96 / 100 / 6750 ))
+  events=$(( puts / 24 ))
+  args=(--out "$scratch/state" --session "$session" --session-puts "$puts" --agent-events "$events"
+    --output-bytes "$(( output_gb * 1024 * 1024 * 1024 ))" --workspaces 24 --quiet)
+  [[ "$seal" != 1 ]] || args+=(--seal)
+  [[ "$bump" != 1 ]] || args+=(--roster-version-bump)
+  gen_started=$(date +%s)
+  "$synth" "${args[@]}" > "$out/generate.json"
+  echo "DRS-GEN $(cat "$out/generate.json") wall_s=$(( $(date +%s) - gen_started ))"
 fi
 
-# Rows: a ~6 KiB put costs about 6.6 KiB of file; agent events are 4% of the rows.
-puts=$(( size_gb * 1024 * 1024 * 1024 * 96 / 100 / 6750 ))
-events=$(( puts / 24 ))
-args=(--out "$scratch/state" --session drs --session-puts "$puts" --agent-events "$events"
-  --output-bytes "$(( output_gb * 1024 * 1024 * 1024 ))" --workspaces 24 --quiet)
-[[ "$seal" != 1 ]] || args+=(--seal)
-[[ "$bump" != 1 ]] || args+=(--roster-version-bump)
-gen_started=$(date +%s)
-"$synth" "${args[@]}" > "$out/generate.json"
-echo "DRS-GEN $(cat "$out/generate.json") wall_s=$(( $(date +%s) - gen_started ))"
-
 python3 "$root/scripts/measure/daemon-registry-start.py" \
-  --bin "$bin" --state "$scratch/state" --home "$scratch/home" --session drs \
+  --bin "$bin" --state "$scratch/state" --home "$scratch/home" --session "$session" \
   --socket "$socket_dir/mux.sock" --generate "$out/generate.json" \
   --rounds "$rounds" --bump "$bump" --ready-timeout "$ready_timeout" --report "$out/report.json"

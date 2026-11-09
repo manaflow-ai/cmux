@@ -855,6 +855,7 @@ impl Peer {
         if let Some(run) = shadow.take() {
             let _ = self.shadow_end(run).await;
         }
+        // timeout: a polite close on a link that is ending; a peer that never answers it is dropped.
         let _ = tokio::time::timeout(Duration::from_secs(1), ws.close(None)).await;
         // `_tunnel` (an ssh probe's own process) ends here.
     }

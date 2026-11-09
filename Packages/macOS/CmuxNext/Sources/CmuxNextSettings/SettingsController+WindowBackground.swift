@@ -20,6 +20,21 @@ extension SettingsController {
             .filter { managedKeys[$0.path.joined(separator: ".")] == nil }
     }
 
+    /// A fresh install's first launch: the window starts on Glass
+    /// (`WindowBackgroundSetting.freshInstallEdits`). A managed key, an MDM or team default, a
+    /// window background already in cmux.json or a Ghostty blur keeps the window as it is.
+    func startFreshInstallOnGlass() async throws {
+        let key = WindowBackgroundSetting.materialPath.joined(separator: ".")
+        guard managedKeys[key] == nil, !layerBelowFileSets(key) else { return }
+        var root = JSONValue.object([:])
+        for path in [WindowBackgroundSetting.opacityPath, WindowBackgroundSetting.materialPath] {
+            if let stored = try await file.value(at: path) { root = Self.replacing(path, with: stored, in: root) }
+        }
+        for edit in WindowBackgroundSetting.freshInstallEdits(in: root, ghosttyMaterial: ghosttyWindowMaterial) {
+            if let value = edit.value { try await set(value, at: edit.path) }
+        }
+    }
+
     /// The linked edits for a write, read against the file as it is now.
     func windowBackgroundLinkedEdits(writing path: [String], value: JSONValue?) async throws -> [(path: [String], value: JSONValue?)] {
         let keys = [WindowBackgroundSetting.opacityPath, WindowBackgroundSetting.materialPath]
