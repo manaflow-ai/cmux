@@ -2490,6 +2490,7 @@ impl Hub {
                 }),
                 remote: None,
                 update_line: Default::default(),
+                row: Default::default(),
             });
             drop(sessions);
         }
