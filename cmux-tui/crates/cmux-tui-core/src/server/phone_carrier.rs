@@ -12,6 +12,7 @@
 //! the command's own handler.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// The commands hostd's Cloud ACP adapter sends (`cloud_acp.rs`, `services.rs`
 /// `cloud_mobile_handshake`), and the read verbs the remote Cloud mobile path already allows.
@@ -33,8 +34,14 @@ const COMMANDS: &[&str] = &[
 ];
 
 impl Mux {
-    /// A unix connection that declared the phone's capability.
+    /// A unix connection that declared the phone's capability. Every line of every connection
+    /// asks, so with the input lane on this reads the registry's published facts, never its lock
+    /// (R-DAEMON-STATE S1, as `incognito_remote::is_remote_device`).
     pub(super) fn phone_carrier_client(&self, client: u64) -> bool {
+        if self.control_clients.input_lane.on() {
+            let facts = self.control_clients.state.load().recover_poison();
+            return facts.clients.get(&client).is_some_and(|connection| connection.phone_carrier);
+        }
         self.control_clients.is_unix(client)
             && self
                 .control_clients
