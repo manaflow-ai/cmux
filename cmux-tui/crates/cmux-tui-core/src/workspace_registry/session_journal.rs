@@ -190,11 +190,6 @@ pub(crate) struct JournalRestoreCursor {
 }
 
 impl SessionJournalReader {
-    /// [`unproven_kind_maps`] on this reader's connection.
-    pub(crate) fn unproven_kind_maps(&self) -> anyhow::Result<Option<(u64, Option<u64>)>> {
-        unproven_kind_maps(&self.connection)
-    }
-
     pub(crate) fn open(database_path: &Path) -> anyhow::Result<Self> {
         let connection = open_registry_database_with_flags(
             database_path,
