@@ -109,6 +109,18 @@ impl Raw {
         Self { out, lines, next: 0 }
     }
 
+    /// The `initialize` params of this CLI (caller protocol 1) declaring `kind` (`terminal` or
+    /// `agent`), or of an old one (0.1.0, no caller protocol) for `None`; no caller token.
+    fn hello(kind: Option<&str>) -> Value {
+        match kind {
+            Some(kind) => json!({"protocolVersion": 1, "clientCapabilities": {},
+                "clientInfo": {"name": "acpmux-cli", "version": "9.9.9"},
+                "_meta": {"acpmux": {"callerProtocol": 1, "callerKind": kind}}}),
+            None => json!({"protocolVersion": 1, "clientCapabilities": {},
+                "clientInfo": {"name": "acpmux-cli", "version": "0.1.0"}}),
+        }
+    }
+
     /// Sends a request and returns its result, skipping notifications.
     fn call(&mut self, method: &str, params: Value) -> Value {
         self.next += 1;
@@ -147,8 +159,18 @@ fn w5s_an_old_cli_or_an_unproven_agent_shell_is_never_the_person() {
         .unwrap_or_else(|e| panic!("new printed no JSON ({e}): {}", text(&created)));
     let rx = created["sessionId"].as_str().expect("sessionId").to_owned();
 
-    // The owner at a plain terminal: the person's prompt.
-    daemon.run(daemon.cmd().args(["send", "rx", "owner-words"]));
+    // The owner at a plain terminal: the person's prompt. Sent as this CLI's hello declares it
+    // (`cli_caller::declare` outside a session), not by the CLI itself: the CLI also names the
+    // harness above it in its process chain (`sender_harness.rs`), and a CI runner started below
+    // Claude Code or Codex (the macOS runner, review of #39020 N7) makes every send from it a
+    // harness's, which is no person's either.
+    let mut owner_terminal = Raw::open(&daemon.socket());
+    owner_terminal.call("initialize", Raw::hello(Some("terminal")));
+    owner_terminal.call(
+        "session/prompt",
+        json!({"sessionId": rx, "prompt": [{"type": "text", "text": "owner-words"}],
+               "_meta": {"acpmux": {"promptId": "p-owner"}}}),
+    );
 
     // The old CLI (0.1.0) in an agent's shell: no caller token, no caller protocol.
     let mut old = Raw::open(&daemon.socket());
