@@ -644,7 +644,10 @@ fn start_new(
     // would fold nothing and the update would test nothing.
     let saved = roster(&registry).map(|(saved, _, _)| saved);
     assert_eq!(saved, Some(old_version), "owner {label} would start on a roster of {saved:?}");
-    assert!(old_version < version, "build N+1's roster {version} is not past build N's {old_version}");
+    assert!(
+        old_version < version,
+        "build N+1's roster {version} is not past build N's {old_version}"
+    );
     let mut action = HeldAction::new(label);
     let _ = fs::remove_file(site.socket());
     action.try_first(&site.socket());
@@ -896,14 +899,25 @@ fn an_update_that_bumps_the_roster_reducer_repairs_itself() {
 
     let old = start_old(&settings, &template, "baseline-n");
     old.hand_off(&settings.new_bin);
-    let baseline = start_new(&settings, &template, "baseline-n1", (old_version, new_version), &entries, false);
+    let baseline =
+        start_new(&settings, &template, "baseline-n1", (old_version, new_version), &entries, false);
     drop(template);
 
     let warm = warm_site.map(|warm_site| {
         let mut old = start_old(&settings, &warm_site, "premigrate-n");
         let took = premigrate(&settings, &warm_site, &mut old, new_version);
         old.hand_off(&settings.new_bin);
-        (took, start_new(&settings, &warm_site, "premigrate-n1", (old_version, new_version), &entries, true))
+        (
+            took,
+            start_new(
+                &settings,
+                &warm_site,
+                "premigrate-n1",
+                (old_version, new_version),
+                &entries,
+                true,
+            ),
+        )
     });
 
     let seconds = |value: Option<Duration>| {
