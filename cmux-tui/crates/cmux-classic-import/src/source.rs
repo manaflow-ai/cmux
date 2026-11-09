@@ -351,6 +351,7 @@ mod tests {
 
     /// Only the exact files a run reads count: not a link to another file,
     /// not an older archive, not a look-alike name, not a path through `..`.
+    #[cfg(unix)]
     #[test]
     fn a_session_file_is_a_regular_file_a_run_reads_and_nothing_else() {
         let root = tempfile::tempdir().unwrap();

@@ -365,6 +365,7 @@ fn only_the_verified_app_runs_the_move_from_classic() {
 
 /// `begin` copies only the exact session files a run reads: a link named
 /// like classic's session is refused.
+#[cfg(unix)]
 #[test]
 fn begin_refuses_a_link_in_place_of_classics_session() {
     let mux = Mux::new_for_test("classic-import-link", SurfaceOptions::default());
