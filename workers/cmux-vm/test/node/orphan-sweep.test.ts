@@ -211,3 +211,22 @@ it("deletes nothing when the listing is cut off", async () => {
   )));
   expect(outcome._tag).toBe("Left");
 });
+
+it("deletes nothing when the listing breaks the JSON grammar after its items", async () => {
+  const deletes: string[] = [];
+  for (const tail of ["]]}", "]} x"]) {
+    const text = `{"tunnels":[${JSON.stringify(deviceTunnel(1))}${tail}`;
+    const fetch = async (request: Request) => {
+      const url = new URL(request.url);
+      if (url.pathname === "/v5/tunnels" && request.method === "GET") return new Response(text);
+      if (request.method === "DELETE") deletes.push(url.pathname);
+      return Response.json({});
+    };
+    const outcome = await Effect.runPromise(Effect.either(sweepOrphanTunnels(
+      { baseUrl: "https://provider.test", apiKey: Redacted.make("key"), environment: "production", fetch },
+      { dryRun: false, sweepable: () => Effect.succeed(new Set([device(1)])) },
+    )));
+    expect(outcome._tag).toBe("Left");
+  }
+  expect(deletes).toEqual([]);
+});

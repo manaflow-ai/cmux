@@ -31,3 +31,37 @@ it("fails on an oversized item, a missing field, an item that is not an object, 
   expect(() => read(JSON.stringify([{ tunnels: [] }]), 10)).toThrow(JsonItemsError);
   expect(() => read(JSON.stringify({ tunnels: [{ id: "x" }] }).slice(0, -2), 10)).toThrow(JsonItemsError);
 });
+
+it("checks the whole document's grammar, so a malformed listing hands over nothing the caller acts on", () => {
+  const bad = [
+    '{"tunnels":[{"id":"x"}]]}', // an extra closer
+    '{"tunnels":[{"id":"x"}}]}', // a closer of the wrong kind
+    '{"tunnels":[{"id":"x"}{"id":"y"}]}', // a missing comma between items
+    '{"tunnels":[{"id":"x"} {"id":"y"}]}', // the same, with whitespace
+    '{"a":1 "tunnels":[]}', // a missing comma between members
+    '{"tunnels":[{"id":"x"},]}', // a trailing comma
+    '{"tunnels":[,{"id":"x"}]}', // a leading comma
+    '{"tunnels" [{"id":"x"}]}', // a missing colon
+    '{"tunnels":[{"id":"x"}]} x', // trailing garbage
+    '{"tunnels":[{"id":"x"}]}{}', // a second document
+    '{"tunnels":[{"id":"x"}]', // the object unclosed
+    '{"tunnels":[{"id":"x"}', // the array unclosed
+    '{"tunnels":[{"id":"x"}],"count":tru}', // a malformed literal
+    '{"tunnels":[{"id":"x"}],"count":01}', // a malformed number
+    '{"tunnels":[{"id":"\\q"}]}', // an invalid escape
+    '{"tunnels":[{"id":"\\u12g4"}]}', // a malformed \u escape
+    '{"tunnels":[{"id":"a\nb"}]}', // a raw control character in a string
+    '{"tunnels":[],"tunnels":[]}', // the field twice
+    '{"tunnels":{"id":"x"}}', // the field not an array
+  ];
+  for (const text of bad) {
+    for (const chunk of [1, 5, text.length]) expect(() => read(text, chunk), text).toThrow(JsonItemsError);
+  }
+});
+
+it("accepts closers, commas, colons and escapes inside strings", () => {
+  const text = '{"note":"]}[{,:\\"\\\\\\/\\b\\f\\n\\r\\t\\u00e9","tunnels":[{"id":"x]}","s":"{[,\\"]"},{"id":"y","n":-1.5e+3,"t":true,"f":false,"z":null}],"totalCount":2}';
+  for (const chunk of [1, 3, text.length]) {
+    expect(read(text, chunk)).toEqual([{ id: "x]}", s: '{[,"]' }, { id: "y", n: -1500, t: true, f: false, z: null }]);
+  }
+});
