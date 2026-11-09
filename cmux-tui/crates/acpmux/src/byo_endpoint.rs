@@ -281,7 +281,8 @@ pub struct Endpoint<'a> {
     pub base_url: &'a str,
     /// One or more, the default first; never [`ALL_MODELS`].
     pub models: &'a [String],
-    pub keychain_item: &'a str,
+    /// None: the endpoint takes no key, and the profile names no Keychain item.
+    pub keychain_item: Option<&'a str>,
 }
 
 fn toml_string(s: &str) -> String {
@@ -294,7 +295,7 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
     let key = e.kind.secret_key();
     let head = format!(
         "# cmux harness profile: your own {} endpoint. Guide: docs/add-your-harness.md\n\
-         # The key is in the Keychain item below, never in this file. Store it with:\n\
+         # A key is only ever in the Keychain item named below, never in this file. Store it with:\n\
          #   cmux harness secret set {id} {key}\n\
          # Check it (one real hello turn) with: cmux harness doctor {id}\n\
          schema = 1\nid = {}\nname = {}\n",
@@ -306,7 +307,10 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
         toml_string(e.name),
         id = e.id,
     );
-    let item_line = format!("{key} = {{ keychain = {} }}\n", toml_string(e.keychain_item));
+    let item_line = e
+        .keychain_item
+        .map(|item| format!("{key} = {{ keychain = {} }}\n", toml_string(item)))
+        .unwrap_or_default();
     let marker = format!("{OWN_ENDPOINT_KEY} = {}\n", toml_string(e.kind.marker()));
     match e.kind {
         Kind::Anthropic => {
@@ -332,12 +336,17 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
             for m in e.models {
                 models.insert(m.clone(), serde_json::json!({"name": m}));
             }
+            // A keyless endpoint gets no apiKey: the client then sends no Authorization header.
+            let mut options = serde_json::json!({"baseURL": e.base_url});
+            if e.keychain_item.is_some() {
+                options["apiKey"] = serde_json::json!(format!("{{env:{OPENAI_KEY_ENV}}}"));
+            }
             let config = serde_json::json!({
                 "$schema": "https://opencode.ai/config.json",
                 "provider": {OPENCODE_PROVIDER: {
                     "npm": "@ai-sdk/openai-compatible",
                     "name": e.name,
-                    "options": {"baseURL": e.base_url, "apiKey": format!("{{env:{OPENAI_KEY_ENV}}}")},
+                    "options": options,
                     "models": models,
                 }},
                 "model": first,

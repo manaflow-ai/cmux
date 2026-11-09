@@ -4,8 +4,8 @@
 // add call (the Keychain from there): the caller clears it from its state as the call is sent.
 //
 // The host's add takes one `model` string: several models go comma separated, and `*` asks acpmux
-// for every model the endpoint lists at its `/models`. The host's add also requires a key, so an
-// endpoint that takes none (a model server on this Mac) gets NO_KEY, which it ignores.
+// for every model the endpoint lists at its `/models`. An endpoint that takes no key (a model server
+// on this Mac) is added without one: acpmux writes no key reference for it.
 //
 // The form picks the harness id (`endpointId`: an ASCII slug, numbered past every id acpmux has;
 // a localized name may have no ASCII letters). The host refuses an id acpmux already has unless
@@ -22,7 +22,7 @@ export interface EndpointBackend {
   baseUrl: string;
   /** One model id, or several comma separated (the first is the default), or `*`. */
   model: string;
-  /** Absent only with `replace`: the key stored by the form's earlier add stays. */
+  /** Absent: no key (a keyless server), or with `replace` the one the form's earlier add stored. */
   apiKey?: string;
   /** The harness id to write (the host makes one from `name` without it). */
   id?: string;
@@ -47,8 +47,6 @@ export interface EndpointService {
 
 /** The model-list entry acpmux fills in with every model the endpoint lists. */
 export const ALL_MODELS = "*";
-/** The key an endpoint that takes none gets: the host's add requires one, the server ignores it. */
-export const NO_KEY = "no-key";
 /** The OpenCode provider acpmux names an OpenAI-compatible endpoint's models under (`byo/<id>`). */
 const PROVIDER_PREFIX = "byo/";
 
@@ -211,21 +209,20 @@ export function keyReady(draft: EndpointDraft, key: KeyNeed, target: AddTarget |
 }
 
 /** The host's add for the draft at `target`; `models` overrides the typed list (`[ALL_MODELS]` to
- * fetch). An empty key field sends NO_KEY, except on the form's own retry after a typed key: then
- * no key, and the stored one stays (never NO_KEY over a real key). */
+ * fetch). An empty key field sends no key: acpmux then writes none, or on the form's own retry
+ * (`replace`) keeps the one it stored. */
 export function endpointBackend(
   draft: EndpointDraft,
   target?: AddTarget,
   models: string[] = modelList(draft.models),
 ): EndpointBackend {
   const typed = draft.apiKey.trim();
-  const keep = !typed && !!target?.own && target.typedKey;
   return {
     kind: draft.kind,
     name: draft.name.trim(),
     baseUrl: draft.baseUrl.trim(),
     model: models.join(","),
-    ...(keep ? {} : { apiKey: typed || NO_KEY }),
+    ...(typed ? { apiKey: typed } : {}),
     ...(target ? { id: target.id } : {}),
     ...(target?.own ? { replace: target.id } : {}),
   };
@@ -234,8 +231,7 @@ export function endpointBackend(
 /** After an add at `target` with `backend`: the form's own harness from now on, keeping whether a
  * typed key is stored there. */
 export function addedTarget(target: AddTarget, backend: EndpointBackend): AddTarget {
-  const typed = backend.apiKey !== undefined && backend.apiKey !== NO_KEY;
-  return { id: target.id, own: true, typedKey: typed || (backend.apiKey === undefined && target.typedKey) };
+  return { id: target.id, own: true, typedKey: !!backend.apiKey || target.typedKey };
 }
 
 /** A harness's model ids as the form lists them (acpmux names an OpenAI-compatible one `byo/<id>`). */

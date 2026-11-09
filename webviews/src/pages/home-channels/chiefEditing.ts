@@ -146,7 +146,7 @@ export function parseBackends(answer: unknown): HomeChiefBackend[] {
   const probed = (fields.models as { harnesses?: unknown } | undefined)?.harnesses;
   for (const entry of Array.isArray(probed) ? (probed as Record<string, unknown>[]) : []) {
     if (typeof entry.harness !== "string" || !Array.isArray(entry.models)) continue;
-    models.set(entry.harness, (entry.models as Record<string, unknown>[]).map(model));
+    models.set(entry.harness, (entry.models as unknown[]).map(model));
   }
   const ids = Object.keys(map).sort((a, b) =>
     a === listed.defaultHarness ? -1 : b === listed.defaultHarness ? 1 : a < b ? -1 : a > b ? 1 : 0,
@@ -155,7 +155,8 @@ export function parseBackends(answer: unknown): HomeChiefBackend[] {
     .filter((id) => map[id]?.kind !== "terminal")
     .map((id) => {
       const entry = map[id] ?? {};
-      const own = Array.isArray(entry.models) ? (entry.models as Record<string, unknown>[]).map(model) : [];
+      // A profile's declared models: acpmux sends each as its id (a string) or as `{id, name}`.
+      const own = Array.isArray(entry.models) ? (entry.models as unknown[]).map(model).filter((m) => m.id) : [];
       const name = typeof entry.displayName === "string" && entry.displayName ? entry.displayName : id;
       const unavailable = typeof entry.unavailable === "string" && entry.unavailable ? entry.unavailable : undefined;
       return {
@@ -167,7 +168,8 @@ export function parseBackends(answer: unknown): HomeChiefBackend[] {
     });
 }
 
-function model(raw: Record<string, unknown>): HomeChiefBackend["models"][number] {
+function model(entry: unknown): HomeChiefBackend["models"][number] {
+  const raw = (typeof entry === "string" ? { id: entry } : (entry ?? {})) as Record<string, unknown>;
   const id = String(raw.id ?? raw.modelId ?? "");
   const efforts = Array.isArray(raw.efforts) ? raw.efforts.filter((e): e is string => typeof e === "string") : [];
   return { id, name: typeof raw.name === "string" && raw.name ? raw.name : id, efforts };

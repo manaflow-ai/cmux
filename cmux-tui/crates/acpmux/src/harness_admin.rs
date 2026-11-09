@@ -111,8 +111,9 @@ pub struct AddParams {
 impl AddParams {
     /// The daemon's `_acpmux/harness/add` params.
     pub fn from_json(params: &Value) -> Result<Self, AdminError> {
-        // The key itself never comes through add (H4): it goes to the
-        // Keychain (`_acpmux/harness/secret/set`), and the profile names it.
+        // The key itself never reaches a profile (H4): it goes to the Keychain
+        // and the profile names it. An endpoint add's `apiKey` is taken out
+        // before this (server/harness_admin.rs) and stored by `add_endpoint_keyed`.
         for name in
             ["key", "apiKey", "api_key", "token", "authToken", "secret", "value", "password"]
         {
@@ -384,7 +385,7 @@ pub fn add(
         });
     }
     if let Some(kind) = p.example.as_deref().and_then(byo_endpoint::Kind::from_example) {
-        return add_endpoint(kind, p, &dir);
+        return add_endpoint(kind, p, &dir, &EndpointKey::NONE);
     }
     if p.base_url.is_some() || !p.models.is_empty() || p.keychain_item.is_some() {
         return Err(AdminError::Invalid(
@@ -450,9 +451,72 @@ pub fn add(
     Ok(Added { diagnostics: diagnostics_text(&text, &path, &id), id, path, secret: None })
 }
 
+/// An endpoint add's key: the one to store (the app's add sends it with the
+/// profile, one call), whether an item already holds one (the CLI, for a key
+/// stored before the add), the store command's runner, and the ids another
+/// source already has (a built-in, a managed profile).
+pub struct EndpointKey<'a> {
+    pub value: Option<&'a str>,
+    pub stored: &'a dyn Fn(&str) -> bool,
+    pub store: &'a dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>,
+    pub taken: &'a dyn Fn(&str) -> bool,
+}
+
+fn never(_: &str) -> bool {
+    false
+}
+
+fn no_store(_: &crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()> {
+    anyhow::bail!("this add stores no key")
+}
+
+impl EndpointKey<'static> {
+    /// No key, none stored, no other source: `add`'s endpoint path.
+    pub const NONE: Self = Self { value: None, stored: &never, store: &no_store, taken: &never };
+}
+
+/// Every endpoint add, one at a time: the id check, the profile and its key
+/// are one step, so two adds of one id never both pass the check and the
+/// later key never lands under the earlier profile.
+static ENDPOINT_ADDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// `add` for an endpoint example with its key (the daemon's add with `apiKey`,
+/// the CLI). See [`add_endpoint`].
+pub fn add_endpoint_keyed(
+    p: &AddParams,
+    sources: &ProfileSources,
+    key: &EndpointKey<'_>,
+) -> Result<Added, AdminError> {
+    let kind =
+        p.example.as_deref().and_then(byo_endpoint::Kind::from_example).ok_or_else(|| {
+            AdminError::Invalid(
+                "a key goes with example anthropic-endpoint or openai-endpoint".into(),
+            )
+        })?;
+    add_endpoint(kind, p, &user_dir(sources)?, key)
+}
+
+/// The Keychain item an existing endpoint profile reads its key from, if any.
+fn existing_item(path: &Path, kind: byo_endpoint::Kind) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let value: toml::Value = toml::from_str(&text).ok()?;
+    value.get("env")?.get(kind.secret_key())?.get("keychain")?.as_str().map(str::to_owned)
+}
+
 /// `add` for an endpoint example: a checked profile that names the key's
-/// Keychain item, never the key.
-fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<Added, AdminError> {
+/// Keychain item, never the key. With `key.value` the key is stored under
+/// `cmux-harness/<id>/<KEY>` (this profile's own item) right after the
+/// profile is written, under [`ENDPOINT_ADDS`]; a failed store puts the old
+/// profile back (or removes the new one). Without a key the profile names the
+/// item `keychainItem` gives, else (with `replace`) the one the profile it
+/// replaces names, else the default item when one is stored there, else none:
+/// a keyless endpoint has no key reference that would fail to resolve.
+fn add_endpoint(
+    kind: byo_endpoint::Kind,
+    p: &AddParams,
+    dir: &Path,
+    key: &EndpointKey<'_>,
+) -> Result<Added, AdminError> {
     if p.command.is_some() || p.registry.is_some() || !p.args.is_empty() || !p.env.is_empty() {
         return Err(AdminError::Invalid(format!(
             "{} takes id, displayName, baseUrl, model and keychainItem only",
@@ -464,6 +528,12 @@ fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<A
         return Err(AdminError::Invalid(format!(
             "id {id:?} must be 1-40 lowercase letters, digits or '-'"
         )));
+    }
+    if key.value.is_some() && p.keychain_item.is_some() {
+        return Err(AdminError::Invalid(
+            "give the key or keychainItem, not both: a key given is stored in the profile's own item"
+                .into(),
+        ));
     }
     let base_url =
         byo_endpoint::check_base_url(p.base_url.as_deref().unwrap_or("")).map_err(|e| match e {
@@ -477,11 +547,11 @@ fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<A
                 .into(),
         ));
     }
-    let item = match &p.keychain_item {
-        Some(item) => byo_endpoint::check_keychain_item(item).map_err(|(secret, m)| {
+    let given = match &p.keychain_item {
+        Some(item) => Some(byo_endpoint::check_keychain_item(item).map_err(|(secret, m)| {
             if secret { AdminError::SecretInline(m) } else { AdminError::Invalid(m) }
-        })?,
-        None => byo_endpoint::default_item(kind, &id),
+        })?),
+        None => None,
     };
     let name = p.display_name.clone().unwrap_or_else(|| default_name(&id));
     if name.chars().any(char::is_control) || name.len() > 100 {
@@ -489,26 +559,56 @@ fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<A
             "displayName must be one line of at most 100 bytes".into(),
         ));
     }
+    let path = dir.join(format!("{id}.toml"));
+    let default = byo_endpoint::default_item(kind, &id);
+    let _one = ENDPOINT_ADDS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if (path.exists() || (key.taken)(&id)) && !p.replace {
+        return Err(AdminError::Exists(format!(
+            "{} already has a profile; pass replace to write it again",
+            id
+        )));
+    }
+    let item = match (given, key.value) {
+        (Some(item), _) => Some(item),
+        (None, Some(_)) => Some(default.clone()),
+        (None, None) => existing_item(&path, kind)
+            .filter(|_| p.replace)
+            .or_else(|| (key.stored)(&default).then(|| default.clone())),
+    };
     let text = byo_endpoint::profile_text(&byo_endpoint::Endpoint {
         kind,
         id: &id,
         name: &name,
         base_url: &base_url,
         models: &models,
-        keychain_item: &item,
+        keychain_item: item.as_deref(),
     });
-    let path = dir.join(format!("{id}.toml"));
-    if path.exists() && !p.replace {
-        return Err(AdminError::Exists(format!(
-            "{} exists; pass replace to write it again",
-            path.display()
-        )));
-    }
     ensure_dir(dir)?;
+    let before = std::fs::read(&path).ok();
     crate::config::write_atomic(&path, text.as_bytes()).map_err(failed)?;
+    if let Some(value) = key.value {
+        let stored = crate::cli::harness_secret::store_command(
+            std::env::consts::OS,
+            &id,
+            kind.secret_key(),
+            value,
+        )
+        .and_then(|cmd| (key.store)(&cmd));
+        if let Err(e) = stored {
+            // Never a profile that names a key that is not there: back as it was.
+            let _ = match &before {
+                Some(old) => crate::config::write_atomic(&path, old),
+                None => std::fs::remove_file(&path),
+            };
+            return Err(AdminError::Failed(format!("the key was not stored: {e:#}")));
+        }
+    }
     Ok(Added {
         diagnostics: diagnostics_text(&text, &path, &id),
-        secret: Some(SecretSlot { key: kind.secret_key().to_owned(), keychain_item: item }),
+        secret: Some(SecretSlot {
+            key: kind.secret_key().to_owned(),
+            keychain_item: item.unwrap_or(default),
+        }),
         id,
         path,
     })
@@ -516,11 +616,14 @@ fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<A
 
 /// Fills in `*` of an endpoint add's models with what the endpoint lists
 /// (`byo_endpoint::fetch_models`), after the models typed before it. The key
-/// is read from the Keychain item the add names (else the default item);
-/// without one the list is asked for without a key (a local server).
+/// is `key` (the one the add brings), else read from the Keychain item the
+/// add names, else the one the profile it replaces names, else the default
+/// item; without one the list is asked for without a key (a local server).
 /// Nothing to do for any other add.
 pub async fn fetch_endpoint_models(
     p: &mut AddParams,
+    key: Option<&str>,
+    sources: &ProfileSources,
     lookup_keychain: impl Fn(&str, Option<&str>) -> Result<String, String> + Send + 'static,
 ) -> Result<(), AdminError> {
     let Some(kind) = p.example.as_deref().and_then(byo_endpoint::Kind::from_example) else {
@@ -531,21 +634,29 @@ pub async fn fetch_endpoint_models(
         return Ok(());
     }
     let base_url = p.base_url.clone().unwrap_or_default();
+    let id = p.id.clone().unwrap_or_else(|| kind.example().to_owned());
     let item = match &p.keychain_item {
         Some(item) => byo_endpoint::check_keychain_item(item).map_err(|(secret, m)| {
             if secret { AdminError::SecretInline(m) } else { AdminError::Invalid(m) }
         })?,
-        None => byo_endpoint::default_item(kind, p.id.as_deref().unwrap_or(kind.example())),
+        None => user_dir(sources)
+            .ok()
+            .filter(|_| p.replace)
+            .and_then(|dir| existing_item(&dir.join(format!("{id}.toml")), kind))
+            .unwrap_or_else(|| byo_endpoint::default_item(kind, &id)),
     };
-    let key = tokio::task::spawn_blocking(move || {
-        let (service, account) = match item.split_once('/') {
-            Some((s, a)) => (s.to_owned(), Some(a.to_owned())),
-            None => (item.clone(), None),
-        };
-        lookup_keychain(&service, account.as_deref()).ok().map(zeroize::Zeroizing::new)
-    })
-    .await
-    .map_err(failed)?;
+    let key = match key {
+        Some(key) => Some(zeroize::Zeroizing::new(key.to_owned())),
+        None => tokio::task::spawn_blocking(move || {
+            let (service, account) = match item.split_once('/') {
+                Some((s, a)) => (s.to_owned(), Some(a.to_owned())),
+                None => (item.clone(), None),
+            };
+            lookup_keychain(&service, account.as_deref()).ok().map(zeroize::Zeroizing::new)
+        })
+        .await
+        .map_err(failed)?,
+    };
     let fetched = byo_endpoint::fetch_models(
         kind,
         &base_url,

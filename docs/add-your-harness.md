@@ -250,8 +250,10 @@ cmux harness doctor acme                              # one real hello turn
 - The base URL is https; plain http only to `localhost`, `127.0.0.1` or `::1`. A URL with a user,
   password or key, a Keychain item name that looks like a key, and a key passed as a parameter are
   refused: the key goes only into the Keychain.
-- Without `--keychain-item` the item is `cmux-harness/<id>/<KEY>`, which `cmux harness secret set`
-  writes. With it, the profile reads the item you name (`service` or `service/account`).
+- Without `--keychain-item` the profile names `cmux-harness/<id>/<KEY>` only when a key is already
+  stored there; otherwise it names no key at all, so a keyless server's env always resolves.
+  `cmux harness secret set ID KEY` stores the key there later and points the profile at it. With
+  `--keychain-item`, the profile reads the item you name (`service` or `service/account`).
 - A family or global route binding never rewrites an endpoint harness; a chat's or
   workspace's route still does.
 - `cmux harness doctor ID` (and `_acpmux/harness/doctor {id, prompt: true}`) sends one real prompt:
@@ -259,16 +261,18 @@ cmux harness doctor acme                              # one real hello turn
   `openai-endpoint`. A failure names the fix: **check the key**, **check the base URL** or
   **model not found**. Env values are masked in everything it prints.
 
-From the app (the unix socket): `_acpmux/harness/secret/set {id, key, value}` stores the value
-(service `cmux-harness`, account `<id>/<key>`, through `security -i` on stdin) and points the
-profile at it, never echoing the value; for an id not added yet it stores the item and answers
-`profile: "pending"`. Then `_acpmux/harness/add {example: "anthropic-endpoint" |
+From the app (the unix socket): `_acpmux/harness/add {example: "anthropic-endpoint" |
 "openai-endpoint", id, displayName, baseUrl, model (one id, several comma separated, or `*`),
-models?, keychainItem?, replace?}` answers with `secret: {key, keychainItem}`; an id that already
-has a profile is refused (`harness.exists`) unless `replace` is true. The app's
-`cmux.chief.backend.add {id?, replace?, apiKey?, ...}` refuses an id acpmux has before it stores the
-key, unless `replace` names that same id (the form's own earlier add), and then a missing `apiKey`
-keeps the stored one. Then `_acpmux/harness/doctor {id, prompt: true}`. The
+models?, apiKey? | keychainItem?, replace?}` answers with `secret: {key, keychainItem}`. It is one
+step, taken one add at a time: an id that already has a profile (in your folder or any other
+source) is refused (`harness.exists`) before any key is stored, unless `replace` is true. Then the
+profile is written and `apiKey`, if given, is stored in that profile's own item
+(`cmux-harness/<id>/<KEY>`, through `security -i` on stdin; never echoed, never in the file). If
+the key cannot be stored, the profile is put back as it was. Without `apiKey`, a `replace` keeps
+the item the old profile named, and a new endpoint names none. `*` is read with the key given, or
+the one stored. `_acpmux/harness/secret/set {id, key, value}` stores a key for a harness on its own.
+The app's `cmux.chief.backend.add {id?, replace?, apiKey?, ...}` passes these on: the page sends
+`replace` only for its own earlier add. Then `_acpmux/harness/doctor {id, prompt: true}`. The
 Settings form and the Chief editor reach these through the app's `cmux.chief.backend.add|doctor`.
 
 ## Terminal harnesses (no ACP)

@@ -192,6 +192,31 @@ test("the backend list is every chat harness acpmux lists, with its models' effo
   expect(list.find((backend) => backend.id === "acme")!.unavailable).toBe("acme-agent is not on PATH");
 });
 
+test("an endpoint's declared models are read as acpmux serializes them: id strings or {id, name}", () => {
+  // `_acpmux/harnesses` as acpmux sends an endpoint profile's `[models] list` (DeclaredModel::Id is a string).
+  const list = parseBackends({
+    harnesses: {
+      harnesses: {
+        "local-models": { displayName: "Local Models", models: ["byo/model-large", "byo/model-small"] },
+        named: { displayName: "Named", models: [{ id: "n-1", name: "N One" }, "n-2"] },
+        blank: { displayName: "Blank", models: [""] },
+      },
+    },
+    models: { harnesses: [{ harness: "blank", models: [{ id: "probed", efforts: [] }] }] },
+  });
+  const models = (id: string) => list.find((backend) => backend.id === id)!.models;
+  expect(models("local-models")).toEqual([
+    { id: "byo/model-large", name: "byo/model-large", efforts: [] },
+    { id: "byo/model-small", name: "byo/model-small", efforts: [] },
+  ]);
+  expect(models("named").map((model) => [model.id, model.name])).toEqual([
+    ["n-1", "N One"],
+    ["n-2", "n-2"],
+  ]);
+  // No usable declared id: the probed `_acpmux/models` list.
+  expect(models("blank").map((model) => model.id)).toEqual(["probed"]);
+});
+
 test("Settings' editor sends every change through the host, the name and the lock included", async () => {
   const { client: host, sent } = client();
   let done: boolean | undefined;

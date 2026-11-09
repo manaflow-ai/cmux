@@ -285,12 +285,26 @@ async fn add_endpoint_cmd(
         );
     }
     let mut p = p.clone();
-    crate::harness_admin::fetch_endpoint_models(&mut p, profiles::keychain_lookup)
+    let sources = ProfileSources::current();
+    crate::harness_admin::fetch_endpoint_models(&mut p, None, &sources, profiles::keychain_lookup)
         .await
         .map_err(|e| anyhow!("{e}"))?;
     let p = &p;
-    let added = crate::harness_admin::add(p, &ProfileSources::current(), None, &|_| None)
-        .map_err(|e| anyhow!("{e}"))?;
+    // No key here (`cmux harness secret set` stores it): the profile names the default item only
+    // when a key is already stored there, so a keyless endpoint never fails on a missing item.
+    let stored = |item: &str| {
+        let (service, account) = item.split_once('/').map_or((item, None), |(s, a)| (s, Some(a)));
+        profiles::keychain_lookup(service, account).is_ok()
+    };
+    let added = crate::harness_admin::add_endpoint_keyed(
+        p,
+        &sources,
+        &crate::harness_admin::EndpointKey {
+            stored: &stored,
+            ..crate::harness_admin::EndpointKey::NONE
+        },
+    )
+    .map_err(|e| anyhow!("{e}"))?;
     if let Some(icon) = icon {
         set_icon_quiet(&added.id, icon)?;
     }

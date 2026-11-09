@@ -3,11 +3,11 @@ import CmuxNextPages
 import CmuxNextSettings
 import Testing
 
-/// `cmux.chief.backend.add` (u2586): what the page sends becomes the acpmux profile request. An
-/// endpoint's key never enters the profile request (only its Keychain item); a command keeps its
-/// arguments; a bad form is refused before anything is written.
+/// `cmux.chief.backend.add` (u2586): what the page sends becomes the one acpmux add request. An
+/// endpoint's key goes in that add (acpmux stores it in the profile's own Keychain item under the
+/// same lock as the id check), only when typed; a command keeps its arguments; a bad form is refused.
 @Suite struct ChiefBackendPageRouteTests {
-    @Test func anEndpointCarriesItsKeyOnlyToTheKeychainStep() throws {
+    @Test func anEndpointCarriesItsKeyInTheOneAdd() throws {
         let backend = try BroughtChiefBackend([
             "kind": "anthropic-endpoint", "name": "Acme Gateway", "baseUrl": "https://api.acme.dev",
             "model": "acme-1", "apiKey": "sk-secret-123",
@@ -21,13 +21,16 @@ import Testing
         request.example = "anthropic-endpoint"
         request.baseURL = "https://api.acme.dev"
         request.model = "acme-1"
-        request.keychainItem = "cmux-harness/acme-gateway/API_KEY"
+        request.apiKey = "sk-secret-123"
         let params = request.params
         #expect(params["example"] as? String == "anthropic-endpoint")
         #expect(params["baseUrl"] as? String == "https://api.acme.dev")
         #expect(params["model"] as? String == "acme-1")
-        #expect(params["keychainItem"] as? String == "cmux-harness/acme-gateway/API_KEY")
-        #expect(!String(describing: params).contains("sk-secret-123"))
+        #expect(params["apiKey"] as? String == "sk-secret-123")
+        #expect(params["keychainItem"] == nil)
+        // A keyless endpoint (a model server on this Mac) sends no key at all.
+        request.apiKey = ""
+        #expect(request.params["apiKey"] == nil)
     }
 
     @Test func aCommandKeepsItsArguments() throws {
@@ -37,7 +40,7 @@ import Testing
 
     @Test(arguments: [
         ["kind": "openai-endpoint", "name": "X", "baseUrl": "ftp://x", "model": "m", "apiKey": "k"] as JSONValue,
-        ["kind": "openai-endpoint", "name": "X", "baseUrl": "https://x.dev", "model": "m", "apiKey": ""],
+        ["kind": "openai-endpoint", "name": "X", "baseUrl": "https://x.dev", "model": "", "apiKey": "k"],
         ["kind": "command", "name": "X", "command": ""],
         ["kind": "shell", "name": "X", "command": "x"],
         ["kind": "command", "name": " ", "command": "x"],
@@ -47,11 +50,12 @@ import Testing
     }
 
     /// The page picks the id (a localized name may have no ASCII letters at all) and names the
-    /// same id in `replace` only to write its own earlier add again, which may keep the stored key.
+    /// same id in `replace` only to write its own earlier add again; no key is fine (acpmux keeps
+    /// the stored one on `replace`, and a keyless server needs none).
     @Test func thePagesIdAndReplaceAreTakenOnlyForTheSameId() throws {
         let fresh = try BroughtChiefBackend([
             "kind": "openai-endpoint", "name": "ローカルモデル", "id": "local-models-2",
-            "baseUrl": "http://127.0.0.1:11434/v1", "model": "a,b", "apiKey": "no-key",
+            "baseUrl": "http://127.0.0.1:11434/v1", "model": "a,b",
         ])
         #expect(fresh.id == "local-models-2")
         #expect(!fresh.replace)
@@ -61,13 +65,10 @@ import Testing
         ])
         #expect(again.replace)
         #expect(again.kind == .endpoint(example: "openai-endpoint", baseURL: "http://127.0.0.1:11434/v1", model: "a", apiKey: ""))
-        // `replace` naming another id replaces nothing, and then a key is required.
-        #expect(throws: PageError.self) {
-            try BroughtChiefBackend([
-                "kind": "openai-endpoint", "name": "X", "id": "mine", "replace": "theirs",
-                "baseUrl": "https://x.dev", "model": "m",
-            ])
-        }
+        // `replace` naming another id replaces nothing.
+        #expect(try !BroughtChiefBackend([
+            "kind": "openai-endpoint", "name": "X", "id": "mine", "replace": "theirs", "baseUrl": "https://x.dev", "model": "m",
+        ]).replace)
         #expect(try BroughtChiefBackend(["kind": "command", "name": "ローカル", "command": "x"]).id == "my-backend")
     }
 

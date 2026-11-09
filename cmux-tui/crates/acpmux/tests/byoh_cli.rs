@@ -253,13 +253,11 @@ fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
         "no next step: {}",
         text(&out)
     );
+    // No key given or stored: the profile names no Keychain item (a keyless server's env
+    // resolves); `cmux harness secret set` points it at one later.
     let file = std::fs::read_to_string(dir.join("local-oai.toml")).unwrap();
-    assert!(
-        file.contains(
-            r#"CMUX_BYO_API_KEY = { keychain = "cmux-harness/local-oai/CMUX_BYO_API_KEY" }"#
-        ),
-        "{file}"
-    );
+    assert!(!file.contains("CMUX_BYO_API_KEY = {"), "{file}");
+    assert!(!file.contains("\"apiKey\""), "{file}");
 
     // Plain http to another host is refused, and nothing is written.
     let out = user.run(&[

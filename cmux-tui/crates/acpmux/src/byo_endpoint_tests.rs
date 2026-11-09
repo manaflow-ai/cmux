@@ -98,13 +98,14 @@ fn byo_endpoint_anthropic_profile_runs_claude_with_a_keychain_token() {
     }
     assert_eq!(Kind::of_env(env), Some(Kind::Anthropic));
 
-    // Without keychainItem: the item `cmux harness secret set ID KEY` writes.
+    // Without keychainItem or a key: no key reference (nothing that would fail to resolve); the
+    // reply names the item `cmux harness secret set ID KEY` writes and points the profile at.
     let added =
         add(&params("anthropic-endpoint", "dflt", "https://llm.example.com", "m1", None), &src)
             .unwrap();
     let (profile, _) = load(&added.path, "dflt");
+    assert!(!profile.env.contains_key("ANTHROPIC_AUTH_TOKEN"), "{:?}", profile.env);
     let item = crate::cli::harness_secret::reference("dflt", "ANTHROPIC_AUTH_TOKEN");
-    assert_eq!(profile.env["ANTHROPIC_AUTH_TOKEN"], format!("${{keychain:{item}}}"));
     let reply = serde_json::to_value(&added).unwrap();
     assert_eq!(reply["secret"]["keychainItem"], json!(item), "{reply}");
 }
@@ -113,11 +114,30 @@ fn byo_endpoint_anthropic_profile_runs_claude_with_a_keychain_token() {
 fn byo_endpoint_openai_profile_configures_opencode_with_a_keychain_key() {
     let root = scratch("openai");
     let src = sources(&root);
-    let added = add(
+    let seen = std::sync::Mutex::new(Vec::<(Vec<String>, String)>::new());
+    let store = |c: &StoreCommand| -> anyhow::Result<()> {
+        seen.lock().unwrap().push((c.argv.clone(), c.stdin.to_string()));
+        Ok(())
+    };
+    let added = admin::add_endpoint_keyed(
         &params("openai-endpoint", "acme-oai", "https://api.example.com/v1/", "org/model-7b", None),
         &src,
+        &admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE },
     )
     .unwrap();
+    // The key went to the store command's stdin for this profile's own item, never the file.
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert!(seen[0].0.iter().all(|a| !a.contains(GOOD_KEY)), "the value is in argv");
+        assert!(seen[0].1.contains(GOOD_KEY));
+        assert!(
+            seen[0].0.iter().any(|a| a.contains("acme-oai/CMUX_BYO_API_KEY")),
+            "{:?}",
+            seen[0].0
+        );
+    }
+    assert!(!std::fs::read_to_string(&added.path).unwrap().contains(GOOD_KEY));
     assert!(added.diagnostics.is_empty(), "{:?}", added.diagnostics);
     let reply = serde_json::to_value(&added).unwrap();
     assert_eq!(reply["secret"]["key"], OPENAI_KEY_ENV, "{reply}");
@@ -541,7 +561,9 @@ async fn byo_endpoint_fetches_the_model_list_and_fills_in_star() {
     let mut p = params("openai-endpoint", "fetch", &base, "mine,*", Some("byo-test/key"));
     let looked = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let log = looked.clone();
-    admin::fetch_endpoint_models(&mut p, move |service, account| {
+    let fetch_root = scratch("fetch-src");
+    let fsrc = sources(&fetch_root);
+    admin::fetch_endpoint_models(&mut p, None, &fsrc, move |service, account| {
         log.lock().unwrap().push(format!("{service}/{}", account.unwrap_or("")));
         Ok(GOOD_KEY.to_owned())
     })
@@ -555,17 +577,27 @@ async fn byo_endpoint_fetches_the_model_list_and_fills_in_star() {
     assert_eq!(profile.models.len(), 3);
     // No key in the Keychain: asked without one; the endpoint's refusal is the error.
     let mut p = params("openai-endpoint", "fetch", &base, "*", None);
-    let e = admin::fetch_endpoint_models(&mut p, |_, _| Err("not found".into())).await.unwrap_err();
+    let e = admin::fetch_endpoint_models(&mut p, None, &fsrc, |_, _| Err("not found".into()))
+        .await
+        .unwrap_err();
     assert!(e.message().contains("refused the key"), "{e}");
     // A keyless local server answers without one.
     let open = fake_models(true, Arc::new(std::sync::Mutex::new(Vec::new())));
     let mut p =
         params("openai-endpoint", "local", &format!("http://127.0.0.1:{open}/v1"), "*", None);
-    admin::fetch_endpoint_models(&mut p, |_, _| Err("not found".into())).await.unwrap();
+    admin::fetch_endpoint_models(&mut p, None, &fsrc, |_, _| Err("not found".into()))
+        .await
+        .unwrap();
     assert_eq!(p.models, ["served-a", "served-b"]);
     // Without `*` nothing is asked.
     let mut p = params("openai-endpoint", "x", "http://127.0.0.1:9/v1", "m", None);
-    admin::fetch_endpoint_models(&mut p, |_, _| panic!("no lookup")).await.unwrap();
+    admin::fetch_endpoint_models(&mut p, None, &fsrc, |_, _| panic!("no lookup")).await.unwrap();
+    // The key the add brings is used as is: no Keychain lookup.
+    let mut p = params("openai-endpoint", "fetch", &base, "*", None);
+    admin::fetch_endpoint_models(&mut p, Some(GOOD_KEY), &fsrc, |_, _| panic!("no lookup"))
+        .await
+        .unwrap();
+    assert_eq!(p.models, ["served-a", "served-b"]);
     assert_eq!(p.models, ["m"]);
 }
 
@@ -799,4 +831,169 @@ async fn byo_endpoint_doctor_runs_a_real_turn_and_names_the_fix() {
     assert!(report.ok, "{}", report.text());
     assert_eq!(step(&report, "prompt").status, StepStatus::Skip, "{}", report.text());
     assert_eq!(hits.load(Ordering::SeqCst), before);
+}
+
+/// A store that records each (account argv, stdin) and may fail.
+fn recording(
+    fail: bool,
+) -> (Arc<std::sync::Mutex<Vec<String>>>, impl Fn(&StoreCommand) -> anyhow::Result<()> + Sync) {
+    let log = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = log.clone();
+    (log, move |c: &StoreCommand| {
+        if fail {
+            anyhow::bail!("the store is locked");
+        }
+        seen.lock().unwrap().push(format!("{} | {}", c.argv.join(" "), &*c.stdin));
+        Ok(())
+    })
+}
+
+#[test]
+fn byo_endpoint_concurrent_adds_of_one_id_store_one_key_under_its_own_profile() {
+    let root = scratch("race");
+    let src = sources(&root);
+    let (log, store) = recording(false);
+    let keys = ["sk-race-first-1a2b3c", "sk-race-second-4d5e6f"];
+    let barrier = std::sync::Barrier::new(keys.len());
+    let results: Vec<_> = std::thread::scope(|s| {
+        let handles: Vec<_> = keys
+            .iter()
+            .map(|key| {
+                let (src, store, barrier) = (&src, &store, &barrier);
+                s.spawn(move || {
+                    let p =
+                        params("openai-endpoint", "race", "https://api.example.com/v1", "m", None);
+                    barrier.wait();
+                    admin::add_endpoint_keyed(
+                        &p,
+                        src,
+                        &admin::EndpointKey { value: Some(key), store, ..admin::EndpointKey::NONE },
+                    )
+                    .map(|_| *key)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    // Exactly one wins; the other is refused before its key is stored.
+    let won: Vec<&str> = results.iter().filter_map(|r| r.as_ref().ok().copied()).collect();
+    assert_eq!(won.len(), 1, "{results:?}");
+    assert!(
+        results.iter().any(
+            |r| matches!(r, Err(e @ AdminError::Exists(_)) if e.reason() == Some("harness.exists"))
+        ),
+        "{results:?}"
+    );
+    let log = log.lock().unwrap();
+    assert_eq!(log.len(), 1, "{log:?}");
+    assert!(log[0].contains(won[0]) && log[0].contains("race/CMUX_BYO_API_KEY"), "{log:?}");
+    // The surviving profile names that one item: its own, by id.
+    let (profile, _) = load(&root.join("harnesses").join("race.toml"), "race");
+    let item = crate::cli::harness_secret::reference("race", OPENAI_KEY_ENV);
+    assert_eq!(profile.env[OPENAI_KEY_ENV], format!("${{keychain:{item}}}"));
+
+    // An id another source has (a built-in) is refused too, before any key is stored.
+    let (log, store) = recording(false);
+    let p = params("openai-endpoint", "claude", "https://api.example.com/v1", "m", None);
+    let taken = |id: &str| id == "claude";
+    let e = admin::add_endpoint_keyed(
+        &p,
+        &src,
+        &admin::EndpointKey {
+            value: Some(keys[0]),
+            store: &store,
+            taken: &taken,
+            ..admin::EndpointKey::NONE
+        },
+    )
+    .unwrap_err();
+    assert_eq!(e.reason(), Some("harness.exists"), "{e}");
+    assert!(log.lock().unwrap().is_empty());
+    assert!(!root.join("harnesses").join("claude.toml").exists());
+}
+
+#[test]
+fn byo_endpoint_a_keyed_add_keeps_or_rolls_back_its_profile() {
+    let root = scratch("keyed");
+    let src = sources(&root);
+    let path = root.join("harnesses").join("team.toml");
+    // A key and a keychainItem together are refused (the key goes in the profile's own item).
+    let (_, store) = recording(false);
+    let mut p = params("openai-endpoint", "team", "https://api.example.com/v1", "m", Some("x/y"));
+    let e = admin::add_endpoint_keyed(
+        &p,
+        &src,
+        &admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE },
+    )
+    .unwrap_err();
+    assert!(matches!(e, AdminError::Invalid(_)), "{e}");
+    // A store that fails: no profile is left that names a key that is not there.
+    p.keychain_item = None;
+    let (_, failing) = recording(true);
+    let e = admin::add_endpoint_keyed(
+        &p,
+        &src,
+        &admin::EndpointKey { value: Some(GOOD_KEY), store: &failing, ..admin::EndpointKey::NONE },
+    )
+    .unwrap_err();
+    assert!(e.message().contains("not stored") && !e.message().contains(GOOD_KEY), "{e}");
+    assert!(!path.exists());
+    // A profile an older app wrote names `.../API_KEY`: a replace without a key keeps that item.
+    let old = params(
+        "openai-endpoint",
+        "team",
+        "https://api.example.com/v1",
+        "m",
+        Some("cmux-harness/team/API_KEY"),
+    );
+    add(&old, &src).unwrap();
+    p.replace = true;
+    p.models = vec!["m2".into()];
+    add(&p, &src).unwrap();
+    let (profile, _) = load(&path, "team");
+    assert_eq!(profile.env[OPENAI_KEY_ENV], "${keychain:cmux-harness/team/API_KEY}");
+    assert_eq!(profile.model.as_deref(), Some("byo/m2"));
+    // A replace whose store fails puts the profile back as it was.
+    let before = std::fs::read_to_string(&path).unwrap();
+    p.models = vec!["m3".into()];
+    admin::add_endpoint_keyed(
+        &p,
+        &src,
+        &admin::EndpointKey { value: Some(GOOD_KEY), store: &failing, ..admin::EndpointKey::NONE },
+    )
+    .unwrap_err();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn byo_endpoint_a_keyless_endpoint_names_no_key_and_its_env_resolves() {
+    let root = scratch("keyless");
+    let src = sources(&root);
+    let p = params("openai-endpoint", "local", "http://127.0.0.1:11434/v1", "qwen3", None);
+    let added = add(&p, &src).unwrap();
+    let text = std::fs::read_to_string(&added.path).unwrap();
+    assert!(!text.contains("keychain ="), "{text}");
+    let (mut profile, meta) = load(&added.path, "local");
+    assert!(!profile.env.contains_key(OPENAI_KEY_ENV), "{:?}", profile.env);
+    // Any program that is there: the env step comes after the command step.
+    profile.argv[0] = fake_claude(&root).to_string_lossy().into_owned();
+    let config: Value = serde_json::from_str(&profile.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    assert!(config["provider"]["byo"]["options"].get("apiKey").is_none(), "{config}");
+    // The doctor's env step (what startup resolves) passes with no Keychain at all.
+    let cfg = config("local", profile, meta);
+    let mut opts = options(GOOD_KEY, false);
+    opts.lookup_keychain = Box::new(|_, _| Err("no Keychain".into()));
+    let report = doctor(&cfg, "local", &opts).await;
+    assert_eq!(step(&report, "env").status, StepStatus::Pass, "{}", report.text());
+    // A key stored before the add (the CLI's `stored`): the profile names that default item.
+    let stored = |item: &str| item == "cmux-harness/pre/CMUX_BYO_API_KEY";
+    let p = params("openai-endpoint", "pre", "http://127.0.0.1:11434/v1", "qwen3", None);
+    let added = admin::add_endpoint_keyed(
+        &p,
+        &src,
+        &admin::EndpointKey { stored: &stored, ..admin::EndpointKey::NONE },
+    )
+    .unwrap();
+    let (profile, _) = load(&added.path, "pre");
+    assert_eq!(profile.env[OPENAI_KEY_ENV], "${keychain:cmux-harness/pre/CMUX_BYO_API_KEY}");
 }

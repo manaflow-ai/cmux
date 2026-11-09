@@ -3,7 +3,6 @@
 import { expect, test } from "bun:test";
 import {
   ENDPOINT_PRESETS,
-  NO_KEY,
   bringEndpoint,
   addedTarget,
   canFetchModels,
@@ -76,13 +75,12 @@ test("the draft is complete with a name, a URL, valid models and, when needed, a
   expect(canFetchModels(draft({ models: "" }), "required")).toBe(false);
 });
 
-test("the host's add gets the models comma separated and a stand-in key for a keyless endpoint", () => {
+test("the host's add gets the models comma separated and no key for a keyless endpoint", () => {
   expect(endpointBackend(draft({ models: "big mid", name: " Local " }))).toEqual({
     kind: "openai-endpoint",
     name: "Local",
     baseUrl: "http://127.0.0.1:11434/v1",
     model: "big,mid",
-    apiKey: NO_KEY,
   });
   expect(endpointBackend(draft({ apiKey: " key " }), undefined, ["*"])).toMatchObject({ model: "*", apiKey: "key" });
   expect(endpointModelIds("openai-endpoint", [{ id: "byo/org/m" }, { id: "plain" }])).toEqual(["org/m", "plain"]);
@@ -138,7 +136,6 @@ test("fetch adds the endpoint with * at the form's id and reads its models back"
     name: "Local",
     baseUrl: "http://127.0.0.1:11434/v1",
     model: "*",
-    apiKey: NO_KEY,
     id: "local",
   });
 });
@@ -171,8 +168,10 @@ test("only the form's own earlier add is replaced, and a retry keeps the key it 
   // A required key may stay empty only when this form stored one.
   expect(endpointProblemAt(draft(), "required", null)).toBe("key");
   expect(endpointProblemAt(draft(), "required", mine)).toBeNull();
-  // Without a typed key stored (a keyless server), a retry still sends the stand-in.
+  // A keyless server: no key on the first add or the retry (acpmux writes no key reference).
   const keyless = addedTarget(fresh, endpointBackend(draft(), fresh));
   expect(keyless.typedKey).toBe(false);
-  expect(endpointBackend(draft(), keyless)).toMatchObject({ apiKey: NO_KEY, replace: "team-models" });
+  const again = endpointBackend(draft(), keyless);
+  expect(again).toMatchObject({ replace: "team-models" });
+  expect("apiKey" in again).toBe(false);
 });

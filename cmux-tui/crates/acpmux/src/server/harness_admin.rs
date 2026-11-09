@@ -175,11 +175,57 @@ pub(super) async fn handle(
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
     let reply = match m {
         method::MUX_HARNESS_ADD => {
-            let mut p = AddParams::from_json(params).map_err(rpc_error)?;
-            // `*`: the endpoint's own model list, read with the key just stored.
-            admin::fetch_endpoint_models(&mut p, profiles::keychain_lookup)
+            // An endpoint's key comes with its add (`apiKey`), so the id check, the profile and
+            // the key are one locked step (`admin::add_endpoint_keyed`). It never reaches the
+            // profile: it is taken out here and goes only to the store command's stdin.
+            let endpoint = text("example").and_then(crate::byo_endpoint::Kind::from_example);
+            let mut params = params.clone();
+            let key = match params.as_object_mut().and_then(|o| o.remove("apiKey")) {
+                Some(Value::String(v)) if endpoint.is_some() => {
+                    Some(zeroize::Zeroizing::new(v.trim().to_owned())).filter(|v| !v.is_empty())
+                }
+                None | Some(Value::Null) => None,
+                Some(_) if endpoint.is_some() => {
+                    return Err(RpcError::invalid_params("apiKey must be a string"));
+                }
+                Some(_) => {
+                    return Err(rpc_error(AdminError::SecretInline(
+                        "apiKey goes only with example anthropic-endpoint or openai-endpoint"
+                            .into(),
+                    )));
+                }
+            };
+            let mut p = AddParams::from_json(&params).map_err(rpc_error)?;
+            // `*`: the endpoint's own model list, read with the key this add brings or the stored one.
+            admin::fetch_endpoint_models(
+                &mut p,
+                key.as_deref().map(String::as_str),
+                &sources,
+                profiles::keychain_lookup,
+            )
+            .await
+            .map_err(rpc_error)?;
+            if endpoint.is_some() {
+                let cfg = hub.config.read().await.clone();
+                let added = tokio::task::spawn_blocking(move || {
+                    admin::add_endpoint_keyed(
+                        &p,
+                        &sources,
+                        &admin::EndpointKey {
+                            value: key.as_deref().map(String::as_str),
+                            stored: &|_| false,
+                            store: &crate::cli::harness_secret::run_store,
+                            taken: &|id| cfg.profile(id).is_some(),
+                        },
+                    )
+                })
                 .await
+                .map_err(joined)?
                 .map_err(rpc_error)?;
+                hub.reload_and_announce().await;
+                return Ok(json!({"id": added.id, "path": added.path,
+                    "diagnostics": added.diagnostics, "secret": added.secret}));
+            }
             let registry = match &p.registry {
                 Some(rid) => {
                     let reg = crate::cli::harness_registry::registry(false)

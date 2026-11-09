@@ -174,13 +174,12 @@ test("Endpoint: a model server on this Mac needs no key; Fetch Models fills the 
   expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(true);
   await act(async () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!.click());
   await settle();
-  // `*` asks acpmux for every model the endpoint lists; the host requires a key, so a keyless one gets a stand-in.
+  // `*` asks acpmux for every model the endpoint lists; a keyless server is added without a key.
   expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toEqual({
     kind: "openai-endpoint",
     name: "Local Models",
     baseUrl: "http://127.0.0.1:11434/v1",
     model: "*",
-    apiKey: "no-key",
     id: "local-models",
   });
   expect(endpointInput(form(), "models")!.value).toBe("model-large, model-medium, model-small");
@@ -235,7 +234,7 @@ test("Endpoint: a gateway's key goes only in the add call, and a failed check sh
   expect(endpointInput(form(), "apiKey")!.value).toBe("");
   expect(page.container.innerHTML).not.toContain("sk-gateway-secret");
   // The retry after the failure keeps the stored key: the field may stay empty, and no key is sent
-  // (never the keyless stand-in over the real one).
+  // (never an empty key over the real one).
   expect(form().querySelector("[data-endpoint-key-note]")!.textContent).toContain("Leave this empty");
   expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(false);
   await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
@@ -282,8 +281,8 @@ test("Endpoint: a second endpoint gets its own id, even from a name with no ASCI
   });
   // The first endpoint kept its models.
   const listed = page.provider.agents.endpointHarnesses();
-  expect(listed["local-models"]!.models).toEqual([{ id: "byo/first-model" }]);
-  expect(listed["local-models-2"]!.models).toEqual([{ id: "byo/second-model" }]);
+  expect(listed["local-models"]!.models).toEqual(["byo/first-model"]);
+  expect(listed["local-models-2"]!.models).toEqual(["byo/second-model"]);
   page.unmount();
 });
 

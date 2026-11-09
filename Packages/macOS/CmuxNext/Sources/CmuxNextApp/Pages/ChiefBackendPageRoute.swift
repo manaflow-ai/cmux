@@ -10,14 +10,12 @@ import Foundation
 /// Settings > Agents use.
 ///
 /// - `list`: `{harnesses: _acpmux/harnesses, models: _acpmux/models | null}`.
-/// - `add {kind, name, id?, replace?, command, args | baseUrl, model, apiKey}`, on a click only: an id acpmux has is
-///   refused before the key is touched unless `replace` names it (no `apiKey` then keeps the stored one). `{id}`.
+/// - `add {kind, name, id?, replace?, command, args | baseUrl, model, apiKey?}`, on a click only, passed to acpmux's
+///   add (`replace` only when it names the same id; acpmux refuses an id it has before any key is stored). `{id}`.
 /// - `doctor {id}`: `_acpmux/harness/doctor {id, prompt: true}`, `{ok, steps}`.
 @MainActor
 final class ChiefBackendPageRoute: PageProvider {
     nonisolated static let prefix = "cmux.chief.backend."
-    /// The env key an endpoint profile reads its key from.
-    nonisolated static let keyName = "API_KEY"
 
     private let center: AgentHarnessCenter
     private var spentGesture: TimeInterval?
@@ -52,11 +50,8 @@ final class ChiefBackendPageRoute: PageProvider {
         }
     }
 
-    /// Writes the profile (and an endpoint's key, first); answers the harness id acpmux keeps.
+    /// One acpmux add (it checks the id, writes the profile and stores the key in one locked step).
     private func add(_ backend: BroughtChiefBackend) async throws -> String {
-        if !backend.replace, try await center.listed().contains(backend.id) {
-            throw PageError(code: "cmux.agents.exists", message: "\(backend.id) already has a profile")
-        }
         var request = AgentHarnessAddRequest()
         request.id = backend.id
         request.displayName = backend.name
@@ -69,8 +64,7 @@ final class ChiefBackendPageRoute: PageProvider {
             request.example = example
             request.baseURL = baseURL
             request.model = model
-            request.keychainItem = try await apiKey.isEmpty
-                ? "cmux-harness/\(backend.id)/\(Self.keyName)" : center.setSecret(id: backend.id, key: Self.keyName, value: apiKey)
+            request.apiKey = apiKey
         }
         return try await center.add(request)["id"]?.stringValue ?? backend.id
     }
@@ -80,7 +74,7 @@ final class ChiefBackendPageRoute: PageProvider {
 nonisolated struct BroughtChiefBackend: Equatable {
     enum Kind: Equatable {
         case command(String, args: [String])
-        /// `example` is `anthropic-endpoint` or `openai-endpoint`; an empty `apiKey` keeps the stored one.
+        /// `example` is `anthropic-endpoint` or `openai-endpoint`; an empty `apiKey` sends none.
         case endpoint(example: String, baseURL: String, model: String, apiKey: String)
     }
 
@@ -105,7 +99,6 @@ nonisolated struct BroughtChiefBackend: Equatable {
             }
             guard !text("model").isEmpty else { throw PageError.invalidParams("model is required") }
             let apiKey = params["apiKey"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !apiKey.isEmpty || replace else { throw PageError.invalidParams("apiKey is required") }
             kind = .endpoint(example: example, baseURL: baseURL, model: text("model"), apiKey: apiKey)
         default:
             throw PageError.invalidParams("kind must be command, anthropic-endpoint or openai-endpoint")

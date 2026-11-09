@@ -95,7 +95,6 @@ export class MockAgents {
     const id = slug(String(params.id ?? "") || name);
     const replace = params.replace === id;
     const apiKey = String(params.apiKey ?? "");
-    if (!apiKey && !replace) throw new ProtocolError("cmux.page.invalid_params", "apiKey is required");
     const models: string[] = [];
     for (const word of String(params.model ?? "").split(",")) {
       for (const model of word.trim() === "*" ? this.endpoint.served : [word.trim()])
@@ -120,12 +119,13 @@ export class MockAgents {
   }
 
   /** The endpoint harnesses for `cmux.chief.backend.list`'s `_acpmux/harnesses` part. */
-  endpointHarnesses(): Record<string, { displayName: string; models: { id: string }[] }> {
-    const out: Record<string, { displayName: string; models: { id: string }[] }> = {};
+  endpointHarnesses(): Record<string, { displayName: string; models: string[] }> {
+    // As acpmux serializes a profile's declared models: each as its id string.
+    const out: Record<string, { displayName: string; models: string[] }> = {};
     for (const [id, entry] of this.endpoints)
       out[id] = {
         displayName: entry.name,
-        models: entry.models.map((model) => ({ id: entry.kind === "openai-endpoint" ? `byo/${model}` : model })),
+        models: entry.models.map((model) => (entry.kind === "openai-endpoint" ? `byo/${model}` : model)),
       };
     return out;
   }
