@@ -160,5 +160,5 @@ test("Use Cloud and the X answer once each; the X has an accessible name", async
 test("the hint is borderless and moves on the house settle", () => {
   const css = readFileSync(new URL("./cloudChatHint.css", import.meta.url), "utf8");
   expect(css).not.toMatch(/\bborder\s*:\s*(?!0\b)[^;]*solid/);
-  expect(css).toContain("var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))");
+  expect(css).toContain("var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))");
 });

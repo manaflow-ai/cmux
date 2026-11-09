@@ -82,8 +82,7 @@ pub(super) fn person_asks(conn: &Conn) -> bool {
 /// `_meta.acpmux.waitStart` from a local connection that is no agent's or lane's: those keep the
 /// start deadline (cx-m5up), as does a remote connection.
 fn asks_to_wait_on_its_harness(conn: &Conn, params: &Value) -> bool {
-    conn.caller().is_none()
-        && conn.unproven_caller.get().is_none()
+    !conn.agent_side()
         && !conn.origin.web_class()
         && mux_meta(params).and_then(|m| m.get("waitStart")).and_then(Value::as_bool) == Some(true)
 }
@@ -148,6 +147,19 @@ fn resolved_session(
     match resolved {
         Some(session) => Ok(session.clone()),
         None => hub.resolve(session_key(params)?),
+    }
+}
+
+/// The part of a cancel that belongs to the connection it came on: the turn preparations made
+/// there end. The repeat of a cancel sent on two paths (`dual_requests.rs`) runs this, and
+/// takes the first copy's Stop.
+pub(super) fn cancel_on_connection(hub: &Hub, conn: &Conn, params: Option<&Value>) {
+    let Some(params) = params else { return };
+    if let Ok(key) = session_key(params)
+        && let Ok(s) = hub.resolve(key)
+    {
+        conn.cancel_preparation(&s.id);
+        s.abandon_prepared_connection(&conn.id);
     }
 }
 
@@ -1202,6 +1214,10 @@ async fn dispatch_request_with_identity(
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
                 // The proof this connection presented (`conn_auth.rs`).
                 "auth": conn.auth.as_str(),
+                // This connection is the peer principal whose `dualId` this daemon takes
+                // (`dual_requests.rs`): known only once its peer token was checked. A peer link
+                // sends on two paths only when both say so (`peer_dual.rs`).
+                "dualPrincipal": conn.dual_principal.is_some(),
                 // A paired device's Full-access setting covers it now (`crate::pairing`):
                 // a phone offers the modes that do not ask by it. Read again per request.
                 "fullAccess": conn.device.as_deref().is_some_and(|d| conn.auth == ConnAuth::Device && hub.pairing.full_access(d)),
@@ -1219,7 +1235,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE], "trustGate": true}}
             });
             // Large messages go compressed from here on (`frame_compress.rs`).
             if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
@@ -1806,7 +1822,7 @@ async fn dispatch_request_with_identity(
                 None => Some(crate::prompt_provenance::unverified(
                     &s.id,
                     transport,
-                    claimed_labels(&params),
+                    claimed_labels(conn, &params),
                 )),
             };
             // A peer's prompt keeps its sender and names the peer that passed it on beside it.
@@ -2038,6 +2054,7 @@ async fn dispatch_request_with_identity(
             // The person's answer to the suggestion the chat showed, if any (`suggestion_gate.rs`).
             if !agent_message && person_asks(conn) {
                 crate::suggestion_gate::note_prompt(
+                    &hub.suggestion_gate,
                     &s.id,
                     &sent_text,
                     crate::suggestion_gate::marked_taken(&params),
@@ -2045,7 +2062,7 @@ async fn dispatch_request_with_identity(
                 crate::memory_inbox::note_prompt(&s.id, &sent_text);
             } else {
                 // Another agent's message answers nothing the person was shown.
-                crate::suggestion_gate::withdraw(&s.id);
+                crate::suggestion_gate::withdraw(&hub.suggestion_gate, &s.id);
             }
             let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
             // The turn ended (its read was decided) before the answer came back.
@@ -2276,8 +2293,9 @@ async fn dispatch_request_with_identity(
                 cfg.save()
                     .map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
             }
-            // deny-all is a lockdown: every chat without a policy of its own follows it.
-            if policy == PermissionPolicy::DenyAll {
+            // deny-all and review are lockdowns: every chat without a policy of its own follows
+            // them (`hub/policy_mode.rs`).
+            if matches!(policy, PermissionPolicy::DenyAll | PermissionPolicy::Review) {
                 hub.follow_default_policy().await;
             } else if policy == PermissionPolicy::ApproveAll {
                 hub.approve_pending_default_tools().await;
@@ -2745,13 +2763,15 @@ async fn dispatch_request_with_identity(
         method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {
             let s = hub.resolve(session_key(&params)?)?;
             // The person's, or the chat's own agent's: no other session reads or answers for it.
-            let agent = conn.caller().is_some() || conn.unproven_caller.get().is_some();
-            let person = conn.is_person() || (conn.origin == Origin::Local && !agent);
+            // An old acpmux CLI or an agent's shell that declared no terminal is an agent's too
+            // (`cli_caller.rs`).
+            let person = conn.is_person() || (conn.origin == Origin::Local && !conn.agent_side());
             if !person && conn.caller() != Some(s.id.as_str()) {
-                return Err(RpcError::invalid_params(
+                let other = RpcError::invalid_params(
                     "inbox.other_session: only the person or the chat's own agent reads its inbox",
                 )
-                .with_data(json!({"reason": "inbox.other_session"})));
+                .with_data(json!({"reason": "inbox.other_session"}));
+                return Err(conn.refusal("reading another chat's inbox", other));
             }
             // Its inbox is restored from its log (`restore_queue`): read once that load is done.
             hub.session_log(&s).await;
@@ -2778,11 +2798,9 @@ async fn dispatch_request_with_identity(
                 // The person's: the app, or the local socket with no agent behind it. A
                 // session's agent never lifts a cap, its own or another's.
                 // A caller token this daemon does not know is an agent's all the same.
-                let agent = conn.caller().is_some() || conn.unproven_caller.get().is_some();
-                if !conn.is_person() && (conn.origin != Origin::Local || agent) {
-                    return Err(crate::hub::person::person_required(
-                        "changing a session's turn cap",
-                    ));
+                // So is an old acpmux CLI or a shell that declared no terminal (`cli_caller.rs`).
+                if !conn.is_person() && (conn.origin != Origin::Local || conn.agent_side()) {
+                    return Err(conn.person_only("changing a session's turn cap"));
                 }
                 let cap = match value {
                     Value::Null => None,
@@ -3305,8 +3323,12 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// transport are no terminal. Any of those stays `unverified`. A send the daemon keeps and delivers
 /// later (`_acpmux/send_queue`) replays on the outbox's own unix connection with its request's
 /// claims and the caller its sender named, proven or not (`Delivery::unproven_caller`), so it is
-/// judged here as the send itself was (#38260 F1). What is left is a plain unix
-/// connection of the user that claims nothing: the person at their terminal. A script of the
+/// judged here as the send itself was (#38260 F1). An acpmux CLI says at `initialize` whether
+/// it runs in an acpmux session's environment (`cli_caller.rs`): one that says `agent` (its token
+/// proved nothing to this daemon, or it had none), and an old acpmux CLI that says nothing (it
+/// checked nothing: bench round 4 recorded an agent's send through `acpmux` 0.1.0 as the person),
+/// are no terminal either; the outbox replays that too (`Delivery::not_terminal`). What is left
+/// is a plain unix connection of the user that claims nothing: the person at their terminal. A script of the
 /// same user that strips every label is let through, as it was before #37497; it still never
 /// releases a protected hold (`PromptOptions::unproven_owner`), never counts as an authenticated
 /// person (`human_authenticated` needs the proven person) and is never forwarded to a peer as
@@ -3327,12 +3349,17 @@ fn owner_terminal(conn: &Conn, params: &Value) -> bool {
         && !conn.is_trigger()
         && conn.caller().is_none()
         && conn.unproven_caller.get().is_none()
+        && conn.may_be_owner_terminal()
         && !claims
 }
 
-/// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`).
-fn claimed_labels(params: &Value) -> serde_json::Map<String, Value> {
+/// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`),
+/// and the old acpmux CLI its connection is (`cli_caller.rs`), which proves no caller.
+fn claimed_labels(conn: &Conn, params: &Value) -> serde_json::Map<String, Value> {
     let mut out = serde_json::Map::new();
+    if let Some(client) = conn.declared().and_then(crate::cli_caller::Declared::old_client) {
+        out.insert(crate::cli_caller::CLAIMED_CLIENT.to_owned(), json!(client));
+    }
     let Some(mux) = params.pointer("/_meta/acpmux") else { return out };
     for key in ["cliHost", "fromHarness", "via"] {
         if let Some(value) = mux.get(key).and_then(Value::as_str) {

@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
+import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -175,6 +176,82 @@ describe("cloud journey: app cli", () => {
     expect(machineIds([{ id: "vm_a" }, { machine_id: "vm_b" }, { id: "vm_c", status: "deleted" }, {}])).toEqual(["vm_a", "vm_b"]);
     expect(newMachineIds(["vm_a"], ["vm_a", "vm_b", "vm_b"])).toEqual(["vm_b"]);
     expect(newMachineIds(["vm_a"], ["vm_a"])).toEqual([]);
+  });
+});
+
+describe("cloud journey: leaked machine sweep", () => {
+  const now = Date.UTC(2026, 10, 9, 12, 0, 0);
+  const tagAt = (ms: number) => `jr-${ms.toString(36)}`;
+  const ids = (rows: any[], at = now) => staleJourneyMachines(rows, at).map((m) => m.id);
+
+  test("takes only an auto-named journey machine (and gateway) older than any journey run, in any state", () => {
+    const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
+    const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+    expect(ids([
+      { id: "vm_running", name: `cloud journey auto ${old}`, status: "running" },
+      { id: "vm_paused_gw", name: `cloud journey auto ${old} gateway`, status: "paused" },
+      { id: "vm_young", name: `cloud journey auto ${young}`, status: "paused" },
+      { id: "vm_gone", name: `cloud journey auto ${old}`, status: "deleted" },
+      { id: "vm_deleting", name: `cloud journey auto ${old}`, status: "deleting" },
+    ])).toEqual(["vm_running", "vm_paused_gw"]);
+    // Just inside the bound is a concurrent run's machine; just past it is leaked.
+    const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - STALE_JOURNEY_MS)}`, status: "paused" };
+    expect(ids([edge])).toEqual([]);
+    expect(ids([edge], now + 1)).toEqual(["vm_edge"]);
+  });
+
+  test("never a machine with recent activity, however old", () => {
+    const old = tagAt(now - 2 * STALE_JOURNEY_MS);
+    expect(ids([
+      { id: "vm_active", name: `cloud journey auto ${old}`, status: "running", last_active_at: now - 5 * 60_000 },
+      { id: "vm_edge", name: `cloud journey auto ${old}`, status: "running", last_active_at: now - IDLE_JOURNEY_MS },
+      { id: "vm_idle", name: `cloud journey auto ${old}`, status: "running", last_active_at: now - IDLE_JOURNEY_MS - 1 },
+    ])).toEqual(["vm_idle"]);
+  });
+
+  test("the age bound outlasts every workflow job that runs a journey, twice over", () => {
+    const dir = join(import.meta.dir, "../../.github/workflows");
+    const seen: string[] = [];
+    for (const f of readdirSync(dir).filter((n) => /\.ya?ml$/.test(n))) {
+      const text = readFileSync(join(dir, f), "utf8");
+      if (!/cloud-journey(\.ts|-ci\.sh)/.test(text)) continue;
+      seen.push(f);
+      // Every timeout in such a file, a superset of the journey jobs' own.
+      for (const m of text.matchAll(/timeout-minutes:\s*(\d+)/g)) {
+        expect({ f, fits: Number(m[1]) * 60_000 * 2 <= STALE_JOURNEY_MS }).toEqual({ f, fits: true });
+      }
+    }
+    expect(seen).toContain("cmux-vm.yml");
+  });
+
+  test("never a --keep run's plain name, another name or a tag that is not a time", () => {
+    const old = tagAt(now - 48 * 3600_000);
+    expect(ids([
+      { id: "vm_kept", name: `cloud journey ${old}`, status: "paused" },
+      { id: "vm_kept_gw", name: `cloud journey ${old} gateway`, status: "failed" },
+      { id: "vm_dev", name: "dev machine", status: "paused" },
+      { id: "vm_named", name: `my cloud journey auto ${old}`, status: "paused" },
+      { id: "vm_bad", name: "cloud journey auto jr-!!", status: "paused" },
+      { id: "vm_tiny", name: "cloud journey auto jr-zz", status: "paused" },
+      { id: "vm_future", name: `cloud journey auto ${tagAt(now + 3600_000)}`, status: "paused" },
+      null,
+    ])).toEqual([]);
+    const [m] = staleJourneyMachines([{ id: "vm_x", name: `cloud journey auto ${old}`, status: "paused", created_at: now - 48 * 3600_000 }], now);
+    expect(m).toEqual({ id: "vm_x", name: `cloud journey auto ${old}`, status: "paused", created: new Date(now - 48 * 3600_000).toISOString() });
+  });
+
+  test("reads every page of the machine list", async () => {
+    const pages: Record<string, any> = {
+      "": { machines: [{ id: "a" }], next_cursor: "c1" },
+      c1: { machines: [{ id: "b" }], next_cursor: "c2" },
+      c2: { machines: [{ id: "c" }], next_cursor: null },
+    };
+    const asked: any[] = [];
+    const rows = await listAllMachines(async (p) => { asked.push(p); return pages[String(p.cursor ?? "")]; });
+    expect(rows.map((r) => r.id)).toEqual(["a", "b", "c"]);
+    expect(asked).toEqual([{ limit: 100 }, { limit: 100, cursor: "c1" }, { limit: 100, cursor: "c2" }]);
+    // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep.
+    await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 3 pages");
   });
 });
 
@@ -423,6 +500,69 @@ describe("cloud journey: carrier ticket without a cmux binary", () => {
     expect(Buffer.from(noncanonical, "base64url").length).toBe(32);
     for (const daemon_key of [undefined, "k", `${key}=`, noncanonical, key.replace(/.$/, "+")])
       expect(carrierTicketProblem(200, answer({ daemon_key }), 1_000)).toContain("daemon_key");
+  });
+});
+
+describe("cloud journey: desktop link readback (--desktop-link)", () => {
+  // A stand-in for `cmux carrier dial --service desktop`: the status line, the host's `started` frame, then its link
+  // notes in the connect log; what the viewer sent goes to a file.
+  const fakeDesktop = (body: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-desktop-"));
+    const bin = join(dir, "cmux");
+    writeFileSync(bin, `#!/bin/bash\nprintf '%s\\n' "$*" > "${dir}/args"\nmkdir -p "$CMUX_TUI_STATE_DIR/carrier"; log="$CMUX_TUI_STATE_DIR/carrier/connect.log"\n${body}\n`, { mode: 0o755 });
+    return { dir, bin };
+  };
+  const api = { origin: "https://api.example", bearer: "session-value", team: undefined };
+  const started = `printf '\\001\\033\\000\\000\\000{"t":"started","session":1}'`;
+
+  test("reads the link's notes from the dial's own connect log, as the viewer that keeps the session", async () => {
+    const { dir, bin } = fakeDesktop(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+cat > "${"$"}{0%/*}/stdin" <&0 &
+sleep 0.3; ${started}
+printf 'cloud.desktop_link machine=vm_x answered\\ncloud.desktop_link machine=vm_x up\\ncloud.desktop_link machine=vm_x host_up\\n' >> "$log"
+wait`);
+    const r = await desktopLinkDial(bin, api, "vm_abcdefghij0123456789", 10_000, 2_000);
+    expect(r.error).toBeNull();
+    expect(r.lines).toEqual(["cloud.desktop_link machine=vm_x answered", "cloud.desktop_link machine=vm_x up", "cloud.desktop_link machine=vm_x host_up"]);
+    expect(r.controls).toEqual(["started"]);
+    expect(desktopLinkVerdict(r.lines)).toEqual({ up: true, why: "the link came up (up, host_up)" });
+    expect(readFileSync(join(dir, "args"), "utf8").trim()).toBe("carrier dial --machine vm_abcdefghij0123456789 --service desktop --deadline-ms 2000");
+    // The viewer's hello and start first, then feedback datagrams after `started`.
+    const sent = readFileSync(join(dir, "stdin"));
+    expect(sent[0]).toBe(1);
+    expect(sent.toString("latin1")).toContain('"t":"hello"');
+    expect(sent.toString("latin1")).toContain('"t":"start"');
+    expect(sent.includes(rdFrame(2, RD_FEEDBACK))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  }, 15_000);
+
+  test("a dial with no rd_link writes no note, and the verdict says the platform sent none", async () => {
+    const { dir, bin } = fakeDesktop(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+sleep 0.5`);
+    const r = await desktopLinkDial(bin, api, "vm_abcdefghij0123456789", 5_000, 2_000);
+    expect(r.lines).toEqual([]);
+    expect(r.error).toBe("carrier dial: ended while the desktop was open");
+    expect(desktopLinkVerdict(r.lines).why).toContain("sent no rd_link");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a refused dial is the error, with no note", async () => {
+    const { dir, bin } = fakeDesktop(`echo '{"ok":false,"error_code":"desktop_unavailable"}' >&2
+exit 1`);
+    const r = await desktopLinkDial(bin, api, "vm_abcdefghij0123456789", 5_000, 2_000);
+    expect(r.error).toContain("desktop_unavailable");
+    expect(r.lines).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("the verdict names an old image, a failed link, and the wire bytes match cmux-rd-proto", () => {
+    expect(desktopLinkVerdict(["cloud.desktop_link machine=vm_x not_answered"]).why).toContain("cmux-rd 0.2.3");
+    expect(desktopLinkVerdict(["cloud.desktop_link machine=vm_x answered", "cloud.desktop_link machine=vm_x failed no route"])).toEqual({ up: false, why: "the link did not come up: answered; failed no route" });
+    // Header: version 1, kind 7 (Feedback), 14 zero bytes; payload: acked 0, decode 0, no recovery, 0 arrivals, 0 NACKs.
+    expect([...RD_FEEDBACK]).toEqual([0x10, 7, ...Array(14).fill(0), ...Array(12).fill(0)]);
+    expect([...rdFrame(1, Buffer.from("ab"))]).toEqual([1, 2, 0, 0, 0, 97, 98]);
+    expect(maskAddresses("srflx 203.0.113.7:51820 host [2001:db8::1]:4000 vm_ab12")).toBe("srflx <addr> host <addr> vm_ab12");
+    expect(teamIdsIn({ personal_team: "team_6b6623866a52063af515" }, null, { team: "team_6b6623866a52063af515" })).toEqual(["team_6b6623866a52063af515"]);
   });
 });
 
