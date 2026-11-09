@@ -2632,11 +2632,13 @@ public struct ConnectOptions: Equatable, Hashable {
      */
     public var noWebrtcMedia: Bool
     /**
-     * WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
-     * made while the network is cellular (`set_cellular_path`) sends
-     * repair data, about 2-3x the bytes, so a lossy network costs no time.
+     * WireGuard: the person's Settings > Transport > Ultra Mode, as the app
+     * stores it: `"off"`, `"auto"` (the default: no extra data on a clean
+     * link, repair data once packets are lost, capped while
+     * `set_cellular_path` says cellular) or `"always"` (repair data on
+     * every datagram, about 2-3x the bytes).
      */
-    public var ultraOnCellular: Bool
+    public var ultra: String
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2661,15 +2663,17 @@ public struct ConnectOptions: Equatable, Hashable {
          * rides RTP inside the tunnel (the "WireGuard only" comparison).
          */noWebrtcMedia: Bool = false, 
         /**
-         * WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
-         * made while the network is cellular (`set_cellular_path`) sends
-         * repair data, about 2-3x the bytes, so a lossy network costs no time.
-         */ultraOnCellular: Bool = false) {
+         * WireGuard: the person's Settings > Transport > Ultra Mode, as the app
+         * stores it: `"off"`, `"auto"` (the default: no extra data on a clean
+         * link, repair data once packets are lost, capped while
+         * `set_cellular_path` says cellular) or `"always"` (repair data on
+         * every datagram, about 2-3x the bytes).
+         */ultra: String = "auto") {
         self.relayOnly = relayOnly
         self.blockUdp = blockUdp
         self.noVideoLane = noVideoLane
         self.noWebrtcMedia = noWebrtcMedia
-        self.ultraOnCellular = ultraOnCellular
+        self.ultra = ultra
     }
 
     
@@ -2692,7 +2696,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
                 blockUdp: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf), 
                 noWebrtcMedia: FfiConverterBool.read(from: &buf), 
-                ultraOnCellular: FfiConverterBool.read(from: &buf)
+                ultra: FfiConverterString.read(from: &buf)
         )
     }
 
@@ -2701,7 +2705,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
         FfiConverterBool.write(value.blockUdp, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
         FfiConverterBool.write(value.noWebrtcMedia, into: &buf)
-        FfiConverterBool.write(value.ultraOnCellular, into: &buf)
+        FfiConverterString.write(value.ultra, into: &buf)
     }
 }
 
@@ -3859,9 +3863,8 @@ public func resetWarmState()async   {
 /**
  * The device's network is cellular now, or not (iOS `NWPathMonitor`,
  * `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
- * too). WireGuard dials made from now on turn ultra mode on when this is
- * true and their `ConnectOptions::ultra_on_cellular` is set; a live link
- * keeps its mode until it redials.
+ * too). Every WireGuard link in Auto (`ConnectOptions::ultra`) reads it
+ * live: on cellular its repair data stays within its data bytes.
  */
 public func setCellularPath(cellular: Bool)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_set_cellular_path(
@@ -3903,7 +3906,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 64638) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 4068) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
