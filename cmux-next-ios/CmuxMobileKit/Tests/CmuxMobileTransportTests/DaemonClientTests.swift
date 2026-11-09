@@ -159,6 +159,25 @@ import Testing
         await client.close()
     }
 
+    @Test func anEarlyReplySurvivesEOFBeforeReplyIsAwaited() async throws {
+        let channel = ReplyThenEOFChannel()
+        let client = DaemonClient(channel: channel)
+        let id = try await client.submit("send")
+        let reply = try await client.reply(to: id)
+        #expect(String(decoding: reply, as: UTF8.self).contains("\"ok\":true"))
+    }
+
+    /// Chief consumes events and sends attachment/refill requests on the same
+    /// channel. Its default event stream must not block the reader before a
+    /// reply that follows a large event burst.
+    @Test func aGenericEventBurstDoesNotBlockAReply() async throws {
+        let channel = LargeEventReplyChannel()
+        let client = DaemonClient(channel: channel)
+        let reply = try await client.request("snapshot", deadline: .seconds(2))
+        #expect(String(decoding: reply, as: UTF8.self).contains("\"ok\":true"))
+        await client.close()
+    }
+
 }
 
 final class Counter: @unchecked Sendable {
@@ -180,5 +199,53 @@ private final class DeadlineTestChannel: LinkChannel, @unchecked Sendable {
     func send(_ data: Data) async throws {}
     func receive() async throws -> Data? { await iterator.next() }
     func deliver(_ data: Data) { continuation.yield(data) }
+    func close(code: String, reason: String) async { continuation.finish() }
+}
+
+private final class ReplyThenEOFChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let stream: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private var iterator: AsyncStream<Data>.Iterator
+
+    init() {
+        (stream, continuation) = AsyncStream.makeStream()
+        iterator = stream.makeAsyncIterator()
+    }
+
+    func send(_ data: Data) async throws {
+        let object = try JSONSerialization.jsonObject(with: data.dropLast()) as! [String: Any]
+        let id = object["id"] as! String
+        continuation.yield(Data(#"{"id":"\#(id)","ok":true}"#.utf8) + Data([0x0A]))
+        try await Task.sleep(for: .milliseconds(20))
+        continuation.finish()
+    }
+
+    func receive() async throws -> Data? { await iterator.next() }
+    func close(code: String, reason: String) async { continuation.finish() }
+}
+
+private final class LargeEventReplyChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let stream: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private var iterator: AsyncStream<Data>.Iterator
+
+    init() {
+        (stream, continuation) = AsyncStream.makeStream()
+        iterator = stream.makeAsyncIterator()
+    }
+
+    func send(_ data: Data) async throws {
+        let object = try JSONSerialization.jsonObject(with: data.dropLast()) as! [String: Any]
+        let id = object["id"] as! String
+        let payload = String(repeating: "x", count: 1 << 20)
+        for _ in 0..<5 {
+            continuation.yield(Data(#"{"event":"output","text":"\#(payload)"}"#.utf8) + Data([0x0A]))
+        }
+        continuation.yield(Data(#"{"id":"\#(id)","ok":true}"#.utf8) + Data([0x0A]))
+    }
+
+    func receive() async throws -> Data? { await iterator.next() }
     func close(code: String, reason: String) async { continuation.finish() }
 }

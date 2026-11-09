@@ -15,9 +15,10 @@ public actor DaemonClient {
     private var buffer = Data()
     private var readTask: Task<Void, Never>?
     /// Unsolicited daemon events (terminal output, tree notifications, etc.).
-    /// The sequence is byte-bounded; when its consumer falls behind, the
-    /// daemon reader waits before reading another channel frame so link-level
-    /// backpressure reaches the Mac.
+    /// Terminal clients pass a finite capacity so a slow renderer applies link
+    /// backpressure. Other clients keep this queue effectively unbounded: their
+    /// event consumer may issue replies on the same channel, so blocking the
+    /// reader behind event bytes would deadlock that request.
     public nonisolated let events: DaemonEventStream
     private let eventBuffer: BoundedDaemonEventBuffer
 
@@ -35,7 +36,7 @@ public actor DaemonClient {
     private var sequence: UInt64 = 0
     public var receivedPosition: UInt64 { sequence }
 
-    public init(channel: any LinkChannel, orderedEvents: Bool = false, eventCapacity: Int = BoundedDaemonEventBuffer.defaultCapacity) {
+    public init(channel: any LinkChannel, orderedEvents: Bool = false, eventCapacity: Int = Int.max) {
         self.channel = channel
         let eventBuffer = BoundedDaemonEventBuffer(capacity: eventCapacity, initiallyClosed: orderedEvents)
         self.eventBuffer = eventBuffer
@@ -310,7 +311,6 @@ public actor DaemonClient {
         for task in deadlines.values { task.cancel() }
         deadlines.removeAll()
         expected.removeAll()
-        early.removeAll()
         orderedContinuation.finish()
         await eventBuffer.finish()
     }
