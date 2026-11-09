@@ -700,7 +700,10 @@ const weighed = (id: string, cause: Record<string, unknown>): Step => [
 const callOf = (rows: AcpmuxRow[], id: string) =>
   rows.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === id)?.tool;
 
-test("an interim stop goes onto its call: no line, no new mark, its reply inside the call", async () => {
+// Leo, 2026-11-09 20:33Z, on the agent's reply drawn inside a "Subagent finished" row: "your response
+// was weirdly folded into the rende?". A task's end goes onto its call (its mark), but the turn's own
+// words never do: they draw as the agent's own message, however short and quiet.
+test("an interim stop goes onto its call: no line, no new mark; its reply is the agent's own message", async () => {
   const daemon = fakeDaemon(
     record([
       ["mux", "user_message", { text: "Run the suite", turnId: "t1" }],
@@ -716,15 +719,14 @@ test("an interim stop goes onto its call: no line, no new mark, its reply inside
   try {
     const view = drawn(rows());
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    expect(view.some((row) => row.text === "Still waiting on the suite.")).toBe(false);
+    expect(view.some((row) => row.kind === "assistant" && row.text === "Still waiting on the suite.")).toBe(true);
     expect(callOf(rows(), "sh1")?.reaction).toEqual({
       turn: "bg-i",
       weight: "silent",
-      text: "Still waiting on the suite.",
       // An interim cause: its call is still waiting on its own background work.
       interim: true,
     });
-    // A second end of the same call keeps the first one's words before its own.
+    // A second end of the same call: its words are the agent's own message too.
     daemon.push(
       record(
         [
@@ -735,7 +737,8 @@ test("an interim stop goes onto its call: no line, no new mark, its reply inside
         20,
       ),
     );
-    expect(callOf(rows(), "sh1")?.reaction?.text).toBe("Still waiting on the suite.\n\nStill waiting.");
+    expect(callOf(rows(), "sh1")?.reaction).not.toHaveProperty("text");
+    expect(drawn(rows()).some((row) => row.kind === "assistant" && row.text === "Still waiting.")).toBe(true);
   } finally {
     client.close();
   }
@@ -760,8 +763,8 @@ test("a final result marks its call new until the next prompt; a reply with some
   try {
     const view = drawn(rows());
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    // The quiet reply is on the call; the one with something to say draws as a message.
-    expect(view.some((row) => row.text === "All 412 tests passed.")).toBe(false);
+    // Both replies draw as the agent's own messages; only the call's mark is on the call.
+    expect(view.some((row) => row.kind === "assistant" && row.text === "All 412 tests passed.")).toBe(true);
     expect(view.at(-1)?.text).toContain("Should I bisect it?");
     expect(callOf(rows(), "sh2")?.reaction).toMatchObject({ weight: "result", fresh: true });
     daemon.push(record(personTurn("Yes, bisect", "Bisecting.", "t2"), 30));
@@ -840,7 +843,7 @@ test("a record's cause is read whole or not at all", () => {
     ).toBeUndefined();
 });
 
-test("a subagent's final report marks its done line new; its quiet reply goes with it", async () => {
+test("a subagent's final report marks its done line new; its quiet reply is the agent's own message", async () => {
   const daemon = fakeDaemon(
     record([
       ...personTurn("Review the PR in the background", "Started a reviewer.", "t1"),
@@ -856,10 +859,14 @@ test("a subagent's final report marks its done line new; its quiet reply goes wi
     const agent = rows()
       .flatMap((row) => row.subagents ?? [])
       .find((entry) => entry.id === "reviewer");
-    expect(agent?.reaction).toMatchObject({ weight: "result", fresh: true, text: "Reviewer says SHIP." });
-    const view = drawn(rows());
+    expect(agent?.reaction).toMatchObject({ weight: "result", fresh: true });
+    expect(agent?.reaction).not.toHaveProperty("text");
+    const view = drawn([...withSubagentLines(rows(), new Map())]);
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    expect(view.some((row) => row.text === "Reviewer says SHIP.")).toBe(false);
+    const at = view.findIndex((row) => row.kind === "assistant" && row.text === "Reviewer says SHIP.");
+    expect(at).toBeGreaterThan(0);
+    // After the subagent's row, never inside it.
+    expect(view.findIndex((row) => row.kind === SUBAGENT_DONE)).toBeLessThan(at);
   } finally {
     client.close();
   }
@@ -889,7 +896,8 @@ test("a subagent's done line draws its reaction's mark as it comes and goes", as
     );
     const marked = done();
     expect(marked.version).not.toBe(before.version);
-    expect(marked.subagents?.[0]?.reaction).toMatchObject({ fresh: true, text: "Reviewer says SHIP." });
+    expect(marked.subagents?.[0]?.reaction).toMatchObject({ fresh: true });
+    expect(marked.subagents?.[0]?.reaction).not.toHaveProperty("text");
     daemon.push(record(personTurn("Merge it", "Merging.", "t2"), 40));
     expect(done().subagents?.[0]?.reaction?.fresh).toBeUndefined();
   } finally {
@@ -915,7 +923,7 @@ test("a background reaction survives the call's later updates and a newer prompt
   );
   const { client, rows } = await connect(daemon);
   try {
-    expect(callOf(rows(), "sh9")?.reaction).toMatchObject({ weight: "result", text: "All 412 tests passed." });
+    expect(callOf(rows(), "sh9")?.reaction).toMatchObject({ weight: "result" });
     expect(drawn(rows()).some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
   } finally {
     client.close();
@@ -957,9 +965,10 @@ test("a failure with a long reply keeps its named line over the reply", async ()
   }
 });
 
-// #33538: a subagent's quiet reply to its end is text under its done line, which Find reads, not
-// only its tooltip.
-test("a subagent done line's reply is text under the line, not only a tooltip", async () => {
+// #33538 kept a subagent's quiet reply as text under its done line; Leo, 2026-11-09 20:33Z ("your
+// response was weirdly folded into the rende?"): the line never draws the chat's words at all, in
+// its text or its tooltip. They are the agent's own message after it, which Find reads.
+test("a subagent done line never draws the chat's reply, in its text or its tooltip", async () => {
   const daemon = fakeDaemon(
     record([
       ...personTurn("Review it", "Started a reviewer.", "t1"),
@@ -974,8 +983,11 @@ test("a subagent done line's reply is text under the line, not only a tooltip", 
   try {
     const row = withSubagentLines(rows(), new Map()).find((row) => row.kind === SUBAGENT_DONE)!;
     const html = renderToStaticMarkup(createElement(SubagentDoneLine, { row }));
-    expect(html).toContain('<p class="cv-reaction-reply">Reviewer says SHIP at the head.</p>');
-    expect(html).not.toMatch(/title="[^"]*Reviewer says SHIP/);
+    expect(html).not.toContain("Reviewer says SHIP");
+    expect(html).not.toContain("cv-reaction-reply");
+    expect(drawn(rows()).some((row) => row.kind === "assistant" && row.text === "Reviewer says SHIP at the head.")).toBe(
+      true,
+    );
   } finally {
     client.close();
   }
@@ -1027,14 +1039,14 @@ test("a background turn's long reply is the agent's own turn, never the subagent
     const agent = rows()
       .flatMap((row) => row.subagents ?? [])
       .find((entry) => entry.id === "fixer");
-    // The subagent's line keeps only the short note.
-    expect(agent?.reaction?.text).toBe("Still waiting on the fleet.");
+    // The subagent's line keeps none of the chat's words, the short note included.
+    expect(agent?.reaction).not.toHaveProperty("text");
     const view = drawn([...withSubagentLines(rows(), new Map())]);
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
     const own = view.flatMap((row, at) =>
       row.kind === "assistant" && row.inBackground?.startsWith("bg-") ? [{ row, at }] : [],
     );
-    expect(own.map(({ row }) => row.text)).toEqual(replies);
+    expect(own.map(({ row }) => row.text)).toEqual([...replies, "Still waiting on the fleet."]);
     for (const [index, { row, at }] of own.entries()) {
       // Its own footer right under it, the turn's end, as a prompt's turn ends.
       expect(view[at + 1]).toMatchObject({ kind: "turnSummary", id: `${BACKGROUND_END}-bg-${index + 1}` });
