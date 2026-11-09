@@ -42,7 +42,9 @@ impl Authority {
         self.validate_namespace()
     }
 
-    /// Persist before any remote redeem. A failed join keeps conservative gating.
+    /// Persist before any remote redeem. A failed join keeps conservative gating. A join that
+    /// is not a sign-in's ([`Self::enroll_as`] is what the joins call).
+    #[cfg(test)]
     pub(super) fn enroll(&self) -> Result<()> {
         self.enroll_as(false)
     }
