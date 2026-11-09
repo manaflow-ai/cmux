@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+public import Observation
 
 /// What Settings > Server knows beside the handshakes: this Mac's control socket and Tailscale
 /// address. Observed, so the page's host-lists watch sends them again when they change. The App's
