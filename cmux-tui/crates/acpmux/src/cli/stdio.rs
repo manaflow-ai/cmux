@@ -138,7 +138,7 @@ pub fn declare_caller(
             serde_json::json!({"sessionId": id, "token": token}),
         );
     }
-    crate::cli_caller::declare(mux, &set);
+    crate::cli_caller::declare(mux, set);
     message.to_string()
 }
 
