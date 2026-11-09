@@ -3405,6 +3405,14 @@ impl<'a> Socket<'a> {
             self.sack_high_rxt = self.sack_high_rxt.max(repr.seq_number + repr.payload.len());
             // Karn: no RTT sample from a retransmitted segment.
             self.rtte.on_retransmit();
+            // Resending the head restarts the RTO, as the duplicate-ACK fast
+            // retransmit does. Its ACK is due a round trip from now, and the
+            // timer armed at the last new ACK would otherwise fire first on a
+            // long path, collapse the window and discard the scoreboard.
+            if repr.seq_number == self.local_seq_no {
+                self.timer
+                    .set_for_retransmit(cx.now(), self.rtte.retransmission_timeout());
+            }
         }
 
         if repr.segment_len() > 0 {
@@ -10604,6 +10612,22 @@ mod test {
         send!(s, time 100, sack_ack(36, [None, None, None]));
         assert_eq!(s.sack_recovery_point, None);
         assert!(s.sack_scoreboard.is_empty());
+    }
+
+    #[test]
+    fn test_sack_resending_the_head_restarts_the_rto() {
+        let mut s = socket_sacking();
+        send!(s, time 50, sack_ack(6, [None, None, None]));
+        // The SACK blocks arrive late in the RTO; the hole is resent then.
+        send!(s, time 400, sack_ack(6, [sack_block(12, 36), None, None]));
+        recv!(s, time 400, sack_resent(6));
+        let rto = s.rtte.retransmission_timeout();
+        assert_eq!(
+            s.timer,
+            Timer::Retransmit {
+                expires_at: Instant::from_millis(400) + rto
+            }
+        );
     }
 
     #[test]
