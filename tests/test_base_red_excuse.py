@@ -1488,6 +1488,19 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             with self.assertRaises(excuse.Refused, msg=path):
                 self.judge()
 
+    def test_a_change_to_the_check_code_is_refused(self):
+        # Review of cmux#39194: a PR changing the pin check, its workflow or this classifier could make the pin error
+        # print for any change; such a PR is never excused this way.
+        for path in ("scripts/cmux-next/check-app-ffi-pin.sh", ".github/workflows/cmux-next.yml",
+                     "scripts/ci/base_red_excuse.py"):
+            self.files = [{"filename": "cmux-tui/crates/cmux-app-ffi/src/lib.rs"}, {"filename": path}]
+            with self.assertRaises(excuse.Refused, msg=path):
+                self.judge()
+
+    def test_a_pr_into_another_base_is_judged_as_before(self):
+        self.assertIsNone(excuse.ffi_pin_step_a("main", self.gh.jobs[1], self.gh.logs[1],
+                                                {"cmux-tui/crates/cmux-app-ffi/src/lib.rs"}, self.PR))
+
     def test_the_toolchain_and_the_build_script_are_ffi_inputs(self):
         for path in ("cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"):
             self.files = [{"filename": path}]
