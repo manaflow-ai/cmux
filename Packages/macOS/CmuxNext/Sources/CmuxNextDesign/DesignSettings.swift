@@ -160,13 +160,13 @@ public final class DesignSettings {
     /// `sidebar.*`: section look and pinned band caps.
     public var sidebarSections = SidebarSectionsPreferences.defaults {
         didSet {
-            // The Wallpaper group palette needs the desktop picture's color (`DesktopWallpaperWatch.samplesForGroups`).
-            let wallpaper = sidebarSections.groupPalette == .wallpaper
-            if wallpaper != (oldValue.groupPalette == .wallpaper) { BackdropImageStore.shared.desktop.samplesForGroups = wallpaper }
+            // The Wallpaper and Pictorial group palettes need the desktop picture (`DesktopWallpaperWatch.samplesForGroups`).
+            let follows = sidebarSections.groupPalette.followsWallpaper
+            if follows != oldValue.groupPalette.followsWallpaper { BackdropImageStore.shared.desktop.samplesForGroups = follows }
         }
     }
-    /// The desktop picture's color while the Wallpaper group palette is chosen; nil under any other palette or until
-    /// the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
+    /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
+    /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
     public var groupWallpaperTint: WallpaperTint?
     /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
     /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
@@ -176,6 +176,9 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
         }
     }
+    /// `developerTools.appPages`: cmux's own pages (an agent chat, Home, Markdown, Settings) offer
+    /// Inspect Element and open developer tools. On by default; browser tabs keep theirs either way.
+    public var pageDeveloperTools = true
     /// `ui.calm` (``CalmMode``): Reduce Motion behavior, no hover cards and no hover fills, and
     /// with `still` no animation at all. A change posts the motion, Reduce Motion and hover-card
     /// notifications, so cached motion values re-read and a shown card goes at once.
@@ -201,7 +204,7 @@ public final class DesignSettings {
     /// how long, and what it shows (Lawrence 2026-10-20).
     public var groupHoverCard = GroupHoverCardOptions()
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
-    public var closeFocus: CloseFocusPolicy = .previousNeighbor
+    public var closeFocus: CloseFocusPolicy = .mostRecent
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
     public var defaultColumnWidth: Double = 2.0 / 3.0
     /// `layout.newColumnWidth`: how a new column's width is chosen.
@@ -251,6 +254,10 @@ public final class DesignSettings {
     /// face when cmux.json sets none.
     public var terminalConfigFontFamily: String? {
         didSet { repaintIfTerminalFaceChanged(from: terminalFontFamily ?? oldValue) }
+    }
+    /// The full Ghostty `font-family` fallback chain, in config precedence order.
+    public var terminalConfigFontFamilies: [String] = [] {
+        didSet { if terminalConfigFontFamilies != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).

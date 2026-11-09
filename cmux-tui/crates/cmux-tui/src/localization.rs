@@ -14,6 +14,7 @@ mod browser;
 mod cli_connection;
 mod coderouter;
 mod config;
+mod copy_mode;
 mod foreign_viewport;
 mod graphics;
 mod host_share;
@@ -52,6 +53,7 @@ pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
 pub(crate) use coderouter::CodeRouterMessages;
 pub(crate) use config::ConfigMessages;
+pub(crate) use copy_mode::CopyModeMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;
 pub(crate) use graphics::GraphicsMessages;
 pub(crate) use layout::LayoutMessages;
@@ -152,6 +154,7 @@ pub(crate) struct Catalog {
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub copy_mode: CopyModeMessages,
     pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
@@ -214,6 +217,7 @@ static ENGLISH: Catalog = Catalog {
     machine_agent: machine_agent::ENGLISH,
     menu: menu::ENGLISH,
     shortcuts: shortcuts::ENGLISH,
+    copy_mode: copy_mode::ENGLISH,
     browser: browser::ENGLISH,
     layout: layout::ENGLISH,
     runtime: runtime::ENGLISH,
@@ -253,6 +257,7 @@ static JAPANESE: Catalog = Catalog {
     machine_agent: machine_agent::JAPANESE,
     menu: menu::JAPANESE,
     shortcuts: shortcuts::JAPANESE,
+    copy_mode: copy_mode::JAPANESE,
     browser: browser::JAPANESE,
     layout: layout::JAPANESE,
     runtime: runtime::JAPANESE,

@@ -173,7 +173,7 @@ nonisolated extension ActionSurfaceCatalog {
         .ownerVerb: ownerVerbActions,
         .guiOnly: [
             "agentHistory.show", "music.open", "music.stop", "palette.forkAgentConversationTo",
-            "notifications.dismissHighlight", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
+            "notifications.dismissHighlight", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize", "appearance.personalize",
             "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about",
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",
@@ -189,7 +189,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extensions.webStore", "browser.extension.options", "browserProfile.manageExtensions",
             "toggleSidebar", "toggleRightSidebar", "switchRightSidebarToFiles", "switchRightSidebarToFind",
             "switchRightSidebarToSessions", "switchRightSidebarToFeed", "switchRightSidebarToDock",
-            "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView",
+            "switchRightSidebarToMachines", "showNotifications", "palette.openTerminalChatView",
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.searchShortcuts", "agentPane.searchChats",

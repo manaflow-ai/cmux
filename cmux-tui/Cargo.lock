@@ -8,8 +8,12 @@ version = "1.0.0"
 dependencies = [
  "acpmux-build-id",
  "acpmux-hot",
+ "aho-corasick",
  "anyhow",
+ "async-trait",
+ "axum",
  "base64",
+ "blake2",
  "bytes",
  "chrono",
  "chrono-tz",
@@ -26,13 +30,19 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-mcp-connect",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-relay",
+ "cmux-remote",
+ "cmux-remote-protocol",
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
  "cmux-tailnet",
+ "cmux-transport",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-vault-egress",
  "cmux-wg",
@@ -77,6 +87,7 @@ dependencies = [
  "turmoil",
  "unicode-normalization",
  "unicode-width",
+ "url",
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
@@ -1109,6 +1120,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-classic-import"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-cloud-api"
 version = "1.0.0"
 dependencies = [
@@ -1278,6 +1298,10 @@ source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=3b8fa33adad103ce
 dependencies = [
  "serde_json",
 ]
+
+[[package]]
+name = "cmux-command-class"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-conductor-import"
@@ -1546,6 +1570,13 @@ dependencies = [
  "hmac",
  "sha2 0.10.9",
  "subtle",
+]
+
+[[package]]
+name = "cmux-local-url"
+version = "0.1.0"
+dependencies = [
+ "regex",
 ]
 
 [[package]]
@@ -1938,6 +1969,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-prediction"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-terminal-sizing"
 version = "0.1.0"
 dependencies = [
@@ -1953,6 +1988,7 @@ version = "0.1.0"
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "proptest",
 ]
 
@@ -2087,6 +2123,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
+ "cmux-classic-import",
  "cmux-cloud-api",
  "cmux-conductor-import",
  "cmux-config",
@@ -2102,6 +2139,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-palette-ranker",
  "cmux-process",
  "cmux-pty",
@@ -2359,6 +2397,10 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-rd-core",
+ "cmux-rd-engine",
+ "cmux-rd-link",
+ "cmux-rd-proto",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",

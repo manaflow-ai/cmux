@@ -16,7 +16,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContext};
 use serde_json::{Value, json};
 
+use super::carrier::{CARRIER_MAX_HOLD, CarrierHold, CarrierLook};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
+use super::gate::Gate;
 use super::store::{self, STORE_DIR};
 use super::{
     DOWNLOAD_DIR, Decision, Pending, Plan, clear_pending, decide, load_pending, load_state,
@@ -34,13 +36,8 @@ const BOOT_DELAY: Duration = Duration::from_secs(30);
 const INTERVAL: Duration = Duration::from_secs(60);
 /// An update waiting for a turn to end looks again this soon.
 const BUSY_RETRY: Duration = Duration::from_secs(60);
-/// No flip or restart this long after the role starts (a boot or an update's
-/// restart), a bind or a resume: a new or claimed machine's first link comes
-/// up then, and a restart kills it before its hello (nightly 8d8fc7a,
-/// 2026-11-06: a spare claimed at 21:28:35 restarted at 21:28:41 and its
-/// first dial never came back). Past it, a chat that started holds the update
-/// as busy, so the update waits for an idle machine.
-pub(super) const CONNECT_HOLD: Duration = Duration::from_secs(5 * 60);
+#[cfg(test)]
+pub(super) use super::gate::CONNECT_HOLD;
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -61,7 +58,7 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-enum Msg {
+pub(super) enum Msg {
     Check,
     Stop,
 }
@@ -78,35 +75,187 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// one waits for it (a rename and a few `--no-block` systemctl calls).
 static COMMIT: Mutex<()> = Mutex::new(());
 
-/// Until when no flip runs (see [`CONNECT_HOLD`]); set by the role, read by its worker.
-static HELD_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
-
-/// The hold's end after one that starts at `now`: never earlier than `held`.
-pub(super) fn extended_hold(held: Option<Instant>, now: Instant) -> Instant {
-    let until = now + CONNECT_HOLD;
-    held.map_or(until, |held| held.max(until))
+fn wall_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
-/// How much of the hold ending at `held` is left at `now`, if any.
-pub(super) fn hold_left(held: Option<Instant>, now: Instant) -> Option<Duration> {
-    held.and_then(|held| held.checked_duration_since(now)).filter(|left| !left.is_zero())
+/// Starts (or extends) the connect hold now: a role start, a bind, a resume,
+/// a restore or a new carrier session. The Cloud role calls it before a bind
+/// goes out, which the supervisor's `Bound` (an instance id change) does not see.
+///
+/// The hold lives in the state dir ([`Gate`]), so every process that flips or
+/// restarts the services sees it: this service's updater, the operator's
+/// `cmux host update check` and the guard. False when a restart of the
+/// service is pending: the caller's link would be cut, so a bind leaves
+/// `bind.json` for the restarted service, which clears the mark at its start.
+pub(crate) fn hold_connects(paths: &Paths) -> bool {
+    super::gate::hold_connects(paths, wall_ms())
 }
 
-fn hold_connects() {
-    let mut held = HELD_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
-    *held = Some(extended_hold(*held, Instant::now()));
+/// What the flip answers when the connect hold is on: a bind or resume that
+/// came while the update downloaded or staged holds it too (it is retried as busy).
+fn connect_hold_busy(left: Duration) -> Outcome {
+    Outcome::Busy(vec![format!("connect hold, {} s left", left.as_secs())])
 }
 
-/// The flip's own look at the hold: a bind or resume that came while the
-/// update downloaded or staged holds it too (it is retried as busy).
-pub(super) fn held_outcome(now: Instant) -> Option<Outcome> {
-    held_for(now)
-        .map(|left| Outcome::Busy(vec![format!("connect hold, {} s left", left.as_secs())]))
+/// The flip's answer to the hold as it stands now.
+#[cfg(test)]
+pub(super) fn held_outcome(paths: &Paths) -> Option<Outcome> {
+    held_for(paths).map(connect_hold_busy)
 }
 
-/// How much of the connect hold is left at `now`.
-pub(super) fn held_for(now: Instant) -> Option<Duration> {
-    hold_left(*HELD_UNTIL.lock().unwrap_or_else(|e| e.into_inner()), now)
+/// One look at `realtime - boottime`: whether it moved by a restore's jump
+/// since the look just before (never a remembered baseline, so clock syncs
+/// that each move it less never add up to one), and it becomes the last.
+pub(super) fn restore_look(last: &mut Option<i128>, now: i128) -> bool {
+    let restored = restored_between(*last, now);
+    *last = Some(now);
+    restored
+}
+
+/// `realtime - boottime` at the worker's last look ([`hold_after_restore`]).
+static CLOCK_OFFSET: Mutex<Option<i128>> = Mutex::new(None);
+
+/// Whether `realtime - boottime` moved from `before` to `now` by a whole stop:
+/// a snapshot restore, as the supervisor's clock-set wake counts one.
+pub(super) fn restored_between(before: Option<i128>, now: i128) -> bool {
+    before.is_some_and(|before| {
+        crate::agent::clock_set_wake(before, now) == crate::agent::Wake::ClockSet
+    })
+}
+
+/// Starts the connect hold for a snapshot restore the supervisor's
+/// `Resumed` has not reached yet. A new machine is a restore of the bake's
+/// snapshot, so the hold its role start set ran out long before. Its
+/// `Resumed` comes only after a metadata read, and this worker's next
+/// look could flip first (production probe, 2026-11-08: a new machine
+/// flipped 10 s after its create and the app's first link ended).
+///
+/// This covers a provider whose boot clock stops while the machine is
+/// stopped, and reads the clocks itself: the supervisor's record of the same
+/// clock set ([`crate::agent::PauseWatch::found`]) waits on its own dispatch.
+/// A boot clock that runs through the pause moves nothing here; the pause
+/// watch's record covers that ([`hold_if_paused`]).
+fn hold_after_restore(paths: &Paths) {
+    #[cfg(target_os = "linux")]
+    {
+        let now = crate::linux::realtime_minus_boottime_ns();
+        let mut last = CLOCK_OFFSET.lock().unwrap_or_else(|e| e.into_inner());
+        if restore_look(&mut last, now) {
+            hold_connects(paths);
+            log("a snapshot restore: no flip during the connect hold");
+        }
+    }
+}
+
+/// Now on the boot clock and the wall clock: `(boot ns, wall ms)`.
+pub(super) type Clock<'a> = &'a dyn Fn() -> (i128, u64);
+
+fn clocks() -> (i128, u64) {
+    (crate::linux::boottime_ns(), wall_ms())
+}
+
+/// The pause count ([`crate::agent::PauseWatch::pause_seq`]) this process's
+/// updater last handled, kept across its waits and checks. The role start
+/// takes the count then: a pause before it is covered by the start's hold.
+static HANDLED: AtomicU64 = AtomicU64::new(0);
+
+/// Starts the connect hold at `now` when `watch` counted a pause after the
+/// last one `handled` holds (which it then takes), or is still waking from
+/// one: the machine was stopped (paused, restored, forked).
+///
+/// The updater reads the supervisor's pause watch at its own steps rather
+/// than wait for the `Resumed` it leads to. That event comes after the
+/// watch's next wake and a metadata read, while this worker's wait or check
+/// ends at the resume itself: a claimed spare (a paused machine resumed)
+/// flipped 1 to 184 s after its create (production chat probe, 17 of 45
+/// runs, 2026-11-07 to 11-08). A count, not a time against the step's start,
+/// so a pause found between two steps is never missed.
+pub(super) fn hold_if_paused(
+    paths: &Paths,
+    watch: &crate::agent::PauseWatch,
+    handled: &AtomicU64,
+    now: (i128, u64),
+) -> bool {
+    let seen = watch.seen();
+    let counted = seen.pauses > handled.fetch_max(seen.pauses, Ordering::SeqCst);
+    if !counted && !seen.waking(now.0) {
+        return false;
+    }
+    super::gate::hold_connects(paths, now.1);
+    log("the machine was stopped (a pause or restore): no flip during the connect hold");
+    true
+}
+
+/// The last look before a flip: a pause the watch counted or is waking from
+/// ([`hold_if_paused`]), or a restore `realtime - boottime` shows from `last`
+/// to `offset_now` ([`restore_look`]), starts the connect hold. True when it did.
+pub(super) fn flip_look(
+    paths: &Paths,
+    watch: &crate::agent::PauseWatch,
+    handled: &AtomicU64,
+    last: &mut Option<i128>,
+    offset_now: i128,
+    now: (i128, u64),
+) -> bool {
+    let paused = hold_if_paused(paths, watch, handled, now);
+    let restored = restore_look(last, offset_now);
+    if restored {
+        super::gate::hold_connects(paths, now.1);
+        log("a snapshot restore: no flip during the connect hold");
+    }
+    paused || restored
+}
+
+/// The pause and restore looks one check makes: the record it reads, the
+/// pause count it handled and its last `realtime - boottime`.
+pub(super) struct Looks<'a> {
+    pub(super) watch: &'a crate::agent::PauseWatch,
+    pub(super) handled: &'a AtomicU64,
+    pub(super) offset: &'a Mutex<Option<i128>>,
+}
+
+impl Looks<'static> {
+    /// The service's worker: the supervisor's own watch, kept across steps.
+    fn worker() -> Looks<'static> {
+        Looks { watch: &crate::agent::PAUSES, handled: &HANDLED, offset: &CLOCK_OFFSET }
+    }
+}
+
+/// The looks of a check outside the service's process (the operator's
+/// `cmux host update check`): the record the service's watch writes
+/// ([`super::PAUSE_FILE`]), read again at every look, with this check's own
+/// pause count and restore look, both taken at its start.
+pub(super) struct OtherLook {
+    watch: crate::agent::PauseWatch,
+    handled: AtomicU64,
+    offset: Mutex<Option<i128>>,
+}
+
+impl OtherLook {
+    pub(super) fn start(paths: &Paths, offset_now: i128) -> OtherLook {
+        let watch = crate::agent::PauseWatch::load(&paths.at(super::PAUSE_FILE));
+        let handled = AtomicU64::new(watch.pause_seq());
+        OtherLook { watch, handled, offset: Mutex::new(Some(offset_now)) }
+    }
+
+    pub(super) fn looks(&self) -> Looks<'_> {
+        Looks { watch: &self.watch, handled: &self.handled, offset: &self.offset }
+    }
+}
+
+/// [`wait`], then the pause look over it ([`hold_if_paused`]).
+fn wait_watching(paths: &Paths, rx: &Receiver<Msg>, d: Duration) -> bool {
+    let go_on = wait(rx, d);
+    if go_on {
+        hold_if_paused(paths, &crate::agent::PAUSES, &HANDLED, clocks());
+    }
+    go_on
+}
+
+/// How much of the connect hold is left now.
+pub(super) fn held_for(paths: &Paths) -> Option<Duration> {
+    Gate::new(paths).held_left(wall_ms())
 }
 
 thread_local! {
@@ -185,7 +334,9 @@ impl Role for UpdaterRole {
         if !self.paths.at(store::CURRENT_LINK).exists() {
             return Ok(());
         }
-        hold_connects();
+        hold_connects(&self.paths);
+        hold_after_restore(&self.paths);
+        HANDLED.store(crate::agent::PAUSES.pause_seq(), Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel::<()>();
         let paths = self.paths.clone();
@@ -210,7 +361,7 @@ impl Role for UpdaterRole {
         match event {
             HostEvent::Resumed | HostEvent::Bound { .. } | HostEvent::ChannelChanged => {
                 if !matches!(event, HostEvent::ChannelChanged) {
-                    hold_connects();
+                    hold_connects(&self.paths);
                 }
                 if let Some(worker) = &self.worker {
                     let _ = worker.tx.send(Msg::Check);
@@ -239,21 +390,22 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
     {
         return;
     }
-    if !wait(rx, BOOT_DELAY) {
+    if !wait_watching(paths, rx, BOOT_DELAY) {
         return;
     }
     loop {
         // A check during the hold waits it out (a Check message only wakes it
         // to look again).
-        if let Some(left) = held_for(Instant::now()) {
-            if !wait(rx, left) {
+        hold_after_restore(paths);
+        if let Some(left) = held_for(paths) {
+            if !wait_watching(paths, rx, left) {
                 return;
             }
             continue;
         }
         let outcome = check(paths);
         let next = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
-        if !wait(rx, next) {
+        if !wait_watching(paths, rx, next) {
             return;
         }
     }
@@ -328,7 +480,17 @@ pub fn check(paths: &Paths) -> Outcome {
     let Some(_lock) = Lock::take(paths, false) else {
         return Outcome::Failed("another update check runs".to_owned());
     };
-    let outcome = check_inner(paths);
+    // The service's own watch; in another process (the operator's check), the
+    // record that watch writes, with this check's own count and restore look.
+    let other;
+    let looks = if crate::agent::PAUSES.has_looked() {
+        Looks::worker()
+    } else {
+        other = OtherLook::start(paths, crate::linux::realtime_minus_boottime_ns());
+        other.looks()
+    };
+    let outcome =
+        check_step(paths, looks.watch, looks.handled, &clocks, || check_inner(paths, &looks));
     let mut state = load_state(paths);
     let line = outcome.line();
     if state.last.as_deref() != Some(line.as_str()) {
@@ -340,7 +502,25 @@ pub fn check(paths: &Paths) -> Outcome {
     outcome
 }
 
-fn check_inner(paths: &Paths) -> Outcome {
+/// Runs one check (`inner`), then the pause look over it on every way out
+/// but a flip (which looked right before it): a check that returned early
+/// after a pause (a busy look that timed out across it) starts the connect
+/// hold, or a flip could follow a minute later.
+pub(super) fn check_step(
+    paths: &Paths,
+    watch: &crate::agent::PauseWatch,
+    handled: &AtomicU64,
+    clock: Clock<'_>,
+    inner: impl FnOnce() -> Outcome,
+) -> Outcome {
+    let outcome = inner();
+    if !matches!(outcome, Outcome::Updating(_)) {
+        hold_if_paused(paths, watch, handled, clock());
+    }
+    outcome
+}
+
+fn check_inner(paths: &Paths, looks: &Looks<'_>) -> Outcome {
     if let Some(why) = off_reason(paths) {
         return Outcome::Off(why);
     }
@@ -366,7 +546,7 @@ fn check_inner(paths: &Paths) -> Outcome {
         Ok(Decision::RolledBack) => return Outcome::RolledBackBefore,
         Err(e) => return Outcome::Failed(e),
     };
-    match busy_sessions() {
+    match busy_sessions(paths) {
         Ok(busy) if busy.is_empty() => {}
         Ok(busy) => return Outcome::Busy(busy),
         Err(e) => return Outcome::Busy(vec![e]),
@@ -395,38 +575,66 @@ fn check_inner(paths: &Paths) -> Outcome {
     // and acpmux's restart keeps and adopts even that one's agent.
     let last = match off_reason(paths) {
         Some(why) => Some(Outcome::Off(why)),
-        None => match busy_sessions() {
+        None => match busy_sessions(paths) {
             Ok(busy) if busy.is_empty() => None,
             Ok(busy) => Some(Outcome::Busy(busy)),
             Err(e) => Some(Outcome::Busy(vec![e])),
         },
     };
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
-    let last = last
-        .or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())))
-        .or_else(|| held_outcome(Instant::now()));
+    // A stop during this check (its download, its busy look) holds its flip.
+    {
+        let mut last = looks.offset.lock().unwrap_or_else(|e| e.into_inner());
+        flip_look(
+            paths,
+            looks.watch,
+            looks.handled,
+            &mut last,
+            crate::linux::realtime_minus_boottime_ns(),
+            clocks(),
+        );
+    }
+    let last =
+        last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
     if let Some(outcome) = last {
         drop(commit);
         disarm_guard();
         clear_pending(paths);
         return outcome;
     }
-    if let Err(e) = store::flip(paths, plan.to) {
-        drop(commit);
-        disarm_guard();
-        clear_pending(paths);
-        return Outcome::Failed(format!("flipping to profile {}: {e}", plan.to));
-    }
-    log(&format!(
-        "profile {} -> {}: cmux-tui {} ({}); restarting the services",
-        plan.from,
-        plan.to,
-        short_hex(&plan.cmux_tui.sha256),
-        short_hex(&plan.commit)
-    ));
-    restart_after_flip(&store_binary(&plan.old_cmux_tui));
+    // The pause count read again right before the gate, which then sees the
+    // hold a pause found since the look above starts.
+    hold_if_paused(paths, looks.watch, looks.handled, clocks());
+    // The connect hold's last look, the flip and the queued restarts run
+    // inside the gate (`Gate::run`, shared with every process): a bind or a new session that
+    // takes the hold before the restart is seen here, and one after waits.
+    let flipped = Gate::new(paths).run(wall_ms(), true, |queued| {
+        store::flip(paths, plan.to)?;
+        log(&format!(
+            "profile {} -> {}: cmux-tui {} ({}); restarting the services",
+            plan.from,
+            plan.to,
+            short_hex(&plan.cmux_tui.sha256),
+            short_hex(&plan.commit)
+        ));
+        queued();
+        restart_after_flip(&store_binary(&plan.old_cmux_tui));
+        Ok::<(), std::io::Error>(())
+    });
     drop(commit);
-    Outcome::Updating(plan.commit)
+    match flipped {
+        Ok(Ok(())) => Outcome::Updating(plan.commit),
+        Err(left) => {
+            disarm_guard();
+            clear_pending(paths);
+            connect_hold_busy(left)
+        }
+        Ok(Err(e)) => {
+            disarm_guard();
+            clear_pending(paths);
+            Outcome::Failed(format!("flipping to profile {}: {e}", plan.to))
+        }
+    }
 }
 
 /// The first 12 characters of a hash for a log line; a shorter or non-ASCII text is logged whole, never sliced
@@ -553,9 +761,91 @@ fn acpmux(args: &[&str]) -> Option<(bool, String)> {
     Some((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned()))
 }
 
-/// What a restart would cut: [`acpmux_busy_sessions`]. Empty only when it is idle.
-fn busy_sessions() -> Result<Vec<String>, String> {
-    acpmux_busy_sessions()
+/// What a restart would cut: the attached carrier sessions ([`carrier_busy`],
+/// bounded), then [`acpmux_busy_sessions`]. Empty only when both are idle.
+fn busy_sessions(paths: &Paths) -> Result<Vec<String>, String> {
+    let carrier = carrier_busy(paths);
+    let mut busy = acpmux_busy_sessions()?;
+    busy.extend(carrier);
+    Ok(busy)
+}
+
+/// The carrier hold between looks ([`super::carrier`]).
+static CARRIER: Mutex<Option<CarrierHold>> = Mutex::new(None);
+
+/// One look at the session host's carrier sessions: why they hold the
+/// update, if they do. A new session starts the connect hold, so a claimed
+/// spare's first link is never cut, also past the carrier hold's bound.
+fn carrier_busy(paths: &Paths) -> Option<String> {
+    carrier_busy_from(paths, carrier_sessions())
+}
+
+/// [`carrier_busy`] for a rollback: only sessions the list shows hold it,
+/// under the same bound. A list that can't be read holds nothing here: the
+/// session host that would answer is the build being rolled back, and
+/// keeping a broken build is worse than a restart (#37280).
+fn rollback_carrier_busy(paths: &Paths) -> Option<String> {
+    carrier_sessions().ok().and_then(|ids| carrier_busy_from(paths, Ok(ids)))
+}
+
+/// [`carrier_busy`] for the sessions one look read.
+pub(super) fn carrier_busy_from(
+    paths: &Paths,
+    sessions: Result<Vec<String>, String>,
+) -> Option<String> {
+    let mut hold = CARRIER.lock().unwrap_or_else(|e| e.into_inner());
+    let look = hold.get_or_insert_with(CarrierHold::default).look(Instant::now(), sessions);
+    drop(hold);
+    act_on_look(look, || {
+        hold_connects(paths);
+    })
+}
+
+/// What one carrier look does: a new session starts the connect hold
+/// (`start_hold`), the bound is logged once, and the answer is why the
+/// update waits, if it does.
+pub(super) fn act_on_look(look: CarrierLook, start_hold: impl FnOnce()) -> Option<String> {
+    if look.new_session {
+        start_hold();
+        log("a new carrier session: no flip during the connect hold");
+    }
+    if look.bound_passed {
+        log(&format!(
+            "carrier sessions held this update for {} min; it goes at the next idle gap",
+            CARRIER_MAX_HOLD.as_secs() / 60
+        ));
+    }
+    look.busy
+}
+
+/// The attached carrier sessions, from the session host's admin channel
+/// (`cmux-tui remote enroll connections --json`, at most 20 s), run as the
+/// user and home the session host runs with (the layout marker), since the
+/// channel answers only its own user.
+fn carrier_sessions() -> Result<Vec<String>, String> {
+    let marker = fs::read_to_string(Paths::new("/").at(crate::config::LAYOUT_MARKER_FILE)).ok();
+    let home = crate::cloud::daemon_noise_key::session_home(marker.as_deref())
+        .ok_or("the session host's layout is not recorded yet")?;
+    let mut cmd = Command::new("timeout");
+    cmd.arg("20");
+    if home != Path::new(crate::daemon_spec::ROOT_HOME) {
+        cmd.args(["runuser", "-u", WORK_USER, "--"]);
+    }
+    let output = cmd
+        .arg("env")
+        .arg(format!("HOME={}", home.display()))
+        .arg(super::CURRENT_CMUX_TUI)
+        .args(["remote", "enroll", "connections", "--session", crate::daemon_spec::SESSION])
+        .arg("--json")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| format!("cmux-tui: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("its admin channel answered {}", output.status));
+    }
+    super::carrier::attached_sessions_in(&String::from_utf8_lossy(&output.stdout))
+        .ok_or_else(|| "its connection list is unreadable".to_owned())
 }
 
 /// The acpmux sessions that run a turn or wait on a permission, by name
@@ -628,6 +918,49 @@ fn healthy(paths: &Paths, pending: &Pending) -> bool {
         .is_some_and(|pid| runs_new(&pid.to_string()))
 }
 
+/// Before a rollback's restart: waits while `carrier` says carrier sessions
+/// hold it (the flip's own rule, [`carrier_busy`], with its
+/// [`CARRIER_MAX_HOLD`] bound), looking again every [`BUSY_RETRY`] through
+/// `wait`. False when `wait` says the waiter stopped.
+pub(super) fn rollback_waits(
+    carrier: &mut impl FnMut() -> Option<String>,
+    mut wait: impl FnMut(Duration) -> bool,
+) -> bool {
+    let mut logged = false;
+    while let Some(why) = carrier() {
+        if !logged {
+            log(&format!("the rollback waits: {why}"));
+            logged = true;
+        }
+        if !wait(BUSY_RETRY) {
+            return false;
+        }
+    }
+    true
+}
+
+/// The health timeout's rollback waits for carrier sessions, waking on the
+/// role's messages; false when the role stops (the guard still covers it).
+pub(super) fn timeout_rollback_waits(
+    carrier: &mut impl FnMut() -> Option<String>,
+    rx: &Receiver<Msg>,
+) -> bool {
+    rollback_waits(carrier, |d| wait(rx, d))
+}
+
+/// The guard's rollback (`cmux host update guard`, a oneshot unit with no
+/// start timeout) waits for carrier sessions by sleeping; `sleep` is
+/// injected for the tests.
+pub(super) fn guard_rollback_waits(
+    carrier: &mut impl FnMut() -> Option<String>,
+    mut sleep: impl FnMut(Duration),
+) {
+    rollback_waits(carrier, |d| {
+        sleep(d);
+        true
+    });
+}
+
 /// The new `cmux host run` proves the pending update or rolls it back.
 /// False when the role stopped meanwhile (the guard still covers it).
 fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
@@ -643,6 +976,9 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
             return true;
         }
         if Instant::now() >= deadline {
+            if !timeout_rollback_waits(&mut || rollback_carrier_busy(paths), rx) {
+                return false;
+            }
             rollback(
                 paths,
                 pending,
@@ -692,20 +1028,25 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
         return;
     }
     log(&format!("rolling {} back to profile {}: {why}", pending.commit, pending.from));
-    if let Err(e) = store::flip(paths, pending.from) {
-        log(&format!("flipping back to profile {}: {e}", pending.from));
-        return;
-    }
-    let mut state = load_state(paths);
-    record_rollback(&mut state, pending);
-    state.last = Some(format!("rolled back {}: {why}", pending.commit));
-    state.last_at = now();
-    let _ = save_state(paths, &state);
-    clear_pending(paths);
-    if in_host {
-        disarm_guard();
-    }
-    restart_after_flip(&store_binary(&pending.cmux_tui));
+    // The flip back and its restarts go through the gate, so no bind goes out
+    // between them; the hold does not stop a rollback.
+    let _ = Gate::new(paths).run(wall_ms(), false, |queued| {
+        if let Err(e) = store::flip(paths, pending.from) {
+            log(&format!("flipping back to profile {}: {e}", pending.from));
+            return;
+        }
+        let mut state = load_state(paths);
+        record_rollback(&mut state, pending);
+        state.last = Some(format!("rolled back {}: {why}", pending.commit));
+        state.last_at = now();
+        let _ = save_state(paths, &state);
+        clear_pending(paths);
+        if in_host {
+            disarm_guard();
+        }
+        queued();
+        restart_after_flip(&store_binary(&pending.cmux_tui));
+    });
 }
 
 fn systemctl(args: &[&str]) -> bool {
@@ -835,6 +1176,11 @@ pub fn verb(args: &[String]) -> u8 {
             println!("{}", outcome.json());
             if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
         }
+        // The guard reads no pause record: its rollback flips past the connect
+        // hold on purpose (`rollback` runs the gate with `honor_hold` false,
+        // #37280: keeping a build that never proved itself is worse than a
+        // restart) and waits only for attached carrier sessions, so a pause's
+        // hold could not change what it does.
         ["guard", "--to", to] => {
             let Ok(to) = to.parse::<u64>() else { return 2 };
             let Some(pending) = load_pending(&paths).filter(|p| p.to == to) else { return 0 };
@@ -842,6 +1188,7 @@ pub fn verb(args: &[String]) -> u8 {
                 clear_pending(&paths);
                 return 0;
             }
+            guard_rollback_waits(&mut || rollback_carrier_busy(&paths), std::thread::sleep);
             rollback(
                 &paths,
                 &pending,

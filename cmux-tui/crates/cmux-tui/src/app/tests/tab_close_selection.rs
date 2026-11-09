@@ -23,6 +23,7 @@ fn pane(count: u64, active: usize) -> PaneView {
         notification: None,
         program_status: None,
         attention: None,
+        git_branch: None,
     };
     PaneView {
         id: 1,

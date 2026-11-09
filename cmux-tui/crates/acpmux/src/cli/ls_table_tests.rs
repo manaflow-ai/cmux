@@ -75,6 +75,7 @@ fn stuck_says_why_in_a_few_words() {
         (json!({"state": "stuck", "stuckReason": "capacity"}), "stuck", "capacity"),
         (json!({"state": "stuck", "stuckReason": "harness_unavailable"}), "stuck", "harness down"),
         (json!({"state": "idle", "lane": {"state": "failed"}}), "idle", "failed turn"),
+        (json!({"harnessSandboxFailed": NOW - 60_000}), "running", "harness sandbox"),
         (
             json!({"lane": {"state": "working", "stalledSince": NOW - 12 * 60_000}}),
             "running",

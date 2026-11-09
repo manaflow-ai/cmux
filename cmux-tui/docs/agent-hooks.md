@@ -14,10 +14,12 @@ cmux agent hook status
 
 Hook reports outrank the screen-detection plugin for 30 s, with one
 exception: a blocked state ends when the screen proves the dialog gone, after
-the hook reported it. The proof is the plugin seeing the dialog and then not,
-or the plugin seeing the agent's own idle prompt (a dismissal faster than its
-scan). Claude Code sends no hook when a permission dialog is dismissed with
-Esc, so the screen is the only evidence that the agent stopped waiting.
+the hook reported it. The proof is one plugin process seeing the dialog and
+then not (a restarted plugin starts with no such proof), or the plugin seeing
+the agent's own idle prompt (a dismissal faster than its scan). Claude Code
+sends no hook when a permission dialog is dismissed with Esc, so this proof,
+or the agent's own status report (OSC 7501 `blocked`, then `idle` or
+`working`), is the only evidence that the agent stopped waiting.
 
 ## Agents in a tmux session started elsewhere
 
@@ -77,6 +79,42 @@ A launcher that is itself named `claude` and sits earlier on PATH than the
 real Claude receives the merged `--settings`. If it then adds a `--settings`
 of its own, that later flag wins and the hooks are dropped. Launchers with
 another name that look up `claude` on PATH are not affected.
+
+### Claude started by full path or by a launcher
+
+The shim only covers a `claude` found on `PATH`. A launcher that runs Claude
+by its full path (`sr2 claude` when a login shell has put `~/.local/bin`
+ahead of the shim, a version manager's shim, an alias to the full path, or a
+typed `/path/to/claude`) skips it. For those launches each terminal also
+names this build's Claude Code plugin in `CLAUDE_CODE_PLUGIN_DIRS`, which
+Claude Code 2.1 reads under any config directory and beside any
+`--settings`:
+
+- The server writes the plugin to
+  `$XDG_DATA_HOME/cmux-tui/builds/<build>/claude-plugin` and appends that
+  folder to the `CLAUDE_CODE_PLUGIN_DIRS` the server inherited. Folders of
+  other cmux-tui plugins are dropped, so a server started in another
+  build's terminal does not load two.
+- The plugin's hooks are the installed hooks plus the `SessionStart` session
+  context. They run `CMUX_TUI_HOOK`, or this build's helper when a launcher
+  removed that variable.
+- Claude Code does not merge plugin hooks with settings hooks. When the user
+  settings of the config directory Claude runs with already hold the hooks
+  from `agent hook install claude`, the plugin's copy of each such event does
+  nothing.
+- The wrapper removes the plugin from the folders it passes on, because its
+  `--settings` already carries the same hooks. Other plugin folders stay.
+- `CMUX_TUI_CLAUDE_HOOKS_DISABLED=1` turns the plugin's hooks off. Set in the
+  server's environment, it also keeps the folder out of new terminals.
+- Claude Code refuses to start while `CLAUDE_CODE_PLUGIN_DIRS` names a folder
+  under an organization policy with `disableSideloadFlags`. The server adds no
+  folder when this machine's managed settings, managed preferences, or cached
+  remote settings set that policy. A policy that only the server delivers,
+  and that this machine has not cached, is not seen; Claude then names
+  `CLAUDE_CODE_PLUGIN_DIRS` in its error, and unsetting it in the terminal
+  starts Claude without the plugin.
+- Claude Code versions without `CLAUDE_CODE_PLUGIN_DIRS` ignore it; for them
+  only the shim adds hooks.
 
 With `agent hook install claude` also in place and its `cmux-tui-hook`
 helper present, both copies use the same command, and Claude Code runs it

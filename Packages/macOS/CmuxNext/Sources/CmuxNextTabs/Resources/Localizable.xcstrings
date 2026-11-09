@@ -8389,7 +8389,7 @@
       }
     },
     "tabs.zoom.exit": {
-      "comment": "A zoomed pane's indicator on its selected tab: tooltip and VoiceOver label; a click restores the layout.",
+      "comment": "A zoomed pane's indicator at the pane's top-right: tooltip and VoiceOver label; a click restores the layout.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8521,7 +8521,7 @@
       }
     },
     "tabs.ax.zoomed": {
-      "comment": "VoiceOver: part of a tab's label while its pane is zoomed (the tab shows the zoom indicator).",
+      "comment": "VoiceOver: part of a tab's label while its pane is zoomed.",
       "extractionState": "manual",
       "localizations": {
         "en": {

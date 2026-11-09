@@ -493,6 +493,7 @@ async fn world(tag: &str, route: Route) -> World {
             let b_service: SocketAddr = "10.77.0.2:4100".parse().unwrap();
             let wg_peer =
                 |key: String, endpoint: SocketAddr, address: SocketAddr, url: String| PeerConfig {
+                    link_host: None,
                     url,
                     wireguard: Some(StaticPeer {
                         public_key: key,
@@ -588,8 +589,11 @@ impl World {
 }
 
 /// Samples A's link state each 5 ms into a list of distinct states, until dropped.
-fn record_states(a: Arc<Hub>) -> (Arc<Mutex<Vec<String>>>, tokio::task::JoinHandle<()>) {
-    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+/// Each state A's link to `b` took, with when it was first seen.
+type Seen = Arc<Mutex<Vec<(String, Instant)>>>;
+
+fn record_states(a: Arc<Hub>) -> (Seen, tokio::task::JoinHandle<()>) {
+    let seen: Seen = Arc::default();
     let out = seen.clone();
     let task = tokio::spawn(async move {
         loop {
@@ -597,8 +601,8 @@ fn record_states(a: Arc<Hub>) -> (Arc<Mutex<Vec<String>>>, tokio::task::JoinHand
                 a.peers().into_iter().next().map(|p| p["state"].as_str().unwrap_or("").to_owned());
             if let Some(now) = now {
                 let mut s = out.lock().unwrap();
-                if s.last() != Some(&now) {
-                    s.push(now);
+                if s.last().map(|(state, _)| state) != Some(&now) {
+                    s.push((now, Instant::now()));
                 }
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
@@ -631,7 +635,16 @@ struct Row {
     reshow_required: bool,
 }
 
-async fn run(row: Row) {
+/// A row's times: the cut noticed, the link ready again after it left `connected`, and the
+/// whole outage from the cut.
+#[derive(Clone, Copy)]
+struct Times {
+    detect: Duration,
+    failover: Duration,
+    total: Duration,
+}
+
+async fn run(row: Row) -> Times {
     let w = world(row.tag, row.route).await;
     let gate = w.scratch.join("gate");
     let mut ca = Client::new(&w.a).await;
@@ -656,6 +669,7 @@ async fn run(row: Row) {
     let left = w.until_not("connected", DETECT_BOUND + STEP).await;
     let left = left.unwrap_or_else(|| panic!("{}: the link never left connected", row.tag));
     let detect = left - cut_at;
+
     let mark = ca.len();
 
     // A prompt while the carrier is down: refused with a named error, or held.
@@ -711,7 +725,14 @@ async fn run(row: Row) {
         },
     };
     sampler.abort();
-    let states = states.lock().unwrap().clone();
+    let timed = states.lock().unwrap().clone();
+    // When the link went down (the link dropped, as against slow: a reset, the silence budget
+    // running out, or a move to another path), if it did.
+    let dropped = timed
+        .iter()
+        .find(|(state, _)| state == "reconnecting" || state == "restarting")
+        .map(|(_, at)| *at);
+    let states: Vec<String> = timed.into_iter().map(|(state, _)| state).collect();
 
     // The turn's answer can reach the client before the chunks the peer's link forwards ahead of
     // it are read out: wait for the last one ("chose X") before counting.
@@ -793,18 +814,23 @@ async fn run(row: Row) {
         "{}: never left connected: {states:?}",
         row.tag
     );
+    // From the drop (else from leaving `connected`) to ready again: the redial, without the
+    // time the silence budget takes to find a black hole.
+    let failover = back.saturating_duration_since(dropped.unwrap_or(left));
     eprintln!(
-        "carrier_faults row={} cut={:?} detect_ms={} redial_ms={} total_ms={} states={} ask={ask_seen} outage_prompt={}",
+        "carrier_faults row={} cut={:?} detect_ms={} redial_ms={} failover_ms={} total_ms={} states={} ask={ask_seen} outage_prompt={}",
         row.tag,
         row.cut,
         detect.as_millis(),
         redial.as_millis(),
+        failover.as_millis(),
         (back - cut_at).as_millis(),
         states.join(">"),
         outcome
     );
     assert!(detect <= DETECT_BOUND, "{}: the cut took {detect:?} to notice", row.tag);
     assert!(redial <= REDIAL_BOUND, "{}: the redial took {redial:?}", row.tag);
+    Times { detect, failover, total: back - cut_at }
 }
 
 // ------------------------------------------------------------------ rows that pass today
@@ -863,12 +889,18 @@ async fn wireguard_black_hole_mid_turn_redials_and_replays_after_seq() {
 
 // ------------------------------------------------------------------ rows that wait for a fix
 
+/// How long the link may take from dropping its dead WireGuard path to being ready on ssh: ssh
+/// is a live path, probed all along, so the redial dials it first, with no WireGuard connect
+/// deadline before it (at most the 250 ms stagger behind a dead path), then the ssh dial, the
+/// handshake and the replay of the turn so far (an ssh redial after a reset takes about 50 ms
+/// here). Before the carrier list the whole outage was 33.3 s: each redial waited out
+/// WireGuard's 30 s connect deadline first. Finding the black hole (the silence budget) is not
+/// counted; sending on both paths while one is in doubt is what shortens that.
+const WG_TO_SSH_FAILOVER: Duration = Duration::from_millis(250 + 1_000);
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs carrier failover (audit fixes 1 and 2): connect_once tries WireGuard for the whole \
-            30 s connect deadline on every redial before the ssh route, and remembers no last good \
-            carrier, so a turn whose WireGuard path dies waits far past the redial bound"]
 async fn wireguard_dies_mid_turn_and_the_link_moves_to_ssh() {
-    run(Row {
+    let times = run(Row {
         tag: "wg-to-ssh",
         route: Route::WgThenSsh,
         cut: Cut::BlackHole,
@@ -877,6 +909,13 @@ async fn wireguard_dies_mid_turn_and_the_link_moves_to_ssh() {
         reshow_required: false,
     })
     .await;
+    assert!(
+        times.failover <= WG_TO_SSH_FAILOVER,
+        "wg-to-ssh: the link took {:?} to move to ssh (cut noticed after {:?}, {:?} in all)",
+        times.failover,
+        times.detect,
+        times.total
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

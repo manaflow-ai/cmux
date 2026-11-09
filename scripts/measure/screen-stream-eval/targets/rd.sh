@@ -40,6 +40,10 @@ bench() {
 
 case "$verb" in
   build)
+    if [[ -n "${EVAL_PREBUILT:-}" ]]; then
+      cp "$EVAL_PREBUILT/cmux-rd" "$rd"
+      exit 0
+    fi
     # From cmux-tui, so rustup takes its rust-toolchain.toml: rustup reads the cwd, not the manifest's
     # folder, and a fleet worker's shared RUSTUP_HOME keeps no default toolchain on purpose
     # (scripts/build-cmux-cua.sh says why).
