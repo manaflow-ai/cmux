@@ -258,6 +258,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     assert_eq!(info["toolsMutable"], json!(false), "{info}");
     let cmux_servers = vec![
         row("mcp:cmux-cua", "cmux", "cmux", true, false),
+        row("mcp:cmux-sessions", "cmux", "cmux", true, false),
         row("mcp:cmux-subsessions", "cmux", "cmux", true, false),
         row("mcp:cmux-forum", "cmux", "cmux", true, false),
         row("mcp:acpmux", "cmux", "cmux", true, false),
@@ -336,6 +337,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         rows(&info["tools"]),
         vec![
             row("mcp:cmux-cua", "cmux", "cmux", true, true),
+            row("mcp:cmux-sessions", "cmux", "cmux", true, true),
             row("mcp:cmux-subsessions", "cmux", "cmux", true, true),
             row("mcp:cmux-forum", "cmux", "cmux", true, true),
             row("mcp:acpmux", "cmux", "cmux", true, true),
