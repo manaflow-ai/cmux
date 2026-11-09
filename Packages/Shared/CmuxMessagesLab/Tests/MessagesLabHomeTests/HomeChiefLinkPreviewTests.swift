@@ -139,6 +139,8 @@ import Testing
         #expect(LinkPreviews.decode("Swift &#8212; Docs &#x2019;26 &mdash; A&amp;B") == "Swift — Docs ’26 — A&B")
         // One pass: an escaped entity stays escaped; an unknown or bare ampersand is kept as written.
         #expect(LinkPreviews.decode("a &amp;lt; b &bogus; & c &#xZZ;") == "a &lt; b &bogus; & c &#xZZ;")
+        // NUL reads as the replacement character (as a browser shows it); a scalar past Unicode stays.
+        #expect(LinkPreviews.decode("a&#0;b &#x110000; &#+65;") == "a\u{FFFD}b &#x110000; &#+65;")
     }
 
     /// A page that only redirects with a meta refresh (swift.org's documentation stub) is followed
@@ -156,6 +158,12 @@ import Testing
         #expect(LinkPreviews.refreshTarget(#"<meta http-equiv="refresh" content="0; url=javascript:alert(1)">"#, base: base) == nil)
         #expect(LinkPreviews.refreshTarget(#"<meta http-equiv="refresh" content="30">"#, base: base) == nil)
         #expect(LinkPreviews.refreshTarget(#"<meta name="description" content="url=https://x.example">"#, base: base) == nil)
+        // A page reloading itself later is no redirect stub; a refresh for browsers without scripts is not followed.
+        #expect(LinkPreviews.refreshTarget(#"<meta http-equiv="refresh" content="300; url=/?reload=1">"#, base: base) == nil)
+        let noscript = #"<title>App</title><noscript><meta http-equiv="refresh" content="0; url=/nojs"></noscript>"#
+        #expect(LinkPreviews.refreshTarget(noscript, base: base) == nil)
+        #expect(LinkPreviews.refreshTarget(noscript + #"<meta http-equiv="refresh" content="0; url=/real">"#, base: base)?.absoluteString
+            == "https://www.swift.org/real")
     }
 
     @Test func theHandShowsOverALinkAndTheArrowOverText() throws {

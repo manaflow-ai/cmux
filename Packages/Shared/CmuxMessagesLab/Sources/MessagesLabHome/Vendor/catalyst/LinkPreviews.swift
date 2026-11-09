@@ -109,26 +109,44 @@ final class LinkPreviews: LinkPreviewFetching {
                 done(nil); return
             }
             let tags = LinkPreviews.metaTags(html)
-            if hops > 0, tags["og:title"] == nil, tags["twitter:title"] == nil,
-               let next = LinkPreviews.refreshTarget(html, base: page.url), next != page.url {
-                self.readPage(next, hops: hops - 1, done: done); return
-            }
             let title = (tags["og:title"] ?? tags["twitter:title"] ?? LinkPreviews.titleTag(html)).map { LinkPreviews.stripSite($0, tags["og:site_name"]) }
-            done((page.url, tags, title))
+            let here = (page.url, tags, title)
+            // An https page never hands its preview to an http one (LinkGuard's downgrade rule); a
+            // hop that fails keeps this page's own title.
+            if hops > 0, tags["og:title"] == nil, tags["twitter:title"] == nil,
+               let next = LinkPreviews.refreshTarget(html, base: page.url), next != page.url,
+               !(page.url.scheme?.lowercased() == "https" && next.scheme?.lowercased() == "http") {
+                self.readPage(next, hops: hops - 1) { done($0 ?? here) }; return
+            }
+            done(here)
         }
     }
 
-    /// The http(s) target of a `<meta http-equiv="refresh" content="N; url=…">` tag, if any.
+    /// A refresh later than this is a page reloading itself, not a redirect stub.
+    static let maxRefreshDelay = 5.0
+
+    /// The http(s) target of a `<meta http-equiv="refresh" content="N; url=…">` redirect, if any:
+    /// one outside `<noscript>` (that one is for browsers without scripts) with a delay of at most
+    /// ``maxRefreshDelay`` seconds.
     static func refreshTarget(_ html: String, base: URL) -> URL? {
         guard let re = try? NSRegularExpression(pattern: "<meta\\s+[^>]*http-equiv\\s*=\\s*[\"']?refresh[^>]*>", options: [.caseInsensitive]),
               let content = try? NSRegularExpression(pattern: "content\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')", options: [.caseInsensitive]),
               let target = try? NSRegularExpression(pattern: "url\\s*=\\s*['\"]?([^'\"\\s]+)", options: [.caseInsensitive]) else { return nil }
         let ns = html as NSString
-        guard let m = re.firstMatch(in: html, range: NSRange(location: 0, length: min(ns.length, 400_000))) else { return nil }
+        // The first refresh tag outside <noscript> (the nearest <noscript> before it is closed).
+        let outside = re.matches(in: html, range: NSRange(location: 0, length: min(ns.length, 400_000))).first { m in
+            let before = NSRange(location: 0, length: m.range.location)
+            let open = ns.range(of: "<noscript", options: [.backwards, .caseInsensitive], range: before).location
+            let close = ns.range(of: "</noscript", options: [.backwards, .caseInsensitive], range: before).location
+            return open == NSNotFound || (close != NSNotFound && close > open)
+        }
+        guard let m = outside else { return nil }
         let tag = ns.substring(with: m.range) as NSString
         guard let c = content.firstMatch(in: tag as String, range: NSRange(location: 0, length: tag.length)) else { return nil }
         let r = c.range(at: 1).location != NSNotFound ? c.range(at: 1) : c.range(at: 2)
         let value = decode(tag.substring(with: r)) as NSString
+        let delay = Double(value.components(separatedBy: CharacterSet(charactersIn: ";,")).first?.trimmingCharacters(in: .whitespaces) ?? "") ?? 0
+        guard delay <= maxRefreshDelay else { return nil }
         guard let t = target.firstMatch(in: value as String, range: NSRange(location: 0, length: value.length)),
               let url = URL(string: value.substring(with: t.range(at: 1)), relativeTo: base)?.absoluteURL,
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
@@ -193,10 +211,11 @@ final class LinkPreviews: LinkPreviewFetching {
             if let semi = after.prefix(12).firstIndex(of: ";") {
                 let name = after[..<semi]
                 var value: String?
-                if name.hasPrefix("#x") || name.hasPrefix("#X") {
-                    value = UInt32(name.dropFirst(2), radix: 16).flatMap(Unicode.Scalar.init).map { String(Character($0)) }
-                } else if name.hasPrefix("#") {
-                    value = UInt32(name.dropFirst()).flatMap(Unicode.Scalar.init).map { String(Character($0)) }
+                let digits = name.hasPrefix("#x") || name.hasPrefix("#X") ? name.dropFirst(2) : name.dropFirst()
+                if name.hasPrefix("#"), !digits.isEmpty, digits.allSatisfy(\.isHexDigit) {
+                    // A browser shows U+FFFD for NUL; an invalid scalar keeps the entity as written.
+                    let code = name.hasPrefix("#x") || name.hasPrefix("#X") ? UInt32(digits, radix: 16) : UInt32(digits)
+                    value = code.flatMap { $0 == 0 ? "\u{FFFD}" : Unicode.Scalar($0).map { String(Character($0)) } }
                 } else {
                     value = namedEntities[name.lowercased()]
                 }
