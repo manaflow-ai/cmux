@@ -106,6 +106,63 @@ import Testing
         #expect(!store.isActive && store.shown == nil)
     }
 
+    /// The home daemon connects, then goes away and comes back (an update's restart, a restore that outran the
+    /// launcher's kill bound and restarts): `isAvailable` follows the connection, `isConnected` says whether a
+    /// connected daemon only lacks the capability.
+    private final class Restarting: SidebarDocRemote {
+        var isConnected = true
+        var serves = true
+        var gets = 0
+        var isAvailable: Bool { isConnected && serves }
+        func get() async throws -> Data {
+            gets += 1
+            return Data(SidebarDocLaunchSnapshotTests.document.utf8)
+        }
+        func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply { throw CancellationError() }
+        func pin(_ items: [String], key: String) async throws -> SidebarDocReply { throw CancellationError() }
+        func unpin(_ items: [String], key: String) async throws -> SidebarDocReply { throw CancellationError() }
+        func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply { throw CancellationError() }
+        func apply(ops: Data, key: String) async throws -> SidebarDocReply { throw CancellationError() }
+    }
+
+    /// Leo 2026-11-09, on a nightly whose daemon restarted over and over while it restored: "tens of seconds after
+    /// restarting to update the sidebar kinda reshuffled or something weird". Each time the connection dropped, the
+    /// follow's refresh switched the document off, so the sidebar drew the older path's order; the next load switched
+    /// it back. The document now stays drawn, as a provisional one, until the daemon's next load replaces it.
+    @Test func aDaemonThatGoesAwayKeepsTheDocumentDrawnUntilItsNextLoad() async throws {
+        let remote = Restarting()
+        let store = SidebarDocStore(remote: remote)
+        let live = [Self.pinnedRef, SidebarDocWorkspaceRef(sessionID: Self.session, workspaceID: "ws-loose")]
+        store.refresh()
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.isActive }
+        store.show(live: live)
+        #expect(store.isActive && !store.isProvisional)
+
+        remote.isConnected = false
+        store.refresh()
+        store.show(live: live)
+        #expect(store.isActive, "a dropped connection switched the sidebar document off, so its rows took the older order")
+        #expect(store.isProvisional, "edits and adopts wait for the daemon's next load")
+        #expect(Self.pinnedValues(store) == ["s-local:ws-pinned"])
+
+        remote.isConnected = true
+        store.refresh()
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !store.isProvisional }
+        #expect(store.isActive && !store.isProvisional)
+        #expect(remote.gets == 2)
+    }
+
+    /// A daemon that connects without the document (an older build took the session over) still drops it.
+    @Test func aConnectedDaemonWithoutTheDocumentDropsIt() async throws {
+        let remote = Restarting()
+        let store = SidebarDocStore(remote: remote)
+        store.refresh()
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.isActive }
+        remote.serves = false
+        store.refresh()
+        #expect(!store.isActive && store.shown == nil)
+    }
+
     @Test func theLaunchSnapshotFileCarriesTheDocument() throws {
         let file = #"{"schema_version":1,"session":"cmux-app","tree":{"workspaces":[]},"sidebar_doc":"#
             + Self.document + "}"
