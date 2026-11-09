@@ -310,7 +310,7 @@ fn names(info: &Value, key: &str) -> bool {
         Some((host, name)) => (Some(host), name),
         None => (None, key),
     };
-    let whole = |found: &str, typed: &str| found == typed;
+    let whole = |found: &str, typed: &str| found.eq_ignore_ascii_case(typed);
     let peer = info.get("peer").and_then(Value::as_str);
     info.get("name").and_then(Value::as_str).is_some_and(|found| whole(found, name))
         && match (peer, host) {
