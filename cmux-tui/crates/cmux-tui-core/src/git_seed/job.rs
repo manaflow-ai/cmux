@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use super::export::{Export, ExportParams};
 use super::git::{Credential, Git, Progress};
 use super::params::StartParams;
-use super::{SeedRefusal, place, run};
+use super::{SeedRefusal, hold, place, run};
 use crate::fs_ops::Roots;
 
 /// Finished jobs kept for `git.seed.status`.
@@ -41,6 +41,8 @@ pub enum Phase {
     Submodules,
     Lfs,
     Export,
+    /// A copy this Mac streams in under a hold ([`super::hold`]).
+    Copy,
 }
 
 impl Phase {
@@ -53,6 +55,7 @@ impl Phase {
             Self::Submodules => "submodules",
             Self::Lfs => "lfs",
             Self::Export => "export",
+            Self::Copy => "copy",
         }
     }
 }
@@ -125,11 +128,16 @@ impl Job {
         self.update(|status| status.head_ready = true);
     }
 
+    /// Whether the head is marked already.
+    pub(super) fn status_head_ready(&self) -> bool {
+        self.status().head_ready
+    }
+
     pub(super) fn note(&self, note: &'static str) {
         self.update(|status| status.notes.push(note));
     }
 
-    fn finish(&self, result: Result<(), Failed>) {
+    pub(super) fn finish(&self, result: Result<(), Failed>) {
         self.update(|status| match result {
             Ok(()) => status.state = State::Done,
             Err(failed) => {
@@ -203,6 +211,8 @@ pub struct GitSeedService {
     roots: Roots,
     config: Config,
     jobs: Mutex<Jobs>,
+    /// The running holds' owner threads, by job ([`super::hold`]).
+    holds: Arc<Mutex<HashMap<String, mpsc::Sender<hold::Op>>>>,
 }
 
 #[derive(Deserialize)]
@@ -217,7 +227,7 @@ impl GitSeedService {
     }
 
     pub(crate) fn with_config(roots: Roots, config: Config) -> Self {
-        Self { roots, config, jobs: Mutex::new(Jobs::default()) }
+        Self { roots, config, jobs: Mutex::new(Jobs::default()), holds: Arc::default() }
     }
 
     /// For tests (and the debug-only daemon seam in [`super::installed`]):
@@ -246,11 +256,18 @@ impl GitSeedService {
         match cmd {
             "git.seed.start" => self.start(params),
             "git.seed.export" => self.export(params),
+            "git.seed.hold" => self.hold(params),
+            "git.seed.hold.head" => self.hold_head(params),
+            "git.seed.hold.end" => self.hold_end(params),
             "git.seed.status" => {
                 let params: StatusParams =
                     serde_json::from_value(params.clone()).map_err(|error| {
                         SeedRefusal::bad_request(format!("invalid params: {error}"))
                     })?;
+                // A copy reading its hold's status keeps the hold's lease.
+                if let Some(owner) = self.holder(&params.job) {
+                    let _ = owner.send(hold::Op::Renew);
+                }
                 let job = self.jobs().by_id.get(&params.job).cloned();
                 let job = job.ok_or_else(|| SeedRefusal {
                     code: "seed.unknown_job",
@@ -387,6 +404,89 @@ impl GitSeedService {
         jobs.by_id.insert(job.id.clone(), job.clone());
         prune(&mut jobs);
         Ok(json!({ "job": job.id }))
+    }
+}
+
+impl GitSeedService {
+    /// `git.seed.hold`: the barrier for a new folder a copy streams in ([`super::hold`]).
+    fn hold(&self, params: &Value) -> Result<Value, SeedRefusal> {
+        let params = hold::HoldParams::parse(params)?;
+        let head = params.head()?;
+        let folder = place::folder(&self.roots, &params.folder)?;
+        let mut jobs = self.jobs();
+        if let Some(id) = same_job(&jobs, &folder, &params.retry_key())? {
+            if let Some(owner) = self.holder(&id) {
+                let _ = owner.send(hold::Op::Renew);
+            }
+            return Ok(json!({ "job": id }));
+        }
+        let mut others = jobs.by_id.values().map(|job| job.folder.as_path());
+        place::not_nested(&self.roots, &folder, &mut others)?;
+        hold::fresh(&folder)?;
+        let job = Arc::new(Job {
+            id: new_id(),
+            folder: folder.clone(),
+            key: params.retry_key(),
+            status: Mutex::new(Status::running(Phase::Copy)),
+        });
+        // The barrier is taken before the hold answers: nothing the copy writes reads ready.
+        let barrier = cmux_git::sync_barrier::Sync::begin(&folder).map_err(|error| {
+            SeedRefusal::bad_request(format!("cannot begin repository sync: {error}"))
+        })?;
+        let holds = self.holds.clone();
+        let id = job.id.clone();
+        let mut owners = self.holds.lock().unwrap_or_else(PoisonError::into_inner);
+        let owner = hold::spawn(job.clone(), folder, head, params.lease(), barrier, move || {
+            holds.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+        })?;
+        owners.insert(job.id.clone(), owner);
+        drop(owners);
+        jobs.order.push_back(job.id.clone());
+        jobs.by_id.insert(job.id.clone(), job.clone());
+        prune(&mut jobs);
+        Ok(json!({ "job": job.id }))
+    }
+
+    /// `git.seed.hold.head`: marks the copy's head when a start there is safe.
+    fn hold_head(&self, params: &Value) -> Result<Value, SeedRefusal> {
+        let (job, owner) = self.running_hold(params)?;
+        let (reply, marked) = mpsc::channel();
+        owner.send(hold::Op::Head(reply)).map_err(|_| hold_ended())?;
+        let marked = marked.recv().map_err(|_| hold_ended())?;
+        Ok(hold::head_answer(&job, marked))
+    }
+
+    /// `git.seed.hold.end {ok}`: the barrier ready, or left failed; answers the job's status.
+    fn hold_end(&self, params: &Value) -> Result<Value, SeedRefusal> {
+        let ok = serde_json::from_value::<hold::JobParams>(params.clone())
+            .ok()
+            .and_then(|params| params.ok)
+            .ok_or_else(|| SeedRefusal::bad_request("hold.end needs ok: true or false"))?;
+        let (job, owner) = self.running_hold(params)?;
+        let (reply, ended) = mpsc::channel();
+        owner.send(hold::Op::End(ok, reply)).map_err(|_| hold_ended())?;
+        ended.recv().map_err(|_| hold_ended())?;
+        let job = self.jobs().by_id.get(&job).cloned().ok_or_else(hold_ended)?;
+        Ok(job.answer())
+    }
+
+    fn holder(&self, job: &str) -> Option<mpsc::Sender<hold::Op>> {
+        self.holds.lock().unwrap_or_else(PoisonError::into_inner).get(job).cloned()
+    }
+
+    fn running_hold(&self, params: &Value) -> Result<(String, mpsc::Sender<hold::Op>), SeedRefusal> {
+        let params: hold::JobParams = serde_json::from_value(params.clone())
+            .map_err(|error| SeedRefusal::bad_request(format!("invalid params: {error}")))?;
+        let owner = self.holder(&params.job).ok_or_else(hold_ended)?;
+        Ok((params.job, owner))
+    }
+}
+
+/// A hold op for a job that holds nothing: ended, expired, or never a hold.
+fn hold_ended() -> SeedRefusal {
+    SeedRefusal {
+        code: "seed.unknown_job",
+        message: "no running hold with that job on this machine (it ended or its lease ran out)".into(),
     }
 }
 
