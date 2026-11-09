@@ -135,10 +135,15 @@ await requireBrowserLane("agent-pane-find-glass.test.ts", async () => {
         const style = getComputedStyle(node);
         const color = style.backgroundColor;
         const alpha = /\/\s*([\d.]+)\s*\)$/.exec(color)?.[1] ?? /rgba\([^)]*,\s*([\d.]+)\)$/.exec(color)?.[1] ?? "1";
+        const ink = (selector: string) => getComputedStyle(node.querySelector(selector) as Element).color;
         return {
           backdrop: style.backdropFilter || style.webkitBackdropFilter,
           shadow: style.boxShadow,
           alpha: Number(alpha),
+          color: style.color,
+          count: ink(".find-pill__count"),
+          step: ink(".find-pill__button"),
+          icon: ink(".find-pill__icon"),
         };
       });
       expect(pill.backdrop).toContain("blur(24px)");
@@ -147,6 +152,10 @@ await requireBrowserLane("agent-pane-find-glass.test.ts", async () => {
       expect(pill.shadow).toContain("1px 1.5px 1px -1px inset");
       expect(pill.shadow).toContain("0px 16px 20px -16px inset");
       expect(pill.alpha).toBeLessThan(1);
+      // The tint keeps only full ink 4.5:1 over a bright backdrop: the count, steps and icon use it.
+      expect(pill.count).toBe(pill.color);
+      expect(pill.step).toBe(pill.color);
+      expect(pill.icon).toBe(pill.color);
     } finally {
       await page.close();
     }
