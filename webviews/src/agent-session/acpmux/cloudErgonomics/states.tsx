@@ -200,7 +200,11 @@ type TurnFailureFixture = { id: string; kind: FailureKind; error: string; code?:
 
 /// One per kind (failureCopy.ts `FailureKind`; KINDS below makes a new kind fail typecheck until it has one).
 const TURN_FAILURES: readonly TurnFailureFixture[] = [
-  { id: "trust-pending", kind: "trust-pending", error: "trust.pending: answer the trust question for the folder first" },
+  {
+    id: "trust-pending",
+    kind: "trust-pending",
+    error: "trust.pending: answer the trust question for the folder first",
+  },
   { id: "trust-untrusted", kind: "trust-untrusted", error: "trust.untrusted: the folder is not trusted" },
   {
     id: "no-team-account",
@@ -215,13 +219,13 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
   {
     id: "no-credit",
     kind: "no-credit",
-    error: "Your credit balance is too low to access the API. Please go to Plans & Billing to upgrade or purchase credits.",
+    error:
+      "Your credit balance is too low to access the API. Please go to Plans & Billing to upgrade or purchase credits.",
   },
   {
     id: "cloud-auth-expired",
     kind: "cloud-auth-expired",
-    error:
-      "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.",
+    error: "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.",
   },
   { id: "rate-limited", kind: "rate-limited", error: "API Error: 529 overloaded_error" },
   { id: "unreachable", kind: "unreachable", error: "API Error: Connection error." },
@@ -237,7 +241,8 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
   {
     id: "disk-full",
     kind: "disk-full",
-    error: "agent process closed\nstderr: Error: ENOSPC: no space left on device, write '/root/.claude/projects/x.jsonl'",
+    error:
+      "agent process closed\nstderr: Error: ENOSPC: no space left on device, write '/root/.claude/projects/x.jsonl'",
   },
   {
     id: "context-full",

@@ -175,7 +175,10 @@ async function readError(state: ErgoState): Promise<StateReading> {
     await first.unmount();
     return { ...base, text: "", missing: true, class: "dead-end", controls: [] };
   }
-  const text = regions.map((region) => visibleText(region)).join(" ").trim();
+  const text = regions
+    .map((region) => visibleText(region))
+    .join(" ")
+    .trim();
   const automatic = first.effects.filter((effect) => effect.kind === "in-place").map((effect) => effect.what);
   const pointsOut = outOfAppWords(regions);
   const labels = controlsIn(regions).map(labelOf);
@@ -245,7 +248,10 @@ async function readWait(state: ErgoState, generic: ReadonlySet<string>): Promise
           const eta = etaIn(regions);
           return {
             ...base,
-            text: regions.map((region) => visibleText(region)).join(" ").trim(),
+            text: regions
+              .map((region) => visibleText(region))
+              .join(" ")
+              .trim(),
             ...(reason ? { reason } : {}),
             ...(eta ? { eta } : {}),
           };
@@ -254,7 +260,9 @@ async function readWait(state: ErgoState, generic: ReadonlySet<string>): Promise
   return reading;
 }
 
-export async function measureCloudErgonomics(states: ErgoState[] = cloudErgonomicsStates()): Promise<CloudErgonomicsReport> {
+export async function measureCloudErgonomics(
+  states: ErgoState[] = cloudErgonomicsStates(),
+): Promise<CloudErgonomicsReport> {
   const generic = await genericWaitWords();
   const readings: StateReading[] = [];
   for (const state of states)

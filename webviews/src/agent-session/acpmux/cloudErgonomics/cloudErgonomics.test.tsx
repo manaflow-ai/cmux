@@ -21,9 +21,15 @@ test("an error's class: a click that goes on in the pane wins, then words or lin
 });
 
 test("a click's way: in the pane, out of it, Not now, or nothing at all", () => {
-  expect(controlWay([{ kind: "out-of-app", what: "open" }, { kind: "in-place", what: "wait" }], false)).toBe(
-    "in-place",
-  );
+  expect(
+    controlWay(
+      [
+        { kind: "out-of-app", what: "open" },
+        { kind: "in-place", what: "wait" },
+      ],
+      false,
+    ),
+  ).toBe("in-place");
   expect(controlWay([{ kind: "out-of-app", what: "open" }], false)).toBe("out-of-app");
   expect(controlWay([{ kind: "dismiss", what: "not now" }], false)).toBe("dismiss");
   expect(controlWay([], true)).toBe("in-place");
@@ -50,7 +56,9 @@ test("words that send the person out of the pane: a command, a terminal, Setting
 
 test("a wait's reason is any words but a bare Thinking, and its ETA is the element marked as one", () => {
   const generic = new Set(["thinking"]);
-  const bare = html(`<div class="cv-worked"><output class="cv-thinking">Thinking</output><span class="cv-worked__time">4s</span></div>`);
+  const bare = html(
+    `<div class="cv-worked"><output class="cv-thinking">Thinking</output><span class="cv-worked__time">4s</span></div>`,
+  );
   expect(waitReason([bare], generic)).toBeUndefined();
   expect(etaIn([bare])).toBeUndefined();
   const staged = html(`<div><output class="cv-thinking">Starting your Cloud machine</output>

@@ -99,8 +99,7 @@ const ETA_CLASS = /(?:^|__|-)eta(?:$|-|__)/;
 export function etaIn(regions: readonly Element[]): string | undefined {
   for (const region of regions)
     for (const node of [region, ...region.querySelectorAll("[data-wait-eta], [class]")]) {
-      const marked =
-        node.hasAttribute("data-wait-eta") || [...node.classList].some((name) => ETA_CLASS.test(name));
+      const marked = node.hasAttribute("data-wait-eta") || [...node.classList].some((name) => ETA_CLASS.test(name));
       const text = marked ? visibleText(node) : "";
       if (text) return text;
     }
