@@ -186,7 +186,11 @@ export function EndpointForm({ done }: { done: () => void }) {
                     value={spec.value}
                     disabled={busy}
                     onChange={(event) => spec.set(event.target.value)}
-                    {...spec.attrs}
+                    type={spec.attrs.type}
+                    placeholder={spec.attrs.placeholder}
+                    spellCheck={spec.attrs.spellCheck}
+                    autoComplete={spec.attrs.autoComplete}
+                    maxLength={spec.attrs.maxLength}
                   />
                   {spec.name === "models" && (
                     <Button

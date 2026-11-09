@@ -368,9 +368,11 @@ fn byo_endpoint_several_models_fill_the_picker_and_claude_codes_slots() {
     assert_eq!(env["ANTHROPIC_SMALL_FAST_MODEL"], "small");
 
     // Two models: Haiku takes Sonnet's; one model fills every slot.
-    let slots = claude_slots(&["a".to_owned(), "b".to_owned()]);
+    let two = ["a".to_owned(), "b".to_owned()];
+    let slots = claude_slots(&two);
     assert_eq!(slots.map(|(_, m)| m), ["a", "b", "b", "b"]);
-    let slots = claude_slots(&["only".to_owned()]);
+    let one = ["only".to_owned()];
+    let slots = claude_slots(&one);
     assert_eq!(slots.map(|(_, m)| m), ["only"; 4]);
 
     // OpenCode: every model in provider.byo.models and the picker, the first the default.
@@ -398,7 +400,7 @@ fn byo_endpoint_several_models_fill_the_picker_and_claude_codes_slots() {
     assert!(!root.join("harnesses").join("bad.toml").exists());
     let many: Vec<String> = (0..=MAX_MODELS).map(|i| format!("m{i}")).collect();
     assert!(check_models(&many).is_err());
-    assert_eq!(check_models(&[" a , *,a ".into()]).unwrap(), ["a", "*"]);
+    assert_eq!(check_models(&[" a , *,a ".to_owned()]).unwrap(), ["a", "*"]);
 }
 
 #[test]
