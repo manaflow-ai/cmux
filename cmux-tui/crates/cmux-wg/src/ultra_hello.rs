@@ -10,13 +10,18 @@
 //! starts keeping datagrams before the peer's first parity, so the first group
 //! after the hello is rebuilt too.
 //!
+//! The port is the session's control port, which path probes already own:
+//! no application can bind it (`bind_datagram` refuses it on every build that
+//! has probes), and a probe has its own magic and length. A build without the
+//! hello therefore drops a hello, never hands it to a service. The port the
+//! first hellos used, 4103, is remote desktop's.
+//!
 //! A hello goes out as soon as a session exists, ahead of that pass's data,
 //! and again at 0.25, 0.5, 1 and 2 s until the peer's hello says it heard
 //! this side's. A hello is answered at once when it has not heard this
 //! side's, or when this side has not yet said it heard the peer's, so a
-//! clean exchange is three hellos. An older peer never answers: after [`TRIES`] hellos this side stops
-//! and keeps its own mode, and the older peer drops the packets (no socket is
-//! bound to the port).
+//! clean exchange is three hellos. An older peer never answers: after
+//! [`TRIES`] hellos this side stops and keeps its own mode.
 
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
@@ -26,8 +31,9 @@ use tokio::time::Instant;
 use crate::udp;
 use crate::ultra::UltraMode;
 
-/// The overlay UDP port of hello packets (path probes use 4102).
-pub(crate) const HELLO_PORT: u16 = 4103;
+/// The overlay UDP port of hello packets: the session's control port, shared
+/// with path probes (different magic and length).
+pub(crate) const HELLO_PORT: u16 = cmux_transport::probe::PROBE_PORT;
 const MAGIC: [u8; 4] = *b"CMXU";
 const VERSION: u8 = 1;
 const LEN: usize = 9;
@@ -107,6 +113,9 @@ pub(crate) struct Negotiation {
     /// A hello arrived that had not heard this side's, or before this side
     /// said it has the peer's: answer it.
     answer: bool,
+    /// Off only to stand in for a build without the hello (tests): it sends
+    /// none, and a hello reaching it is an ordinary packet.
+    enabled: bool,
 }
 
 impl Negotiation {
@@ -119,7 +128,19 @@ impl Negotiation {
             next: None,
             told: false,
             answer: false,
+            enabled: true,
         }
+    }
+
+    /// A side that behaves as a build without the hello did: it keeps
+    /// `configured`, sends no hello and does not intercept one.
+    pub(crate) fn without_hello(configured: UltraMode) -> Self {
+        Self { enabled: false, ..Self::new(configured) }
+    }
+
+    /// Whether this side takes hellos out of the packets it receives.
+    pub(crate) fn intercepts(&self) -> bool {
+        self.enabled
     }
 
     /// The mode both sides send in: the agreement, or this side's own until
@@ -149,7 +170,7 @@ impl Negotiation {
     /// session exists) and reports it with [`Negotiation::sent`].
     pub(crate) fn due(&self, now: Instant) -> Option<Hello> {
         let retry = !self.acknowledged && self.sent < TRIES && self.next.is_none_or(|at| now >= at);
-        (self.answer || retry)
+        (self.enabled && (self.answer || retry))
             .then_some(Hello { mode: self.configured, heard: self.peer.is_some() })
     }
 
@@ -165,13 +186,16 @@ impl Negotiation {
 
     /// When the driver must wake for the next hello.
     pub(crate) fn deadline(&self) -> Option<Instant> {
-        if self.acknowledged || self.sent >= TRIES { None } else { self.next }
+        if !self.enabled || self.acknowledged || self.sent >= TRIES { None } else { self.next }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
+
+    use cmux_transport::Probe;
+    use cmux_transport::probe::PROBE_LEN;
 
     use super::*;
 
@@ -188,11 +212,28 @@ mod tests {
                 assert_eq!(decode(&packet(a, b, hello)), Some(hello));
             }
         }
-        let probe = udp::packet(SocketAddr::new(a, 4102), SocketAddr::new(b, 4102), &[0; 9]);
-        assert_eq!(decode(&probe), None, "only the hello port");
+        let probe = udp::packet(SocketAddr::new(a, 4102), SocketAddr::new(b, 4102), &[0; 15]);
+        assert_eq!(decode(&probe), None, "a probe is not a hello");
         let mut wrong = Hello { mode: FEC, heard: false }.encode();
         wrong[0] ^= 1;
         assert_eq!(Hello::decode(&wrong), None, "the magic is checked");
+    }
+
+    /// The hello rides the probe port, which no build lets a service bind,
+    /// and a build that knows only probes refuses it as one; the same bytes
+    /// on remote desktop's port 4103 are application data.
+    #[test]
+    fn a_hello_is_never_application_data() {
+        let (a, b) =
+            (IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
+        let hello = Hello { mode: RS, heard: true };
+        let (_, destination, payload) = udp::parse(&packet(a, b, hello)).unwrap();
+        assert_eq!(destination.port(), cmux_transport::probe::PROBE_PORT);
+        assert_ne!(payload.len(), PROBE_LEN);
+        assert!(Probe::decode(payload).is_err(), "an older build's probe parser drops it");
+        let media =
+            udp::packet(SocketAddr::new(a, 4103), SocketAddr::new(b, 4103), &hello.encode());
+        assert_eq!(decode(&media), None, "remote desktop's payload is its own");
     }
 
     #[test]
