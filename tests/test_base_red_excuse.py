@@ -334,26 +334,30 @@ class NoFailureExitsZero(unittest.TestCase):
                 self.assertIn("is a placeholder, not a commit", err.getvalue())
 
     def test_main_stops_at_its_deadline_even_inside_a_loop_that_takes_every_refusal(self):
-        import time
+        # The alarm is the clock: a fake one records what main arms, and the loop below fires the handler main
+        # installed, as the real alarm does once the deadline passes. No real time passes.
+        armed = []
+        caller_handler = excuse.signal.getsignal(excuse.signal.SIGALRM)
 
         def endless(*a, **k):  # as a window read that catches Refused and reads on, with a list that never ends
-            while True:
+            for _ in range(3):
                 try:
-                    time.sleep(0.05)
+                    excuse.signal.getsignal(excuse.signal.SIGALRM)(excuse.signal.SIGALRM, None)  # the deadline
                 except Exception:  # noqa: BLE001
                     pass
+            raise AssertionError("the deadline did not end a loop that takes every Exception")
         err = io.StringIO()
-        started = time.monotonic()
         with unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_DEADLINE_SECONDS": "1"}), \
+                unittest.mock.patch.object(excuse.signal, "alarm", lambda seconds: armed.append(seconds) or 0), \
                 unittest.mock.patch.object(excuse, "judge", endless), \
                 unittest.mock.patch.object(excuse, "GitHub", FakeGitHub), \
                 unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
                 contextlib.redirect_stderr(err):
             code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", "1" * 39 + "2", "--check", "x"])
         self.assertEqual(code, 1)
-        self.assertLess(time.monotonic() - started, 10)
         self.assertIn("ran past its 1 s deadline", err.getvalue())
-        self.assertEqual(excuse.signal.alarm(0), 0)  # no alarm left armed for the caller
+        self.assertEqual(armed, [1, 0])  # armed for the 1 s deadline, then no alarm left armed for the caller
+        self.assertIs(excuse.signal.getsignal(excuse.signal.SIGALRM), caller_handler)  # the caller's handler is back
 
     def test_a_named_run_with_no_failed_job_is_still_refused(self):
         github = FakeGitHub()
@@ -5395,18 +5399,49 @@ class GalleryBaseLoadCrash(unittest.TestCase):
                         reader.artifact_file(REPO, 7, "health.json")
 
     def test_an_artifact_download_that_stalls_ends_at_its_deadline(self):
-        # gh itself stalls, and a gh wrapper (the agent hosts' shim) whose child holds stdout stalls
-        for script in ("exec sleep 30", "sleep 30\nexit 0"):
-            with self.subTest(script=script), tempfile.TemporaryDirectory() as where:
-                gh = Path(where) / "gh"
-                gh.write_text(f"#!/bin/sh\n{script}\n")  # sends nothing
-                gh.chmod(0o755)
-                with unittest.mock.patch.dict(os.environ, {"PATH": f"{where}:{os.environ['PATH']}"}), \
-                        unittest.mock.patch.object(excuse, "ARTIFACT_SECONDS", 0.2):
-                    started = excuse.time.monotonic()
-                    with self.assertRaisesRegex(excuse.Refused, "took over 0.2 seconds"):
-                        excuse.GitHub().artifact_file(REPO, 7, "health.json")
-                    self.assertLess(excuse.time.monotonic() - started, 5)
+        # gh sends nothing, and a gh wrapper (the agent hosts' shim) whose child holds stdout too: the read ends only
+        # when the whole group is killed. A fake gh plays that; a fake timer fires its deadline at once.
+        killed = []
+
+        class StalledGh:
+            pid = 4242
+            returncode = None
+
+            def __init__(self, argv, **options):
+                self.options = options
+                started.append(self)
+                self.stdout = self
+
+            def read(self, size):
+                if (self.pid, excuse.signal.SIGKILL) not in killed:
+                    raise AssertionError("the read went on before the deadline killed gh's group")
+                return b""  # every holder of stdout is gone
+
+            def wait(self):
+                self.returncode = -excuse.signal.SIGKILL
+                return self.returncode
+
+        class FiresAtOnce:
+            def __init__(self, seconds, expire):
+                timers.append(seconds)
+                self.expire = expire
+
+            def start(self):
+                self.expire()
+
+            def cancel(self):
+                pass
+
+        started, timers = [], []
+        with unittest.mock.patch.object(excuse.subprocess, "Popen", StalledGh), \
+                unittest.mock.patch.object(excuse.threading, "Timer", FiresAtOnce), \
+                unittest.mock.patch.object(excuse.os, "killpg", lambda pid, sig: killed.append((pid, sig))), \
+                unittest.mock.patch.object(excuse, "ARTIFACT_SECONDS", 0.2):
+            with self.assertRaisesRegex(excuse.Refused, "took over 0.2 seconds"):
+                excuse.GitHub().artifact_file(REPO, 7, "health.json")
+        self.assertEqual(timers, [0.2])
+        self.assertTrue(started[0].options.get("start_new_session"))  # gh in a group of its own
+        self.assertEqual(killed[0], (4242, excuse.signal.SIGKILL))
 
 
 if __name__ == "__main__":

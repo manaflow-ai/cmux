@@ -53,6 +53,20 @@
 //!   a report into a paused pair is held for the person to resume.
 //! - Prompt id `lane-report-<random>`, the same for every try of one turn's report and sent with
 //!   `resend`, so a retry never runs twice and no other prompt takes its id.
+//! - A still-waiting turn's report is held, not sent: the lane is `idle` but a background task
+//!   of its own still runs that brings its end to the lane (`bg_notify.rs`), so a turn that
+//!   reports is sure to follow; and its reply says it still waits ([`WAITING`]) and names no
+//!   pull request or commit not reported before, no review verdict, and none of [`DECISIVE`]'s
+//!   words (merged, failed, blocked, done, please, timed out, a question mark...). A reply that
+//!   says anything else is news. A harness's own background shell or subagent does not count:
+//!   the turn its end starts is the harness's (`background_turn.rs`), which reports nothing. Leo, 2026-11-09, about a coordinator one helper woke 15 times in a row to say
+//!   "still waiting on fleet run": "for stuff like this, are you able to simply not respond? why
+//!   are you even the one reading and responding to these no-ops anyways". It neither wakes nor
+//!   steers into the parent: the lane's next report replaces it and says how many such turns it
+//!   folds in, a still-waiting turn never replaces a real report still queued, and the lane's own
+//!   row shows its last words meanwhile. One that nothing replaced in [`HELD_MAX_MS`] goes as it
+//!   is (a task that never ends, a dev server say). A report that is no longer still waiting
+//!   (the work ended, it failed, it asks) goes as before, at once.
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -76,6 +90,8 @@ const MAX_DEPTH: usize = 16;
 pub const MAX_REPORTS: usize = 20;
 /// The window of [`MAX_REPORTS`].
 pub const WINDOW_MS: u64 = 10 * 60 * 1000;
+/// The longest a still-waiting turn's report is held when no newer one replaces it.
+pub const HELD_MAX_MS: u64 = 15 * 60 * 1000;
 /// A report's prompt id starts with this.
 const PROMPT_PREFIX: &str = "lane-report-";
 
@@ -105,6 +121,10 @@ pub(super) struct Link {
     ready: Option<Report>,
     /// A timer will send `ready`, held at the cap, when the window frees a place.
     wake: bool,
+    /// The timer that sends a still-waiting `ready` (its prompt id) once it was held
+    /// [`HELD_MAX_MS`]; aborted when another is armed. One that fires for a link gone or a
+    /// report replaced does nothing.
+    held: Option<(String, tokio::task::AbortHandle)>,
 }
 
 /// The links by lane id.
@@ -229,6 +249,13 @@ pub(super) struct Report {
     /// That subagent has ended: the report goes to the parent, saying whose it was.
     #[serde(default)]
     pub(super) subagent_ended: bool,
+    /// Its turn only said the lane still waits on its own work (module docs): held, never sent
+    /// unless a newer report replaces it.
+    #[serde(default)]
+    pub(super) interim: bool,
+    /// Still-waiting turns before this one whose reports it replaced.
+    #[serde(default)]
+    pub(super) quiet_turns: u32,
 }
 
 impl Report {
@@ -248,6 +275,14 @@ impl Report {
         );
         if !self.prs.is_empty() {
             t.push_str(&format!("\nPull requests: {}", self.prs.join(" ")));
+        }
+        if self.quiet_turns > 0 {
+            let turns = if self.quiet_turns == 1 { "turn" } else { "turns" };
+            t.push_str(&format!(
+                "\n({} {turns} before this one only said it was still waiting on its own work; \
+those reports were held.)",
+                self.quiet_turns
+            ));
         }
         if self.subagent_ended
             && let Some(label) = super::lane_report_subagents::label(self.for_subagent.as_ref())
@@ -272,6 +307,73 @@ pub(super) fn reports_only(provenance: Option<&Value>) -> bool {
         }),
         _ => false,
     }
+}
+
+/// A clause of a still-waiting reply, whole: a wait on a named piece of the lane's own work
+/// ("still waiting on fleet run 42549646257", "the compile check is still running on the pool"),
+/// or "nothing new". Nothing else may be in the clause: a reply is still-waiting only when every
+/// clause is one of these or an [`ELAPSED`] one (reviews of #39105 at bfdb6cd, dd6dd96 and
+/// 849eeac: a request in or beside a wait is news). The work is named from a short list of
+/// words, so a wait on anything else (a person, an input) is news too.
+const WAITING: &str = concat!(
+    r"(?i)^(?:",
+    // "still waiting on (the) fleet run 4254...", "waiting for CI (attempt 2)"
+    r"(?:still |just )?(?:waiting|wait) (?:on|for) (?:the |its |my |a |this )?(?:WORK|ID)(?: (?:WORK|ID))*",
+    r"|(?:the |its |my )?(?:WORK)(?: (?:WORK|ID))* (?:is|are) still (?:running|pending|queued|in progress|going)",
+    r"(?: on (?:the )?(?:pool|fleet|runner|runners|mini|minis|linux|mac|box|vm))?",
+    r"|(?:still )?(?:waiting|running)",
+    r"|nothing new(?: yet)?(?: (?:here|from (?:the )?(?:WORK)))?",
+    r"|no change(?: yet)?",
+    r")$",
+);
+
+/// The words a wait may name its work with, and what may follow them (an id, a number, a link,
+/// "(attempt 2)").
+const WAITING_WORK: &str = r"fleet|ci|checks?|builds?|tests?|compile|compile-check|compile check|jobs?|pool|runners?|runs?|review|reviews|reviewer|merge queue|queue|mirror|deploy|deployment|nightly|pr|pull request|workflow|actions|pipeline|the|its|my|linux|mac|macos|ios|web|rust|cargo|bench|benchmark|soak|sync|upload of the build|artifact|artifacts|lease|machine";
+const WAITING_ID: &str = r"#?\d+|\(attempt \d+\)|https?://\S+|[0-9a-f]{7,12}|[A-Za-z]+-\d+";
+
+/// Words that make a turn's reply news for its parent even while it says it waits: an end, a
+/// failure, a block, an ask, a request to act, or a wait on the reader ("waiting for you to
+/// upload the credentials", review of #39105 at e8aeb72, F1) (module docs). A false match only sends a
+/// report, as before.
+const DECISIVE: &str = r"(?i)\b(merged|landed|shipped|done|finished|completed?|passed|passing|green|succeeded|ready|fail(?:ed|s|ing|ure|ures)?|errors?|blocked|stuck|needs?|question|approve|approval|refused|denied|cancell?ed|broken|red|timed out|time ?outs?|please|rebase|restart|retry|retrying|can you|could you|should|must|want|you|your|yours|input|reply|answer|confirm|confirmation|decision|decide|permission|access|credentials?|token|login|sign in|upload)\b|\?|!";
+
+/// A sentence of a still-waiting reply that only says how long it has waited ("4 min in").
+const ELAPSED: &str = r"(?i)^\(?\s*(about |over |~)?\d+\s*(s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?)\b( in| so far| now| elapsed)?\)?$";
+/// Where a reply's clauses end: `.`, `,`, `;`, `:`, `!` or `?` before a space or the end, a
+/// dash between spaces, or a line break. A period inside a URL ends none.
+const SENTENCE_END: &str = r"[.,;:!?](\s+|$)|\s[-\u{2013}\u{2014}]\s|\n";
+
+static WAITING_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    let work = format!("(?:{WAITING_WORK})");
+    let id = format!("(?:{WAITING_ID})");
+    Regex::new(&WAITING.replace("WORK", &work).replace("ID", &id)).ok()
+});
+static DECISIVE_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(DECISIVE).ok());
+static ELAPSED_LINE: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(ELAPSED).ok());
+static SENTENCE_ENDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(SENTENCE_END).ok());
+
+/// Whether `reply`, a lane's turn's, says only that it still waits: each of its clauses is a
+/// whole wait ([`WAITING`]) or says how long ([`ELAPSED`]), so a request in or beside a wait
+/// ("Still waiting on fleet, stop the rollout.") is news; and it has no review
+/// verdict, no full commit sha and none of [`DECISIVE`]'s words. A pull request it names is news
+/// only when not reported before, which delivery decides (`due_report`). A pattern that failed
+/// to build counts every reply as news.
+fn says_only_waiting(reply: &str) -> bool {
+    let (Some(waiting), Some(decisive), Some(elapsed), Some(ends)) = (
+        WAITING_WORDS.as_ref(),
+        DECISIVE_WORDS.as_ref(),
+        ELAPSED_LINE.as_ref(),
+        SENTENCE_ENDS.as_ref(),
+    ) else {
+        return false;
+    };
+    let mut sentences = ends.split(reply).map(str::trim).filter(|s| !s.is_empty()).peekable();
+    sentences.peek().is_some()
+        && sentences.all(|s| waiting.is_match(s) || elapsed.is_match(s))
+        && !decisive.is_match(reply)
+        && !super::lane_report_text::has_verdict(reply)
+        && matches(&FULL_SHA, reply).is_empty()
 }
 
 /// STATE of a report, from the lane's summary.
@@ -518,7 +620,7 @@ impl Hub {
             let report = self.lane_capture(session, turn, started);
             self.lane_links(|links| {
                 if let Some(l) = links.get_mut(&session.id) {
-                    l.ready = Some(replace_ready(report, l.ready.take()));
+                    l.ready = Some(replace_ready_seen(report, l.ready.take(), &l.prs));
                 }
             });
         } else {
@@ -549,6 +651,7 @@ impl Hub {
         let now = now_ms();
         let Some(due) = self.lane_take_due(lane, now) else {
             self.lane_wake_held(lane, now);
+            self.lane_release_waiting_at(lane, HELD_MAX_MS);
             return;
         };
         self.lane_hand_over(lane, due).await;
@@ -570,6 +673,44 @@ impl Hub {
             hub.lane_links(|links| links.get_mut(&lane).map(|l| l.wake = false));
             hub.lane_send(&lane);
         });
+    }
+
+    /// A still-waiting report held now (`due_report`) goes as it is once held `after` ms, unless
+    /// a newer one replaced it meanwhile, which arms its own. One timer a lane: arming one aborts
+    /// the one before, and it stops after its one send.
+    fn lane_release_waiting_at(self: &Arc<Self>, lane: &str, after: u64) {
+        let held = self.lane_links(|links| {
+            let l = links.get_mut(lane)?;
+            let r = l.ready.as_ref().filter(|r| r.interim)?;
+            // Already timed: held since it was first held, not since this look.
+            if l.held.as_ref().is_some_and(|(id, t)| *id == r.prompt_id && !t.is_finished()) {
+                return None;
+            }
+            Some(r.prompt_id.clone())
+        });
+        let Some(held) = held else { return };
+        let (hub, id, report) = (Arc::downgrade(self), lane.to_owned(), held.clone());
+        let timer = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(after)).await;
+            let Some(hub) = hub.upgrade() else { return };
+            let released = hub.lane_links(|links| {
+                let l = links.get_mut(&id)?;
+                l.held = None;
+                let r = l.ready.as_mut().filter(|r| r.prompt_id == held && r.interim)?;
+                r.interim = false;
+                Some(())
+            });
+            if released.is_some() {
+                hub.lane_send(&id);
+            }
+        });
+        let old = self.lane_links(|links| {
+            let l = links.get_mut(lane)?;
+            l.held.replace((report, timer.abort_handle()))
+        });
+        if let Some((_, old)) = old {
+            old.abort();
+        }
     }
 
     /// `lane`'s parent and the report due to it now, with its key ([`due_report`]).
@@ -621,6 +762,11 @@ impl Hub {
         let shas = new_items(matches(&FULL_SHA, &reply), &[]);
         let name = summary.get("name").and_then(Value::as_str).unwrap_or(&session.id);
         let state = state(&summary);
+        // Still waiting (module docs): idle, its own work runs on, and its words say nothing new.
+        let interim = started
+            && state == "idle"
+            && says_only_waiting(&reply)
+            && self.lane_own_work_runs(session);
         Report {
             content: format!("{state}\n{reply}"),
             prompt_id: format!("{PROMPT_PREFIX}{}", uuid::Uuid::new_v4()),
@@ -633,7 +779,16 @@ impl Hub {
             shas,
             for_subagent: self.lane_turns().subagents.remove(&(session.id.clone(), turn)),
             subagent_ended: false,
+            interim,
+            quiet_turns: 0,
         }
+    }
+
+    /// Whether work `session` started still runs past its turn and is sure to bring it a turn
+    /// that reports: a background task of the daemon that brings its end to the chat (module
+    /// docs).
+    fn lane_own_work_runs(&self, session: &Session) -> bool {
+        self.bg_notifying_count(session) > 0
     }
 
     /// The lane's last reply, read from its last turn's transcript records; an error when they
@@ -830,6 +985,10 @@ fn due_report(l: &mut Link, now: u64) -> Option<(Report, String)> {
     }
     let mut report = ready.clone();
     report.prs = new_items(report.prs, &l.prs);
+    // A still-waiting turn's report stays queued for the next one to replace (module docs).
+    if report.interim && report.prs.is_empty() {
+        return None;
+    }
     Some((report, ready.key()))
 }
 
@@ -855,9 +1014,28 @@ fn delivered(l: &mut Link, report: &Report, key: String, now: u64) {
 }
 
 /// A newer turn's report replaces one still queued, keeping the pull requests only that one
-/// named.
-fn replace_ready(mut newer: Report, queued: Option<Report>) -> Report {
-    for pr in queued.into_iter().flat_map(|q| q.prs) {
+/// named, and counting a still-waiting one it folds in. A still-waiting turn's report never
+/// replaces one that is news: that one stays queued, to go as it is.
+#[cfg(test)]
+fn replace_ready(newer: Report, queued: Option<Report>) -> Report {
+    replace_ready_seen(newer, queued, &[])
+}
+
+/// [`replace_ready`] on a link whose reports already named `reported`: a still-waiting turn
+/// naming only those is no news (review of #39105 at e8aeb72, F2).
+fn replace_ready_seen(mut newer: Report, queued: Option<Report>, reported: &[String]) -> Report {
+    let Some(queued) = queued else { return newer };
+    if newer.interim && !queued.interim {
+        // A still-waiting turn that names a pull request the news does not is news itself: it
+        // replaces the news as any newer report does, under its own turn and id (review of
+        // #39105 at bfdb6cd, F2). One that names none leaves the news queued as it is.
+        if newer.prs.iter().all(|pr| queued.prs.contains(pr) || reported.contains(pr)) {
+            return queued;
+        }
+        newer.interim = false;
+    }
+    newer.quiet_turns = queued.quiet_turns.saturating_add(u32::from(queued.interim));
+    for pr in queued.prs {
         if !newer.prs.contains(&pr) {
             newer.prs.push(pr);
         }
@@ -880,6 +1058,8 @@ mod tests {
             shas: vec![],
             for_subagent: None,
             subagent_ended: false,
+            interim: false,
+            quiet_turns: 0,
         }
     }
 
@@ -1236,6 +1416,8 @@ mod tests {
             shas: vec![],
             for_subagent: None,
             subagent_ended: false,
+            interim: false,
+            quiet_turns: 0,
         }
     }
 
@@ -1442,6 +1624,8 @@ mod tests {
             shas: vec![],
             for_subagent: None,
             subagent_ended: false,
+            interim: false,
+            quiet_turns: 0,
         };
         hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued));
         // The report is taken; the lane closes (its link retired) before it is handed over.
@@ -1546,5 +1730,190 @@ mod tests {
         // A paused queue holds its prompts: blocked, not working.
         let paused = json!({"status": "ready", "queued": 1, "queuePaused": true});
         assert_eq!(state(&paused), "blocked: its queue is paused");
+    }
+
+    #[test]
+    fn a_reply_that_only_says_it_still_waits_is_no_news() {
+        for quiet in [
+            "Still waiting on fleet run 42549646257; nothing new.",
+            "Nothing new yet: the compile check is still running on the pool.",
+            "Still waiting on https://github.com/o/r/pull/9; 4 min in.",
+        ] {
+            assert!(says_only_waiting(quiet), "{quiet:?} read as news");
+        }
+        for news in [
+            "Fleet run passed; merged.",
+            "The compile check passed.",
+            "The compile check failed on linux-arm.",
+            "Blocked: the mirror refuses the push.",
+            "Done. Opened https://github.com/manaflow-ai/cmux/pull/1",
+            "Should I rebase onto feat first?",
+            "Pushed 0123456789abcdef0123456789abcdef01234567, still waiting on CI.",
+            "It needs your approval to post the review.",
+            "Please rebase the branch before I continue.",
+            "The deployment timed out; please restart it.",
+            "Still waiting, but the deployment timed out; please restart it.",
+            "The preview is up at http://localhost:3000.",
+            "Still waiting for you to upload the credentials.",
+            "Still waiting on your answer about the schema.",
+            "Waiting for permission to push to the mirror.",
+            "Still waiting on fleet. Stop the rollout.",
+            "Still waiting on fleet, stop the rollout.",
+            "Still waiting on fleet stop the rollout.",
+            "Still waiting on the fleet run and then I will delete the old branch.",
+            "Waiting on Sam to merge the schema change.",
+            "Still waiting on the fleet run.\nThe staging deploy looks wrong to me.",
+            "",
+        ] {
+            assert!(!says_only_waiting(news), "{news:?} read as no news");
+        }
+    }
+
+    #[test]
+    fn a_still_waiting_report_is_held_and_folded_into_the_next() {
+        let waiting = |turn| Report { interim: true, ..report(turn, &[]) };
+        let mut l = Link { ready: Some(waiting(1)), ..Link::default() };
+        assert!(due_report(&mut l, 1).is_none(), "a still-waiting report went");
+        assert!(l.ready.is_some(), "a held report was dropped");
+        // Two more still-waiting turns replace it, then a real one replaces them all.
+        for turn in [2, 3] {
+            l.ready = Some(replace_ready(waiting(turn), l.ready.take()));
+            assert!(due_report(&mut l, 1).is_none());
+        }
+        l.ready = Some(replace_ready(report(4, &[]), l.ready.take()));
+        let (due, _) = due_report(&mut l, 1).expect("the real report was held");
+        assert_eq!((due.turn, due.quiet_turns), (4, 3));
+        assert!(due.text().contains("3 turns before this one only said it was still waiting"));
+        // A still-waiting turn never replaces news still queued.
+        let kept = replace_ready(waiting(5), Some(report(4, &[])));
+        assert_eq!((kept.turn, kept.interim), (4, false));
+        // One naming a new pull request is news; one naming only a reported one is not (F3).
+        let pr = "https://github.com/o/r/pull/9";
+        let mut l =
+            Link { ready: Some(Report { interim: true, ..report(6, &[pr]) }), ..Link::default() };
+        assert!(due_report(&mut l, 1).is_some(), "a new pull request was held");
+        l.prs = vec![pr.into()];
+        assert!(due_report(&mut l, 1).is_none(), "a reported pull request made it news");
+        // A still-waiting turn naming a pull request the queued news does not replaces it as
+        // news, under its own turn (F2); one naming none leaves the news queued.
+        let kept =
+            replace_ready(Report { interim: true, ..report(7, &[pr]) }, Some(report(4, &[])));
+        assert_eq!(
+            (kept.turn, kept.interim, kept.prs.as_slice()),
+            (7, false, [pr.to_owned()].as_slice())
+        );
+        let kept = replace_ready(Report { interim: true, ..report(8, &[]) }, Some(report(4, &[])));
+        assert_eq!((kept.turn, kept.interim), (4, false));
+        // ...nor one naming only a pull request an earlier report named (review at e8aeb72, F2).
+        let waiting_old = Report { interim: true, ..report(9, &[pr]) };
+        let kept = replace_ready_seen(waiting_old, Some(report(4, &[])), &[pr.to_owned()]);
+        assert_eq!((kept.turn, kept.interim), (4, false));
+        // News on its way when a still-waiting turn adds a pull request: its delivery leaves the
+        // added one queued, and that goes next.
+        let mut l = Link { ready: Some(report(4, &[])), ..Link::default() };
+        let (going, key) = due_report(&mut l, 1).expect("the news was held");
+        let waiting_pr = Report { interim: true, ..report(5, &[pr]) };
+        l.ready = Some(replace_ready(waiting_pr, l.ready.take()));
+        delivered(&mut l, &going, key, 1);
+        let (next, _) = due_report(&mut l, 2).expect("the added pull request was dropped");
+        assert_eq!(next.prs, [pr.to_owned()]);
+    }
+
+    /// A still-waiting report nothing replaces still reaches the parent (review of #39105, F1:
+    /// a dev server never ends, so no turn follows it).
+    #[tokio::test]
+    async fn a_still_waiting_report_nothing_replaces_goes_once_held_long_enough() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id, false);
+        let held = Report { interim: true, ..queued_report(&lane.id) };
+        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(held));
+        hub.lane_deliver_ready(&lane.id).await;
+        assert!(
+            hub.lane_links(|l| l.get(&lane.id).is_some_and(|l| l.ready.is_some())),
+            "the held report went or was lost"
+        );
+        // Its delivery armed the 15-minute timer; the test's runs out in 50 ms instead.
+        let armed = hub.lane_links(|l| l.get_mut(&lane.id).and_then(|l| l.held.take()));
+        armed.expect("a held report armed no timer").1.abort();
+        hub.lane_release_waiting_at(&lane.id, 50);
+        for _ in 0..250 {
+            if parent.meta().turn_count > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(parent.meta().turn_count, 1, "a held report nothing replaced never went");
+        for s in [&lane, &parent] {
+            hub.kill(s, true).await.unwrap();
+        }
+    }
+
+    /// One turn of `lane` that replied `reply`, written to its log the way a turn is, then ended.
+    fn lane_turn(hub: &Arc<Hub>, lane: &Arc<Session>, turn: u64, reply: &str) {
+        lane.meta.lock().unwrap().turn_count = turn;
+        hub.append(lane, "mux", "turn_started", json!({}));
+        let update = json!({"sessionUpdate": "agent_message_chunk",
+                            "content": {"type": "text", "text": reply}});
+        let msg = json!({"jsonrpc": "2.0", "method": "session/update",
+                         "params": {"sessionId": lane.id, "update": update}});
+        hub.append(lane, "in", "agent_message_chunk", msg);
+        hub.append(lane, "mux", "turn_result", json!({}));
+        hub.lane_turn_ended(lane, true, turn);
+    }
+
+    /// Replays the helper run of 2026-11-09 (Leo: "for stuff like this, are you able to simply
+    /// not respond?"): a lane waits on a fleet run it started in the background and ends 15
+    /// turns in a row saying it still waits, then one saying it merged. The idle coordinator
+    /// above it wakes once, for the merge. Before this change it woke for every one of them.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_lane_still_waiting_on_its_own_work_wakes_its_idle_parent_once_at_the_end() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id, false);
+        // Wait for a lane's delivery to settle: the parent took a turn for it and is idle again,
+        // or nothing is on its way.
+        let settle = |before: u64| {
+            let (hub, parent, lane) = (hub.clone(), parent.clone(), lane.clone());
+            async move {
+                for _ in 0..250 {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    let woke = parent.meta().turn_count > before && parent.turn().is_none();
+                    let quiet = !hub.lane_inflight().contains_key(&lane.id)
+                        && parent.queued() == 0
+                        && parent.turn().is_none()
+                        && hub.lane_links(|l| l.get(&lane.id).is_some_and(|l| l.ready.is_some()));
+                    if woke || quiet {
+                        return;
+                    }
+                }
+            }
+        };
+        // The lane's fleet run runs past its turns as a daemon task that brings its end to it.
+        let run = hub.bg_fake_running(&lane, true).unwrap();
+        for turn in 1..=15 {
+            let before = parent.meta().turn_count;
+            let minutes = turn * 2;
+            lane_turn(&hub, &lane, turn, &format!("Still waiting on fleet run; {minutes} min in."));
+            settle(before).await;
+        }
+        let waiting_wakes = parent.meta().turn_count;
+        // The run ends; the lane's next turn says it merged.
+        drop(run);
+        let before = parent.meta().turn_count;
+        lane_turn(&hub, &lane, 16, "Fleet run passed and the pull request merged.");
+        settle(before).await;
+        let wakes = parent.meta().turn_count;
+        eprintln!("parent wakeups: {wakes} for 16 lane turns ({waiting_wakes} while it waited)");
+        assert_eq!(waiting_wakes, 0, "still-waiting turns woke the idle parent");
+        assert_eq!(wakes, 1, "the merge never reached the parent");
+        for s in [&lane, &parent] {
+            hub.kill(s, true).await.unwrap();
+        }
     }
 }

@@ -28,7 +28,7 @@ use std::process::Child;
 use std::sync::{Arc, Weak};
 use std::time::Instant;
 
-use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, Wake, paused_for};
+use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, paused_for};
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
     AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
@@ -166,6 +166,12 @@ impl LinuxPlatform {
         let (pause, pause_tx) = UnixDatagram::pair()?;
         pause.set_nonblocking(true)?;
         let pause_alive = Arc::new(());
+        // The record reaches the processes that flip outside this one (the
+        // operator's `cmux host update check`), on a machine with the updater.
+        let pause_file = paths.at(crate::updater::PAUSE_FILE);
+        if paths.is_system_root() && pause_file.parent().is_some_and(std::path::Path::is_dir) {
+            crate::agent::PAUSES.persist_to(pause_file);
+        }
         spawn_pause_watch(Arc::downgrade(&pause_alive), pause_tx)?;
         let platform = Self {
             epoll: Epoll::new()?,
@@ -546,6 +552,11 @@ fn clock_ns(clock: libc::clockid_t) -> i128 {
     i128::from(ts.tv_sec) * 1_000_000_000 + i128::from(ts.tv_nsec)
 }
 
+/// `CLOCK_BOOTTIME` in nanoseconds: the clock the pause watch reads.
+pub(crate) fn boottime_ns() -> i128 {
+    clock_ns(libc::CLOCK_BOOTTIME)
+}
+
 /// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. Where a snapshot
 /// restore stops the boot clock while the machine is stopped, this grows by
 /// the stopped time once realtime is set again; a sync moves it only by
@@ -569,7 +580,11 @@ fn spawn_pause_watch(alive: Weak<()>, tx: UnixDatagram) -> io::Result<()> {
             if alive.strong_count() == 0 {
                 return;
             }
-            if let Some(stopped) = paused_for(before, clock_ns(libc::CLOCK_BOOTTIME)) {
+            let after = clock_ns(libc::CLOCK_BOOTTIME);
+            let found = paused_for(before, after);
+            // Before the report: a flip that looks now already sees it.
+            crate::agent::PAUSES.looked(after, found.is_some());
+            if let Some(stopped) = found {
                 let ms = u64::try_from(stopped.as_millis()).unwrap_or(u64::MAX);
                 if tx.send(&ms.to_le_bytes()).is_err() {
                     return;
@@ -605,8 +620,13 @@ impl Platform for LinuxPlatform {
                         let offset = realtime_minus_boottime_ns();
                         let mut wake = crate::agent::clock_set_wake(self.clock_offset_ns, offset);
                         self.clock_offset_ns = offset;
+                        if wake == Wake::ClockSet {
+                            crate::agent::PAUSES.found();
+                        }
                         if wake == Wake::ClockSet
-                            && !self.resume_once.first(clock_ns(libc::CLOCK_REALTIME))
+                            && !self
+                                .resume_once
+                                .first(ResumeSource::ClockSet, clock_ns(libc::CLOCK_REALTIME))
                         {
                             wake = Wake::ClockAdjusted;
                         }
@@ -623,7 +643,11 @@ impl Platform for LinuxPlatform {
                             );
                             paused = true;
                         }
-                        if paused && self.resume_once.first(clock_ns(libc::CLOCK_REALTIME)) {
+                        if paused
+                            && self
+                                .resume_once
+                                .first(ResumeSource::PauseWatch, clock_ns(libc::CLOCK_REALTIME))
+                        {
                             wakes.push(Wake::Paused);
                         }
                     }

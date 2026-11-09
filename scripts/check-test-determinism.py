@@ -268,7 +268,8 @@ _SHELL_BARE_SLEEP = re.compile(r"""(?x) (?:^|[;&|]) \s* sleep \s+ [\d.]""")
 
 # Loop-body markers: if the sleep line itself is a loop header or sits in an
 # obvious poll, we treat it as an allowed deadline-bounded poll, not a sync hack.
-_LOOP_HEADER = re.compile(r"^\s*(while|for|until)\b|\bwhile\s+\[|\bfor\s+\w+\s+in\b")
+# Swift's `repeat { ... } while cond` puts its condition at the bottom: the `repeat {` line is the header.
+_LOOP_HEADER = re.compile(r"^\s*(while|for|until)\b|^\s*repeat\s*\{|\bwhile\s+\[|\bfor\s+\w+\s+in\b")
 
 # A hardcoded public URL. We require a scheme and a dotted host that is NOT
 # loopback / private. data: and file: are excluded by requiring http(s).
@@ -3488,10 +3489,50 @@ def _network_target_ranges(
     return _direct_network_target_ranges(line, match, path_suffix)
 
 
-def detect_assert_on_duration(line: str) -> bool:
+# The call an assertion's message argument belongs to: `#expect(`, `XCTAssertLessThan(`, `assertLess(`, ...
+_ASSERT_CALL_NAME = re.compile(r"(?:#expect|#require|\bXCTAssert\w*|\bassert\w*|\bexpect|\bprecondition\w*)\s*$")
+
+
+def _in_assertion_message(line: str, offset: int, executable: bytes) -> bool:
+    """Whether OFFSET sits in a string literal that is an assertion's message argument.
+
+    The message is a string right after a top-level comma of the assertion: one inside the assertion call's own
+    parentheses (`#expect(x < 1, "duration ...")`) or, with no bracket open, a Python `assert x, "..."`. A
+    string anywhere else is code's data and still counts: a key (`stats["elapsed_ms"]`), `getattr(r, "elapsed")`.
+    """
+    if offset >= len(executable) or executable[offset]:
+        return False
+    start = offset
+    while start > 0 and not executable[start - 1]:
+        start -= 1
+    before = start - 1
+    while before >= 0 and line[before].isspace():
+        before -= 1
+    if before < 0 or line[before] != ",":
+        return False
+    stack: list[int] = []
+    for index in range(before):
+        if not executable[index]:
+            continue
+        character = line[index]
+        if character in "([{":
+            stack.append(index)
+        elif character in ")]}" and stack:
+            stack.pop()
+    if not stack:
+        return bool(re.match(r"\s*assert\b", line))
+    if len(stack) != 1 or line[stack[0]] != "(":
+        return False
+    return bool(_ASSERT_CALL_NAME.search(line[: stack[0]]))
+
+
+def detect_assert_on_duration(line: str, path_suffix: str = "") -> bool:
     if not _is_assertion_line(line):
         return False
-    if not _DURATION_TOKEN.search(line):
+    # A duration word in the assertion's message (`#expect(..., "duration \(t) s")`) measures nothing: a token
+    # there does not count. A token in code, or in a string the code reads (`stats["elapsed_ms"]`), does.
+    executable = _executable_code_positions(line, path_suffix)
+    if all(_in_assertion_message(line, match.start(), executable) for match in _DURATION_TOKEN.finditer(line)):
         return False
     if not _NUMERIC_LITERAL.search(line):
         return False
@@ -3860,7 +3901,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         line_no = i + 1
         snippet = raw_lines[i].strip()
 
-        if detect_assert_on_duration(code):
+        if detect_assert_on_duration(code, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
         if line_no in live_network_lines:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
@@ -3961,6 +4002,17 @@ def filter_allowlisted(
 def _self_test() -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
+        # A measured duration read with a string key is still code's data, not an assertion message.
+        (
+            "tests/string_key_duration.py",
+            'stats = probe()\nassert stats["elapsed_ms"] < 500\n',
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/string_key_duration.swift",
+            '#expect(metrics["elapsed"]! < 5)\n',
+            {RULE_ASSERT_ON_DURATION},
+        ),
         (
             "cmuxTests/a.swift",
             "let elapsed = end - start\nXCTAssertLessThan(elapsedMs, 250)\n",
@@ -5628,6 +5680,26 @@ def _self_test() -> int:
         (
             "cmuxTests/n27.swift",
             'let source = "for _ in 0..<100 { if ready { break }; await Task.yield() }"\n',
+        ),
+        # A duration word only in the assertion's message measures nothing (a movie track's span).
+        (
+            "cmuxTests/n28.swift",
+            '#expect(abs(seen.seconds - Double(frames) / 120) < 0.02, "duration \\(seen.seconds) s")\n',
+        ),
+        (
+            "tests/n29.py",
+            'assert span < 5, "the duration was off"\n',
+        ),
+        # A sleep inside a deadline-bounded Swift `repeat { } while` poll is a poll body.
+        (
+            "cmuxTests/n30.swift",
+            (
+                "        repeat {\n"
+                "            if ready() { break }\n"
+                "            try await Task.sleep(for: .milliseconds(250))\n"
+                "        } while ContinuousClock.now < deadline\n"
+                "        #expect(ready())\n"
+            ),
         ),
     ]
 

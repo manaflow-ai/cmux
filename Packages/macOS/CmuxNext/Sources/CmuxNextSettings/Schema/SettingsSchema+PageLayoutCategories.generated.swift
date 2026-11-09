@@ -78,7 +78,8 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(group: "settings.group.terminalFont"),
             GroupSpec(group: "settings.group.densityMotion"),
-            GroupSpec(keys: ["app.uiScale", "appearance.metrics.chromeFontSize", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap", "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"], title: SettingsText.keyed("settings.pageGroup.sizes", "Sizes")),
+            // Text Size (appearance.metrics.chromeFontSize) is in the Density card.
+            GroupSpec(keys: ["app.uiScale", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap", "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"], title: SettingsText.keyed("settings.pageGroup.sizes", "Sizes")),
             // Motion holds ui.animations.enabled and the per-area switches (f35023e54c1c); without a group here they had no row on the page.
             GroupSpec(group: "settings.group.motion"),
             GroupSpec(group: "settings.group.colorTransition"),
