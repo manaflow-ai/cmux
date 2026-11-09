@@ -155,9 +155,14 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
   let last: number | undefined;
   let left = 0;
   let disposed = false;
+  // A page an automated browser drives (`navigator.webdriver`: the motion tests, on a runner whose
+  // load is not the chat's) keeps its motion unless it asks for the budget (`cmuxFrameBudget: "on"`).
+  const automated =
+    Boolean(view?.navigator?.webdriver) &&
+    (view as unknown as { cmuxFrameBudget?: string } | null)?.cmuxFrameBudget !== "on";
   const apply = () => {
     // A page that pins its motion (FULL_MOTION on the chat or over it) is never marked.
-    if (chat.closest(`[${CHAT_MOTION_ATTR}="${FULL_MOTION}"]`)) return;
+    if (automated || chat.closest(`[${CHAT_MOTION_ATTR}="${FULL_MOTION}"]`)) return;
     if (state.minimal) chat.setAttribute(CHAT_MOTION_ATTR, MINIMAL_MOTION);
     else if (chat.getAttribute(CHAT_MOTION_ATTR) === MINIMAL_MOTION) chat.removeAttribute(CHAT_MOTION_ATTR);
   };

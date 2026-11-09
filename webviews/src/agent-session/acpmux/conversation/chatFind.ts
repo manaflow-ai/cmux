@@ -396,11 +396,29 @@ export const isRevealRow = (row: AcpmuxRow, reveal: Pick<FindRevealTarget, "rowI
   (row.id === reveal.rowId || Boolean(row.joined?.includes(reveal.rowId))) && Boolean(row.ended) === reveal.card;
 
 /** Where the transcript draws match row `rowId`: the row or its fold copy (isFindRow), else the
- * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. */
-export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string): number {
-  const at = rows.findIndex((row) => isFindRow(row, rowId));
-  return at >= 0 ? at : rows.findIndex((row) => isCardOf(row, rowId));
+ * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. A row a
+ * prompt sent mid-turn split (turns.ts afterSends: what was still going went to a run under the
+ * prompt that names it in `joined`) draws in two places: `holds` picks the one with the match. */
+export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string, holds?: (row: AcpmuxRow) => boolean): number {
+  let first = -1;
+  for (let at = 0; at < rows.length; at += 1) {
+    if (!isFindRow(rows[at]!, rowId)) continue;
+    if (!holds || holds(rows[at]!)) return at;
+    if (first < 0) first = at;
+  }
+  return first >= 0 ? first : rows.findIndex((row) => isCardOf(row, rowId));
 }
+
+/** Whether `row`'s work holds `needle` (folded as Find folds it) or call `toolId`: the part of a
+ * split row a match or a count's reveal goes to (findRowIndex). */
+export const rowHolds =
+  (target: { needle?: string; toolId?: string }) =>
+  (row: AcpmuxRow): boolean =>
+    target.toolId !== undefined
+      ? Boolean(row.items?.some((item) => item.tool?.id === target.toolId))
+      : target.needle
+        ? Boolean(row.items?.some((item) => searchableActivityText(item).includes(foldFind(target.needle!))))
+        : true;
 
 /** Calls `open` when the current match is in `items`, so a closed group or call shows it. */
 export function useFindReveal(items: readonly AcpmuxActivity[], open: () => void) {

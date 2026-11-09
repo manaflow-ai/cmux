@@ -8,6 +8,7 @@
 // the person's prompt waits stays the live line, under the prompt.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { findRowIndex, rowHolds } from "../src/agent-session/acpmux/conversation/chatFind";
 import {
   AFTER_SEND,
   LIVE_THINKING,
@@ -137,4 +138,56 @@ test("another agent's message after a compaction still ends it as the live line"
     row("u-3", "user", 8, { text: "report", incoming: { kind: "notice", text: "report" } as AcpmuxRow["incoming"] }),
   ]);
   expect(shaped.at(-1)!.liveState).not.toBe("compacting");
+});
+
+// Review of #39825 (F1): the run a call lands in under the prompt keeps naming the row it came from,
+// so Find and a count's reveal still reach the call, in whichever part of a split row holds it.
+test("Find and a count's reveal reach a call that landed under the prompt", () => {
+  // The row's only call ended after the send: the whole row moved under the prompt.
+  const whole = view([
+    prompt,
+    reply,
+    row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3, 12)] }),
+    steer("landed"),
+  ]);
+  const moved = whole.findIndex((each) => each.id === `act-1${AFTER_SEND}u-2`);
+  expect(moved).toBeGreaterThan(0);
+  expect(findRowIndex(whole, "act-1")).toBe(moved);
+  // A row split in two: the call that ended before the send stays above, the one still going moved.
+  const split = view([
+    prompt,
+    reply,
+    row("act-1", "activity", 3, {
+      items: [call("c-0", "Grep retry", "search", 3, 4), call("c-1", "Read relay.ts", "read", 5, 12)],
+    }),
+    steer("landed"),
+  ]);
+  const above = split.findIndex((each) => each.id === "act-1");
+  const below = split.findIndex((each) => each.id === `act-1${AFTER_SEND}u-2`);
+  expect(above).toBeGreaterThanOrEqual(0);
+  expect(below).toBeGreaterThan(above);
+  expect(findRowIndex(split, "act-1", rowHolds({ toolId: "c-1" }))).toBe(below);
+  expect(findRowIndex(split, "act-1", rowHolds({ toolId: "c-0" }))).toBe(above);
+  expect(findRowIndex(split, "act-1", rowHolds({ needle: "relay.ts" }))).toBe(below);
+  expect(findRowIndex(split, "act-1", rowHolds({ needle: "grep retry" }))).toBe(above);
+});
+
+// Review of #39825 (F2): the run under the prompt changes with any row it took a call from, so a
+// background call in a later row that ends redraws it (ToolActivityRow keys on the version).
+test("the run under the prompt changes when a call from any of its rows changes", () => {
+  const rows = (second: AcpmuxRow) => [
+    prompt,
+    reply,
+    row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3, 12)] }),
+    second,
+    steer("landed"),
+  ];
+  // The later row's call ends after the send; then its result comes in (its row's version moves).
+  const first = view(rows(row("act-2", "activity", 4, { version: 1, items: [call("c-2", "Run tests", "execute", 4, 15)] })));
+  const failed = { ...call("c-2", "Run tests", "execute", 4, 15) };
+  failed.tool = { ...failed.tool!, status: "failed" };
+  const next = view(rows(row("act-2", "activity", 4, { version: 2, items: [failed] })));
+  const run = (shaped: readonly AcpmuxRow[]) => shaped.find((each) => each.id === `act-1${AFTER_SEND}u-2`);
+  expect(callIds([run(first)!], run(first)!.id)).toEqual(["c-1", "c-2"]);
+  expect(run(next)!.version).not.toBe(run(first)!.version);
 });

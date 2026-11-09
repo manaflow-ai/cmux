@@ -51,6 +51,7 @@ if (arm) globalThis.cmuxExperiments = { "follow-motion": arm };
 // The page measures the motion itself: a loaded runner's frames never turn the chat's minimal motion
 // on under it (frameBudget.ts FULL_MOTION), unless `?budget=on` asks for the product's budget.
 if (query.get("budget") !== "on") document.documentElement.setAttribute("data-chat-motion", "full");
+else Object.assign(window, { cmuxFrameBudget: "on" });
 if (query.get("motion") === "off") {
   document.documentElement.dataset.agentMotion = "off";
   document.documentElement.dataset.cmuxMotion = "off";

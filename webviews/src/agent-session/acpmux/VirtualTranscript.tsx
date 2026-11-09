@@ -140,6 +140,7 @@ import {
   foldFind,
   findRowIndex,
   findMemberRowId,
+  rowHolds,
   paintFindHighlights,
   type ChatFind,
 } from "./conversation/chatFind";
@@ -3800,7 +3801,8 @@ function TranscriptView({
   const findTargetOccurrence = findTarget?.occurrence;
   // Find matches the chat's rows; the transcript draws a match's row (or its copy in an open fold)
   // once its fold is open.
-  const findIndex = findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId) : -1;
+  const findIndex =
+    findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId, rowHolds({ needle: findQuery })) : -1;
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
   // Pending and delivered notice batches retain the matched member for disclosure and highlighting.
@@ -3887,7 +3889,7 @@ function TranscriptView({
   }, [targetKey]);
   // A row the running line's count names scrolls in once the transcript draws it (its fold may
   // open first), as a Find match does.
-  const revealIndex = reveal ? findRowIndex(rows, reveal.rowId) : -1;
+  const revealIndex = reveal ? findRowIndex(rows, reveal.rowId, rowHolds({ toolId: reveal.toolId })) : -1;
   const countReveal = useMemo(
     () =>
       reveal && revealIndex >= 0

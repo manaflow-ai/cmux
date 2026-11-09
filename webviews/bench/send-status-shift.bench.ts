@@ -655,6 +655,9 @@ async function round(browser: Browser, url: string): Promise<Round> {
       await page.addInitScript((arm) => {
         (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "follow-motion": arm };
       }, ARM);
+    // The product's frame budget runs as in the app (frameBudget.ts keeps an automated page's motion
+    // unless it asks): the bench measures what a person sees.
+    await page.addInitScript(() => Object.assign(window, { cmuxFrameBudget: "on" }));
     if (CHAT_MOTION)
       await page.addInitScript((mode) => {
         const pin = () => document.documentElement?.setAttribute("data-chat-motion", mode);

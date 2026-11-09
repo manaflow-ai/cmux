@@ -2311,6 +2311,10 @@ export function afterSends(rows: AcpmuxRow[]): AcpmuxRow[] {
     const sentAt = sentTime(sent);
     const moved: NonNullable<AcpmuxRow["items"]> = [];
     let source: AcpmuxRow | undefined;
+    // Every row an item came from: Find and a count's reveal still name them (`joined`, chatFind.ts
+    // findRowIndex), and a change in any one of them (a background call ending) changes the run.
+    const members: string[] = [];
+    let version = 0;
     for (let before = 0; before < at; before += 1) {
       const row = list[before]!;
       if (row.kind !== "activity" || !row.items?.some((item) => goingAt(item, sentAt))) continue;
@@ -2318,17 +2322,19 @@ export function afterSends(rows: AcpmuxRow[]): AcpmuxRow[] {
       const stays = row.items.filter((item) => !goingAt(item, sentAt));
       moved.push(...row.items.filter((item) => goingAt(item, sentAt)));
       source ??= row;
+      for (const id of row.joined ?? [row.id]) if (!members.includes(id)) members.push(id);
+      version = mixVersion(version, row.version);
       const kept = { ...row, items: stays, version: mixVersion(row.version, stays.length) };
       if (!stays.some((item) => item.tool || item.kind === "thought")) emptied.add(kept);
       out[before] = kept;
     }
     if (!source) continue;
-    const { joined: _joined, ...run } = source;
     out!.splice(at + 1, 0, {
-      ...run,
+      ...source,
       id: `${source.id.split(AFTER_SEND)[0]}${AFTER_SEND}${sent.id}`,
+      joined: members,
       items: moved,
-      version: mixVersion(source.version, moved.length),
+      version: mixVersion(version, moved.length),
       ...(source.toolCount !== undefined && { toolCount: moved.filter((item) => item.tool).length }),
     });
   }
