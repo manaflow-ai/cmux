@@ -649,9 +649,7 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) {
-        if self.agent_roster_replaying()
-            || self.agent_roster_worker.reconcile_pending.load(Ordering::Acquire)
-        {
+        if self.agent_roster_settling() {
             return;
         }
         let entry = self

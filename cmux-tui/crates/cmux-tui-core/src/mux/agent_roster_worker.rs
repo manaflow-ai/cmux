@@ -349,6 +349,13 @@ impl Mux {
         host.roster.entries.get(terminal_id).map(|entry| entry.state.clone())
     }
 
+    /// Whether the roster may still show states older than the journal: its start's replay
+    /// runs in the background, or the projection reconcile that replay owes has not run yet.
+    pub(crate) fn agent_roster_settling(&self) -> bool {
+        self.agent_roster_replaying()
+            || self.agent_roster_worker.reconcile_pending.load(Ordering::Acquire)
+    }
+
     /// Whether the start's roster replay is still running in the background.
     pub(crate) fn agent_roster_replaying(&self) -> bool {
         self.agent_roster_worker.replaying.load(Ordering::Acquire)
