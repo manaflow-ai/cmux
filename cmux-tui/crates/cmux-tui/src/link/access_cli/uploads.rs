@@ -1,7 +1,16 @@
-//! `upload --socket PATH --remote-root DIR FILE...`: the files the person
-//! dropped or pasted into a Cloud chat (the app runs it on that gesture),
-//! each copied once to `DIR/local/uploads/<random id>/<name>` on the
-//! machine, which the app then names in the chat.
+//! `upload --socket PATH --remote-root DIR FILE...`: the files and folders
+//! the person dropped, pasted or picked into a Cloud chat (the app runs it
+//! on that gesture), each copied once to `DIR/local/uploads/<random
+//! id>/<name>` on the machine, which the app then names in the chat.
+//!
+//! A folder may go when a folder grant could share it ([`grants::shareable`])
+//! or it is in one of the places a dropped file may come from
+//! ([`dropped_place`]), and its name is not a dot or credential folder's. Its
+//! files go as a shared folder's do ([`super::shared_file`]: never a secret
+//! file at any depth, nothing of a repository, in git only what git does
+//! not ignore), and none on a path with a dot, credential or `Keychains`
+//! name ([`folder_file`]); never a symlink, and no sync record is left with
+//! the copy.
 //!
 //! What may go: a regular file (canonical, so a symlink is judged by where
 //! it leads), whose name is not a secret file's or a dot
@@ -24,6 +33,7 @@
 
 use std::path::{Path, PathBuf};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::{Failure, grants, is_secret};
@@ -60,7 +70,7 @@ pub(super) fn upload_with_id(
         files.iter().map(|file| uploadable(Path::new(file))).collect::<Result<Vec<_>, _>>()?;
     let mut uploads = Vec::new();
     let mut sent: Vec<String> = Vec::new();
-    for (file, name) in &checked {
+    for (file, name, folder) in &checked {
         let at = format!(
             "{root}/local/uploads/{}/{name}",
             id.map(str::to_string).map(Ok).unwrap_or_else(random_id)?
@@ -69,7 +79,23 @@ pub(super) fn upload_with_id(
             println!(r#"{{"progress":"upload"}}"#);
             let _ = std::io::stdout().flush();
         };
-        sync_cli::copy_file_with_progress(socket, file, &at, &mut heartbeat).map_err(|error| {
+        let copied = if let Some(identity) = *folder {
+            let keep = |relative: &str, git: bool| folder_file(file, relative, git);
+            let enter = |relative: &str| relative.split('/').all(goes_by_name);
+            sync_cli::copy_folder_with_progress(
+                socket,
+                file,
+                identity,
+                &at,
+                &enter,
+                &keep,
+                &mut heartbeat,
+            )
+            .map(|(files, skipped)| json!({"folder": true, "files": files, "skipped": skipped}))
+        } else {
+            sync_cli::copy_file_with_progress(socket, file, &at, &mut heartbeat).map(|()| json!({}))
+        };
+        let mut entry = copied.map_err(|error| {
             let went = if sent.is_empty() {
                 String::new()
             } else {
@@ -78,9 +104,30 @@ pub(super) fn upload_with_id(
             Failure::new(&sync_cli::push_failure_code(&error), format!("{error:#}{went}"))
         })?;
         sent.push(at.clone());
-        uploads.push(json!({"file": file, "path": at}));
+        entry.set("file", json!(file));
+        entry.set("path", json!(at));
+        uploads.push(entry);
     }
     Ok(json!({"uploads": uploads}))
+}
+
+/// Whether the file at `relative` of an uploaded `folder` goes: as a shared
+/// folder's would ([`super::shared_file`]), and with no dot file or folder,
+/// credential folder or `Keychains` folder anywhere on its path, so a folder
+/// that holds a home's worth of files (a backup's `Library/Keychains`,
+/// `.config`) sends none of those. Such a folder is not even listed, so one
+/// this Mac's user cannot read is skipped, not a failed upload.
+fn folder_file(folder: &Path, relative: &str, git: bool) -> bool {
+    relative.split('/').all(goes_by_name) && super::shared_file(folder, relative, git)
+}
+
+/// Whether a file or folder of this name inside an uploaded folder may go:
+/// not a dot, credential or `Keychains` name.
+fn goes_by_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    !name.starts_with('.')
+        && !super::SECRET_FOLDERS.contains(&lower.as_str())
+        && lower != "keychains"
 }
 
 /// Only the random transfer directory can be removed, never an arbitrary relative path.
@@ -98,15 +145,20 @@ pub(super) fn cancel(socket: &Path, root: &str, id: &str) -> Result<Value, Failu
     Ok(json!({}))
 }
 
-/// The canonical file at `path` and its name, when it may be uploaded.
-fn uploadable(path: &Path) -> Result<(PathBuf, String), Failure> {
+/// A checked upload: the canonical path, its name, and for a folder the
+/// device and inode it had when checked, so a folder swapped in later is
+/// refused.
+type Checked = (PathBuf, String, Option<(u64, u64)>);
+
+/// The canonical file or folder at `path`, when it may be uploaded.
+fn uploadable(path: &Path) -> Result<Checked, Failure> {
     let refused = |why: &str| {
         Failure::new("upload_refused", format!("{} cannot be uploaded: {why}", path.display()))
     };
     let canonical = std::fs::canonicalize(path).map_err(|_| refused("it does not exist"))?;
     let meta = std::fs::metadata(&canonical).map_err(|_| refused("it does not exist"))?;
-    if !meta.is_file() {
-        return Err(refused("only files can be uploaded"));
+    if !meta.is_file() && !meta.is_dir() {
+        return Err(refused("only files and folders can be uploaded"));
     }
     let name = canonical
         .file_name()
@@ -119,12 +171,32 @@ fn uploadable(path: &Path) -> Result<(PathBuf, String), Failure> {
     if name.starts_with('.') || is_secret(&name) {
         return Err(refused("secret files are never uploaded"));
     }
+    // A keychain folder anywhere on the way, the upload's own folder included.
+    if canonical.iter().any(|part| part.eq_ignore_ascii_case("keychains")) {
+        return Err(refused("keychains are never uploaded"));
+    }
+    if meta.is_dir() {
+        let identity = {
+            use std::os::unix::fs::MetadataExt as _;
+            Some((meta.dev(), meta.ino()))
+        };
+        if super::SECRET_FOLDERS.contains(&name.to_ascii_lowercase().as_str()) {
+            return Err(refused("credential folders are never uploaded"));
+        }
+        return match grants::shareable(&canonical) {
+            Ok(_) => Ok((canonical, name, identity)),
+            Err(_) if dropped_place(&canonical, &grants::homes()) => {
+                Ok((canonical, name, identity))
+            }
+            Err(why) => Err(refused(&why.to_string())),
+        };
+    }
     if pasted(&canonical) {
-        return Ok((canonical, name));
+        return Ok((canonical, name, None));
     }
     match grants::shareable_item(&canonical) {
-        Ok(_) => Ok((canonical, name)),
-        Err(_) if dropped_place(&canonical, &grants::homes()) => Ok((canonical, name)),
+        Ok(_) => Ok((canonical, name, None)),
+        Err(_) if dropped_place(&canonical, &grants::homes()) => Ok((canonical, name, None)),
         Err(why) => Err(refused(&why.to_string())),
     }
 }

@@ -2040,5 +2040,61 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/build with its ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/plan/build _meta with more than the ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {}
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/build names harnesses",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "harnesses": [
+     "claude",
+     "codex"
+    ]
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  }
 ]
