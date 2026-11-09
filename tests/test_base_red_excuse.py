@@ -1826,6 +1826,24 @@ class StatusOnlyChecks(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "which tested cccccccccccc"):
             self.judge()
 
+    def test_a_fast_gates_red_is_the_prs_own_and_never_compared_by_the_dispatch_head(self):
+        """2026-11-09, cmux#38640: a dispatched cmux-next-fast-gates.yml run tests the PR head merged into the
+        feat-cmux-next tip, so its head_sha is the tip. The refusal read "its status links run 42644887804, which
+        tested 144fbacf8328, not 6115...", as if the run tested another commit. A fast-gates red is never a base red:
+        it is refused as the PR's own, naming the base it ran on and the run, before any head_sha comparison."""
+        self.status = {"context": excuse.FAST_GATES_STATUS, "state": "failure",
+                       "target_url": f"https://github.com/{REPO}/actions/runs/10", "description": f"base {BASE_SHA}"}
+        self.head_run = {"id": 10, "workflow_id": 7, "head_sha": BASE_SHA, "event": "workflow_dispatch",
+                         "display_title": "cmux-next fast gates"}
+        with self.assertRaises(excuse.Refused) as refused:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[excuse.FAST_GATES_STATUS])
+        why = str(refused.exception)
+        self.assertIn("the pull request's own", why)
+        self.assertIn(f"base {BASE_SHA[:12]}", why)
+        self.assertIn("run 10", why)
+        self.assertNotIn("which tested", why)
+        self.assertFalse([r for r in self.gh.routes if r.endswith("/actions/runs/10")])  # the status decides
+
     def test_a_status_whose_run_has_no_such_job_is_refused_with_its_description(self):
         # same-tree-cmux-tui posts a failure when the tree is unavailable: no daemon tests ran.
         self.gh.jobs.pop(1)
