@@ -189,5 +189,41 @@ fn w5s_a_script_that_is_no_acpmux_wrapper_does_not_name_the_daemon() {
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
     let (ok, output) = list(dir.path(), &socket, &script);
     assert!(!ok, "the Chief refuses the socket: {output}");
+    assert!(
+        output.contains("refused the acpmux socket peer"),
+        "the refusal names the peer: {output}"
+    );
     assert!(received(&squatter).is_empty(), "the squatter got nothing from the Chief");
+}
+
+/// Review of #39552: a wrapper of the right shape names the binary the Chief expects; a server
+/// that runs another binary is still a squatter.
+#[test]
+fn w5s_a_wrapper_of_another_binary_does_not_admit_the_server() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let squatter = serve(dir.path(), &socket);
+    let wrapper = acpmux_wrapper(dir.path(), &std::fs::canonicalize("/bin/sh").unwrap());
+    let (ok, output) = list(dir.path(), &socket, &wrapper);
+    assert!(received(&squatter).is_empty(), "the squatter got nothing from the Chief");
+    assert!(!ok, "the Chief refuses the socket: {output}");
+    assert!(
+        output.contains("refused the acpmux socket peer"),
+        "the refusal names the peer: {output}"
+    );
+}
+
+/// Review of #39552: a wrapper that another user could have written (group or world writable)
+/// names nothing; the peer check stays on the script, so the server it names is refused.
+#[test]
+fn w5s_a_wrapper_others_can_write_names_no_daemon() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let squatter = serve(dir.path(), &socket);
+    let wrapper = acpmux_wrapper(dir.path(), &python());
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o722)).unwrap();
+    let (ok, output) = list(dir.path(), &socket, &wrapper);
+    assert!(received(&squatter).is_empty(), "the server got bytes through an open wrapper");
+    assert!(!ok, "the Chief refuses the socket: {output}");
 }
