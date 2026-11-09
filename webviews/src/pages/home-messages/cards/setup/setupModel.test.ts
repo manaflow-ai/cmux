@@ -62,6 +62,22 @@ describe("setupSteps", () => {
     expect(nextStep(ready)?.id).toBe("account");
   });
 
+  test("every agent has a button: Codex stays reachable while Claude Code installs or after it fails", () => {
+    const freshRow = setupSteps(fresh, strings)[0]!;
+    expect(freshRow.action?.run).toEqual({ kind: "installAgent", id: "claude" });
+    expect(freshRow.secondary).toEqual({ label: "Install Codex", run: { kind: "installAgent", id: "codex" } });
+    for (const state of ["installing", "failed"] as const) {
+      const row = setupSteps({ ...fresh, agents: [{ ...fresh.agents[0]!, state }, fresh.agents[1]!] }, strings)[0]!;
+      expect(row.secondary?.run).toEqual({ kind: "installAgent", id: "codex" });
+    }
+    const both = setupSteps(
+      { ...fresh, agents: fresh.agents.map((agent) => ({ ...agent, state: "installing" as const })) },
+      strings,
+    )[0]!;
+    expect(both.busy).toBe(true);
+    expect([both.action, both.secondary]).toEqual([undefined, undefined]);
+  });
+
   test("an install in flight is busy; another app's cmux offers Replace", () => {
     const steps = setupSteps(
       { ...fresh, agents: [{ id: "claude", name: "Claude Code", state: "installing" }], cli: "other" },
