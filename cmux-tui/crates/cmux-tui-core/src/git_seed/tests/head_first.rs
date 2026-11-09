@@ -189,3 +189,26 @@ fn nothing_reads_a_filling_tree_back_and_a_failed_fill_stays_incomplete() {
     let exported = service.call("git.seed.export", &export).unwrap();
     assert_eq!(wait(&service, exported["job"].as_str().unwrap())["state"], "done");
 }
+
+/// Review F1 (cmux#39018): a tracked `.claude -> .` resolves at the head, but the skills
+/// below its target are not in it, so the head is never marked.
+#[test]
+fn a_harness_folder_linked_to_a_folder_is_never_marked() {
+    let world = World::new("head-dirlink");
+    std::os::unix::fs::symlink(".", world.mac.join(".claude")).unwrap();
+    write(&world.mac.join("skills/review/SKILL.md"), "review\n");
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    let params = head_params(&world, &folder, &snapshot, None);
+    let (service, job, release) = held_at_head(&world, &params, &folder);
+    assert!(std::fs::symlink_metadata(folder.join(".claude")).unwrap().is_symlink());
+    assert!(!folder.join("skills").exists(), "the skills wait for the fill");
+    assert!(status(&service, &job)["head_ready"].is_null());
+    assert!(matches!(probe(&folder).unwrap(), Probe::Syncing), "a start waits");
+    drop(release);
+    let done = wait(&service, &job);
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(read(&folder.join(".claude/skills/review/SKILL.md")), "review\n");
+    assert_eq!(state(&folder), state(&world.mac));
+    whole(&folder);
+}
