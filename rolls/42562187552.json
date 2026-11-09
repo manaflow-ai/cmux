@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42562187552",
+  "recorded_at": "2026-11-09T04:39:04Z",
+  "reason": "cmux-tui 228c8d04b085 changes the image's cmux-tui (pinned 01dfbeaf31f8)",
+  "dry_run": false,
+  "cmux_tui": "228c8d04b0852073d5f69844a19d82fb4084b9b1",
+  "fixes": [
+    {
+      "sha": "228c8d04b0852073d5f69844a19d82fb4084b9b1",
+      "mergedAt": "2026-11-09T04:15:43Z",
+      "subject": "Cloud chats: New side chat and /side open on the chat's machine (#39042)"
+    },
+    {
+      "sha": "21ee7def0401bfd1865c357a9047fa412c26c2e8",
+      "mergedAt": "2026-11-09T04:15:30Z",
+      "subject": "cmux-wg: WgMesh peers fail over between paths with the shared selector (#38970)"
+    },
+    {
+      "sha": "37a9cfc56626adcfa82eda59a4e0361437fab4e6",
+      "mergedAt": "2026-11-08T20:10:45-08:00",
+      "subject": "cmux-tui: a session registration journals its capability list by hash (#39116)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T04:39:04Z",
+    "snapshot_id": "sh-6e47d6177a5f4abcbf889a5c426e7a54",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42562187552): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bb636eefcd5f7cb79acbfa92e39a26dc12e705ff",
+    "image": "cloud-native-auto-228c8d04-42562187552-1",
+    "revision": "ci-42562187552-1",
+    "at": "2026-11-09T04:39:04Z"
+  },
+  "rolled_back": false
+}
