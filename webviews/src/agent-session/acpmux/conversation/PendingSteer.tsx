@@ -31,13 +31,14 @@ export function PendingSteer({
   const chat = useContext(SteerChatContext);
   const [sending, setSending] = useState(false);
   const waiting = row.steer === "waiting";
-  const [sentNow, setSentNow] = useState(false);
   const [kept, setKept] = useState(false);
   const promptId = row.steerPromptId;
   const sent = useSyncExternalStore(subscribeSentNow, readSentNow, readSentNow);
   // Sent now from any of its controls: this row's Send now, or the composer queue's or a queued
-  // card's, which turn a queued prompt into a steer under the same promptId.
-  const ownSent = sentNow || Boolean(promptId && sent.ids.has(promptId));
+  // card's, which turn a queued prompt into a steer under the same promptId. Read from the store by
+  // promptId, never this row's own state: row ids repeat across chats, so React keeps this row when
+  // the page switches chats in place (cmux#32846).
+  const ownSent = Boolean(promptId && sent.ids.has(promptId));
   // The newest steer's Send now covers the earlier ones: the agent reads them with it. Before paint,
   // so an earlier steer never shows its X for a frame after the newest's Send now worked.
   const isNewest = newest === row.id;
@@ -91,9 +92,7 @@ export function PendingSteer({
               void send(promptId, { op: "send_now" })
                 .catch(() => false)
                 .then((sent) => {
-                  if (!sent) return;
-                  markSentNow(promptId);
-                  setSentNow(true);
+                  if (sent) markSentNow(promptId);
                 })
                 .finally(() => setSending(false));
             }}
