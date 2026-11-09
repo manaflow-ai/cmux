@@ -134953,6 +134953,268 @@
         }
       }
     },
+    "settings.sessions.keepAwakeForCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also While Terminal Commands Run"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيضًا أثناء تشغيل أوامر الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Također dok se izvršavaju naredbe terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Også mens terminalkommandoer kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auch während Terminalbefehle laufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "También mientras se ejecutan comandos del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aussi pendant l’exécution de commandes du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anche durante l’esecuzione di comandi del terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのコマンド実行中も"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក៏ពេលពាក្យបញ្ជាទែមីណាល់កំពុងដំណើរការដែរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 명령이 실행되는 동안에도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Også mens terminalkommandoer kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Również podczas działania poleceń terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Também enquanto comandos do terminal são executados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Также во время выполнения команд терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขณะที่คำสั่งในเทอร์มินัลทำงานด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal komutları çalışırken de"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Також під час виконання команд термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cả khi lệnh terminal đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端命令运行时也保持唤醒"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機指令執行時也保持喚醒"
+          }
+        }
+      }
+    },
+    "settings.sessions.keepAwakeForCommands.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُبقي البناء أو الاختبار الذي يعمل منذ دقيقة جهاز Mac مستيقظًا ما دام يطبع مخرجات. يتبع إعداد إبقاء Mac مستيقظًا أثناء عمل الوكلاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build ili test koji radi već minutu drži Mac budnim dok god ispisuje. Prati postavku Drži Mac budnim dok agenti rade."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et build eller en test, der har kørt i et minut, holder Mac vågen, så længe den stadig skriver output. Følger Hold Mac vågen, mens agenter arbejder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Build oder Test, der seit einer Minute läuft, hält den Mac wach, solange er noch ausgibt. Folgt „Mac wach halten, während Agenten arbeiten“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una compilación o prueba que lleva un minuto en ejecución mantiene el Mac activo mientras siga mostrando salida. Sigue el ajuste Mantener el Mac activo mientras trabajan los agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une compilation ou un test lancé depuis une minute garde le Mac éveillé tant qu’il affiche encore des sorties. Suit le réglage Garder le Mac éveillé pendant que les agents travaillent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una build o un test in esecuzione da un minuto mantiene il Mac attivo finché produce output. Segue Mantieni il Mac attivo mentre gli agenti lavorano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 分以上実行中のビルドやテストは、出力が続く間 Mac をスリープさせません。「エージェントの作業中は Mac をスリープさせない」の設定に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបង្កើត ឬការធ្វើតេស្តដែលដំណើរការបានមួយនាទី រក្សា Mac ឱ្យភ្ញាក់ ដរាបណាវានៅតែបោះពុម្ពលទ្ធផល។ អនុវត្តតាម រក្សា Mac ឱ្យភ្ញាក់ពេលភ្នាក់ងារកំពុងធ្វើការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1분 이상 실행 중인 빌드나 테스트가 출력을 계속하는 동안 Mac을 깨어 있게 유지합니다. 에이전트가 작업하는 동안 Mac 깨어 있게 유지 설정을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et bygg eller en test som har kjørt i ett minutt, holder Mac våken så lenge den fortsatt skriver ut. Følger Hold Mac våken mens agenter arbeider."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompilacja lub test działający od minuty nie pozwala Macowi zasnąć, dopóki wypisuje dane. Działa zgodnie z ustawieniem Nie usypiaj Maca, gdy agenci pracują."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um build ou teste em execução há um minuto mantém o Mac ativo enquanto ainda gera saída. Segue Manter o Mac ativo enquanto os agentes trabalham."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сборка или тест, работающие уже минуту, не дают Mac уснуть, пока продолжают выводить данные. Следует настройке «Не давать Mac уснуть, пока работают агенты»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บิลด์หรือการทดสอบที่ทำงานมาแล้วหนึ่งนาทีจะทำให้ Mac ไม่หลับตราบที่ยังแสดงผลอยู่ ทำตามการตั้งค่าให้ Mac ไม่หลับขณะที่เอเจนต์ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir dakikadır çalışan bir derleme veya test, çıktı vermeye devam ettiği sürece Mac’i uyanık tutar. Ajanlar Çalışırken Mac’i Uyanık Tut ayarını izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збірка або тест, що працюють уже хвилину, не дають Mac заснути, поки виводять дані. Дотримується налаштування «Не давати Mac заснути, поки працюють агенти»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản build hoặc bài test đã chạy một phút sẽ giữ Mac thức khi vẫn còn in ra kết quả. Theo cài đặt Giữ Mac thức khi tác tử làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已运行一分钟的构建或测试只要仍有输出，就会让 Mac 保持唤醒。遵循“代理工作时保持 Mac 唤醒”设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已執行一分鐘的建置或測試只要仍有輸出，就會讓 Mac 保持喚醒。依循「代理程式工作時讓 Mac 保持喚醒」設定。"
+          }
+        }
+      }
+    },
     "settings.sessions.keepAwake.help": {
       "extractionState": "manual",
       "localizations": {

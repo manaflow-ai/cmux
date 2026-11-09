@@ -349,6 +349,9 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         permission_rules: None,
         tags: Default::default(),
         unread: false,
+        seen_seq: None,
+        unread_turns: 0,
+        last_return: None,
         claude_unstored: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
         wait_start: false,
@@ -359,6 +362,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         last_turn: None,
         auth_change: None,
         harness_failures: Default::default(),
+        harness_sandbox: Default::default(),
         remote_origin: d.remote,
         vm_boundary: false,
         session_env: Default::default(),

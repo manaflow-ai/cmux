@@ -198,13 +198,15 @@ public final class DesignSettings {
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
     /// Defaults to `HoverCardTiming.showDelay`.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
+    /// `sidebar.hoverCards.delay` has a value in the file: its delay is a fixed wait, with no settle.
+    public var hoverCardDelayIsSet = false
     /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
     public var workspaceHoverCard = WorkspaceHoverCardOptions()
     /// `sidebar.hoverCards.groups.*`: whether group headers and tab group chips open a card, after
     /// how long, and what it shows (Lawrence 2026-10-20).
     public var groupHoverCard = GroupHoverCardOptions()
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
-    public var closeFocus: CloseFocusPolicy = .previousNeighbor
+    public var closeFocus: CloseFocusPolicy = .mostRecent
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
     public var defaultColumnWidth: Double = 2.0 / 3.0
     /// `layout.newColumnWidth`: how a new column's width is chosen.

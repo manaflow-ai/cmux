@@ -2017,6 +2017,8 @@
     "browser.viewer.resize",
     "chief.archive",
     "chief.delete",
+    "classic_import.plan",
+    "classic_import.record",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",

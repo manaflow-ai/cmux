@@ -195,6 +195,7 @@ pub(crate) use turn_errors::is_limit_error;
 mod elevation;
 mod git_watch;
 mod github_owner;
+mod harness_sandbox;
 mod lane_report_reads;
 mod lane_report_subagents;
 mod lane_report_text;
@@ -246,6 +247,7 @@ mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
+mod update_repeats;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -1460,6 +1462,7 @@ impl Hub {
             }
         }
         let last_seq = session.meta.lock().unwrap().last_seq;
+        self.catch_up_harness_sandbox(session, last_seq);
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
         {
@@ -1589,7 +1592,7 @@ impl Hub {
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
-            purged: AtomicBool::new(false),
+            purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
@@ -1626,6 +1629,7 @@ impl Hub {
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
             loop_detector: StdMutex::new(Default::default()),
+            harness_sandbox_calls: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
@@ -1641,6 +1645,8 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             harness_turn: AtomicBool::new(false),
+            logged_init: StdMutex::new(Default::default()),
+            update_repeats: StdMutex::new(Default::default()),
             background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
@@ -2245,6 +2251,9 @@ impl Hub {
             if record.dir == "mux" && record.kind == "turn_result" {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
             }
+            if record.dir == "mux" {
+                m.harness_sandbox.observe(&record.kind, &record.msg, record.at);
+            }
         }
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
@@ -2264,6 +2273,8 @@ impl Hub {
                 | "unstuck"
                 | "loop_detected"
                 | "loop_cleared"
+                | harness_sandbox::RECORD_KIND
+                | "harness_sandbox_recovered"
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
                 | "queued"
