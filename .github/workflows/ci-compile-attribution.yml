@@ -315,9 +315,22 @@ jobs:
           npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
           python3 scripts/ci/main_compile_attribution.py prompt --report "$REPORT" --out "$RUNNER_TEMP/prompt.txt"
           schema='{"type":"object","properties":{"mechanical":{"type":"boolean"},"summary":{"type":"string"}},"required":["mechanical","summary"]}'
+          # .git is never the fixer's to write: a .git/config key (core.fsmonitor, a filter, http.proxy,
+          # url.*.insteadOf) or a hook would run or redirect the git commands below, which hold APP_TOKEN. Its
+          # tools may not touch it, and a .git that changed anyway (by any byte, any file) makes this step fail,
+          # so nothing the fixer did is used.
+          git_dir_digest() {
+            (cd .git && find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | shasum -a 256
+          }
+          git_dir_before="$(git_dir_digest)"
           claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
-            --allowedTools "Read,Edit,Glob,Grep" --disallowedTools "Bash,WebFetch,WebSearch" \
+            --allowedTools "Read,Edit,Glob,Grep" \
+            --disallowedTools "Bash,WebFetch,WebSearch,Edit(.git/**),Write(.git/**)" \
             --max-turns 40 --output-format json --json-schema "$schema" > "$RUNNER_TEMP/fixer.json"
+          if [ "$(git_dir_digest)" != "$git_dir_before" ]; then
+            echo "::error::The fixer changed .git; nothing it did is used."
+            exit 1
+          fi
           # Isolated (-I): the root, where the fixer writes, is not on the import path.
           python3 -I - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
           import json, sys
@@ -340,6 +353,8 @@ jobs:
       # only (commit -a), and a module the fixer added (json.py at the root or
       # beside a script) must not be imported by the python3 runs below, which
       # hold APP_TOKEN. They also run isolated (-I).
+      # Every git command from here on runs with no fsmonitor and no hook
+      # (core.fsmonitor=false, core.hooksPath=/dev/null), whatever .git holds.
       - name: Keep only a small mechanical diff
         id: diff
         if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' && steps.fixer.outputs.decided == 'true' }}
@@ -347,6 +362,7 @@ jobs:
           MECHANICAL: ${{ steps.fixer.outputs.mechanical }}
         run: |
           set -euo pipefail
+          git() { command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
           git clean -ffdxq
           changed="$(git diff --numstat | awk '{s += $1 + $2} END {print s + 0}')"
           files="$(git diff --name-only | wc -l | tr -d ' ')"
@@ -389,6 +405,8 @@ jobs:
           REVERT_LABEL: compile-revert
         run: |
           set -euo pipefail
+          # No fsmonitor and no hook in any git command here (the diff step above says why).
+          git() { command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
           python3 -I scripts/ci/main_compile_attribution.py pr-text --report "$REPORT" --kind "$KIND" \
             --summary "${SUMMARY:-}" --out "$RUNNER_TEMP/pr.json"
           field() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RUNNER_TEMP/pr.json" "$1"; }
