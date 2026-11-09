@@ -791,7 +791,9 @@ test "$daemon_pid" = fixture
     const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/images/workUser.ts"), "utf8");
     expect(workUser).toContain("91-cmux-work-user");
     expect(workUser).toContain("NOPASSWD:ALL");
-    expect(readScript("upgrade-fleet-cmux-tui.ts")).toContain("cmuxTuiServiceInstallCommand");
+    // An in-place upgrade installs the service too, through its install script.
+    expect(readScript("upgrade-fleet-cmux-tui.ts")).toContain("cmuxTuiUpgradeInstallScript");
+    expect(readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/cmuxTuiUpgradeInstall.ts"), "utf8")).toContain("cmuxTuiServiceInstallCommand()");
   });
 
   test("the cmux-tui units never give up after repeated failed starts", () => {

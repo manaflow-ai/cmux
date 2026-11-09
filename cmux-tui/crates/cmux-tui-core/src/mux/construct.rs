@@ -180,6 +180,7 @@ impl Mux {
         let agent_roster_restore::RestoredAgentRoster {
             host: agent_roster,
             diagnostic: agent_roster_diagnostic,
+            replay: agent_roster_replay,
             rebuild: agent_roster_rebuild,
             unmarked_from: agent_roster_unmarked_from,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
@@ -349,7 +350,9 @@ impl Mux {
             agent_hook_projection: Mutex::new(()),
             agent_presence: Mutex::new(HashMap::new()),
             agent_hook_children: Mutex::new(HashMap::new()),
-            agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
+            agent_prompts: Mutex::new(agent_prompts::AgentTexts::with_sessions(
+                agent_roster.roster.hook_sessions(),
+            )),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
@@ -375,6 +378,7 @@ impl Mux {
             output_store,
             incognito_workspace_keys: Mutex::new(HashSet::new()),
             journal_maintenance: Mutex::new(None),
+            disk_usage: Mutex::default(),
             output_cleanup: Default::default(),
             journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
@@ -470,6 +474,21 @@ impl Mux {
         }
         // The agent roster's one owner: every fold and snapshot save runs there.
         mux.start_agent_roster_worker()?;
+        // A long tail (a lost snapshot, a start long after the last save)
+        // that the start's budget did not finish goes on in the owner while
+        // the daemon serves.
+        if let Some(replay) = agent_roster_replay {
+            #[cfg(test)]
+            {
+                *mux.agent_roster_worker
+                    .replay_gate
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) =
+                    agent_roster_restore::REPLAY_GATE_FOR_TEST
+                        .with(|gate| gate.borrow_mut().take());
+            }
+            mux.continue_agent_roster_replay(replay);
+        }
         // A stale roster (a reducer version bump) is served now and rebuilt
         // from the whole journal in the owner while the daemon serves.
         if agent_roster_rebuild {

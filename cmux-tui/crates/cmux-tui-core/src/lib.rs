@@ -150,8 +150,9 @@ pub use cmux_tui_util::user_settings;
 pub use agent_hook_question::agent_hook_live_question;
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, LIVE_MESSAGE_CHARS, LIVE_PROMPT_CHARS,
-    agent_hook_journal_ingress, agent_hook_live_fields, agent_hook_live_prompt,
-    agent_hook_live_reply, stamp_agent_hook_observed_now,
+    agent_hook_event_starts_session, agent_hook_event_starts_turn, agent_hook_journal_ingress,
+    agent_hook_live_fields, agent_hook_live_prompt, agent_hook_live_reply,
+    stamp_agent_hook_observed_now,
 };
 pub use agent_status::AgentStatus;
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
@@ -216,16 +217,16 @@ pub use surface::{
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
 pub use workspace_registry::{
-    Actor, FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint,
-    JournalClass, JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy,
-    JournalHookExec, JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry,
-    JournalIngress, JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
-    JournalSensitivity, JournalSubject, PersistentSessionStateReset,
-    PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined,
-    RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
-    TabAttentionRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
-    compact_registry,
+    Actor, EndedTerminalState, FrontendProjection, JournalAppendCommit, JournalAuthority,
+    JournalCheckpoint, JournalClass, JournalContentRef, JournalEventSchema,
+    JournalHookDeliveryPolicy, JournalHookExec, JournalHookFilter, JournalHookManifest,
+    JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducer, JournalProducerManifest,
+    JournalReplayPolicy, JournalSegment, JournalSensitivity, JournalSubject,
+    PersistentSessionStateReset, PersistentSessionStateResetPreview,
+    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryCompactError,
+    RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
+    SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
+    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

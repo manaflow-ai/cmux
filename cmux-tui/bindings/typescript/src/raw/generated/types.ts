@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f9b78794527e02e2236e0a95b57c921cb435698db4070e18bca47cb7ff74d9fe. */
+/* cmux-tui mux protocol 12, IR c8727dd1de92d37a22ac081fbceba280f320ae13a3db09486beb14496f4e0af3. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1102,6 +1102,69 @@ export type ServerStatsConnections = {
   "refused": bigint;
 };
 
+export type ServerStatsDisk = {
+  "error": (string) | null;
+  "files": Array<ServerStatsDiskFile>;
+  "files_truncated": boolean;
+  "files_unlisted": bigint;
+  "freelist_pages": bigint;
+  "journal": (ServerStatsDiskJournal) | null;
+  "page_count": bigint;
+  "page_size": bigint;
+  "registry_bytes": bigint;
+  "segments": (ServerStatsDiskSegments) | null;
+  "shm_bytes": bigint;
+  "wal_bytes": bigint;
+};
+
+export type ServerStatsDiskFile = {
+  "bytes": bigint;
+  "files": bigint;
+  "name": string;
+};
+
+export type ServerStatsDiskJournal = {
+  "estimated_live_bytes": bigint;
+  "first_sequence": bigint;
+  "head_sequence": bigint;
+  "kinds": Array<ServerStatsDiskJournalKind>;
+  "live_rows": bigint;
+  "sample_bytes": bigint;
+  "sample_rows": bigint;
+  "sample_span_ms": bigint;
+};
+
+export type ServerStatsDiskJournalKind = {
+  "budget_bytes_per_day": bigint;
+  "bytes_per_day": (bigint) | null;
+  "kind": string;
+  "over_budget": boolean;
+  "sample_bytes": bigint;
+  "sample_rows": bigint;
+};
+
+export type ServerStatsDiskSegmentCodec = {
+  "codec": string;
+  "compressed_bytes": bigint;
+  "records": bigint;
+  "segments": bigint;
+  "uncompressed_bytes": bigint;
+};
+
+export type ServerStatsDiskSegmentKind = {
+  "kind": string;
+  "segments": bigint;
+};
+
+export type ServerStatsDiskSegments = {
+  "by_codec": Array<ServerStatsDiskSegmentCodec>;
+  "compressed_bytes": bigint;
+  "kinds": Array<ServerStatsDiskSegmentKind>;
+  "records": bigint;
+  "segments": bigint;
+  "uncompressed_bytes": bigint;
+};
+
 export type ServerStatsHistogram = {
   "count": bigint;
   "max": bigint;
@@ -1211,6 +1274,7 @@ export type ServerStatsResourceProjection = {
 
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
+  "disk"?: ServerStatsDisk;
   "hook_queue"?: ServerStatsHookQueue;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "locks"?: ServerStatsLocks;

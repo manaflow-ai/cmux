@@ -789,7 +789,7 @@ terminal <term_id>|current pin-tail on|off
 terminal <selector> focus <in|out>
 terminal <selector> screen read [--unwrap] [--lines <n>]
 terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
-terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
+terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap] [--details]
 terminal <selector> send --text <message|-> [--wait idle|prompt|none] [--pattern <regex>]
   [--timeout <d>] [--settle <d>] [--force] [--exit-with-status]
 terminal <selector> run [--pattern <regex>] [--timeout <d>] [--force] -- <command...>

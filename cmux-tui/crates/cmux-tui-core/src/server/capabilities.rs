@@ -62,6 +62,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_BTW_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -219,6 +220,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
+            && *capability != crate::git_seed::GIT_SEED_HOLD_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
