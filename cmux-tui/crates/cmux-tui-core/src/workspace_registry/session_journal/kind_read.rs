@@ -314,7 +314,7 @@ impl Page {
 /// MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES) and its kept records.
 fn segment_decode_workers() -> usize {
     #[cfg(test)]
-    if let Some(workers) = SEGMENT_DECODE_WORKERS.with(std::cell::Cell::get) {
+    if let Some(workers) = SEGMENT_DECODE_WORKERS.with(Cell::get) {
         return workers;
     }
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).div_ceil(2).min(8)
@@ -324,8 +324,8 @@ fn segment_decode_workers() -> usize {
 thread_local! {
     /// Overrides [`segment_decode_workers`] on this thread, so a test can
     /// time the same read one segment at a time.
-    pub(crate) static SEGMENT_DECODE_WORKERS: std::cell::Cell<Option<usize>> =
-        const { std::cell::Cell::new(None) };
+    pub(crate) static SEGMENT_DECODE_WORKERS: Cell<Option<usize>> =
+        const { Cell::new(None) };
 }
 
 /// Inflates each loaded row on a scoped thread of its own (inline when
