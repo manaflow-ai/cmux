@@ -9,14 +9,23 @@ import os
 /// socket paths. Namespaced by bundle id like Cloud's state.
 public struct SSHPaths: Sendable {
     public let root: URL
+    /// The path the link socket's name hashes (as ``CloudPaths``): ``root``, or for the standard root the
+    /// one builds before NEXT's own folder used.
+    let socketIdentity: String
 
-    public init(root: URL) { self.root = root }
+    public init(root: URL) { self.init(root: root, socketIdentity: root.path) }
 
+    init(root: URL, socketIdentity: String) {
+        self.root = root
+        self.socketIdentity = socketIdentity
+    }
+
+    /// `Application Support/cmux-next/<bundle id>/ssh-next`: NEXT's own folder, moved once from classic's `cmux`.
     public static func standard(bundleID: String?) -> SSHPaths {
-        SSHPaths(root: FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
-            .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
-            .appendingPathComponent("ssh-next", isDirectory: true))
+        let support = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+        let rest = "\(bundleID ?? "cmux")/ssh-next"
+        return SSHPaths(root: support.appendingPathComponent("cmux-next/\(rest)", isDirectory: true),
+                        socketIdentity: support.appendingPathComponent("cmux/\(rest)", isDirectory: true).path)
     }
 
     public var clientState: URL { root.appendingPathComponent("link-state", isDirectory: true) }
@@ -58,7 +67,7 @@ public struct SSHPaths: Sendable {
 
     /// The link's local v12 socket, short enough for `sun_path`.
     public func linkSocket(machineID: String) -> String {
-        let hash = SHA256.hash(data: Data((root.path + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        let hash = SHA256.hash(data: Data((socketIdentity + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
         return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-ssh-\(hash).sock")
     }
 

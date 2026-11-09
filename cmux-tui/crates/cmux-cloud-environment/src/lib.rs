@@ -300,6 +300,7 @@ impl Resolver {
         if !self.mutable() {
             return self.selection(Environment::Prod, 0);
         }
+        self.move_state_from_classic();
         let path = self.state_path();
         let persisted = match fs::read_to_string(&path) {
             Ok(text) => Some(serde_json::from_str::<Persisted>(&text).map_err(|error| {
@@ -355,6 +356,7 @@ impl Resolver {
         }
         // An explicit set is also the recovery path for invalid persisted
         // JSON. Unreadable state still fails; never hide permissions/I/O errors.
+        self.move_state_from_classic();
         let path = self.state_path();
         match fs::read_to_string(&path) {
             Ok(text) => {
@@ -402,8 +404,32 @@ impl Resolver {
         client_config::cached(self, selection)
     }
 
+    /// `Application Support/cmux-next/<bundle>/cloud-environment.json`: NEXT's own folder, never
+    /// classic cmux's (cmuxterm-hq goals/next-store-out-of-classic.md).
     pub fn state_path(&self) -> PathBuf {
-        self.home.join("Library/Application Support/cmux").join(&self.bundle_id).join(STATE_FILE)
+        self.support("cmux-next").join(&self.bundle_id).join(STATE_FILE)
+    }
+
+    fn support(&self, folder: &str) -> PathBuf {
+        self.home.join("Library/Application Support").join(folder)
+    }
+
+    /// Moves the state file builds before NEXT's own folder kept in classic's
+    /// `cmux/<bundle>` to [`Self::state_path`], once: a hard link, so a file already at
+    /// the new place is never replaced, then the old one goes. Best effort: on any
+    /// error the old file stays and the resolver starts from the new place.
+    fn move_state_from_classic(&self) {
+        let old = self.support("cmux").join(&self.bundle_id).join(STATE_FILE);
+        let new = self.state_path();
+        if !old.is_file() || new.exists() {
+            return;
+        }
+        if let Some(parent) = new.parent()
+            && fs::create_dir_all(parent).is_ok()
+            && fs::hard_link(&old, &new).is_ok()
+        {
+            let _ = fs::remove_file(&old);
+        }
     }
 
     pub fn bundle_id(&self) -> &str {
@@ -635,6 +661,28 @@ mod tests {
         assert!(preview.api_origin.contains("preview-42"));
         assert_eq!(preview.platform_origin, Environment::Dev.configuration().platform_origin);
         assert_eq!(preview.share_api_origin, DEVELOPMENT_API);
+    }
+
+    #[test]
+    fn a_choice_kept_in_classics_folder_moves_once_and_is_kept() {
+        let home = Home::new();
+        let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
+        resolver.set(Environment::Staging).unwrap();
+        let new = resolver.state_path();
+        let old = home
+            .0
+            .join("Library/Application Support")
+            .join("cmux")
+            .join(DEV_BUNDLE)
+            .join(STATE_FILE);
+        fs::create_dir_all(old.parent().unwrap()).unwrap();
+        fs::rename(&new, &old).unwrap();
+        assert_eq!(resolver.resolve(None).unwrap().name, "staging");
+        assert!(new.is_file() && !old.exists());
+        // A choice already in NEXT's folder is never replaced by an older one.
+        fs::write(&old, br#"{"name":"prod"}"#).unwrap();
+        assert_eq!(resolver.resolve(None).unwrap().name, "staging");
+        assert!(old.exists());
     }
 
     #[test]

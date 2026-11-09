@@ -203,11 +203,10 @@ This build's own folders:
 | `$ACPMUX_DIR` | **Loses your data.** Agent chats: every session's history, queued prompts and drafts, plus acpmux's config and trust. For NIGHTLY this is all of `~/.acpmux`, which also holds every other build's home under `builds/` and the standalone `acpmux` CLI's sessions |
 | `$CHIEF_DIR` | **Loses your data.** Chief memory. NIGHTLY's is `~/.cmux/chief/default` |
 | `$BUILD_DIR` | **Loses your data.** This build's app state (empty for NIGHTLY, whose state sits in `$SUPPORT` itself) |
-| `$SUPPORT/tags/$TAG` | **Loses your data.** The session daemon's saved workspaces, layout and scrollback |
-| `$SUPPORT/$BUNDLE` | **Loses your data.** SSH machine links (`ssh-next`) and Cloud tunnel state (`cloud-next`) |
+| `$NEXT_SUPPORT/tags/$TAG` | **Loses your data.** The session daemon's saved workspaces, layout and scrollback. Builds before 2026-11 kept it in `$SUPPORT/tags/$TAG`, which is now a link here |
 | `$NEXT_SUPPORT/managed-status.$BUNDLE.json` | Managed settings status |
 | `$NEXT_SUPPORT/$TAG/debug-tunables.json` | Debug Settings overrides (DEV, NIGHTLY, cmux NEXT and tagged builds; other builds keep it in `$BUILD_DIR`) |
-| `~/Library/Application Support/cmux-next/$BUNDLE` | **Loses your data.** Kept previous versions for rollback (`versions`) and the copy of classic's files read on migration (`classic-migration`) |
+| `~/Library/Application Support/cmux-next/$BUNDLE` | **Loses your data.** SSH machine links (`ssh-next`), Cloud tunnel state and this Mac's Cloud device id (`cloud-next`), kept previous versions for rollback (`versions`) and the copy of classic's files read on migration (`classic-migration`) |
 | `~/Library/Application Support/$BUNDLE` | Browser profiles (`BrowserProfiles`), backdrop images, table widths, and the `instance.lock` and `instance.owner` that keep one copy running |
 | `~/Library/WebKit/$BUNDLE` | **Loses your data.** Browser tabs' cookies, logins and site data. Each cmux browser profile has its own WebKit store, named by the profile's id (listed in `~/Library/Application Support/$BUNDLE/BrowserProfiles/profiles.json`), under `WebsiteDataStore/` here |
 | `~/Library/Caches/$BUNDLE` | Caches (update downloads, release notes) |

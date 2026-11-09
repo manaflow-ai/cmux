@@ -7,14 +7,29 @@ public import Foundation
 /// share an identity with the stable app.
 public struct CloudPaths: Sendable {
     public let root: URL
+    /// The path the link socket's name hashes: ``root``, or for the standard root the one builds before
+    /// NEXT's own folder used, so a link an older build started keeps its socket after the move.
+    let socketIdentity: String
 
-    public init(root: URL) { self.root = root }
+    public init(root: URL) { self.init(root: root, socketIdentity: root.path) }
 
+    init(root: URL, socketIdentity: String) {
+        self.root = root
+        self.socketIdentity = socketIdentity
+    }
+
+    /// `Application Support/cmux-next/<bundle id>/cloud-next`: NEXT's own folder. Builds before it kept
+    /// it under classic cmux's `cmux` (moved once at launch, ClassicFolderItemsMove).
     public static func standard(bundleID: String?) -> CloudPaths {
-        CloudPaths(root: FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
-            .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
-            .appendingPathComponent("cloud-next", isDirectory: true))
+        let support = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+        let rest = "\(bundleID ?? "cmux")/cloud-next"
+        return CloudPaths(root: support.appendingPathComponent("cmux-next/\(rest)", isDirectory: true),
+                          socketIdentity: support.appendingPathComponent("cmux/\(rest)", isDirectory: true).path)
+    }
+
+    /// A backend's own folder in ``root`` (#35284), its link socket named as before NEXT's folder move.
+    public func namespaced(_ namespace: String) -> CloudPaths {
+        CloudPaths(root: root.appendingPathComponent(namespace, isDirectory: true), socketIdentity: socketIdentity + "/" + namespace)
     }
 
     /// Where builds before the per-launch key kept this Mac's WireGuard private key.
@@ -26,7 +41,7 @@ public struct CloudPaths: Sendable {
 
     /// The link's local v12 socket, short enough for `sun_path`.
     func linkSocket(machineID: String) -> String {
-        let hash = SHA256.hash(data: Data((root.path + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        let hash = SHA256.hash(data: Data((socketIdentity + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
         return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-link-\(hash).sock")
     }
 

@@ -157,7 +157,7 @@ final class CloudService {
         auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture,
                          nightlySession: { await SessionHandoffClient.nightly().fetchTokens() })
         let basePaths = CloudPaths.standard(bundleID: configuration.bundleID)
-        paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
+        paths = configuration.runtimeSelection?.storageNamespace.map { basePaths.namespaced($0) } ?? basePaths
         installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
         let auth = auth
         api = CloudAPIClient(

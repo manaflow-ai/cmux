@@ -36,6 +36,24 @@ struct ClassicFolderItemsMoveTests {
         #expect(move.run() == [.nothing, .nothing])
     }
 
+    /// Cloud's and SSH's link state leave the bundle's folder in classic's `cmux` (shared with classic NIGHTLY), which
+    /// stays with classic's own files in it.
+    @Test func cloudAndSSHLinkStateLeaveTheBundlesFolder() throws {
+        let support = try Self.support()
+        defer { try? FileManager.default.removeItem(at: support) }
+        let bundle = "com.cmuxterm.app.nightly"
+        try Self.write("mac-1", support.appending(path: "cmux/\(bundle)/cloud-next/device-id"))
+        try Self.write("{}", support.appending(path: "cmux/\(bundle)/ssh-next/link-state/known.json"))
+        try Self.write("classic", support.appending(path: "cmux/\(bundle)/config.ghostty"))
+
+        let move = ClassicFolderItemsMove(applicationSupport: support)
+        #expect(move.run(bundleID: bundle) == [.nothing, .nothing, .moved, .moved])
+        #expect(try Self.read(support.appending(path: "cmux-next/\(bundle)/cloud-next/device-id")) == "mac-1")
+        #expect(try Self.read(support.appending(path: "cmux-next/\(bundle)/ssh-next/link-state/known.json")) == "{}")
+        #expect(try Self.read(support.appending(path: "cmux/\(bundle)/config.ghostty")) == "classic")
+        #expect(move.run(bundleID: bundle) == [.nothing, .nothing, .nothing, .nothing])
+    }
+
     @Test func aFolderOrFileAlreadyInUseIsNeverReplaced() throws {
         let support = try Self.support()
         defer { try? FileManager.default.removeItem(at: support) }

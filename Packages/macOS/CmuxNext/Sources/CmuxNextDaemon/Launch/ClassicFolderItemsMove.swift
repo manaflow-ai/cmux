@@ -16,6 +16,9 @@ import os
 public struct ClassicFolderItemsMove: Sendable {
     /// Folders only NEXT writes in classic's `cmux`.
     static let folders = ["server-fix-ledger", "recovery"]
+    /// Folders only NEXT writes in classic's `cmux/<bundle id>` (Cloud's and SSH's link state; ``CloudPaths``,
+    /// `SSHPaths`). The bundle's folder itself can be classic's (NIGHTLY's bundle id), so only these move.
+    static let bundleFolders = ["cloud-next", "ssh-next"]
 
     let applicationSupport: URL
     private static let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
@@ -26,8 +29,9 @@ public struct ClassicFolderItemsMove: Sendable {
 
     /// Moves each of ``folders``, once. Cheap when there is nothing to move: one `lstat` each.
     @discardableResult
-    public func run() -> [StateFolderMove.Outcome] {
-        Self.folders.map { name in
+    public func run(bundleID: String? = nil) -> [StateFolderMove.Outcome] {
+        let bundleFolders = bundleID.map { bundle in Self.bundleFolders.map { "\(bundle)/\($0)" } } ?? []
+        return (Self.folders + bundleFolders).map { name in
             let (old, new) = paths(name)
             var info = stat()
             guard lstat(old.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return .nothing }

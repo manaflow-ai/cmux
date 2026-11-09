@@ -51,7 +51,7 @@ public struct StateFolderMove: Sendable {
     /// folder (``ClassicFolderItemsMove``). Cheap when there is nothing to move: a few `lstat`s.
     @discardableResult
     public func run(build: BuildIdentity) -> Outcome {
-        defer { ClassicFolderItemsMove(applicationSupport: applicationSupport).run() }
+        defer { ClassicFolderItemsMove(applicationSupport: applicationSupport).run(bundleID: build.bundleID) }
         guard let pair = folders(build: build) else { return .nothing }
         let (old, new) = pair
         var info = stat()
