@@ -1506,10 +1506,14 @@ export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
 /// Whether `row` is the first drawn row of a turn the agent ran on its own that draws as its own
 /// turn (a reply or a tool run with no background line over it, backgroundTurns.ts
 /// `foldsBackground`): `prev`, the drawn row above, is neither its line nor one of its rows. O(1).
+/// Nor its "Worked for": that line is the turn's own (its rows carry no `inBackground`), so the row
+/// under it, its reply or its first opened run, keeps the line's own 16 under its rule (MARK_WORKED)
+/// rather than a turn gap more (Leo, 2026-11-09: "we need to reduce the after").
 export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
   row.inBackground !== undefined &&
   (row.kind === "activity" || (row.kind === "assistant" && (row.text?.length ?? 0) > 0)) &&
   prev !== undefined &&
+  prev.kind !== WORKED &&
   prev.inBackground !== row.inBackground &&
   !(prev.kind === BACKGROUND_TURN && prev.background?.id === row.inBackground);
 const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
@@ -1528,9 +1532,11 @@ const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
 const TOOL_ROW_PT = 22;
-/// The room around "Worked for"'s rule (Lucas, 2026-11-07): 4 under its words, 12 over the next row,
-/// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
-const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap-inner");
+/// The room around "Worked for"'s rule: 4 under its words (Lucas, 2026-11-07), 16 over the next row,
+/// the references' room after the line (Leo, 2026-11-09: "we need to reduce the after"; 20 over 40
+/// device px, theirs 18 over 44), conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap
+/// follows (MARK_WORKED).
+const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap-run");
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run

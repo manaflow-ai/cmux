@@ -7299,8 +7299,9 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 
 /* "Worked for 22s ›" (Lucas, 2026-11-06, Codex parity): the whole line lights under the
    pointer, its time too. Its rule sits midway between its words and the next row, the reply or
-   the fold's rows: 4 under the line, 12 over the next row, and no stack gap after it
-   (transcriptGrid.ts MARK_WORKED; Lucas, 2026-11-07). model.ts `WORKED_GAP_PT` estimates the room.
+   the fold's rows: 4 under the line (Lucas, 2026-11-07), the run gap over the next row as in the
+   references (Leo, 2026-11-09: "we need to reduce the after"), and no stack gap after it, a
+   background turn's included (transcriptGrid.ts MARK_WORKED, model.ts opensBackgroundTurn). model.ts `WORKED_GAP_PT` estimates the room.
    Its chevron is every row's (`.cv-rotor`). */
 button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   color: var(--cv-text);
@@ -7308,7 +7309,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-worked.has-divider.is-toggle {
   height: calc(var(--cv-tool-row-height) + var(--grid-gap-foot));
   padding-bottom: var(--grid-gap-foot);
-  margin-bottom: var(--grid-gap-inner);
+  margin-bottom: var(--grid-gap-run);
 }
 /* The command line after a named action, in the dim tone (commandLabel.experiment.ts
    "verbs-command"): what ran, under what it did. */
