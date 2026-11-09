@@ -49,15 +49,18 @@ struct NewTabStyleSwitchTests {
         #expect(saved.contains("\"threads\""))
 
         // Terminal and unknown values are not page styles: the setting stays. A stale Composer
-        // pick is normalized to Minimal before it reaches the saved config.
+        // pick is normalized to Minimal before it reaches the saved config. Minimal is the default,
+        // so that write removes the key (#38119): the snapshot reads unset, which shows Minimal.
         _ = await Self.pick(model, "terminal")
         _ = await Self.pick(model, "sparkles")
         _ = await Self.pick(model, "composer")
         #expect(saves.count == 4)
         for save in saves { await save.value }
-        #expect(settings.snapshot.newTabTemplate == .minimal)
+        #expect(settings.snapshot.newTabTemplate == nil, "Minimal is the default: tabs.newTabTemplate leaves cmux.json")
         let migrated = try String(contentsOf: directory.appending(path: "cmux.json"), encoding: .utf8)
-        #expect(migrated.contains("\"minimal\""))
+        let root = try #require(try JSONSerialization.jsonObject(with: Data(migrated.utf8)) as? [String: Any], "cmux.json does not parse")
+        #expect((root["tabs"] as? [String: Any])?["newTabTemplate"] == nil, migrated)
+        #expect(!migrated.contains("\"threads\""))
         #expect(!migrated.contains("\"composer\""))
     }
 }
