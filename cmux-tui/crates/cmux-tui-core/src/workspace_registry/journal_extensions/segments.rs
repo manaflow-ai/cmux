@@ -358,7 +358,7 @@ impl JournalSegmentSealPlan {
                 start_sequence.context("journal segment range contains no records")?;
             let digest: [u8; 32] = Sha256::digest(&uncompressed).into();
             let digest_hex = encode_hex(&digest);
-            let compressed = crate::workspace_registry::segment_codec::encode(&uncompressed)?;
+            let compressed = segment_codec::encode(&uncompressed)?;
             let segment_id = format!("segment_{start_sequence}_{cursor}_{digest_hex}");
             segments.push(PreparedJournalSegment {
                 metadata: JournalSegment {
@@ -366,7 +366,7 @@ impl JournalSegmentSealPlan {
                     start_sequence,
                     end_sequence: cursor,
                     record_count,
-                    codec: crate::workspace_registry::segment_codec::SEAL_CODEC.into(),
+                    codec: segment_codec::SEAL_CODEC.into(),
                     uncompressed_bytes: u64::try_from(uncompressed.len())?,
                     sha256: digest_hex,
                     sealed_at_ms,
@@ -399,7 +399,7 @@ fn validate_prepared_journal_segments(
             "prepared journal segment record count is invalid"
         );
         anyhow::ensure!(
-            metadata.codec == crate::workspace_registry::segment_codec::SEAL_CODEC
+            metadata.codec == segment_codec::SEAL_CODEC
                 && metadata.sha256 == encode_hex(&segment.digest)
                 && metadata.uncompressed_bytes
                     <= u64::try_from(MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES)?,

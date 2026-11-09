@@ -1934,7 +1934,7 @@ pub(super) fn decode_journal_segment(
     let end_sequence = u64::try_from(end_sequence)?;
     let record_count = usize::try_from(record_count)?;
     anyhow::ensure!(
-        super::segment_codec::is_known(&codec),
+        segment_codec::is_known(&codec),
         "journal segment {segment_id} codec is invalid"
     );
     anyhow::ensure!(record_count > 0, "journal segment {segment_id} record count is invalid");
@@ -1947,12 +1947,12 @@ pub(super) fn decode_journal_segment(
         expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
         "journal segment {segment_id} exceeds the uncompressed size limit"
     );
-    let mut records = if codec == super::segment_codec::GZIP_JSON_V1 {
+    let mut records = if codec == segment_codec::GZIP_JSON_V1 {
         decode_gzip_segment(&segment_id, &compressed, expected_bytes, &expected_digest)?
     } else {
         // A zstd segment is decoded whole: its JSON is at most 16 MiB, and
         // the frame's own checks run before a single record is parsed.
-        let json = super::segment_codec::decode(&codec, &compressed, expected_bytes)
+        let json = segment_codec::decode(&codec, &compressed, expected_bytes)
             .with_context(|| format!("decode journal segment {segment_id}"))?;
         anyhow::ensure!(
             json.len() == expected_bytes,

@@ -207,8 +207,7 @@ fn a_sealed_segment_keeps_actors_out_of_the_record_json() {
         .unwrap();
     for content in contents {
         let (codec, content) = content.unwrap();
-        let json =
-            crate::workspace_registry::segment_codec::decode(&codec, &content, 1 << 24).unwrap();
+        let json = segment_codec::decode(&codec, &content, 1 << 24).unwrap();
         let json = String::from_utf8(json).unwrap();
         assert!(!json.contains("\"actor\""), "a sealed record carries an actor field");
     }

@@ -108,7 +108,7 @@ pub(super) fn insert_chunk(
             digest.as_slice(),
         ],
     )?;
-    let mut insert = connection.prepare_cached(
+    let mut insert = connection.prepare(
         "INSERT INTO output_cleanup_records(sequence, kind, index_json, actor, chunk)
          VALUES(?1, ?2, ?3, ?4, ?5)",
     )?;
@@ -230,7 +230,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        assert_eq!((subject.as_str(), producer.as_str()), ("remote-1", "daemon"));
+        assert_eq!((subject, producer), ("remote-1".to_owned(), "daemon".to_owned()));
         assert!(reader.record(&connection, 1, 2048).is_err());
     }
 }
