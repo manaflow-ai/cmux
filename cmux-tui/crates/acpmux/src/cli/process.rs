@@ -606,8 +606,8 @@ pub(crate) fn timer_secs(command: &str) -> Option<u64> {
 fn span(secs: u64) -> String {
     match secs {
         0..60 => format!("{secs}s"),
-        _ if secs % 3600 == 0 => format!("{}h", secs / 3600),
-        _ if secs % 60 == 0 => format!("{}m", secs / 60),
+        _ if secs.is_multiple_of(3600) => format!("{}h", secs / 3600),
+        _ if secs.is_multiple_of(60) => format!("{}m", secs / 60),
         _ => human(secs * 1000),
     }
 }
