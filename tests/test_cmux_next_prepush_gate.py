@@ -288,6 +288,34 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'",
                       result.stderr, "must say how to run them")
 
+    def test_the_hook_names_each_phase_time_and_what_to_do_next(self):
+        # 2026-11-09 (push-reliability): pushes took 34-98 s, and an agent could not tell a slow hook from a slow
+        # git or GitHub. The hook prints each phase's time and its total, then says what a failure after it means.
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        times = [line for line in result.stderr.splitlines() if line.startswith("pre-push: hook times: ")]
+        self.assertEqual(len(times), 1, result.stderr)
+        for phase in ("fast-tier", "web-lint", "cmux-next-gate", "base-merge-warning", "total"):
+            self.assertIn(phase, times[0])
+        self.assertIn("a failure after this line is git or GitHub", result.stderr)
+        self.assertIn("Retry a failed push", result.stderr)
+
+        self.kit("Refused", self.with_try("Refused"))
+        self.commit("adds a try!")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        times = [line for line in result.stderr.splitlines() if line.startswith("pre-push: hook times: ")]
+        self.assertEqual(len(times), 1, result.stderr)
+        self.assertIn("cmux-next-gate", times[0], "the phase that refused is named with its time")
+        self.assertIn("pre-push: refused in cmux-next-gate", result.stderr)
+        self.assertIn("do not retry", result.stderr)
+
     def test_the_ui_font_check_runs_only_on_a_push_that_changes_what_it_reads(self):
         # 2026-11-09 (push-reliability): check-ui-font.py reads every webviews/src and Native/OptChat source at the
         # base and again at the head (4268 files on feat-cmux-next). On a push that changed one Python file it took
