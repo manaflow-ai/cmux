@@ -16,6 +16,9 @@
 //! [`RetentionSchedule`]. One retention worker per mux coalesces the marks
 //! into at most one checkpoint per interval. The checkpoint after a wave
 //! covers every gap of that wave; terminals that ended meanwhile are skipped.
+//! A hosted reader whose terminal lane is full records the same kind of gap
+//! (reason `journal_queue_full`) for the output it could not journal, and the
+//! same checkpoint covers it.
 //!
 //! Unlike feat, whose checkpoints hold no terminal screens, a checkpoint here
 //! replays every terminal under its parser lock, and it fails ("session
@@ -171,20 +174,29 @@ enum CaptureOutcome {
 }
 
 impl Mux {
-    /// O(1) reconnect bookkeeping, called by the hosted reader after it
-    /// installed the host's replacement snapshot and before it reads new
-    /// output. The gap record precedes that output in the terminal lane.
-    pub(crate) fn journal_terminal_host_reconnect(
+    /// O(1) gap bookkeeping for a terminal whose journal lost output: the
+    /// host dropped the daemon's tap (`host_reconnect`), or the terminal lane
+    /// was full (`journal_queue_full`). Records the gap without waiting and
+    /// notes the terminal for the next coalesced checkpoint. `false` when the
+    /// terminal lane has no room: nothing was recorded, and the caller keeps
+    /// the gap pending ahead of its next output.
+    pub(crate) fn journal_terminal_output_gap(
         self: &Arc<Self>,
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
-    ) {
-        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-            terminal_id: terminal_id.clone(),
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            reason: "host_reconnect",
-        });
+        reason: &'static str,
+    ) -> bool {
+        let recorded = self.journal_ingress.try_send_terminal_gap(
+            crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                terminal_id: terminal_id.clone(),
+                generation,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                reason,
+            },
+        );
+        if recorded.is_err() {
+            return false;
+        }
         let retention = &self.journal_retention;
         retention
             .shared
@@ -204,6 +216,7 @@ impl Mux {
                 eprintln!("cmux-tui: could not start the journal retention worker: {error}");
             }
         }
+        true
     }
 
     /// Coalesced checkpoints committed by the retention worker.

@@ -6076,18 +6076,6 @@ impl Mux {
         }
     }
 
-    pub(crate) fn wait_for_terminal_journal_space_until(
-        &self,
-        observed: u64,
-        deadline: Instant,
-    ) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space_until(observed, deadline)
-    }
-
-    pub(crate) fn terminal_journal_durable_deadline(&self) -> Instant {
-        self.journal_ingress.durable_deadline()
-    }
-
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
         self.journal_ingress.flush_terminal()
     }
@@ -6142,7 +6130,11 @@ impl Mux {
         })
     }
 
-    pub(crate) fn journal_terminal_resize(
+    /// Queues an accepted geometry change in the terminal lane without
+    /// waiting. `false` when the lane is full and the change was not
+    /// journaled; a writer that failed permanently counts as journaled, since
+    /// nothing will record it.
+    pub(crate) fn try_journal_terminal_resize(
         &self,
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
@@ -6150,16 +6142,21 @@ impl Mux {
         rows: u16,
         cell_width: u16,
         cell_height: u16,
-    ) {
-        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalResize {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            cols,
-            rows,
-            cell_width,
-            cell_height,
-        });
+    ) -> bool {
+        !matches!(
+            self.journal_ingress.try_send(
+                crate::journal_ingress::JournalIngressEvent::TerminalResize {
+                    terminal_id,
+                    generation,
+                    occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                    cols,
+                    rows,
+                    cell_width,
+                    cell_height,
+                },
+            ),
+            Err(crate::journal_ingress::JournalIngressTrySendError::Full { .. })
+        )
     }
 
     pub(crate) fn try_journal_terminal_output_gap(
@@ -6176,25 +6173,6 @@ impl Mux {
                 reason,
             },
         )
-    }
-
-    pub(crate) fn try_journal_terminal_output_gap_until(
-        &self,
-        terminal_id: Arc<TerminalPublicId>,
-        generation: Arc<str>,
-        reason: &'static str,
-        deadline: Instant,
-    ) -> anyhow::Result<()> {
-        let event = crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            reason,
-        };
-        if Instant::now() >= deadline {
-            return self.journal_ingress.try_send_terminal_gap(event);
-        }
-        self.journal_ingress.send_durable_until(event, deadline)
     }
 
     pub(crate) fn commit_session_journal_events<F>(
@@ -20681,32 +20659,6 @@ mod tests {
             .unwrap_err();
         assert!(error.to_string().contains("admission is closed"));
         assert!(!mux.daemon_shutdown_requested());
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn journal_review_gap_after_deadline_queues_best_effort_marker() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-gap-expired-deadline-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
-        let mux = open_persistent_test_mux("gap-expired-deadline", &root);
-        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 44)).unwrap());
-
-        mux.try_journal_terminal_output_gap_until(
-            terminal_id,
-            Arc::from("gap-expired-generation"),
-            "journal_output_deadline_expired",
-            Instant::now() - Duration::from_millis(1),
-        )
-        .unwrap();
-        mux.flush_terminal_journal().unwrap();
-
-        assert!(mux.session_journal_after(0, 1024).unwrap().records.iter().any(|record| {
-            record.kind == "terminal.output.gap"
-                && record.payload["reason"] == "journal_output_deadline_expired"
-        }));
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
