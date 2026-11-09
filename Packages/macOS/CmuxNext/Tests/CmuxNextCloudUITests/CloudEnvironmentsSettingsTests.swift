@@ -66,7 +66,8 @@ import Testing
         let m = model(b)
         let env: [CloudEnvironmentVariable] = [.init(name: "NODE_ENV", value: "development"), .init(name: "OPENAI_API_KEY", secret: "openai")]
         #expect(await m.run(.init(action: .save, id: "env_00000000000000000001", env: env)).error == nil)
-        let sent = try #require(try JSONSerialization.jsonObject(with: try #require(b.raw.last)) as? [String: Any])
+        let last = try #require(b.raw.last)
+        let sent = try #require(try JSONSerialization.jsonObject(with: last) as? [String: Any])
         #expect(sent["environment"] as? String == "env_00000000000000000001")
         #expect(sent["name"] == nil && sent["repo"] == nil && sent["setup_script"] == nil, "only the edited field")
         let rows = try #require(sent["env"] as? [[String: String]])
