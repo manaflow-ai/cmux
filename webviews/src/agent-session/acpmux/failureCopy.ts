@@ -54,7 +54,12 @@ const NEEDS_CREDITS =
 /// `billing_hard_limit_reached`, a gateway's "insufficient credits". Not a rate limit: waiting does not
 /// help, and OpenAI sends it as a 429, so it goes before RATE.
 const NO_CREDIT =
-  /credit balance (?:is )?too low|insufficient[ _-]quota|billing[ _-]hard[ _-]limit|exceeded your current quota|\binsufficient credits?\b|payment required/i;
+  /credit balance (?:is )?too low|billing[ _-]hard[ _-]limit|exceeded your current quota|\binsufficient credits?\b|payment required/i;
+/// `insufficient_quota` alone is weaker: the cmux model router types its own rate limits with it (a
+/// 429 `free.rate`, "too many requests; wait a moment", backend inference/free.ts; a team's
+/// `inference.daily_limit`). It counts only without a router code or rate words beside it.
+const INSUFFICIENT_QUOTA = /insufficient[ _-]quota/i;
+const ROUTER_LIMIT = /\b(?:free|inference|usage)\.[a-z_]+\b|too many requests|rate.?limit|wait a moment/i;
 /// The cloud provider sign-in a Bedrock or Vertex chat uses has expired: the AWS SDK's `ExpiredToken`,
 /// `ExpiredTokenException`, `UnrecognizedClientException`, "The security token included in the request
 /// is expired", "Could not load credentials", an expired SSO session; Google's "Reauthentication is
@@ -192,7 +197,7 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   // Before capacity: a refused request's body can name the quota it was measured against.
   if (CONTEXT_FULL.test(message)) return "context-full";
   // Before capacity: OpenAI's out-of-credit answer is a 429 that names a quota.
-  if (NO_CREDIT.test(message)) return "no-credit";
+  if (NO_CREDIT.test(message) || (INSUFFICIENT_QUOTA.test(message) && !ROUTER_LIMIT.test(message))) return "no-credit";
   if (cloudSignInCommand(message)) return "cloud-auth-expired";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
@@ -305,7 +310,7 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
     case "cloud-auth-expired":
       return t("turn.failure.cloudSignInExpired", {
         harness,
-        command: (message && cloudSignInCommand(message)) ?? "aws sso login",
+        command: (message && cloudSignInCommand(message)) || "",
       });
     case "rate-limited":
       return t("turn.failure.rateLimited", { harness });

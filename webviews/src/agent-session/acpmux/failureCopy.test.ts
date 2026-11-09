@@ -132,6 +132,17 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
   expect(failureRecovery("no-credit")).toBe("switch-model");
   expect(offersOwnRoute("no-credit", claude)).toBe(true);
   expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit to that account");
+  // The cmux model router's free-tier and daily limits are 429s typed `insufficient_quota`
+  // (backend inference/free.ts, Router.ts): they are rate limits, waiting helps.
+  for (const message of [
+    'unexpected status 429 Too Many Requests: {"error":{"code":"free.rate","message":"too many requests; wait a moment","type":"insufficient_quota"}}',
+    '{"error":{"code":"free.rate","message":"too many requests; wait a moment","type":"insufficient_quota"}}',
+    '{"error":{"code":"free.rate","message":"too many requests from this network","type":"insufficient_quota"}}',
+    '{"error":{"code":"inference.daily_limit","message":"this team reached its daily request limit here","type":"insufficient_quota"}}',
+  ])
+    expect(failureKind(message, claude), message).toBe("rate-limited");
+  // A provider's bare `insufficient_quota`, with no rate words, is still out of credit.
+  expect(failureKind('{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}', claude)).toBe("no-credit");
   // A plain rate limit still reads as one, and the cmux model router's refusal as needs-credits.
   for (const message of [
     "429 Too Many Requests",
