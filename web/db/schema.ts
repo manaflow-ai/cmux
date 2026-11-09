@@ -2452,6 +2452,8 @@ export const stackIdentitySnapshots = pgTable(
         displayName: string | null;
         billingPlanId: string | null;
         billingSeats: number | null;
+        /** Admin-set custom Cloud VM deal; absent on snapshots written before it existed. */
+        vmEntitlementOverride?: unknown;
       }[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),

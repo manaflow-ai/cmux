@@ -33,6 +33,10 @@ import {
   isDevelopmentProAccessEnabled,
   PRO_PLAN_ID,
 } from "../billing/pro";
+import {
+  vmEntitlementOverrideFromMetadata,
+  type VmEntitlementOverride,
+} from "./entitlementOverride";
 
 export type AuthedUser = {
   id: string;
@@ -57,6 +61,8 @@ export type AuthedTeam = {
   displayName: string | null;
   billingPlanId: string | null;
   billingSeats: number | null;
+  /** Admin-set custom Cloud VM deal (`cmuxVmEntitlementOverride`); absent or null means plan defaults. */
+  vmEntitlementOverride?: VmEntitlementOverride | null;
 };
 
 export class SubrouterAuthorizationConfigurationError extends Error {
@@ -938,6 +944,7 @@ async function authedUserFromStackUser(
       ? PRO_PLAN_ID
       : billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
     billingSeats: billingSeatsFromMetadata(team.clientReadOnlyMetadata),
+    ...vmEntitlementOverrideField(team.clientReadOnlyMetadata),
   }));
 
   return {
@@ -958,6 +965,12 @@ async function authedUserFromStackUser(
     },
     completeTeamList,
   };
+}
+
+/** Only teams with a custom deal carry the field, so plain teams keep their shape. */
+function vmEntitlementOverrideField(metadata: unknown): Pick<AuthedTeam, "vmEntitlementOverride"> {
+  const override = vmEntitlementOverrideFromMetadata(metadata);
+  return override ? { vmEntitlementOverride: override } : {};
 }
 
 const MAX_STACK_TEAM_PAGES = 100;
