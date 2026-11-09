@@ -189,6 +189,58 @@ fn a_failed_first_connection_is_not_loaded_until_a_snapshot_comes() {
     assert_eq!(shown["groups"][0]["entries"][0]["id"], "fi_1", "{shown}");
 }
 
+fn person_session(user_payload: &str) -> serde_json::Value {
+    json!({
+        "api_base_url": "https://api.cmux.test",
+        "access_token": format!("eyJhbGciOiJub25lIn0.{user_payload}.sig"),
+        "expires_at": 4_102_444_800_000_u64
+    })
+}
+
+/// The view names the account it is for (the lease's person) from the
+/// moment the lease names it, before any snapshot: a reader that kept
+/// account A's requests drops them when B's view arrives, even while B is
+/// unloaded and its connections fail. Signed out the view is no one's.
+#[test]
+fn the_view_names_its_account_before_any_snapshot() {
+    const USER_1: &str = "eyJzdWIiOiJzdGFja191c2VyXzEiLCJhdWQiOiJwcm9qXzEifQ";
+    const USER_2: &str = "eyJzdWIiOiJzdGFja191c2VyXzIiLCJhdWQiOiJwcm9qXzEifQ";
+    let signed_out = harness(None);
+    let none = view(&signed_out.feed);
+    assert_eq!(none["account"], Value::Null, "{none}");
+    drop(signed_out);
+
+    let backend = Arc::new(FakeBackend::default());
+    let cloud = CloudConversations::new(backend.clone());
+    cloud.set_session(serde_json::from_value(person_session(USER_1)).unwrap()).unwrap();
+    let wire = backend.wire();
+    connected(&wire, vec![request("fi_a")]);
+    let h = harness(Some(cloud.clone()));
+    wait_until("A's snapshot", || view(&h.feed)["connection"]["state"] == "connected");
+    let a = view(&h.feed);
+    assert_eq!(
+        a["account"],
+        json!({"id": "stack:proj_1:stack_user_1", "user": "stack_user_1"}),
+        "{a}"
+    );
+    assert_eq!(a["loaded"], true, "{a}");
+    // B's lease: no connection will take it (the fake has no wire left).
+    cloud.set_session(serde_json::from_value(person_session(USER_2)).unwrap()).unwrap();
+    h.feed.lease_changed();
+    let b = view(&h.feed);
+    assert_eq!(
+        b["account"],
+        json!({"id": "stack:proj_1:stack_user_2", "user": "stack_user_2"}),
+        "{b}"
+    );
+    assert_eq!(b["loaded"], false, "{b}");
+    assert_eq!(b["total"], 0, "A's request is gone from B's view: {b}");
+    wait_until("B's failed connection", || view(&h.feed)["connection"]["reason"] == "offline");
+    let failed = view(&h.feed);
+    assert_eq!(failed["account"]["id"], "stack:proj_1:stack_user_2", "{failed}");
+    assert_eq!(failed["loaded"], false, "{failed}");
+}
+
 #[test]
 fn an_answer_shows_at_once_and_answers_on_the_owners_settle_line() {
     let backend = Arc::new(FakeBackend::default());

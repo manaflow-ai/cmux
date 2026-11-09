@@ -121,20 +121,25 @@ fn disconnect(inner: &Inner, reason: &str, signed_out: bool) {
 }
 
 /// The person the lease names: its Stack project and user, else a
-/// self-hosted server and its user; `None` with no lease.
-fn lease_identity(cloud: &CloudConversations) -> Option<String> {
-    cloud.lease_person().map(|(user, project)| format!("stack:{project}:{user}")).or_else(|| {
-        cloud
-            .lease_selfhost()
-            .map(|(origin, user)| format!("selfhost:{origin}:{}", user.unwrap_or_default()))
-    })
+/// self-hosted server and its user; `None` with no lease. With it, the
+/// person's user id when the lease names one.
+fn lease_identity(cloud: &CloudConversations) -> Option<(String, Option<String>)> {
+    cloud
+        .lease_person()
+        .map(|(user, project)| (format!("stack:{project}:{user}"), Some(user)))
+        .or_else(|| {
+            cloud.lease_selfhost().map(|(origin, user)| {
+                (format!("selfhost:{origin}:{}", user.as_deref().unwrap_or_default()), user)
+            })
+        })
 }
 
 /// A lease of another person takes the old account's state away at once,
 /// before any socket opens on it: a refused or failing connection never
 /// leaves the old account's items, reports or GitHub rows readable.
 pub(super) fn forget_other_lease(inner: &Inner, cloud: &CloudConversations) {
-    let identity = lease_identity(cloud);
+    let (identity, user) = lease_identity(cloud).unzip();
+    let user = user.flatten();
     let now = inner.now();
     let events = {
         let mut state = inner.lock();
@@ -142,6 +147,7 @@ pub(super) fn forget_other_lease(inner: &Inner, cloud: &CloudConversations) {
             return;
         }
         state.lease_identity = identity;
+        state.lease_user = user;
         let mut events = change_account(&mut state, None, now);
         // The Reports basket follows the lease's person even before any
         // welcome: the reader starts over on the new person's mailbox.

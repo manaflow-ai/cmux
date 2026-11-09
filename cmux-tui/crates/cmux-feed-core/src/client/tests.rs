@@ -537,6 +537,7 @@ fn view(mirror: &Mirror, request: Value) -> Value {
     let request: ViewRequest = serde_json::from_value(request).unwrap();
     let context = ViewContext {
         mirror,
+        account: None,
         now: NOW,
         github: None,
         github_enabled: false,

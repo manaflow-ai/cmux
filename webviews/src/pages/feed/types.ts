@@ -216,6 +216,8 @@ export type FeedConnectionState = "connecting" | "connected" | "disconnected";
 export interface FeedView {
   revision: number;
   loaded: boolean;
+  /** The cloud lease's person the view is for; null signed out. */
+  account?: { id: string; user: string | null } | null;
   connection: { state: FeedConnectionState; reason?: string };
   counts: { open_requests: number; unread_notices: number; badge: number; unread: number };
   github: { enabled: boolean };

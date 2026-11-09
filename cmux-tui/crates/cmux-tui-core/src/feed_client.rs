@@ -32,7 +32,8 @@ use std::time::Duration;
 use cmux_feed_core::client::github::GitHubSync;
 use cmux_feed_core::client::{
     CloudStream, Commit, FeedItem, IntegrationOwner, Intent, IntentKind, Mirror, Owner, OwnerEvent,
-    Place, Posted, Prompt, Reject, Reports, ViewContext, ViewRequest, normalize_choice,
+    Place, Posted, Prompt, Reject, Reports, ViewAccount, ViewContext, ViewRequest,
+    normalize_choice,
 };
 use serde_json::{Value, json};
 
@@ -106,6 +107,8 @@ pub(crate) struct State {
     pub(crate) account: Option<String>,
     /// The person of the lease the account was read on (`driver::lease_identity`).
     pub(crate) lease_identity: Option<String>,
+    /// That person's user id (the lease's account), when the lease names one.
+    pub(crate) lease_user: Option<String>,
     pub(crate) github: GitHubSync,
     pub(crate) github_config: GitHubConfig,
     /// Bumped by every configure, refresh and account change: the poller's
@@ -258,6 +261,7 @@ impl FeedClient {
             wire_wake: None,
             account: None,
             lease_identity: None,
+            lease_user: None,
             github: GitHubSync::new(),
             github_config: GitHubConfig {
                 enabled: false,
@@ -360,8 +364,16 @@ impl FeedClient {
         read: impl FnOnce(&ViewContext<'_>) -> T,
     ) -> T {
         let place = |item: &FeedItem| places(item);
+        // Signed out the view is no one's, whatever lease was read last.
+        let signed_out = state.mirror.connection().reason() == Some("signed_out");
+        let account = state
+            .lease_identity
+            .as_deref()
+            .filter(|_| !signed_out)
+            .map(|id| ViewAccount { id, user: state.lease_user.as_deref() });
         let context = ViewContext {
             mirror: &state.mirror,
+            account,
             now,
             github: Some(&state.github),
             github_enabled: state.github_config.enabled,

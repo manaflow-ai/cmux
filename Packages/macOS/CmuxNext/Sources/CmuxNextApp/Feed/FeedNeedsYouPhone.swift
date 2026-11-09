@@ -26,23 +26,20 @@ enum FeedNeedsYouPhone {
 
     /// What the phone gets from `view`, or nil while its owner has not answered: an empty set sent
     /// before the Feed loads, or while it is unreachable, would close every request on the phone and
-    /// clear its delivered push.
+    /// clear its delivered push. Signed out there is no account to send for.
     static func current(_ view: FeedDaemonView) -> [MobileHostNeedsYouRequest]? {
-        guard view.isSettled else { return nil }
+        guard view.isSettled, view.owner != nil else { return nil }
         return requests(view.items(in: "needs_you"))
     }
 
-    /// Follows the daemon's Needs you view and hands each new set to the iPhone host.
+    /// Follows the daemon's Needs you view and hands each new set to the iPhone host. The set belongs
+    /// to the view's account: another account's view, or signing out, forgets it on the host at once.
     static func follow(feed: FeedService, iphone: IPhoneHostService) -> Task<Void, Never> {
         let daemon = feed.daemon
         // task-owner: NotificationCenterService.tasks; cancelled with the service.
         return Task { [weak iphone] in
-            var last: [MobileHostNeedsYouRequest]?
-            for await _ in daemon.changes() {
-                guard let view = try? await daemon.view(.needsYou), let set = current(view), set != last else { continue }
-                last = set
-                await iphone?.setNeedsYou(set)
-            }
+            await FeedAccountProjection.follow(daemon, .needsYou, derive: { current($0) },
+                                               send: { await iphone?.setNeedsYou($0, user: $1) }, forget: { await iphone?.clearNeedsYou() })
         }
     }
 }

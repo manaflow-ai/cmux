@@ -219,6 +219,14 @@ package nonisolated struct FeedDaemonView: Decodable, Sendable, Equatable {
         package var reason: String?
     }
 
+    /// The account the view is for: the cloud lease's person (`id`, which names the project or
+    /// server too; `user`, the person's user id). Nil signed out. Whatever a reader keeps from a
+    /// view belongs to this account: another one's view, loaded or not, never inherits it.
+    package struct Account: Decodable, Sendable, Equatable {
+        package var id: String
+        package var user: String?
+    }
+
     package struct Counts: Decodable, Sendable, Equatable {
         package var openRequests: Int?
         package var unreadNotices: Int?
@@ -242,6 +250,7 @@ package nonisolated struct FeedDaemonView: Decodable, Sendable, Equatable {
 
     package var revision: Int?
     package var loaded: Bool?
+    package var account: Account?
     package var connection: Connection?
     package var counts: Counts?
     package var groups: [Group]?
@@ -260,6 +269,12 @@ package nonisolated struct FeedDaemonView: Decodable, Sendable, Equatable {
         guard connection?.state == "disconnected" else { return false }
         return loaded == true || connection?.reason == "signed_out"
     }
+
+    /// Signed out (no lease): the view is no one's, and nothing kept from an account's view stays.
+    package var isSignedOut: Bool { account == nil || connection?.reason == "signed_out" }
+
+    /// The account whatever is kept from this view belongs to (``FeedAccountProjection``); nil signed out.
+    package var owner: String? { isSignedOut ? nil : account?.id }
 
     /// Every entry's head item, in the view's order.
     package var items: [FeedDaemonItem] { (groups ?? []).flatMap { $0.entries.map(\.item) } }

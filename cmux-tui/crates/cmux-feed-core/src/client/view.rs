@@ -44,9 +44,21 @@ pub struct ViewRequest {
     pub limit: Option<usize>,
 }
 
+/// The account a view is for: the cloud lease's person (`id`, the lease
+/// identity, which names the project or server too; `user`, the person's user
+/// id). A reader that keeps anything from a view keys it by `id`, so another
+/// account's view never inherits it, even before its first snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ViewAccount<'a> {
+    pub id: &'a str,
+    pub user: Option<&'a str>,
+}
+
 /// What a view reads besides the mirror.
 pub struct ViewContext<'a> {
     pub mirror: &'a Mirror,
+    /// The lease's person; `None` signed out (no lease, or a chief token's).
+    pub account: Option<ViewAccount<'a>>,
     pub now: i64,
     pub github: Option<&'a GitHubSync>,
     pub github_enabled: bool,
@@ -123,6 +135,7 @@ impl ViewContext<'_> {
         json!({
             "revision": self.mirror.revision(),
             "loaded": self.mirror.loaded(),
+            "account": self.account.map(|account| json!({"id": account.id, "user": account.user})),
             "connection": connection_value,
             "counts": {
                 "open_requests": counts.open_requests,

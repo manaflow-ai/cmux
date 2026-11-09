@@ -89,10 +89,12 @@ package final class FeedNeedsYouSection: NSView {
                 }
                 // task-owner: this watch's; cancelled when the setting turns off or the watch ends.
                 reading = Task { [weak host] in
+                    // Another account's count goes at once, before its own snapshot.
+                    var shown = FeedAccountProjection<Never>()
                     for await _ in feed.changes() {
                         guard let view = try? await feed.view(.needsYou), !Task.isCancelled, let host else { continue }
                         // Not settled: keep what shows; an empty answer then is not "nothing waits".
-                        guard view.isSettled else { continue }
+                        guard shown.settled(view, clear: { host.setPinnedSection(nil) }) else { continue }
                         show(waiting: view.items(in: "needs_you").count, in: host, makeSection: makeSection)
                     }
                 }

@@ -122,10 +122,11 @@ extension HomeService {
                 let daemon = services.feed.daemon
                 // task-owner: this observation's; cancelled on the next setting or default Chief change.
                 reading = Task { [weak self] in
+                    var shown = FeedAccountProjection<Never>() // another account's rows go at once
                     for await _ in daemon.changes() {
                         // Requests (approvals, questions) stay in the Feed, where they can be answered.
                         guard let view = try? await daemon.view(.list, filter: ["category": .string("notices")], limit: HomeFeedRow.limit),
-                              !Task.isCancelled, view.isSettled else { continue }
+                              !Task.isCancelled, shown.settled(view, clear: { self?.homeStore.setFeedRows([], in: target) }) else { continue }
                         let notices = view.items.lazy.filter { $0.isNotice && !$0.isArchived }.prefix(HomeFeedRow.limit)
                         self?.homeStore.setFeedRows(Array(notices).map {
                             HomeFeedRow(id: $0.id, source: $0.poster?.label ?? "", title: $0.title ?? "",

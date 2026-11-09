@@ -58,7 +58,7 @@ any other connection is `origin.forbidden {reason: "app_connection_only"}`.
 `FeedView`:
 
 ```
-{revision, loaded, connection: {state: "connecting"|"connected"|"disconnected", reason?},
+{revision, loaded, account: {id, user} | null, connection: {state: "connecting"|"connected"|"disconnected", reason?},
  counts: {open_requests, unread_notices, badge, unread},
  github: {enabled}, reports: {available},
  groups: [{id: "requests"|"rest"|"needs_you"|"today"|"earlier", entries: [Entry]}],
@@ -79,6 +79,13 @@ in the daemon, is always current). Before it, while connecting or after a first 
 failed, the view may be empty without meaning that nothing waits; an account change unloads it
 again. A reader that replaces a whole set from the view (the phone's Needs you, Home's notices) acts
 only on a settled view: loaded, or signed out (`connection.reason == "signed_out"`, no cloud part).
+
+`account` is the cloud lease's person the view is for (`id`: the lease identity, `stack:<project>:<user>`
+or `selfhost:<origin>:<user>`; `user`: the person's user id), set as soon as the lease names it, before any
+snapshot; null signed out. Whatever a reader keeps from a view belongs to that account: a view of another
+account, loaded or not, or signed out, drops it at once without sending an empty set. The phone's Needs you
+(`FeedNeedsYouPhone`, `MobileHostSupervisor`) hands a kept set only to a hostd of the same user, so a sign-in
+as B never shows B's phones A's requests; a disconnect of the same account keeps it.
 
 `connection` is the cloud owner's: `disconnected` reasons are `signed_out`, `expired`,
 `unauthenticated` (the app hears `cloud-session-needed` and renews the lease), `forbidden`,
