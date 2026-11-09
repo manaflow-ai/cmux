@@ -602,6 +602,11 @@ public final class AgentPaneView: NSView {
     public var onNativeToolOwnerChange: (() -> Void)?
     /// Called by the page's palette to open a native tab-row menu.
     public var onNativeToolMenuRequested: ((String, String?) -> Void)?
+    /// A pane that stops hosting this page drops both callbacks it set.
+    public func dropNativeToolCallbacks() {
+        onNativeToolOwnerChange = nil
+        onNativeToolMenuRequested = nil
+    }
 
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()

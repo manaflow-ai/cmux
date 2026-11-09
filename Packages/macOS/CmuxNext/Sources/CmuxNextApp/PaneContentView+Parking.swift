@@ -45,6 +45,7 @@ extension PaneContentView {
     /// Puts `view` on screen as the pane's content: unhides it when it is parked here, else adds it (also from another
     /// pane, a moved tab). `leaving`, retired right after, does not count as content above it.
     func install(_ view: NSView, replacing leaving: NSView? = nil) {
+        contentHost.willShowContent(view) // a pane a zoom covers by paint hides first for a page (ZOOM VARIANTS 10)
         // In a key hold a row-sharing chat keeps its parked frame top-held (its row above the area); otherwise (bottom-held, or
         // from another pane) it joins the held rect rowless, unsized until the landing sizes it once (S1B, Codex #34247).
         let local = view.superview === contentHost, held = contentHost.isHolding, topHeld = local && contentHost.hold?.bottom == false
@@ -82,8 +83,7 @@ extension PaneContentView {
     /// content leaves the pane. A view another pane took is not touched.
     func retire(_ view: NSView) {
         guard view.superview === contentHost else { return }
-        (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
-        (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
+        (view as? AgentPaneView)?.dropNativeToolCallbacks()
         guard view is PaneParkableContent else {
             view.removeFromSuperview()
             refreshNativeToolOwner()
@@ -111,15 +111,13 @@ extension PaneContentView {
             guard let view = entry.view else { return true }
             guard view.superview === contentHost else {
                 if view.superview == nil {
-                    (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
-                    (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
+                    (view as? AgentPaneView)?.dropNativeToolCallbacks()
                 }
                 return true
             }
             guard view !== content else { return true }
             guard live?(view) ?? true else {
-                (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
-                (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
+                (view as? AgentPaneView)?.dropNativeToolCallbacks()
                 view.removeFromSuperview()
                 refreshNativeToolOwner()
                 return true

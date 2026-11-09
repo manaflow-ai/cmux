@@ -9,6 +9,14 @@ public import AppKit
 @MainActor public protocol ParkingContainer: NSView {
     /// Off screen while in the window: parked.
     var isParkedOffScreen: Bool { get }
+    /// `view` is about to show below this parked container (a tab switch in a parked pane,
+    /// ``AppKit/NSView/willShowContent(_:)``). A container that parks by paint only, while its views stay
+    /// unhidden, hides first when `view` does not stop on parking (a page's window orders out on a hide only).
+    func parkedContentWillShow(_ view: NSView)
+}
+
+extension ParkingContainer {
+    public func parkedContentWillShow(_ view: NSView) {}
 }
 
 /// A view that stops work while a container above it is parked (drawing, event monitors, frames).
@@ -27,6 +35,17 @@ extension NSView {
             view = current.superview
         }
         return false
+    }
+
+    /// `view` is about to show in this view's subtree (unhidden or added: a tab switch). Each parked container from
+    /// here up hears it first (``ParkingContainer/parkedContentWillShow(_:)``). One walk up the superviews, on a
+    /// switch, never per frame.
+    public func willShowContent(_ view: NSView) {
+        var current: NSView? = self
+        while let container = current {
+            if let parking = container as? any ParkingContainer, parking.isParkedOffScreen { parking.parkedContentWillShow(view) }
+            current = container.superview
+        }
     }
 
     /// Tells each ``ParkingObserver`` in this subtree that parking changed. A hidden subtree is skipped:

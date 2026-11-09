@@ -9,18 +9,32 @@ import QuartzCore
 /// window's cursor-rect and drag-region rebuild for each covered pane are gone from that turn (ZOOM VARIANTS 8 profile,
 /// C3 K6 out: `_setHidden` 0.8 ms under `LayoutViewContext.host(for:)`).
 /// Only for content that stops on parking (``LayoutPaneContentProvider/coversByPaint(_:content:)``): a page window orders
-/// out on `viewDidHide` only. Known edges: a tab switch to a page inside a covered pane would show that page's window (the
-/// answer is for the content at the cover); a paint hold that keeps a terminal beside a new page at the cover covers both
-/// by paint.
+/// out on `viewDidHide` only. A tab switch that shows such content inside a covered pane turns the cover into a hide
+/// first (``parkedContentWillShow(_:)``, ZOOM VARIANTS 10). Known edge: a paint hold that keeps a terminal beside a new
+/// page at the cover covers both by paint.
 extension PaneHostView {
     var isParkedOffScreen: Bool { isCoveredByPaint }
 
     /// Whether the shown part of `view`'s subtree (hidden subtrees skipped) has a ``ParkingObserver``. Read once at a
     /// zoom's cover, never in a key turn.
     static func showsParkingObserver(_ view: NSView) -> Bool {
-        guard !view.isHidden else { return false }
-        if view is any ParkingObserver { return true }
-        return view.subviews.contains { showsParkingObserver($0) }
+        !view.isHidden && wouldShowParkingObserver(view)
+    }
+
+    /// ``showsParkingObserver(_:)`` with `view` itself taken as shown: content about to show.
+    static func wouldShowParkingObserver(_ view: NSView) -> Bool {
+        view is any ParkingObserver || view.subviews.contains { showsParkingObserver($0) }
+    }
+
+    /// A tab switch in this covered pane is about to show `view` (``AppKit/NSView/willShowContent(_:)``). Content that
+    /// does not stop on parking (a page: its window orders in when no ancestor is hidden, whatever the paint) would
+    /// show over the zoomed pane, so the paint cover becomes a hide before it shows. The unzoom then shows this pane by
+    /// unhiding it (``LayoutViewContext``), and the page with it.
+    func parkedContentWillShow(_ view: NSView) {
+        guard isCoveredByPaint, !Self.wouldShowParkingObserver(view) else { return }
+        isHidden = true
+        chrome.isHidden = true
+        coverByPaint(false) // full paint again, under the hide; hidden, it walks no parking observer
     }
 
     /// Covers (`covered`) or uncovers this pane by paint, with no implicit animation, and tells the content's parking
