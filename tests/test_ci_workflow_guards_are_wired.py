@@ -115,6 +115,10 @@ UNWIRED: set[str] = {
     # its call into nightly-next-rollback.yml; run it by hand after changing either or
     # scripts/ci/nightly_next_rollback_drill.py.
     "tests/test_nightly_next_rollback_drill.py",
+    # lane = "manual" for the same rule. It reads every workflow as data: a job in a secrets-only environment says
+    # `deployment: false`, so the PR logs no "temporarily deployed" event. Run it by hand after adding an
+    # environment to a job.
+    "tests/test_ci_secrets_only_environments_log_no_deployment.py",
 }
 
 

@@ -36,16 +36,25 @@ def mints_oidc(workflow: dict, job: dict) -> bool:
     return permissions == "write-all" or (isinstance(permissions, dict) and permissions.get("id-token") == "write")
 
 
+def records_deployment(workflow: dict, job: object) -> str | None:
+    """The secrets-only environment a job enters while still recording a deployment, plain or as a mapping."""
+    environment = job.get("environment") if isinstance(job, dict) else None
+    name = environment.get("name") if isinstance(environment, dict) else environment
+    if not isinstance(name, str) or name not in SECRETS_ONLY or mints_oidc(workflow, job):
+        return None
+    if isinstance(environment, dict) and environment.get("deployment") is False:
+        return None
+    return name
+
+
 def offenders() -> list[str]:
     found = []
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for name, job in (workflow.get("jobs") or {}).items():
-            environment = job.get("environment") if isinstance(job, dict) else None
-            if not isinstance(environment, str) or environment not in SECRETS_ONLY:
-                continue
-            if not mints_oidc(workflow, job):
-                found.append(f"{path.name} {name}: environment {job['environment']!r} needs "
+            environment = records_deployment(workflow, job)
+            if environment:
+                found.append(f"{path.name} {name}: environment {environment!r} needs "
                              "`environment: {name: ..., deployment: false}`")
     return found
 
@@ -63,11 +72,12 @@ class SecretsOnlyEnvironmentsLogNoDeployment(unittest.TestCase):
                     self.assertIn(environment.get("name"), SECRETS_ONLY, f"{path.name} {name}")
                     self.assertFalse(mints_oidc(workflow, job), f"{path.name} {name} mints an OIDC token")
 
-    def test_a_plain_secrets_only_environment_is_caught(self) -> None:
-        job = {"runs-on": "x", "environment": "ci-bot"}
-        self.assertIn(job["environment"], SECRETS_ONLY)
-        self.assertFalse(mints_oidc({}, job))
-        self.assertTrue(mints_oidc({"permissions": {"id-token": "write"}}, job))
+    def test_each_form_that_still_records_a_deployment_is_caught(self) -> None:
+        self.assertEqual(records_deployment({}, {"environment": "ci-bot"}), "ci-bot")
+        self.assertEqual(records_deployment({}, {"environment": {"name": "ci-bot"}}), "ci-bot")
+        self.assertIsNone(records_deployment({}, {"environment": {"name": "ci-bot", "deployment": False}}))
+        self.assertIsNone(records_deployment({}, {"environment": "release"}))
+        self.assertIsNone(records_deployment({"permissions": {"id-token": "write"}}, {"environment": "ci-bot"}))
 
 
 if __name__ == "__main__":
