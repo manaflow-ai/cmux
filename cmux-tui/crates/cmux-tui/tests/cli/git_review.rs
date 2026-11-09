@@ -436,11 +436,26 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
 
     // A worktree on the review's branch name that no review recorded is not
     // taken over: a new one is made, and its comments stay.
+    let kept = git_cli(&server, &worktree, &draft);
+    assert_success(&kept);
+    let kept = json_output(&kept)["value"]["comment"].clone();
+    let (kept_id, kept_version) = (kept["id"].clone(), kept["updatedAt"].clone());
+    let kept_text = kept_id.as_str().unwrap().to_string();
     git(&checkout, &["config", "--unset", "branch.cmux/review-7.cmuxReview"]);
     // Nor is it a review any longer: its stored review no longer takes drafts.
     let stale = git_cli(&server, &worktree, &draft);
     assert!(!stale.status.success());
     assert!(String::from_utf8_lossy(&stale.stderr).contains("not_a_review"));
+    // Nor posts its drafts to the old pull request.
+    let posted = fs::read_to_string(&posts).unwrap().lines().count();
+    let params = serde_json::json!({
+        "root": review_root, "ids": [kept_id], "versions": {kept_text: kept_version},
+    });
+    let stale_post = post(&server, params, "post-stale");
+    assert_eq!(stale_post["ok"], false, "{stale_post}");
+    assert!(stale_post.to_string().contains("not_a_review"), "{stale_post}");
+    let now = fs::read_to_string(&posts).unwrap().lines().count();
+    assert_eq!(now, posted, "a stale review posted");
     let note = serde_json::json!({"root": review_root, "comment": {
         "filePath": "a.txt", "side": "additions", "startLine": 2, "endLine": 2,
         "lineText": "line 2", "message": "Mine, not the review's",
@@ -453,7 +468,8 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert_eq!(other["reused"], false, "{other}");
     assert_ne!(other["root"], review_root.as_str(), "{other}");
     let listed = v2(&server, "diff.comments.list", serde_json::json!({"root": review_root}), None);
-    assert_eq!(listed["result"]["comments"].as_array().unwrap().len(), 1, "{listed}");
+    // The note and the draft the stale post left.
+    assert_eq!(listed["result"]["comments"].as_array().unwrap().len(), 2, "{listed}");
 
     // Removing a review's worktree runs no teardown: the project's recipe can
     // name a script the pull request changed.
