@@ -5,11 +5,11 @@
 //! Each attempt fetches a fresh ticket and grant (a grant is single-use),
 //! opens the relay's control socket, waits for the lane allocation (the
 //! relay parks it until the machine's daemon registers) until the deadline,
-//! then runs the Noise handshake. A failed attempt backs off with full
-//! jitter while time is left. The attempts run on `remote_runtime`'s route
-//! runner ([`run_route_rounds`], [`select_initial_route`]): one round per
-//! attempt over the answer's routes ([`carrier_routes`]), and the session
-//! resumes through [`CarrierRoutes`]. Once up, the session's own reconnect carries
+//! then runs the Noise handshake. The attempts run on the first-dial state
+//! machine ([`LinkCell::dial`]), whose jittered waits retry a failed attempt
+//! while time is left; each attempt picks its route with
+//! [`select_initial_route`] over the answer's routes ([`carrier_routes`]),
+//! and the session resumes through [`CarrierRoutes`]. Once up, the session's own reconnect carries
 //! it: a resume presents no grant (the daemon re-admits the Noise key a
 //! grant admitted, into its own session), so it needs nothing from the
 //! platform but relay tickets.
@@ -48,13 +48,15 @@ use zeroize::Zeroizing;
 
 use super::answer::{CarrierAnswer, CarrierSource, Prefetched, SourceError, TicketCache};
 use super::contract::{
-    Backoff, Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
+    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
 };
 use super::source::{CARRIER_AUTH, CARRIER_LANES, CarrierRoutes, carrier_routes};
 use crate::remote_runtime::{
-    InitialRouteAttempt, InitialRouteAttemptError, InitialRouteSelectionError,
-    ResolvedRouteCandidate, RouteFailure, RouteRounds, run_route_rounds, select_initial_route,
+    InitialRouteAttempt, InitialRouteAttemptError, ResolvedRouteCandidate, RouteFailure,
+    select_initial_route,
 };
+use cmux_remote::first_dial::{DialOutcome, DialStop, LinkCell};
+use cmux_remote::network_watch::NetworkWatch;
 use url::Url;
 
 /// The relay's frame bound for a carrier (the Mac's remote client uses the same).
@@ -572,84 +574,137 @@ impl RouteFailure for Failure {
     }
 }
 
-/// A dial's rounds on the route runner: one attempt each, its route and
-/// phases lines, then a fresh session at once or a full-jitter backoff
-/// inside the deadline.
-struct DialRounds<'a, J> {
-    plan: &'a DialPlan,
-    jitter: J,
-    resume: Arc<Resume>,
-    backoff: Backoff,
-    attempts: u32,
+/// What ended a dial on [`LinkCell::dial`]: an attempt's own failure, or
+/// the dial's deadline between or during attempts.
+enum DialEnd {
+    Failed(Failure),
+    Stopped(DialStop),
 }
 
-#[async_trait]
-impl<J> RouteRounds<Dialed, Failure> for DialRounds<'_, J>
-where
-    J: Fn(Duration) -> Duration + Send + Sync,
-{
-    async fn round(&mut self) -> Result<Dialed, InitialRouteSelectionError<Failure>> {
-        let plan = self.plan;
-        self.attempts = self.attempts.saturating_add(1);
-        let started = Instant::now();
-        let step = Arc::new(Progress::default());
-        let result = match tokio::time::timeout_at(
-            plan.deadline,
-            attempt(plan, &step, &self.resume),
-        )
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => Err(Failure::deadline(step.get())),
-        };
-        let phase = Phase::of_attempt(self.attempts);
-        let outcome = result.as_ref().err().map(|f| f.step);
-        let elapsed = started.elapsed();
-        let detail = result.as_ref().err().map(|f| f.detail.as_str());
-        (plan.log)(route_line(&plan.machine, phase, outcome, detail, elapsed));
-        (plan.phases)(phases_line(
-            &plan.machine,
-            PhasesOf::Attempt(phase),
-            outcome,
-            step.times(),
-            elapsed,
-        ));
-        result.map_err(|failure| InitialRouteSelectionError {
-            retryable: failure.retryable,
-            error: failure,
-        })
+impl From<DialStop> for DialEnd {
+    fn from(stop: DialStop) -> Self {
+        Self::Stopped(stop)
     }
+}
 
-    fn after_failed_round(
-        &mut self,
-        error: InitialRouteSelectionError<Failure>,
-    ) -> Result<Duration, Failure> {
-        let failure = error.error;
-        if !failure.retryable {
-            return Err(failure);
-        }
-        if failure.fresh_session {
-            if !self.plan.fresh_sessions.take() {
-                return Err(Failure { retryable: false, fresh_session: false, ..failure });
-            }
-            // The daemon is up and answered: no backoff.
-            return Ok(Duration::ZERO);
-        }
-        let remaining = self.plan.deadline.saturating_duration_since(Instant::now());
-        match self.backoff.next(remaining, &self.jitter) {
-            Some(delay) => Ok(delay),
-            None => Err(Failure { retryable: false, fresh_session: false, ..failure }),
+impl std::fmt::Display for DialEnd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Failed(failure) => f.write_str(&failure.detail),
+            Self::Stopped(stop) => stop.fmt(f),
         }
     }
 }
 
-/// Dial until connected, a failure no retry can fix, or the deadline.
-/// Every attempt writes one route line.
-pub(super) async fn dial(
+/// The attempts of one dial so far, for the deadline's answer.
+#[derive(Default)]
+struct Attempts {
+    count: u32,
+    /// The attempt in flight: its steps and when it started.
+    current: Option<(Arc<Progress>, Instant)>,
+    /// The last attempt's retryable failure.
+    last: Option<Failure>,
+}
+
+/// One attempt's route line and phases line.
+fn log_attempt(
     plan: &DialPlan,
-    jitter: impl Fn(Duration) -> Duration + Send + Sync,
-) -> Result<Dialed, Failure> {
+    number: u32,
+    failure: Option<&Failure>,
+    step: &Progress,
+    elapsed: Duration,
+) {
+    let phase = Phase::of_attempt(number);
+    let outcome = failure.map(|f| f.step);
+    let detail = failure.map(|f| f.detail.as_str());
+    (plan.log)(route_line(&plan.machine, phase, outcome, detail, elapsed));
+    (plan.phases)(phases_line(
+        &plan.machine,
+        PhasesOf::Attempt(phase),
+        outcome,
+        step.times(),
+        elapsed,
+    ));
+}
+
+/// Dial until connected, a failure no retry can fix, or the deadline, on
+/// the one first-dial state machine `remote connect` uses
+/// ([`LinkCell::dial`]): its bursts, budget and jittered waits, bounded by
+/// the plan's deadline. A session the daemon lost is retried from the
+/// dial's fresh-session budget. Every attempt writes one route line.
+pub(super) async fn dial(plan: &DialPlan) -> Result<Dialed, Failure> {
     let resume = Arc::new(Resume { machine: plan.machine.clone(), log: plan.log.clone() });
-    let mut rounds = DialRounds { plan, jitter, resume, backoff: Backoff::default(), attempts: 0 };
-    run_route_rounds(&mut rounds).await
+    let attempts = std::sync::Mutex::new(Attempts::default());
+    let lock = || attempts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let policy = ReconnectPolicy {
+        maximum_duration: Some(plan.deadline.saturating_duration_since(Instant::now())),
+        ..ReconnectPolicy::default()
+    };
+    // A carrier dial watches no network: the deadline bounds it.
+    let network = NetworkWatch::manual();
+    let dialed =
+        LinkCell::new()
+            .dial(policy, network.subscribe(), || {
+                let (resume, lock) = (&resume, &lock);
+                async move {
+                    let step = Arc::new(Progress::default());
+                    let started = Instant::now();
+                    let number = {
+                        let mut attempts = lock();
+                        attempts.count = attempts.count.saturating_add(1);
+                        attempts.current = Some((step.clone(), started));
+                        attempts.count
+                    };
+                    let result =
+                        match tokio::time::timeout_at(plan.deadline, attempt(plan, &step, resume))
+                            .await
+                        {
+                            Ok(result) => result,
+                            Err(_) => Err(Failure::deadline(step.get())),
+                        };
+                    lock().current = None;
+                    log_attempt(plan, number, result.as_ref().err(), &step, started.elapsed());
+                    match result {
+                        Ok(dialed) => DialOutcome::Ready(dialed),
+                        Err(failure) if !failure.retryable => {
+                            DialOutcome::Fatal(DialEnd::Failed(failure))
+                        }
+                        Err(failure) if failure.fresh_session && !plan.fresh_sessions.take() => {
+                            DialOutcome::Fatal(DialEnd::Failed(Failure {
+                                retryable: false,
+                                fresh_session: false,
+                                ..failure
+                            }))
+                        }
+                        Err(failure) => {
+                            lock().last = Some(failure.clone());
+                            DialOutcome::Retry(DialEnd::Failed(failure))
+                        }
+                    }
+                }
+            })
+            .await;
+    match dialed {
+        Ok(dialed) => Ok(dialed),
+        Err(DialEnd::Failed(failure)) => Err(failure),
+        // The deadline passed: an attempt it cut off names its step; between
+        // attempts, the last attempt's failure is the answer.
+        Err(DialEnd::Stopped(_)) => {
+            let mut attempts = lock();
+            let cut = match (attempts.current.take(), attempts.last.take()) {
+                (None, Some(last)) => {
+                    return Err(Failure { retryable: false, fresh_session: false, ..last });
+                }
+                (Some(current), _) => current,
+                (None, None) => {
+                    attempts.count = attempts.count.saturating_add(1);
+                    (Arc::new(Progress::default()), Instant::now())
+                }
+            };
+            let (step, started) = cut;
+            let failure = Failure::deadline(step.get());
+            log_attempt(plan, attempts.count, Some(&failure), &step, started.elapsed());
+            Err(failure)
+        }
+    }
 }
