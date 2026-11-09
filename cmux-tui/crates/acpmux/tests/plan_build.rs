@@ -532,10 +532,16 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         )
         .await;
     assert_eq!(again["keptSessionId"], json!(keep), "{again}");
-    assert!(
-        again["removed"].as_array().unwrap().iter().all(|r| r["removed"] == json!(false)),
-        "a retry removes nothing more: {again}"
-    );
+    // It removes nothing more, and still names every run's outcome: the two removed before, and
+    // the swapped folder that stays.
+    let outcome = |reply: &Value, i: usize| {
+        let rows = reply["removed"].as_array().unwrap();
+        rows.iter().find(|r| r["sessionId"] == runs[i]["sessionId"]).cloned().unwrap_or_default()
+    };
+    for i in [0, 2] {
+        assert_eq!(outcome(&again, i)["removed"], json!(true), "run {i}: {again}");
+    }
+    assert_eq!(outcome(&again, 3)["removed"], json!(false), "{again}");
     assert!(Path::new(&run_roots[3]).join("MINE").is_file(), "{again}");
     let other = runs[0]["sessionId"].as_str().unwrap();
     let stale = app
@@ -546,6 +552,29 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         .await;
     assert_eq!(reason(&stale), "plan_build.already_kept", "{stale}");
     assert!(Path::new(&run_roots[1]).join("NOTICE").is_file(), "the kept run still stays");
+    // The swapped folder goes later (its owner removed it): the next retry says run 3 is removed
+    // too, with no error left on it, and the chat's newest record names all three removed.
+    git(&repo, &["worktree", "remove", "--force", &run_roots[3]]);
+    let last = app
+        .ok(
+            "_acpmux/plan/keep",
+            json!({"sessionId": chat, "buildId": run_id, "keep": keep, "removeOthers": true}),
+        )
+        .await;
+    for i in [0, 2, 3] {
+        assert_eq!(outcome(&last, i)["removed"], json!(true), "run {i}: {last}");
+        assert!(outcome(&last, i).get("error").is_none(), "run {i}: {last}");
+    }
+    let chat_id = chat.as_str();
+    let records = hub.events(chat_id, 0, 10_000).unwrap();
+    let newest = records
+        .iter()
+        .rev()
+        .find(|e| e.kind == "plan_build" && e.msg["event"] == "kept" && e.msg["buildId"] == run_id)
+        .unwrap();
+    let named = newest.msg["removed"].as_array().unwrap();
+    assert_eq!(named.len(), 3, "{}", newest.msg);
+    assert!(named.iter().all(|r| r["removed"] == json!(true)), "{}", newest.msg);
     // The plan builds' Keep above, without removeOthers, left its other worktree, and neither
     // forged tag reached it.
     assert!(Path::new(&roots[0]).join("LICENSE").is_file(), "{kept}");

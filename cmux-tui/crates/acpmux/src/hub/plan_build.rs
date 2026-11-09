@@ -757,9 +757,12 @@ pub(crate) fn still_made_at(
     {
         return Err("the folder at its path is no longer the worktree it was made in");
     }
-    let dot_git = std::fs::read_to_string(at.join(".git")).unwrap_or_default();
+    // An agent writes these: read bounded, so a FIFO or a link to `/dev/zero` there never
+    // hangs or grows the daemon.
+    use cmux_worktree_care::bounded::{GIT_FILE_BYTES, read_text};
+    let dot_git = read_text(&at.join(".git"), GIT_FILE_BYTES).unwrap_or_default();
     let admin = dot_git.trim().strip_prefix("gitdir: ").map(|dir| at.join(dir));
-    let head = admin.and_then(|admin| std::fs::read_to_string(admin.join("HEAD")).ok());
+    let head = admin.and_then(|admin| read_text(&admin.join("HEAD"), GIT_FILE_BYTES));
     if head.as_deref().map(str::trim) != Some(&format!("ref: refs/heads/{}", made.branch)) {
         return Err("its worktree is no longer on the branch it was made on");
     }

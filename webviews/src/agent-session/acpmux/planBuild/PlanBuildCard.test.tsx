@@ -80,3 +80,19 @@ test("a compare with one build started says the other did not start, and offers 
   expect(html).toContain("Two agents, one plan");
   expect(html).not.toContain("Keep this one");
 });
+
+test("a run whose worktree stayed, then went on a later Keep, says Removed with no error left", () => {
+  const html = render({
+    build: {
+      ...build,
+      target: "prompt",
+      keptSessionId: "c1",
+      archived: ["c2"],
+      stayed: [{ sessionId: "c2", error: "a process still works in it" }],
+    },
+    diffs: { ...diffs, keptSessionId: "c1", removed: ["c2"] },
+  });
+  expect(html).toContain('data-outcome="removed"');
+  expect(html).not.toContain('data-outcome="stayed"');
+  expect(html).not.toContain("a process still works in it");
+});

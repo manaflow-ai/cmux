@@ -82,7 +82,12 @@ export function PlanBuildCard({
   const compared = build.target === "compare" || prompted;
   const removed = new Set([...(build.removed ?? []), ...(read?.removed ?? [])]);
   // A worktree Keep could not remove is never announced as gone: its column and the note say so.
-  const stayed = new Map([...(build.stayed ?? []), ...(read?.stayed ?? [])].map((s) => [s.sessionId, s.error]));
+  // One a later Keep removed is removed, and its earlier error goes.
+  const stayed = new Map(
+    [...(build.stayed ?? []), ...(read?.stayed ?? [])]
+      .filter((s) => !removed.has(s.sessionId))
+      .map((s) => [s.sessionId, s.error]),
+  );
   const stayedWhy = [...stayed.values()].find(Boolean) ?? "";
   const title = prompted
     ? t("planBuild.title.prompt", { n: build.builds.length })

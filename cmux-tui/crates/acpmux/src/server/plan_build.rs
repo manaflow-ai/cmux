@@ -327,11 +327,22 @@ async fn handle(
                     let before = hub.plan_compare(&session, build_id).await?;
                     hub.plan_keep_changes(&left, &before);
                 }
-                hub.plan_discard(build_id, &left).await
+                let mut removed = hub.plan_discard(build_id, &left).await;
+                // Every run's outcome, by its id: a retry's answer and record also name the runs
+                // an earlier Keep removed, so none is lost and no earlier error stays on a run
+                // that is gone now.
+                for other in &others {
+                    if !left.iter().any(|l| l.id == other.id) && !plan_build::worktree_left(other) {
+                        removed.push(json!({"sessionId": other.id, "removed": true}));
+                    }
+                }
+                removed
             } else {
                 Vec::new()
             };
-            // A retry that changed nothing leaves the chat's record as it was.
+            // A retry with no run to name (a Keep with no worktrees to remove) leaves the chat's
+            // record as it was; one that names any writes them all again, the earlier removals with
+            // its own.
             if !again || !removed.is_empty() {
                 hub.record_plan_build(
                     &session,

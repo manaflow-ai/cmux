@@ -408,38 +408,17 @@ fn carried_excludes(global: Option<&Path>, own: Option<&Path>) -> String {
     excludes
 }
 
-/// The most of an excludes file Compare carries over; a larger one is left out.
-const MAX_PATTERNS_BYTES: u64 = 1 << 20;
-
 /// An excludes file's patterns, or nothing for one that is not a regular file of at most
-/// [`MAX_PATTERNS_BYTES`]. An agent can write `info/exclude`: a FIFO there never blocks the read
-/// (opened non-blocking, then refused as no regular file), and a link to `/dev/zero` or a huge
-/// file never grows the daemon. A link is followed once, to its target (a person's dotfiles
-/// often link their global file), and that target is opened without following another.
+/// [`PATTERNS_BYTES`](cmux_worktree_care::bounded::PATTERNS_BYTES) (`bounded`: an agent can
+/// write `info/exclude`). A link is followed once, to its target (a person's dotfiles often link
+/// their global file), and that target is read without following another.
 fn read_patterns(path: &Path) -> String {
-    use std::io::Read as _;
-    let Ok(target) = std::fs::canonicalize(path) else { return String::new() };
-    let mut open = std::fs::OpenOptions::new();
-    open.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        open.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
-    let Ok(file) = open.open(&target) else { return String::new() };
-    match file.metadata() {
-        Ok(m) if m.is_file() && m.len() <= MAX_PATTERNS_BYTES => {}
-        _ => return String::new(),
-    }
-    let mut bytes = Vec::new();
-    // Capped again as it reads: a file that grew since `metadata` stops at the limit, and is
-    // then left out.
-    if file.take(MAX_PATTERNS_BYTES + 1).read_to_end(&mut bytes).is_err()
-        || bytes.len() as u64 > MAX_PATTERNS_BYTES
-    {
-        return String::new();
-    }
-    String::from_utf8_lossy(&bytes).into_owned()
+    use cmux_worktree_care::bounded;
+    std::fs::canonicalize(path)
+        .ok()
+        .and_then(|target| bounded::read(&target, bounded::PATTERNS_BYTES))
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default()
 }
 
 /// The person's global excludes file: `core.excludesFile` in their own git config, else git's
@@ -596,16 +575,17 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
 /// through its handle; None when there is none.
 #[cfg(unix)]
 fn held_gitdir(dir: &std::fs::File) -> Option<PathBuf> {
-    use std::io::Read;
+    use cmux_worktree_care::bounded::{GIT_FILE_BYTES, read_opened};
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // Non-blocking and bounded (`bounded`): an agent can put a FIFO or a link to a device here.
+    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
     // SAFETY: `dir` is open for the call; the descriptor opened is owned at once.
     let fd = unsafe { libc::openat(dir.as_raw_fd(), c".git".as_ptr(), flags) };
     if fd < 0 {
         return None;
     }
-    let mut text = String::new();
-    std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }).read_to_string(&mut text).ok()?;
+    let file = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    let text = String::from_utf8(read_opened(file, GIT_FILE_BYTES)?).ok()?;
     text.trim().strip_prefix("gitdir: ").map(PathBuf::from)
 }
 
@@ -647,7 +627,6 @@ fn held_registration(
     held: &std::fs::File,
     root: &Path,
 ) -> Option<HeldRegistration> {
-    use std::io::Read;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     let admin = held_gitdir(held)?;
@@ -668,13 +647,17 @@ fn held_registration(
         return None;
     }
     let dir = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
-    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
     let fd = unsafe { libc::openat(dir.as_raw_fd(), c"gitdir".as_ptr(), flags) };
     if fd < 0 {
         return None;
     }
-    let mut gitdir = String::new();
-    std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }).read_to_string(&mut gitdir).ok()?;
+    let file = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    let gitdir = String::from_utf8(cmux_worktree_care::bounded::read_opened(
+        file,
+        cmux_worktree_care::bounded::GIT_FILE_BYTES,
+    )?)
+    .ok()?;
     // Compared by its folder (resolved, as git may have spelled it through a link) and name.
     let spelled = |p: &Path| {
         let parent = p.parent().and_then(|d| std::fs::canonicalize(d).ok());
@@ -1751,7 +1734,8 @@ mod tests {
         std::os::unix::fs::symlink("/dev/zero", &zero).unwrap();
         assert_eq!(read_patterns(&zero), "");
         let big = dir.join("big");
-        std::fs::write(&big, vec![b'x'; MAX_PATTERNS_BYTES as usize + 1]).unwrap();
+        std::fs::write(&big, vec![b'x'; cmux_worktree_care::bounded::PATTERNS_BYTES as usize + 1])
+            .unwrap();
         assert_eq!(read_patterns(&big), "");
         let own = dir.join("exclude");
         std::fs::write(&own, "cache/\n").unwrap();
