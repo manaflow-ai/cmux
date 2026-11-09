@@ -39,7 +39,9 @@
 //               busy-waits MS ms, and a 120 ms long task runs every 500 ms ("everything's just a bit slow rn").
 // The mode ("open", "mid-turn", either with "+loadMS") is in the report's header and the JSON; the metric names stay.
 //   bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms 1500] [--mid-turn]
-//     [--load MS] [--json FILE]
+//     [--load MS] [--arm NAME] [--json FILE]
+//   --arm NAME  the follow-motion experiment's arm for the page (followMotion.experiment.ts), so one checkout can
+//               measure the slim `send` arm against the spring chase (`blocks`); the page's default without it.
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -59,8 +61,9 @@ const THINK_MS = Number(flag("--think-ms") ?? 1500);
 const JSON_OUT = flag("--json");
 const MID_TURN = argv.includes("--mid-turn");
 const LOAD_MS = Number(flag("--load") ?? 0);
+const ARM = flag("--arm");
 /// The flags that take a value: a number after one of them is that value, not the rounds.
-const VALUED = new Set(["--engines", "--think-ms", "--json", "--load"]);
+const VALUED = new Set(["--engines", "--think-ms", "--json", "--load", "--arm"]);
 const ROUNDS = Number(argv.find((arg, index) => /^\d+$/.test(arg) && !VALUED.has(argv[index - 1] ?? "")) ?? 3);
 if (
   !Number.isInteger(ROUNDS) ||
@@ -70,12 +73,12 @@ if (
   ENGINES.some((name) => name !== "chromium" && name !== "webkit")
 ) {
   console.error(
-    "usage: bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms N] [--mid-turn] [--load MS]",
+    "usage: bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms N] [--mid-turn] [--load MS] [--arm NAME]",
   );
   process.exit(2);
 }
 /// What the round sends into, for the report and the JSON: "open" (an idle chat) or "mid-turn", "+loadN" under load.
-export const MODE = `${MID_TURN ? "mid-turn" : "open"}${LOAD_MS > 0 ? `+load${LOAD_MS}` : ""}`;
+export const MODE = `${MID_TURN ? "mid-turn" : "open"}${LOAD_MS > 0 ? `+load${LOAD_MS}` : ""}${ARM ? `+arm=${ARM}` : ""}`;
 /// A row that moves more than this in one frame jumped; under it, a step of a motion.
 export const JUMP_PX = 2;
 
@@ -592,6 +595,10 @@ async function round(browser: Browser, url: string): Promise<Round> {
   const page = await browser.newPage({ viewport: { width: 900, height: 640 } });
   try {
     await installPaintedFrames(page);
+    if (ARM)
+      await page.addInitScript((arm) => {
+        (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "follow-motion": arm };
+      }, ARM);
     await page.goto(url);
     await page.locator(".acpmux-composer-prompt").waitFor({ timeout: 60_000 });
     await page.locator("[data-row-id]").first().waitFor({ timeout: 60_000 });
