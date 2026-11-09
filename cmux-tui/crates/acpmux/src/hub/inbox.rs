@@ -157,6 +157,9 @@ pub(super) struct Item {
     /// Its sender's name, and its session when it has one here (`sender_session`).
     pub(super) from: String,
     pub(super) from_session: Option<String>,
+    /// The session that asked, as the daemon bound the send (`question_replies::asker_of`): the
+    /// only one its reply goes back to. None for a sender no caller token proved.
+    pub(super) asker: Option<String>,
     /// Additive, daemon-derived sender identity. Old records derive this on restore and are not
     /// rewritten.
     pub(super) sender: Value,
@@ -195,6 +198,7 @@ impl Item {
             thread: format!("from:{from}"),
             from: from.to_owned(),
             from_session: None,
+            asker: None,
             sender: crate::prompt_provenance::sender_record(None, None, None),
             class: PromptClass::Result,
             report: false,
@@ -979,10 +983,11 @@ pub(super) fn reply_goes_back(item: &Item) -> bool {
     asks_a_session(item) && !reader_waits(item)
 }
 
-/// A question or a block from a session here, not a report.
+/// A question or a block from a session here the daemon bound the send to (`Item::asker`), not
+/// a report.
 fn asks_a_session(item: &Item) -> bool {
     matches!(item.class, PromptClass::Question | PromptClass::Block)
-        && item.from_session.is_some()
+        && item.asker.is_some()
         && !item.from.is_empty()
         && !item.report
 }
@@ -1292,6 +1297,7 @@ impl Hub {
                             thread: thread.clone(),
                             from: sender.to_owned(),
                             from_session: sender_session.clone(),
+                            asker: super::question_replies::asker_of(provenance),
                             sender: sender_identity.clone(),
                             class,
                             report: is_report(provenance),
@@ -1408,6 +1414,7 @@ impl Hub {
                     thread: thread.clone(),
                     from: from.to_owned(),
                     from_session: Some(lane.to_owned()),
+                    asker: None,
                     sender: sender_identity.clone(),
                     class: PromptClass::Result,
                     report: true,
@@ -1732,7 +1739,7 @@ impl Hub {
                         .filter(|i| reply_goes_back_at_end(i))
                         .filter_map(|i| {
                             Some(super::question_replies::ReplyDue {
-                                asker: i.from_session.clone()?,
+                                asker: i.asker.clone()?,
                                 subagent: i
                                     .sender
                                     .get("subagent")
@@ -1999,6 +2006,7 @@ impl Hub {
                         thread,
                         from: field("from").to_owned(),
                         from_session,
+                        asker: super::question_replies::asker_of(provenance.as_ref()),
                         sender,
                         class,
                         report: e.msg.get("report") == Some(&Value::Bool(true)),

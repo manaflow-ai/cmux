@@ -22,6 +22,22 @@
 use super::lane_reports::Report;
 use super::*;
 
+/// The session that asked, as the daemon bound the send to it: the `fromSessionId` of a
+/// verified `session_message` (the daemon writes that kind itself, `server/requests.rs`), or of a
+/// verified provenance whose `from` names the same session. Never a `from` a caller wrote alone:
+/// a forged `from: <victim>` would put the reply, and a turn, in the victim's chat (review B1 of
+/// #39055).
+pub(super) fn asker_of(provenance: Option<&Value>) -> Option<String> {
+    let p = provenance?;
+    if p.get(crate::prompt_provenance::VERIFIED).and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let bound = crate::prompt_provenance::sender_of(Some(p)).0.filter(|id| !id.is_empty())?;
+    let daemons = p.get("kind").and_then(Value::as_str) == Some("session_message");
+    let same = super::inbox::sender_session(Some(p)).as_deref() == Some(bound.as_str());
+    (daemons || same).then_some(bound)
+}
+
 /// A reply due to the session that asked: its asker, the asking subagent (`{id, type}`) and the
 /// message it answers.
 #[derive(Debug, Clone)]
