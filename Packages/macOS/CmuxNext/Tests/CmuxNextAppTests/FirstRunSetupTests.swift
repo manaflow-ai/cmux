@@ -249,7 +249,7 @@ import Testing
         let setup = FirstRunSetup(defaults: try defaults())
         let source = HeldInstallSource()
         let environment = SetupCardEnvironment(account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in },
-                                               openAgents: {})
+                                               openAgents: {}, historySources: { false }, importHistory: { false })
         let first = SetupCardPageProvider(setup: setup, agents: source, environment: environment)
         await until { first.agents.loaded }
         let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }
