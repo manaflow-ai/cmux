@@ -598,8 +598,10 @@ pub struct MadeWorktree {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin: Option<crate::cwd_pin::CwdPin>,
     /// Nanoseconds since the epoch at which the folder was created, where the file system says.
+    /// A u64 (good to the year 2554): serde's untagged buffer (`or_path`) holds no u128, and a
+    /// lineage it cannot read hides the whole chat from every list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub born: Option<u128>,
+    pub born: Option<u64>,
     pub branch: String,
     /// The commit it was made from, the base its change is read against (`_acpmux/plan/compare`):
     /// recorded here, where no request writes it, not in the `planBuildBase` tag an agent can.
@@ -626,9 +628,9 @@ impl MadeWorktree {
     }
 
     /// The creation time of the folder `held` is open on, in nanoseconds since the epoch.
-    pub fn born_of(held: &File) -> Option<u128> {
+    pub fn born_of(held: &File) -> Option<u64> {
         let created = held.metadata().ok()?.created().ok()?;
-        created.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_nanos())
+        u64::try_from(created.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos()).ok()
     }
 }
 
