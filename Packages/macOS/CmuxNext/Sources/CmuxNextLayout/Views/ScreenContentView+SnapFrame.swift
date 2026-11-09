@@ -33,15 +33,38 @@ extension ScreenContentView {
             host.drawAhead(sizeChange: CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height), keyPress: keyPress)
         }
         guard resized else { return false }
+        // A press while a press's snap waits keeps its count: the wait stays bounded under a held key.
+        if !frameInput.snapWaitsForContent { frameInput.snapRefreshesWaited = 0 }
+        frameInput.snapAwaitsPrograms = keyPress
         (frameInput.snapWaitsForContent, frameInput.presentationWaiting) = (true, true)
         context.requestFrames()
         return true
     }
 
+    /// Whether a key press's held snap waits on at this frame tick (RESIZE P0 20; films px-keys-held-2-s1r-claude under
+    /// Reduce Motion, cmux21 1x 120 Hz): the press's grid went to each resized terminal's program with its size drawn
+    /// ahead, and a full-screen program that has not redrawn at it by the tick would show its old picture in the new pane
+    /// (the terminal's presenter keeps its old size and picture for the redraw, while the pane, its divider and its ground
+    /// take the new size: the program's rules and status line end at the old width for a refresh). So the snap waits with
+    /// the terminal, as a key spring's frames do (``PaneMotionHoldFollowing/aheadOfFollowAwaitsContent(refreshesWaited:)``,
+    /// each content bounds its wait), and the tick that shows it shows the redraw with the new size in one commit. A
+    /// structural snap (a split, a close, a zoom) never waits here: its grid goes when it shows (m58). Counts this tick.
+    func heldSnapAwaitsContent() -> Bool {
+        guard frameInput.snapWaitsForContent, frameInput.snapAwaitsPrograms, window != nil, !isHiddenOrHasHiddenAncestor
+        else { return false }
+        frameInput.snapRefreshesWaited += 1
+        let waited = frameInput.snapRefreshesWaited
+        for pane in paneFrames.keys {
+            guard let host = context.hosts[pane], host.superview === self else { continue }
+            if host.snapAwaitsContent(refreshesWaited: waited) { return true }
+        }
+        return false
+    }
+
     /// The frame tick (or a settle: the screen parks, Reduce Motion lands everything) shows the held snap.
     func presentHeldSnap() {
         guard frameInput.snapWaitsForContent else { return }
-        frameInput.snapWaitsForContent = false
+        (frameInput.snapWaitsForContent, frameInput.snapAwaitsPrograms) = (false, false)
         applyPresentation()
         releaseUntakenAhead()
     }

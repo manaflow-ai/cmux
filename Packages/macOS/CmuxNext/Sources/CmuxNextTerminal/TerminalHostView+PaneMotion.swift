@@ -82,6 +82,15 @@ extension TerminalHostView: PaneMotionHoldFollowing {
         needsLayout = true
     }
 
+    /// A key press's snap (Reduce Motion, RESIZE P0 20) waits while the surface waits for its program's redraw at the
+    /// grid that went with the size drawn ahead for it (``TerminalSurfaceView/aheadAwaitsProgram(refreshesWaited:)``), so
+    /// the pane never shows its new size with the program's old picture. A snapped split's, close's or zoom's size
+    /// (render only) never waits.
+    public func aheadOfFollowAwaitsContent(refreshesWaited: Int) -> Bool {
+        guard aheadOfKeyResize, !isHidden, let current else { return false }
+        return current.aheadAwaitsProgram(refreshesWaited: refreshesWaited)
+    }
+
     /// Whether the host is in a content area that holds for a key resize and will hand it the follow in the area's next
     /// layout pass (a parked tab shown mid-hold: its surface is shown, and joins, a pass before that).
     var joinsAreaKeyHold: Bool { followedHold == nil && (superview as? PaneContentAreaView)?.hold != nil }

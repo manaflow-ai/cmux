@@ -123,6 +123,20 @@ extension TerminalSurfaceView {
         return TerminalFramePresenter.resizeHoldTicks
     }
 
+    /// Whether a key press's snap waits on for this view (RESIZE P0 20): a size drawn ahead whose grid went to a
+    /// full-screen program (``programHoldTicks``) has no frame of the program's redraw at it yet (`READY` is the size only;
+    /// `PENDING` and `HELD` no frame), and the snap waited fewer than the hold's refreshes (`refreshesWaited`, the tick
+    /// asking included): the presenter would keep this view at its old size and picture in the snap's new pane until then.
+    func aheadAwaitsProgram(refreshesWaited: Int) -> Bool {
+        guard frameOwnership.ahead != nil else { return false }
+        let ticks = programHoldTicks
+        guard ticks > 0, refreshesWaited >= 0, UInt64(refreshesWaited) < ticks else { return false }
+        switch hostFrame(present: false) {
+        case GHOSTTY_HOST_FRAME_READY, GHOSTTY_HOST_FRAME_PENDING, GHOSTTY_HOST_FRAME_HELD: return true
+        default: return false
+        }
+    }
+
     /// Its pane's spring gives this view `size` at the next refresh (``TerminalHostView`` `drawAhead(nextHostSize:)`): the
     /// size goes to Ghostty after this turn's pass, so the renderer draws it during the refresh. Hidden or parked: nothing.
     func drawAhead(_ size: CGSize) { // perf-hot: 1ms motion-frame (each frame of a key resize)

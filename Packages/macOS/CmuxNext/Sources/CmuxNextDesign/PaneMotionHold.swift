@@ -66,6 +66,12 @@ public protocol PaneMotionHoldFollowing: NSView {
     /// P0 14): a size drawn ahead that the change's placement did not take goes now. Until then only a placement at a new
     /// size may take it or drop it.
     func aheadOfFollowShown()
+    /// Whether a key press's snap must keep waiting before it shows this follower's size drawn ahead
+    /// (``drawAheadOfFollow(nextHostSize:keyPress:)`` with `keyPress`; Reduce Motion, RESIZE P0 20): its producer asked
+    /// the program to redraw at the new size and has no frame of that redraw yet. `refreshesWaited`: the frame ticks the
+    /// snap waited so far, counting the one asking (1 at the first). The follower bounds its own wait: false once it
+    /// waited as long as it may.
+    func aheadOfFollowAwaitsContent(refreshesWaited: Int) -> Bool
 }
 
 public extension PaneMotionHoldFollowing {
@@ -73,4 +79,5 @@ public extension PaneMotionHoldFollowing {
     func drawAhead(nextHostSize: CGSize) {}
     func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool) {}
     func aheadOfFollowShown() {}
+    func aheadOfFollowAwaitsContent(refreshesWaited: Int) -> Bool { false }
 }
