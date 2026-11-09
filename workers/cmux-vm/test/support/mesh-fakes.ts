@@ -25,6 +25,8 @@ export interface FakeTunnel {
   readonly ipv4: string;
   /** Changes on every key rotation, as the provider's does. */
   readonly serverPublicKey?: string;
+  readonly slug?: string;
+  readonly displayName?: string;
 }
 
 export interface FakeRule {
@@ -47,6 +49,8 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const base = makeMemoryMeshStore();
   /** The next N rule records fail (the provider rule exists, its row does not). */
   let recordFailures = 0;
+  /** The next N intent commits fail (the tunnel and its ownership rows exist, the device row does not). */
+  let commitFailures = 0;
   let inventoryRead: (() => void) | null = null;
   const failingLayer = Layer.effect(
     MeshStore,
@@ -54,6 +58,13 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       ...inner,
       listDevices: (tenantId: Parameters<typeof inner.listDevices>[0], meshId: string) =>
         inner.listDevices(tenantId, meshId).pipe(Effect.tap(() => Effect.sync(() => { inventoryRead?.(); }))),
+      commitDeviceIntent: (...args: Parameters<typeof inner.commitDeviceIntent>) => {
+        if (commitFailures > 0) {
+          commitFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "intent.commit", cause: "injected" }));
+        }
+        return inner.commitDeviceIntent(...args);
+      },
       recordRule: (tenantId: Parameters<typeof inner.recordRule>[0], rule: Parameters<typeof inner.recordRule>[1]) => {
         if (recordFailures > 0) {
           recordFailures -= 1;
@@ -94,6 +105,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   let networkHold: Promise<void> | null = null, networkHeld = false;
   const networkWaiters: Array<() => void> = [];
   let tunnelHold: Promise<void> | null = null, tunnelHeld = false;
+  let tunnelLandHold: Promise<void> | null = null, tunnelLostReplies = 0;
   const tunnelWaiters: Array<() => void> = [];
   const tunnels = new Map<string, FakeTunnel>();
   const rules = new Map<string, FakeRule>();
@@ -132,6 +144,8 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     clientAddressV4: "100.64.0.1/32",
     clientAddressV6: "fd00::1/128",
     routes: tunnel.routes,
+    slug: tunnel.slug ?? null,
+    displayName: tunnel.displayName ?? null,
     clientConfig: `[Interface]\nPrivateKey = ${privateKey}\nAddress = 100.64.0.1/32\n`,
     clientPrivateKey: privateKey,
     attachments: [{ vpcId: tunnel.vpc, address: tunnel.ipv4, ipv4: tunnel.ipv4, vpcCidr: "", allowedIps: [], createdAt: "2026-10-07T00:00:00Z" }],
@@ -204,6 +218,14 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     }
     if (path === "/v5/tunnels" && method === "POST") {
       if (state.tunnelCreateStatus !== null) return json({ message: "injected failure" }, state.tunnelCreateStatus);
+      // A create held before it lands: the provider has not made the tunnel yet.
+      if (tunnelLandHold !== null) {
+        tunnelHeld = true;
+        for (const wake of tunnelWaiters.splice(0)) wake();
+        await tunnelLandHold;
+      }
+      const tunnelSlug = typeof fields["slug"] === "string" ? fields["slug"] : undefined;
+      if (tunnelSlug !== undefined && [...tunnels.values()].some((tunnel) => tunnel.slug === tunnelSlug)) return json({ message: "slug in use" }, 409);
       const attach = Array.isArray(fields["vpcs"]) ? fields["vpcs"][0] : undefined;
       const vpc = typeof attach === "object" && attach !== null && "vpc" in attach && typeof attach.vpc === "string" ? attach.vpc : "";
       if (!vpcs.has(vpc)) return json({ message: "no such network" }, 404);
@@ -216,8 +238,15 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
         routes,
         vpc,
         ipv4: `10.128.0.${hostCounter++}`,
+        ...(tunnelSlug === undefined ? {} : { slug: tunnelSlug }),
+        ...(typeof fields["displayName"] === "string" ? { displayName: fields["displayName"] } : {}),
       };
       tunnels.set(tunnel.id, tunnel);
+      // The tunnel exists, but its reply is lost (a timeout at the Worker).
+      if (tunnelLostReplies > 0) {
+        tunnelLostReplies -= 1;
+        return json({ message: "gateway timeout" }, 504);
+      }
       // A held create has made the tunnel but not answered yet: the enroll's commit comes late.
       if (tunnelHold !== null) {
         tunnelHeld = true;
@@ -242,9 +271,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     }
     const tunnelMatch = /^\/v5\/tunnels\/([^/]+)$/u.exec(path);
     if (tunnelMatch !== null) {
-      const id = decodeURIComponent(tunnelMatch[1] ?? "");
-      const tunnel = tunnels.get(id);
+      const idOrSlug = decodeURIComponent(tunnelMatch[1] ?? "");
+      const tunnel = tunnels.get(idOrSlug) ?? [...tunnels.values()].find((candidate) => candidate.slug === idOrSlug);
       if (tunnel === undefined) return json({ message: "not found" }, 404);
+      const id = tunnel.id;
       if (method === "GET") return json(tunnelBody(tunnel, ""));
       if (method === "DELETE") {
         if (state.tunnelDeleteStatus !== null) return json({ message: "injected failure" }, state.tunnelDeleteStatus);
@@ -354,7 +384,16 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       tunnelHold = new Promise<void>((resolve) => { release = () => { tunnelHold = null; resolve(); }; });
       return () => release();
     },
-    /** Resolves once a tunnel create is stalled by holdTunnelCreates (the tunnel exists). */
+    /** Tunnel creates stall before the provider makes the tunnel, until the returned function is called. */
+    holdTunnelLanding(): () => void {
+      let release = () => {};
+      tunnelHeld = false;
+      tunnelLandHold = new Promise<void>((resolve) => { release = () => { tunnelLandHold = null; resolve(); }; });
+      return () => release();
+    },
+    /** The next `times` tunnel creates make the tunnel and then answer 504, as a lost reply. */
+    loseTunnelReplies(times: number) { tunnelLostReplies = times; },
+    /** Resolves once a tunnel create is stalled by holdTunnelCreates (the tunnel exists) or holdTunnelLanding (it does not yet). */
     tunnelCreateHeld(): Promise<void> {
       return tunnelHeld ? Promise.resolve() : new Promise<void>((resolve) => tunnelWaiters.push(resolve));
     },
@@ -364,6 +403,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
       if (client === null || providerFetch === null) throw new Error("mesh client has not been composed");
       Object.assign(client, makeUpstreamMesh({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: providerFetch }));
+    },
+    /** The next `times` intent commits fail after the provider created the tunnel. */
+    failIntentCommits(times: number) {
+      commitFailures = times;
     },
     /** The next `times` rule records fail after the provider created the rule. */
     failRuleRecords(times: number) {

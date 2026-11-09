@@ -2,7 +2,8 @@
  * Enroll intents (migration 0018). A caller keys an enroll by its own intentId; a revoke by that intent writes a
  * tombstone and deletes the device it made. The tombstone and the device insert meet on one row, so a create that
  * commits after the revoke (its provider call can take minutes) refuses with 409 mesh.device.intent_revoked and
- * deletes the tunnel it made: an empty device list after a revoke is final, whatever the timing.
+ * deletes the tunnel it made. Each create attempt keeps its own row until its tunnel is confirmed gone (found at the
+ * provider by its slug when a reply was lost), and the revoke's 200 waits for every one of them.
  */
 import { Schema } from "effect";
 import { afterEach, beforeEach, expect, it } from "vitest";
@@ -70,15 +71,19 @@ it("refuses an enroll after its intent was revoked, creating nothing", async () 
   expect(await listed(admin, mesh)).toEqual([]);
 });
 
-it("refuses a create that commits after the revoke and deletes the tunnel it already made", async () => {
+it("finds a late create's tunnel by its slug while the reply is held, deletes it, and the late commit refuses", async () => {
   const { admin, mesh } = await setup();
   const release = h.mesh.holdTunnelCreates();
   const pending = enroll(admin, mesh, "slow-intent");
   await h.mesh.tunnelCreateHeld();
   expect(liveTunnels()).toBe(1);
 
-  // The create is between its claim and its commit: the tombstone is written, and the answer says to retry.
-  expect((await revoke(admin, mesh, "slow-intent")).status).toBe(503);
+  // The provider made the tunnel but its reply has not reached the create: the revoke finds it at the provider and
+  // deletes it, so its 200 is true and final.
+  const revoked = await revoke(admin, mesh, "slow-intent");
+  expect(revoked.status).toBe(200);
+  expect(Schema.decodeUnknownSync(Revocation)(await revoked.json())).toEqual({ deleted: true });
+  expect(liveTunnels()).toBe(0);
   release();
 
   const late = await pending;
@@ -86,11 +91,30 @@ it("refuses a create that commits after the revoke and deletes the tunnel it alr
   expect(await codeOf(late)).toBe("mesh.device.intent_revoked");
   expect(liveTunnels()).toBe(0);
   expect(await listed(admin, mesh)).toEqual([]);
-  expect(h.mesh.store.devices).toHaveLength(0);
+  expect(h.mesh.store.devices.filter((row) => row.deletedAt === null)).toHaveLength(0);
   expect(h.resources.filter((row) => row.kind === "device" || row.kind === "tunnel").every((row) => h.isDeleted(row.cmuxId))).toBe(true);
-  // Now the revoke's answer is final, and the tombstone holds.
   expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(admin, mesh, "slow-intent")).json())).toEqual({ deleted: false });
   expect(await codeOf(await enroll(admin, mesh, "slow-intent"))).toBe("mesh.device.intent_revoked");
+});
+
+it("answers 503, never a final 200, while a sent create has not landed, also past the 10-minute claim window", async () => {
+  const { admin, mesh } = await setup();
+  const release = h.mesh.holdTunnelLanding();
+  const pending = enroll(admin, mesh, "held-intent");
+  await h.mesh.tunnelCreateHeld();
+  expect(liveTunnels()).toBe(0);
+  expect((await revoke(admin, mesh, "held-intent")).status).toBe(503);
+  // The claim and its send are 11 minutes old: age alone proves nothing, so the answer is still 503.
+  for (const attempt of h.mesh.store.deviceIntentAttempts()) {
+    attempt.createdAt = new Date(attempt.createdAt.getTime() - 11 * 60_000);
+    if (attempt.sentAt !== null) attempt.sentAt = new Date(attempt.sentAt.getTime() - 11 * 60_000);
+  }
+  expect((await revoke(admin, mesh, "held-intent")).status).toBe(503);
+  release();
+  // The create lands late, refuses at its commit and deletes its tunnel; only then is the revoke's 200 final.
+  expect(await codeOf(await pending)).toBe("mesh.device.intent_revoked");
+  expect(liveTunnels()).toBe(0);
+  expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(admin, mesh, "held-intent")).json())).toEqual({ deleted: false });
 });
 
 it("keeps a late create's tunnel for the revoke to delete when the provider refuses its delete", async () => {
@@ -98,13 +122,15 @@ it("keeps a late create's tunnel for the revoke to delete when the provider refu
   const release = h.mesh.holdTunnelCreates();
   const pending = enroll(admin, mesh, "flaky-intent");
   await h.mesh.tunnelCreateHeld();
-  expect((await revoke(admin, mesh, "flaky-intent")).status).toBe(503);
   h.mesh.failTunnelDeletes(500);
+  // The revoke finds the tunnel but cannot delete it: 503.
+  expect((await revoke(admin, mesh, "flaky-intent")).status).toBe(503);
   release();
   expect(await codeOf(await pending)).toBe("mesh.device.intent_revoked");
-  // The tunnel is still up, and its ownership rows stay live so a revoke can delete it.
+  // The tunnel is still up, its ownership rows stay live, and its attempt stays open.
   expect(liveTunnels()).toBe(1);
   expect(h.resources.filter((row) => row.kind === "device" || row.kind === "tunnel").some((row) => !h.isDeleted(row.cmuxId))).toBe(true);
+  expect(h.mesh.store.deviceIntentAttempts().filter((attempt) => attempt.resolvedAt === null)).toHaveLength(1);
   expect(await listed(admin, mesh)).toEqual([]);
   // Every revoke retries the delete and answers 503 until it works, never a final 200 with the tunnel up.
   expect((await revoke(admin, mesh, "flaky-intent")).status).toBe(503);
@@ -116,6 +142,54 @@ it("keeps a late create's tunnel for the revoke to delete when the provider refu
   expect(liveTunnels()).toBe(0);
   expect(h.resources.filter((row) => row.kind === "device" || row.kind === "tunnel").every((row) => h.isDeleted(row.cmuxId))).toBe(true);
   expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(admin, mesh, "flaky-intent")).json())).toEqual({ deleted: false });
+});
+
+it("finds and deletes the tunnel of a create whose reply was lost, instead of calling it absent", async () => {
+  const { admin, mesh } = await setup();
+  h.mesh.loseTunnelReplies(1);
+  // The provider made the tunnel; the Worker saw a 504. The attempt stays open and the claim stays held.
+  expect((await enroll(admin, mesh, "lost-intent")).status).toBe(503);
+  expect(liveTunnels()).toBe(1);
+  expect(h.mesh.store.deviceIntentAttempts().filter((attempt) => attempt.resolvedAt === null)).toHaveLength(1);
+  expect(h.mesh.store.deviceIntents().find((row) => row.intentId === "lost-intent")?.deviceId).not.toBeNull();
+  const revoked = await revoke(admin, mesh, "lost-intent");
+  expect(revoked.status).toBe(200);
+  expect(Schema.decodeUnknownSync(Revocation)(await revoked.json())).toEqual({ deleted: true });
+  expect(liveTunnels()).toBe(0);
+  expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(admin, mesh, "lost-intent")).json())).toEqual({ deleted: false });
+
+  // A retry of a lost create deletes the tunnel the first try made before it creates its own.
+  h.mesh.loseTunnelReplies(1);
+  expect((await enroll(admin, mesh, "lost-retry")).status).toBe(503);
+  expect(liveTunnels()).toBe(1);
+  expect((await enroll(admin, mesh, "lost-retry")).status).toBe(201);
+  expect(liveTunnels()).toBe(1);
+  expect(await listed(admin, mesh)).toHaveLength(1);
+});
+
+it("keeps the claim of a create whose rollback failed, and a takeover keeps that attempt's cleanup tracked", async () => {
+  const { admin, mesh } = await setup();
+  h.mesh.failIntentCommits(1);
+  h.mesh.failTunnelDeletes(500);
+  // The commit fails after the tunnel exists, and so does its delete: the claim and the attempt stay.
+  expect((await enroll(admin, mesh, "rollback-intent")).status).toBe(503);
+  expect(liveTunnels()).toBe(1);
+  const first = h.mesh.store.deviceIntentAttempts().find((attempt) => attempt.intentId === "rollback-intent");
+  expect(first?.resolvedAt).toBeNull();
+  expect(h.mesh.store.deviceIntents().find((row) => row.intentId === "rollback-intent")?.deviceId).toBe(first?.deviceId);
+  // A retry takes the claim over but must delete the first attempt's tunnel first: while that fails it refuses, and the
+  // first attempt stays recorded and open.
+  expect((await enroll(admin, mesh, "rollback-intent")).status).toBe(503);
+  expect(h.mesh.store.deviceIntentAttempts().find((attempt) => attempt.deviceId === first?.deviceId)?.resolvedAt).toBeNull();
+  expect(liveTunnels()).toBe(1);
+  h.mesh.failTunnelDeletes(null);
+  const retried = await enroll(admin, mesh, "rollback-intent");
+  expect(retried.status).toBe(201);
+  expect(h.mesh.store.deviceIntentAttempts().find((attempt) => attempt.deviceId === first?.deviceId)?.resolvedAt).not.toBeNull();
+  expect(liveTunnels()).toBe(1);
+  // The revoke deletes the device the retry made; nothing of either attempt is left.
+  expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(admin, mesh, "rollback-intent")).json())).toEqual({ deleted: true });
+  expect(liveTunnels()).toBe(0);
 });
 
 it("never lets one member tombstone an intent another member claimed after it looked", async () => {
@@ -135,6 +209,24 @@ it("never lets one member tombstone an intent another member claimed after it lo
   // The other order is the intended one: an intent A tombstoned first is refused to B.
   expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(a, mesh, "first-a")).json())).toEqual({ deleted: false });
   expect(await codeOf(await enroll(b, mesh, "first-a", KEY_2))).toBe("mesh.device.intent_revoked");
+});
+
+it("refuses a revoke by an admin confined to other resources, in flight too, and writes nothing", async () => {
+  const { mesh } = await setup();
+  const member = await h.addKey(A, ["mesh:read", "mesh:join"]);
+  // An admin key limited to this mesh id: it reaches the mesh, but not the device another principal's create makes.
+  const confined = await h.addKey(A, ALL_SCOPES, { allowlist: [mesh] });
+  const release = h.mesh.holdTunnelLanding();
+  const pending = enroll(member, mesh, "confined-intent");
+  await h.mesh.tunnelCreateHeld();
+  // 404 before any 503: the authorization is decided in the tombstone's own write.
+  expect((await revoke(confined, mesh, "confined-intent")).status).toBe(404);
+  expect(h.mesh.store.deviceIntents().find((row) => row.intentId === "confined-intent")?.revokedAt).toBeNull();
+  release();
+  expect((await pending).status).toBe(201);
+  expect((await revoke(confined, mesh, "confined-intent")).status).toBe(404);
+  expect(h.mesh.store.deviceIntents().find((row) => row.intentId === "confined-intent")?.revokedAt).toBeNull();
+  expect(liveTunnels()).toBe(1);
 });
 
 it("answers the same device for a repeat with the same intentId, and 409 for other keys", async () => {

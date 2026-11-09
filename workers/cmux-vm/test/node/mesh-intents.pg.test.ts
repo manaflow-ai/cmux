@@ -1,6 +1,7 @@
 /**
- * Enroll intents (migration 0018) against the real migration on an in-process Postgres (PGlite): the claim, the
- * commit that is the device insert, the tombstone, the release, and their expiries.
+ * Enroll intents (migration 0018) against the real migration on an in-process Postgres (PGlite): the claim and its
+ * attempt row, the send fence, the commit that is the device insert, the tombstone and its authorization, the release,
+ * and the expiry.
  */
 import { PGlite } from "@electric-sql/pglite";
 import { Effect, Option } from "effect";
@@ -12,7 +13,7 @@ import mesh from "../../migrations/0004_cmux_vm_mesh.sql?raw";
 import meshM2 from "../../migrations/0005_cmux_vm_mesh_m2.sql?raw";
 import meshM3 from "../../migrations/0006_cmux_vm_mesh_m3.sql?raw";
 import deviceIntents from "../../migrations/0018_cmux_vm_mesh_device_intents.sql?raw";
-import { INTENT_STALE_CLAIM_MS, INTENT_TOMBSTONE_MS, intentState, sqlDeviceIntents, type DeviceIntentStore } from "../../src/db/mesh-intents.ts";
+import { INTENT_TOMBSTONE_MS, intentState, sqlDeviceIntents, type DeviceIntentStore } from "../../src/db/mesh-intents.ts";
 import type { MeshDeviceRow } from "../../src/db/mesh.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { newDeviceId, newMeshId, newTunnelId, TenantId } from "../../src/lib/ids.ts";
@@ -23,7 +24,7 @@ const later = (ms: number) => new Date(at.getTime() + ms);
 let pg: PGlite;
 let store: DeviceIntentStore;
 const run = <A>(effect: Effect.Effect<A, StoreError>) => Effect.runPromise(effect);
-const owner = { ref: "key:x", labels: {}, admin: false };
+const owner = { ref: "key:x", labels: {}, admin: false, allowlist: null };
 const revokeAs = async (meshId: string, intentId: string, when: Date, caller = owner) => {
   const row = await run(store.revokeDeviceIntent(A, meshId, intentId, caller, when));
   if (Option.isNone(row)) throw new Error("revoke refused");
@@ -50,16 +51,21 @@ const deviceRow = (meshId: string, deviceId: string): MeshDeviceRow => ({
   createdAt: at,
 });
 const devicesOf = async () => (await pg.query("SELECT device_cmux_id FROM cmux_vm.mesh_devices")).rows;
+const claim = (meshId: string, intentId: string, deviceId: string, when: Date, by = "key:x", labels: Record<string, string> = {}) =>
+  run(store.claimDeviceIntent(A, meshId, intentId, { deviceId, tunnelId: newTunnelId(), createdBy: by, labels }, when));
+const keyOf = (meshId: string, intentId: string, deviceId: string) => ({ tenantId: A, meshId, intentId, deviceId });
+const openOf = async (meshId: string, intentId: string) => (await run(store.listOpenAttempts(A, meshId, intentId))).map((attempt) => attempt.deviceId);
 
 describe("mesh device intents", () => {
   it("commits the device row only for the live claim, and a tombstone before the commit inserts nothing", async () => {
     const meshId = newMeshId();
     const first = newDeviceId();
-    expect(await run(store.claimDeviceIntent(A, meshId, "i-1", { deviceId: first, createdBy: "key:x", labels: {} }, at))).toBe(true);
-    // A second claim while the first is live is refused.
-    expect(await run(store.claimDeviceIntent(A, meshId, "i-1", { deviceId: newDeviceId(), createdBy: "key:x", labels: {} }, later(1)))).toBe(false);
+    expect(await claim(meshId, "i-1", first, at)).toBe(true);
+    // A second claim while the first is live is refused, whatever its age: a claim's age never frees it.
+    expect(await claim(meshId, "i-1", newDeviceId(), later(1))).toBe(false);
+    expect(await claim(meshId, "i-1", newDeviceId(), later(INTENT_TOMBSTONE_MS))).toBe(false);
     const revoked = await revokeAs(meshId, "i-1", later(2));
-    expect(revoked).toMatchObject({ deviceId: first, committedAt: null });
+    expect(revoked).toMatchObject({ deviceId: first, committedAt: null, attemptDeviceIds: [first] });
     expect(revoked.revokedAt).not.toBeNull();
     expect(await run(store.commitDeviceIntent(A, "i-1", deviceRow(meshId, first), later(3)))).toBe(false);
     expect(await devicesOf()).toEqual([]);
@@ -71,7 +77,7 @@ describe("mesh device intents", () => {
   it("lets a revoke after the commit see the committed device", async () => {
     const meshId = newMeshId();
     const device = newDeviceId();
-    await run(store.claimDeviceIntent(A, meshId, "i-2", { deviceId: device, createdBy: "key:x", labels: {} }, at));
+    await claim(meshId, "i-2", device, at);
     expect(await run(store.commitDeviceIntent(A, "i-2", deviceRow(meshId, device), later(1)))).toBe(true);
     expect(await devicesOf()).toEqual([{ device_cmux_id: device }]);
     expect(intentState(await run(store.findDeviceIntent(A, meshId, "i-2")), later(2))).toBe("committed");
@@ -81,75 +87,102 @@ describe("mesh device intents", () => {
     expect(revoked.committedAt).not.toBeNull();
   });
 
-  it("frees a released claim and a stale one, and a stale create's commit then matches nothing", async () => {
+  it("orders the send and its resolution on the attempt row: a resolved attempt never sends, a sent one is never resolved unseen", async () => {
     const meshId = newMeshId();
     const first = newDeviceId();
-    await run(store.claimDeviceIntent(A, meshId, "i-3", { deviceId: first, createdBy: "key:x", labels: {} }, at));
-    await run(store.releaseDeviceIntent(A, meshId, "i-3", first));
-    expect(intentState(await run(store.findDeviceIntent(A, meshId, "i-3")), at)).toBe("absent");
+    await claim(meshId, "i-3", first, at);
+    expect(await run(store.resolveUnsentAttempt(keyOf(meshId, "i-3", first), later(1)))).toBe(true);
+    expect(await run(store.markAttemptSent(keyOf(meshId, "i-3", first), later(2)))).toBe(false);
+    // The other order: once sent, the unsent resolution writes nothing.
+    await run(store.releaseDeviceIntent(keyOf(meshId, "i-3", first)));
     const second = newDeviceId();
-    expect(await run(store.claimDeviceIntent(A, meshId, "i-3", { deviceId: second, createdBy: "key:x", labels: {} }, later(1)))).toBe(true);
+    expect(await claim(meshId, "i-3", second, later(3))).toBe(true);
+    expect(await run(store.markAttemptSent(keyOf(meshId, "i-3", second), later(4)))).toBe(true);
+    expect(await run(store.resolveUnsentAttempt(keyOf(meshId, "i-3", second), later(5)))).toBe(false);
+    expect(await openOf(meshId, "i-3")).toEqual([second]);
+    // A revoked intent's attempt cannot send.
     const third = newDeviceId();
-    expect(await run(store.claimDeviceIntent(A, meshId, "i-3", { deviceId: third, createdBy: "key:x", labels: {} }, later(INTENT_STALE_CLAIM_MS)))).toBe(false);
-    expect(await run(store.claimDeviceIntent(A, meshId, "i-3", { deviceId: third, createdBy: "key:x", labels: {} }, later(INTENT_STALE_CLAIM_MS + 2)))).toBe(true);
-    expect(await run(store.commitDeviceIntent(A, "i-3", deviceRow(meshId, second), later(INTENT_STALE_CLAIM_MS + 3)))).toBe(false);
-    expect(await run(store.commitDeviceIntent(A, "i-3", deviceRow(meshId, third), later(INTENT_STALE_CLAIM_MS + 3)))).toBe(true);
+    const meshB = newMeshId();
+    await claim(meshB, "i-3", third, at);
+    await revokeAs(meshB, "i-3", later(1));
+    expect(await run(store.markAttemptSent(keyOf(meshB, "i-3", third), later(2)))).toBe(false);
+  });
+
+  it("keeps every attempt as its own row: a takeover never replaces an earlier attempt's record", async () => {
+    const meshId = newMeshId();
+    const first = newDeviceId();
+    await claim(meshId, "i-4", first, at);
+    await run(store.markAttemptSent(keyOf(meshId, "i-4", first), later(1)));
+    await run(store.recordAttemptTunnel(keyOf(meshId, "i-4", first), "tun-upstream-1"));
+    await run(store.finishAttempt(keyOf(meshId, "i-4", first), later(2)));
+    // Its claim ended without resolving it (its tunnel delete failed): the next claim adds a row beside it.
+    await run(store.releaseDeviceIntent(keyOf(meshId, "i-4", first)));
+    const second = newDeviceId();
+    expect(await claim(meshId, "i-4", second, later(3))).toBe(true);
+    expect(await openOf(meshId, "i-4")).toEqual([first, second]);
+    const kept = await run(store.findAttempt(keyOf(meshId, "i-4", first)));
+    expect(Option.map(kept, (attempt) => [attempt.upstreamId, attempt.resolvedAt])).toEqual(Option.some(["tun-upstream-1", null]));
+    // The old attempt can no longer commit.
+    expect(await run(store.commitDeviceIntent(A, "i-4", deviceRow(meshId, first), later(4)))).toBe(false);
+    expect((await revokeAs(meshId, "i-4", later(5))).attemptDeviceIds).toEqual([first, second]);
+    await run(store.resolveAttempt(keyOf(meshId, "i-4", first), later(6)));
+    expect(await openOf(meshId, "i-4")).toEqual([second]);
   });
 
   it("keeps a tombstone 7 days, written before any enroll or by a device's delete", async () => {
     const meshId = newMeshId();
-    await revokeAs(meshId, "i-4", at);
-    expect(await run(store.claimDeviceIntent(A, meshId, "i-4", { deviceId: newDeviceId(), createdBy: "key:x", labels: {} }, later(INTENT_TOMBSTONE_MS - 1)))).toBe(false);
-    expect(await run(store.claimDeviceIntent(A, meshId, "i-4", { deviceId: newDeviceId(), createdBy: "key:x", labels: {} }, later(INTENT_TOMBSTONE_MS)))).toBe(true);
+    await revokeAs(meshId, "i-5", at);
+    expect(await claim(meshId, "i-5", newDeviceId(), later(INTENT_TOMBSTONE_MS - 1))).toBe(false);
+    expect(await claim(meshId, "i-5", newDeviceId(), later(INTENT_TOMBSTONE_MS))).toBe(true);
 
     const device = newDeviceId();
-    await run(store.claimDeviceIntent(A, meshId, "i-5", { deviceId: device, createdBy: "key:x", labels: {} }, at));
-    await run(store.commitDeviceIntent(A, "i-5", deviceRow(meshId, device), at));
+    await claim(meshId, "i-6", device, at);
+    await run(store.commitDeviceIntent(A, "i-6", deviceRow(meshId, device), at));
     await run(store.revokeIntentOfDevice(A, device, later(1)));
-    expect(intentState(await run(store.findDeviceIntent(A, meshId, "i-5")), later(2))).toBe("revoked");
+    expect(intentState(await run(store.findDeviceIntent(A, meshId, "i-6")), later(2))).toBe("revoked");
     // A release never lifts a tombstone.
-    await run(store.releaseDeviceIntent(A, meshId, "i-5", device));
-    expect(intentState(await run(store.findDeviceIntent(A, meshId, "i-5")), later(3))).toBe("revoked");
-    expect(Option.isNone(await run(store.findDeviceIntent(TenantId.make("team_bravo"), meshId, "i-5")))).toBe(true);
+    await run(store.releaseDeviceIntent(keyOf(meshId, "i-6", device)));
+    expect(intentState(await run(store.findDeviceIntent(A, meshId, "i-6")), later(3))).toBe("revoked");
+    expect(Option.isNone(await run(store.findDeviceIntent(TenantId.make("team_bravo"), meshId, "i-6")))).toBe(true);
   });
 
-  it("writes a revoke only for the claimant or a tenant admin carrying the row's labels", async () => {
+  it("writes a revoke only for the claimant or a tenant admin carrying the row's labels and allowed every attempt's device", async () => {
     const meshId = newMeshId();
     const labels = { role: "cloud" };
-    await run(store.claimDeviceIntent(A, meshId, "i-6", { deviceId: newDeviceId(), createdBy: "key:b", labels }, at));
-    // Another principal, an admin without the labels, and an admin with other labels change nothing.
-    for (const caller of [{ ref: "key:a", labels: {}, admin: false }, { ref: "key:a", labels: { role: "other" }, admin: true }, { ref: "key:a", labels, admin: false }]) {
-      expect(Option.isNone(await run(store.revokeDeviceIntent(A, meshId, "i-6", caller, later(1))))).toBe(true);
-    }
-    expect((await run(store.findDeviceIntent(A, meshId, "i-6"))).pipe(Option.map((row) => row.revokedAt))).toEqual(Option.some(null));
-    // An admin without required labels may (the row's labels contain the empty set), and so may the claimant.
-    expect((await revokeAs(meshId, "i-6", later(2), { ref: "key:a", labels: {}, admin: true })).revokedAt).not.toBeNull();
-    expect((await revokeAs(meshId, "i-6", later(3), { ref: "key:b", labels, admin: false })).createdBy).toBe("key:b");
-    // An unused intent's tombstone records its revoker, whom a later claim by someone else cannot displace.
-    const tomb = await revokeAs(meshId, "i-7", at, { ref: "key:a", labels: {}, admin: false });
-    expect(tomb).toMatchObject({ createdBy: "key:a", deviceId: null });
-    expect(await run(store.claimDeviceIntent(A, meshId, "i-7", { deviceId: newDeviceId(), createdBy: "key:b", labels: {} }, later(1)))).toBe(false);
-  });
-
-  it("keeps a refused create's tunnel for cleanup until it is settled, and never reclaims it meanwhile", async () => {
-    const meshId = newMeshId();
     const device = newDeviceId();
-    const tunnel = newTunnelId();
-    await run(store.claimDeviceIntent(A, meshId, "i-8", { deviceId: device, createdBy: "key:x", labels: {} }, at));
-    await revokeAs(meshId, "i-8", later(1));
-    await run(store.markDeviceIntentCleanup(A, meshId, "i-8", device, tunnel));
-    const pending = await revokeAs(meshId, "i-8", later(2));
-    expect(pending).toMatchObject({ deviceId: device, cleanupTunnelId: tunnel, committedAt: null });
-    // Not even after the tombstone expires: the tunnel is still the intent's to delete.
-    expect(await run(store.claimDeviceIntent(A, meshId, "i-8", { deviceId: newDeviceId(), createdBy: "key:x", labels: {} }, later(INTENT_TOMBSTONE_MS + 1)))).toBe(false);
-    await run(store.settleDeviceIntent(A, meshId, "i-8", device));
-    expect(await revokeAs(meshId, "i-8", later(3))).toMatchObject({ deviceId: null, cleanupTunnelId: null });
+    await claim(meshId, "i-7", device, at, "key:b", labels);
+    // Another principal, an admin with other labels, a non-admin with the labels, and an admin confined to other
+    // resources (even the mesh itself) change nothing.
+    for (const caller of [
+      { ref: "key:a", labels: {}, admin: false, allowlist: null },
+      { ref: "key:a", labels: { role: "other" }, admin: true, allowlist: null },
+      { ref: "key:a", labels, admin: false, allowlist: null },
+      { ref: "key:a", labels: {}, admin: true, allowlist: [meshId] },
+    ]) {
+      expect(Option.isNone(await run(store.revokeDeviceIntent(A, meshId, "i-7", caller, later(1))))).toBe(true);
+    }
+    expect((await run(store.findDeviceIntent(A, meshId, "i-7"))).pipe(Option.map((row) => row.revokedAt))).toEqual(Option.some(null));
+    // An admin allowed the device may; so may an admin without required labels (the row's labels contain the empty
+    // set), and the claimant.
+    expect((await revokeAs(meshId, "i-7", later(2), { ref: "key:a", labels: {}, admin: true, allowlist: [meshId, device] })).revokedAt).not.toBeNull();
+    expect((await revokeAs(meshId, "i-7", later(3), { ref: "key:a", labels: {}, admin: true, allowlist: null })).revokedAt).not.toBeNull();
+    expect((await revokeAs(meshId, "i-7", later(4), { ref: "key:b", labels, admin: false, allowlist: null })).createdBy).toBe("key:b");
+    // An unused intent's tombstone records its revoker, whom a later claim by someone else cannot displace.
+    const tomb = await revokeAs(meshId, "i-8", at, { ref: "key:a", labels: {}, admin: false, allowlist: null });
+    expect(tomb).toMatchObject({ createdBy: "key:a", deviceId: null, attemptDeviceIds: [] });
+    expect(await claim(meshId, "i-8", newDeviceId(), later(1), "key:b")).toBe(false);
   });
 
   it("0018 is idempotent and refuses a malformed intent id", async () => {
     await pg.exec(deviceIntents);
     await expect(
       pg.query(`INSERT INTO cmux_vm.mesh_device_intents (tenant_id, mesh_cmux_id, intent_id, created_by, created_at) VALUES ('team_alpha', $1, 'has space', 'key:x', now())`, [newMeshId()]),
+    ).rejects.toThrow();
+    await expect(
+      pg.query(
+        `INSERT INTO cmux_vm.mesh_device_intent_attempts (tenant_id, mesh_cmux_id, intent_id, device_cmux_id, tunnel_cmux_id, created_at) VALUES ('team_alpha', $1, 'i', 'not-a-device', $2, now())`,
+        [newMeshId(), newTunnelId()],
+      ),
     ).rejects.toThrow();
   });
 });
