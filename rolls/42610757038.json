@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42610757038",
+  "recorded_at": "2026-11-09T11:51:32Z",
+  "reason": "cmux-tui 04f613d9ba79 changes the image's cmux-tui (pinned cac1d211c49c)",
+  "dry_run": false,
+  "cmux_tui": "04f613d9ba79731cb59d8fd82bc403947c2ea040",
+  "fixes": [
+    {
+      "sha": "04f613d9ba79731cb59d8fd82bc403947c2ea040",
+      "mergedAt": "2026-11-09T03:11:35-08:00",
+      "subject": "acpmux: a no-wait question's reply goes back to its asker (#39055)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T11:51:32Z",
+    "snapshot_id": "sh-14bca024b52546219cb303eb7bb3d597",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42610757038): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d502c9d1786677757ade978e74d4a3488e2b312f",
+    "image": "cloud-native-auto-04f613d9-42610757038-1",
+    "revision": "ci-42610757038-1",
+    "at": "2026-11-09T11:51:32Z"
+  },
+  "rolled_back": false
+}
