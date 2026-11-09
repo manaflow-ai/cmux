@@ -181,7 +181,7 @@ impl Supervisor {
         };
         let mut gesture = needs_gesture(&op);
         if op == "action.run" {
-            match actions::decide(params.get("id").and_then(Value::as_str)) {
+            match actions::decide_for(app, params.get("id").and_then(Value::as_str)) {
                 ActionDecision::Unknown => {
                     return Err(api(
                         "operation.unsupported",
