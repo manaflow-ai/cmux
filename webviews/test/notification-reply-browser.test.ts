@@ -133,8 +133,10 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
       const shut = await fields(page);
       expectFields("shut", shut);
       expect(shut.open).toBe(false);
-      const line = page.locator(`.acpmux-row[data-row-id="subagentDone:${AGENT}"] .cv-agentmsg__toggle`);
-      await line.click();
+      // The line's words open it, as a click anywhere on the line does (headerToggle.ts): in a narrow
+      // pane its first line, the toggle's own box, has given all its room away.
+      const words = page.locator(`.acpmux-row[data-row-id="subagentDone:${AGENT}"] .cv-agentmsg__words`).first();
+      await words.click();
       await page.waitForSelector(".cv-subagent-done__report");
       await settled(page);
       const opened = await fields(page);
@@ -142,7 +144,7 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
       expectFields(`opened at ${width}`, opened);
       // The same time, open or shut.
       expect(opened.time.text).toBe(shut.time.text);
-      await page.locator(`.acpmux-row[data-row-id="subagentDone:${AGENT}"] .cv-agentmsg__words`).first().hover();
+      await words.hover();
       await settled(page);
       expectFields(`opened and pointed at, at ${width}`, await fields(page));
       await page.close();

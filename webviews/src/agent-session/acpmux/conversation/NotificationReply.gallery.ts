@@ -129,9 +129,10 @@ const recording = (steps: Step[]) => ({
 /// Leo's sequence: the subagent ends with its report, and the agent's own one-line reply follows.
 export const withReply = () => events([...prompt, subagent("completed"), ...notified("bg-1", "subagent", CALL, REPLY)]);
 
-/// Opens the subagent's report from its line.
+/// Opens the subagent's report from its line's words (a click anywhere on the line opens it): in the
+/// narrow pane the first line, the toggle's own box, has no room left to click.
 export const openReport = async (ctx: PlayContext) => {
-  const toggle = { selector: ".cv-subagent-report-row .cv-agentmsg__toggle" };
+  const toggle = { selector: ".cv-subagent-report-row .cv-agentmsg__words" };
   await ctx.waitFor(() => ctx.document.querySelector(toggle.selector));
   await ctx.click(toggle);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-done__report") !== null);
