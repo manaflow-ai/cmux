@@ -597,3 +597,44 @@ fn a_parallel_kind_read_matches_one_at_a_time_and_stops_before_a_bad_segment() {
     drop(registry);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// The reducer record backfill asks for a flush of what it committed, in a
+/// slice that finishes the backfill too. An idle daemon answers no request,
+/// so nothing else would flush those commits, and the backfill of a large
+/// registry would pile up in the WAL.
+#[test]
+fn the_reducer_record_backfill_requests_a_flush_of_what_it_committed() {
+    let session = "reducer-record-backfill-flush";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-backfill-flush-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux(session, &root);
+    mux.stop_journal_maintenance();
+    mux.workspace_registry.lock().unwrap().append_journal_records_for_test(&mixed_stream(0));
+    seal_journal(&mux, "backfill_flush");
+    let database = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    let kept = || -> i64 {
+        rusqlite::Connection::open(&database)
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM journal_segment_reducer_records", [], |row| row.get(0))
+            .unwrap()
+    };
+    assert!(kept() > 0, "sealing kept the agent records");
+    // As for segments an older build sealed.
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute("DELETE FROM journal_segment_reducer_records", [])
+        .unwrap();
+    mux.request_registry_flush();
+    assert_eq!(mux.registry_connection.unrequested_commits_for_test(), 0);
+
+    assert!(!mux.backfill_sealed_reducer_records().unwrap(), "one slice backfills this journal");
+    assert!(kept() > 0, "the backfill kept the agent records again");
+    assert_eq!(
+        mux.registry_connection.unrequested_commits_for_test(),
+        0,
+        "the backfill's commits wait in the WAL for an unrelated request to flush them"
+    );
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}

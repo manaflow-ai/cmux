@@ -419,8 +419,15 @@ impl Mux {
     /// for about [`REDUCER_RECORD_BACKFILL_BUDGET`]. The cursor is durable,
     /// so a stopped daemon resumes where it was. Never at start: until a
     /// segment is filled, a kind-scoped read decodes it as before. True
-    /// while segments remain.
-    fn backfill_sealed_reducer_records(&self) -> anyhow::Result<bool> {
+    /// while segments remain. What the slice committed (kept records and
+    /// cursor moves) is flushed: no request answer follows to flush it, and
+    /// an idle daemon would leave the whole backfill in the WAL.
+    pub(super) fn backfill_sealed_reducer_records(&self) -> anyhow::Result<bool> {
+        let remains = self.backfill_sealed_reducer_records_slice();
+        remains
+    }
+
+    fn backfill_sealed_reducer_records_slice(&self) -> anyhow::Result<bool> {
         use crate::workspace_registry::session_journal::reducer_records::ReducerRecordBackfillStep;
         // The cleanup rebuilds every segment under a new id; rows written
         // now would be dropped with the old ones.
