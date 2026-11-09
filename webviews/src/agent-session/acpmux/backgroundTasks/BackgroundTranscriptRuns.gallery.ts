@@ -80,10 +80,10 @@ const helperView = (): AcpmuxRow[] => [
   activity(
     [
       ran("Open the PR", "gh pr create --fill", 28, 4),
-      ran("Read the review receipt", "glaeda-gh status pr 39121", 12, 2),
+      ran("Read the review receipt", "gh pr view 39121 --json reviews", 12, 2),
       tool("Wait for PR checks and review", "execute", "in_progress", {
         description: "Wait for PR checks and review",
-        command: "glaeda-gh wait pr 39121",
+        command: "gh pr checks 39121 --watch",
         startedAt: minutesAgo(2.4),
       }),
     ],
