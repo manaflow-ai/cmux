@@ -81,6 +81,7 @@ pub(crate) struct LoginEnv {
 
 /// The login keys a harness of `family` must not inherit: another family's own login, and the
 /// provider keys only multi-provider harnesses read ([`provider_key_foreign`]).
+#[cfg(test)]
 pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static str> + '_ {
     foreign_login_keys_for(family, None)
 }
