@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-08: a renamed workspace's name rolls as the agent chat's live line rolls a new tool call. Leo, verbatim: "i
+  feel like when workspaces get renamed (esp by agents) it should have that same fade in animation that the tool call
+  situation has...". `sidebar.workspaceTitleMotion` gains `roll`, its default: the old name rises 0.6 em, blurs and
+  fades out as the new rises in from below on `fadeIn` (`MotionGate.rollTitle`, CmuxNextDesign/Text/TitleRoll.swift).
+  A first name over the loading bar still arrives at once. Tab titles renamed by an agent or another device roll too.
 - 2026-11-07: pinning never renames a workspace. Lawrence, verbatim: "i pinned a workspace and it's name disappeared
   and went back to workspace-936". A workspace nobody named keeps the daemon's `workspace-N`; its list row shows the
   auto name the page face gives (`AppServices.sidebarPageFace`). Pinned (layout tiles), it leaves the list for a band
