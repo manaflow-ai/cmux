@@ -4474,8 +4474,14 @@ function TranscriptView({
       // An offset the scroller cannot take (a thread drawn above its layout at the very end) stays
       // drawn, as before; it goes home when the view is followed again.
       if (top < 0 || top > node.scrollHeight - node.clientHeight) return;
-      chase.stop();
+      const was = layoutScrollTop(node);
       writeAnchorScrollTop(node, top);
+      // A write the scroller did not take (a scroll of its own still easing in) keeps the chase drawn.
+      if (Math.abs(layoutScrollTop(node) - top) > 1) {
+        writeAnchorScrollTop(node, was);
+        return;
+      }
+      chase.stop();
       scrolledTo.current = { top: node.scrollTop, atLatest: false };
       scrollPacer.current?.cancel();
       setScrollAt(node.scrollTop, 0);
