@@ -451,6 +451,31 @@ pub(super) fn phases_line(
     )
 }
 
+/// The carriers line, appended only to the connect log after an attempt's
+/// phases line (and after each resume's route line):
+/// `carrier.routes machine=<vm_id> phase=<connect|reconnect|resume> [ssh=<on|no_candidate|no_tunnel|no_key>] carrier=<relay:0|ssh:0|none> outcome=<ok|error_code>`.
+/// `ssh` says whether the attempt had the ssh backup route and, when not,
+/// why it was left out (a resume rotates over the routes its dial built, so
+/// it has none). `carrier` is the route that carried the attempt or resume,
+/// `none` when it failed. It holds neither `cloud.connect` nor
+/// `carrier.phases`, so readers that pin those lines' shapes (cmuxterm-hq's
+/// start matrix) never take it for one of theirs.
+pub(super) fn routes_line(
+    machine: &str,
+    phase: Phase,
+    ssh: Option<&str>,
+    carrier: Option<&str>,
+    outcome: Option<Step>,
+) -> String {
+    let ssh = ssh.map_or_else(String::new, |ssh| format!(" ssh={ssh}"));
+    format!(
+        "carrier.routes machine={machine} phase={}{ssh} carrier={} outcome={}\n",
+        phase.name(),
+        carrier.unwrap_or("none"),
+        outcome.map_or("ok", Step::error_code),
+    )
+}
+
 /// `--answer-fd`: 0 (stdin) or a descriptor past stderr, in decimal.
 pub(super) fn parse_answer_fd(text: &str) -> Option<i32> {
     if !text.bytes().all(|b| b.is_ascii_digit()) || text.len() > 9 {

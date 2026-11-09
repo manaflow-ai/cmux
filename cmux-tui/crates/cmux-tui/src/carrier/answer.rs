@@ -1,7 +1,15 @@
 //! The carrier answer from cmux-platform (`POST /v1/cloud/machines/{id}/carrier`,
 //! cmux-platform#924 and #926): `{ok, value: {relay, slot, ticket,
-//! expires_at, grant?, daemon_key?}}`, and where it comes from. A dial needs
+//! expires_at, grant?, daemon_key?, ssh?}}`, and where it comes from. A dial needs
 //! `daemon_key`; a ticket-only refresh does not read it.
+//!
+//! `ssh` is the ssh backup carrier's candidate (cmux-platform `CarrierRoute.ts`,
+//! `SshEndpoint.ts` `sshCandidate`): `{host, port, user, hostKey}`, the
+//! machine's sshd on the team mesh, sent only to the machine's owner while
+//! the machine is a mesh member. A malformed one is dropped, never the
+//! answer: the relay works without it. Its key comes from
+//! `POST /v1/cloud/machines/{id}/ssh-endpoint` with `purpose: "carrier"`
+//! ([`CarrierSource::ssh_endpoint`]).
 //!
 //! A body with `noise_key` (base64url of the device's 32-byte Noise key)
 //! asks for a grant naming that key as well as the Connect ticket; an empty
@@ -55,6 +63,104 @@ pub(super) struct CarrierAnswer {
     /// (cmuxterm-hq#7976) for this machine and names its STUN servers. `None`
     /// (absent, or not an object): the desktop keeps every datagram on the stream.
     pub rd_link: Option<RdLink>,
+    /// `ssh`: the ssh backup carrier's candidate, when the platform sent a
+    /// well-formed one.
+    pub ssh: Option<SshCandidate>,
+}
+
+/// The answer's ssh candidate: the machine's sshd at its team mesh address.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SshCandidate {
+    /// An IP literal inside the team mesh (`cmux wg dial` dials literal IPs only).
+    pub host: std::net::IpAddr,
+    pub port: u16,
+    /// The login the carrier key is written for (`cmux`).
+    pub user: String,
+    /// `ssh-ed25519 <base64>`, the host key an earlier prepare read, or None.
+    /// The pin a dial writes is the ssh-endpoint answer's, which is fresh.
+    pub host_key: Option<String>,
+}
+
+/// A short-lived carrier key's route: `ssh-endpoint`'s answer with
+/// `purpose: "carrier"` (the key runs only the platform's `remote-link`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SshEndpoint {
+    pub host: std::net::IpAddr,
+    pub port: u16,
+    pub user: String,
+    /// `ssh-ed25519 <base64>`: the pin.
+    pub host_key: String,
+    /// Unix seconds: sshd refuses the key after this.
+    pub expires_at: u64,
+}
+
+/// A login name ssh and an authorized_keys line take as one word.
+fn ssh_user(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= 32
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+        && !text.starts_with('-')
+}
+
+/// `ssh-ed25519 <base64 of the 51-byte key blob>`, normalized (no comment).
+pub(super) fn ed25519_host_key(text: &str) -> Option<String> {
+    use base64::engine::general_purpose::STANDARD;
+    let mut words = text.split_whitespace();
+    let (Some("ssh-ed25519"), Some(blob)) = (words.next(), words.next()) else { return None };
+    let bytes = STANDARD.decode(blob).ok()?;
+    let prefix = [0, 0, 0, 11];
+    (bytes.len() == 51
+        && bytes[..4] == prefix
+        && &bytes[4..15] == b"ssh-ed25519"
+        && bytes[15..19] == [0, 0, 0, 32])
+    .then(|| format!("ssh-ed25519 {blob}"))
+}
+
+/// `ssh: {host, port, user, hostKey}`; anything malformed is no candidate.
+fn ssh_candidate(value: &Value) -> Option<SshCandidate> {
+    let ssh = value.get("ssh")?.as_object()?;
+    let host = ssh.get("host")?.as_str()?.parse().ok()?;
+    let port = u16::try_from(ssh.get("port")?.as_u64()?).ok().filter(|p| *p > 0)?;
+    let user = ssh.get("user")?.as_str().filter(|u| ssh_user(u))?.to_owned();
+    let host_key = match ssh.get("hostKey") {
+        None | Some(Value::Null) => None,
+        Some(key) => Some(ed25519_host_key(key.as_str()?)?),
+    };
+    Some(SshCandidate { host, port, user, host_key })
+}
+
+/// A 2xx `ssh-endpoint` body that is a live carrier key's route.
+fn carrier_key_route(body: &Value, now: u64) -> Option<SshEndpoint> {
+    if body.get("purpose").and_then(Value::as_str) != Some("carrier") {
+        return None;
+    }
+    let host = body.get("host")?.as_str()?.parse().ok()?;
+    let port = u16::try_from(body.get("port")?.as_u64()?).ok().filter(|p| *p > 0)?;
+    let user = body.get("username")?.as_str().filter(|u| ssh_user(u))?.to_owned();
+    let host_key = ed25519_host_key(body.get("hostPublicKey")?.as_str()?)?;
+    let expires_at = body.get("expiresAtUnix")?.as_u64().filter(|t| *t > now)?;
+    Some(SshEndpoint { host, port, user, host_key, expires_at })
+}
+
+/// Reads `ssh-endpoint`'s answer: 2xx is the bare `{host, port, username,
+/// hostPublicKey, expiresAtUnix, purpose}`, and it must say `purpose:
+/// "carrier"` (a platform without the purpose wrote a login key, which the
+/// carrier never uses) and not be expired at `now`. A refusal is `{ok:
+/// false, error: {code}}`, retryable on 408, 409 (the machine is starting),
+/// 429 and 5xx but 501 (sshd cannot take a short-lived key).
+pub(super) fn read_ssh_endpoint(
+    status: u16,
+    body: &Value,
+    now: u64,
+) -> Result<SshEndpoint, SourceError> {
+    if (200..300).contains(&status) {
+        return carrier_key_route(body, now)
+            .ok_or_else(|| SourceError::fatal("the ssh endpoint answer is not a carrier key's"));
+    }
+    let code =
+        body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str).unwrap_or("http");
+    let retryable = matches!(status, 408 | 409 | 429 | 500 | 502..=599);
+    Err(SourceError { retryable, detail: format!("cmux-platform answered {status} {code}") })
 }
 
 /// The desktop datagram link's settings from the carrier answer.
@@ -140,6 +246,7 @@ impl std::fmt::Debug for CarrierAnswer {
             .field("daemon_key", &self.daemon_key.is_some())
             .field("vmk", &self.vmk)
             .field("rd_link", &self.rd_link)
+            .field("ssh", &self.ssh)
             .finish_non_exhaustive()
     }
 }
@@ -152,11 +259,11 @@ pub(super) struct SourceError {
 }
 
 impl SourceError {
-    fn retry(detail: impl Into<String>) -> Self {
+    pub(super) fn retry(detail: impl Into<String>) -> Self {
         Self { retryable: true, detail: detail.into() }
     }
 
-    fn fatal(detail: impl Into<String>) -> Self {
+    pub(super) fn fatal(detail: impl Into<String>) -> Self {
         Self { retryable: false, detail: detail.into() }
     }
 }
@@ -235,6 +342,7 @@ pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
     let daemon_key = value.get("daemon_key").and_then(Value::as_str).and_then(key_bytes);
     let vmk = grant.as_deref().and_then(|g| grant_vmk(g));
     let rd_link = rd_link(value);
+    let ssh = ssh_candidate(value);
     Ok(CarrierAnswer {
         relay,
         slot: slot.to_owned(),
@@ -244,6 +352,7 @@ pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
         daemon_key,
         vmk,
         rd_link,
+        ssh,
     })
 }
 
@@ -271,6 +380,17 @@ pub(super) trait CarrierSource: Send + Sync {
         machine: &str,
         noise_key: Option<&[u8; 32]>,
     ) -> Result<CarrierAnswer, SourceError>;
+
+    /// Authorizes `public_key` (`ssh-ed25519 <base64>`) as a carrier key on
+    /// `machine` for a short while: `ssh-endpoint` with `purpose:
+    /// "carrier"`. A source without it has no ssh carrier.
+    async fn ssh_endpoint(
+        &self,
+        _machine: &str,
+        _public_key: &str,
+    ) -> Result<SshEndpoint, SourceError> {
+        Err(SourceError::fatal("this source mints no carrier ssh key"))
+    }
 }
 
 /// The person's credential: re-read from the file on every fetch (it may be
@@ -417,9 +537,20 @@ impl CarrierSource for HttpSource {
             self.post(&format!("/v1/cloud/machines/{machine}/carrier"), &body).await?;
         read_reply(status, &body)
     }
+
+    async fn ssh_endpoint(
+        &self,
+        machine: &str,
+        public_key: &str,
+    ) -> Result<SshEndpoint, SourceError> {
+        let body = json!({ "publicKey": public_key, "purpose": "carrier" });
+        let (status, body) =
+            self.post(&format!("/v1/cloud/machines/{machine}/ssh-endpoint"), &body).await?;
+        read_ssh_endpoint(status, &body, now_unix())
+    }
 }
 
-fn now_unix() -> u64 {
+pub(super) fn now_unix() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 

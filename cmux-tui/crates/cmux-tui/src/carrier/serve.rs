@@ -90,7 +90,7 @@ use super::{STDIO_SHUTDOWN_TIMEOUT, ServeArgs, client, reply, route_log};
 pub(super) const MAX_CONNECTIONS: usize = 64;
 /// How long open sessions get to close once the listener stops.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
-const USAGE: &str = "usage: cmux carrier serve --machine vm_… --socket /absolute/path [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]";
+const USAGE: &str = "usage: cmux carrier serve --machine vm_… --socket /absolute/path [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--wg-hub PATH]";
 
 /// What every connection shares.
 struct Shared {
@@ -107,6 +107,8 @@ struct Shared {
     prefetched: Arc<Prefetched>,
     /// The connect log: route and phases lines.
     log: Arc<dyn Fn(String) + Send + Sync>,
+    /// The ssh backup carrier's pieces, for every dial.
+    ssh: Arc<super::ssh::SshSetup>,
 }
 
 /// `cmux carrier serve …`: the exit code.
@@ -127,7 +129,9 @@ pub(super) fn run(args: &[String]) -> i32 {
         let source = source.clone();
         Arc::new(move || source.identity())
     };
+    let ssh = Arc::new(super::ssh::SshSetup::from_env(dial.wg_hub.clone()));
     let shared = Arc::new(Shared {
+        ssh,
         session: Slot::new(idle_time(), who.clone()),
         machine: dial.machine,
         deadline: dial.deadline,
@@ -294,6 +298,7 @@ async fn connection(
         log: shared.log.clone(),
         phases: shared.log.clone(),
         fresh_sessions: Default::default(),
+        ssh: shared.ssh.clone(),
     };
     let plan = &plan;
     let outcome = tokio::select! {

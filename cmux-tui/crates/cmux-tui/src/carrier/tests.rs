@@ -267,6 +267,7 @@ fn arguments_are_the_machine_and_one_deadline() {
             token_file: None,
             team: None,
             answer_fd: None,
+            wg_hub: None,
         })
     );
     for (fd, want) in [("0", 0), ("3", 3), ("17", 17)] {

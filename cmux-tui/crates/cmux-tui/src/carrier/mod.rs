@@ -98,6 +98,14 @@
 //! a `wg hub` on PATH, refresh, re-attach) so the ssh carrier reaches a
 //! machine's mesh address through `cmux wg dial --hub PATH %h %p`
 //! ([`tunnel`], [`tunnel_cli`]).
+//!
+//! The dial's routes are the relay, then that ssh carrier ([`ssh`]) when the
+//! answer has an `ssh` candidate, this device has a carrier key and the
+//! tunnel's hub answers: `--wg-hub PATH` names its socket (absolute, a Unix
+//! socket path), else `<workspace state dir>/carrier/tunnel.sock`. Each
+//! attempt and resume appends a `carrier.routes` line to the connect log
+//! after its phases line, naming the ssh route's state and the carrier that
+//! carried it ([`contract::routes_line`]).
 
 mod answer;
 mod client;
@@ -111,6 +119,7 @@ mod route_log;
 mod secrets;
 mod serve;
 mod source;
+mod ssh;
 pub(crate) mod tunnel;
 mod tunnel_cli;
 
@@ -142,6 +151,9 @@ pub(crate) struct DialArgs {
     /// `dial --answer-fd N`: the file descriptor whose first line is a
     /// handed-over carrier answer (0: stdin, before the stream).
     pub answer_fd: Option<i32>,
+    /// `--wg-hub PATH`: the tunnel hub's socket the ssh backup carrier
+    /// dials through (`carrier tunnel --socket`); else the default one.
+    pub wg_hub: Option<PathBuf>,
 }
 
 /// One `cmux carrier serve` invocation: a dial per connection to `socket`.
@@ -163,7 +175,8 @@ pub(crate) enum DialService {
 }
 
 /// `dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL]
-/// [--cloud-token-file PATH] [--team team_…] [--answer-fd N]`, each once, nothing else.
+/// [--cloud-token-file PATH] [--team team_…] [--answer-fd N] [--wg-hub PATH]`, each once,
+/// nothing else.
 pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
     let (verb, rest) = args.split_first()?;
     if verb != "dial" {
@@ -189,7 +202,7 @@ pub(crate) fn parse_serve(args: &[String]) -> Option<ServeArgs> {
 fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
     let (mut machine, mut service, mut deadline, mut api, mut token_file, mut team, mut socket) =
         (None, None, None, None, None, None, None);
-    let mut answer_fd = None;
+    let (mut answer_fd, mut wg_hub) = (None, None);
     let mut words = rest.iter();
     while let Some(flag) = words.next() {
         let value = words.next()?.clone();
@@ -202,6 +215,7 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
             "--team" => &mut team,
             "--socket" if serve => &mut socket,
             "--answer-fd" if !serve => &mut answer_fd,
+            "--wg-hub" => &mut wg_hub,
             _ => return None,
         };
         if slot.replace(value).is_some() {
@@ -225,6 +239,10 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
         Some(text) => Some(contract::parse_answer_fd(&text)?),
         None => None,
     };
+    let wg_hub = match wg_hub.map(PathBuf::from) {
+        Some(hub) if !hub.is_absolute() || !cmux_unix_socket::fits(&hub) => return None,
+        hub => hub,
+    };
     let dial = DialArgs {
         machine,
         service,
@@ -233,6 +251,7 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
         token_file: token_file.map(PathBuf::from),
         team,
         answer_fd,
+        wg_hub,
     };
     Some((dial, socket))
 }
@@ -470,7 +489,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     let Some(args) = parse(args) else {
         return usage(
-            "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]",
+            "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N] [--wg-hub PATH]",
         );
     };
     let (args, source, identity) = match prepare(args) {
@@ -508,6 +527,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 }
             }),
             fresh_sessions: contract::FreshSessions::default(),
+            ssh: Arc::new(ssh::SshSetup::from_env(args.wg_hub.clone())),
         };
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The
