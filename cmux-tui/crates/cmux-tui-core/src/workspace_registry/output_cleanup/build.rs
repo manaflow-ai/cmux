@@ -40,6 +40,7 @@ use super::super::session_journal::{
 };
 use super::chunks::{CHUNK_RECORD_LIMIT, ChunkReader, StagedRecord, insert_chunk};
 use super::codec::{SegmentWriter, encode_hex};
+use super::session_puts::{Put, SessionPuts};
 use super::stage::{
     inflated_segment_records, progress_log_interval, sealed_records, staged_records, state,
     state_u64,
@@ -209,7 +210,7 @@ fn build_refusal(source: &Connection, staging: &Connection) -> anyhow::Result<Op
     }
     let (staged_kept, staged_total) = staged_records(staging)?;
     let tail = sealed_records(source, state_u64(staging, "staged_through")?)?;
-    let (live_kept, live_total) = live_records(source)?;
+    let (live_kept, live_total) = live_records(source, Some(&SessionPuts::load(staging)?))?;
     Ok(kept_refusal(
         staged_kept + tail.kept_at_most + live_kept,
         staged_total + tail.total + live_total,
@@ -305,23 +306,41 @@ fn record_columns(source: &Connection) -> anyhow::Result<String> {
     ))
 }
 
-/// A stored row (columns of [`record_columns`]) in its archived form.
-fn archived_row(row: &rusqlite::Row<'_>) -> anyhow::Result<StagedRecord> {
+/// A stored row (columns of [`record_columns`]) decoded, with its actor.
+fn decoded_row(
+    row: &rusqlite::Row<'_>,
+) -> anyhow::Result<(super::super::SessionJournalRecord, Option<String>)> {
     let stored = stored_record_row(row)?;
     let actor = row.get::<_, Option<String>>(19)?;
-    let record = decode_record(stored)?;
-    let json = serde_json::to_vec(&journal_record_for_archive(&record))?;
-    Ok((record.sequence, record.kind, json, actor))
+    Ok((decode_record(stored)?, actor))
+}
+
+/// A decoded record in its archived form.
+fn archived(
+    record: &super::super::SessionJournalRecord,
+    actor: Option<String>,
+) -> anyhow::Result<StagedRecord> {
+    let json = serde_json::to_vec(&journal_record_for_archive(record))?;
+    Ok((record.sequence, record.kind.clone(), json, actor))
+}
+
+/// A stored row (columns of [`record_columns`]) in its archived form.
+fn archived_row(row: &rusqlite::Row<'_>) -> anyhow::Result<StagedRecord> {
+    let (record, actor) = decoded_row(row)?;
+    archived(&record, actor)
 }
 
 /// Stages the non-output live rows after the sealed journal through the
 /// head Phase A counted, in `(kind, sequence)` order on both sides of
-/// `terminal.output`, so no step reads an output row.
+/// `terminal.output`, so no step reads an output row. A session put that a
+/// later live put superseded (`session_puts.rs`) is dropped and counted in
+/// `live_dropped`.
 fn stage_live(
     source: &Connection,
     staging: &Connection,
     next_step: &dyn Fn() -> bool,
 ) -> anyhow::Result<Live> {
+    let puts = SessionPuts::load(staging)?;
     let archive_end = i64::try_from(state_u64(staging, "live_archive_end")?)?;
     let head = i64::try_from(state_u64(staging, "live_head")?)?;
     // A staging file whose live rows were counted past its staged segments
@@ -346,7 +365,9 @@ fn stage_live(
         // One read snapshot: the sealed journal still ends where Phase A
         // counted, so the live rows in range are the ones it counted.
         source.execute_batch("BEGIN DEFERRED")?;
-        let read = (|| -> anyhow::Result<Option<Vec<StagedRecord>>> {
+        // The kept rows, the dropped puts, and the last row read.
+        type Page = (Vec<StagedRecord>, u64, Option<(String, u64)>);
+        let read = (|| -> anyhow::Result<Option<Page>> {
             let now_end: i64 = source.query_row(
                 "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
                 [],
@@ -373,21 +394,31 @@ fn stage_live(
                 LIVE_ROWS_PER_STEP
             ])?;
             let mut kept = Vec::new();
+            let mut dropped = 0_u64;
+            let mut last = None;
             let mut bytes = 0_usize;
             while let Some(row) = rows.next()? {
-                let record = archived_row(row)?;
-                bytes += record.2.len();
-                kept.push(record);
-                // The cursor moves to the last staged row, so the next step
-                // reads on from there.
-                if bytes >= LIVE_BYTES_PER_STEP {
-                    break;
+                let (record, actor) = decoded_row(row)?;
+                last = Some((record.kind.clone(), record.sequence));
+                if Put::from_value(&record.kind, &record.payload)
+                    .is_some_and(|put| puts.drops(record.sequence, &put))
+                {
+                    dropped = dropped.saturating_add(1);
+                } else {
+                    let record = archived(&record, actor)?;
+                    bytes += record.2.len();
+                    kept.push(record);
+                    // The cursor moves to the last row read, so the next
+                    // step reads on from there.
+                    if bytes >= LIVE_BYTES_PER_STEP {
+                        break;
+                    }
                 }
             }
-            Ok(Some(kept))
+            Ok(Some((kept, dropped, last)))
         })();
         let _ = source.execute_batch("COMMIT");
-        let Some(kept) = read? else {
+        let Some((kept, dropped, last)) = read? else {
             eprintln!(
                 "cmux-tui: output cleanup: segments were sealed while the live rows were staged; \
                  staging the new segments, then the live rows again"
@@ -395,7 +426,7 @@ fn stage_live(
             restart_live(staging)?;
             return Ok(Live::Restart);
         };
-        let Some(last) = kept.last() else {
+        let Some((last_kind, last_sequence)) = last else {
             if below {
                 // Past every kind below output: the kinds above it next.
                 let tx = staging.unchecked_transaction()?;
@@ -407,9 +438,12 @@ fn stage_live(
             finish_live(source, staging)?;
             return Ok(Live::Done);
         };
-        let (last_kind, last_sequence) = (last.1.clone(), last.0);
         let tx = staging.unchecked_transaction()?;
         insert_chunks(&tx, kept, true)?;
+        if dropped > 0 {
+            let total = state_u64(&tx, "live_dropped")?.saturating_add(dropped);
+            set_state(&tx, "live_dropped", &total.to_string())?;
+        }
         set_state(&tx, "live_kind", &last_kind)?;
         set_state(&tx, "live_sequence", &last_sequence.to_string())?;
         tx.commit()?;
