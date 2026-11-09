@@ -285,6 +285,7 @@ public struct RootView: View {
         if !(store.activeTeam?.macs.contains(where: \.isOnline) ?? false) { steps.append(.pairMac) }
         if asksNotifications { steps.append(.notifications) }
         setupPlan = steps
+        log.info("setup plan: \(String(describing: steps), privacy: .public)")
         // Nothing to set up (one team, a Mac online, notifications decided).
         if steps.isEmpty, destination == .setup { setupComplete = true }
     }

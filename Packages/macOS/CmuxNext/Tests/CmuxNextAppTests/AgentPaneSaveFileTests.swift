@@ -40,6 +40,12 @@ struct AgentPaneSaveFileTests {
         _ = await Self.ask(model, "pane.saveFile", ["text": "<p/>", "suggestedName": ". .profile", "kind": "html"])
         #expect(saved.map(\.suggestedName).suffix(3) == ["chart.svg", "document.md", "profile.html"])
 
+        // The Costs page's export: CSV or JSON.
+        _ = await Self.ask(model, "pane.saveFile", ["text": "a,b\r\n", "suggestedName": "cmux-costs-7d-by-repo", "kind": "csv"])
+        _ = await Self.ask(model, "pane.saveFile", ["text": "{}\n", "suggestedName": "cmux-costs-7d-by-repo", "kind": "json"])
+        #expect(saved.map(\.suggestedName).suffix(2) == ["cmux-costs-7d-by-repo.csv", "cmux-costs-7d-by-repo.json"])
+        #expect(saved.map(\.kind).suffix(2) == [.csv, .json])
+
         answer = false
         let cancelled = await Self.ask(model, "pane.saveFile", ["text": "# Plan", "suggestedName": "Plan", "kind": "markdown"])
         #expect(cancelled["value"] as? Bool == false)

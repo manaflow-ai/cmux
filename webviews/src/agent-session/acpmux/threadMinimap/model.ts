@@ -66,8 +66,13 @@ export function railPlacement(
   paneWidth: number,
   textInset = transcriptColumn(paneWidth).inset,
   spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
+  /// The `inset-first` arm (restTick.experiment.ts): the inset follows the text's own gutter too, so it
+  /// shrinks before the hit width where the text comes near (and moves the rail when Session Info pushes).
+  insetFirst = false,
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
-  const paneInset = transcriptColumn(paneWidth).inset;
+  const paneInset = insetFirst
+    ? Math.min(transcriptColumn(paneWidth).inset, textInset)
+    : transcriptColumn(paneWidth).inset;
   // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
   // resting rail fits the page edge; the inset plus that step for the edge strip.
   const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;

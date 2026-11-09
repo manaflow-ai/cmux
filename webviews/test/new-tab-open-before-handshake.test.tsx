@@ -11,6 +11,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { classicField } from "./support/classicNewTabField";
+import { until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -154,7 +155,10 @@ test("a terminal from the New Tab page opens before the handshake, and a refusal
     const retry = [...alert.querySelectorAll("button")].find((b) => b.textContent === "Retry")!;
     expect(retry).toBeDefined();
     await act(async () => retry.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
-    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    await until(
+      () => calls.length >= 2,
+      () => act(async () => {}),
+    );
     expect(calls).toHaveLength(2);
     expect(calls[1]).toEqual(calls[0]!);
     // The suggestions that float under the field close, so they never cover the note.

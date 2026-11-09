@@ -602,7 +602,10 @@ fn exited_target(snapshot: &Value, target: &ResumeTarget) -> Result<Exited, Fail
         ResumeTarget::Terminal(selector) => send::find_terminal(snapshot, selector)?,
     };
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
-    if terminal["lifecycle"] != "exited" {
+    // Only an exited terminal resumes; not `!is_live`: a lifecycle word this
+    // CLI does not know, or none, must never let resume act on a terminal
+    // whose program may still run.
+    if !super::terminal_lifecycle::is_exited(terminal) {
         return Err(Failure::local(
             "agent.running",
             format!(
