@@ -1385,6 +1385,11 @@ export type SessionDetail = {
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
   harness: string;
+  /**
+   * Unix milliseconds when its harness first refused a command because the harness's own
+   * sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
+   */
+  harnessSandboxFailed?: (number | null);
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1675,6 +1680,11 @@ export type SessionSummary = {
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
   harness: string;
+  /**
+   * Unix milliseconds when its harness first refused a command because the harness's own
+   * sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
+   */
+  harnessSandboxFailed?: (number | null);
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
