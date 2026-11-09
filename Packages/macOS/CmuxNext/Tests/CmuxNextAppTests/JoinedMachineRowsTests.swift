@@ -404,18 +404,19 @@ import CmuxNextWakeups
         let doctor = [AddMachineFlowTests.step("listed", "ok"), AddMachineFlowTests.step("heartbeat", "fail", "last seen 9 min ago",
                                                                                          fix: "Run cmux machine doctor on lane-vm-3")]
         host.scripts = [doctor + [AddMachineFlowTests.report("lane-vm-3", "m_1", ok: false, doctor)]]
-        let model = AddMachineModel(services: host.services())
-        model.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
-        _ = await model.finished()
+        let runs = AddMachineRuns(services: host.services())
+        runs.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
+        _ = await runs.finished()
         #expect(host.commands == [.joinedDoctor(id: "m_1")])
         #expect(HostCommand.joinedDoctor(id: "m_1").arguments == ["machine", "doctor", "m_1", "--json", "--cloud-token-stdin"])
         #expect(HostCommand.joinedDoctor(id: "m_1").needsAccount)
         #expect(!HostCommand.doctor(host: "h", fix: false).needsAccount)
-        #expect(model.runName == "lane-vm-3")
+        #expect(runs.run?.name == "lane-vm-3")
         #expect(host.recorded.map(\.0) == ["joined:m_1"], "the row's mark follows the check")
-        #expect(!model.buttons.map(\.action).contains(.fix), "the minting end fixes nothing on another machine")
-        #expect(model.buttons.map(\.action) == [.copyDetails, .done])
-        #expect(model.checklist.rows.map(\.step.rawValue) == ["listed", "heartbeat"], "only the steps the joined check sent, no ssh enroll rows")
+        runs.fix()
+        #expect(host.commands.count == 1, "the minting end fixes nothing on another machine")
+        // The card lists only the steps the joined check sent, no ssh enroll rows (its checklist starts empty).
+        #expect(runs.run?.events.first == .start(joined: true))
     }
 
     @Test func theJoinedCardOffersShowInMachines() async {
@@ -559,30 +560,30 @@ import CmuxNextWakeups
         let host = AddMachineFlowTests.FakeHost()
         host.scripts = [[]]
         host.stops = [HostCLIStopFixture(message: "Sign in to cmux to check this machine.")]
-        let model = AddMachineModel(services: host.services())
-        model.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
-        _ = await model.finished()
-        #expect(model.checklist.failing?.detail == "Sign in to cmux to check this machine.")
+        let runs = AddMachineRuns(services: host.services())
+        runs.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
+        #expect(await runs.finished() == "Sign in to cmux to check this machine.")
+        #expect(runs.run?.events.last == .stop("Sign in to cmux to check this machine."))
     }
 
     @Test func aJoinedCheckThatFailsAfterItsRowsKeepsTheReason() async {
         let host = AddMachineFlowTests.FakeHost()
         host.scripts = [[AddMachineFlowTests.step("listed", "ok")]]
         host.stops = [HostCLIStopFixture(message: "the hub stopped answering")]
-        let model = AddMachineModel(services: host.services())
-        model.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
-        _ = await model.finished()
-        #expect(model.checklist.rows.map(\.step.rawValue) == ["listed", "check"])
-        #expect(model.checklist.failing?.detail == "the hub stopped answering")
+        let runs = AddMachineRuns(services: host.services())
+        runs.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
+        _ = await runs.finished()
+        // The card adds a Check it row for a stop with no row open (webviews checklist test).
+        #expect(runs.run?.events == [.start(joined: true), .line(AddMachineFlowTests.step("listed", "ok")), .stop("the hub stopped answering")])
     }
 
     @Test func checkOnADaemonRowRecordsUnderThatRow() async {
         let host = AddMachineFlowTests.FakeHost()
         let doctor = [AddMachineFlowTests.step("listed", "ok")]
         host.scripts = [doctor + [AddMachineFlowTests.report("lane-vm-3", "m_1", ok: true, doctor)]]
-        let model = AddMachineModel(services: host.services())
-        model.beginJoinedCheck(id: "m_1", name: "lane-vm-3", rowID: "ssh-7")
-        _ = await model.finished()
+        let runs = AddMachineRuns(services: host.services())
+        runs.beginJoinedCheck(id: "m_1", name: "lane-vm-3", rowID: "ssh-7")
+        _ = await runs.finished()
         #expect(host.recorded.map(\.0) == ["ssh-7"], "the daemon row the machine shows on gets the mark")
     }
 

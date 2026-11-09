@@ -156,6 +156,9 @@ pub struct Conn {
     /// The paired machine whose credential it presented (`ConnAuth::Device`
     /// or `ReadOnlyDevice`), from the handshake only, never from a request.
     device: Option<String>,
+    /// The person the Cloud carrier attested (`carrier.rs`), from the carrier socket's upgrade
+    /// header only, never from a request. Set exactly when `auth` is a carrier proof.
+    carrier: Option<carrier::Attested>,
     /// It reads session text raw (`peer_text.rs`): every origin but a peer.
     raw_text: bool,
     name: StdMutex<String>,
@@ -1106,6 +1109,10 @@ pub async fn serve_ws_until(
                 if let Err(refusal) = policy.check(&values("host"), &values("origin")) {
                     return Err(refuse(refusal));
                 }
+                // The Cloud carrier's header is read on the carrier socket only (`carrier.rs`).
+                if !values(carrier::HEADER).is_empty() {
+                    return Err(carrier::wrong_socket_response());
+                }
                 *record_origins.lock().unwrap_or_else(|e| e.into_inner()) =
                     values("origin").into_iter().map(str::to_owned).collect();
                 *record_peer.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -1293,7 +1300,7 @@ pub async fn serve_ws_until(
                 }
                 None => (origin, proof, None),
             };
-            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, SocketPeer::Unknown, device, Some(wire))
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, SocketPeer::Unknown, device, Some(wire), None)
                 .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
@@ -1478,6 +1485,7 @@ pub(super) async fn serve_outbox_connection(
         SocketPeer::Outbox,
         None,
         None,
+        None,
     )
     .await
 }
@@ -1503,30 +1511,6 @@ pub async fn serve_connection_authed(
         SocketPeer::Unknown,
         None,
         None,
-    )
-    .await
-}
-
-/// A paired machine's connection, served as its role says
-/// (`pairing::origin_of`): the WebSocket listener's, once the handshake
-/// proved `device`'s credential, or an in-process caller that vouches for it.
-pub async fn serve_connection_device(
-    hub: Arc<Hub>,
-    inbound: mpsc::Receiver<String>,
-    out: mpsc::Sender<String>,
-    device: crate::pairing::DeviceAuth,
-) {
-    let (origin, auth) = pairing::origin_of(&device);
-    serve_connection_from(
-        hub,
-        inbound,
-        out,
-        origin,
-        auth,
-        None,
-        false,
-        SocketPeer::Unknown,
-        Some(device.id),
         None,
     )
     .await
@@ -1544,7 +1528,11 @@ async fn serve_connection_from(
     socket_peer: SocketPeer,
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
+    carrier: Option<carrier::Attested>,
 ) {
+    // A carrier proof comes with the person the carrier socket read, and only with it.
+    let carried = matches!(auth, ConnAuth::CarrierOwner | ConnAuth::CarrierTeam);
+    let auth = if carried != carrier.is_some() { ConnAuth::None } else { auth };
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
@@ -1558,6 +1546,7 @@ async fn serve_connection_from(
         origin,
         auth,
         device,
+        carrier,
         raw_text,
         name: StdMutex::new(String::new()),
         presence: client.presence(),
@@ -1592,7 +1581,7 @@ async fn serve_connection_from(
         preparation_cancels: StdMutex::new(HashMap::new()),
         // A peer daemon's link carries all its clients' reads, which it caps one by one
         // (`media_forward.rs`).
-        media: if auth == ConnAuth::PeerToken {
+        media: if auth.peer_daemon() {
             crate::hub::media_handles::Handles::for_peer_link()
         } else {
             crate::hub::media_handles::Handles::default()
@@ -1726,6 +1715,9 @@ async fn serve_connection_from(
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
+            // A teammate through the carrier stops a turn, nothing else (`carrier.rs`).
+            Message::Notification { method: m, params }
+                if !carrier::takes_notification(&hub, &conn, &m, params.as_ref()) => {}
             Message::Notification { method: m, params: _ } if conn.is_trigger() => {
                 tracing::debug!(conn = %conn.id, method = %m, "ignoring notification on trigger connection");
             }
@@ -1765,7 +1757,7 @@ async fn serve_connection_from(
             }
             // An answer to a request this daemon sent the client (`client_request.rs`).
             Message::Response { id, result, error } => {
-                if !conn.is_trigger() {
+                if !conn.is_trigger() && conn.auth != ConnAuth::CarrierTeam {
                     conn.settle_client_request(&id, result, error);
                 }
             }
@@ -2044,6 +2036,7 @@ pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
+pub mod carrier;
 mod chats;
 pub mod conn_auth;
 mod durable_gate;
@@ -2076,6 +2069,7 @@ mod models_fanout;
 mod new_worktree;
 mod project_new;
 mod outbound;
+mod plan_build;
 mod review_queue;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
@@ -2083,6 +2077,7 @@ use outbound::{
 };
 pub(crate) mod outbox;
 mod pairing;
+pub use pairing::serve_connection_device;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;
@@ -2129,158 +2124,7 @@ use requests::handle_notification;
 mod mirror_relay_tests;
 
 #[cfg(test)]
-mod request_admission_tests {
-    use super::{
-        NOTIFICATION_QUEUE_LIMIT, NOTIFICATION_WORK_LIMIT, REQUEST_WORK_LIMIT,
-        notification_deadline, request_uses_work_budget, try_request_slot,
-    };
-    use std::sync::Arc;
-    use tokio::sync::Semaphore;
-
-    #[test]
-    fn long_running_requests_do_not_consume_short_work_budget() {
-        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_PROMPT));
-        assert!(!request_uses_work_budget(crate::rpc::method::MUX_WAIT));
-        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_NEW));
-        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_LOAD));
-        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_RESUME));
-        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_FORK));
-        assert!(!request_uses_work_budget(crate::rpc::method::MUX_ATTACH));
-        // A method no handler serves; built, not a literal, so the registry check
-        // (protocol::tests) does not read it as a served method.
-        let unknown = ["_acpmux", "unknown"].join("/");
-        assert!(request_uses_work_budget(&unknown));
-
-        let slots = Semaphore::new(REQUEST_WORK_LIMIT);
-        let _holds: Vec<_> = (0..REQUEST_WORK_LIMIT)
-            .map(|_| slots.try_acquire().expect("short work slot"))
-            .collect();
-        assert!(slots.try_acquire().is_err());
-
-        // Open prompts and waits are admitted independently of the finite
-        // handler budget, so a connection can keep more than 64 turns open.
-        let slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
-        for _ in 0..(REQUEST_WORK_LIMIT + 1) {
-            assert!(
-                try_request_slot(&slots, crate::rpc::method::SESSION_PROMPT).unwrap().is_none()
-            );
-        }
-    }
-
-    #[test]
-    fn cancellation_handlers_have_no_abort_deadline() {
-        assert_eq!(notification_deadline(crate::rpc::method::SESSION_CANCEL), None);
-        assert_eq!(notification_deadline("$/cancel_request"), Some(super::WORK_BACKPRESSURE_WAIT));
-    }
-
-    #[tokio::test]
-    async fn accepted_notification_is_drained_after_input_disconnects() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use tokio::sync::mpsc;
-
-        let (tx, rx) = mpsc::channel(1);
-        let handled = Arc::new(AtomicUsize::new(0));
-        let worker = super::spawn_notification_worker(rx, {
-            let handled = handled.clone();
-            move |_method, _params| {
-                let handled = handled.clone();
-                async move {
-                    handled.fetch_add(1, Ordering::SeqCst);
-                }
-            }
-        });
-        tx.send(("session/cancel".to_owned(), serde_json::json!({}))).await.unwrap();
-        drop(tx);
-        worker.await.unwrap();
-        assert_eq!(handled.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn cancellation_lane_is_independent_of_slow_notifications() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use tokio::sync::{Notify, mpsc};
-
-        let (notification_tx, notification_rx) = mpsc::channel(NOTIFICATION_QUEUE_LIMIT);
-        let (cancel_tx, cancel_rx) = mpsc::channel(NOTIFICATION_QUEUE_LIMIT);
-        let notification_started = Arc::new(Notify::new());
-        let release_notifications = Arc::new(Notify::new());
-        let cancel_handled = Arc::new(AtomicBool::new(false));
-
-        let notification_worker = super::spawn_notification_worker(notification_rx, {
-            let notification_started = notification_started.clone();
-            let release_notifications = release_notifications.clone();
-            move |_method, _params| {
-                let notification_started = notification_started.clone();
-                let release_notifications = release_notifications.clone();
-                async move {
-                    notification_started.notify_one();
-                    release_notifications.notified().await;
-                }
-            }
-        });
-        let cancel_worker = super::spawn_notification_worker(cancel_rx, {
-            let cancel_handled = cancel_handled.clone();
-            move |_method, _params| {
-                let cancel_handled = cancel_handled.clone();
-                async move { cancel_handled.store(true, Ordering::SeqCst) }
-            }
-        });
-
-        for _ in 0..NOTIFICATION_WORK_LIMIT {
-            notification_tx.try_send(("session/update".to_owned(), serde_json::json!({}))).unwrap();
-        }
-        notification_started.notified().await;
-        cancel_tx
-            .send((crate::rpc::method::SESSION_CANCEL.to_owned(), serde_json::json!({})))
-            .await
-            .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            while !cancel_handled.load(Ordering::SeqCst) {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("cancel lane should not wait for ordinary handlers");
-
-        release_notifications.notify_waiters();
-        drop(notification_tx);
-        drop(cancel_tx);
-        notification_worker.await.unwrap();
-        cancel_worker.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn cancellation_worker_finishes_after_input_closes() {
-        use tokio::sync::{Notify, mpsc};
-
-        let (tx, rx) = mpsc::channel(1);
-        let started = Arc::new(Notify::new());
-        let release = Arc::new(Notify::new());
-        let mut worker = super::spawn_notification_worker(rx, {
-            let started = started.clone();
-            let release = release.clone();
-            move |_method, _params| {
-                let started = started.clone();
-                let release = release.clone();
-                async move {
-                    started.notify_one();
-                    release.notified().await;
-                }
-            }
-        });
-
-        tx.send((crate::rpc::method::SESSION_CANCEL.to_owned(), serde_json::json!({})))
-            .await
-            .unwrap();
-        started.notified().await;
-        drop(tx);
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_millis(50), &mut worker).await.is_err()
-        );
-        release.notify_one();
-        worker.await.unwrap();
-    }
-}
+mod request_admission_tests;
 
 #[cfg(test)]
 #[path = "acp_list_tests.rs"]
@@ -2314,304 +2158,20 @@ mod compressed_link_tests;
 mod key_route_tests;
 
 #[cfg(test)]
-mod accept_retry_tests {
-    use super::{accept_ends_listener, accept_retry_delay};
-    use std::io::{Error, ErrorKind};
-    use std::time::Duration;
-
-    #[test]
-    fn running_out_of_descriptors_pauses_before_the_next_accept() {
-        // The queued connection stays queued on EMFILE, so an immediate retry spins a core.
-        #[cfg(unix)]
-        assert!(accept_retry_delay(&Error::from_raw_os_error(libc::EMFILE)) > Duration::ZERO);
-        #[cfg(unix)]
-        assert!(accept_retry_delay(&Error::from_raw_os_error(libc::ENFILE)) > Duration::ZERO);
-        assert!(accept_retry_delay(&Error::other("no buffers")) > Duration::ZERO);
-    }
-
-    #[test]
-    fn a_connection_that_died_in_the_queue_retries_at_once() {
-        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionAborted)), Duration::ZERO);
-        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionReset)), Duration::ZERO);
-        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::Interrupted)), Duration::ZERO);
-    }
-
-    #[test]
-    fn only_a_listener_that_is_gone_ends_the_accept_loop() {
-        // A closed tailnet listener reports end of stream; a closed fd reports EBADF.
-        assert!(accept_ends_listener(&Error::from(ErrorKind::UnexpectedEof)));
-        #[cfg(unix)]
-        assert!(accept_ends_listener(&Error::from_raw_os_error(libc::EBADF)));
-        #[cfg(unix)]
-        assert!(accept_ends_listener(&Error::from_raw_os_error(libc::EINVAL)));
-        // Descriptor exhaustion, a dropped connection or one record that lost its fd pass.
-        #[cfg(unix)]
-        assert!(!accept_ends_listener(&Error::from_raw_os_error(libc::EMFILE)));
-        #[cfg(unix)]
-        assert!(!accept_ends_listener(&Error::from_raw_os_error(libc::ENFILE)));
-        assert!(!accept_ends_listener(&Error::from(ErrorKind::ConnectionAborted)));
-        assert!(!accept_ends_listener(&Error::other("accept failed")));
-    }
-}
+mod accept_retry_tests;
 
 #[cfg(test)]
-mod nodelay_tests {
-    use super::tune_ws_socket;
-
-    #[tokio::test]
-    async fn an_accepted_web_socket_sends_without_nagle_delay() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let _client = tokio::net::TcpStream::connect(address).await.unwrap();
-        let (accepted, _) = listener.accept().await.unwrap();
-        assert!(!accepted.nodelay().unwrap(), "a fresh socket has Nagle on");
-        tune_ws_socket(&accepted);
-        assert!(accepted.nodelay().unwrap());
-    }
-}
+mod nodelay_tests;
 
 #[cfg(test)]
-mod outbound_queue_tests {
-    use super::{Message, enqueue_after_controls, enqueue_outbound};
-    use serde_json::json;
-    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
-    use std::sync::{Arc, Mutex};
-    use tokio::sync::mpsc;
-
-    #[tokio::test]
-    async fn a_slow_reader_gets_a_gap_signal_without_losing_a_response() {
-        let (out, mut queued) = mpsc::channel(3);
-        out.try_send("queued-before-reader-catches-up\n".to_owned()).unwrap();
-        let dropped = Arc::new(AtomicU64::new(0));
-        let gap_pending = Arc::new(AtomicBool::new(false));
-        let pending_controls = Arc::new(AtomicUsize::new(0));
-        let lock = Arc::new(Mutex::new(()));
-
-        enqueue_outbound(
-            &out,
-            Message::notification("session/update", json!({"kind": "progress"})).to_line(),
-            false,
-            &dropped,
-            &gap_pending,
-            &lock,
-            &pending_controls,
-        );
-        enqueue_outbound(
-            &out,
-            Message::ok(json!(7), json!({"status": "complete"})).to_line(),
-            true,
-            &dropped,
-            &gap_pending,
-            &lock,
-            &pending_controls,
-        );
-
-        assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
-        let gap = Message::parse(&queued.recv().await.unwrap()).unwrap();
-        let Message::Notification { method, params } = gap else { panic!("{gap:?}") };
-        assert_eq!(method, "_acpmux/lagged");
-        let params = params.unwrap();
-        assert_eq!(params["reason"], "output_queue_full");
-        assert_eq!(params["dropped"], 1);
-        let response = Message::parse(&queued.recv().await.unwrap()).unwrap();
-        assert!(matches!(response, Message::Response { id, .. } if id == json!(7)));
-    }
-
-    #[tokio::test]
-    async fn a_full_queue_delivers_its_gap_after_the_reader_catches_up() {
-        let (out, mut queued) = mpsc::channel(1);
-        out.try_send("queued-before-reader-catches-up\n".to_owned()).unwrap();
-        let dropped = Arc::new(AtomicU64::new(0));
-        let gap_pending = Arc::new(AtomicBool::new(false));
-        let pending_controls = Arc::new(AtomicUsize::new(0));
-        let lock = Arc::new(Mutex::new(()));
-
-        enqueue_outbound(
-            &out,
-            Message::notification("session/update", json!({"kind": "progress"})).to_line(),
-            false,
-            &dropped,
-            &gap_pending,
-            &lock,
-            &pending_controls,
-        );
-        assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
-        let gap = Message::parse(&queued.recv().await.unwrap()).unwrap();
-        assert!(matches!(gap, Message::Notification { method, .. } if method == "_acpmux/lagged"));
-    }
-
-    /// Review of #26784 at 0a57249: a watch answer that waited for room in a full queue (in a
-    /// task of its own) could be passed by the GitHub request sent after it, which the Mac then
-    /// refused. That request now waits for no such answer: it is refused until none is left.
-    #[tokio::test]
-    async fn a_request_in_order_never_passes_an_answer_waiting_for_room() {
-        let (out, mut queued) = mpsc::channel(1);
-        out.try_send("queued-before-reader-catches-up\n".to_owned()).unwrap();
-        let dropped = Arc::new(AtomicU64::new(0));
-        let gap_pending = Arc::new(AtomicBool::new(false));
-        let pending_controls = Arc::new(AtomicUsize::new(0));
-        let lock = Arc::new(Mutex::new(()));
-        let answer = Message::ok(json!(7), json!({"sessions": []})).to_line();
-        enqueue_outbound(&out, answer, true, &dropped, &gap_pending, &lock, &pending_controls);
-        let request =
-            || Message::request(json!("acpmux-0"), "_acpmux/github_action", json!({})).to_line();
-
-        // The reader takes a line; the answer still waits for room in its task. The request is
-        // refused, and queues nothing.
-        assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
-        let sent = enqueue_after_controls(
-            &out,
-            request(),
-            &dropped,
-            &gap_pending,
-            &lock,
-            &pending_controls,
-        );
-        assert!(!sent, "nothing goes ahead of an answer that waits for room");
-        let first = Message::parse(&queued.recv().await.unwrap()).unwrap();
-        assert!(matches!(first, Message::Response { id, .. } if id == json!(7)));
-        // The answer is in the queue, so the request is sent after it.
-        while pending_controls.load(std::sync::atomic::Ordering::Acquire) != 0 {
-            tokio::task::yield_now().await;
-        }
-        assert!(enqueue_after_controls(
-            &out,
-            request(),
-            &dropped,
-            &gap_pending,
-            &lock,
-            &pending_controls
-        ));
-        let next = Message::parse(&queued.recv().await.unwrap()).unwrap();
-        assert!(matches!(next, Message::Request { .. }));
-    }
-
-    /// Review of #26784 at d0b90b0: a request to a client whose reader was gone counted as sent,
-    /// and its action waited out the whole wait before failing.
-    #[test]
-    fn a_request_in_order_to_a_reader_that_is_gone_is_not_sent() {
-        let (out, queued) = mpsc::channel(4);
-        drop(queued);
-        let (dropped, gap_pending) =
-            (Arc::new(AtomicU64::new(0)), Arc::new(AtomicBool::new(false)));
-        let (pending, lock) = (Arc::new(AtomicUsize::new(0)), Arc::new(Mutex::new(())));
-        let request = Message::request(json!("acpmux-0"), "_acpmux/github_action", json!({}));
-        let sent = enqueue_after_controls(
-            &out,
-            request.to_line(),
-            &dropped,
-            &gap_pending,
-            &lock,
-            &pending,
-        );
-        assert!(!sent);
-    }
-}
+mod outbound_queue_tests;
 
 /// Owner-only TLS ingress from the embedded tailnet node.
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;
 
 #[cfg(test)]
-mod message_notice_tests {
-    use super::{MESSAGE_NOTICES_KEPT, MessageNoticeBook, MessageNotices};
-
-    /// A long-lived connection keeps a bounded count of one chat's messages: past the bound the
-    /// oldest go under the low-water mark, still heard, and newer ones are still told apart.
-    #[test]
-    fn a_long_lived_chat_keeps_a_bounded_count() {
-        let mut n = MessageNotices::default();
-        let total = (MESSAGE_NOTICES_KEPT * 3) as u64;
-        // Message records are sparse among a chat's records: every third seq.
-        for i in 1..=total {
-            assert!(n.live(i * 3), "seq {} goes once", i * 3);
-            assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
-        }
-        assert_eq!(n.kept(), MESSAGE_NOTICES_KEPT);
-        // Heard ones, under the mark or above it, are not sent again.
-        assert!(!n.live(3));
-        assert!(!n.live(total * 3));
-        // A newer record still goes, and a gap above the mark is still told apart.
-        assert!(n.live(total * 3 + 1));
-        assert!(n.live(total * 3 - 1));
-        assert!(!n.live(total * 3 - 1));
-        assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
-    }
-
-    /// A replay's older record still goes once more live records than the bound have raised the
-    /// low-water mark past it: the replay never sent it, and a repeat beats a loss.
-    #[test]
-    fn a_replay_record_below_a_risen_floor_still_goes() {
-        let mut n = MessageNotices::default();
-        // The reopen's replay is at seq 10 when the live stream sends more than the bound.
-        let live_from = 1_000u64;
-        for seq in live_from..live_from + MESSAGE_NOTICES_KEPT as u64 + 10 {
-            assert!(n.live(seq));
-        }
-        assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
-        // The replay reaches records the live stream never sent, below the risen mark.
-        assert!(n.replay(10));
-        assert!(n.replay(live_from + 5), "the replay sends what the bound forgot again");
-        // Ones the live stream sent and still keeps are not sent again.
-        assert!(!n.replay(live_from + MESSAGE_NOTICES_KEPT as u64));
-        assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
-    }
-
-    /// A peer's chat that keeps the raw id of one here (an export and import keeps ids) counts its
-    /// own seqs: neither chat's record silences the other's of the same seq.
-    #[test]
-    fn a_peer_chat_with_a_local_raw_id_hears_its_own_messages() {
-        let mut book = MessageNoticeBook::default();
-        assert!(book.live(None, "c", 3));
-        assert!(book.live(Some("p"), "c", 3));
-        assert!(!book.live(None, "c", 3));
-        assert!(!book.live(Some("p"), "c", 3));
-        assert!(book.live(Some("q"), "c", 3));
-        // A reopen of the peer's chat replays it afresh and ends the local chat's count.
-        book.reopen(Some("p"), "c");
-        assert!(book.replay(Some("p"), "c", 3));
-        assert!(book.live(None, "c", 3));
-        // Detaching the local chat leaves the peer's count.
-        book.forget(None, "c");
-        assert!(!book.live(Some("p"), "c", 3));
-        // Switching to the local chat drops every peer's count of that raw id.
-        book.forget_others(None, "c");
-        assert!(book.live(Some("p"), "c", 3));
-        // A chat with no count from a reopen sends its replay.
-        assert!(book.replay(None, "d", 1));
-    }
-
-    /// A replay racing the live stream sends each message notice once, whichever sends first.
-    #[test]
-    fn a_message_notice_goes_once_across_replay_and_live() {
-        // A record heard once is not heard again live (another viewer's reopen of a peer's chat
-        // replays it over the shared link); a record of no known seq always goes.
-        let mut n = MessageNotices::default();
-        assert!(n.live(2));
-        assert!(!n.live(2));
-        assert!(n.live(0));
-        assert!(n.live(0));
-        // The live stream sent seq 5 while the replay was at 3: the replay skips only 5.
-        let mut n = MessageNotices::default();
-        assert!(n.live(5));
-        assert!(n.replay(3));
-        assert!(!n.replay(5));
-        assert!(n.replay(6));
-        assert!(!n.live(6));
-        // A peer's replay reaches a viewer as live records: an older one after a newer one
-        // still goes.
-        let mut n = MessageNotices::default();
-        assert!(n.live(9));
-        assert!(n.live(4));
-        assert!(!n.live(4));
-        // The replay sent 3 and 4 before the live stream reached them.
-        let mut n = MessageNotices::default();
-        assert!(n.replay(3));
-        assert!(n.replay(4));
-        assert!(!n.live(4));
-        assert!(n.live(5));
-    }
-}
+mod message_notice_tests;
 
 #[cfg(test)]
 #[path = "fanout_encode_tests.rs"]

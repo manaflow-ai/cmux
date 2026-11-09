@@ -291,6 +291,17 @@ impl RttEstimator {
         }
     }
 
+    /// cmux patch: the RTO the current estimate gives, with no backoff.
+    fn restore_rto(&mut self) {
+        self.rto = if self.have_measurement {
+            let margin = RTTE_MIN_MARGIN.max(self.rttvar * RTTE_K);
+            (self.srtt + margin).clamp(self.min_rto as u32, RTTE_MAX_RTO as u32) as u16
+        } else {
+            self.initial_rto
+        };
+        self.rto_count = 0;
+    }
+
     fn on_retransmit(&mut self) {
         if self.timestamp.is_some() {
             tcp_trace!("rtte: abort sampling due to retransmit");
@@ -585,6 +596,9 @@ pub struct Socket<'a> {
     tail_loss_probe: Option<Duration>,
     /// cmux patch: a probe went out and no ACK of new data has come since.
     tail_loss_probe_sent: bool,
+    /// cmux patch: the path under the connection changed; the next RTO
+    /// branch resends without backing off ([path_changed](#method.path_changed)).
+    path_change_retransmit: bool,
 
     /// Duration for Delayed ACK. If None no ACKs will be delayed.
     ack_delay: Option<Duration>,
@@ -678,6 +692,7 @@ impl<'a> Socket<'a> {
             pending_fast_retransmit: false,
             tail_loss_probe: None,
             tail_loss_probe_sent: false,
+            path_change_retransmit: false,
             ack_delay: Some(ACK_DELAY_DEFAULT),
             ack_delay_timer: AckDelayTimer::Idle,
             challenge_ack_timer: Instant::from_secs(0),
@@ -931,6 +946,31 @@ impl<'a> Socket<'a> {
         }
     }
 
+    /// cmux patch: the path under this connection changed.
+    ///
+    /// A tunnel that moves its datagrams to another route (the old one went
+    /// quiet, or a better one appeared) calls this. Whatever was in flight may
+    /// have been lost on the old route, where its retransmissions were lost
+    /// too and backed the timer off; waiting out that timer is the stall.
+    /// With data unacknowledged, the socket resends from the oldest
+    /// unacknowledged byte at its next poll, as an RTO would (slow start on
+    /// the new route included), but the RTO goes back to what the RTT
+    /// estimate gives instead of doubling. With nothing in flight it does
+    /// nothing.
+    pub fn path_changed(&mut self) {
+        let in_flight = matches!(
+            self.timer,
+            Timer::Retransmit { .. } | Timer::TailLossProbe { .. }
+        );
+        if !in_flight || matches!(self.state, State::Closed | State::Listen | State::TimeWait) {
+            return;
+        }
+        self.path_change_retransmit = true;
+        self.timer = Timer::Retransmit {
+            expires_at: Instant::from_micros(0),
+        };
+    }
+
     /// cmux patch: the delayed-ACK allowance of tail-loss probes, `None` when they are off.
     pub fn tail_loss_probe(&self) -> Option<Duration> {
         self.tail_loss_probe
@@ -1101,6 +1141,7 @@ impl<'a> Socket<'a> {
         self.set_congestion_control(self.congestion_control());
         self.remote_last_ts = None;
         self.tail_loss_probe_sent = false;
+        self.path_change_retransmit = false;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
 
@@ -2702,8 +2743,14 @@ impl<'a> Socket<'a> {
                 // to be sent again.
                 self.remote_last_seq = self.local_seq_no;
 
-                // Inform RTTE, so that it can can handle RTO backoff
-                self.rtte.on_rto();
+                if core::mem::take(&mut self.path_change_retransmit) {
+                    // cmux patch: the path changed; the loss was the old
+                    // path's, so the new one starts from the estimate.
+                    self.rtte.restore_rto();
+                } else {
+                    // Inform RTTE, so that it can can handle RTO backoff
+                    self.rtte.on_rto();
+                }
             } else {
                 // If a fast rentrasmit timer expired, we should resend only the earliest unAcked segment
                 net_debug!("retransmitting for fast-retransmit");
@@ -10134,6 +10181,60 @@ mod test {
         assert_eq!(s.initial_rto(), Duration::from_millis(50));
         assert!(!s.rtte.have_measurement);
         assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(50));
+    }
+
+    // cmux patch: path changes.
+
+    #[test]
+    fn test_path_changed_resends_at_once_without_backoff() {
+        let mut s = socket_established();
+        s.set_min_rto(Duration::from_millis(200));
+        s.rtte.sample(40);
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(200));
+        s.send_slice(b"abcdef").unwrap();
+        let segment = TcpRepr {
+            control:    TcpControl::Psh,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        };
+        recv!(s, time 0, Ok(segment), exact);
+        // The old path ate the send and its first retransmission, which
+        // backed the RTO off to 400 ms: the next try would be at 600 ms.
+        recv!(s, time 200, Ok(segment), exact);
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(400));
+        // The tunnel moved to another path at 250 ms: resend now, and the RTO
+        // goes back to the estimate's 200 ms.
+        s.path_changed();
+        recv!(s, time 250, Ok(segment), exact);
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(200));
+        recv_nothing!(s, time 449);
+        recv!(s, time 450, Ok(segment), exact);
+    }
+
+    #[test]
+    fn test_path_changed_with_nothing_in_flight_does_nothing() {
+        let mut s = socket_established();
+        s.path_changed();
+        recv_nothing!(s, time 0);
+        assert!(!s.path_change_retransmit);
+        // All acknowledged: nothing to resend either.
+        s.send_slice(b"abcdef").unwrap();
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::Psh,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }), exact);
+        send!(s, time 10, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            ..SEND_TEMPL
+        });
+        s.path_changed();
+        recv_nothing!(s, time 20);
     }
 
     // cmux patch: tail-loss probes.
