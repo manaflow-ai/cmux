@@ -21,6 +21,17 @@ and git ls-remote (no network) and checks what it does to the run:
   commit and filter is still open, it does not dispatch, names that run and exits 4; an open
   run of another filter or another commit, or a finished run, does not stop a dispatch.
   About 37 cmux-tui runs queued on 2026-11-09, often several for one commit.
+- --commit <sha> verifies a pushed commit that is not the branch head (the red commit of a
+  two-commit fix): it dispatches cmux-tui.yml on the trusted integration branch
+  (feat-cmux-next), so that branch's workflow file runs, with inputs.commit = the sha and
+  inputs.source_branch = the caller's pushed branch. A sha that is not on the pushed branch is
+  refused before any dispatch, and the one-open-run rule finds a --commit run by its title even
+  though its head sha is the trusted branch's. Without --commit the script is unchanged: it
+  still refuses a local HEAD that is not the pushed branch head.
+- the workflow's validate-inputs step (run here from cmux-tui.yml with a stub gh) accepts a
+  commit other than the workflow revision only on feat-cmux-next or main, and only when
+  source_branch is a branch of this repository whose head contains the commit (compare API:
+  ahead or identical, behind_by 0), so a fork object served by sha is refused.
 """
 
 from __future__ import annotations
@@ -50,16 +61,23 @@ case "$*" in
       exit 1
     fi
     echo __RUN_ID__ ;;
-  "run list"*--commit*)
+  "run list"*databaseId,status,displayTitle,url*)
     # The open-run lookup: one run per line, "id<TAB>status<TAB>title<TAB>url" (the
-    # script's --jq asks for @tsv). The test writes the lines to $STUB_DIR/open-runs.
+    # script's --jq asks for @tsv). Runs whose head is the commit (--commit) come from
+    # $STUB_DIR/open-runs; runs on the trusted branch (a --commit dispatch, whose head is
+    # that branch's) come from $STUB_DIR/open-runs-trusted.
     if [[ "${FAKE_OPEN_LIST_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
-    cat "$STUB_DIR/open-runs" 2>/dev/null || true ;;
+    if [[ "$*" == *--commit* ]]; then
+      cat "$STUB_DIR/open-runs" 2>/dev/null || true
+    elif [[ "$*" == *"--branch feat-cmux-next"* ]]; then
+      cat "$STUB_DIR/open-runs-trusted" 2>/dev/null || true
+    fi ;;
   "run list"*)
     if [[ "${FAKE_LIST_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
     # FAKE_LIST_FINDS=1: GitHub created the run despite the error, and lists it.
     if [[ "${FAKE_LIST_FINDS:-0}" == 1 ]]; then echo __RUN_ID__; fi ;;
-  *headSha*) printf '%s\t%s\tworkflow_dispatch\n' "$(cat "$STUB_DIR/head")" "$(cat "$STUB_DIR/branch")" ;;
+  *headSha*) printf '%s\t%s\tworkflow_dispatch\n' "${FAKE_RUN_HEAD:-$(cat "$STUB_DIR/head")}" \
+      "${FAKE_RUN_BRANCH:-$(cat "$STUB_DIR/branch")}" ;;
   *status,conclusion*)
     n=$(cat "$STUB_DIR/views" 2>/dev/null || echo 0)
     echo $((n + 1)) > "$STUB_DIR/views"
@@ -171,9 +189,23 @@ class Sandbox:
     def head(self) -> str:
         return (self.dir / "head").read_text(encoding="utf-8").strip()
 
-    def dispatched_request_id(self, args: list[str]) -> str:
+    def commit(self, message: str) -> str:
+        """Add an empty local commit (not pushed: the remote head stays as it is) and return its sha."""
+        git = [self.env["REAL_GIT"], "-C", str(self.repo)]
+        subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", message], check=True, env=self.env)
+        return subprocess.run(git + ["rev-parse", "HEAD"], check=True, env=self.env,
+                              capture_output=True, text=True).stdout.strip()
+
+    def push(self, sha: str) -> None:
+        """Make git ls-remote report `sha` as the head of the pushed branch."""
+        (self.dir / "head").write_text(sha, encoding="utf-8")
+
+    def dispatches(self) -> list[str]:
+        return [line for line in self.calls() if line.startswith("gh api -X POST")]
+
+    def dispatched_request_id(self, args: list[str], **env: str) -> str:
         """Run the script once and return the request_id it dispatched, then forget the calls."""
-        self.run(args, FAKE_STATES="completed|success|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+        self.run(args, FAKE_STATES="completed|success|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60", **env)
         found = [part.split("=", 1)[1] for line in self.calls() for part in line.split()
                  if part.startswith("inputs[request_id]=")]
         assert len(found) == 1, self.calls()
@@ -181,11 +213,16 @@ class Sandbox:
             (self.dir / name).unlink(missing_ok=True)
         return found[0]
 
-    def open_runs(self, *runs: tuple[str, str, str]) -> None:
-        """Runs of this commit that the run list shows: (id, status, title) each."""
+    def open_runs(self, *runs: tuple[str, str, str], trusted: bool = False) -> None:
+        """Runs the run list shows: (id, status, title) each.
+
+        trusted=False: runs whose head is this commit (a dispatch on the commit's own branch).
+        trusted=True: runs on feat-cmux-next (a --commit dispatch, whose head is feat-cmux-next's).
+        """
         lines = [f"{run_id}\t{status}\t{title}\thttps://github.com/manaflow-ai/cmux/actions/runs/{run_id}\n"
                  for run_id, status, title in runs]
-        (self.dir / "open-runs").write_text("".join(lines), encoding="utf-8")
+        name = "open-runs-trusted" if trusted else "open-runs"
+        (self.dir / name).write_text("".join(lines), encoding="utf-8")
 
     def close(self) -> None:
         for group in self.groups:  # stub sleeps a killed waiter left behind
@@ -354,6 +391,233 @@ def open_run_lookup_failure_still_dispatches(failures: list[str], name: str, box
     check(failures, name, box.count("gh api -X POST") == 1, box, out)
 
 
+# --commit: a run for a pushed commit that is not the branch head (the red commit of a fix).
+TRUSTED_REF = "feat-cmux-next"
+# The head sha GitHub gives a run dispatched on the trusted branch: that branch's, not the tested commit's.
+TRUSTED_HEAD = "f" * 40
+COMMIT_PATH_ENV = {"FAKE_RUN_BRANCH": TRUSTED_REF, "FAKE_RUN_HEAD": TRUSTED_HEAD}
+
+
+def commit_path_dispatches_non_head_on_trusted_ref(failures: list[str], name: str, box: Sandbox) -> None:
+    red = box.head()
+    fix = box.commit("fix")
+    box.push(fix)  # the branch head on origin is the fix; the red commit is HEAD~1
+    code, out = box.run(["--commit", red, "--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60", **COMMIT_PATH_ENV)
+    posts = box.dispatches()
+    post = posts[0] if len(posts) == 1 else ""
+    check(failures, name, len(posts) == 1
+          and f" -f ref={TRUSTED_REF} " in post
+          and f" -f inputs[commit]={red} " in post
+          and " -f inputs[source_branch]=verify-test " in post
+          and f" -f inputs[request_id]={red[:12]}-f" in post
+          and " -f inputs[mode]=focused " in post
+          and "local HEAD" not in out
+          and "is not this revision" not in out
+          and box.count("glaeda-gh wait run") >= 1 and box.count("gh run download") >= 1, box, out)
+
+
+def commit_path_accepts_the_pushed_head(failures: list[str], name: str, box: Sandbox) -> None:
+    # --commit also takes the branch head itself, and full mode.
+    head = box.head()
+    code, out = box.run(["--commit", head, "--full"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60", **COMMIT_PATH_ENV)
+    posts = box.dispatches()
+    check(failures, name, len(posts) == 1 and f" -f ref={TRUSTED_REF} " in posts[0]
+          and f" -f inputs[commit]={head} " in posts[0] and box.count("gh run download") >= 1, box, out)
+
+
+def commit_path_refuses_an_unpushed_commit(failures: list[str], name: str, box: Sandbox) -> None:
+    unpushed = box.commit("not pushed")  # local only: origin's branch head is still the fixture commit
+    code, out = box.run(["--commit", unpushed, "--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60", **COMMIT_PATH_ENV)
+    check(failures, name, code == 1 and not box.dispatches() and unpushed in out
+          and box.count("glaeda-gh wait run") == 0, box, out)
+
+
+def commit_path_refuses_an_unknown_commit(failures: list[str], name: str, box: Sandbox) -> None:
+    # A sha this clone does not have (for example a fork's object): not on the pushed branch.
+    unknown = "e" * 40
+    code, out = box.run(["--commit", unknown, "--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60", **COMMIT_PATH_ENV)
+    check(failures, name, code == 1 and not box.dispatches() and unknown in out, box, out)
+
+
+def commit_path_refuses_a_short_sha(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--commit", box.head()[:12], "--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60", **COMMIT_PATH_ENV)
+    check(failures, name, code == 2 and not box.dispatches(), box, out)
+
+
+def commit_path_refuses_a_second_open_run(failures: list[str], name: str, box: Sandbox) -> None:
+    red = box.head()
+    box.push(box.commit("fix"))
+    request_id = box.dispatched_request_id(["--commit", red, "--filter", "alpha_test"], **COMMIT_PATH_ENV)
+    # The open run is on the trusted branch and its head is that branch's: only its title names the commit.
+    box.open_runs(("9007", "in_progress", f"cmux-tui focused {request_id} @ {red}"), trusted=True)
+    code, out = box.run(["--commit", red, "--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60", **COMMIT_PATH_ENV)
+    check(failures, name, code == 4 and not box.dispatches()
+          and "https://github.com/manaflow-ai/cmux/actions/runs/9007" in out
+          and box.count("glaeda-gh wait run") == 0, box, out)
+
+
+def commit_path_sees_an_open_run_on_the_commits_branch(failures: list[str], name: str, box: Sandbox) -> None:
+    # A run dispatched the default way (on the branch, head = the commit) is the same verification.
+    request_id = box.dispatched_request_id(["--filter", "alpha_test"])
+    head = box.head()
+    box.open_runs(("9008", "queued", f"cmux-tui focused {request_id} @ {head}"))
+    code, out = box.run(["--commit", head, "--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60", **COMMIT_PATH_ENV)
+    check(failures, name, code == 4 and not box.dispatches() and "runs/9008" in out, box, out)
+
+
+def commit_path_open_run_of_another_commit_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    red = box.head()
+    fix = box.commit("fix")
+    box.push(fix)
+    request_id = box.dispatched_request_id(["--commit", fix, "--filter", "alpha_test"], **COMMIT_PATH_ENV)
+    box.open_runs(("9009", "queued", f"cmux-tui focused {request_id} @ {fix}"), trusted=True)
+    code, out = box.run(["--commit", red, "--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60", **COMMIT_PATH_ENV)
+    check(failures, name, len(box.dispatches()) == 1 and "runs/9009" not in out, box, out)
+
+
+def default_path_sees_an_open_commit_path_run(failures: list[str], name: str, box: Sandbox) -> None:
+    head = box.head()
+    request_id = box.dispatched_request_id(["--commit", head, "--filter", "alpha_test"], **COMMIT_PATH_ENV)
+    box.open_runs(("9010", "waiting", f"cmux-tui focused {request_id} @ {head}"), trusted=True)
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 4 and not box.dispatches() and "runs/9010" in out, box, out)
+
+
+def default_path_dispatches_the_head_on_its_own_branch(failures: list[str], name: str, box: Sandbox) -> None:
+    head = box.head()
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    posts = box.dispatches()
+    check(failures, name, len(posts) == 1 and " -f ref=verify-test " in posts[0]
+          and f" -f inputs[commit]={head} " in posts[0] and "source_branch" not in posts[0]
+          and box.count("gh run download") >= 1, box, out)
+
+
+def default_path_still_refuses_an_unpushed_head(failures: list[str], name: str, box: Sandbox) -> None:
+    pushed = box.head()
+    local = box.commit("not pushed")
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and not box.dispatches()
+          and f"is {pushed}, but local HEAD is {local}" in out, box, out)
+
+
+# cmux-tui.yml's validate-inputs step, run as GitHub runs a `shell: bash` step, with a stub gh.
+WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui.yml"
+VALIDATE_GH_STUB = r"""#!/usr/bin/env bash
+echo "gh $*" >> "$STUB_DIR/calls.log"
+case "$*" in
+  # The source branch's head (--jq .object.sha); FAKE_SOURCE_HEAD empty: no such branch.
+  *"repos/manaflow-ai/cmux/git/ref/heads/"*)
+    if [[ -z "${FAKE_SOURCE_HEAD:-}" ]]; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
+    echo "$FAKE_SOURCE_HEAD" ;;
+  # compare/<commit>...<branch head>: "<status> <behind_by>", as the step's --jq asks.
+  *"repos/manaflow-ai/cmux/compare/"*)
+    if [[ -z "${FAKE_COMPARE:-}" ]]; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
+    echo "$FAKE_COMPARE" ;;
+  *) echo "unexpected gh call: $*" >&2; exit 97 ;;
+esac
+"""
+
+
+def run_validate_step(*, commit: str, workflow_sha: str, ref: str, source_branch: str = "",
+                      mode: str = "focused", test_filter: str = "alpha_test",
+                      **fake: str) -> tuple[int, str, list[str]]:
+    import yaml  # tooling-tests installs PyYAML; only these cases need it
+
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    [step] = [step for step in workflow["jobs"]["validate-inputs"]["steps"]
+              if step.get("name") == "Validate dispatch inputs"]
+    contexts = {
+        "inputs.commit": commit, "inputs.mode": mode, "inputs.test_filter": test_filter,
+        "inputs.request_id": "abc123-f00000000-1-1", "inputs.source_branch": source_branch,
+        "github.sha": workflow_sha, "github.ref": ref, "github.repository": "manaflow-ai/cmux",
+        "github.token": "test-token",
+    }
+    directory = Path(tempfile.mkdtemp(prefix="validate-step-test."))
+    try:
+        env = {"PATH": f"{directory}:{os.environ['PATH']}", "STUB_DIR": str(directory), **fake}
+        # The step's env, with each ${{ expression }} replaced the way GitHub would.
+        for key, value in (step.get("env") or {}).items():
+            expression = str(value).strip()
+            assert expression.startswith("${{") and expression.endswith("}}"), (key, value)
+            expression = expression[3:-2].strip()
+            assert expression in contexts, f"the test does not know the step's {key}: {value}"
+            env[key] = contexts[expression]
+        gh = directory / "gh"
+        gh.write_text(VALIDATE_GH_STUB, encoding="utf-8")
+        gh.chmod(0o755)
+        script = directory / "step.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+                                env=env, capture_output=True, text=True, timeout=60)
+        log = directory / "calls.log"
+        calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+        return result.returncode, result.stdout + result.stderr, calls
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def validate_step_cases(failures: list[str]) -> None:
+    red, head, feat = "a" * 40, "b" * 40, "c" * 40
+    trusted = "refs/heads/feat-cmux-next"
+
+    def case(name: str, want_ok: bool, *, calls_have: str = "", no_calls: bool = False, **kwargs) -> None:
+        code, out, calls = run_validate_step(**kwargs)
+        ok = (code == 0) == want_ok
+        if calls_have and not any(calls_have in line for line in calls):
+            ok = False
+        if no_calls and calls:
+            ok = False
+        if not ok:
+            failures.append(f"validate-inputs: {name} (exit {code})\n--- output ---\n{out}\n--- calls ---\n"
+                            + "\n".join(calls))
+
+    case("the dispatched head itself passes with no API call", True, no_calls=True,
+         commit=head, workflow_sha=head, ref="refs/heads/verify-test")
+    case("another commit on a branch's own dispatch is refused", False,
+         commit=red, workflow_sha=head, ref="refs/heads/verify-test", source_branch="verify-test",
+         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="ahead 1")
+    case("another commit on feat-cmux-next, contained in its source branch, passes", True,
+         calls_have=f"repos/manaflow-ai/cmux/compare/{red}...{head}",
+         commit=red, workflow_sha=feat, ref=trusted, source_branch="verify-test",
+         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="ahead 1")
+    case("another commit on main, contained in its source branch, passes", True,
+         commit=red, workflow_sha=feat, ref="refs/heads/main", source_branch="task/verify-test",
+         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="ahead 1")
+    case("the source branch's head itself passes", True,
+         commit=head, workflow_sha=feat, ref=trusted, source_branch="verify-test",
+         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="identical 0")
+    case("a commit the source branch does not contain (a fork object) is refused", False,
+         commit=red, workflow_sha=feat, ref=trusted, source_branch="verify-test",
+         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="diverged 2")
+    case("a commit newer than the source branch is refused", False,
+         commit=red, workflow_sha=feat, ref=trusted, source_branch="verify-test",
+         FAKE_SOURCE_HEAD=head, FAKE_COMPARE="behind 3")
+    case("a source branch that does not exist is refused", False,
+         commit=red, workflow_sha=feat, ref=trusted, source_branch="gone",
+         FAKE_SOURCE_HEAD="", FAKE_COMPARE="ahead 1")
+    case("another commit with no source branch is refused before any API call", False, no_calls=True,
+         commit=red, workflow_sha=feat, ref=trusted, source_branch="")
+    case("an unsafe source branch name is refused before any API call", False, no_calls=True,
+         commit=red, workflow_sha=feat, ref=trusted, source_branch="x..y")
+    case("a fork-style owner:branch source is refused before any API call", False, no_calls=True,
+         commit=red, workflow_sha=feat, ref=trusted, source_branch="someone:verify-test")
+    case("an uppercase commit is still refused", False, no_calls=True,
+         commit=red.upper(), workflow_sha=feat, ref=trusted, source_branch="verify-test")
+    case("full mode still refuses a test filter", False,
+         commit=head, workflow_sha=head, ref="refs/heads/verify-test", mode="full", test_filter="x")
+
+
 def signal_case(signum: int, whole_group: bool, want_cancels: int, want_code: int):
     def test(failures: list[str], name: str, box: Sandbox) -> None:
         process = box.start(["--full"], FAKE_STATES="queued||1", FAKE_WAITER_SLEEP="60",
@@ -412,13 +676,32 @@ def main() -> int:
         ("a finished run of the same commit and filter does not stop a dispatch",
          finished_run_of_same_commit_and_filter_dispatches),
         ("a failed open-run lookup still dispatches", open_run_lookup_failure_still_dispatches),
+        ("--commit with a pushed non-head sha dispatches it on feat-cmux-next",
+         commit_path_dispatches_non_head_on_trusted_ref),
+        ("--commit takes the pushed head too, in full mode", commit_path_accepts_the_pushed_head),
+        ("--commit refuses a commit that is not on the pushed branch", commit_path_refuses_an_unpushed_commit),
+        ("--commit refuses a sha this clone does not have", commit_path_refuses_an_unknown_commit),
+        ("--commit refuses a short sha (exit 2)", commit_path_refuses_a_short_sha),
+        ("--commit: an open --commit run of the same commit and filter: no dispatch, exit 4",
+         commit_path_refuses_a_second_open_run),
+        ("--commit: an open run on the commit's own branch: no dispatch, exit 4",
+         commit_path_sees_an_open_run_on_the_commits_branch),
+        ("--commit: an open --commit run of another commit does not stop a dispatch",
+         commit_path_open_run_of_another_commit_dispatches),
+        ("default path: an open --commit run of the same commit and filter: exit 4",
+         default_path_sees_an_open_commit_path_run),
+        ("default path: dispatches the pushed head on its own branch, with no source_branch",
+         default_path_dispatches_the_head_on_its_own_branch),
+        ("default path: still refuses a local HEAD that is not pushed", default_path_still_refuses_an_unpushed_head),
     ]:
         scenario(failures, name, test)
+    validate_step_cases(failures)
     if failures:
         print("\n\n".join(f"FAIL: {f}" for f in failures), file=sys.stderr)
         return 1
     print("ok: verify-cmux-tui-hosted.sh leaves its run alone unless Ctrl-C or --cancel-on-timeout says otherwise,"
-          " and keeps one open run per commit, mode and filter")
+          " keeps one open run per commit, mode and filter, and verifies a pushed non-head commit with --commit;"
+          " cmux-tui.yml accepts that commit only from a branch of this repository")
     return 0
 
 
