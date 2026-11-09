@@ -375,6 +375,7 @@ impl Hub {
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
                     wait_start: false,
+                    require_asking: false,
                 };
                 let side = match with_inline_creation(
                     self.clone(),

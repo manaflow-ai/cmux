@@ -1625,6 +1625,7 @@ async fn dispatch_request_with_identity(
                 additional_directories,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
+                require_asking: crate::hub::require_asking::asked(meta),
             };
             let s = match &admitted {
                 Some(admitted) => {

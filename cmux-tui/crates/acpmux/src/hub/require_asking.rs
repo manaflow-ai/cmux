@@ -9,6 +9,12 @@
 //! machines start from (`web_modes::remote_start`, the reviewed asking modes): fail closed,
 //! so a harness that does not resolve, or resolves to one that table does not list, is refused.
 //! Also refused: no policy or approve-all, a start mode (`_meta.acpmux.mode`) and an adopt.
+//!
+//! The request check (`check_require_asking`) answers early; the start itself carries it
+//! (`NewRequest::require_asking`) and checks again on the profile it actually resolves, under the
+//! same config read (`lifecycle.rs`), so a config reload between the two (bare `codex` moved from
+//! the bridge to the legacy adapter) is refused, and its `ask` policy fails the start if the
+//! harness does not keep it (`policy_mode::require_enforced`), never only logged.
 
 use super::*;
 
@@ -48,6 +54,21 @@ pub(crate) fn admits(
     crate::web_modes::remote_start_for_config(cfg, agent, profile).map(|_| ()).map_err(|why| {
         refused(format!("{agent} cannot be held to asking before each change: {why}"))
     })
+}
+
+/// The start's own check (`lifecycle.rs`), on the profile it resolved and under the config read
+/// it resolved it with: a narrow policy, no adopt, and a harness the asking table lists.
+pub(super) fn holds_at_start(
+    cfg: &Config,
+    agent: &str,
+    profile: &HarnessProfile,
+    policy: Option<PermissionPolicy>,
+    adopting: bool,
+) -> Result<(), RpcError> {
+    if adopting {
+        return Err(refused("a start held to asking adopts no conversation".to_owned()));
+    }
+    admits(cfg, agent, profile, policy, None)
 }
 
 impl Hub {
@@ -103,6 +124,44 @@ mod tests {
         // A family no asking table lists is refused.
         let other = profile(json!({"argv": ["foo-agent"]}));
         assert!(admits(&cfg, "foo", &other, ask, None).is_err());
+    }
+
+    fn hub_on(harnesses: Value) -> Arc<Hub> {
+        let cfg = json!({"harnesses": harnesses, "defaultHarness": "codex"});
+        let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+        Hub::new(cfg, store)
+    }
+
+    /// Review F1 (#39320, third round): a config reload between the request check and the start
+    /// moves bare `codex` from the bridge to the legacy adapter; the start, on the profile it
+    /// resolves itself, is refused, and nothing is created.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_reload_after_the_check_is_refused_at_the_start() {
+        let bridge = json!({"codex": {"argv": ["codex", "app-server"], "family": "codex"}});
+        let hub = hub_on(bridge);
+        let ask = Some(PermissionPolicy::Ask);
+        let name = Some("codex".to_owned());
+        let dir = std::env::temp_dir();
+        let ok = hub.check_require_asking(name.clone(), None, None, Some(&dir), ask, None, false);
+        assert!(ok.await.is_ok());
+        // The reload, between the check and the start.
+        let legacy = json!({"harnesses": {"codex": {"argv": ["codex-acp"], "family": "codex"}}});
+        let mut legacy: Config = serde_json::from_value(legacy).unwrap();
+        legacy.store.mode = crate::config::StoreMode::Memory;
+        *hub.config.write().await = legacy;
+        let req = NewRequest {
+            harness: name,
+            cwd: Some(dir),
+            policy: ask,
+            require_asking: true,
+            ..NewRequest::default()
+        };
+        let e = hub.new_session(req).await.unwrap_err();
+        assert!(e.message.contains("cannot be held to asking"), "{}", e.message);
+        assert_eq!(e.data.as_ref().and_then(|d| d["reason"].as_str()), Some("start.not_asking"));
+        assert!(hub.sessions.lock().unwrap().is_empty());
     }
 
     #[test]

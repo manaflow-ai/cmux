@@ -111,6 +111,7 @@ impl Hub {
             additional_directories,
             person,
             wait_start,
+            require_asking,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -130,6 +131,13 @@ impl Hub {
             let cfg = self.config.read().await;
             let r =
                 self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?;
+            // Held to asking: checked on this profile, under this read (`require_asking.rs`).
+            if require_asking {
+                let adopting = adopt.is_some();
+                super::require_asking::holds_at_start(
+                    &cfg, &r.agent, &r.profile, policy, adopting,
+                )?;
+            }
             let plain = super::start_mode::plain_for_mode(r.preset_name.as_deref(), &cfg);
             (r, plain)
         };
@@ -168,9 +176,10 @@ impl Hub {
         };
         // Deny-all or review, asked for (or a preset's or profile's), promises protection with no
         // person to ask: a harness that cannot keep it fails the creation (`policy_mode.rs`
-        // `require_enforced`).
-        let must_hold = !inherits_policy
-            && matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
+        // `require_enforced`). So does any policy of a start held to asking (`require_asking.rs`).
+        let must_hold = require_asking
+            || (!inherits_policy
+                && matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review)));
         // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
