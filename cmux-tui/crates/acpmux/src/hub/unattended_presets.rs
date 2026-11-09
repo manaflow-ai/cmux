@@ -35,12 +35,50 @@
 //!     have, are forwarded as before: the peer resolves the name.
 //! - A start on this machine is unchanged: it already takes a preset's policy when its starter's
 //!   limits do not apply (`lifecycle.rs`), and `holdAgentStartsToStarter` keeps holding it.
+//! - Logged ([`log`]): every start a preset's approval let run unattended, every start that asked
+//!   or was refused instead, and every approval and withdrawal, one JSON line each in
+//!   `<acpmux home>/unattended-presets.jsonl` (owner-only), so the person can read afterwards
+//!   what ran with no one watching (#39876, from #39318).
 
 use super::*;
 use cmux_json::JsonSet as _;
 
 /// `error.data.reason` of a forwarded start refused until the person approves its preset.
 pub(crate) const APPROVAL_REQUIRED: &str = "preset.approval_required";
+
+/// The log of unattended runs (module docs), under the acpmux home.
+pub(crate) const LOG: &str = "unattended-presets.jsonl";
+
+/// Appends `{at, event, ...fields}` to [`LOG`]. A log that cannot be written (a lost home, a
+/// full disk) is a warning, never a refused start: the chat's own records stay the truth.
+pub(crate) fn log(event: &str, fields: Value) {
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    let mut line = json!({"at": at, "event": event});
+    if let (Some(line), Value::Object(fields)) = (line.as_object_mut(), fields) {
+        line.extend(fields);
+    }
+    let path = crate::config::home().join(LOG);
+    if let Err(e) = append_line(&path, &line) {
+        tracing::warn!("unattended presets log {} not written: {e}", path.display());
+    }
+}
+
+fn append_line(path: &Path, line: &Value) -> anyhow::Result<()> {
+    use std::io::Write as _;
+    let mut bytes = serde_json::to_vec(line)?;
+    bytes.push(b'\n');
+    #[cfg(unix)]
+    let mut file = crate::config::private_state_append(path)?;
+    #[cfg(windows)]
+    let mut file = {
+        crate::config::refuse_lost_home(path)?;
+        crate::owner_only::open_append(path)?
+    };
+    file.write_all(&bytes)?;
+    Ok(())
+}
 
 /// The fields of a `session/new` that, named by the request itself, keep a preset's approval
 /// from applying: the approval covers the preset's own contents, nothing the agent adds.
@@ -96,6 +134,10 @@ impl Hub {
                 "description": preset.description,
             });
             self.append(&s, "mux", "preset_approval_request", card);
+            log(
+                "asked",
+                json!({"preset": name, "digest": preset.approval_digest(), "host": host, "caller": s.id}),
+            );
             return Err(RpcError::new(
                 -32000,
                 format!(
@@ -105,6 +147,10 @@ impl Hub {
             .with_data(json!({"reason": APPROVAL_REQUIRED, "preset": name, "host": host})));
         }
         if !preset.env.is_empty() || preset.shapes_command() {
+            log(
+                "refused",
+                json!({"preset": name, "host": host, "caller": s.id, "why": "env, args or system prompt"}),
+            );
             return Err(RpcError::invalid_params(format!(
                 "preset {name} sets an env, args or a system prompt, which stay on this machine: a preset that starts unattended chats on {host} sets only harness, model, effort and policy"
             )));
@@ -159,6 +205,21 @@ impl Hub {
     /// The person's answer to a chat's approval card (module docs): `preset_approval_decision` in
     /// the chat `params.sessionId` names, for the digest the card showed. A write that names no
     /// chat or digest, or that is not the person's, records nothing (`server/requests/presets.rs`).
+    /// Logs the start [`Hub::forward_unattended_preset`] let run unattended, once the peer made
+    /// its chat (`server/requests.rs`).
+    pub(crate) fn log_unattended_start(
+        &self,
+        (name, digest): &(String, String),
+        host: &str,
+        caller: Option<&str>,
+        session: Option<&str>,
+    ) {
+        log(
+            "started",
+            json!({"preset": name, "digest": digest, "host": host, "caller": caller, "sessionId": session}),
+        );
+    }
+
     pub(crate) fn close_preset_card(&self, params: &Value, name: &str, approved: bool) {
         let digest = params.get("approveDigest").and_then(Value::as_str);
         let session = params.get("sessionId").and_then(Value::as_str);

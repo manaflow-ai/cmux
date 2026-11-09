@@ -11,7 +11,7 @@ import { errorMessage } from "./transportErrors";
 import { peerLinkFailure, peerLinkLine } from "./hostLine";
 
 /// The causes the failure card names in its own words, with their own way out.
-export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "too-large" | "other";
+export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "too-large" | "host-away" | "other";
 
 type CauseFields = { code?: unknown; reason?: unknown } | null | undefined;
 
@@ -27,6 +27,10 @@ export function sendCause(fields: CauseFields): SendCause {
   if (reason === "message.too_large") return "too-large";
   // A request the pane's host would not take is the pane's bug, not something the person did.
   if (text(fields?.code) === "transport.intent_invalid") return "pane";
+  // acpmux was still starting or reconnecting when the send's wait for it ran out
+  // (sendWhenReady.ts): a plain sentence and Retry, never the transport's words or restart advice.
+  const code = text(fields?.code);
+  if (code === "native.not_connected" || code === "native.timed_out") return "host-away";
   return "other";
 }
 
@@ -71,6 +75,8 @@ export function failedSendText(
       return translate(retried ? "prompt.failure.paneAgain" : "prompt.failure.pane");
     case "too-large":
       return tooLargeText(attachments);
+    case "host-away":
+      return translate("prompt.failure.hostAway");
     default:
       break;
   }
