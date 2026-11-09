@@ -149,11 +149,12 @@ fn a_registry_copied_without_its_pepper_opens_once_rebound() {
     };
     let report = generate(&root, &options).unwrap();
     let copy_root = temp_root("pepper-copy");
-    let copy = registry_path(&copy_root, "synth-copy");
+    let copy = registry_path(&copy_root, "synth-source");
     std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
     std::fs::copy(&report.registry_path, &copy).unwrap();
-    let open =
-        || crate::Mux::open_persistent("synth-copy", crate::SurfaceOptions::default(), &copy_root);
+    let open = || {
+        crate::Mux::open_persistent("synth-source", crate::SurfaceOptions::default(), &copy_root)
+    };
 
     let refused = format!("{:#}", open().err().expect("a registry without its pepper opens"));
     assert!(refused.contains("pepper"), "{refused}");
