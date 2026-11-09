@@ -1,5 +1,6 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
+use super::agent_roster_fold::ReportEcho;
 use super::*;
 use cmux_json::JsonSet as _;
 
