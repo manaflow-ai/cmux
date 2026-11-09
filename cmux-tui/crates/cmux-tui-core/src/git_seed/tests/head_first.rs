@@ -256,44 +256,75 @@ fn a_harness_folder_linked_to_the_subpath_is_never_marked() {
     whole(&folder);
 }
 
+/// A seed whose WORK has a submodule at `at` (its folder not initialized, as a clone leaves
+/// one; no `.gitmodules`, so the seed never reaches for it over the network), held at its
+/// head: the barrier's state there and the job's status.
+fn submodule_at_head(label: &str, at: &str) -> (String, Value) {
+    let world = World::new(label);
+    let lib = world.home.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    git(&lib, &["init", "-q", "-b", "main"]);
+    write(&lib.join("CLAUDE.md"), "lib\n");
+    git(&lib, &["add", "-A"]);
+    git(&lib, &["commit", "-q", "-m", "lib"]);
+    let commit = git(&lib, &["rev-parse", "HEAD"]);
+    let entry = format!("160000,{commit},{at}");
+    git(&world.mac, &["update-index", "--add", "--cacheinfo", &entry]);
+    std::fs::create_dir_all(world.mac.join(at)).unwrap();
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    let params = head_params(&world, &folder, &snapshot, None);
+    let (service, job, release) = held_at_head(&world, &params, &folder);
+    let probed = barrier_state(&folder);
+    let reported = status(&service, &job);
+    drop(release);
+    let done = wait(&service, &job);
+    assert_eq!(done["state"], "done", "{label}: {done}");
+    (probed, reported)
+}
+
+/// The probe's answer, and for a syncing folder which of its sidecar locks are held, so a
+/// failure says why it read short of its head.
+fn barrier_state(folder: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+    let answer = match probe(folder).unwrap() {
+        Probe::Ready(_) => return "ready".into(),
+        Probe::HeadReady => return "head".into(),
+        Probe::Syncing => "syncing",
+        Probe::Incomplete => return "incomplete".into(),
+    };
+    let name = folder.file_name().unwrap().as_bytes();
+    let marker = folder.parent().unwrap().join(format!(".cmux-sync-{:x}", Sha256::digest(name)));
+    let held = |suffix: &str| {
+        let mut path = marker.clone().into_os_string();
+        path.push(suffix);
+        let file = match std::fs::File::open(&path) {
+            Ok(file) => file,
+            Err(error) => return error.kind().to_string(),
+        };
+        // SAFETY: the descriptor is live for the call; the lock goes with the file.
+        let taken = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
+        (taken != 0).to_string()
+    };
+    let (marker_held, head, owner) = (held(""), held(".head"), held(".owner"));
+    format!("{answer} (held: marker {marker_held}, head {head}, owner {owner})")
+}
+
 /// Review F1 (cmux#39018, 4f2b22b): a `.claude` kept as a submodule is an empty folder at
-/// the head (submodules come after the fill), so the head is never marked. A submodule off
-/// the head leaves it marked.
+/// the head (submodules come after the fill), so the head is never marked.
 #[test]
 fn a_harness_folder_kept_as_a_submodule_is_never_marked() {
-    for (label, at, marked) in [("harness", ".claude", false), ("elsewhere", "vendor/lib", true)] {
-        let world = World::new(&format!("head-submodule-{label}"));
-        let lib = world.home.join("lib");
-        std::fs::create_dir_all(&lib).unwrap();
-        git(&lib, &["init", "-q", "-b", "main"]);
-        write(&lib.join("CLAUDE.md"), "lib\n");
-        git(&lib, &["add", "-A"]);
-        git(&lib, &["commit", "-q", "-m", "lib"]);
-        let commit = git(&lib, &["rev-parse", "HEAD"]);
-        // A gitlink in the Mac's index and its folder not initialized, as a clone leaves a
-        // submodule (no `.gitmodules`, so the seed never reaches for it over the network).
-        git(
-            &world.mac,
-            &["update-index", "--add", "--cacheinfo", &format!("160000,{commit},{at}")],
-        );
-        std::fs::create_dir_all(world.mac.join(at)).unwrap();
-        let snapshot = world.snapshot("one", &[&world.base]);
-        let folder = world.home.join("project");
-        let params = head_params(&world, &folder, &snapshot, None);
-        let (service, job, release) = held_at_head(&world, &params, &folder);
-        let probed = match probe(&folder).unwrap() {
-            Probe::Ready(_) => "ready",
-            Probe::HeadReady => "head",
-            Probe::Syncing => "syncing",
-            Probe::Incomplete => "incomplete",
-        };
-        let reported = status(&service, &job);
-        let expected = if marked { "head" } else { "syncing" };
-        assert_eq!(probed, expected, "{label}: {reported}");
-        assert_eq!(reported["head_ready"].as_bool().unwrap_or(false), marked, "{label}: {reported}");
-        drop(release);
-        let done = wait(&service, &job);
-        // No `.gitmodules`, so the seed skips submodule update and finishes.
-        assert_eq!(done["state"], "done", "{label}: {done}");
-    }
+    let (probed, reported) = submodule_at_head("head-sub-harness", ".claude");
+    assert!(probed.starts_with("syncing"), "{probed}");
+    assert!(reported["head_ready"].is_null(), "{reported}");
+}
+
+/// A submodule off the head leaves it marked: barrier and status say the same.
+#[test]
+fn a_submodule_off_the_head_leaves_it_marked() {
+    let (probed, reported) = submodule_at_head("head-sub-elsewhere", "vendor/lib");
+    assert_eq!(reported["head_ready"], true, "{reported}");
+    assert_eq!(probed, "head", "{reported}");
 }
