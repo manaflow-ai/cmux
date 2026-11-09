@@ -51,7 +51,7 @@ final class ChiefComputerPageService: InternalPageProvider {
     static func source(services: AppServices, conversation: String) -> HomeChiefComputerSection.Source {
         let service = services.home
         let id = ConversationID(conversation)
-        return .init(paid: { [weak services] in services?.machines.cloudLimits?.paysForCloud == true },
+        return .init(paid: { [weak services] in HomeChiefComputer.planAllows(paysForCloud: services?.machines.cloudLimits?.paysForCloud) },
                      chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
                      route: HomeChiefComputerRoute(agent: { [weak services] in services?.home.cloudChiefs.chief(for: conversation)?.id },
                                                    send: ChiefComputerControlClient.feeding(service.hostedChief.brainRoute, into: services.cloud.computerControl)))
@@ -145,7 +145,7 @@ final class ChiefComputerPageService: InternalPageProvider {
         let service = services.home
         let id = ConversationID(conversation)
         view.computer.source = Self.source(services: services, conversation: conversation)
-        view.paid = { [weak services] in services?.machines.cloudLimits?.paysForCloud == true }
+        view.paid = { [weak services] in HomeChiefComputer.planAllows(paysForCloud: services?.machines.cloudLimits?.paysForCloud) }
         view.cloudChief = { [weak services] in services?.home.cloudChiefs.chief(for: conversation) != nil }
         view.onProvision = { [weak services] in
             guard let services, let agent = services.home.cloudChiefs.chief(for: conversation)?.id else {

@@ -68,6 +68,11 @@ public struct HomeChiefComputer: Equatable, Sendable {
         self.acting = acting
     }
 
+    /// Whether the plan allows the section. A plan the Mac knows decides; an unknown plan (the
+    /// app-server machine list carries no limits) leaves it to the server, whose
+    /// `cloud.plan.required` refusal stays the real gate.
+    public static func planAllows(paysForCloud: Bool?) -> Bool { paysForCloud ?? true }
+
     /// The section for `status` (nil hides it): a paid plan and a Chief that has used a computer.
     public init?(status: Status?, paid: Bool, chief: String) {
         guard paid, let status, status.used else { return nil }
