@@ -6,9 +6,12 @@ import { chromium } from "playwright";
 const out = path.join(process.env.FAST_CHECKS_OUT!, "storage");
 await mkdir(out, { recursive: true });
 const gallery = path.resolve(process.argv[2]!);
-const server = Bun.serve({ port: 0, async fetch(r) {
+// Loopback only, and only files inside the built gallery.
+const server = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(r) {
   const name = decodeURIComponent(new URL(r.url).pathname).replace(/^\/+/, "");
-  const f = Bun.file(path.resolve(gallery, name || "index.html"));
+  const file = path.resolve(gallery, name || "index.html");
+  if (!file.startsWith(`${gallery}/`)) return new Response("forbidden", { status: 403 });
+  const f = Bun.file(file);
   return (await f.exists()) ? new Response(f) : new Response("nf", { status: 404 });
 }});
 const browser = await chromium.launch({ headless: true });
