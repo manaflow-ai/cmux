@@ -144,7 +144,8 @@ fn a_checkout_cloned_through_cmux_keeps_its_helper_for_push() {
     // chat keeps it after its fetch (review F2, cmux#38997 aafeae5053e).
     let keep = at("\nkeep_helper\n");
     let cloned = at("status=cloned");
-    let result = at(r#"sha=$(g -C "$dir" rev-parse"#);
+    // The step's own record, the last read of its commit (an inline warm update reads it too).
+    let result = step.rfind(r#"sha=$(g -C "$dir" rev-parse"#).unwrap();
     assert!(cloned < keep && keep < result);
     let fetched = at(r#"if g -C "$dir" fetch --quiet --tags origin; then"#);
     assert!(
