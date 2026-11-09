@@ -529,31 +529,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
-    // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
-    // Kept on the hub, so a sign-in enroll can start one live (`server/machine_enroll.rs`).
-    // A sign-out's leave the last run did not finish goes first: no relay for a machine that left.
-    crate::server::machine_enroll::start_relay_at_start(&hub).await;
+    // What the join in config.json starts (`server/machine_enroll.rs`): the team hub's relay
+    // (`server/mesh_relay.rs`), kept on the hub so a sign-in enroll can start one live, and the
+    // hub carrier on the same hub and credential (`hub_carrier.rs`), through which this machine
+    // serves its relay slot and its peers dial it. A copied home runs no carrier, as WireGuard.
+    // A sign-out's leave the last run did not finish goes first: neither starts for a machine
+    // that left.
+    let carrier = (!clone_unsettled)
+        .then(|| ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()))
+        .flatten();
+    crate::server::machine_enroll::start_joined_at_start(&hub, carrier).await;
     // A machine joined before the hub recorded capabilities states them with its own credential,
     // in the background (`cli/cloud_join/self_capabilities.rs`); the start never waits for it.
     crate::cli::cloud_join::state_capabilities_at_start();
-    // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
-    // relay slot, and its peers dial over it. A copied home is off, as WireGuard is.
-    #[cfg(feature = "hub-carrier")]
-    let _hub_carrier = if clone_unsettled {
-        None
-    } else {
-        let websocket = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
-        // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
-        let held = wireguard.as_ref().and_then(|transport| transport.key_holder());
-        let serving = crate::hub_carrier::start_configured(&hub, &home(), websocket, held).await;
-        // A rekey (`machine_tunnel.rs`) rotates the node key under the carrier: it takes the new
-        // key with the key file and registers again, rather than reading it as replaced.
-        if let (Some(transport), Some(carrier)) = (wireguard.as_ref(), hub.hub_carrier.get()) {
-            let carrier = carrier.clone();
-            transport.add_key_user(Arc::new(move |private, write| carrier.rekey(*private, write)));
-        }
-        serving
-    };
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -1053,6 +1041,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             let _ = std::fs::remove_file(file);
         }
     }
+    // The carrier's registration last, as when the start held it to the end.
+    crate::server::machine_enroll::stop_carrier(&hub);
     tracing::info!("stopped");
     Ok(())
 }

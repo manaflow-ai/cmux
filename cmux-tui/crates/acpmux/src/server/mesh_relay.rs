@@ -195,7 +195,8 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
             return None;
         }
     };
-    let _ = hub.mesh.set(client.clone());
+    // Replaces a client a leave left, if one did: a re-enroll may name another hub.
+    hub.mesh.set(client.clone());
     // The origin only (no user, password or query is accepted in the URL).
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");

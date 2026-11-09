@@ -478,6 +478,12 @@ pub struct HubServe {
 }
 
 impl HubServe {
+    /// A registration that is `task` (a test's stand-in), dropped as a real one is.
+    #[cfg(test)]
+    pub(crate) fn of_task(task: tokio::task::JoinHandle<()>) -> Self {
+        Self { task }
+    }
+
     /// True once the registration stopped for good (its key was replaced).
     pub fn is_finished(&self) -> bool {
         self.task.is_finished()
@@ -752,6 +758,32 @@ pub async fn start_configured(
     );
     hub.hub_carrier.set(carrier.clone());
     Some(carrier.serve(websocket))
+}
+
+/// [`start_configured`] on the daemon's own key lock and node key, kept on the hub
+/// (`Hub::hub_carrier_serve`) so a sign-out's leave can stop it ([`stop_kept`]). A rekey
+/// (`machine_tunnel.rs`) rotates the node key under the carrier: it takes the new key with the
+/// key file and registers again, rather than reading it as replaced.
+pub async fn start_kept(hub: &Arc<crate::hub::Hub>, websocket: Option<SocketAddr>) {
+    use crate::no_panic::LockExt;
+    // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
+    let held = hub.wireguard.as_ref().and_then(|transport| transport.key_holder());
+    let Some(serving) = start_configured(hub, &crate::config::home(), websocket, held).await else {
+        return;
+    };
+    if let (Some(transport), Some(carrier)) = (hub.wireguard.as_ref(), hub.hub_carrier.get()) {
+        let carrier = carrier.clone();
+        transport.add_key_user(Arc::new(move |private, write| carrier.rekey(*private, write)));
+    }
+    *hub.hub_carrier_serve.lock_or_recover() = Some(serving);
+}
+
+/// Stops the carrier [`start_kept`] started, if it runs: dropping its registration unregisters
+/// this machine's slot on the relay. True when one was running.
+pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
+    use crate::no_panic::LockExt;
+    let serving = hub.hub_carrier_serve.lock_or_recover().take();
+    serving.is_some()
 }
 
 #[cfg(test)]

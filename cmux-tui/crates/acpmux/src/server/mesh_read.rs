@@ -149,7 +149,7 @@ pub(crate) async fn forward(
     if !(READ_METHODS.contains(&m) || m == method::MUX_DETACH) || !may_read(conn) {
         return None;
     }
-    let mesh = hub.mesh.get()?.clone();
+    let mesh = hub.mesh.get()?;
     let key = session_key(params).ok()?;
     // `HOST/KEY`, or the bare id of a chat the hub lists for one machine (`hub/mesh_book.rs`),
     // which is how the app opens a listed chat.
@@ -190,7 +190,7 @@ pub(crate) async fn prompt(
     if m != method::SESSION_PROMPT || !may_read(conn) {
         return None;
     }
-    let mesh = hub.mesh.get()?.clone();
+    let mesh = hub.mesh.get()?;
     let key = params.get("sessionId").and_then(Value::as_str)?;
     let target = match key.split_once('/') {
         Some((host, rest)) if !rest.is_empty() && hub.mesh_book_has_host(host) => key.to_owned(),

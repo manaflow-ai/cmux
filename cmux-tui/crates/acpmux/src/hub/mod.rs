@@ -622,6 +622,10 @@ pub struct Hub {
     /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
     #[cfg(feature = "hub-carrier")]
     pub hub_carrier: crate::hub_carrier::HubCarrierSlot,
+    /// The carrier's registration the daemon's start made from the join config
+    /// (`hub_carrier::start_kept`); a sign-out's leave drops it, which unregisters.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) hub_carrier_serve: std::sync::Mutex<Option<crate::hub_carrier::HubServe>>,
     /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
     pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
@@ -957,9 +961,10 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
-    /// The team hub a send to a name nobody here resolves goes through, once the mesh relay
-    /// started (`server/mesh_relay.rs`); unset without one, or in a hub a test builds.
-    pub mesh: std::sync::OnceLock<Arc<dyn crate::mesh::MeshHub>>,
+    /// The team hub a send to a name nobody here resolves goes through, while a mesh relay
+    /// runs (`server/mesh_relay.rs`); unset without one, or in a hub a test builds. A sign-out's
+    /// leave clears it and a later enroll sets the new hub's (`server/machine_enroll.rs`).
+    pub mesh: crate::mesh::MeshSlot,
     /// The running mesh relay's loops: the one the daemon started, or one a sign-in enroll
     /// started live (`server/machine_enroll.rs`). Stopped at shutdown.
     pub mesh_relay: tokio::sync::Mutex<Option<crate::server::mesh_relay::MeshRelay>>,
@@ -1076,6 +1081,8 @@ impl Hub {
             wireguard,
             #[cfg(feature = "hub-carrier")]
             hub_carrier,
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier_serve: Default::default(),
             peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,

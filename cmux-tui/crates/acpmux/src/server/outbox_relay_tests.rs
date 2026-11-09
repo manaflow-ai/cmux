@@ -87,7 +87,7 @@ fn setup_peer(fake: FakeHub) -> (Arc<Hub>, Arc<FakeHub>, Arc<crate::peer::Peer>)
                      "updatedAt": 5});
     let peer = hub.seed_down_peer("huge-blue", vec![row]);
     let fake = Arc::new(fake);
-    assert!(hub.mesh.set(fake.clone()).is_ok());
+    hub.mesh.set(fake.clone());
     (hub, fake, peer)
 }
 
