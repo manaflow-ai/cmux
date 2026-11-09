@@ -47,19 +47,18 @@ nonisolated struct SidebarRowIndex: Sendable {
     }
 
     static func set(_ row: SidebarWorkspace, at path: Path, in sections: inout [SidebarSection]) {
-        // The node is swapped out in place first: a `switch` over `sections[s].nodes[n]` holds a copy of the section
-        // while its cases write, so every write copied the section's whole node list (O(rows) per row patch).
-        var node = SidebarNode.workspace(row)
-        swap(&node, &sections[path.section].nodes[path.node])
-        switch node {
-        case .workspace:
-            return
-        case var .group(group):
-            node = .workspace(row) // the group's members are held by `group` alone: the write below is in place
-            group.workspaces[path.member ?? 0] = row
-            sections[path.section].nodes[path.node] = .group(group)
-        case .item:
-            sections[path.section].nodes[path.node] = node
+        sections[path.section].setRow(row, node: path.node, member: path.member)
+    }
+
+    /// Whether `nodes[node]` lists workspace `id` (at `member`, in a group): the same place in another copy of the rows.
+    static func lists(_ id: WorkspaceID, node n: Int, member: Int?, in nodes: [SidebarNode]) -> Bool {
+        guard nodes.indices.contains(n) else { return false }
+        switch nodes[n] {
+        case let .workspace(ws): return member == nil && ws.id == id
+        case let .group(group):
+            guard let member, group.workspaces.indices.contains(member) else { return false }
+            return group.workspaces[member].id == id
+        case .item: return false
         }
     }
 
@@ -140,15 +139,30 @@ extension SidebarListView {
             let cardChanged = previous.map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
             workspaces[ws.id] = ws
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
-                let section = model.sections[path.section]
-                sections[section.id] = section
+                let modelRows = model.sections
+                let sectionID = modelRows[path.section].id
+                let listed = SidebarRowIndex.workspace(at: path, in: modelRows) // this place's row, its own row state
+                // The list's caches take the row in place. A copy of the model's section (and group) shared its
+                // storage, so the model's next in-place write (`SidebarRowIndex.set`) copied that section's whole node
+                // list: O(rows) per patch with a list attached.
+                // (The checks read the caches in one expression each: a copy held over the write would make it copy.)
+                if sections[sectionID].map({ SidebarRowIndex.lists(ws.id, node: path.node, member: path.member, in: $0.nodes) }) == true {
+                    sections[sectionID]?.setRow(listed, node: path.node, member: path.member)
+                } else {
+                    sections[sectionID] = modelRows[path.section] // another arrangement than the shown one: as the model has it
+                }
                 // A group header draws its members' activity and unread total when
                 // collapsed, where the member has no row: configure it whatever shows.
-                if path.member != nil, case let .group(group) = section.nodes[path.node] {
-                    groups[group.id] = group
-                    reconfigure(.group(group.id))
+                if let member = path.member, case let .group(modelGroup) = modelRows[path.section].nodes[path.node] {
+                    let groupID = modelGroup.id
+                    if groups[groupID].map({ $0.workspaces.indices.contains(member) && $0.workspaces[member].id == ws.id }) == true {
+                        groups[groupID]?.workspaces[member] = listed
+                    } else {
+                        groups[groupID] = modelGroup
+                    }
+                    reconfigure(.group(groupID))
                     // The shown card is this group's or an ancestor's: a parent's card counts its subgroups.
-                    if cardChanged, let shownGroupCard, groupSubtrees[shownGroupCard]?.contains(group.id) ?? (shownGroupCard == group.id) {
+                    if cardChanged, let shownGroupCard, groupSubtrees[shownGroupCard]?.contains(groupID) ?? (shownGroupCard == groupID) {
                         hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shownGroupCard))
                     }
                 }
@@ -216,6 +230,24 @@ nonisolated extension SidebarLayout {
 }
 
 nonisolated extension SidebarSection {
+    /// Writes `row` at `nodes[node]` (its group's `member`, in a group) in place.
+    mutating func setRow(_ row: SidebarWorkspace, node n: Int, member: Int?) {
+        // The node is swapped out in place first: a `switch` over `nodes[n]` holds a copy of the node list
+        // while its cases write, so every write copied the section's whole node list (O(rows) per row patch).
+        var node = SidebarNode.workspace(row)
+        swap(&node, &nodes[n])
+        switch node {
+        case .workspace:
+            return
+        case var .group(group):
+            node = .workspace(row) // the group's members are held by `group` alone: the write below is in place
+            group.workspaces[member ?? 0] = row
+            nodes[n] = .group(group)
+        case .item:
+            nodes[n] = node
+        }
+    }
+
     /// `sections` with `rows` written over the listed rows of the same ids
     /// (each keeps its row state and machine): a row content update to a
     /// copy of the rows (`SidebarModel.patchWorkspaces` updates the model's).

@@ -10,7 +10,8 @@ nonisolated struct SnapshotDiff: Sendable {
     let changed: [String: WorkspaceSnapshot]
     /// Identities the memo holds that the snapshot no longer has.
     let removed: Set<String>
-    /// The snapshot's workspace identities in its order (the memo's order after it applies).
+    /// The snapshot's workspace identities in its order (the memo's order after it applies): the memo's own array
+    /// when the snapshot lists the memo's order.
     let order: [String]
     /// The snapshot lists the memo's workspaces in the memo's order: none new, none gone, none moved.
     let sameOrder: Bool
@@ -28,17 +29,31 @@ nonisolated struct SnapshotDiff: Sendable {
         var changed: [String: WorkspaceSnapshot] = [:]
         var present = Set<String>()
         present.reserveCapacity(tree.workspaces.count)
-        var order: [String] = []
-        order.reserveCapacity(tree.workspaces.count)
+        // The snapshot's order is built only from its first identity off the memo's order: while it lists the memo's
+        // order, `matched` counts that prefix. An unmoved snapshot hands back the memo's own array, so the apply makes
+        // and frees no N-long order on main (Leo 2026-11-04: "never ... acceptable ... linear time growth degradation").
+        var built: [String]?
+        var matched = 0
         for workspace in tree.workspaces {
             let id = WorkspaceModel.identity(workspace)
             present.insert(id)
-            order.append(id)
+            if built == nil, matched < memoOrder.count, memoOrder[matched] == id {
+                matched += 1
+            } else {
+                if built == nil {
+                    var order = Array(memoOrder[..<matched])
+                    order.reserveCapacity(tree.workspaces.count)
+                    built = order
+                }
+                built?.append(id)
+            }
             // The last of a repeated identity wins, as in the memo a full apply builds.
             if applied[id] != workspace { changed[id] = workspace } else { changed[id] = nil }
         }
+        let unmoved = built == nil && matched == memoOrder.count
+        let order = built ?? (unmoved ? memoOrder : Array(memoOrder[..<matched]))
         let removed = Set(applied.keys.filter { !present.contains($0) })
         return SnapshotDiff(revision: revision, changed: changed, removed: removed, order: order,
-                            sameOrder: removed.isEmpty && order == memoOrder)
+                            sameOrder: removed.isEmpty && unmoved)
     }
 }
