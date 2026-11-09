@@ -34,7 +34,8 @@ const NO_SERVER = report({
   steps: [{ n: 1, kind: "open", line: "Open /", ok: false, error: "No dev server answers" }],
 });
 /// What the REPL prints: readable lines, then the machine line.
-const printed = (json: string) => `PASS: 2 of 2 steps passed at http://127.0.0.1:5173/\nok 1. Open Settings\ncmux.walkthrough ${json}`;
+const printed = (json: string) =>
+  `PASS: 2 of 2 steps passed at http://127.0.0.1:5173/\nok 1. Open Settings\ncmux.walkthrough ${json}`;
 const evalCall = (output: string, status = "completed") =>
   tool("mcp__cmux__browser_repl_eval", "other", status, {
     inputSummary: JSON.stringify({ code: "await verifyFlow(5173, [...])" }),
@@ -80,7 +81,9 @@ describe("toolWalkthrough", () => {
   // REPL's result in the answer's logs as a JSON string.
   test("reads it from a script's logs, where the REPL result is serialized JSON", () => {
     const repl = JSON.stringify({ content: [{ type: "text", text: printed(PASSED) }] });
-    const answer = JSON.stringify({ content: [{ type: "text", text: JSON.stringify({ logs: [repl], result: null }) }] });
+    const answer = JSON.stringify({
+      content: [{ type: "text", text: JSON.stringify({ logs: [repl], result: null }) }],
+    });
     expect(toolWalkthrough(evalCall(answer).tool)?.steps.map((s) => s.line)).toEqual(["Open Settings", "Click Save"]);
   });
 
