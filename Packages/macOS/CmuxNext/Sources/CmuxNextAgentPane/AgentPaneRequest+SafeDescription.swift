@@ -109,6 +109,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .subagentPane: "subagentPane"
         case .subagentShown: "subagentShown"
         case .processTerminal: "processTerminal"
+        case .machineTerminal: "machineTerminal"
         case .newChatHere: "newChatHere"
         case .checkpointAvailability: "checkpointAvailability"
         case .commandAvailability: "commandAvailability"

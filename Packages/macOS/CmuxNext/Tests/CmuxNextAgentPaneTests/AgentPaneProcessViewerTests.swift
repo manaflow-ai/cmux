@@ -78,3 +78,53 @@ struct AgentPaneProcessViewerTests {
         #expect(AgentPaneProcessViewer(onChatMachine: "chat-1", toolCall: "$(reboot)") == nil)
     }
 }
+
+/// A chat an added ssh machine runs, reached through this Mac's acpmux: the header's Terminal posts
+/// `chat.machineTerminal {machine, cwd}` and the pane asks the App to open `acpmux machine shell`
+/// beside the chat (Leo, 2026-11-06: "the terminal I open on the top right button works thru that machine").
+@Suite
+@MainActor
+struct AgentPaneMachineShellTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    static func request(_ params: [String: Any]) -> AgentPaneRequest {
+        AgentPaneRequest(body: ["method": "chat.machineTerminal", "params": params])
+    }
+
+    @Test func theRequestNamesAPlainMachine() {
+        #expect(Self.request(["machine": "box", "cwd": "/home/leo/repo"]) == .machineTerminal(machine: "box", cwd: "/home/leo/repo"))
+        #expect(Self.request(["machine": "box", "cwd": ""]) == .machineTerminal(machine: "box", cwd: nil))
+        #expect(Self.request(["machine": "-oProxyCommand=x"]) == .unsupported("chat.machineTerminal"))
+        #expect(Self.request([:]) == .unsupported("chat.machineTerminal"))
+    }
+
+    @Test func theTerminalRunsTheMachinesShellInTheChatsFolder() async throws {
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
+        var opened: [AgentPaneProcessViewer] = []
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
+                                            openProcess: { opened.append($0); return true })
+        model.transport.acpmuxSocket = "/tmp/acpmux.sock"
+        model.transport.acpmuxExecutable = URL(fileURLWithPath: "/opt/acpmux")
+        let reply = await model.respond(to: Self.request(["machine": "box", "cwd": "-rf it's"]))
+        #expect((reply["value"] as? [String: Any])?["opened"] as? Bool == true)
+        let viewer = try #require(opened.first)
+        #expect(viewer.argv == ["/opt/acpmux", "machine", "shell", "box", "--cwd=-rf it's"], "the folder is one argument, never an option")
+        #expect(viewer.environment == ["ACPMUX_SOCKET": "/tmp/acpmux.sock"])
+        #expect(!viewer.onChatMachine, "the shell's terminal is this Mac's, beside the chat")
+    }
+
+    @Test func aChatWithItsOwnMachineDaemonOrNoAcpmuxIsRefused() async {
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
+        var opened = 0
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
+                                            openProcess: { _ in opened += 1; return true })
+        #expect(await model.respond(to: Self.request(["machine": "box"]))["ok"] as? Bool != true, "no acpmux socket")
+        model.transport.acpmuxSocket = "/tmp/acpmux.sock"
+        model.transport.acpmuxExecutable = URL(fileURLWithPath: "/opt/acpmux")
+        model.remoteChat = true
+        #expect(await model.respond(to: Self.request(["machine": "box"]))["ok"] as? Bool != true, "a Cloud or SSH chat's Terminal is its daemon's")
+        #expect(opened == 0)
+    }
+}

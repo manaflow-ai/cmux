@@ -1073,6 +1073,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     let (name, host, _) = crate::cli::host_enroll::pick_target(&list, &target);
                     return crate::cli::host_agents::run(&name, &host, install, login, json_out);
                 }
+                PeerCmd::Shell { target, cwd } => {
+                    let peers = client.request("_acpmux/peers", json!({})).await?;
+                    let list =
+                        peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
+                    return crate::cli::host_shell::run(&list, &target, cwd.as_deref());
+                }
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }

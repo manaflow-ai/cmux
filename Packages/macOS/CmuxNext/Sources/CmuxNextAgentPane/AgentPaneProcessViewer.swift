@@ -52,6 +52,20 @@ public struct AgentPaneProcessViewer: Sendable, Equatable {
         onChatMachine = true
     }
 
+    /// A login shell on `machine`, an ssh machine this Mac's acpmux added, in `cwd` there:
+    /// `acpmux machine shell` (ssh -t) in a terminal of this Mac beside a chat that machine runs,
+    /// its header's Terminal (Leo, 2026-11-06). The folder is one argument (`--cwd=`), never an option.
+    /// Nil when the name is not a plain token. `session` and `toolCall` are empty: no process.
+    public init?(executable: URL, socket: String, shellOn machine: String, cwd: String?) {
+        guard Self.isToken(machine), !socket.isEmpty else { return nil }
+        argv = [executable.path, "machine", "shell", machine] + (cwd.map { ["--cwd=" + $0] } ?? [])
+        environment = ["ACPMUX_SOCKET": socket]
+        title = machine
+        session = ""
+        toolCall = ""
+        onChatMachine = false
+    }
+
     /// Whether `id` is one an acpmux session or tool call id can be: 1 to 256 letters, digits
     /// and `-_.:`, so it can never read as an option or a second argument.
     public static func isToken(_ id: String) -> Bool {
@@ -69,6 +83,18 @@ public struct AgentPaneProcessViewer: Sendable, Equatable {
                 : model.transport.acpmuxSocket.flatMap({ socket in model.transport.acpmuxExecutable.flatMap {
                     AgentPaneProcessViewer(executable: $0, socket: socket, session: session, toolCall: toolCall) } }) else {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.processTerminal")
+        }
+        return AgentPaneReply.success(["opened": header.openProcess(viewer)])
+    }
+
+    /// `chat.machineTerminal`'s answer for `model`: `{opened}`, or refused for a page with no chat,
+    /// a New Tab page, a chat with a daemon of its own there (a Cloud or SSH chat's Terminal is that
+    /// daemon's shell already) or without this Mac's acpmux.
+    @MainActor static func openShell(on machine: String, cwd: String?, in model: AgentPaneModel) -> [String: Any] {
+        guard model.sessionId != nil, model.newTab == nil, !model.remoteChat, let header = model.header,
+              let socket = model.transport.acpmuxSocket, let executable = model.transport.acpmuxExecutable,
+              let viewer = AgentPaneProcessViewer(executable: executable, socket: socket, shellOn: machine, cwd: cwd) else {
+            return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.machineTerminal")
         }
         return AgentPaneReply.success(["opened": header.openProcess(viewer)])
     }

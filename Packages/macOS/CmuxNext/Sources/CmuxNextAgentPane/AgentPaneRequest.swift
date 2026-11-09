@@ -290,6 +290,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)
+    /// `chat.machineTerminal {machine, cwd?}`: the header's Terminal of a chat an ssh machine runs
+    /// through this Mac's acpmux: a login shell on that machine, in `cwd` there (``AgentPaneProcessViewer``).
+    case machineTerminal(machine: String, cwd: String?)
     /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
     case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so

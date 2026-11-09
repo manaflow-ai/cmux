@@ -288,6 +288,16 @@ pub enum PeerCmd {
         #[arg(long, value_name = "ID")]
         login: Option<String>,
     },
+    /// A login shell on MACHINE (an added ssh machine's name or host), in this terminal
+    /// (ssh -t), starting in --cwd when that folder is there. A chat's Terminal runs it for
+    /// a chat on that machine.
+    Shell {
+        #[arg(value_name = "MACHINE")]
+        target: String,
+        /// The folder on MACHINE the shell starts in.
+        #[arg(long, value_name = "DIR")]
+        cwd: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

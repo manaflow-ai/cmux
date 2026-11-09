@@ -317,6 +317,8 @@ extension AgentPaneModel {
             return AgentPaneReply.success()
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
+        case .machineTerminal(let machine, let cwd):
+            return AgentPaneProcessViewer.openShell(on: machine, cwd: cwd, in: self)
         case .chatTab(let chat, let destination):
             // Only a chat this pane made (its fork's or handoff start's reply put it in the pane's
             // scope), never the chat itself, and not from a New Tab page. A refusal (another

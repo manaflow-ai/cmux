@@ -555,6 +555,10 @@ extension AgentPaneRequest {
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
+        case "chat.machineTerminal":
+            if let machine = params?["machine"] as? String, AgentPaneProcessViewer.isToken(machine) {
+                self = .machineTerminal(machine: machine, cwd: (params?["cwd"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+            } else { self = .unsupported(method) }
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case AgentPaneTryAnotherApproach.method:

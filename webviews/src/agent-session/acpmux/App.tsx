@@ -267,7 +267,13 @@ import {
   useSessionInfoOpen,
   sessionInfoPaneKey,
 } from "./session-info/sessionInfoState";
-import { chatProcessesHere, openCommand, opensProcessTerminal } from "./processTerminal";
+import {
+  chatProcessesHere,
+  chatShellMachine,
+  openCommand,
+  openMachineTerminal,
+  opensProcessTerminal,
+} from "./processTerminal";
 import {
   descendants,
   subagentChangesFolder,
@@ -9234,6 +9240,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
+  // The header's Terminal of a chat an added ssh machine runs is a shell on that machine, in the chat's
+  // folder there, not one on this Mac (Leo, 2026-11-06). A lit Terminal still toggles off, and a host
+  // that opens none (an older app) keeps this Mac's shell.
+  const shellMachine = chatShellMachine(
+    summary?.peer || (summary?.sessionId ? findSession(snapshot.sessions, summary.sessionId)?.peer : undefined),
+    snapshot.peerKinds,
+  );
+  const openTerminal = (mode: QuickActionMode) => {
+    if (!shellMachine || (mode === "toggle" && litSplits.includes(HEADER_ACTIONS.terminal)))
+      return runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode);
+    void openMachineTerminal(shellMachine, chatCwd).then((opened) =>
+      opened ? window.setTimeout(refreshTabState, 400) : runSplitAction(HEADER_ACTIONS.terminal, localCwd, "open"),
+    );
+  };
   // Changes opens the folder's diff tab beside the chat. A folder outside a repository has no diff for
   // that tab, and the app's fallback was the folder picker in the palette (Leo, 2026-10-28: "All it does
   // is open up the command palette, and it doesn't open up the diff viewer on the right side"), so there
@@ -9462,7 +9482,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // New terminal and New browser (the chat menu, the summary panel): another one beside the chat on
   // every click, whatever the header's Terminal and Browser buttons do.
-  const newTerminal = () => runSplitAction(HEADER_ACTIONS.terminal, localCwd, "open");
+  const newTerminal = () => openTerminal("open");
   const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
@@ -12319,7 +12339,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               })
                           : undefined
                       }
-                      onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
+                      onTerminal={openTerminal}
                       onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder, read on the chat's machine (a Cloud chat's too).

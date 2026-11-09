@@ -42,3 +42,24 @@ export async function openCommand(
   if (local && (await openProcessTerminal(toolCallId))) return "terminal";
   return showCall?.(toolCallId) ? "call" : "none";
 }
+
+/// The added ssh machine a peer's chat runs on, whose shell the chat's Terminal opens (`acpmux machine
+/// shell`, Leo 2026-11-06: "the terminal I open on the top right button works thru that machine");
+/// undefined for a chat on this Mac, a Cloud peer's, or one whose tab is on its machine's own daemon
+/// (that daemon's shell is its Terminal already).
+export const chatShellMachine = (peer: string | undefined, kinds?: Record<string, "ssh" | "cloud">) =>
+  peer && kinds?.[peer] !== "cloud" ? peer : undefined;
+
+/// Opens a login shell on `machine`, in `cwd` there, in a terminal tab beside the chat. Resolves
+/// whether the host opened one: false outside the app or on a host without `chat.machineTerminal`.
+export async function openMachineTerminal(machine: string, cwd?: string): Promise<boolean> {
+  try {
+    const reply = await postNative<{ opened?: boolean } | null>("chat.machineTerminal", {
+      machine,
+      ...(cwd ? { cwd } : {}),
+    });
+    return reply?.opened === true;
+  } catch {
+    return false;
+  }
+}
