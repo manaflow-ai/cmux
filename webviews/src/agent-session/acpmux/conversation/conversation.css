@@ -709,6 +709,7 @@
    pane's right edge, its own width (data-enter, ui/presence.ts). */
 .acpmux-artifact {
   --ui-enter-distance: 100%;
+  position: relative;
   flex: 0 0 var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
   min-width: 0;
   display: flex;
@@ -718,8 +719,11 @@
   color: var(--agent-text);
   font-family: var(--cv-font);
 }
+/* Its width: a share of the pane, the default one until its left edge is dragged (SplitEdge sets
+   --acpmux-artifact-share on the shell). Never under 320px, and the chat beside it keeps 400px. */
 .acpmux-shell {
   --acpmux-artifact-push: 0px;
+  --acpmux-artifact-width: clamp(320px, var(--acpmux-artifact-share, min(46vw, 760px)), max(320px, 100vw - 400px));
 }
 /* A shell sibling must leave the offered native tab row clear, including when the narrow
    preview covers the chat. Its background belongs below the row, never in its tools hole. */
@@ -730,7 +734,7 @@
 /* The header lives in the chat column while Preview is a shell sibling. Keep its tools at the
    pane edge, across the Preview column, just as the inline Summary does. */
 .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) {
-  --acpmux-artifact-push: var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
+  --acpmux-artifact-push: var(--acpmux-artifact-width);
 }
 @media (max-width: 720px) {
   .acpmux-artifact {
@@ -738,6 +742,10 @@
     inset: 0;
     z-index: var(--layer-overlay);
     box-shadow: none;
+  }
+  /* Covering the pane, it splits nothing: no edge to drag. */
+  .acpmux-artifact > .ui-split-edge {
+    display: none;
   }
   .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) {
     --acpmux-artifact-push: 0px;
@@ -5435,8 +5443,88 @@ a.cv-sha:focus-visible {
 }
 @media (prefers-reduced-motion: reduce) {
   .cv-enter,
-  .acpmux-row--enter {
+  .acpmux-row--enter,
+  /* An arriving prompt or reply (acpmux-row--message-enter) fades too, with no reveal or rise. */
+  .acpmux-row--message-enter .acpmux-row__message-presentation {
     animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+
+/* SEND-ENTRANCE (Leo 2026-11-07, ask-bc3f176943: "there's space that's given to the user's message,
+ * and then the user's prompt, like, fades in from the right and, like, grows to the left ... and the
+ * push-up and the prompt. Like, it's all just one unified motion"). A prompt that arrives (the one the
+ * reader sent, or one sent from another device) comes in on the send motion (--agent-motion-send,
+ * --agent-ease-send): its row's room is laid out at once and the thread rises into it on the same
+ * clock (followGlide.ts `sent`), its bubble fades in anchored at its right edge and opens leftward to
+ * its width, and the thinking row that came with it fades in on the same clock. Only the bubble's
+ * clip and the ink move, never layout, so nothing reflows and the text never scales (an agent
+ * message keeps its plain fade: #34751). Reduce Motion keeps the fade: the system setting through the
+ * media query, the app's (move step 0, fades on) through --agent-motion-send-fade on the fade
+ * setting while the edge and the rise take the 0 move step. Motion off makes both tokens 0.
+ * The gallery's agent-pane.send-entrance compares the bubble's other entrances (`data-send-entrance`
+ * on an ancestor); the product's is `reveal`. */
+@keyframes cv-send-reveal {
+  from {
+    clip-path: inset(0 0 0 var(--cv-send-reveal-from, 45%) round var(--grid-cards-radius));
+  }
+  to {
+    clip-path: inset(0 0 0 0 round var(--grid-cards-radius));
+  }
+}
+@keyframes cv-send-grow {
+  from {
+    scale: 0.94;
+  }
+  to {
+    scale: 1;
+  }
+}
+@keyframes cv-send-slide {
+  from {
+    translate: 16px 0;
+  }
+  to {
+    translate: 0 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-user.acpmux-row--message-enter .acpmux-row__message-presentation,
+  .acpmux-user.acpmux-row--message-enter ~ .acpmux-thinking.acpmux-row--enter {
+    animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 265ms));
+    animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+  /* A sent picture or video appears in its slot, at its size, with the prompt: it only fades, on the
+     same clock, never rising or flying from the composer (Leo 2026-11-08, ask-104c134b68: "some
+     sort of, like, fly-in animation ... I feel like that's kind of weird"). One whose bytes come
+     later still fades in where it is, and so does one in a new chat's first prompt. */
+  .cv-user .cv-enter {
+    animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
+      both;
+  }
+  /* Backwards fill only: the clip is the entrance's, and once it ends the bubble draws unclipped, so
+     the "Sending" mark just outside its left edge (`.cv-user__delivery`) shows on a slow send. */
+  .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
+    animation: cv-send-reveal var(--agent-motion-send, 265ms) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
+      backwards;
+  }
+  /* The text comes in a beat behind the bubble's edge, so no letter shows cut at the edge. */
+  .acpmux-user.acpmux-row--message-enter .cv-user__bubble > * {
+    animation: cv-message-enter calc(var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) * 0.7)
+      var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--agent-motion-send, 265ms) * 0.3) both;
+  }
+  [data-send-entrance="grow"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
+    transform-origin: right bottom;
+    animation-name: cv-send-grow;
+  }
+  [data-send-entrance="slide"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
+    animation-name: cv-send-slide;
+  }
+  [data-send-entrance="fade"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble,
+  :is([data-send-entrance="grow"], [data-send-entrance="slide"], [data-send-entrance="fade"])
+    .acpmux-user.acpmux-row--message-enter
+    .cv-user__bubble
+    > * {
+    animation: none;
   }
 }
 
@@ -7237,4 +7325,123 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-user__sent-from-note {
   color: var(--agent-muted);
   white-space: nowrap;
+}
+
+/* "New since you looked" (SinceDivider.tsx): an accent hairline with its label and turn count, the
+   unread blue every status dot uses. 28px tall (model.ts), its recap's card under it. Placed when the
+   chat opens and kept until another one is, so nothing animates in or out. */
+.cv-since {
+  display: grid;
+  gap: var(--ds-space-2);
+  --cv-since-tint: var(--cmux-status-unread, #3982f5);
+}
+.cv-since__line {
+  display: flex;
+  margin: 0;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: 28px;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+.cv-since__line::before,
+.cv-since__line::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid color-mix(in srgb, var(--cv-since-tint) 55%, transparent);
+}
+.cv-since__label {
+  color: var(--cv-since-tint);
+  font-weight: var(--weight-emphasis);
+}
+.cv-since__count {
+  color: var(--cv-text-dim);
+}
+.cv-since__count::before {
+  content: "· ";
+}
+/* Lead (shipped): the words start where the transcript's text does, the hairline runs on. */
+.cv-since[data-look="lead"] .cv-since__line::before {
+  display: none;
+}
+/* Center: the words sit on the middle of the hairline. */
+/* End: the hairline runs from the text column and the words close it. */
+.cv-since[data-look="end"] .cv-since__line::after {
+  display: none;
+}
+
+/* Jump to new (SinceDivider.tsx SinceJump): a small glass button centered over the transcript's top,
+   the same glass and fade as Jump to latest. Mounted with the mark and only faded, so it never pops
+   in; Reduce Motion shows and hides it at once. Its arrow points to where the line is. */
+.acpmux-over-top {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: var(--layer-sticky, 10);
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+  pointer-events: none;
+}
+.acpmux-since-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-3);
+  border: 0;
+  /* A small-radius rect, as every agent pane control (test/agent-pane-no-capsules.test.ts). */
+  border-radius: var(--ds-radius-control);
+  --glass-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  --glass-elevation: var(--elevation-2);
+  color: var(--cmux-status-unread, #3982f5);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-since-jump {
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+}
+.acpmux-since-jump[data-shown] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.acpmux-since-jump:hover {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--agent-text) 6%, transparent),
+    color-mix(in srgb, var(--agent-text) 6%, transparent)
+  );
+}
+.acpmux-since-jump__arrow {
+  display: inline-grid;
+  place-items: center;
+}
+.acpmux-since-jump[data-side="above"] .acpmux-since-jump__arrow {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-since-jump {
+    transition: opacity var(--agent-motion-out) var(--agent-ease-out);
+  }
+  .acpmux-since-jump[data-shown] {
+    transition-duration: var(--agent-motion-in);
+  }
+}
+
+/* The `rule` look of a turn the agent ran on its own (gallery agent-pane.turn-after-subagent,
+   `data-turn-boundary`): a hairline centred in the turn gap over its first row
+   (VirtualTranscript.tsx `data-opens-turn`). Drawn in the gap the stack already places, so it adds no
+   height and moves no row. The shipped look is the gap and the turn's own footer alone. */
+:root[data-turn-boundary="rule"] .acpmux-row[data-opens-turn]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--grid-gap-turn) / -2);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--cv-rule);
+  pointer-events: none;
 }

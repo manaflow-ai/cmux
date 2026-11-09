@@ -400,6 +400,8 @@ impl TerminalPredictionEngine {
     pub fn seed_alternate_screen(&mut self, is_active: bool) {
         if !self.has_observed_alternate_screen_switch {
             self.is_alternate_screen = is_active;
+            // The scanner's cursor saves are per screen; this is the screen.
+            self.scanner.seed_screen(is_active);
         }
     }
 
@@ -612,13 +614,32 @@ impl TerminalPredictionEngine {
     /// Output was lost before reaching the engine: nothing drawn can be placed
     /// any more, and a sequence may have been cut in half. A mode switch in the
     /// lost output went unseen too, so the next seed (the host's read of the
-    /// screen it replaced) counts again.
+    /// screen it replaced) counts again. Concealment stays as it was; a host
+    /// that has the bytes that replaced the screen passes them to
+    /// [`Self::observed_output`] next, which reads their modes with nothing in
+    /// flight to confirm.
     pub fn missed_output(&mut self, now: Duration) -> bool {
         self.has_observed_alternate_screen_switch = false;
         if !self.is_active() {
             return false;
         }
-        self.scanner = TerminalOutputScanner::new();
+        // The terminal kept its pen through a resize, and a replaced screen
+        // may still conceal: concealment lasts until output ends it.
+        self.scanner = self.scanner.restarted();
+        let changed = self.withdraw_all(false, now, false);
+        self.mark_opaque_echo(now);
+        self.extend_untracked_deadline(now);
+        changed
+    }
+
+    /// The grid or the font changed under the glyphs (a resize, a new grid)
+    /// with no output lost: nothing drawn can be placed any more, but every
+    /// byte still reaches the engine, so what the scanner knows of the pen,
+    /// its saved copies and the screen stays true.
+    pub fn layout_changed(&mut self, now: Duration) -> bool {
+        if !self.is_active() {
+            return false;
+        }
         let changed = self.withdraw_all(false, now, false);
         self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);

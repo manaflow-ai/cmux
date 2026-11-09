@@ -274,6 +274,9 @@ fn dispatch_resource_request(
         OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::OpenUrl => open_url::dispatch(mux, request),
         OperationOwner::Stash => crate::state::stash_router::dispatch(mux, request),
+        OperationOwner::ClassicImport => {
+            crate::state::classic_import_router::dispatch(mux, request)
+        }
         OperationOwner::ConductorImport => {
             crate::state::conductor_import_router::dispatch(mux, request)
         }
@@ -735,7 +738,7 @@ fn finish_notification_effect(
                 mux,
                 idempotency_key,
                 "notification.create",
-                "an earlier attempt with this key has an indeterminate outcome",
+                crate::resource_api::EARLIER_ATTEMPT_CAUSE,
             );
             Err(indeterminate_error(idempotency_key, "notification.create"))
         }
