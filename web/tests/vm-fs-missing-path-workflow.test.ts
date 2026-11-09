@@ -103,7 +103,7 @@ describe("file op resume of a paused machine", () => {
     ["within a 64 GB deal", { maxActiveVms: 40, poolVcpus: 320, poolMemoryMb: 655_360, maxMemoryMb: 65_536, planLabel: null, monthlyPriceCents: null }, false],
   ] as const) {
     test(`a measured 32 GB machine resumes on the caller's plan and deal: ${label}`, async () => {
-      const reservations: Array<{ skipActiveLimit: boolean; poolVcpus: number | null }> = [];
+      const reservations: Array<{ skipActiveLimit: boolean; poolVcpus: number | null; poolMemoryMb: number | null }> = [];
       const repaired: Array<{ vcpus: number; memoryMb: number }> = [];
       let statusProbes = 0;
       const paused = { ...row(), status: "paused", billingPlanId: "free" } as CloudVmRow;
@@ -115,8 +115,12 @@ describe("file op resume of a paused machine", () => {
           repaired.push({ vcpus: input.reservation.vcpus, memoryMb: input.reservation.memoryMb });
           return true;
         }),
-        reservePausedResume: (input: { skipActiveLimit?: boolean; resourcePool?: { capacity: { vcpus: number } } | null }) => {
-          reservations.push({ skipActiveLimit: input.skipActiveLimit === true, poolVcpus: input.resourcePool?.capacity.vcpus ?? null });
+        reservePausedResume: (input: { skipActiveLimit?: boolean; resourcePool?: { capacity: { vcpus: number; memoryMb: number } } | null }) => {
+          reservations.push({
+            skipActiveLimit: input.skipActiveLimit === true,
+            poolVcpus: input.resourcePool?.capacity.vcpus ?? null,
+            poolMemoryMb: input.resourcePool?.capacity.memoryMb ?? null,
+          });
           return Effect.succeed({ ...paused, status: "running" } as CloudVmRow);
         },
       } as unknown as VmRepositoryShape;
@@ -139,6 +143,7 @@ describe("file op resume of a paused machine", () => {
       expect(reservations).toHaveLength(1);
       expect(reservations[0]?.skipActiveLimit).toBe(grandfathered);
       expect(reservations[0]?.poolVcpus).toBe(grandfathered ? null : 320);
+      expect(reservations[0]?.poolMemoryMb).toBe(grandfathered ? null : 655_360);
     });
   }
 });
