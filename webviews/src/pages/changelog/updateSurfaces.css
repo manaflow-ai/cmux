@@ -436,6 +436,63 @@
 }
 .wn-updated[data-placement="button"] .wn-card-note { margin-top: var(--wn-gap); }
 
+/* The change line while the update's notes load (UpdateSurfaces.tsx NoteLoading; Leo 2026-11-09: "it
+   should have the updated to Nightly already loaded in, instead of just having a blank glass bit ...
+   should have a loading indicator, like an ellipsis-type thing"). It is the note's own box, and its
+   marks are inline on the note's baseline, no taller than its capitals: the line keeps the note's
+   strut, so its trimmed box (cap to baseline, above) is the words' and they swap in with no jump. The
+   shipped look is three dots in the note's quiet color that breathe in turn; with motion off or
+   reduced they rest at one opacity. Gallery looks: a still ellipsis, a bar one line tall, the words.
+   The label is for VoiceOver: clipped to nothing and out of the line. */
+.wn-card-note-loading { position: relative; }
+.wn-note-label {
+  position: absolute;
+  inset-inline-start: 0;
+  white-space: nowrap;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+.wn-note-dots > span {
+  display: inline-block;
+  width: 0.24em;
+  height: 0.24em;
+  margin-inline-end: 0.2em;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+  vertical-align: baseline;
+}
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-note-dots > span {
+  animation: wn-note-dot var(--cmux-breath-period, 2.4s) linear infinite both;
+}
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-note-dots > span:nth-child(2) { animation-delay: 0.3s; }
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-note-dots > span:nth-child(3) { animation-delay: 0.6s; }
+@keyframes wn-note-dot {
+  0%, 100% { opacity: 0.25; }
+  30% { opacity: 0.75; }
+}
+.wn-note-bar {
+  display: inline-block;
+  width: 9em;
+  max-width: 70%;
+  height: 0.7em;
+  border-radius: 0.35em;
+  vertical-align: baseline;
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, currentColor 18%, transparent) 50%, transparent 100%) 0 0 / 200% 100%,
+    color-mix(in srgb, currentColor 12%, transparent);
+}
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-note-bar {
+  animation: wn-note-bar var(--cmux-shimmer-period, 2.8s) linear infinite;
+}
+@keyframes wn-note-bar {
+  from { background-position: 100% 0, 0 0; }
+  to { background-position: -100% 0, 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-note-dots > span,
+  .wn-note-bar { animation: none !important; }
+}
+
 /* The hover preview (UpdatedCardPreview): above the card's two lines, in the same glass, with the
    composer's hairline between them as its stack draws one between parts. Closed it is clipped to
    nothing; open it is the list's height (at most PREVIEW_MAX_PX), and the list stands on the

@@ -102,6 +102,8 @@ final class SidebarUpdatedCardHost: NSView {
             guard let island else { return }
             island.view.frame = bounds
             island.view.autoresizingMask = [.width, .height]
+            // Undrawn until the page reports its words (``drawn``).
+            island.view.alphaValue = drawn ? 1 : 0
             // Over the glass and under the x: the page never covers it.
             addSubview(island.view, positioned: .above, relativeTo: glass)
             island.onHeightChange = { [weak self] in self?.pageDidReportHeight() }
@@ -253,7 +255,24 @@ final class SidebarUpdatedCardHost: NSView {
     /// shows, never on a spring; later changes (the notes of a new build) still spring.
     private(set) var landsAtOnce = false
     /// The page has reported a height since the card showed.
-    private var pageReported = false
+    private var pageReported = false {
+        didSet { if pageReported != oldValue { showDrawn() } }
+    }
+
+    /// The card draws (its glass, its page and its x) once its page has reported its words: before
+    /// that the page is still loading and the glass would stand blank for up to a second at launch
+    /// (Leo 2026-11-09: "it should have the updated to Nightly already loaded in, instead of just
+    /// having a blank glass bit"). The page reports as soon as it has the host's data, its title
+    /// final and its change line a quiet loading line one line tall (webviews surface.tsx), so the
+    /// card appears whole. The room is the card's from its first frame all the same (``height``).
+    var drawn: Bool { pageReported }
+
+    /// Shows or hides the glass and the page for ``drawn``, together and without motion.
+    private func showDrawn() {
+        Motion.withoutAnimation { island?.view.alphaValue = drawn ? 1 : 0 }
+        needsLayout = true
+        pointerHover?.refresh()
+    }
 
     /// The sidebar laid the card out at its height without motion.
     func landed() { landsAtOnce = false }
@@ -297,7 +316,7 @@ final class SidebarUpdatedCardHost: NSView {
         addSubview(glass)
         let hover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
         hover.region = { [weak self] _ in
-            guard let self else { return .zero }
+            guard let self, drawn else { return .zero }
             return closingFrame.map { glassFrame.union($0) } ?? glassFrame
         }
         pointerHover = hover
@@ -443,7 +462,7 @@ final class SidebarUpdatedCardHost: NSView {
         let preview = card == nil ? 0 : island?.previewHeight ?? 0
         let tall = min(bounds.height, (height > 0 ? height : bounds.height) + preview)
         let next = NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - tall, width: bounds.width, height: tall)
-        glass.isHidden = card == nil || tall <= 0
+        glass.isHidden = card == nil || tall <= 0 || !drawn
         // The composer's corner at the page's zoom: the page's corner grows with the interface scale.
         glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1)
         guard next != glassFrame else { return }
@@ -476,7 +495,7 @@ final class SidebarUpdatedCardHost: NSView {
 
     /// The card owns `point` (this view's coordinates): on its glass, or on the preview still closing.
     private func owns(_ point: NSPoint) -> Bool {
-        glassFrame.contains(point) || closingFrame?.contains(point) == true
+        drawn && (glassFrame.contains(point) || closingFrame?.contains(point) == true)
     }
 
     /// The view grown for the preview's room takes the pointer only where the card's glass is: a
