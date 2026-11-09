@@ -28,18 +28,20 @@ export function Sign(): ReactNode {
 export function clockSizer(text: string): string {
   const units = /^(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?$/.exec(text.trim());
   if (!units || text.trim() === "") return text.replace(/\d/g, "0");
-  if (units[1] !== undefined) return "00h 00m 00s";
+  // Hours keep as many digits as they show past 99 ("123h 4m").
+  if (units[1] !== undefined) return `${"0".repeat(Math.max(2, units[1].length))}h 00m 00s`;
   if (units[2] !== undefined) return "00m 00s";
   return "00s";
 }
 
 /// A ticking duration ("41s", "5m 41s", "1h 3m") in tabular figures inside a box as wide as the
-/// widest text of its shape (`clockSizer`). The text keeps the parent's alignment within the box,
-/// so a right-aligned column still ends on the same edge.
+/// widest text of its shape (`clockSizer`). One element holding only its text, so a range over it
+/// measures the time alone; the text keeps the parent's alignment within the box, so a right-aligned
+/// column still ends on the same edge.
 export function Clock({ text, className }: { text: string; className?: string }): ReactNode {
   return (
     <span className={className ? `ui-clock ${className}` : "ui-clock"} data-clock-size={clockSizer(text)}>
-      <span className="ui-clock__text">{text}</span>
+      {text}
     </span>
   );
 }

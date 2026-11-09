@@ -10,19 +10,18 @@
   translate: 0 calc((1ex - 1cap) / 2);
 }
 
-/* A ticking duration: tabular figures, in a box as wide as the widest text of its shape (the hidden
-   `data-clock-size` in the same grid cell), so a tick never moves or squeezes its neighbours. */
+/* A ticking duration: tabular figures, in a box as wide as the widest text of its shape. The hidden
+   `data-clock-size` is a zero-height line under the text: it widens the box and adds no height, and
+   a range over the element still measures the time's own text alone. */
 .ui-clock {
-  display: inline-grid;
+  display: inline-block;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.ui-clock::before {
+.ui-clock::after {
   content: attr(data-clock-size);
-  grid-area: 1 / 1;
+  display: block;
+  height: 0;
+  overflow: hidden;
   visibility: hidden;
-  white-space: nowrap;
-}
-.ui-clock__text {
-  grid-area: 1 / 1;
-  white-space: nowrap;
 }
