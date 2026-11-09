@@ -568,7 +568,7 @@ export default agentPaneEntry({
             [
               agent("Delete seed capture code PR", 32, "running", {
                 background: true,
-                action: "glaeda-gh wait pr 39120 --timeout 1800",
+                action: "bun test test/subagent-tray.test.tsx",
                 actionShell: true,
               }),
               agent("Cloud machines self-update cmux-tui", 183, "running", {
