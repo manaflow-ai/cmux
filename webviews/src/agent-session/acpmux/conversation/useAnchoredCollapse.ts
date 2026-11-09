@@ -149,8 +149,9 @@ type Press = { x: number; y: number };
 
 /// Whether `event`, a click on `header`, is the reader's deliberate click: a keyboard click (detail
 /// 0) or a call with no event always is; a pointer's is unless it travelled more than CLICK_SLOP_PX
-/// from where it pressed, or left a selection in the line (a drag or a double-click that selects its
-/// words), so neither a small drag nor a selection toggles the row.
+/// from where it pressed, or left a selection inside the line (a drag or a double-click that selects
+/// its words), so neither a small drag nor a selection toggles the row. A selection elsewhere that
+/// only spans the line (an older one the click did not clear) never blocks it.
 export function deliberateClick(event: unknown, header: HTMLElement | null, press: Press | undefined): boolean {
   const click = event as { detail?: number; clientX?: number; clientY?: number } | undefined;
   if (!click || typeof click.detail !== "number" || click.detail === 0) return true;
@@ -160,7 +161,7 @@ export function deliberateClick(event: unknown, header: HTMLElement | null, pres
   const selection = header?.ownerDocument.getSelection?.();
   if (header && selection && !selection.isCollapsed && selection.rangeCount > 0) {
     const range = selection.getRangeAt(0);
-    if (header.contains(range.commonAncestorContainer) || range.intersectsNode(header)) return false;
+    if (header.contains(range.commonAncestorContainer)) return false;
   }
   return true;
 }
