@@ -95,8 +95,12 @@
 #                         dry_run=false first restarts the staging Hyperdrive pool (drains the Worker role's
 #                         origin connections; a full server lets nobody in to end them one by one), then
 #                         ends the Worker role's backends idle over 2 min; never another role's, never an
-#                         active one.
-#                         Environment cmux-vm-staging, so any ref can run it.
+#                         active one. Environment cmux-vm-staging, so any ref can run it. On feat-cmux-next,
+#                         job pscale-connections-staging also lists the live connections through PlanetScale
+#                         (staging-connections.ts: a reserved admin connection, so it answers when the server
+#                         is full) and with dry_run=false kills only our roles' (cmux-vm-worker, cmux-vm-stg-*)
+#                         connections idle over 2 min outside a transaction; cmux-vm-production's service
+#                         token, branch staging only.
 #   journey-machines-staging  list the staging agent test account's Cloud machines (its own team and
 #                         CMUX_JOURNEY_PRODUCT_TEAM), one JSON line each with `eligible` by the leaked journey machine
 #                         rule (cloud-journey.ts journeyMachineEligible); machine_ids (at most 5 `vm_ID@JOB_ID`, JOB_ID
@@ -145,7 +149,7 @@ on:
         type: boolean
         default: false
       dry_run:
-        description: migrate-staging, migrate-production, sweep-orphans-production and db-connections-staging only, inspect and list; change nothing (false applies, deletes or ends idle backends)
+        description: migrate-staging, migrate-production, sweep-orphans-production and db-connections-staging only, inspect and list; change nothing (false applies, deletes or ends idle connections)
         type: boolean
         default: true
       skip_rehearsal:
@@ -1473,6 +1477,46 @@ jobs:
           MODE: ${{ inputs.dry_run && 'report' || 'free' }}
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bun db-connections.ts "$MODE" --url-env CMUX_VM_DATABASE_URL
+
+  pscale-connections-staging:
+    name: staging connections (pscale)
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'db-connections-staging' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    environment: cmux-vm-production
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Install the release rails
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile
+      - name: Install pscale 0.349.0 (checksum pinned)
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch=amd64; sum=139dc952ccdd21e68b3e70c20f48f9adb3559ee62f6fdcd6d42ddf9b086825f7 ;;
+            aarch64|arm64) arch=arm64; sum=c319e1f1c6699e0fc1ec455329be241c0c555ef244b0edb0f90751eb5cc13f09 ;;
+            *) echo "::error::no pinned pscale for $(uname -m)"; exit 1 ;;
+          esac
+          dir="$RUNNER_TEMP/pscale"
+          mkdir -p "$dir"
+          tarball="$dir/pscale.tar.gz"
+          curl -fsSL --retry 3 -o "$tarball" "https://github.com/planetscale/cli/releases/download/v0.349.0/pscale_0.349.0_linux_${arch}.tar.gz"
+          echo "$sum  $tarball" | sha256sum -c -
+          tar -xzf "$tarball" -C "$dir" pscale
+          "$dir/pscale" version
+          echo "PSCALE_BIN=$dir/pscale" >> "$GITHUB_ENV"
+      - name: ${{ inputs.dry_run && 'Live connections on cmux-prod staging (read only)' || 'Live connections on cmux-prod staging, then end our roles'' idle ones' }}
+        working-directory: scripts/cmux-next/release
+        env:
+          MODE: ${{ inputs.dry_run && 'show' || 'free' }}
+          PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
+          PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
+        run: bun staging-connections.ts "$MODE"
 
   migrate-staging:
     # Staging cmux_vm migrations (release-rails.md, "Staging migrations from CI"): every push to feat-cmux-next
