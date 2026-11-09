@@ -1624,7 +1624,17 @@ async fn tunnel_platform()
             }
             let body: Value = serde_json::from_slice(&buffer[head_end..]).unwrap_or(Value::Null);
             let line = head.lines().next().unwrap_or_default().to_owned();
-            let reply = if line.contains("/wg-key ") {
+            // One key's answer is lost on the way (a gateway timeout): the test's failed recovery.
+            let lost = {
+                use base64::Engine as _;
+                let public = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(
+                    [6u8; 32],
+                ));
+                base64::engine::general_purpose::STANDARD.encode(public.to_bytes())
+            };
+            let reply = if line.contains("/wg-key ") && body["wgPublicKey"] == lost.as_str() {
+                json!({"code": "test.gateway_timeout", "message": "lost"})
+            } else if line.contains("/wg-key ") {
                 json!({"machineId": "machine_test", "joinTokenId": "join_test", "teamId": "team_test",
                        "wgPublicKey": body["wgPublicKey"]})
             } else if line.contains("/v1/mesh/nodes/machine_test/") {
@@ -1632,7 +1642,11 @@ async fn tunnel_platform()
             } else {
                 json!({"code": "test.unknown", "message": "not this test's route"})
             };
-            let status = if reply.get("code").is_some() { 404 } else { 200 };
+            let status = match reply.get("code").and_then(Value::as_str) {
+                Some("test.gateway_timeout") => 504,
+                Some(_) => 404,
+                None => 200,
+            };
             // Only the tunnel routes: the daemon's own join-record work (a vault pull as the
             // machine) is not this test's.
             if line.contains(" /v1/mesh/nodes/") || line.contains("/wg-key ") {
@@ -1683,9 +1697,21 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
         base64::engine::general_purpose::STANDARD.encode(public.to_bytes())
     };
     let pending = daemon.dir.join("node.wg.pending");
-    std::fs::write(&pending, [5u8; 32]).unwrap();
-    std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let leave_pending = |key: [u8; 32]| {
+        std::fs::write(&pending, key).unwrap();
+        std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o600)).unwrap();
+    };
     let node_before = std::fs::read(daemon.dir.join("node.wg.key")).ok();
+    // Its second try is lost too: the attach fails rather than reading as attached.
+    leave_pending([6u8; 32]);
+    let unfinished = app.call("_acpmux/machine.tunnel.attach", token.clone()).await;
+    assert_eq!(reason(&unfinished), "indeterminate", "{unfinished}");
+    let tried = std::mem::take(&mut *seen.lock().unwrap());
+    assert_eq!(tried.len(), 1, "no attach after a failed recovery: {tried:?}");
+    assert!(tried[0].0.contains("/wg-key "), "{}", tried[0].0);
+    assert_eq!(std::fs::read(&pending).unwrap(), [6u8; 32], "the candidate still waits");
+    assert_eq!(std::fs::read(daemon.dir.join("node.wg.key")).ok(), node_before);
+    leave_pending([5u8; 32]);
     // Another team's network is refused before the pending rekey is finished.
     let mismatch = app
         .call(
@@ -1694,16 +1720,12 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
         )
         .await;
     assert_eq!(reason(&mismatch), "network_mismatch", "{mismatch}");
+    assert!(mismatch.to_string().contains("team_test"), "it names the id it takes: {mismatch}");
     assert!(seen.lock().unwrap().is_empty(), "a mismatched attach reached the platform");
     assert_eq!(std::fs::read(&pending).unwrap(), [5u8; 32], "the candidate waits");
     assert_eq!(std::fs::read(daemon.dir.join("node.wg.key")).ok(), node_before);
-    // The team's own network: the pending key goes to the platform and into place first.
-    let attached = app
-        .ok(
-            "_acpmux/machine.tunnel.attach",
-            json!({"token": "person-token", "networkId": "team_test"}),
-        )
-        .await;
+    // No network id is the team's own: the pending key goes to the platform and into place first.
+    let attached = app.ok("_acpmux/machine.tunnel.attach", token.clone()).await;
     assert_eq!(attached["tunnel_id"], "machine_test");
     let candidate = public_of([5u8; 32]);
     assert_eq!(attached["pendingRekey"], json!({"finished": true, "wgPublicKey": candidate}));

@@ -51,9 +51,12 @@ async fn run(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError>
                 record,
             )
             .await;
+            // A pending rekey that did not finish fails the attach: nothing reads as attached
+            // while the platform and this Mac may hold different keys.
+            let pending = pending.transpose()?;
             let mut attached = machine_tunnel::attach(&machine, params, &token, false).await?;
             if let (Some(pending), Some(object)) = (pending, attached.as_object_mut()) {
-                object.insert("pendingRekey".into(), machine_tunnel::pending_outcome(pending));
+                object.insert("pendingRekey".into(), machine_tunnel::pending_outcome(&pending));
             }
             Ok(attached)
         }

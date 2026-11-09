@@ -322,7 +322,7 @@ async fn an_attach_first_finishes_a_rekey_whose_answer_was_lost() {
     assert!(platform.seen.lock().unwrap().is_empty());
     let _ = rekey_once(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(())).await;
     let candidate = pending_public(dir.path()).unwrap();
-    let outcome = pending_outcome(finish().await.expect("a pending key is finished"));
+    let outcome = pending_outcome(&finish().await.expect("a pending key is finished").unwrap());
     assert_eq!(outcome, json!({"finished": true, "wgPublicKey": candidate}));
     assert_eq!(public_of(dir.path()), candidate);
     assert!(pending_public(dir.path()).is_none());
@@ -430,6 +430,8 @@ async fn another_teams_network_is_refused_before_any_request() {
         .await
         .unwrap_err();
     assert_eq!(reason(&error), "network_mismatch");
+    assert!(error.message.contains("team_1"), "the refusal names the id it takes: {}", error.message);
+    assert_eq!(error.data.unwrap()["networkId"], "team_1");
     assert!(platform.seen.lock().unwrap().is_empty());
 }
 

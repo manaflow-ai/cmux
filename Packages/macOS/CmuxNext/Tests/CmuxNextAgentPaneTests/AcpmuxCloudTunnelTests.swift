@@ -62,6 +62,15 @@ struct AcpmuxCloudTunnelTests {
         }
     }
 
+    /// No network id (the palette's and CLI's default) sends none: acpmux takes the joined team's.
+    @Test func noNetworkIDSendsNone() async throws {
+        let line = Line(isPerson: true)
+        try await Self.tunnel(line).run(.attach, token: "person-token")
+        try await Self.tunnel(line).run(.detach, token: "person-token", networkID: nil)
+        #expect(line.calls.map { $0.params["networkId"] == nil } == [true, true])
+        #expect(line.calls.map { $0.params["token"] as? String } == ["person-token", "person-token"])
+    }
+
     @Test func aRefusalSaysTheDaemonsOwnWords() async {
         let line = Line(isPerson: true, reply: nil, lastError: "a rekey of this Mac's WireGuard key is already running")
         do {

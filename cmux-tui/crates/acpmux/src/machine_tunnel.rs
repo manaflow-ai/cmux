@@ -82,8 +82,12 @@ pub(crate) fn same_network(machine: &Machine, params: &Value) -> Result<(), RpcE
     match params.get("networkId").and_then(Value::as_str) {
         Some(network) if !network.is_empty() && network != machine.team => Err(refusal(
             "network_mismatch",
-            "this Mac's tunnel is in its own team's network; pass that team's id or none",
-        )),
+            &format!(
+                "this Mac's tunnel is in its team's network {}; pass that id or none",
+                machine.team
+            ),
+        )
+        .with_data(json!({"reason": "network_mismatch", "networkId": machine.team}))),
         _ => Ok(()),
     }
 }
@@ -278,7 +282,9 @@ fn ambiguous(error: &RpcError) -> bool {
 
 /// A rekey an earlier one left unsettled, finished before an attach: the pending key goes to
 /// the platform again and, when it takes it, into place. Nothing when there is no pending key,
-/// a rekey runs, or another process holds the key. Answers the rekey's answer, or its refusal.
+/// a rekey runs, or another process holds the key. Answers the rekey's answer, or its refusal,
+/// which the attach answers in place of attaching: the platform and this Mac may still hold
+/// different keys.
 pub(crate) async fn finish_pending_rekey(
     rekeys: &tokio::sync::Mutex<()>,
     machine: &Machine,
@@ -295,17 +301,9 @@ pub(crate) async fn finish_pending_rekey(
     Some(rekey(machine, state_dir, holder, token, record).await)
 }
 
-/// What an attach says about the pending rekey it finished first: `{finished, wgPublicKey}`, or
-/// `{finished: false, reason, message}`.
-pub(crate) fn pending_outcome(outcome: Result<Value, RpcError>) -> Value {
-    match outcome {
-        Ok(answer) => json!({"finished": true, "wgPublicKey": answer["wgPublicKey"]}),
-        Err(error) => json!({
-            "finished": false,
-            "reason": error.data.as_ref().and_then(|data| data["reason"].as_str()),
-            "message": error.message,
-        }),
-    }
+/// What an attach says about the pending rekey it finished first.
+pub(crate) fn pending_outcome(answer: &Value) -> Value {
+    json!({"finished": true, "wgPublicKey": answer["wgPublicKey"]})
 }
 
 /// `POST {origin}{path}` as the person, in the machine's team. A refusal names the platform's

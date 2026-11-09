@@ -125,12 +125,14 @@ nonisolated enum CloudActionDescriptions {
             for scp or sftp.
             """,
         "cloudTunnelAttach": """
-            Attaches this Mac's Cloud tunnel to a private network. The network id (from \
-            `cmux cloud network-list`) goes in the path argument: --arg path=<network id>. Returns no fields.
+            Attaches this Mac's Cloud tunnel to its team's network, the only one it joins. The path \
+            argument is optional: none means the joined team; a network id (--arg path=<team id>) must \
+            be that team's. Returns no fields.
             """,
         "cloudTunnelDetach": """
-            Detaches this Mac's Cloud tunnel from a private network. The network id goes in the path \
-            argument: --arg path=<network id>. Returns no fields.
+            Detaches this Mac's Cloud tunnel from its team's network. The path argument is optional: \
+            none means the joined team; a network id (--arg path=<team id>) must be that team's. \
+            Returns no fields.
             """,
         "cloudTunnelRotateKey": """
             Gives this Mac a new WireGuard key for its Cloud tunnel: the agent daemon makes the key, registers it, \

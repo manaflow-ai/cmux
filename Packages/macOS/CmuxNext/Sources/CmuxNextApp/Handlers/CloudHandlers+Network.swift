@@ -10,11 +10,11 @@ extension CloudHandlers {
     static func bindNetworkActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud
         bind("cloudTunnelAttach", registry, reason: reason) { invocation in
-            let networkID = try idArgument(invocation, CloudStrings.networkIDRequired)
+            let networkID = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) // none: the joined team
             runTracked("attach Cloud tunnel network", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), fallback: CloudStrings.tunnelDaemonUnavailable).run(.attach, token: cloud.auth.tokens().access, networkID: networkID) }
         }
         bind("cloudTunnelDetach", registry, reason: reason) { invocation in
-            let networkID = try idArgument(invocation, CloudStrings.networkIDRequired)
+            let networkID = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) // none: the joined team
             runTracked("detach Cloud tunnel network", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), fallback: CloudStrings.tunnelDaemonUnavailable).run(.detach, token: cloud.auth.tokens().access, networkID: networkID) }
         }
         bind("cloudTunnelRotateKey", registry, reason: reason) { invocation in

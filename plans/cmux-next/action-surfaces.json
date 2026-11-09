@@ -33651,7 +33651,7 @@
         {
           "kind" : "string",
           "name" : "path",
-          "required" : true
+          "required" : false
         }
       ],
       "cli" : "offered",
@@ -33686,7 +33686,7 @@
         {
           "kind" : "string",
           "name" : "path",
-          "required" : true
+          "required" : false
         }
       ],
       "cli" : "offered",
