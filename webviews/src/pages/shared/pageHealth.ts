@@ -190,7 +190,8 @@ function draftField(element: Element | null): HTMLElement | null {
 }
 
 /** Puts the kept scroll and draft back once their elements exist, giving up after `RESTORE_FRAMES`
- * or when the page navigates (the state is the old route's); then calls `done`. */
+ * or when the page navigates (the state is the old route's); then calls `done`. A person who
+ * scrolls first keeps their own place. */
 export function restoreState(doc: Document, state: KeptState | null, done: () => void = () => {}): void {
   const view = doc.defaultView;
   if (!view || !state || (!state.scroll && !state.draft)) return done();
@@ -198,8 +199,15 @@ export function restoreState(doc: Document, state: KeptState | null, done: () =>
   let draft = state.draft;
   let frames = 0;
   const href = view.location.href;
+  const userScrolled = () => (scroll = undefined);
+  const userScrolls = ["wheel", "touchmove", "keydown", "pointerdown"] as const;
+  for (const type of userScrolls) doc.addEventListener(type, userScrolled, { capture: true, passive: true });
+  const finish = () => {
+    for (const type of userScrolls) doc.removeEventListener(type, userScrolled, { capture: true });
+    done();
+  };
   const step = () => {
-    if (view.location.href !== href) return done();
+    if (view.location.href !== href) return finish();
     frames += 1;
     const last = frames >= RESTORE_FRAMES;
     if (scroll) {
@@ -223,7 +231,7 @@ export function restoreState(doc: Document, state: KeptState | null, done: () =>
       }
     }
     if ((scroll || draft) && !last) view.requestAnimationFrame(step);
-    else done();
+    else finish();
   };
   step();
 }
