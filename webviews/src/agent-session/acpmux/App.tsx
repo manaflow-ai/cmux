@@ -4119,10 +4119,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const client = directClient.current;
       if (!sessionId || !client) return;
       const current = snapshot.summary?.harness;
-      const target =
-        snapshot.catalog.find(
-          (entry) => entry.id !== current && entry.pickable !== false && (!entry.unavailable || entry.probeFailed),
-        ) ?? snapshot.catalog.find((entry) => entry.pickable !== false);
+      const target = snapshot.catalog.find(
+        (entry) => entry.id !== current && entry.pickable !== false && (!entry.unavailable || entry.probeFailed),
+      );
+      // A second opinion is another harness's: with no other one installed there is nobody to ask.
       if (!target) return;
       const files = changedFiles.filter(Boolean).slice(0, 40);
       const question = [

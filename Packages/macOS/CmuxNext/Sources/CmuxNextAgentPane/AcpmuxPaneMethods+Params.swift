@@ -131,7 +131,7 @@ nonisolated extension AcpmuxPaneMethods {
         // The fork's boundary (`throughSeq`, or `live` for a working chat) and `/side`'s prompt.
         "_acpmux/side_chat": (["sessionId", "throughSeq", "live", "prompt"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
-        "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
+        "_acpmux/btw": (["sessionId", "question", "model", "inline", "targetHarness"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),

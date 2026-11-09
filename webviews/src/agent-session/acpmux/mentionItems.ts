@@ -211,10 +211,13 @@ function harnessItems(catalog: readonly AcpmuxSnapshot["catalog"][number][], que
     )
       continue;
     const label = entry.name?.trim() || entry.id;
-    const match = query ? (fuzzyIndices(query, label) ?? fuzzyIndices(query, entry.id)) : [];
-    if (query && !match) continue;
-    const score = query ? (entry.id.toLowerCase().startsWith(query.toLowerCase()) ? 2 : 1) : 0;
-    ranked.push({ entry, score, indexes: match ?? [], label });
+    // A harness answers only to its own name's start: "@ini" is a file, never Gemini.
+    const lower = query.toLowerCase();
+    const named = label.toLowerCase().startsWith(lower);
+    if (query && !named && !entry.id.toLowerCase().startsWith(lower)) continue;
+    const indexes = query && named ? Array.from({ length: query.length }, (_, index) => index) : [];
+    const score = query ? (entry.id.toLowerCase().startsWith(lower) ? 2 : 1) : 0;
+    ranked.push({ entry, score, indexes, label });
   }
   ranked.sort((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id));
   return ranked.slice(0, 8).map(({ entry, indexes, label }) => ({
@@ -306,7 +309,9 @@ export function mentionItems({
       ...matchRuns(file.path, file.matches),
     })),
   ];
-  return /[./]/.test(text) ? [...paths, ...chats, ...harnessRows] : [...harnessRows, ...chats, ...paths];
+  // A bare @ keeps leading with recent chats; a harness named by the query's start leads.
+  if (/[./]/.test(text)) return [...paths, ...chats, ...harnessRows];
+  return text ? [...harnessRows, ...chats, ...paths] : [...chats, ...paths, ...harnessRows];
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
