@@ -538,10 +538,17 @@ export function measure(
     ),
   ];
   const bubble = first((frame) => frame.sentShown);
+  // The order rules hold while the turn runs: its end folds the turn's work in one motion and the live line
+  // leaves for the footer, which moves rows by design. The running frames end where the turn's footer draws.
+  const earlier = new Set(frames[0]?.order.map((row) => row.id) ?? []);
+  const ended = frames.findIndex((frame) =>
+    frame.order.some((row) => row.id.startsWith("summary-") && !earlier.has(row.id)),
+  );
+  const running = ended < 0 ? frames : frames.slice(0, ended);
   return {
     rowMs: bubble ? bubble.at - sentAt : null,
-    bubbleMoves: bubbleMoves(frames, sentAt),
-    liveLast: liveLastViolations(frames, sentAt),
+    bubbleMoves: bubbleMoves(running, sentAt),
+    liveLast: liveLastViolations(running, sentAt),
     jumps,
     boxCls: box.score,
     liveMs: live ? live.at - sentAt : null,

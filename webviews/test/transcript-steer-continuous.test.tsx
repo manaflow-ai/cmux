@@ -476,10 +476,10 @@ test("a Send now that ends the turn with end_turn goes on as the same turn", asy
   const steer = view.find((row) => row.kind === "user" && row.text === "also check the logout path")!;
   expect(steer.continues).toBe(true);
   expect(view.filter((row) => row.kind === WORKED)).toHaveLength(0);
-  // The stretch before the steer ends on its own footer (turns.ts supersededFooters); the turn's
-  // own footer stays one, at its end.
+  // While the turn runs no footer comes in over the steer (turns.ts: the transcript only appends);
+  // the stretch before it ends on its own footer with the turn (supersededFooters).
   expect(view.filter((row) => row.kind === "turnSummary" && !row.superseded)).toHaveLength(0);
-  expect(view.filter((row) => row.superseded)).toHaveLength(1);
+  expect(view.filter((row) => row.superseded)).toHaveLength(0);
   const working = view.filter((row) => row.kind === THINKING);
   expect(working).toHaveLength(1);
   expect(working[0]!.at).toBe(first.at);
