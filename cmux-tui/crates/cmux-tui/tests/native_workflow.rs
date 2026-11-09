@@ -447,3 +447,48 @@ fn w5s_a_workflow_a_subagent_starts_runs_its_commands_as_that_subagent() {
         "the workflow's command did not run as the subagent: {result}"
     );
 }
+
+/// Review of #39667: a workflow runs as a subagent only when that subagent's own call, still
+/// running, in the same chat, starts it. The chat's own call (no subagent recorded for it), a call
+/// that has ended, a call of another chat, and the person's `cmux workflow start` all start a run
+/// whose commands carry no subagent.
+#[test]
+fn w5s_a_workflow_no_running_subagent_call_starts_runs_as_no_subagent() {
+    const SUB: &str = "a0a68e7af3df5967e";
+    let machine = Machine::start();
+    let (session, env) = machine.agent_chat();
+    let (other, _) = machine.agent_chat();
+    let home = machine.dir.path().join("acpmux");
+    let record = |chat: &str, call: &str| {
+        acpmux::subagent_call::record(&home, chat, call, SUB, "general-purpose").unwrap()
+    };
+    // An ended call: its PostToolUse removed the record.
+    record(&session, "toolu_01ended");
+    acpmux::subagent_call::end(&home, &session, "toolu_01ended");
+    // A call of another chat: recorded there, not in this one.
+    record(&other, "toolu_01other");
+    let source = r#"return await machine('printf %s "$ACPMUX_CALLER_SUBAGENT"',{on:'local'});"#;
+    let started = |name: &str, call: &str| {
+        let script = format!(
+            "return await cmux.cmux_workflow({{action:'start',name:{},source:{}}});",
+            json!(name),
+            json!(source)
+        );
+        let answer = machine.mcp_exec(&env, &script, json!({"claudecode/toolUseId": call}));
+        assert_ne!(answer["isError"], true, "{name}: {answer}");
+    };
+    started("Lead's own call", "toolu_01lead");
+    started("Ended call", "toolu_01ended");
+    started("Other chat's call", "toolu_01other");
+    machine.write(&format!("export const meta={{name:'Person start'}};\n{source}"));
+    let person = machine.json(&["workflow", "start", SCRIPT]);
+    assert!(person["runId"].is_string(), "no run: {person}");
+    let runs = machine.runs().list().unwrap();
+    assert_eq!(runs.len(), 4, "{runs:?}");
+    for run in runs {
+        let completed = machine.until(&run.id, |run| run.state == State::Completed);
+        let result = &completed.outcome.as_ref().unwrap().as_ref().unwrap()["result"];
+        assert_eq!(result["text"], "", "{} ran as a subagent: {result}", run.name);
+        assert_eq!(completed.caller_subagent, None, "{} names a subagent", run.name);
+    }
+}
