@@ -130,6 +130,7 @@ pub(super) fn turn_usage(msg: &Value, fresh_harness: bool) -> TurnUsage {
         output_tokens: count("outputTokens"),
         cache_read_tokens: cache_read,
         cache_write_tokens: cache_write,
+        cache_write_1h_tokens: count("cacheWrite1hTokens"),
     }
 }
 

@@ -37,7 +37,7 @@ export const PREVIEW_DWELL_MS = 400;
 export const PREVIEW_GRACE_MS = 180;
 /** How long the preview's close runs before the card hands its room back (the card's own curve,
     `--wn-preview-motion` in updateSurfaces.css); a pointer back on it within that reopens at once. */
-export const PREVIEW_CLOSE_MS = 265;
+export const PREVIEW_CLOSE_MS = 180;
 
 /** The update's changes as the preview lists them: the notes of every build the update spans (each
     change once, newest build first), else what the host sent for the installed build. Internal work
@@ -162,7 +162,7 @@ export class PreviewIntent {
     private readonly timers: IntentTimers = realTimers,
     private readonly dwell = PREVIEW_DWELL_MS,
     private readonly grace = PREVIEW_GRACE_MS,
-    /** How long a close runs on screen (the card's 265 ms curve, `--wn-preview-motion`). */
+    /** How long a close runs on screen (the card's 180 ms curve, `--wn-preview-motion`). */
     private readonly reopen = PREVIEW_CLOSE_MS,
   ) {}
 

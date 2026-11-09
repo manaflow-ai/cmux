@@ -714,6 +714,10 @@ pub struct Socket<'a> {
     sack_high_rxt: TcpSeqNumber,
     /// cmux patch: this recovery episode already cut the congestion window.
     sack_window_cut: bool,
+    /// cmux patch: the largest segment our own path takes (the interface MTU
+    /// less headers), learned at the handshake. SACK recovery counts and
+    /// admits repairs in min(this, remote MSS), the segments actually sent.
+    local_mss: usize,
     /// cmux patch: the path under the connection changed; the next RTO
     /// branch resends without backing off ([path_changed](#method.path_changed)).
     path_change_retransmit: bool,
@@ -815,6 +819,7 @@ impl<'a> Socket<'a> {
             sack_recovery_point: None,
             sack_high_rxt: TcpSeqNumber::default(),
             sack_window_cut: false,
+            local_mss: usize::MAX,
             path_change_retransmit: false,
             ack_delay: Some(ACK_DELAY_DEFAULT),
             ack_delay_timer: AckDelayTimer::Idle,
@@ -1163,6 +1168,13 @@ impl<'a> Socket<'a> {
         self.sack_recovery && self.remote_has_sack
     }
 
+    /// cmux patch: the size of the segments this socket sends, the unit SACK
+    /// recovery counts lost and SACKed data in. The peer's MSS alone can be
+    /// far larger than what our own path takes.
+    fn sack_segment(&self) -> usize {
+        self.local_mss.min(self.remote_mss).max(1)
+    }
+
     /// cmux patch: whether the hole starting at `start` is lost (RFC 6675
     /// IsLost), given what was SACKed above it: `Some(true)` when the
     /// duplicate threshold says so, which is a congestion signal;
@@ -1173,7 +1185,7 @@ impl<'a> Socket<'a> {
         sacked_above: usize,
         ranges_above: usize,
     ) -> Option<bool> {
-        let mss = self.remote_mss.max(1);
+        let mss = self.sack_segment();
         let tail_received = self
             .sack_scoreboard
             .ranges()
@@ -1273,7 +1285,7 @@ impl<'a> Socket<'a> {
             return None;
         }
         let window = self.congestion_controller.inner().window();
-        let room = self.sack_pipe(&scan) + self.remote_mss.min(len) <= window;
+        let room = self.sack_pipe(&scan) + self.sack_segment().min(len) <= window;
         (room || start == self.local_seq_no).then_some((start, len))
     }
 
@@ -1476,6 +1488,7 @@ impl<'a> Socket<'a> {
         self.sack_recovery_point = None;
         self.sack_high_rxt = TcpSeqNumber::default();
         self.sack_window_cut = false;
+        self.local_mss = usize::MAX;
         self.path_change_retransmit = false;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
@@ -2492,6 +2505,7 @@ impl<'a> Socket<'a> {
                 let local_mss = cx
                     .ip_mtu()
                     .saturating_sub(ip_repr.header_len() + TCP_HEADER_LEN);
+                self.local_mss = local_mss;
                 self.congestion_controller
                     .inner_mut()
                     .set_mss(local_mss.min(self.remote_mss));
@@ -2550,6 +2564,7 @@ impl<'a> Socket<'a> {
                 let local_mss = cx
                     .ip_mtu()
                     .saturating_sub(ip_repr.header_len() + TCP_HEADER_LEN);
+                self.local_mss = local_mss;
                 self.congestion_controller
                     .inner_mut()
                     .set_mss(local_mss.min(self.remote_mss));
@@ -11173,6 +11188,20 @@ mod test {
         let before = s.congestion_controller.inner().window();
         send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
         assert!(s.congestion_controller.inner().window() < before);
+        assert!(s.sack_window_cut);
+        recv!(s, time 50, sack_resent(6));
+    }
+
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_sack_counts_in_the_segments_actually_sent() {
+        // The peer would take 60-byte segments, but our path takes 6: the
+        // 24 bytes SACKed above the hole are four segments, past the
+        // duplicate threshold, not a fraction of one.
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 36);
+        s.remote_mss = 60;
+        s.local_mss = 6;
+        send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
         assert!(s.sack_window_cut);
         recv!(s, time 50, sack_resent(6));
     }

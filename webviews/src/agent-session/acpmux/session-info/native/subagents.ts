@@ -11,6 +11,7 @@ import { agentTone } from "../../subagents/agentTones";
 import { nestAgents } from "../../subagents/agentsPillModel";
 import { elapsed } from "../../subagents/subagentGroupModel";
 import { subagentProgress } from "../../subagents/subagentProgress";
+import { namedAction } from "../../subagents/trayDetail";
 import { retrying } from "../../subagents/retryState";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "../childSessionRowsModel";
@@ -116,7 +117,7 @@ export function subagentsSection(
       identity: agent.id,
       agent,
       name: agent.name,
-      detail: working(status) ? agent.action : undefined,
+      detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       status,
       state: subagentStateText(t, agent, waiting, now),
       time: formatDuration(elapsed(agent, input.now)),

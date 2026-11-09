@@ -4,16 +4,20 @@
 // user's prompt, like, fades in from the right and, like, grows to the left. And yeah, and then
 // there's the, like, space that accounts for with the thinking for whatever seconds and the push-up
 // and the prompt. Like, it's all just one unified motion." A prompt sent from the latest row: its
-// room is laid out at once, and on one clock (the send motion, 265 ms on its settling curve) the
+// room is laid out at once, and on one clock (the send motion, 180 ms on its settling curve) the
 // thread rises into it, the bubble opens leftward from its right edge with its text fading in behind
 // the edge, and the thinking row fades in. Every frame from the send is read in the agent pane's dev
-// entry, with the agent's answer held back as a real agent's is.
+// entry, with the agent's answer held back as a real agent's is. Sent from the latest row, the
+// composer's prompt becomes the bubble instead (Leo, 2026-11-08, ask-157340f908; sendMorph.ts,
+// agent-pane-send-morph.test.ts), on the same clock: the first case reads the bubble's own entrance
+// (a prompt from another device, a send while scrolled up) through the gallery's `inplace` switch.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/agent-pane-send-motion.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { MOTION_SEND_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -93,11 +97,13 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
             const name =
               target === thread
                 ? "thread"
-                : target.matches(".cv-user__bubble")
-                  ? "bubble"
-                  : target.matches(".acpmux-thinking")
-                    ? "thinking"
-                    : "";
+                : target.matches("[data-send-morph-layer]")
+                  ? "morph"
+                  : target.matches(".cv-user__bubble")
+                    ? "bubble"
+                    : target.matches(".acpmux-thinking")
+                      ? "thinking"
+                      : "";
             if (name)
               clocks.push({
                 target: name,
@@ -138,24 +144,57 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
     );
   };
 
-  // The thread's rise follows the follow-motion experiment (#37614): its default arms chase each
-  // move on a spring, and its eased arm is the glide this send clock drives (followGlide `sent`).
-  // The rise's clock is read in that arm; the bubble and thinking row take the send clock in every arm.
-  test("a prompt sent from the latest row: room, bubble, thinking row and rise are one motion on one clock", async () => {
+  /// Earlier turns, so the chat overflows and the send rises from the latest row; the agent then
+  /// answers late, as a real one does: the thinking row is all that comes with the prompt.
+  /// The thread's rise follows the follow-motion experiment (#37614): its default arms chase each
+  /// move on a spring, and its eased arm is the glide this send clock drives (followGlide `sent`).
+  /// The rise's clock is read in that arm; the bubble and thinking row take the send clock in every arm.
+  const openTurns = async (page: Page) => {
+    await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"follow-motion":"eased"}'));
+    await openPane(page);
+    for (const line of ["first question", "second question", "third question"]) {
+      await send(page, line);
+      await page.locator(".cv-user__bubble", { hasText: line }).waitFor();
+      await page.getByRole("button", { name: "Stop" }).waitFor({ state: "detached", timeout: 30_000 });
+    }
+    // The last turn's end folds its work (turnEndFold.ts) and the rows glide on nothing else meanwhile:
+    // the measured send comes once it has settled, as a reader's next prompt does.
+    await page.waitForFunction(() => !document.querySelector(".acpmux-thread")?.hasAttribute("data-turn-end-folding"));
+    await page.evaluate(() =>
+      Object.assign(window, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 2000 }),
+    );
+  };
+
+  test("from the latest row, the composer's prompt moves into the bubble on the clock the thread rises and the thinking row fades on", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
     try {
-      await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"follow-motion":"eased"}'));
-      await openPane(page);
-      // Earlier turns, so the chat overflows and the send rises from the latest row.
-      for (const line of ["first question", "second question", "third question"]) {
-        await send(page, line);
-        await page.locator(".cv-user__bubble", { hasText: line }).waitFor();
-        await page.getByRole("button", { name: "Stop" }).waitFor({ state: "detached", timeout: 30_000 });
+      await openTurns(page);
+      const line = "what else do you think would be good across the project";
+      await watchSend(page, line);
+      await send(page, line);
+      const { clocks } = await sendFrames(page);
+      for (const target of ["thread", "morph", "thinking"]) {
+        const clock = clocks.find((entry) => entry.target === target);
+        expect(clock, `${target}: no animation started with the send (${JSON.stringify(clocks)})`).toBeDefined();
+        expect(clock!.duration, `${target}'s duration`).toBe(MOTION_SEND_MS);
+        expect(clock!.easing.replace(/\s/g, ""), `${target}'s curve`).toBe("cubic-bezier(0.16,1,0.3,1)");
       }
-      // The agent answers late, as a real one does: the thinking row is all that comes with the prompt.
-      await page.evaluate(() =>
-        Object.assign(window, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 2000 }),
-      );
+      expect(
+        clocks.some((entry) => entry.target === "bubble"),
+        "the bubble's own entrance does not also play",
+      ).toBe(false);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a prompt's own entrance: room, bubble, thinking row and rise are one motion on one clock", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
+    try {
+      await openTurns(page);
+      // The bubble's own entrance, as a prompt from another device or one sent while scrolled up
+      // draws it: the gallery's switch turns the composer's move off (sendMorph.ts).
+      await page.evaluate(() => document.querySelector(".acpmux-shell")!.setAttribute("data-send-morph", "inplace"));
       const line = "what else do you think would be good across the project";
       await watchSend(page, line);
       await send(page, line);
@@ -164,11 +203,11 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
       const [first, last] = [frames[0]!, frames.at(-1)!];
 
       // One clock: the thread's rise, the bubble's opening and the thinking row's fade all run the
-      // send motion (265 ms, its settling curve).
+      // send motion (180 ms, its settling curve).
       for (const target of ["thread", "bubble", "thinking"]) {
         const clock = clocks.find((entry) => entry.target === target);
         expect(clock, `${target}: no animation started with the send (${JSON.stringify(clocks)})`).toBeDefined();
-        expect(clock!.duration, `${target}'s duration`).toBe(265);
+        expect(clock!.duration, `${target}'s duration`).toBe(MOTION_SEND_MS);
         expect(clock!.easing.replace(/\s/g, ""), `${target}'s curve`).toBe("cubic-bezier(0.16,1,0.3,1)");
       }
 

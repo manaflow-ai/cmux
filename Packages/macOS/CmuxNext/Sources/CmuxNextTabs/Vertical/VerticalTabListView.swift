@@ -117,8 +117,11 @@ public final class VerticalTabListView: NSView {
         }
         if tokenObservation == nil {
             tokenObservation = Task { [weak self] in
-                // The group headers' glass settings (`GroupChipGlass`) too: a change repaints them.
-                for await snapshot in ObservationStream({ (VerticalTabListMetrics.current, Typography.body.pointSize, GroupChipGlass.current) }) {
+                // The group headers' glass settings (`GroupChipGlass`) and the no-color group look are read only
+                // while drawing, so a change to either repaints here.
+                for await snapshot in ObservationStream({
+                    (VerticalTabListMetrics.current, Typography.body.pointSize, GroupChipGlass.current, VerticalNoColorGroupLook.tunable.value)
+                }) {
                     guard let self else { return }
                     if snapshot.0 != self.metrics { self.relayout() } else { self.needsDisplay = true }
                 }

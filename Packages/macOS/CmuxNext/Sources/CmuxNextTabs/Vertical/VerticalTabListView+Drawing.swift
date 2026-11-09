@@ -17,6 +17,25 @@ extension VerticalTabListView {
                 CGRect(x: bounds.maxX - 1, y: 0, width: 1, height: bounds.height).fill()
             }
             let visible = CGRect(x: 0, y: scrollOffset, width: bounds.width, height: bounds.height)
+            // A group with no color: one neutral pane behind its header and tabs, with a hairline rim and no hue
+            // (Leo 2026-11-05: "at least slightly distinguishing from, like, literally depicting it as if it were
+            // unhovered"), as the sidebar's no-color group and the strip's band draw it. Under every row, so hover and
+            // selection draw over it.
+            let look = VerticalNoColorGroupLook.tunable.value
+            for pane in listLayout.groupPanes where look != .plain && pane.frame.intersects(visible) {
+                guard model.group(pane.group)?.tint.isNone == true else { continue }
+                let rect = viewRect(pane.frame)
+                Palette.sidebarStep.setFill()
+                NSBezierPath(roundedRect: rect, xRadius: metrics.cornerRadius, yRadius: metrics.cornerRadius).fill()
+                guard look == .rimmed else { continue }
+                // The `group` surface role's rim, a hairline inset half a pixel so it stays inside the pane.
+                let rim = FloatingGlassStyle.group.look(isDark: themeTokens.isDark).rimTop
+                let inset = 0.5 / scale, radius = metrics.cornerRadius - inset
+                let path = NSBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset), xRadius: radius, yRadius: radius)
+                rim.nsColor.setStroke()
+                path.lineWidth = 1 / scale
+                path.stroke()
+            }
             for line in listLayout.groupLines where line.frame.intersects(visible) {
                 guard let group = model.group(line.group) else { continue }
                 group.tint.headerFill.setFill()

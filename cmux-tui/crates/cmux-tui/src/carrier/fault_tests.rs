@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use super::super::drill::{EventRoutes, EventStream, TurnEvent, run_drill};
+use super::super::ssh::Absent;
 use super::{
     FaultPlan, FaultSpec, GateRefusal, Route, capabilities, parse_spec, probe_account, probe_gate,
     routes, this_build,
@@ -137,7 +138,7 @@ fn judged_after_kill(record: &Value) -> Vec<String> {
 
 #[test]
 fn the_capability_line_has_the_probe_gates_fields_and_ssh_is_unavailable() {
-    let caps = capabilities(&this_build());
+    let caps = capabilities(&this_build(Err(Absent::Tunnel)));
     assert_eq!(caps["routes"], json!(["relay"]));
     assert_eq!(caps["faults"], json!(["kill-route"]));
     assert_eq!(caps["carriers"]["relay"]["available"], true);
@@ -145,9 +146,24 @@ fn the_capability_line_has_the_probe_gates_fields_and_ssh_is_unavailable() {
     assert_eq!(caps["carriers"]["relay"]["faults"], json!(["kill-route"]));
     assert_eq!(caps["carriers"]["ssh"]["available"], false);
     assert_eq!(caps["carriers"]["ssh"]["faults"], json!([]));
-    assert!(caps["carriers"]["ssh"]["reason"].as_str().unwrap().contains("ssh"));
+    assert_eq!(caps["carriers"]["ssh"]["code"], "no_tunnel");
+    assert!(caps["carriers"]["ssh"]["reason"].as_str().unwrap().contains("tunnel hub"));
     assert_eq!(caps["fault_gate"]["env"], "CMUX_CARRIER_PROBE_FAULTS");
-    assert_eq!(routes(&this_build()), vec![Route::Relay]);
+    assert_eq!(routes(&this_build(Err(Absent::Key))), vec![Route::Relay]);
+}
+
+/// With the dial's check passing, ssh is a route after the relay: what the
+/// probe's capability gate needs (`routes` with ssh, `faults` with kill-route).
+#[test]
+fn the_capability_line_lists_ssh_after_the_relay_when_the_device_has_it() {
+    let caps = capabilities(&this_build(Ok(())));
+    assert_eq!(caps["routes"], json!(["relay", "ssh"]));
+    assert_eq!(caps["faults"], json!(["kill-route"]));
+    assert_eq!(caps["carriers"]["ssh"]["available"], true);
+    assert_eq!(caps["carriers"]["ssh"]["probe"], true);
+    assert_eq!(caps["carriers"]["ssh"].get("reason"), None);
+    assert_eq!(caps["carriers"]["ssh"].get("code"), None);
+    assert_eq!(routes(&this_build(Ok(()))), vec![Route::Relay, Route::Ssh]);
 }
 
 #[test]
@@ -213,8 +229,9 @@ fn only_probe_accounts_pass_the_gate() {
 
 #[test]
 fn killing_the_relay_with_no_other_route_is_a_typed_refusal_before_the_turn() {
-    let caps = capabilities(&this_build());
-    let refused = FaultPlan::new(spec(3), routes(&this_build()), &caps).unwrap_err();
+    let carriers = this_build(Err(Absent::Tunnel));
+    let caps = capabilities(&carriers);
+    let refused = FaultPlan::new(spec(3), routes(&carriers), &caps).unwrap_err();
     assert_eq!(refused.code, "carrier_fault.no_other_route");
     assert!(refused.message.contains("ssh"), "{}", refused.message);
     assert_eq!(
@@ -311,13 +328,21 @@ async fn a_turn_that_ends_before_the_kill_says_so() {
 }
 
 #[test]
-fn capabilities_takes_only_its_json_flag() {
+fn capabilities_takes_its_json_flag_and_the_dial_s_hub_flag() {
     let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-    assert!(super::super::parse_capabilities(&words("capabilities")));
-    assert!(super::super::parse_capabilities(&words("capabilities --json")));
-    assert!(!super::super::parse_capabilities(&words("capabilities --json --json")));
-    assert!(!super::super::parse_capabilities(&words("capabilities --machine vm_x")));
-    assert!(!super::super::parse_capabilities(&words("capability")));
+    let parse = |text: &str| super::super::parse_capabilities(&words(text));
+    assert_eq!(parse("capabilities"), Some(None));
+    assert_eq!(parse("capabilities --json"), Some(None));
+    let hub = Some(Some(std::path::PathBuf::from("/tmp/hub.sock")));
+    assert_eq!(parse("capabilities --wg-hub /tmp/hub.sock"), hub);
+    assert_eq!(parse("capabilities --json --wg-hub /tmp/hub.sock"), hub);
+    assert_eq!(parse("capabilities --wg-hub relative.sock"), None);
+    assert_eq!(parse("capabilities --wg-hub"), None);
+    assert_eq!(parse("capabilities --wg-hub /tmp/a.sock --wg-hub /tmp/b.sock"), None);
+    assert_eq!(parse("capabilities --wg-hub /tmp/hub.sock --json"), None);
+    assert_eq!(parse("capabilities --json --json"), None);
+    assert_eq!(parse("capabilities --machine vm_x"), None);
+    assert_eq!(parse("capability"), None);
 }
 
 /// The accepted test accounts are exactly the ones the provisioner makes

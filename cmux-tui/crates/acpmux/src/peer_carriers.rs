@@ -124,6 +124,21 @@ where
     }
 }
 
+/// The log line of a cold connect of a peer with an ssh path (`has_ssh`) that `via`, another
+/// path, won: which path carries the link and why ssh does not (its failure class,
+/// `peer_ssh.rs`, never ssh's stderr; or that it had not answered first). None when ssh won
+/// or the peer has no ssh path.
+pub(super) fn backup_line(via: Via, has_ssh: bool, failed: &[(Via, String)]) -> Option<String> {
+    if via == Via::Ssh || !has_ssh {
+        return None;
+    }
+    let why = match failed.iter().find(|(failed, _)| *failed == Via::Ssh) {
+        Some((_, error)) => format!("ssh did not connect ({error})"),
+        None => "ssh had not connected first".to_owned(),
+    };
+    Some(format!("{why}; the link runs on the {} path", via.as_str()))
+}
+
 /// One line for a connect whose every path failed.
 pub(super) fn failures_line(failed: &[(Via, String)]) -> String {
     match failed {
@@ -199,6 +214,28 @@ pub(crate) async fn dial_link(socket: &Path, host: &str) -> Result<tokio::net::U
 #[cfg(not(unix))]
 pub(crate) async fn dial_link(_socket: &Path, _host: &str) -> Result<BoxDuplex, String> {
     Err("the cmux link runs on Unix only".to_owned())
+}
+
+/// The next copy queued for the shadow; never, without one.
+async fn next_copy(shadow: &mut Option<super::dual::ShadowRun>) -> Option<String> {
+    match shadow.as_mut() {
+        Some(run) => run.rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Send `texts` on a probe's WebSocket, each within [`PROBE_EVERY`]; false when one did not go.
+async fn send_texts<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>, texts: Vec<String>) -> bool
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    for text in texts {
+        let sent = tokio::time::timeout(PROBE_EVERY, ws.send(Frame::Text(text.into()))).await;
+        if !matches!(sent, Ok(Ok(()))) {
+            return false;
+        }
+    }
+    true
 }
 
 /// A ping's payload: when it went out, in microseconds since a process-wide origin, so its
@@ -392,6 +429,9 @@ impl Peer {
         for (via, error) in &failed {
             tracing::debug!(peer = %self.name, via = via.as_str(), "path unavailable: {error}");
             self.path_failed(*via);
+        }
+        if let Some(line) = backup_line(via, self.ssh_parts().is_some(), &failed) {
+            tracing::info!(peer = %self.name, via = via.as_str(), carrier = via.carrier().as_str(), "{line}");
         }
         Ok((via, opened))
     }
@@ -644,13 +684,36 @@ impl Peer {
         via: Via,
         ssh_tokens: Option<(tokens::Tokens, bool)>,
     ) -> Result<Opened, String> {
-        match via {
+        let opened = match via {
             Via::Ssh => self.open_ssh(ssh_tokens).await,
             Via::Url => self.open_url().await,
             Via::Wireguard | Via::Link => self.open_direct(via, ssh_tokens.as_ref()).await,
             Via::Hub if via.streams() => self.open_direct(via, ssh_tokens.as_ref()).await,
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
-        }
+        }?;
+        // Unproven until the daemon's `initialize` answer on this connection says it is the
+        // peer principal (`dualPrincipal`, read by the handshake).
+        self.note_token_path(via, false);
+        Ok(opened)
+    }
+
+    /// Whether path `via`'s current connection is the daemon's peer principal, as that
+    /// daemon's `initialize` answer on it said (`token_paths`); false until it answers.
+    pub(super) fn note_token_path(&self, via: Via, principal: bool) {
+        self.token_paths.lock_or_recover().insert(via, principal);
+    }
+
+    /// The `initialize` a probe sends on its own connection: only to learn whether the daemon
+    /// takes it as the peer principal (`dualPrincipal`). It says it only observes, so it keeps
+    /// no daemon running (`daemon/unused_exit.rs`).
+    fn probe_hello(&self) -> (i64, String) {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let hello = serde_json::json!({"protocolVersion": 1, "clientCapabilities": {},
+            "clientInfo": {"name": super::CLIENT_NAME, "version": crate::hub::VERSION},
+            "_meta": {"acpmux": {"observer": true}}});
+        let line =
+            crate::rpc::Message::request(id, crate::rpc::method::INITIALIZE, hello).to_line();
+        (id, line.trim_end_matches('\n').to_owned())
     }
 
     /// Keep every path of this peer that does not carry the link open and measured: once per
@@ -668,7 +731,7 @@ impl Peer {
 
     /// The probe of path `via`: while the link does not run on it, a WebSocket of its own,
     /// pinged each [`PROBE_EVERY`]; a dead one is dialed again on its recovery backoff.
-    async fn probe(self: Arc<Self>, via: Via) {
+    pub(super) async fn probe(self: Arc<Self>, via: Via) {
         let mut stopped = self.stop_changed.subscribe();
         loop {
             if *stopped.borrow() {
@@ -703,8 +766,11 @@ impl Peer {
         }
     }
 
-    /// Ping `ws` on `via` until it fails, the link moves onto `via`, or the peer stops.
-    async fn probe_link<S>(
+    /// Ping `ws` on `via` until it fails, the link moves onto `via`, or the peer stops. While
+    /// the link's path is in doubt and `via` is the best other path, `ws` is also the link's
+    /// shadow (`peer_dual.rs`): it carries a copy of each frame, and its chat events and
+    /// replies are taken once.
+    pub(super) async fn probe_link<S>(
         &self,
         via: Via,
         mut ws: tokio_tungstenite::WebSocketStream<S>,
@@ -715,17 +781,63 @@ impl Peer {
         let mut stopped = self.stop_changed.subscribe();
         let mut ping = tokio::time::interval(PROBE_EVERY);
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut check = tokio::time::interval(super::dual::DOUBT_CHECK);
+        // Whether the daemon takes this connection as the peer principal: only its answer on
+        // this connection qualifies the path for dual send, read again on each probe.
+        self.note_token_path(via, false);
+        let (hello_id, hello) = self.probe_hello();
+        let mut hello_id = Some(hello_id);
+        if !send_texts(&mut ws, vec![hello]).await {
+            self.path_failed(via);
+            return;
+        }
+        check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut shadow: Option<super::dual::ShadowRun> = None;
         loop {
             tokio::select! {
                 _ = stopped.changed() => break,
                 _ = ping.tick() => {
                     // The link took this path: its own pings measure it now.
-                    if self.serving() == Some(via) {
+                    if self.serving() == Some(via) && shadow.is_none() {
                         break;
                     }
                     self.paths_tick();
                     let sent = tokio::time::timeout(PROBE_EVERY, ws.send(Frame::Ping(ping_stamp().into()))).await;
                     if !matches!(sent, Ok(Ok(()))) {
+                        self.path_failed(via);
+                        break;
+                    }
+                }
+                _ = check.tick() => {
+                    let done = shadow.as_mut().is_some_and(|run| self.shadow_done(run));
+                    let frames = match shadow.take() {
+                        None if self.dual_wanted(via) => {
+                            let (run, frames) = self.shadow_start(via).await;
+                            shadow = Some(run);
+                            frames
+                        }
+                        Some(run) if done => self.shadow_end(run).await,
+                        Some(mut run) => {
+                            // A chat whose gap outlived its bound is attached again from its
+                            // cursor.
+                            let mut frames = Vec::new();
+                            for sid in self.dual_gaps().await {
+                                frames.extend(self.shadow_resubscribe(&mut run, &sid).await);
+                            }
+                            // A chat whose attach did not cover its stream, due again.
+                            frames.extend(self.shadow_retries(&mut run).await);
+                            shadow = Some(run);
+                            frames
+                        }
+                        None => Vec::new(),
+                    };
+                    if !send_texts(&mut ws, frames).await {
+                        self.path_failed(via);
+                        break;
+                    }
+                }
+                Some(copy) = next_copy(&mut shadow) => {
+                    if !send_texts(&mut ws, vec![copy]).await {
                         self.path_failed(via);
                         break;
                     }
@@ -736,6 +848,20 @@ impl Peer {
                             self.path_pong(via, rtt);
                         }
                     }
+                    Some(Ok(Frame::Text(text))) => {
+                        if let Some(id) = hello_id
+                            && let Some(principal) = hello_answer(text.as_str(), id)
+                        {
+                            hello_id = None;
+                            self.note_token_path(via, principal);
+                        } else if let Some(run) = shadow.as_mut() {
+                            let frames = self.shadow_frame(run, text.as_str()).await;
+                            if !send_texts(&mut ws, frames).await {
+                                self.path_failed(via);
+                                break;
+                            }
+                        }
+                    }
                     Some(Ok(Frame::Close(_)) | Err(_)) | None => {
                         self.path_failed(via);
                         break;
@@ -744,6 +870,10 @@ impl Peer {
                 },
             }
         }
+        if let Some(run) = shadow.take() {
+            let _ = self.shadow_end(run).await;
+        }
+        // timeout: a polite close on a link that is ending; a peer that never answers it is dropped.
         let _ = tokio::time::timeout(Duration::from_secs(1), ws.close(None)).await;
         // `_tunnel` (an ssh probe's own process) ends here.
     }
@@ -752,9 +882,21 @@ impl Peer {
     /// reads tokens over ssh: the link's connect did), and its ssh process for an ssh path.
     async fn open_probe(&self, via: Via) -> Result<(OpenedWs, Option<ProbeTunnel>), String> {
         match via {
-            Via::Wireguard | Via::Link => Ok((self.open_direct(via, None).await?.ws, None)),
-            Via::Hub if via.streams() => Ok((self.open_direct(via, None).await?.ws, None)),
-            Via::Url => Ok((self.open_url().await?.ws, None)),
+            Via::Wireguard | Via::Link => {
+                let opened = self.open_direct(via, None).await?;
+                self.note_token_path(via, false);
+                Ok((opened.ws, None))
+            }
+            Via::Hub if via.streams() => {
+                let opened = self.open_direct(via, None).await?;
+                self.note_token_path(via, false);
+                Ok((opened.ws, None))
+            }
+            Via::Url => {
+                let ws = self.open_url().await?.ws;
+                self.note_token_path(via, false);
+                Ok((ws, None))
+            }
             Via::Ssh => {
                 let (token, peer_token) = self
                     .direct_credentials(None)
@@ -773,6 +915,7 @@ impl Peer {
                 )
                 .await
                 .map_err(|e| e.to_string())?;
+                self.note_token_path(via, false);
                 Ok((OpenedWs::Boxed(Box::new(ws)), Some((child, errors))))
             }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
@@ -822,3 +965,15 @@ impl Drop for AnsweringGuard {
 #[cfg(test)]
 #[path = "peer_carriers_tests.rs"]
 mod tests;
+
+/// Whether `text` answers the probe's `initialize` `id`: Some with whether the daemon said this
+/// connection is its peer principal (an error, or no word, says no).
+fn hello_answer(text: &str, id: i64) -> Option<bool> {
+    let msg: serde_json::Value = serde_json::from_str(text).ok()?;
+    if msg.get("method").is_some() || msg.get("id").and_then(serde_json::Value::as_i64) != Some(id)
+    {
+        return None;
+    }
+    let principal = msg.pointer("/result/_meta/acpmux/dualPrincipal");
+    Some(principal == Some(&serde_json::Value::Bool(true)))
+}

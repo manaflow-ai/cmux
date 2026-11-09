@@ -42,9 +42,9 @@ final class DaemonAppsTransport: AppsTransport {
     private var following: Task<Void, Never>?
     private var subscription: UInt64?
 
-    init(daemon: DaemonService, inventoryRoutes: @escaping @MainActor @Sendable () -> [AgentInventoryWatchRoute] = { [] }) {
+    init(daemon: DaemonService, feeds: [AppProviderChangeFeed] = [], inventoryRoutes: @escaping @MainActor @Sendable () -> [AgentInventoryWatchRoute] = { [] }) {
         self.daemon = daemon
-        let inventory = AgentInventoryProviderBridge(routes: inventoryRoutes)
+        let inventory = AgentInventoryProviderBridge(feeds: feeds, routes: inventoryRoutes)
         self.inventory = inventory
         provider = AppsProviderChannel(link: .daemon(daemon, inventory: inventory))
     }

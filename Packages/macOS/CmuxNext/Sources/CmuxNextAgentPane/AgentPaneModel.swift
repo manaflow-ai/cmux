@@ -215,9 +215,9 @@ public final class AgentPaneModel {
     @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
-    /// Opens a file of a Cloud chat's machine (an absolute path there) in cmux's file pages, read
-    /// through that machine's daemon, never this Mac's file of the same path; false when it could
-    /// not, or when the path reaches through a symlink there.
+    /// Opens a file of a Cloud chat's machine (an absolute path there) in cmux's file pages, read through that machine's
+    /// daemon with no symlink followed, or a folder there in the Files tree; never this Mac's of the same path. False
+    /// when it could not, or when the path reaches through a symlink there.
     @ObservationIgnored public var onOpenMachineFile: (@MainActor (String) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
@@ -481,6 +481,10 @@ public final class AgentPaneModel {
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
         case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
+        // Every page reads its tip records on mount (featureTipsModel.ts); counted as a touch, it
+        // kept every subagent, side chat and sender open off the prewarmed page ("touched by
+        // featureTips"), each one making a cold page instead. Keeping or claiming a tip still touches.
+        case .featureTips(.read): break
         case .reply(let reply) where reply.isPassive: break
         case .cloudReservation: break
         case .cloudEnvironment(let request) where request.action != "update": break

@@ -213,6 +213,7 @@ fn phase_times_run_mark_to_mark_and_the_open_step_to_now() {
         connected: at(700),
         mux_open: at(730),
         lanes: 3,
+        ..Marks::default()
     };
     let now = t0 + Duration::from_millis(5000);
     let ms = Duration::from_millis;
@@ -267,6 +268,7 @@ fn arguments_are_the_machine_and_one_deadline() {
             token_file: None,
             team: None,
             answer_fd: None,
+            wg_hub: None,
         })
     );
     for (fd, want) in [("0", 0), ("3", 3), ("17", 17)] {
@@ -588,6 +590,17 @@ fn the_desktop_link_takes_the_answer_s_turn_relays_over_udp() {
     assert_eq!(parse_answer(&value).unwrap().rd_link.unwrap().turn.len(), 4);
     value["rd_link"] = json!({"stun": ["stun.example.net:3478"]});
     assert!(parse_answer(&value).unwrap().rd_link.unwrap().turn.is_empty());
+
+    // A credential of up to 512 bytes is kept; one byte longer drops the relay.
+    let relay = |user: &str, pass: &str| json!({"stun": [], "turn": [{"addr": "turn.example.net:3478", "username": user, "password": pass}]});
+    let long = "x".repeat(512);
+    value["rd_link"] = relay(&long, &long);
+    assert_eq!(parse_answer(&value).unwrap().rd_link.unwrap().turn.len(), 1);
+    let longer = "x".repeat(513);
+    for (user, pass) in [(longer.as_str(), "p"), ("u", longer.as_str())] {
+        value["rd_link"] = relay(user, pass);
+        assert!(parse_answer(&value).unwrap().rd_link.unwrap().turn.is_empty(), "513 bytes");
+    }
 }
 
 #[test]

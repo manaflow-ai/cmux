@@ -71,10 +71,12 @@ import Testing
         }
     }
 
-    @Test func aGroupWithNoColorKeepsItsChipClear() {
+    /// A group with no color takes no glass: its chip keeps #39594's faint neutral step and no rim, under the glass
+    /// look too (GroupNoChosenColorTests).
+    @Test func aGroupWithNoColorTakesNoGlass() {
         let chip = TabGroupChipCell(group: TabGroupItem(id: "g", name: "API", tint: .none), memberCount: 1)
         chip.look = Self.glass
-        #expect((chip.pill.backgroundColor?.alpha ?? 0) == 0)
+        #expect(chip.pill.backgroundColor?.components == chip.themeScope.perform { Palette.sidebarStep.cgColor }.components)
         #expect(chip.rim.isHidden)
     }
 
