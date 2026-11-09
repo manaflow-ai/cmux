@@ -198,6 +198,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return 0;
     }
     let Some(args) = parse(args) else { return usage(USAGE) };
+    // Before any hub exists: a SIGCHLD ignored by whoever started us would
+    // let the kernel reap the hub and free its pid while we still signal it.
+    if !tunnel::reap_own_children() {
+        emit(&json!({"event": "tunnel-failed", "detail": "cannot reset SIGCHLD"}));
+        return 1;
+    }
     let team = match super::with_team_env_value(args.team.clone()) {
         Some(team) => team,
         None => return usage("CMUX_CLOUD_TEAM is not team_ and 20 lowercase hex digits"),

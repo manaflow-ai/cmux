@@ -149,6 +149,7 @@ export function historyPages({
     ledger: {
       load: async (params) => connected().ledger(params),
       openSession: selectSession,
+      copy,
     },
   };
 }

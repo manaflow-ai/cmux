@@ -1005,12 +1005,15 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
             stack.extend(targets[name]["targets"])
         self.assertIn("CmuxNextApp", seen)
         # Libraries under Tests/ (Tests/Support/CmuxNextTestExitTrace, #23658)
-        # and source-only test support targets are not production.
+        # and source-only test support targets are not production. Only the
+        # base autofix rewrites the graph, so a pull request that deletes a
+        # target still sees it there: a target whose sources are gone is gone.
         outside = {
             n for n, v in targets.items()
             if v["kind"] in {"regular", "executable"} and n not in seen
             and not (v["path"] or "").startswith("Packages/macOS/CmuxNext/Tests/")
             and not n.endswith("TestSupport")
+            and (ROOT / (v["path"] or "")).is_dir()
         }
         step = next(s for s in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]["steps"]
                     if s.get("id") == "check")
