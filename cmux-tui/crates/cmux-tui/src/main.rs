@@ -2512,7 +2512,7 @@ fn run_server(
     // in a shared daemon that cannot see the terminal's environment, so only
     // its shim routes them. All three are this build's own, never the copies
     // another install on this machine wrote.
-    cmux_tui_core::startup_timings::process_mark("process.surface");
+    cmux_tui_core::startup_timings::process_mark("process.pane_options");
     #[cfg(unix)]
     own_build_helpers::configure_pane(&mut surface_options);
     cmux_tui_core::startup_timings::process_mark("process.build_helpers");
