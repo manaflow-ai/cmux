@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42625864328",
+  "recorded_at": "2026-11-09T13:43:14Z",
+  "reason": "cmux-tui 7836d086cc37 changes the image's cmux-tui (pinned 070a824d5b9a)",
+  "dry_run": false,
+  "cmux_tui": "7836d086cc3762b555977c6eb318d9ec59aff023",
+  "fixes": [
+    {
+      "sha": "7836d086cc3762b555977c6eb318d9ec59aff023",
+      "mergedAt": "2026-11-09T05:07:20-08:00",
+      "subject": "acpmux: keep a Claude Code launcher at normal CPU class so it can't starve the stream it relays (#39554)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T13:43:14Z",
+    "snapshot_id": "sh-c75f81b9f6ab49bfbb6a5b1c459f5ddd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42625864328): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "44a561aa4b55f44f8a314edbbf70b22f14ed089c",
+    "image": "cloud-native-auto-7836d086-42625864328-1",
+    "revision": "ci-42625864328-1",
+    "at": "2026-11-09T13:43:14Z"
+  },
+  "rolled_back": false
+}
