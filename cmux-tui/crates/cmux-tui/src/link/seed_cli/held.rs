@@ -183,11 +183,12 @@ impl Renewal {
         let (stop, stopped) = mpsc::channel::<()>();
         let (socket, job) = (socket.to_path_buf(), job.to_owned());
         // Detached: it ends once `stop` is dropped.
-        let _ = std::thread::Builder::new().name("cmux-link-hold-renewal".into()).spawn(move || {
-            while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(RENEW_EVERY) {
-                let _ = sync_cli::machine_call(&socket, "git.seed.status", json!({"job": job}));
-            }
-        });
+        let _ =
+            std::thread::Builder::new().name("cmux-link-hold-renewal".into()).spawn(move || {
+                while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(RENEW_EVERY) {
+                    let _ = sync_cli::machine_call(&socket, "git.seed.status", json!({"job": job}));
+                }
+            });
         Self { _stop: stop }
     }
 }
