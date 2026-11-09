@@ -700,7 +700,7 @@ mod tests {
 
     use super::{
         LocalFile, LocalSet, Rules, Skips, borrowed_object, borrowed_skipped, collect, entry_in,
-        open_listed, place, unquote, walk_plain,
+        git_text, open_listed, place, unquote, walk_plain,
     };
 
     fn write(top: &Path, relative: &str) {
@@ -920,10 +920,15 @@ mod tests {
                 "{to}: {text}"
             );
         }
-        // Unreadable fails the sync, never an empty config in its place.
+        // Unreadable fails the sync, never an empty config in its place
+        // (git itself refuses such a folder, so read it directly); gone, it
+        // stays out.
+        let git_dir = place::Dir::open(&repo.join(".git")).unwrap();
+        let read = |path: &Path| git_text(&git_dir, "config", &place::Entry::Link, path);
         std::fs::remove_file(&real).unwrap();
+        assert!(read(&config).unwrap().is_none());
         std::fs::create_dir(&real).unwrap();
-        assert!(collect(&repo, Rules::Copy).is_err());
+        assert!(read(&config).is_err());
     }
 
     /// A stray file in a borrowed object folder (a `.env`, a note) never
