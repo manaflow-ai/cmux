@@ -28,11 +28,17 @@ pub(super) struct Peers {
     changes: tokio::sync::watch::Sender<Arc<Pairings>>,
     /// Every admitted or handshaking paired stream.
     open: Arc<OpenStreams>,
-    updates: tokio::sync::Mutex<()>,
+    /// Every change to the pairing file and every reload, one at a time.
+    updates: Arc<tokio::sync::Mutex<()>>,
     /// Woken when a paired peer's link named its new key ([`RekeyTarget`]).
     rekeyed: Arc<tokio::sync::Notify>,
     /// The peers still on this link's retired key, when it adopted the node key.
     retiring: std::sync::OnceLock<Arc<RetiringPeers>>,
+    /// This link's own public keys (current, and retired while kept): never a peer's.
+    own: std::sync::OnceLock<Vec<[u8; 32]>>,
+    /// Test only: how many rekey replies the inbound path drops, as a lost reply.
+    #[cfg(test)]
+    pub(super) drop_replies: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// Where a paired peer's [`cmux_link::dial::Service::Rekey`] goes: its record
@@ -42,13 +48,24 @@ pub(super) struct RekeyTarget {
     path: PathBuf,
     changed: Arc<tokio::sync::Notify>,
     retiring: Option<Arc<RetiringPeers>>,
+    own: Vec<[u8; 32]>,
+    updates: Arc<tokio::sync::Mutex<()>>,
+    #[cfg(test)]
+    drop_replies: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl RekeyTarget {
     /// Move `install`'s pairing to `key` in the file; true when it changed.
-    /// The caller answers the peer first, then calls [`Self::reload`]: the
-    /// reload closes the old key's streams, the answering one included.
-    pub(super) fn apply(&self, install: &str, key: &[u8; 32]) -> io::Result<bool> {
+    /// One read-modify-write at a time (with reloads), so two rekeys never
+    /// save over each other. This link's own keys are refused: a peer record
+    /// with one would stop every start of the mesh. The caller answers the
+    /// peer first, then calls [`Self::reload`]: the reload closes the old
+    /// key's streams, the answering one included.
+    pub(super) async fn apply(&self, install: &str, key: &[u8; 32]) -> io::Result<bool> {
+        if self.own.contains(key) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "own_key"));
+        }
+        let _update = self.updates.lock().await;
         let mut pairings = Pairings::load(&self.path)?;
         let changed = pairings.rekey(install, key)?;
         if changed {
@@ -57,11 +74,20 @@ impl RekeyTarget {
         Ok(changed)
     }
 
-    /// `install` just named its new key over its session with this link's
-    /// retired key: it adopted too. It leaves the retired key, and this
-    /// link's node key goes back in the answer.
-    pub(super) fn confirm(&self, install: &str) -> Option<[u8; 32]> {
-        self.retiring.as_ref()?.confirm(install)
+    /// This link's node key, for the answer to `install` while this link
+    /// still keeps it on its retired key: it adopted too, and both move in
+    /// the one exchange. Asked again, it answers the same.
+    pub(super) fn answer_for(&self, install: &str) -> Option<[u8; 32]> {
+        self.retiring.as_ref()?.answer_for(install)
+    }
+
+    /// Test only: whether this reply is dropped as lost.
+    #[cfg(test)]
+    pub(super) fn drops_reply(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.drop_replies
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
+            .is_ok()
     }
 
     /// Ask the running link to reload its peers.
@@ -82,9 +108,12 @@ impl Peers {
             path,
             changes,
             open: Arc::default(),
-            updates: tokio::sync::Mutex::new(()),
+            updates: Arc::default(),
             rekeyed: Arc::default(),
             retiring: std::sync::OnceLock::new(),
+            own: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            drop_replies: Arc::default(),
         })
     }
 
@@ -94,7 +123,17 @@ impl Peers {
             path: self.path.clone(),
             changed: self.rekeyed.clone(),
             retiring: self.retiring.get().cloned(),
+            own: self.own.get().cloned().unwrap_or_default(),
+            updates: self.updates.clone(),
+            #[cfg(test)]
+            drop_replies: self.drop_replies.clone(),
         }
+    }
+
+    /// This link's own public keys, which no rekey may give a peer (set
+    /// once, before `serve_overlay` starts).
+    pub(super) fn own_keys(&self, keys: Vec<[u8; 32]>) {
+        let _ = self.own.set(keys);
     }
 
     /// Inbound rekeys from a peer still on the retired key answer with the

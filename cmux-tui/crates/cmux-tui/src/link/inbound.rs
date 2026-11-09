@@ -66,26 +66,40 @@ where
     let request = parse_line::<RekeyRequest>(&text).ok_or(InboundRefused::BadHello)?;
     let refused = |why: String| RekeyReply { ok: false, error: Some(why), public_key: None };
     let (reply, changed) = match rekey_key(&request.public_key) {
-        Some(key) => match target.apply(install, &key) {
+        Some(key) => match target.apply(install, &key).await {
             Ok(changed) => {
-                // This link adopted a key too and still kept the asker on its old one: the
-                // answer names the new key, and the asker moves to it now (`key_adoption.rs`).
-                let ours = target.confirm(install);
-                let public_key = ours.map(|ours| STANDARD.encode(ours));
-                (RekeyReply { ok: true, error: None, public_key }, changed || ours.is_some())
+                // This link adopted a key too and still keeps the asker on its old one: the
+                // answer names the new key (`key_adoption.rs`). The same rekey again (a reply
+                // lost on the way) gets the same answer.
+                let public_key = target.answer_for(install).map(|ours| STANDARD.encode(ours));
+                (RekeyReply { ok: true, error: None, public_key }, changed)
             }
             Err(error) => (refused(error.to_string()), false),
         },
         None => (refused("invalid_key".to_owned()), false),
     };
+    #[cfg(test)]
+    if target.drops_reply() {
+        if changed {
+            target.reload();
+        }
+        return Ok(());
+    }
     let _ = stream.write_all(line(&reply).as_bytes()).await;
+    let _ = stream.flush().await;
     let _ = stream.shutdown().await;
-    // After the answer: the reload closes this stream with the rest of the old key's.
     if changed {
+        // The reload drops this stream's session; first the asker reads the answer and
+        // closes (bounded). A reply lost anyway is asked for again (`key_adoption.rs`).
+        let drained = tokio::io::copy(stream, &mut tokio::io::sink());
+        let _ = tokio::time::timeout(REKEY_REPLY_DRAIN, drained).await;
         target.reload();
     }
     Ok(())
 }
+
+/// How long a rekey's answer may take to reach the asker before the reload.
+const REKEY_REPLY_DRAIN: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// A rekey's key: canonical standard base64 of 32 bytes, not all zero.
 pub(super) fn rekey_key(text: &str) -> Option<[u8; 32]> {

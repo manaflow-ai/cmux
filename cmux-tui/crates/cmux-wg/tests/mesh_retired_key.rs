@@ -111,3 +111,18 @@ async fn a_mesh_refuses_its_own_retired_key_as_a_peer() {
     let refused = within(a.mesh.add_peer(known_as(&b, old_public, false))).await;
     assert!(refused.is_err());
 }
+
+/// A peer kept on the retired key that already knows the current key (it
+/// took it, the answer saying so was lost) reaches the mesh on it.
+#[tokio::test]
+async fn a_peer_on_the_retired_key_that_knows_the_current_one_moves_to_it() {
+    let (old_private, _) = random_keypair();
+    let a = retiring(overlay(1), old_private).await;
+    let b = node(&[overlay(2)]).await;
+    within(a.mesh.add_peer_on_retired_key(peer_of(&b, &[overlay(2)], false))).await.unwrap();
+    within(b.mesh.add_peer(peer_of(&a, &[overlay(1)], true))).await.unwrap();
+    let (_echo, mut accepted) = spawn_echo(within(a.mesh.listen(LINK_PORT)).await.unwrap());
+    let mut stream = within(b.mesh.connect(SocketAddr::new(overlay(1), LINK_PORT))).await.unwrap();
+    assert_eq!(within(accepted.recv()).await.unwrap().0, b.public);
+    echo_round_trip(&mut stream, 4096).await;
+}

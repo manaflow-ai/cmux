@@ -282,11 +282,23 @@ impl Drop for Running {
 }
 
 async fn run(machine: &Machine, adopting: bool, socket: tokio::net::UdpSocket) -> Running {
+    run_dropping(machine, adopting, socket, 0).await
+}
+
+/// [`run`], with the first `drop_replies` rekey answers lost on the way.
+async fn run_dropping(
+    machine: &Machine,
+    adopting: bool,
+    socket: tokio::net::UdpSocket,
+    drop_replies: usize,
+) -> Running {
     let state = LinkState::open(Some(machine.link.clone())).unwrap();
     let holder = KeyHolder::acquire(if adopting { &machine.home } else { &machine.link }).unwrap();
     let pairings = Pairings::load(&state.peers_path()).unwrap();
     let served = serve_key(&state, &holder, &pairings).await.unwrap();
     let public = state::public_key(&served.key);
+    let mut own_keys = vec![public];
+    own_keys.extend(served.retiring.as_ref().map(|retiring| state::public_key(&retiring.key)));
     let install = state.config().unwrap().install;
     let config = WgMeshConfig {
         private_key: served.key,
@@ -308,6 +320,8 @@ async fn run(machine: &Machine, adopting: bool, socket: tokio::net::UdpSocket) -
     overlay.retiring().answer_with(public);
     let peers = Arc::new(Peers::load(state.peers_path()).unwrap());
     peers.answer_rekeys_from(overlay.retiring());
+    peers.own_keys(own_keys);
+    peers.drop_replies.store(drop_replies, std::sync::atomic::Ordering::SeqCst);
     overlay.sync_peers(&peers.snapshot()).await.unwrap();
     let listener = overlay.listen(LINK_PORT).await.unwrap();
     let mut tasks =
@@ -444,4 +458,133 @@ fn in_mesh(install: &str, private: [u8; 32], socket: tokio::net::UdpSocket) -> M
         mtu: state::LINK_MTU,
     };
     MeshOverlay::new(WgMesh::start(config, socket).unwrap())
+}
+
+// Review findings on the recovery (F1 to F5).
+
+/// F1: a rekey to the receiver's own key, current or retired, is refused and
+/// changes nothing (a peer record with it would stop every start of the mesh).
+#[tokio::test]
+async fn a_rekey_to_the_receivers_own_key_is_refused() {
+    let far = tempfile::tempdir().unwrap();
+    let file = far.path().join("peers.json");
+    let mut theirs = Pairings::default();
+    theirs.upsert(record("inst_a", [1; 32])).unwrap();
+    theirs.save(&file).unwrap();
+    let peers = Peers::load(file.clone()).unwrap();
+    peers.own_keys(vec![[9; 32], [10; 32]]);
+    let far_link =
+        FarLink { pairings: theirs, target: peers.rekey_target(), from: "inst_a", key: [1; 32] };
+    let mut ours = Pairings::default();
+    ours.upsert(record("inst_b", [2; 32])).unwrap();
+    for own in [[9; 32], [10; 32]] {
+        assert!(tell_all(&far_link, &own, &ours, Duration::from_secs(5)).await.is_empty());
+    }
+    assert_eq!(Pairings::load(&file).unwrap().by_install("inst_a").unwrap().key(), Some([1; 32]));
+}
+
+/// F2: the peer's answer is lost after it saved the new key. The adopted
+/// link asks again (its retired key, then its current one), the peer answers
+/// the same, and both end on the node key.
+#[tokio::test]
+async fn a_lost_rekey_answer_is_asked_again_and_converges() {
+    let a = machine_named("inst_a");
+    let b = machine_named("inst_b");
+    let (a_socket, b_socket) = (socket().await, socket().await);
+    let a_old = LinkState::open(Some(a.link.clone())).unwrap().own_public_key().unwrap();
+    let b_key = LinkState::open(Some(b.link.clone())).unwrap().own_public_key().unwrap();
+    pair(&a, &[paired_at("inst_b", b_key, b_socket.local_addr().unwrap())]);
+    pair(&b, &[paired_at("inst_a", a_old, a_socket.local_addr().unwrap())]);
+    let running_b = run_dropping(&b, false, b_socket, 1).await;
+    let running_a = run(&a, true, a_socket).await;
+    until("B takes A's node key", || key_of(&b, "inst_a") == Some(running_a.public)).await;
+    until("A retires its old key", || retired(&a)).await;
+    reaches(&running_a, "inst_b").await;
+    reaches(&running_b, "inst_a").await;
+}
+
+/// F2, both adopting: the answer that carries B's node key is lost; A asks
+/// again and still learns it.
+#[tokio::test]
+async fn a_lost_answer_in_a_same_time_adoption_still_converges() {
+    let a = machine_named("inst_a");
+    let b = machine_named("inst_b");
+    let (a_socket, b_socket) = (socket().await, socket().await);
+    let a_old = LinkState::open(Some(a.link.clone())).unwrap().own_public_key().unwrap();
+    let b_old = LinkState::open(Some(b.link.clone())).unwrap().own_public_key().unwrap();
+    pair(&a, &[paired_at("inst_b", b_old, b_socket.local_addr().unwrap())]);
+    pair(&b, &[paired_at("inst_a", a_old, a_socket.local_addr().unwrap())]);
+    let (running_a, running_b) =
+        tokio::join!(run_dropping(&a, true, a_socket, 1), run_dropping(&b, true, b_socket, 1));
+    until("both hold the other's node key", || {
+        key_of(&a, "inst_b") == Some(running_b.public)
+            && key_of(&b, "inst_a") == Some(running_a.public)
+    })
+    .await;
+    until("both retire their old keys", || retired(&a) && retired(&b)).await;
+    reaches(&running_a, "inst_b").await;
+    reaches(&running_b, "inst_a").await;
+}
+
+/// F3: rekeys that arrive together each persist; none saves over another.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_rekeys_all_persist() {
+    let far = tempfile::tempdir().unwrap();
+    let file = far.path().join("peers.json");
+    let mut theirs = Pairings::default();
+    for n in 1..=16u8 {
+        theirs.upsert(record(&format!("inst_{n}"), [n; 32])).unwrap();
+    }
+    theirs.save(&file).unwrap();
+    let target = Peers::load(file.clone()).unwrap().rekey_target();
+    let tasks: Vec<_> = (1..=16u8)
+        .map(|n| {
+            let target = target.clone();
+            tokio::spawn(async move { target.apply(&format!("inst_{n}"), &[n + 100; 32]).await })
+        })
+        .collect();
+    for task in tasks {
+        assert!(task.await.unwrap().unwrap());
+    }
+    let now = Pairings::load(&file).unwrap();
+    for n in 1..=16u8 {
+        assert_eq!(now.by_install(&format!("inst_{n}")).unwrap().key(), Some([n + 100; 32]));
+    }
+}
+
+/// F4: `link init` again after the adoption (a new port, `ensure --handoff`)
+/// makes no new link key, which would look like a retired one.
+#[tokio::test]
+async fn init_after_the_adoption_makes_no_new_link_key() {
+    let machine = machine();
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+    assert!(!state.has_link_key());
+    state
+        .init(&LinkConfig { install: "inst_a".into(), port: 4242, server_identity: None })
+        .unwrap();
+    assert!(!state.has_link_key(), "init made a new link key after the adoption");
+    let served = serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+    assert!(served.retiring.is_none());
+    assert_eq!(state::public_key(&served.key), node_public(&machine.home));
+}
+
+/// F5: an adopted link started with another external lock dir refuses, and
+/// makes no node key there.
+#[tokio::test]
+async fn an_adopted_link_refuses_another_external_lock_dir() {
+    let machine = machine();
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+    drop(holder);
+    let other = machine.home.parent().unwrap().join("other-home");
+    let held = KeyHolder::acquire(&other).unwrap();
+    let Err(refused) = serve_key(&state, &held, &Pairings::default()).await else {
+        panic!("an adopted link adopted another dir's key");
+    };
+    assert!(refused.to_string().starts_with("key_lock_dir:"), "{refused}");
+    assert!(!other.join(KeyFile::Node.file_name()).exists());
+    assert_eq!(adopted(&state).unwrap().unwrap().key_dir, machine.home);
 }

@@ -46,7 +46,8 @@ impl MeshDriver {
     /// (WireGuard's under-load rule), which reveals nothing it did not
     /// already know and keeps no state. An initiation to this side's retired
     /// key (`WgMesh::start_retiring`) passes its own gate and is taken only
-    /// from a peer whose session runs on that key.
+    /// from a peer whose session runs on that key; one to the current key
+    /// from such a peer moves its session to the current key.
     fn initiator(&mut self, datagram: &[u8], source: Option<PeerRoute>) -> Option<PeerKey> {
         let from = source.map(|route| route.address().ip());
         let mut cookie = [0u8; COOKIE_REPLY_BYTES];
@@ -78,7 +79,13 @@ impl MeshDriver {
         };
         let half = parse_handshake_anon(private, public, &initiation).ok()?;
         let key = half.peer_static_public;
-        self.table.admits(&key, retired).then_some(key)
+        if !self.table.admits(&key, retired) {
+            return None;
+        }
+        if !retired {
+            self.table.move_to_current(&key, tokio::time::Instant::now());
+        }
+        Some(key)
     }
 
     /// Hand `datagram` to `key`'s session and act on the result.

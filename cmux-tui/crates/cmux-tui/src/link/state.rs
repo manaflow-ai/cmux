@@ -95,8 +95,9 @@ impl LinkState {
         Ok(config)
     }
 
-    /// Write the config and create the private key when there is none (an
-    /// existing key is kept, so re-running init never breaks pairings).
+    /// Write the config and create the private key when there is none and
+    /// the link has not adopted the node key (an existing key is kept, so
+    /// re-running init never breaks pairings).
     pub(super) fn init(&self, config: &LinkConfig) -> io::Result<()> {
         if !cmux_link::stamp::valid_id(&config.install) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid install id"));
@@ -113,7 +114,11 @@ impl LinkState {
             }
         } else if self.has_config() && self.config()?.server_identity.is_some() {
             return Err(io::Error::other("server_link.identity_conflict"));
-        } else if !self.key_path().exists() {
+        } else if !self.key_path().exists()
+            && !self.dir().join(super::key_adoption::MARKER).exists()
+        {
+            // An adopted link serves the node key: a new link key would only look like a
+            // retired one (`key_adoption.rs`).
             let mut private = Zeroizing::new([0u8; 32]);
             getrandom::fill(&mut *private).map_err(io::Error::other)?;
             let secret = x25519_dalek::StaticSecret::from(*private);

@@ -48,6 +48,8 @@ pub(crate) struct Peer {
     pub(crate) initiated: Option<Instant>,
     /// The session runs on this side's retired key (`WgMesh::add_peer_on_retired_key`).
     pub(crate) on_retired: bool,
+    /// What the peer was added with, to make its session again on the current key.
+    spec: WgPeer,
 }
 
 impl Peer {
@@ -124,10 +126,21 @@ impl PeerTable {
         self.retired.as_ref().map(|(private, public)| (private, public))
     }
 
-    /// Whether `key` is a peer whose session runs on this side's retired key
-    /// (`retired`) or on its current one.
+    /// Whether `key` may start a session on this side's retired key
+    /// (`retired`, only a peer put there) or on its current one (any peer: a
+    /// peer on the retired key that knows the current one moves to it,
+    /// [`PeerTable::move_to_current`]).
     pub(crate) fn admits(&self, key: &PeerKey, retired: bool) -> bool {
-        self.peers.get(key).is_some_and(|peer| peer.on_retired == retired)
+        self.peers.get(key).is_some_and(|peer| !retired || peer.on_retired)
+    }
+
+    /// Make `key`'s session again on the current key, when it is on the
+    /// retired one: the peer proved it knows the current key.
+    pub(crate) fn move_to_current(&mut self, key: &PeerKey, now: Instant) {
+        let Some(peer) = self.peers.get(key).filter(|peer| peer.on_retired) else { return };
+        let mut spec = peer.spec.clone();
+        spec.route = peer.route;
+        self.insert(spec, now, false);
     }
 
     pub(crate) fn get_mut(&mut self, key: &PeerKey) -> Option<&mut Peer> {
@@ -190,6 +203,7 @@ impl PeerTable {
     /// replaced peer keeps the route it was last seen on unless `peer`
     /// names one. Call [`PeerTable::check`] first.
     pub(crate) fn insert(&mut self, peer: WgPeer, now: Instant, retired: bool) -> &mut Peer {
+        let spec = peer.clone();
         let previous = self.remove(&peer.public_key);
         let index = self.allocate_index();
         let own = match &self.retired {
@@ -214,6 +228,7 @@ impl PeerTable {
             waiting: None,
             initiated: None,
             on_retired: retired && self.retired.is_some(),
+            spec,
         };
         self.by_index.insert(index, peer.public_key);
         self.peers.entry(peer.public_key).or_insert(entry)

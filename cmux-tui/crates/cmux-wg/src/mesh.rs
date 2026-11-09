@@ -131,9 +131,10 @@ impl WgMesh {
     /// [`WgMesh::start`] for a side that moved to `config`'s key and still
     /// holds the key it had before (`retired`): a peer added with
     /// [`WgMesh::add_peer_on_retired_key`] keeps its session on the retired
-    /// key, both ways, until it is replaced by [`WgMesh::add_peer`]. Every
-    /// other peer only reaches `config`'s key; a handshake to the retired key
-    /// from one of them is dropped like an unknown key's.
+    /// key, both ways, until it is replaced by [`WgMesh::add_peer`] or its
+    /// own handshake to `config`'s key moves it there. Every other peer only
+    /// reaches `config`'s key; a handshake to the retired key from one of
+    /// them is dropped like an unknown key's.
     pub fn start_retiring(
         config: WgMeshConfig,
         retired: Zeroizing<[u8; 32]>,

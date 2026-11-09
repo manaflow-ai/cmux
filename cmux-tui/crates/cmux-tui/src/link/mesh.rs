@@ -84,7 +84,7 @@ impl Overlay for MeshOverlay {
     /// keeps its install's `/128`, which would overlap). Replace endpoint-only
     /// changes in place so the stack preserves the same peer's streams.
     async fn sync_peers(&self, pairings: &Pairings) -> io::Result<()> {
-        let retiring = self.retiring.installs();
+        let retiring = self.retiring.on_retired();
         let wanted = wanted(pairings, &retiring)?;
         let current = locked(&self.peers).clone();
         for (key, shape) in &current {

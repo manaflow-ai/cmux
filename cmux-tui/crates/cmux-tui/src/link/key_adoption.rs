@@ -48,7 +48,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt as _;
 use zeroize::Zeroizing;
 
-use super::control::Peers;
+use super::control::{Peers, RekeyTarget};
 use super::lines::read_line;
 use super::mesh::MeshOverlay;
 use super::state::{self, LinkState};
@@ -131,7 +131,6 @@ pub(super) fn adopts(state: &LinkState, lock_dir: &Path) -> io::Result<bool> {
     if state.config()?.server_identity.is_some() {
         return Ok(false);
     }
-    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     Ok(canonical(lock_dir) != canonical(state.dir()))
 }
 
@@ -192,7 +191,23 @@ pub(super) async fn serve_key(
         }
         return Ok(ServeKey { key: state.private_key(holder)?, retiring: None });
     }
+    // Adopted under one lock dir, the link never adopts another dir's key (or makes one).
+    if let Some(adopted) = adopted(state)?
+        && canonical(&adopted.key_dir) != canonical(holder.dir())
+    {
+        anyhow::bail!(
+            "key_lock_dir: this link serves this machine's node key in {}, not {}; run it with {} {}",
+            adopted.key_dir.display(),
+            holder.dir().display(),
+            super::key_lock::FLAG,
+            adopted.key_dir.display()
+        );
+    }
     adopt(state, holder, pairings)
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
 }
 
 fn adopt(state: &LinkState, holder: &KeyHolder, pairings: &Pairings) -> anyhow::Result<ServeKey> {
@@ -273,9 +288,11 @@ pub(super) const RETRY: Retry = Retry {
 #[derive(Default)]
 pub(super) struct RetiringPeers {
     installs: std::sync::Mutex<BTreeSet<String>>,
+    /// The installs of `installs` tried on the current key for now.
+    via_current: std::sync::Mutex<BTreeSet<String>>,
     node_public: std::sync::OnceLock<[u8; 32]>,
-    /// Woken when an inbound rekey took an install off the retired key.
-    confirmed: tokio::sync::Notify,
+    /// Woken when an inbound rekey from one of them was answered.
+    answered: tokio::sync::Notify,
 }
 
 impl RetiringPeers {
@@ -287,17 +304,30 @@ impl RetiringPeers {
         super::locked(&self.installs).clone()
     }
 
+    /// The installs whose session is on the retired key now.
+    pub(super) fn on_retired(&self) -> BTreeSet<String> {
+        let via_current = super::locked(&self.via_current).clone();
+        self.installs().difference(&via_current).cloned().collect()
+    }
+
+    fn try_on_current(&self, installs: BTreeSet<String>) {
+        *super::locked(&self.via_current) = installs;
+    }
+
     pub(super) fn answer_with(&self, node_public: [u8; 32]) {
         let _ = self.node_public.set(node_public);
     }
 
-    /// Take `install` off the retired key; the node key, when it was on it.
-    pub(super) fn confirm(&self, install: &str) -> Option<[u8; 32]> {
+    /// The node key, for an answer to `install` while it is kept on the
+    /// retired key. It stays there until this link's own tell reaches it
+    /// (on either key): a lost answer is asked for again, and the retired
+    /// key still answers for it.
+    pub(super) fn answer_for(&self, install: &str) -> Option<[u8; 32]> {
         let node_public = *self.node_public.get()?;
-        if !super::locked(&self.installs).remove(install) {
+        if !super::locked(&self.installs).contains(install) {
             return None;
         }
-        self.confirmed.notify_one();
+        self.answered.notify_one();
         Some(node_public)
     }
 
@@ -343,15 +373,35 @@ pub(super) async fn finish_retiring(
                 .cloned()
                 .collect(),
         };
-        let told = tell_all(overlay, node_public, &left, retry.tell_for).await;
-        // A peer that adopted too names its new key in the answer.
+        // On the retired key first; who did not answer there is tried on the current key,
+        // which a peer that already took the node key (its answer lost) knows this link by.
+        let mut told = tell_all(overlay, node_public, &left, retry.tell_for).await;
         let target = peers.rekey_target();
-        for (install, key) in &told {
-            if let Some(key) = key
-                && let Err(error) = target.apply(install, key)
-            {
-                eprintln!("cmux link: {install}'s new key in its answer was refused: {error}");
+        apply_answers(&target, &told).await;
+        let untold: BTreeSet<String> = left
+            .peers
+            .iter()
+            .map(|peer| peer.install.clone())
+            .filter(|install| !told.iter().any(|(told, _)| told == install))
+            .collect();
+        if !untold.is_empty() {
+            retiring.try_on_current(untold.clone());
+            if let Err(error) = peers.reload(overlay).await {
+                eprintln!("cmux link: trying the peers left on the new key failed: {error}");
             }
+            let fresh = peers.snapshot();
+            let on_current = Pairings {
+                peers: fresh
+                    .peers
+                    .iter()
+                    .filter(|peer| untold.contains(&peer.install))
+                    .cloned()
+                    .collect(),
+            };
+            let also = tell_all(overlay, node_public, &on_current, retry.tell_for).await;
+            apply_answers(&target, &also).await;
+            told.extend(also);
+            retiring.try_on_current(BTreeSet::new());
         }
         let still = retiring.installs();
         let pending: BTreeSet<String> = record
@@ -363,7 +413,7 @@ pub(super) async fn finish_retiring(
             .cloned()
             .collect();
         let expired = now_secs() >= deadline;
-        let moved = pending != record.pending;
+        let moved = pending != record.pending || !untold.is_empty();
         let result = if pending.is_empty() || expired {
             let record = Adopted { pending, ..record };
             retiring.retain(&BTreeSet::new());
@@ -391,9 +441,20 @@ pub(super) async fn finish_retiring(
         let until_deadline = Duration::from_secs(deadline.saturating_sub(now_secs()));
         tokio::select! {
             () = tokio::time::sleep(wait.min(until_deadline)) => {}
-            () = retiring.confirmed.notified() => {}
+            () = retiring.answered.notified() => {}
         }
         wait = (wait * 2).min(retry.cap);
+    }
+}
+
+/// Apply the new keys peers named in their answers (they adopted too).
+async fn apply_answers(target: &RekeyTarget, told: &[(String, Option<[u8; 32]>)]) {
+    for (install, key) in told {
+        if let Some(key) = key
+            && let Err(error) = target.apply(install, key).await
+        {
+            eprintln!("cmux link: {install}'s new key in its answer was refused: {error}");
+        }
     }
 }
 

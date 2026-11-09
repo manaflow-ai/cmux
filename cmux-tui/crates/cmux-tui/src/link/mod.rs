@@ -499,6 +499,8 @@ async fn serve(
     // One key per machine: the node key, adopted under the held lock (`key_adoption.rs`).
     let served_key = key_adoption::serve_key(&state, key, &pairings).await?;
     let public_key = state::public_key(&served_key.key);
+    let mut own_keys = vec![public_key];
+    own_keys.extend(served_key.retiring.as_ref().map(|retiring| state::public_key(&retiring.key)));
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
             .await
@@ -523,6 +525,7 @@ async fn serve(
     let peers = Arc::new(Peers::load(state.peers_path())?);
     // A peer that adopted too and names its key over the retired one gets the node key back.
     peers.answer_rekeys_from(overlay.retiring());
+    peers.own_keys(own_keys);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
     let socket_path = state.socket_path();
