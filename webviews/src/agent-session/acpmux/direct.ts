@@ -60,6 +60,7 @@ import {
   takesAudio,
   type AttachmentSource,
   type ComposerAttachment,
+  type InlineReadOptions,
 } from "./attachments";
 import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFileDisplay } from "./inlinePrompt";
 import { fitPromptBudget, uploadsToFit } from "./promptBudget";
@@ -980,6 +981,31 @@ export function attachedImages(attachments: readonly ComposerAttachment[]): Queu
         ]
       : [],
   );
+}
+
+/// What the sent row of a prompt draws, from the composer's text and the attachments it carries:
+/// its text as acpmux's echo will have it, with its pastes, and its inline parts. Also the row a
+/// new chat's first prompt draws while the chat starts (startingSends.ts `startingRow`), so that
+/// row is the one this pane draws once the prompt went.
+export function sentPrompt(input: string, carried: ComposerAttachment[], options: InlineReadOptions = {}) {
+  const blocks = promptBlocks(input, carried, options);
+  const inline = inlinePrompt(input, carried);
+  const isFrame = frameTextOf(imageNames(blocks));
+  const { text, pasted } = inline
+    ? blocks.reduce(
+        (shown, block) => {
+          // A video's frames note is the agent's; the bubble draws the video's tile.
+          if (block.type !== "text" || isFrame(block.text)) return shown;
+          if (shown.text) shown.text += "\n";
+          const start = shown.text.length;
+          shown.text += block.text;
+          if (block._meta?.cmux.pasted) shown.pasted.push({ start, end: shown.text.length });
+          return shown;
+        },
+        { text: "", pasted: [] as { start: number; end: number }[] },
+      )
+    : shownPrompt(promptText(input, carried, options), carried);
+  return { blocks, inline, text, pasted };
 }
 
 /// `images` named by acpmux, each keeping the bytes the pane already had for it.
@@ -9134,6 +9160,10 @@ export class AcpmuxDirectClient {
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
   }
+  /// The chat this pane's latest new chat took, and the visit (`selectionToken`) it was started
+  /// from: the prompts sent in that visit before the chat took its session are its own
+  /// (startingSends.ts `startingIn`).
+  startedChat: { sessionId: string; visit: number } | undefined;
   /** Changes on every selection, including leaving and returning to the same session. */
   get selectionToken(): number {
     return this.selectionGeneration;
@@ -9486,24 +9516,8 @@ export class AcpmuxDirectClient {
       const linked = new Map(carried.map((chip) => [chip.id, chip]));
       attachments = attachments.map((chip) => linked.get(chip.id) ?? chip);
     }
-    const blocks = promptBlocks(input, carried, options);
-    const inline = inlinePrompt(input, carried);
-    const isFrame = frameTextOf(imageNames(blocks));
+    const { blocks, inline, text, pasted } = sentPrompt(input, carried, options);
     const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
-    const { text, pasted } = inline
-      ? blocks.reduce(
-          (shown, block) => {
-            // A video's frames note is the agent's; the bubble draws the video's tile.
-            if (block.type !== "text" || isFrame(block.text)) return shown;
-            if (shown.text) shown.text += "\n";
-            const start = shown.text.length;
-            shown.text += block.text;
-            if (block._meta?.cmux.pasted) shown.pasted.push({ start, end: shown.text.length });
-            return shown;
-          },
-          { text: "", pasted: [] as { start: number; end: number }[] },
-        )
-      : shownPrompt(promptText(input, carried, options), carried);
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.promptRowKeys.set(promptId, rowId);
@@ -11126,6 +11140,7 @@ export class AcpmuxDirectClient {
         if (sessionId && !this.closed) this.discard(sessionId);
         return undefined;
       }
+      if (sessionId) this.startedChat = { sessionId, visit: generation };
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {

@@ -6,12 +6,21 @@
 // the order they were sent, each once acpmux took the one before. A refused one comes back to the
 // composer with every prompt behind it, so nothing is lost and nothing goes out of order.
 import type { ComposerAttachment } from "./attachments";
-import { attachedImages } from "./direct";
+import { attachedImages, sentPrompt } from "./direct";
 import type { SendGesture } from "./heldPrompt";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
-/// `at`: when it was sent (Date.now()).
-export type StartingSend = { id: string; text: string; attachments: ComposerAttachment[]; at: number };
+/// `at`: when it was sent (Date.now()). `sentIn`: the chat shown when it was sent (`StartingPlace`).
+export type StartingSend = {
+  id: string;
+  text: string;
+  attachments: ComposerAttachment[];
+  at: number;
+  sentIn: StartingPlace;
+};
+/// Where the pane is: the chat it shows (none: a new chat not started yet) and its visit, the
+/// client's `selectionToken`, which moves on every selection.
+export type StartingPlace = { chat?: string; visit: number };
 /// `lost`: an edit saved while the prompt was going, which comes back only once it went.
 /// `gesture`: the Enter or click the composer bound to it while it held it for its files.
 type Item = StartingSend & { going: boolean; lost?: string; gesture?: SendGesture };
@@ -32,11 +41,13 @@ export class StartingSends {
   constructor(
     private readonly changed: (rows: readonly StartingSend[]) => void,
     private readonly giveBack: (text: string, attachments: ComposerAttachment[], error?: unknown) => void,
+    /// Where the pane is now: each prompt added keeps where it was sent.
+    private readonly place: () => StartingPlace,
   ) {}
 
   /** The prompts waiting or going, oldest first. */
   get rows(): readonly StartingSend[] {
-    return this.items.map(({ id, text, attachments, at }) => ({ id, text, attachments, at }));
+    return this.items.map(({ id, text, attachments, at, sentIn }) => ({ id, text, attachments, at, sentIn }));
   }
   /** Some prompt has not been taken yet: a prompt sent now waits behind it. */
   get busy(): boolean {
@@ -71,6 +82,7 @@ export class StartingSends {
       text,
       attachments,
       at: Date.now(),
+      sentIn: this.place(),
       going: false,
       ...(gesture ? { gesture } : {}),
     };
@@ -125,16 +137,24 @@ export class StartingSends {
 /// The row a starting prompt draws as: the one the chat's client draws for it once it went
 /// (direct.ts `sendNow`, `local-<promptId>`), so it stays the same row, and pending, so the
 /// Thinking line draws under it in its start look (conversation/turns.ts `waiting`).
-const startingRow = (send: StartingSend): AcpmuxRow => ({
-  id: `local-${send.id}`,
-  version: 0,
-  at: send.at,
-  kind: "user",
-  text: send.text,
-  ...(send.attachments.length ? { images: attachedImages(send.attachments) } : {}),
-  pending: true,
-  queued: send.id,
-});
+/// Its text, pastes and inline parts are the ones that row draws (direct.ts `sentPrompt`).
+function startingRow(send: StartingSend): AcpmuxRow {
+  const { inline, text, pasted } = sentPrompt(send.text, send.attachments);
+  return {
+    id: `local-${send.id}`,
+    version: 0,
+    at: send.at,
+    kind: "user",
+    text,
+    ...(pasted.length ? { pasted } : {}),
+    ...(inline ? { inlineParts: inline.parts } : {}),
+    ...(send.attachments.length
+      ? { images: attachedImages(send.attachments), retryAttachments: send.attachments }
+      : {}),
+    pending: true,
+    queued: send.id,
+  };
+}
 
 /**
  * A new chat's first prompt is its first row from the send, while the chat still starts: it
@@ -148,6 +168,27 @@ export function withStartingPrompt(raw: AcpmuxSnapshot, starting: readonly Start
   const first = starting[0];
   if (!first || raw.rows.some((row) => row.kind === "user")) return raw;
   return { ...raw, rows: [...raw.rows, startingRow(first)] };
+}
+
+/**
+ * The starting prompts the chat shown draws: those sent in it, and, in the chat a new chat took,
+ * those sent in that new chat before it took its session (`started`: the client's `startedChat`).
+ * Never another chat's: one opened while a new chat still starts has its own transcript and queue,
+ * and an empty one would otherwise draw the new chat's first prompt as its own.
+ */
+export function startingIn(
+  starting: readonly StartingSend[],
+  here: StartingPlace,
+  started: { sessionId: string; visit: number } | undefined,
+): readonly StartingSend[] {
+  const shown = starting.filter(({ sentIn }) =>
+    sentIn.chat
+      ? sentIn.chat === here.chat
+      : here.chat
+        ? started?.sessionId === here.chat && started.visit === sentIn.visit
+        : sentIn.visit === here.visit,
+  );
+  return shown.length === starting.length ? starting : shown;
 }
 
 /// The starting prompts the composer's queue still draws: not one the transcript draws.

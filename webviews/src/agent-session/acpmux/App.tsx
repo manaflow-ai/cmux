@@ -242,7 +242,7 @@ import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "./trustRefusalRoute";
 import { heldPrompts, type SendGesture } from "./heldPrompt";
 import { bindsHeldSendNow } from "./heldSendBinding";
-import { queuedStartingSends, StartingSends, withStartingPrompt, type StartingSend } from "./startingSends";
+import { queuedStartingSends, startingIn, StartingSends, withStartingPrompt, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
@@ -1709,6 +1709,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// first is the chat's first row from the send, those after it queued rows. One refused comes back
   /// to the composer with those behind it.
   const [startingRows, setStartingRows] = useState<readonly StartingSend[]>([]);
+  // Only the chat they were sent in draws them (startingSends.ts `startingIn`). The client's visit
+  // moves with its snapshot's chat, so the snapshot names when to read it again.
+  const shownStarting = useMemo(
+    () =>
+      startingIn(
+        startingRows,
+        { chat: clientSnapshot.sessionId || undefined, visit: directClient.current?.selectionToken ?? 0 },
+        directClient.current?.startedChat,
+      ),
+    [startingRows, clientSnapshot],
+  );
   // The client's own snapshot never carries the catalog: every view of the pane (the Harnesses
   // page, the picker catalog, the composer) reads the fetched one from here.
   const snapshot = useMemo(
@@ -1719,9 +1730,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           switchView,
           catalog,
         ),
-        startingRows,
+        shownStarting,
       ),
-    [clientSnapshot, switchView, catalog, startingRows],
+    [clientSnapshot, switchView, catalog, shownStarting],
   );
   // The dialog belongs to the chat it opened on: switching chats closes it.
   const [shareChat, setShareChat] = useState(snapshot.sessionId);
@@ -5761,13 +5772,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const heldQuotes = useRef<string[] | undefined>(undefined);
   const [startingSends] = useState(
     () =>
-      new StartingSends(setStartingRows, (text, attachments, error) => {
-        // A prompt kept as its own failed row or in the transcript stays there; one a harness switch
-        // handed back is in the composer already.
-        if (keptInChat(error) || (error as { handedBack?: unknown } | null)?.handedBack === true) return;
-        if (composerHandle.current) composerHandle.current.restore(text, attachments);
-        else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
-      }),
+      new StartingSends(
+        setStartingRows,
+        (text, attachments, error) => {
+          // A prompt kept as its own failed row or in the transcript stays there; one a harness switch
+          // handed back is in the composer already.
+          if (keptInChat(error) || (error as { handedBack?: unknown } | null)?.handedBack === true) return;
+          if (composerHandle.current) composerHandle.current.restore(text, attachments);
+          else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+        },
+        () => ({ chat: sessionIdRef.current || undefined, visit: directClient.current?.selectionToken ?? 0 }),
+      ),
   );
   // Leo 2026-10-21 (P0): a pending folder trust question never blocks sending or steering. A
   // prompt sent while the folder's trust holds prompts (its question open, or Not now) waits in the
@@ -6467,7 +6482,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts). The first is the transcript's row (`withStartingPrompt`).
-    const startingQueued = queuedStartingSends(startingRows, snapshot.rows);
+    const startingQueued = queuedStartingSends(shownStarting, snapshot.rows);
     if (startingQueued.length || heldRows.length)
       withCommands.queue = [
         ...snapshot.queue,
@@ -6482,7 +6497,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     forkable,
     forkSeq,
     isSideSession,
-    startingRows,
+    shownStarting,
     heldRows,
     sidePlace,
     quick,

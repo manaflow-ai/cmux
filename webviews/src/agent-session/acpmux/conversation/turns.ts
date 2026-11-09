@@ -2454,11 +2454,11 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
     // A run that edited is shaped as the others; the turn's edited-files card lists its edits when
     // it ends. One with a file change still waiting for its permission stays as it is, so the change
     // it asks about stays in sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx
-    // `staysInSight`).
+    // `staysInSight`). It is still the running turn's run, so its thought keeps its live shape too.
     if (
       (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
     )
-      return [{ ...row, foldRun: false, version: row.version * RUN_STATES }];
+      return [{ ...row, foldRun: false, liveRun: true, version: row.version * RUN_STATES }];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest)
       return withoutDrafts(row).flatMap((kept) => {
