@@ -18,6 +18,8 @@ public enum MessagePart: Hashable, Sendable, Codable {
     case linkPreview(LinkPreview)
     /// A shared location.
     case location(LocationRef)
+    /// An agent's widget, drawn by an installed app or shown as its fallback text.
+    case widget(ChatWidget)
 
     public var plainText: String {
         switch self {
@@ -28,6 +30,7 @@ public enum MessagePart: Hashable, Sendable, Codable {
         case .attachment(let file): file.name
         case .linkPreview(let link): link.title ?? link.url
         case .location(let place): place.label ?? "\(place.latitude), \(place.longitude)"
+        case .widget(let widget): widget.fallback
         }
     }
 
@@ -37,7 +40,7 @@ public enum MessagePart: Hashable, Sendable, Codable {
         switch self {
         case .attachment(let ref): [ref.hash] + [ref.posterHash, ref.preview?.hash].compactMap { $0 }
         case .linkPreview(let link): link.image.map { [$0.hash] } ?? []
-        case .text, .work, .approval, .question, .location: []
+        case .text, .work, .approval, .question, .location, .widget: []
         }
     }
 }

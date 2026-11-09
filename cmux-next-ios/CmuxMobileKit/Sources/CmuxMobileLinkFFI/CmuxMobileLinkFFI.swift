@@ -2028,6 +2028,13 @@ public protocol TerminalPredictionProtocol: AnyObject, Sendable {
     func layout(nowUs: UInt64, cursorColumn: Int32, columns: Int32)  -> PredictionLayout?
     
     /**
+     * The grid or the font changed under the glyphs with no output lost (a
+     * resize): what is drawn goes, and what the engine knows of the screen
+     * stays.
+     */
+    func layoutChanged(nowUs: UInt64)  -> Bool
+    
+    /**
      * Output was lost or replaced before the terminal parsed it (a snapshot
      * restore, a reattach): everything starts over.
      */
@@ -2182,6 +2189,20 @@ open func layout(nowUs: UInt64, cursorColumn: Int32, columns: Int32) -> Predicti
         FfiConverterUInt64.lower(nowUs),
         FfiConverterInt32.lower(cursorColumn),
         FfiConverterInt32.lower(columns),$0
+    )
+})
+}
+    
+    /**
+     * The grid or the font changed under the glyphs with no output lost (a
+     * resize): what is drawn goes, and what the engine knows of the screen
+     * stays.
+     */
+open func layoutChanged(nowUs: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_layout_changed(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowUs),$0
     )
 })
 }
@@ -3991,6 +4012,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_layout() != 5598) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_layout_changed() != 30951) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_missed_output() != 35151) {

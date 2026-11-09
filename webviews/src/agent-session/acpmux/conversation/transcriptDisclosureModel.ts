@@ -102,48 +102,106 @@ function inherited(sessionId: string, inherits: string): boolean {
   return inherits !== "" && inherits.split("\n").some((key) => read(sessionId, key) === true);
 }
 
+/// Whether the reader closed every line in `closedBy` (joined with "\n"), each after they last set
+/// `key`: then `key` reads closed whatever it held or would open to. A choice on `key` made after them
+/// is the newer one and stands. The store keeps each session's choices in the order they were made
+/// (`save` moves a key to the end), so the order of its keys is the order of the reader's choices.
+function closedOver(sessionId: string, key: string, closedBy: string): boolean {
+  if (closedBy === "") return false;
+  const lines = closedBy.split("\n");
+  if (!lines.every((line) => read(sessionId, line) === false)) return false;
+  const session = load().get(sessionId);
+  if (session?.get(key) === undefined) return true;
+  const pending = new Set(lines);
+  let after = false;
+  for (const stored of session.keys()) {
+    if (stored === key) after = true;
+    else if (pending.has(stored) && !after) return false;
+  }
+  return true;
+}
+
+/// Whether the reader opened a line in `inherits` (joined with "\n") after they last set `key`, or
+/// opened one and never set `key`: then `key` reads open, over `closedOver` too. A line the reader
+/// opened stays open when another takes its place: an MCP group they opened in a run whose other
+/// groups they closed one by one keeps the run's line open at the turn's end. An earlier opening loses
+/// to a later choice on `key`, as `closedOver` orders them.
+function openedOver(sessionId: string, key: string, inherits: string): boolean {
+  if (inherits === "") return false;
+  const opened = new Set(inherits.split("\n").filter((line) => read(sessionId, line) === true));
+  if (opened.size === 0) return false;
+  const session = load().get(sessionId)!;
+  if (session.get(key) === undefined) return true;
+  let after = false;
+  for (const stored of session.keys()) {
+    if (stored === key) after = true;
+    else if (after && opened.has(stored)) return true;
+  }
+  return false;
+}
+
+/// How a disclosure follows the lines it takes the place of, or that take its place, as calls arrive
+/// and a turn ends (TurnRows.tsx): a run's line and the group lines it grows from or splits into.
+export type DisclosureLinks = {
+  /// Keys of the lines this one replaced: one the reader opened opens this one until they set it, and
+  /// one they opened after setting it opens it again (`openedOver`).
+  inherits?: readonly string[];
+  /// Keys this line hands the reader's choice to, those of them the reader had set: a run's line to
+  /// the group lines it splits back into, so a line they closed never reopens as one of those.
+  passesDown?: readonly string[];
+  /// The calls a fold holds (`callDisclosureKey`). One the reader opened keeps the fold open until
+  /// the reader sets the fold itself, as `inherits` does, but the fold's own choice never passes down
+  /// to them: closing a run's line keeps the calls in it as the reader left them.
+  members?: readonly string[];
+  /// Lines that close this one once the reader closed every one of them, after any choice they made
+  /// on this one (`closedOver`): a run's line whose groups they closed one by one while the turn ran,
+  /// or a group line whose run's line they closed.
+  closedBy?: readonly string[];
+};
+
+const NO_LINKS: DisclosureLinks = {};
+
 /**
  * Returns a persisted disclosure value and a React-compatible setter. `verboseOpen` opens it by
  * default in the Verbose view (a tool's output). The reader's toggles are kept per view, so each
  * view starts from its own defaults and switching back finds the old toggles where they were.
- * `inherits`: keys of the disclosures this one replaced; one the reader opened opens this one until
- * the reader sets this one; `passesDown` (a run's line) hands the reader's choice to those they set
- * (Leo, 2026-11-07: "I opened up, expanded the tool calls, and then it closed on by itself").
+ * `links`: the lines this one takes the place of or that take its place (`DisclosureLinks`), so a
+ * line the reader opened stays open and one they closed stays closed (Leo, 2026-11-07: "I opened up,
+ * expanded the tool calls, and then it closed on by itself").
  */
 export function useTranscriptDisclosure(
   key: string,
   defaultOpen = false,
   verboseOpen = false,
-  inherits: readonly string[] = NONE,
-  passesDown = false,
-  members: readonly string[] = NONE,
+  links: DisclosureLinks = NO_LINKS,
 ): [boolean, DisclosureSetter] {
   const view = useContext(ViewContext);
   const sessionId = useDisclosureSessionId();
   const opens = defaultOpen || (verboseOpen && view === "verbose");
-  const from = inherits.join("\n");
-  // `members`: the calls a fold holds (`callDisclosureKey`). One the reader opened keeps the fold open
-  // until the reader sets the fold itself, as `inherits` does, but the fold's own choice never passes
-  // down to them: closing a run's line keeps the calls in it as the reader left them.
-  const held = members.join("\n");
-  const getSnapshot = useCallback(
-    () => read(sessionId, key) ?? (opens || inherited(sessionId, from) || inherited(sessionId, held)),
-    [sessionId, key, opens, from, held],
+  const from = (links.inherits ?? NONE).join("\n");
+  const down = (links.passesDown ?? NONE).join("\n");
+  const held = (links.members ?? NONE).join("\n");
+  const by = (links.closedBy ?? NONE).join("\n");
+  const current = useCallback(
+    () =>
+      openedOver(sessionId, key, from) ||
+      (!closedOver(sessionId, key, by) &&
+        (read(sessionId, key) ?? (opens || inherited(sessionId, from) || inherited(sessionId, held)))),
+    [sessionId, key, opens, from, held, by],
   );
-  const open = useSyncExternalStore(subscribe, getSnapshot, () => opens);
+  const open = useSyncExternalStore(subscribe, current, () => opens);
   const setOpen = useCallback<DisclosureSetter>(
     (value) => {
-      const current = read(sessionId, key) ?? (opens || inherited(sessionId, from) || inherited(sessionId, held));
-      const next = typeof value === "function" ? value(current) : value;
-      // A run's line the reader set takes the place of the group lines it inherits from: one they had
+      const next = typeof value === "function" ? value(current()) : value;
+      // A run's line the reader set takes the place of the group lines it hands down to: one they had
       // set takes the same choice, so a run line they closed never reopens as its group's line when the
       // run splits back into groups. A line they never set keeps its own default, and a group's line
       // passes nothing up, so closing one group never closes its sibling through the run's key.
-      if (passesDown && from !== "")
-        for (const other of from.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next);
+      if (down !== "")
+        for (const other of down.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next);
       save(sessionId, key, next);
     },
-    [sessionId, key, opens, from, held, passesDown],
+    [sessionId, key, current, down],
   );
   return [open, setOpen];
 }

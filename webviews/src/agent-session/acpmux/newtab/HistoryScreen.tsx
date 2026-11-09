@@ -8,11 +8,13 @@
 // every ask across agents and machines) and Costs (ledger/LedgerScreen.tsx, what agents spent).
 // They live here because this page is one the app already opens; they need no host of their own.
 import type { ComponentProps } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import { useT } from "../i18n";
 import { LedgerScreen } from "../ledger/LedgerScreen";
 import { QueueScreen } from "../queue/QueueScreen";
+import { createQueueCache } from "../queue/useQueue";
+import { createLedgerCache } from "../ledger/LedgerScreen";
 import { AllChatsList } from "./AllChatsList";
 import { type LoadChatsPage } from "./allChatsListModel";
 import { useNoEntryMotion } from "./noEntryMotion";
@@ -46,6 +48,15 @@ export function HistoryScreen({
   // A New Tab page too: what it shows or opens appears at once (noEntryMotion.ts).
   useNoEntryMotion();
   const [tab, setTab] = useState<HistoryTab>(initialTab);
+  // What Waiting on you and Costs last showed, kept while another tab shows: a return paints it
+  // at once, and Waiting on you reads again only when what it lists changed meanwhile.
+  const [queueCache] = useState(createQueueCache);
+  const [ledgerCache] = useState(createLedgerCache);
+  // Every key the queue would read at, while it shows or not: a change while hidden reads on return.
+  const queueKey = queue?.refreshKey;
+  useEffect(() => {
+    if (queueKey !== undefined) queueCache.note(queueKey);
+  }, [queueCache, queueKey]);
   const tabbed = Boolean(queue || ledger);
   const shown: HistoryTab = (tab === "queue" && !queue) || (tab === "ledger" && !ledger) ? "history" : tab;
   return (
@@ -67,9 +78,9 @@ export function HistoryScreen({
         </Tabs>
       )}
       {shown === "queue" && queue ? (
-        <QueueScreen {...queue} {...(now !== undefined ? { now } : {})} />
+        <QueueScreen {...queue} cache={queueCache} {...(now !== undefined ? { now } : {})} />
       ) : shown === "ledger" && ledger ? (
-        <LedgerScreen {...ledger} {...(now !== undefined ? { now } : {})} />
+        <LedgerScreen {...ledger} cache={ledgerCache} {...(now !== undefined ? { now } : {})} />
       ) : (
         <AllChatsList
           load={load}

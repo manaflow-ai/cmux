@@ -1,38 +1,47 @@
 // What a folded group of messages shows under the pointer ("Received 7 messages", the waiting group,
 // an inbox notice of several threads; MessageGroupHead.tsx). Leo, 2026-11-07, on that hover as a wall
 // of "<lane> (self-declared, unauthenticated)" names: "I feel like, the hover preview when you
-// receive a lot of messages, this is not useful." It shows the messages, newest first: each sender
-// once per message, short (the name after its machine), with its family's mark and, when acpmux could
-// not verify it, the small marker (UnverifiedMark.tsx), never words in the name; then the first line
-// or two of what it said (messagePreview, the broker's label out). Five at most, then "+N more".
-// The looks beside the default are gallery versions (AgentMessageRowKinds.gallery.tsx, `hover`).
+// receive a lot of messages, this is not useful." It shows the newest message whole under its sender
+// (each line's Markdown marks out, the broker's label out), then a hairline and the other senders,
+// each once, newest first, with how many messages each sent: who, how many, and what the latest
+// said, never a stack of rows cut to two lines. A sender's name is short (the name after its
+// machine), with its family's mark and, when acpmux could not verify it, the small marker
+// (UnverifiedMark.tsx), never words in the name. Four other senders at most, then "+N more"
+// counting the rest of the messages. The looks beside the default are gallery versions
+// (AgentMessageRowKinds.gallery.tsx, `hover`).
 import { createContext, useContext } from "react";
 import { useT } from "../i18n";
 import { SenderMark } from "./IncomingMessageCard";
-import { messagePreview } from "./agentMessageRowModel";
+import { messagePreview, plainLine } from "./agentMessageRowModel";
 import type { IncomingMessage } from "./incomingMessage";
 import type { InboxThread } from "./inboxNotice";
 import { withoutRelayLabelOfMessage } from "./relayEnvelope";
 import { senderName } from "./senderIdentity";
 import { UnverifiedMark } from "./UnverifiedMark";
 import "./MessageGroupHover.css";
+import { signed } from "../../../ui/Typography";
 
-/// How the hover lays its messages out. `messages`, the default: the sender's line, then two lines
-/// of the message under it. `lines`: one line each, "sender  first line". `names`: the senders only,
-/// each once, with their marks (the list it was, without the noise).
-export type GroupHoverLook = "messages" | "lines" | "names";
-export const GroupHoverLookContext = createContext<GroupHoverLook>("messages");
+/// How the hover lays its messages out. `digest`, the default: the newest message whole, then the
+/// other senders with their counts. `messages`: each message's sender, then two lines of it, five
+/// at most. `lines`: one line each, "sender  first line". `names`: the senders only, each once,
+/// with their marks (the list it was, without the noise).
+export type GroupHoverLook = "digest" | "messages" | "lines" | "names";
+export const GroupHoverLookContext = createContext<GroupHoverLook>("digest");
 
-/// The most messages the hover lists before "+N more".
+/// The most messages the `messages` and `lines` looks list before "+N more".
 export const GROUP_HOVER_MAX = 5;
+
+/// The most other senders the digest names before "+N more".
+export const GROUP_HOVER_SENDERS = 4;
 
 /// A sender's short name: the part after its machine ("gcp-agent-lane-1/ux-owner" reads "ux-owner").
 export const shortSender = (name: string) => senderName(name).split("/").at(-1)?.trim() || senderName(name);
 
 /// What a group's hover lists: its messages, newest first, and how many messages the group holds in
 /// all, so "+N more" counts the true rest (a thread that held only its preview is one line for its
-/// whole count).
-export type GroupHoverList = { messages: readonly IncomingMessage[]; total: number };
+/// whole count). `counts[i]`, when given, is how many messages `messages[i]` stands for (one when
+/// not given), so the digest counts each sender's true share.
+export type GroupHoverList = { messages: readonly IncomingMessage[]; total: number; counts?: readonly number[] };
 
 /// A group's hover from its members, oldest first; `counts[i]` is how many messages member i stands
 /// for (a preview-only inbox delivery stands for its thread's count), one when not given; `ats[i]`
@@ -44,25 +53,26 @@ export function hoverMessages(
   counts: readonly (number | undefined)[] = [],
   ats: readonly (number | undefined)[] = [],
 ): GroupHoverList {
-  const listed: { message: IncomingMessage; at?: number; order: number }[] = [];
+  const listed: { message: IncomingMessage; at?: number; order: number; count: number }[] = [];
   let total = 0;
   messages.forEach((message, index) => {
     if (!message) return;
     const at = message.at ?? ats[index];
-    listed.push({ message, ...(at !== undefined && { at }), order: index });
-    total += Math.max(1, counts[index] ?? 1);
+    const count = Math.max(1, counts[index] ?? 1);
+    listed.push({ message, ...(at !== undefined && { at }), order: index, count });
+    total += count;
   });
   listed.sort((a, b) =>
     a.at !== undefined && b.at !== undefined ? b.at - a.at || b.order - a.order : b.order - a.order,
   );
-  return { messages: listed.map((entry) => entry.message), total };
+  return { messages: listed.map((entry) => entry.message), total, counts: listed.map((entry) => entry.count) };
 }
 
 /// An inbox notice's hover: every message of every thread, newest first by when acpmux recorded it
 /// (`at`), then the untimed ones by the notice's order, the later first; a thread that held only its preview is one line that counts
 /// the thread's whole count (Leo, 2026-11-07, on a "Received 7 messages" hover that listed one).
 export function inboxHover(threads: readonly InboxThread[]): GroupHoverList {
-  const entries: { message: IncomingMessage; at?: number; order: number }[] = [];
+  const entries: { message: IncomingMessage; at?: number; order: number; count: number }[] = [];
   let total = 0;
   for (const thread of threads) {
     const newest = thread.messages?.at(-1)?.from || thread.from.at(-1) || "";
@@ -87,6 +97,7 @@ export function inboxHover(threads: readonly InboxThread[]): GroupHoverList {
           },
           ...(message.at !== undefined && { at: message.at }),
           order: entries.length,
+          count: 1,
         });
       }
       total += Math.max(thread.count, thread.messages.length);
@@ -94,6 +105,7 @@ export function inboxHover(threads: readonly InboxThread[]): GroupHoverList {
       entries.push({
         message: { ...sent(newest), text: thread.preview, ...(thread.unverified && { unverified: true as const }) },
         order: entries.length,
+        count: Math.max(1, thread.count),
       });
       total += Math.max(1, thread.count);
     }
@@ -106,7 +118,88 @@ export function inboxHover(threads: readonly InboxThread[]): GroupHoverList {
     if (b.at !== undefined) return 1;
     return b.order - a.order;
   });
-  return { messages: entries.map((entry) => entry.message), total };
+  return { messages: entries.map((entry) => entry.message), total, counts: entries.map((entry) => entry.count) };
+}
+
+/// A message whole as it reads in the hover: the broker's label out, each line's Markdown marks out,
+/// blank lines dropped, lines kept as lines (the card cuts it near twelve lines).
+function wholeText(text: string): string {
+  return withoutRelayLabelOfMessage(text)
+    .split("\n")
+    .map((line) => plainLine(line).trimEnd())
+    .filter((line) => line.trim())
+    .join("\n");
+}
+
+/// The digest's other senders: each once, newest first, with how many messages they sent; the
+/// newest sender's earlier messages count under their own name.
+export function hoverSenders(list: GroupHoverList): { message: IncomingMessage; count: number; unverified: boolean }[] {
+  const [newest, ...others] = list.messages;
+  if (!newest) return [];
+  const senders: { message: IncomingMessage; count: number; unverified: boolean }[] = [];
+  const index = new Map<string, number>();
+  const add = (message: IncomingMessage, count: number) => {
+    const key = senderName(message.name);
+    const at = index.get(key);
+    if (at === undefined) {
+      index.set(key, senders.length);
+      senders.push({ message, count, unverified: message.unverified === true });
+      return;
+    }
+    const sender = senders[at]!;
+    sender.count += count;
+    sender.unverified ||= message.unverified === true;
+  };
+  // A newest line that stands for several (a thread that held only its preview): the rest are that
+  // sender's earlier messages.
+  const newestRest = Math.max(1, list.counts?.[0] ?? 1) - 1;
+  if (newestRest > 0) add(newest, newestRest);
+  others.forEach((message, offset) => add(message, Math.max(1, list.counts?.[offset + 1] ?? 1)));
+  return senders;
+}
+
+function SenderWho({ message, unverified }: { message: IncomingMessage; unverified: boolean }) {
+  return (
+    <>
+      <span className="cv-group-hover__mark" aria-hidden="true">
+        <SenderMark message={message} />
+      </span>
+      <span className="cv-group-hover__name">{shortSender(message.name)}</span>
+      {unverified && <UnverifiedMark />}
+    </>
+  );
+}
+
+function Digest({ list }: { list: GroupHoverList }) {
+  const t = useT();
+  const newest = list.messages[0];
+  if (!newest) return null;
+  const senders = hoverSenders(list);
+  const shown = senders.slice(0, GROUP_HOVER_SENDERS);
+  const counted = Math.max(1, list.counts?.[0] ?? 1) + shown.reduce((sum, sender) => sum + sender.count, 0);
+  const rest = Math.max(0, list.total - counted, senders.length > shown.length ? 1 : 0);
+  const body = wholeText(newest.text);
+  return (
+    <div className="cv-group-hover" data-look="digest">
+      <div className="cv-group-hover__newest">
+        <div className="cv-group-hover__who">
+          <SenderWho message={newest} unverified={newest.unverified === true} />
+        </div>
+        {body && <div className="cv-group-hover__body">{body}</div>}
+      </div>
+      {shown.length > 0 && (
+        <div className="cv-group-hover__senders">
+          {shown.map((sender, index) => (
+            <span key={`${senderName(sender.message.name)}:${index}`} className="cv-group-hover__sender">
+              <SenderWho message={sender.message} unverified={sender.unverified} />
+              {sender.count > 1 && <span className="cv-group-hover__count">{sender.count}</span>}
+            </span>
+          ))}
+          {rest > 0 && <span className="cv-group-hover__more">{t("tools.more", { n: rest })}</span>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /// A message's first lines as they read, for two lines in the hover: each line's Markdown marks out
@@ -124,6 +217,7 @@ export function MessageGroupHover({ list }: { list: GroupHoverList }) {
   const t = useT();
   const messages = list.messages;
   const look = useContext(GroupHoverLookContext);
+  if (look === "digest") return <Digest list={list} />;
   const shown =
     look === "names"
       ? messages.filter((message, index) => messages.findIndex((m) => m.name === message.name) === index)
@@ -150,7 +244,7 @@ export function MessageGroupHover({ list }: { list: GroupHoverList }) {
           </div>
         );
       })}
-      {rest > 0 && <div className="cv-group-hover__more">{t("tools.more", { n: rest })}</div>}
+      {rest > 0 && <div className="cv-group-hover__more">{signed(t("tools.more", { n: rest }))}</div>}
     </div>
   );
 }

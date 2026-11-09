@@ -29,8 +29,10 @@
 //! bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
 //! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only (the Worker's
 //! invocation log records every other header and the URL, so nothing else may carry a key).
-//! `worker` is the platform's machine routes through the generated client. No redirect is
-//! followed and nothing is cached.
+//! `worker` is the platform's machine routes through the generated client, `previews.*` and the
+//! publication calls (`vm.domains`, `vm.publications`, `vm.provision_api`,
+//! `vm.publication_api_keys`, `vm.revoke_publication_api_key`) among them. No redirect is followed
+//! and nothing is cached.
 
 #![cfg(unix)]
 
@@ -38,6 +40,7 @@ mod classic;
 mod http;
 mod machine;
 pub mod machine_io;
+mod network;
 mod owner;
 mod previews;
 mod runs;
@@ -99,7 +102,11 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => machine::classic(&http, args).await,
         "machine.io" => machine::worker(request).await,
+        "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
+        call if previews::PUBLICATION_CALLS.contains(&call) => {
+            previews::publications(request, call, args).await
+        }
         call if call.starts_with("vm.") => classic::run(&http, call, args).await,
         "runs.create" => runs::create(&http, args).await,
         "runs.start" => runs::start(&http, args).await,

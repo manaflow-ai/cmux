@@ -130,7 +130,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["update", "version", "sparkle"], category: .settings, symbol: "arrow.down.circle",
                 surfaces: [.palette, .menu], cliName: "settings check-for-updates", mainMenu: .app
             ),
-            // Live Web Reload (docs/cmux-next/hot-reload.md): load cmux's web UI from a checkout's dev
+            // cmux Live (docs/cmux-next/hot-reload.md): load cmux's web UI from a checkout's dev
             // server, so a saved edit shows at once with no build. The CLI is `cmux live start|stop`.
             ActionDescriptor(
                 id: "liveWeb.start",
@@ -138,14 +138,14 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 hint: String(localized: "action.liveWeb.start.hint",
                              defaultValue: "Change cmux's own UI and see it here at once, or let your agent do it. No build.",
                              bundle: .module),
-                keywords: ["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
+                keywords: ["cmux live", "live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
                 category: .settings, symbol: "bolt.horizontal.circle", surfaces: [.palette],
                 arguments: [CatalogArgument.optionalPathString]
             ),
             ActionDescriptor(
                 id: "liveWeb.stop",
                 title: String(localized: "action.liveWeb.stop", defaultValue: "Stop Editing cmux Live", bundle: .module),
-                keywords: ["live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
+                keywords: ["cmux live", "live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
                 category: .settings, symbol: "bolt.horizontal.circle.fill", surfaces: [.palette]
             ),
             // Swift live mode (docs/cmux-next/live-code.md): a tagged build restarts into the live code
@@ -644,42 +644,42 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.interfaceSize.increase",
-                title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Interface Size", bundle: .module),
-                keywords: ["appearance", "font", "chrome", "bigger", "zoom"], category: .settings,
+                title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Text Size", bundle: .module),
+                keywords: ["appearance", "font", "text", "size", "interface", "chrome", "bigger"], category: .settings,
                 symbol: "plus.magnifyingglass", surfaces: [.palette], cliName: "settings increase-interface-size"
             ),
             ActionDescriptor(
                 id: "appearance.interfaceSize.decrease",
-                title: String(localized: "action.appearance.interfaceSize.decrease", defaultValue: "Decrease Interface Size", bundle: .module),
-                keywords: ["appearance", "font", "chrome", "smaller", "zoom"], category: .settings,
+                title: String(localized: "action.appearance.interfaceSize.decrease", defaultValue: "Decrease Text Size", bundle: .module),
+                keywords: ["appearance", "font", "text", "size", "interface", "chrome", "smaller"], category: .settings,
                 symbol: "minus.magnifyingglass", surfaces: [.palette], cliName: "settings decrease-interface-size"
             ),
             ActionDescriptor(
                 id: "appearance.interfaceSize.reset",
-                title: String(localized: "action.appearance.interfaceSize.reset", defaultValue: "Reset Interface Size", bundle: .module),
-                keywords: ["appearance", "font", "chrome", "default"], category: .settings, symbol: "textformat.size",
+                title: String(localized: "action.appearance.interfaceSize.reset", defaultValue: "Reset Text Size", bundle: .module),
+                keywords: ["appearance", "font", "text", "size", "interface", "chrome", "default"], category: .settings, symbol: "textformat.size",
                 surfaces: [.palette], cliName: "settings reset-interface-size"
             ),
             // Ctrl-Shift-Cmd-= / - / 0 scale all app text (Lawrence 2026-10-19: "for changing font size we
             // should do Command+Shift+Control++ and -"); Ctrl-Cmd-= is Equalize Splits, as in Ghostty.
             ActionDescriptor(
                 id: "appearance.uiScale.increase",
-                title: String(localized: "action.appearance.uiScale.increase", defaultValue: "Increase Interface Scale", bundle: .module),
-                keywords: ["appearance", "scale", "chrome", "bigger", "zoom"],
+                title: String(localized: "action.appearance.uiScale.increase", defaultValue: "Increase App Zoom", bundle: .module),
+                keywords: ["appearance", "scale", "interface", "pages", "bigger", "zoom"],
                 defaultShortcut: Shortcut("=", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings increase-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.decrease",
-                title: String(localized: "action.appearance.uiScale.decrease", defaultValue: "Decrease Interface Scale", bundle: .module),
-                keywords: ["appearance", "scale", "chrome", "smaller", "zoom"],
+                title: String(localized: "action.appearance.uiScale.decrease", defaultValue: "Decrease App Zoom", bundle: .module),
+                keywords: ["appearance", "scale", "interface", "pages", "smaller", "zoom"],
                 defaultShortcut: Shortcut("-", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings decrease-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.reset",
-                title: String(localized: "action.appearance.uiScale.reset", defaultValue: "Reset Interface Scale", bundle: .module),
-                keywords: ["appearance", "scale", "chrome", "default", "zoom"],
+                title: String(localized: "action.appearance.uiScale.reset", defaultValue: "Reset App Zoom", bundle: .module),
+                keywords: ["appearance", "scale", "interface", "pages", "default", "zoom"],
                 defaultShortcut: Shortcut("0", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),

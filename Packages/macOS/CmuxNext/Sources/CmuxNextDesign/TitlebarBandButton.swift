@@ -95,6 +95,7 @@ public final class TitlebarBandButton: ClickableButton {
         guard size != renderedIconSize else { return }
         renderedIconSize = size
         image = customImage?(symbol, size)
+            ?? NSImage.packOverride(forSymbol: symbol, pointSize: size)
             ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: Metrics.toolbarSymbolWeight))
     }

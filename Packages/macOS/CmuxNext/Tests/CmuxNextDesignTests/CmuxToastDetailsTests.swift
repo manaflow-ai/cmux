@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextTestSupport
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// A toast's Details shows the details in the toast itself, never somewhere else (Leo 2026-10-29:
@@ -105,21 +106,32 @@ struct CmuxToastDetailsTests {
 @Suite(.closesItsWindows)
 struct CmuxToastHostReportTests {
     /// The pointer on a toast holds it past its time; leaving lets it end.
-    @Test func hoverPausesTheDismissal() async throws {
+    @Test(.timeLimit(.minutes(1))) func hoverPausesTheDismissal() async throws {
         let host = KeepingToastHost()
-        let center = CmuxToastCenter(host: host)
+        let clock = ManualClock()
+        let center = CmuxToastCenter(clock: clock, host: host)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let handle = center.show(CmuxToast(id: "t", message: "Closed “New Tab”", action: .undo(),
                                            duration: .milliseconds(150)), in: window)
+        let dismissed = AsyncStream.makeStream(of: CmuxToastDismissReason.self)
+        handle.onDismiss = { dismissed.continuation.yield($0) }
         let serial = try #require(host.shown.last).serial
+        try await clock.waitForSleeper()
         center.pointer(onToast: serial, true)
-        try await Task.sleep(for: .milliseconds(600))
+        // On the toast, its time is off: nothing is asleep on the clock, so no amount of time ends it.
+        #expect(clock.sleeperCount == 0)
+        clock.advance(by: .seconds(60))
         #expect(!handle.isDismissed)
         #expect(center.toasts(in: window).count == 1)
         center.pointer(onToast: serial, false)
-        for _ in 0..<40 where !handle.isDismissed { try await Task.sleep(for: .milliseconds(50)) }
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(150))
+        for await reason in dismissed.stream {
+            #expect(reason == .timeout)
+            break
+        }
         #expect(handle.isDismissed)
         #expect(center.toasts(in: window).isEmpty)
         #expect(host.shown.isEmpty)

@@ -11,10 +11,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cmux_app_host::{AppInfo, FromHost, ToHost};
+use cmux_app_host::{FromHost, ToHost};
 use serde_json::{Value, json};
 
-use super::grants::{Grant, ScopeTable};
+use super::grants::Grant;
 use super::host::{Exit, HostProcess};
 use super::supervisor::{
     ApiError, Host, HostKey, HostState, Inner, MAX_CRASHES, Mount, MountKey, Out, Supervisor,
@@ -69,6 +69,9 @@ impl Supervisor {
                 return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
             }
             let key = MountKey { client, mount_id: mount_id.to_string() };
+            // A view mounted again under its id (Reload) keeps its old scene
+            // on screen until this one: its first scene replaces it.
+            let replacing = inner.mounts.contains_key(&key);
             let mut outs = self.unmount_locked(&mut inner, &key);
             let host_key = HostKey { app: app.to_string(), preview };
             inner.mounts.insert(
@@ -78,7 +81,7 @@ impl Supervisor {
                     interface: interface.to_string(),
                     export: export.clone(),
                     context: context.clone(),
-                    reset: false,
+                    reset: replacing,
                 },
             );
             outs.extend(self.revive_host_locked(&mut inner, &host_key, |process| {
@@ -216,18 +219,7 @@ impl Supervisor {
             Ok(process) => Arc::new(process),
             Err(error) => return self.fail_host_locked(inner, key, &format!("spawn: {error}")),
         };
-        let table = ScopeTable::get();
-        process.send(&ToHost::Init {
-            app: AppInfo { id: package.id.clone(), version: package.version.clone() },
-            settings: package.default_settings(),
-            api_version: "1.0.0".into(),
-            ops: Some(table.allowed_ops(&grant)),
-            known_ops: Some(table.known_ops()),
-            locale: Some("en".into()),
-            strings: package.strings("en"),
-            main,
-            main_name: package.main_name(),
-        });
+        process.send(&super::load_trial::init_message(&package, main, &grant));
         // The package may have been saved since a mount (a local reload): its
         // interface may now name another export, or be gone, which fails the
         // mount the way `mount` refuses it.

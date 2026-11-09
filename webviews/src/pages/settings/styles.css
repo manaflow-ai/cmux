@@ -967,6 +967,33 @@ mark {
   width: 240px;
 }
 
+/* Settings > Cloud Environments' editor: the setup script and the variables take the form's width
+   under their label, as the Codex environment editor lays them out. */
+.environment-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.environment-script {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 520px;
+  resize: vertical;
+}
+
+.environment-variable {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.environment-variable > .field {
+  width: 160px;
+}
+
 /* Wrap complete controls rather than shrinking their labels in narrow profile editors. */
 .host-field[data-clear-browsing-data] {
   flex-wrap: wrap;
@@ -1797,6 +1824,11 @@ mark {
   font-size: var(--density-caption);
 }
 
+/* Text Size: a normal settings row under the tiles. */
+.density-rows {
+  margin-top: var(--grid-gap);
+}
+
 .density-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2193,6 +2225,44 @@ button.menu-disclosure {
 .button.app-update-prominent:not(.ui-btn) {
   border-color: transparent;
   background: var(--accent-soft);
+}
+
+/* Settings > Agents > Worktree Setup (WorktreeSetupCard.tsx, design/worktree-setup.md): each script
+   is its name, what it is for, a code box, and what the repository says under it. Switching the
+   project changes only the values, never the fields, so nothing moves. */
+.worktree-setup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0 0;
+}
+
+.worktree-setup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.worktree-setup-field > textarea.field {
+  min-height: 32px;
+  resize: vertical;
+}
+
+.worktree-setup-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.worktree-setup-footer {
+  justify-content: flex-end;
+}
+
+.worktree-setup-files {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Settings > Personalization (PersonalizationCard): a jump bar pinned to the top of the content over

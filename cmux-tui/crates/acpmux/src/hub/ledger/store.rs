@@ -56,7 +56,21 @@ pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
 
 fn apply(state: &mut State, line: Line) {
     match line {
-        Line::Spend { sid, at, model, pv, totals } => {
+        Line::Spend { sid, at, model, pv, mut totals, saved } => {
+            // A line from before acpmux counted cache savings has none: its cache reads at
+            // today's table, so a ledger kept across the upgrade does not read as $0 saved. A
+            // line that recorded a saving keeps it, a recorded zero included.
+            totals.cache_saved_usd = match saved {
+                Some(usd) => usd,
+                None if totals.cache_read_tokens > 0 => {
+                    let usage = crate::store::TurnUsage {
+                        cache_read_tokens: Some(totals.cache_read_tokens),
+                        ..Default::default()
+                    };
+                    crate::pricing::table().cache_savings(&model, &usage).unwrap_or(0.0)
+                }
+                None => 0.0,
+            };
             state.add_bucket(&sid, &model, &pv, at, &totals)
         }
         Line::Session { sid, info } => {
@@ -87,6 +101,7 @@ fn snapshot(state: &State) -> Vec<Line> {
                 model: key.model.to_string(),
                 pv: key.price_version.to_string(),
                 totals: bucket.totals.clone(),
+                saved: None,
             });
         }
     }
@@ -124,14 +139,16 @@ struct Writer {
 impl Writer {
     fn file(&mut self) -> Option<&mut File> {
         if self.file.is_none() {
-            if let Err(e) = std::fs::create_dir_all(&self.dir) {
-                tracing::warn!("ledger: cannot create {}: {e}", self.dir.display());
+            // Owner-only whatever the umask, and never under a home that was moved or replaced
+            // (`config::refuse_lost_home`): a shutdown's last append makes no folder again.
+            if let Err(e) = crate::config::private_state_dir(&self.dir) {
+                tracing::warn!("ledger: cannot create {}: {e:#}", self.dir.display());
                 return None;
             }
-            match OpenOptions::new().create(true).append(true).open(&self.path) {
+            match crate::config::private_state_append(&self.path) {
                 Ok(f) => self.file = Some(f),
                 Err(e) => {
-                    tracing::warn!("ledger: cannot open {}: {e}", self.path.display());
+                    tracing::warn!("ledger: cannot open {}: {e:#}", self.path.display());
                     return None;
                 }
             }
@@ -168,10 +185,16 @@ impl Writer {
         let tmp = self.dir.join(format!("{FILE}.tmp"));
         let text: String = lines.iter().filter_map(encode).collect();
         // The first seed's rewrite may be the first write of all: the folder may not exist yet.
-        let written = std::fs::create_dir_all(&self.dir)
-            .and_then(|()| std::fs::write(&tmp, text.as_bytes()))
-            .and_then(|()| File::open(&tmp)?.sync_all())
-            .and_then(|()| std::fs::rename(&tmp, &self.path));
+        // Folder and file are owner-only and refused under a lost home, as in `Writer::file`.
+        let written = crate::config::private_state_dir(&self.dir)
+            .and_then(|()| crate::config::private_state_rw(&tmp))
+            .and_then(|mut file| {
+                file.set_len(0)?;
+                file.write_all(text.as_bytes())?;
+                file.sync_all()?;
+                Ok(())
+            })
+            .and_then(|()| std::fs::rename(&tmp, &self.path).map_err(anyhow::Error::from));
         match written {
             Ok(()) => {
                 self.file = None;
@@ -182,7 +205,7 @@ impl Writer {
             }
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp);
-                tracing::warn!("ledger: compaction failed: {e}");
+                tracing::warn!("ledger: compaction failed: {e:#}");
                 // Try again only after as much again has been appended.
                 self.floor = self.size;
                 false

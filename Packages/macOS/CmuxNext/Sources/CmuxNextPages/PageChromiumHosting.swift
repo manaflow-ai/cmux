@@ -50,6 +50,10 @@ public protocol PageChromiumHosting: AnyObject {
 extension PageChromiumPage {
     /// No clip: the page shows as a plain rectangle.
     public var windowClip: CGPath? { nil }
+    /// No docked DevTools: the page has its whole view.
+    public var dockedDevTools: (page: CGRect, devTools: CGRect)? { nil }
+    /// No DevTools image.
+    public func devToolsImage() async -> CGImage? { nil }
 }
 
 extension PageChromiumHosting {
@@ -86,6 +90,13 @@ public protocol PageChromiumPage: AnyObject {
     /// a docked column shows only its uncovered part); nil when the page shows as a plain
     /// rectangle. A window image paints the page's image only inside it.
     var windowClip: CGPath? { get }
+    /// The page's own area and its docked DevTools' area, in ``contentView``'s coordinates, while
+    /// DevTools are docked beside the page (Inspect Element); nil otherwise. A window image paints
+    /// the page's image only in the page's area, and the DevTools' own image in theirs.
+    var dockedDevTools: (page: CGRect, devTools: CGRect)? { get }
+    /// The docked DevTools as Chromium drew them (their frontend's `Page.captureScreenshot`); nil
+    /// with none docked or when Chromium gives no image.
+    func devToolsImage() async -> CGImage?
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:

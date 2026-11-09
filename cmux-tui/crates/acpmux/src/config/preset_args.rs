@@ -65,8 +65,9 @@ pub struct Preset {
     /// while `mode_approval` holds (`hub/person.rs`, (b)).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
-    /// The person's approval of this preset's mode: the
-    /// [`Preset::approval_digest`] of the contents the person approved.
+    /// The person's approval of this preset's mode, and of a policy that does not ask
+    /// (`hub/unattended_presets.rs`): the [`Preset::approval_digest`] of the contents the person
+    /// approved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_approval: Option<String>,
 }
@@ -86,9 +87,10 @@ impl Preset {
     /// or withdraw it. A later change of the contents drops it.
     pub fn apply_mode_approval(&mut self, approve: Option<bool>) -> Result<(), String> {
         match approve {
-            Some(true) if self.mode.is_none() => {
-                Err("this preset has no mode to approve: set mode first".into())
-            }
+            Some(true) if self.mode.is_none() && !self.policy_skips_asking() => Err(
+                "this preset has no mode or policy to approve: set mode, or policy approve-all or review, first"
+                    .into(),
+            ),
             Some(true) => {
                 self.mode_approval = self.approval_digest();
                 Ok(())
@@ -105,6 +107,25 @@ impl Preset {
     pub fn mode_approved(&self) -> bool {
         match (&self.mode, &self.mode_approval, self.approval_digest()) {
             (Some(_), Some(approved), Some(now)) => cmux_local_auth::tokens_match(approved, &now),
+            _ => false,
+        }
+    }
+
+    /// Whether the preset's policy settles every tool call with no person: approve-all, or review
+    /// (what it does not approve it denies). Approve-reads and approve-edits still ask for the rest,
+    /// so a chat on another machine would wait on them (`hub/unattended_presets.rs`).
+    pub fn policy_skips_asking(&self) -> bool {
+        matches!(self.policy, Some(PermissionPolicy::ApproveAll | PermissionPolicy::Review))
+    }
+
+    /// Whether the person approved this preset's policy for its current contents
+    /// (`hub/unattended_presets.rs`): a policy that does not ask, under an approval that still
+    /// matches.
+    pub fn policy_approved(&self) -> bool {
+        match (&self.mode_approval, self.approval_digest()) {
+            (Some(approved), Some(now)) => {
+                self.policy_skips_asking() && cmux_local_auth::tokens_match(approved, &now)
+            }
             _ => false,
         }
     }

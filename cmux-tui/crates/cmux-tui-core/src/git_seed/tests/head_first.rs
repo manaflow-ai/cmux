@@ -80,7 +80,7 @@ fn at_the_head_the_start_files_carry_work_and_every_tool_still_waits() {
     let (service, job, release) = held_at_head(&world, &params, &folder);
     let held = status(&service, &job);
     assert_eq!((&held["state"], &held["head_ready"]), (&json!("running"), &json!(true)), "{held}");
-    assert!(matches!(probe(&folder).unwrap(), Probe::HeadReady));
+    assert_eq!(settled_head(&folder), "head");
     assert_eq!(read(&folder.join("a")), "a\nstaged\nunstaged\n", "the person's unstaged edit");
     assert_eq!(read(&folder.join("b")), "b\nunpushed\n");
     assert!(!folder.join("gone").exists(), "WORK's delete");
@@ -188,4 +188,159 @@ fn nothing_reads_a_filling_tree_back_and_a_failed_fill_stays_incomplete() {
     assert!(matches!(probe(&folder).unwrap(), Probe::Ready(_)));
     let exported = service.call("git.seed.export", &export).unwrap();
     assert_eq!(wait(&service, exported["job"].as_str().unwrap())["state"], "done");
+}
+
+/// Review F1 (cmux#39018): a tracked `.claude -> .` resolves at the head, but the skills
+/// below its target are not in it, so the head is never marked.
+#[test]
+fn a_harness_folder_linked_to_a_folder_is_never_marked() {
+    let world = World::new("head-dirlink");
+    std::os::unix::fs::symlink(".", world.mac.join(".claude")).unwrap();
+    write(&world.mac.join("skills/review/SKILL.md"), "review\n");
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    let params = head_params(&world, &folder, &snapshot, None);
+    let (service, job, release) = held_at_head(&world, &params, &folder);
+    assert!(std::fs::symlink_metadata(folder.join(".claude")).unwrap().is_symlink());
+    assert!(!folder.join("skills").exists(), "the skills wait for the fill");
+    assert!(status(&service, &job)["head_ready"].is_null());
+    assert!(matches!(probe(&folder).unwrap(), Probe::Syncing), "a start waits");
+    drop(release);
+    let done = wait(&service, &job);
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(read(&folder.join(".claude/skills/review/SKILL.md")), "review\n");
+    assert_eq!(state(&folder), state(&world.mac));
+    whole(&folder);
+}
+
+/// Review F1 (cmux#39018, 7373781): a subpath inside a harness folder keeps the rest of
+/// that folder in the head (`/.claude/**` after the subpath's exclusions).
+#[test]
+fn a_subpath_inside_a_harness_folder_keeps_the_whole_harness_folder() {
+    let world = World::new("head-in-harness");
+    write(&world.mac.join(".claude/rules/project.md"), "rules\n");
+    write(&world.mac.join(".claude/skills/task/SKILL.md"), "task\n");
+    write(&world.mac.join(".claude/skills/task/deep/more.md"), "more\n");
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    let params = head_params(&world, &folder, &snapshot, Some(".claude/skills/task"));
+    let (service, job, release) = held_at_head(&world, &params, &folder);
+    assert_eq!(status(&service, &job)["head_ready"], true);
+    assert_eq!(read(&folder.join(".claude/rules/project.md")), "rules\n");
+    assert_eq!(read(&folder.join(".claude/skills/task/SKILL.md")), "task\n");
+    assert_eq!(read(&folder.join(".claude/skills/task/deep/more.md")), "more\n");
+    drop(release);
+    assert_eq!(wait(&service, &job)["state"], "done");
+    assert_eq!(state(&folder), state(&world.mac));
+    whole(&folder);
+}
+
+/// Review F2 (cmux#39018, 7373781): `.claude -> app` with the chat in `app` resolves, but
+/// `app/rules/` is not in the head, so the head is never marked.
+#[test]
+fn a_harness_folder_linked_to_the_subpath_is_never_marked() {
+    let world = World::new("head-link-sub");
+    write(&world.mac.join("app/rules/project.md"), "rules\n");
+    std::os::unix::fs::symlink("app", world.mac.join(".claude")).unwrap();
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    let params = head_params(&world, &folder, &snapshot, Some("app"));
+    let (service, job, release) = held_at_head(&world, &params, &folder);
+    assert!(!folder.join("app/rules").exists(), "outside the head");
+    assert!(status(&service, &job)["head_ready"].is_null());
+    assert!(matches!(probe(&folder).unwrap(), Probe::Syncing), "a start waits");
+    drop(release);
+    assert_eq!(wait(&service, &job)["state"], "done");
+    assert_eq!(read(&folder.join(".claude/rules/project.md")), "rules\n");
+    assert_eq!(state(&folder), state(&world.mac));
+    whole(&folder);
+}
+
+/// A seed whose WORK has a submodule at `at` (its folder not initialized, as a clone leaves
+/// one; no `.gitmodules`, so the seed never reaches for it over the network), held at its
+/// head: the barrier's state there and the job's status.
+fn submodule_at_head(label: &str, at: &str, want: &str) -> (String, Value) {
+    let world = World::new(label);
+    let lib = world.home.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    git(&lib, &["init", "-q", "-b", "main"]);
+    write(&lib.join("CLAUDE.md"), "lib\n");
+    git(&lib, &["add", "-A"]);
+    git(&lib, &["commit", "-q", "-m", "lib"]);
+    let commit = git(&lib, &["rev-parse", "HEAD"]);
+    let entry = format!("160000,{commit},{at}");
+    git(&world.mac, &["update-index", "--add", "--cacheinfo", &entry]);
+    std::fs::create_dir_all(world.mac.join(at)).unwrap();
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    let params = head_params(&world, &folder, &snapshot, None);
+    let (service, job, release) = held_at_head(&world, &params, &folder);
+    let probed = if want == "head" { settled_head(&folder) } else { barrier_state(&folder) };
+    let reported = status(&service, &job);
+    drop(release);
+    let done = wait(&service, &job);
+    assert_eq!(done["state"], "done", "{label}: {done}");
+    (probed, reported)
+}
+
+/// [`barrier_state`] once it reads the head, or after 5 s. The seed lets go of the head lock
+/// before it says so, but a git another test thread forked at that moment holds a copy of
+/// the descriptor until it execs, so the probe may read the lock as held for a moment
+/// (cmuxterm-hq goals/cloud-no-network-wait.md). Taking a lock never lags: a test that
+/// wants `syncing` reads it once.
+fn settled_head(folder: &Path) -> String {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let now = barrier_state(folder);
+        if now == "head" || Instant::now() >= deadline {
+            return now;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// The probe's answer, and for a syncing folder which of its sidecar locks are held, so a
+/// failure says why it read short of its head.
+fn barrier_state(folder: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+    let answer = match probe(folder).unwrap() {
+        Probe::Ready(_) => return "ready".into(),
+        Probe::HeadReady => return "head".into(),
+        Probe::Syncing => "syncing",
+        Probe::Incomplete => return "incomplete".into(),
+    };
+    let name = folder.file_name().unwrap().as_bytes();
+    let marker = folder.parent().unwrap().join(format!(".cmux-sync-{:x}", Sha256::digest(name)));
+    let held = |suffix: &str| {
+        let mut path = marker.clone().into_os_string();
+        path.push(suffix);
+        let file = match std::fs::File::open(&path) {
+            Ok(file) => file,
+            Err(error) => return error.kind().to_string(),
+        };
+        // SAFETY: the descriptor is live for the call; the lock goes with the file.
+        let taken = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
+        (taken != 0).to_string()
+    };
+    let (marker_held, head, owner) = (held(""), held(".head"), held(".owner"));
+    format!("{answer} (held: marker {marker_held}, head {head}, owner {owner})")
+}
+
+/// Review F1 (cmux#39018, 4f2b22b): a `.claude` kept as a submodule is an empty folder at
+/// the head (submodules come after the fill), so the head is never marked.
+#[test]
+fn a_harness_folder_kept_as_a_submodule_is_never_marked() {
+    let (probed, reported) = submodule_at_head("head-sub-harness", ".claude", "syncing");
+    assert!(probed.starts_with("syncing"), "{probed}");
+    assert!(reported["head_ready"].is_null(), "{reported}");
+}
+
+/// A submodule off the head leaves it marked: barrier and status say the same.
+#[test]
+fn a_submodule_off_the_head_leaves_it_marked() {
+    let (probed, reported) = submodule_at_head("head-sub-elsewhere", "vendor/lib", "head");
+    assert_eq!(reported["head_ready"], true, "{reported}");
+    assert_eq!(probed, "head", "{reported}");
 }

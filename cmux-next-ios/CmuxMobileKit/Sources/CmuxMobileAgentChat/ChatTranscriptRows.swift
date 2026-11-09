@@ -22,6 +22,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// The turn's prompt is another agent's message: its card (AgentIncomingCard), not the person's
         /// bubble, with the images and files the prompt carried.
         case incoming(AgentIncoming, attachments: [AgentAttachment], at: Date)
+        /// A message steered into the running turn, where it went in: the person's bubble, or
+        /// another agent's card (`incoming`). It takes none of the turn prompt's edit actions.
+        case steer(SteeredMessage)
         /// One block of the agent message `messageID` (the whole message is copied).
         case block(messageID: String, block: MarkdownBlock)
         case thought(text: String, isLive: Bool)
@@ -183,7 +186,7 @@ final class ChatTranscriptBuilder {
     private func assignSenderTones(_ turns: [AgentTurn]) {
         var added = false
         for turn in turns {
-            for message in turn.incoming?.messages ?? [] {
+            for message in Self.incomingMessages(turn) {
                 guard let id = message.senderID, senderFirstSeen[id] == nil else { continue }
                 senderFirstSeen[id] = turn.promptAt.timeIntervalSince1970
                 added = true
@@ -193,9 +196,18 @@ final class ChatTranscriptBuilder {
         senderTones = tones.assign(senderFirstSeen.map { AgentTones.Agent(id: $0.key, startedAt: $0.value) })
     }
 
+    /// Other agents' messages in `turn`: its prompt's card, then the cards steered into it.
+    private static func incomingMessages(_ turn: AgentTurn) -> [AgentIncoming.Message] {
+        var out = turn.incoming?.messages ?? []
+        for case .steer(let steered) in turn.items {
+            out += steered.incoming?.messages ?? []
+        }
+        return out
+    }
+
     private func turnTones(_ turn: AgentTurn) -> [String: Int] {
         var out: [String: Int] = [:]
-        for message in turn.incoming?.messages ?? [] {
+        for message in Self.incomingMessages(turn) {
             if let id = message.senderID, let tone = senderTones[id] { out[id] = tone }
         }
         return out
@@ -282,6 +294,9 @@ final class ChatTranscriptBuilder {
                 if let question = turn.question(id) { add(row.id, .question(question)) }
             case .subagents(_, let ids):
                 add(row.id, .subagents(ids))
+            case .steer(var message):
+                message.incoming = message.incoming.map { Self.toned($0, context.senderTones) }
+                add(row.id, .steer(message))
             }
         }
         if let wrapUp {

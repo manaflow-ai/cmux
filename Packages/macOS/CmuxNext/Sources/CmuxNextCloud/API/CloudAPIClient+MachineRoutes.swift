@@ -20,13 +20,16 @@ extension CloudAPIClient {
     /// (cmux-platform#89, backend cloud-machine-guest.ts). Only those routes serve there.
     /// `machineIO`: its exec and file routes go through cmux-tui (``CloudMachineIO``), which reaches
     /// the machine's provider directly with a client session when it can and the same routes here
-    /// otherwise; a cmux-tui that gives no answer falls back to these routes.
+    /// otherwise; a cmux-tui that gives no answer falls back to these routes. `installToken`: this Mac's
+    /// install token, for the one route that takes an install, not a session (``listNetworks()``).
     public static func workerMachines(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
                                       teamID: @escaping TeamID, session: URLSession = CloudAPIClient.noStoreTransport,
-                                      appVersion: String = "cmux-next", machineIO: CloudMachineIO? = nil) -> CloudAPIClient {
+                                      appVersion: String = "cmux-next", machineIO: CloudMachineIO? = nil,
+                                      installToken: (@Sendable () async throws -> String)? = nil) -> CloudAPIClient {
         var client = CloudAPIClient(baseURL: baseURL, tokens: { (try await accessToken(), "") }, teamID: teamID, session: session,
                                     appVersion: appVersion)
         client.machineIO = machineIO
+        client.installToken = installToken
         return client
     }
 

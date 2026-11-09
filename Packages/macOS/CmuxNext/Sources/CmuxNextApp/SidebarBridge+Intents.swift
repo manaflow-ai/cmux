@@ -21,6 +21,11 @@ extension SidebarBridge {
             doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.edits.dropFold(group) }
             return
         }
+        // A row still being created: the daemon has no workspace to move yet, so its drop is the create's slot.
+        if case let .reorder(ids, position) = intent, !ids.isEmpty, ids.allSatisfy(model.isCreating) {
+            if !services.windows.reslotCreates(ids.map(\.rawValue), at: position, in: state.id, sections: model.sections) { resync() }
+            return
+        }
         if CloudCreationRows.handle(intent, bridge: self, state: state) || services.sidebarDoc.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
@@ -42,7 +47,7 @@ extension SidebarBridge {
             case .snapBack, nil: return resync()
             }
         }
-        if usesPersonalOrganization, PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
+        if usesPersonalOrganization, groupFlow.sendsUnderDaemonID(intent) || PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
             // A placeholder row is no workspace: never claimed or shown.

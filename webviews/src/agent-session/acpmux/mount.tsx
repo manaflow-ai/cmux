@@ -6,3 +6,5 @@ import "../../ui/controls.css";
 import "./composerFooterShared.css";
 import "./diffTokens.css";
 import "./styles.css";
+// The UI inspector's outline, label and hint (uiPointer/overlay.ts).
+import "./uiPointer/uiPointer.css";

@@ -17,6 +17,12 @@
 //!   restarted daemon ([`Hub::bg_notify_resume`]) watches only tasks whose end is still owed.
 //! - A chat that is stopped, closing or purged, a daemon that is shutting down, and a record of
 //!   another folder generation get none (the mark stays unwritten).
+//! - A task a Claude Code subagent started through MCP (`Record::subagent`, `subagent_call.rs`)
+//!   brings its end to that subagent while it runs, as a lane's no-wait report does
+//!   (`lane_report_subagents.rs`): left in its folder, handed over after its next Bash or acpmux
+//!   MCP call, and marked sent once left. One it never took, or one that ended after it stopped
+//!   or while no subagent runs, goes to the chat, saying whose it was (W5-M, 2026-11-08: the end of a subagent's
+//!   `acpmux run` task carried a lane's reply into its lead's chat).
 
 use super::bg_tasks::{bg_generation, bg_view};
 use super::*;
@@ -93,14 +99,40 @@ impl Hub {
         {
             return;
         }
-        let view = bg_view(dir, &record, 0);
-        let (summary, status) = bg_run::outcome(&view);
-        let severity = if status == "ok" { "info" } else { "warn" };
-        let notice = json!({"sender": SENDER, "severity": severity, "title": summary});
-        let body = notice_body(dir, &record);
+        // A subagent's task: its end goes to that subagent while it runs, as a lane's report.
+        if let Some(sub) = &record.subagent
+            && self.bg_end_to_subagent(&session, dir, &record, sub)
+        {
+            return;
+        }
+        // Its subagent stopped, or none runs: the chat gets it, saying whose it was.
+        self.bg_end_to_chat(&session, dir, &record, record.subagent.as_ref()).await;
+    }
+
+    /// Sends task `record`'s end to its chat `session`, saying it is for subagent `ended` (one
+    /// that started the task and ended before it took the end).
+    async fn bg_end_to_chat(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        dir: &Path,
+        record: &Record,
+        ended: Option<&Value>,
+    ) {
+        let id = record.id.as_str();
+        let notice = end_notice(dir, record);
+        let mut body = notice_body(dir, record);
+        if let Some(label) = super::lane_report_subagents::label(ended) {
+            body.push_str(&format!(
+                "\nThis task end is for your {label}, which started the task and has ended, so it \
+comes to you."
+            ));
+        }
         let text = crate::prompt_provenance::notice_text(&notice, &body);
         let mut provenance = crate::prompt_provenance::notice(&notice, &session.id);
         provenance.set("bgTaskId", json!(id));
+        if let Some(sub) = ended {
+            provenance.set(super::lane_report_subagents::FOR_SUBAGENT, sub.clone());
+        }
         let mark = bg_run::notified_path(dir, id);
         let opts = PromptOptions {
             prompt_id: Some(format!("{PROMPT_PREFIX}{id}")),
@@ -119,13 +151,88 @@ impl Hub {
         };
         let blocks = vec![json!({"type": "text", "text": text})];
         // Never steered: it waits for a running turn to end.
-        if let Err(e) = self.prompt_with(&session, blocks, SENDER, false, opts).await {
+        if let Err(e) = self.prompt_with(session, blocks, SENDER, false, opts).await {
             // Held for a person who resumes the pair: it goes in then.
             if e.data.as_ref().is_none_or(|d| d["held"] != true) {
                 tracing::warn!(session = %session.id, task = %id, "a task's end: {}", e.message);
             }
         }
     }
+}
+
+impl Hub {
+    /// Leaves task `record`'s end for subagent `sub` (`{id, type}`) of `session`, which started
+    /// it: true when it is left (the subagent's hook hands it over after its next Bash or acpmux
+    /// MCP call, `bg_hook.rs`), false when that subagent stopped or none of `session` runs, so
+    /// the end goes to `session` itself. Once left, the end counts as sent (`.notified`): a
+    /// restart finds it in the subagent's folder (`subagent_notice.rs`), not owed here. A crash
+    /// between leaving it and the mark leaves it again at the next start: the subagent may then
+    /// read it twice (the chat's path has `resend` for this; the subagent's has none).
+    fn bg_end_to_subagent(
+        &self,
+        session: &Session,
+        dir: &Path,
+        record: &Record,
+        sub: &Value,
+    ) -> bool {
+        let notice = end_notice(dir, record);
+        let text = format!(
+            "[acpmux] A background task you started ended:\n{}",
+            crate::prompt_provenance::notice_text(&notice, &notice_body(dir, record))
+        );
+        // Only the task's id: the sweep finds its folder from the chat (`bg_end_swept`).
+        let left = json!({"text": text, "bgTask": record.id, "forSubagent": sub});
+        let prompt_id = format!("{PROMPT_PREFIX}{}", record.id);
+        if !self.subagent_notice_leave(session, sub, &prompt_id, &left) {
+            return false;
+        }
+        if let Err(e) = std::fs::write(bg_run::notified_path(dir, &record.id), b"") {
+            tracing::warn!(task = %record.id, "a task end left for a subagent was not marked: {e}");
+        }
+        true
+    }
+
+    /// A task end left for a subagent that none took (`lane_report_subagents.rs` sweep): to
+    /// chat `session_id`, saying whose it was. Only a task of that chat's own folder, of its
+    /// current generation, whose end was asked for. Its sent mark is removed first: until the
+    /// chat takes it (`on_accepted` marks it again), a restarted daemon still owes it
+    /// ([`Hub::bg_notify_resume`]), so a failed or cut-short send loses nothing.
+    pub(super) async fn bg_end_swept(self: &Arc<Self>, session_id: &str, left: &Value) {
+        let Some(id) = left
+            .get("bgTask")
+            .and_then(Value::as_str)
+            .filter(|id| crate::subagent_notice::name_word(id))
+        else {
+            return;
+        };
+        let session =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let Some(session) = session else { return };
+        let dir = self.bg_dir(&session);
+        let Some(record) = bg_run::read_record(&dir, id)
+            .filter(|r| r.notify && r.session_id == session.id)
+            .filter(|r| bg_generation(&dir, false).ok().as_deref() == Some(r.generation.as_str()))
+        else {
+            return;
+        };
+        let _ = std::fs::remove_file(bg_run::notified_path(&dir, id));
+        if self.stopping.load(Ordering::SeqCst)
+            || session.closing.load(Ordering::SeqCst)
+            || session.purged.load(Ordering::SeqCst)
+            || session.status() == SessionStatus::Closed
+        {
+            return;
+        }
+        self.bg_end_to_chat(&session, &dir, &record, left.get("forSubagent")).await;
+    }
+}
+
+/// The end's notice: its outcome as the title, `warn` unless it went well.
+fn end_notice(dir: &Path, record: &Record) -> Value {
+    let view = bg_view(dir, record, 0);
+    let (summary, status) = bg_run::outcome(&view);
+    let severity = if status == "ok" { "info" } else { "warn" };
+    json!({"sender": SENDER, "severity": severity, "title": summary})
 }
 
 /// The message's body: the task's id and command, and its last [`NOTICE_LINES`] lines.

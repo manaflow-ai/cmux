@@ -64,6 +64,7 @@ export interface AcpmuxRequests {
   "_acpmux/forum/rules": { params: ForumRulesParams; result: unknown };
   "_acpmux/set_tools": { params: SetToolsParams; result: unknown };
   "_acpmux/set_directories": { params: unknown; result: unknown };
+  "_acpmux/project_new": { params: unknown; result: unknown };
   "_acpmux/mcp/reconnect": { params: McpReconnectParams; result: unknown };
   "_acpmux/subagent_stop": { params: SubagentStopParams; result: unknown };
   "_acpmux/subagent_transcript": { params: SubagentTranscriptParams; result: unknown };
@@ -74,6 +75,7 @@ export interface AcpmuxRequests {
   "_acpmux/ledger": { params: unknown; result: unknown };
   "_acpmux/workspace_purge": { params: unknown; result: unknown };
   "_acpmux/review_queue": { params: unknown; result: unknown };
+  "_acpmux/review_brief": { params: unknown; result: unknown };
   "_acpmux/review_verdict": { params: unknown; result: unknown };
   "_acpmux/audit": { params: unknown; result: unknown };
   "_acpmux/github_action": { params: unknown; result: unknown };
@@ -288,6 +290,9 @@ export interface AcpmuxRequests {
   "_acpmux/machine_consent_set": { params: unknown; result: unknown };
   "_acpmux/machine_consent_get": { params: unknown; result: unknown };
   "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
+  "_acpmux/machine.tunnel.attach": { params: unknown; result: unknown };
+  "_acpmux/machine.tunnel.detach": { params: unknown; result: unknown };
+  "_acpmux/machine.tunnel.rekey": { params: unknown; result: unknown };
   "_acpmux/pair_redeem": { params: unknown; result: unknown };
   "_acpmux/vault_pull": { params: unknown; result: unknown };
   "_acpmux/vault_forget": { params: unknown; result: unknown };
@@ -402,6 +407,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/forum/rules", kind: "request", acp: false, typed: true },
   { name: "_acpmux/set_tools", kind: "request", acp: false, typed: true },
   { name: "_acpmux/set_directories", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/project_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp/reconnect", kind: "request", acp: false, typed: true },
   { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: true },
   { name: "_acpmux/subagent_transcript", kind: "request", acp: false, typed: true },
@@ -412,6 +418,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/ledger", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workspace_purge", kind: "request", acp: false, typed: false },
   { name: "_acpmux/review_queue", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/review_brief", kind: "request", acp: false, typed: false },
   { name: "_acpmux/review_verdict", kind: "request", acp: false, typed: false },
   { name: "_acpmux/audit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/github_action", kind: "request", acp: false, typed: false },
@@ -630,6 +637,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_consent_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine.tunnel.attach", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine.tunnel.detach", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine.tunnel.rekey", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
   { name: "_acpmux/vault_pull", kind: "request", acp: false, typed: false },
   { name: "_acpmux/vault_forget", kind: "request", acp: false, typed: false },
