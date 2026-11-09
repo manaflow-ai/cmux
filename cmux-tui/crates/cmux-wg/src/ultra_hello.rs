@@ -16,12 +16,22 @@
 //! hello therefore drops a hello, never hands it to a service. The port the
 //! first hellos used, 4103, is remote desktop's.
 //!
+//! Each side picks a random instance number when its tunnel starts, sends it
+//! in every hello, and acknowledges the peer's hello by echoing the peer's
+//! number. An acknowledgement counts only when it echoes this instance, so a
+//! retry the peer queued for an earlier instance of this side (one that
+//! restarted) is not taken as one. A hello with a new instance number is a
+//! restarted peer: this side starts the exchange over with it.
+//!
 //! A hello goes out as soon as a session exists, ahead of that pass's data,
-//! and again at 0.25, 0.5, 1 and 2 s until the peer's hello says it heard
-//! this side's. A hello is answered at once when it has not heard this
-//! side's, or when this side has not yet said it heard the peer's, so a
-//! clean exchange is three hellos. An older peer never answers: after
-//! [`TRIES`] hellos this side stops and keeps its own mode.
+//! and again at 0.25, 0.5, 1 and 2 s until the peer acknowledges it. Each
+//! hello also says whether its sender has been acknowledged. A hello is
+//! answered at once when it does not acknowledge this side, when its sender
+//! is still waiting for this side's acknowledgement (the one this side sent
+//! was lost), or when this side has not yet acknowledged the peer's, so a
+//! clean exchange is three hellos, and any four hellos of a restart can be
+//! lost. An older peer never answers: after [`TRIES`] hellos this side stops
+//! and keeps its own mode.
 
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
@@ -35,10 +45,14 @@ use crate::ultra::UltraMode;
 /// with path probes (different magic and length).
 pub(crate) const HELLO_PORT: u16 = cmux_transport::probe::PROBE_PORT;
 const MAGIC: [u8; 4] = *b"CMXU";
-const VERSION: u8 = 1;
-const LEN: usize = 9;
-/// The `heard` flag: the sender has the receiver's hello.
+/// 2: the instance numbers. Version 1 (9 bytes, port 4103) is not read.
+const VERSION: u8 = 2;
+const LEN: usize = 25;
+/// The `heard` flag: the sender has the receiver's hello, whose instance
+/// number it echoes.
 const HEARD: u8 = 1;
+/// The `acknowledged` flag: the receiver acknowledged the sender's hello.
+const ACKNOWLEDGED: u8 = 2;
 /// Hellos sent before an unanswered side gives up.
 const TRIES: usize = 5;
 /// The wait after each hello, before the next.
@@ -49,11 +63,15 @@ const BACKOFF: [Duration; TRIES - 1] = [
     Duration::from_secs(2),
 ];
 
-/// One hello: the sender's own mode, and whether it has the receiver's.
+/// One hello: the sender's own mode and instance, the instance of the
+/// receiver's hello it has, if any, and whether the receiver acknowledged
+/// the sender's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Hello {
     pub(crate) mode: UltraMode,
-    pub(crate) heard: bool,
+    pub(crate) instance: u64,
+    pub(crate) heard: Option<u64>,
+    pub(crate) acknowledged: bool,
 }
 
 impl Hello {
@@ -62,20 +80,29 @@ impl Hello {
         let mut bytes = [0u8; LEN];
         bytes[..4].copy_from_slice(&MAGIC);
         bytes[4] = VERSION;
-        bytes[5] = if self.heard { HEARD } else { 0 };
+        bytes[5] = if self.heard.is_some() { HEARD } else { 0 }
+            | if self.acknowledged { ACKNOWLEDGED } else { 0 };
         bytes[6] = kind;
         bytes[7] = a;
         bytes[8] = b;
+        bytes[9..17].copy_from_slice(&self.instance.to_be_bytes());
+        bytes[17..25].copy_from_slice(&self.heard.unwrap_or(0).to_be_bytes());
         bytes
     }
 
     fn decode(payload: &[u8]) -> Option<Self> {
-        let bytes: [u8; LEN] = payload.try_into().ok()?;
-        let [m0, m1, m2, m3, version, flags, kind, a, b] = bytes;
-        if [m0, m1, m2, m3] != MAGIC || version != VERSION {
+        let bytes: &[u8; LEN] = payload.try_into().ok()?;
+        if bytes[..4] != MAGIC || bytes[4] != VERSION {
             return None;
         }
-        Some(Self { mode: UltraMode::from_wire(kind, a, b), heard: flags & HEARD != 0 })
+        let number = |range: std::ops::Range<usize>| {
+            bytes.get(range).and_then(|slice| slice.try_into().ok()).map(u64::from_be_bytes)
+        };
+        let instance = number(9..17)?;
+        let heard = (bytes[5] & HEARD != 0).then(|| number(17..25)).flatten();
+        let acknowledged = bytes[5] & ACKNOWLEDGED != 0;
+        let mode = UltraMode::from_wire(bytes[6], bytes[7], bytes[8]);
+        Some(Self { mode, instance, heard, acknowledged })
     }
 }
 
@@ -95,23 +122,40 @@ pub(crate) fn decode(packet: &[u8]) -> Option<Hello> {
     Hello::decode(payload)
 }
 
+/// A random instance number for a tunnel that is starting.
+fn fresh_instance() -> u64 {
+    let mut bytes = [0u8; 8];
+    // Without operating system randomness the clock still tells two starts
+    // apart.
+    if getrandom::fill(&mut bytes).is_err() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_nanos());
+        bytes = (nanos as u64).to_be_bytes();
+    }
+    u64::from_be_bytes(bytes)
+}
+
 /// One tunnel's side of the agreement.
 #[derive(Debug)]
 pub(crate) struct Negotiation {
     /// The mode this side was started with.
     configured: UltraMode,
-    /// The peer's mode, once its hello arrived.
-    peer: Option<UltraMode>,
-    /// The peer's hello said it has this side's.
+    /// This side's instance number.
+    instance: u64,
+    /// The peer's mode and instance, once its hello arrived.
+    peer: Option<(UltraMode, u64)>,
+    /// The peer's hello echoed this side's instance.
     acknowledged: bool,
     /// Hellos sent without an acknowledgement.
     sent: usize,
     /// When the next unacknowledged hello is due; `None` before the first.
     next: Option<Instant>,
-    /// This side sent a hello saying it has the peer's.
+    /// This side sent a hello acknowledging the peer's current instance.
     told: bool,
-    /// A hello arrived that had not heard this side's, or before this side
-    /// said it has the peer's: answer it.
+    /// A hello arrived that did not acknowledge this side, whose sender is
+    /// still waiting for an acknowledgement, or before this side acknowledged
+    /// the peer's: answer it.
     answer: bool,
     /// Off only to stand in for a build without the hello (tests): it sends
     /// none, and a hello reaching it is an ordinary packet.
@@ -120,8 +164,13 @@ pub(crate) struct Negotiation {
 
 impl Negotiation {
     pub(crate) fn new(configured: UltraMode) -> Self {
+        Self::with_instance(configured, fresh_instance())
+    }
+
+    fn with_instance(configured: UltraMode, instance: u64) -> Self {
         Self {
             configured,
+            instance,
             peer: None,
             acknowledged: false,
             sent: 0,
@@ -147,22 +196,32 @@ impl Negotiation {
     /// the peer's hello arrives.
     pub(crate) fn mode(&self) -> UltraMode {
         match self.peer {
-            Some(peer) => UltraMode::agree(self.configured, peer),
+            Some((peer, _)) => UltraMode::agree(self.configured, peer),
             None => self.configured,
         }
     }
 
     /// Take the peer's hello. Returns the mode to send in now.
     pub(crate) fn receive(&mut self, hello: Hello) -> UltraMode {
-        self.peer = Some(hello.mode);
-        if hello.heard {
+        let restarted = self.peer.is_some_and(|(_, instance)| instance != hello.instance);
+        if restarted {
+            // A new instance of the peer knows nothing of this side: start
+            // over, so this side's hellos go out again until it acknowledges
+            // them, whatever the old instance had heard.
+            self.acknowledged = false;
+            self.sent = 0;
+            self.next = None;
+            self.told = false;
+        }
+        self.peer = Some((hello.mode, hello.instance));
+        if hello.heard == Some(self.instance) {
             self.acknowledged = true;
             self.next = None;
         } else {
-            // A restarted peer: it needs this side's hello again.
+            // It has not heard this instance (or heard an earlier one).
             self.told = false;
         }
-        self.answer |= !self.told;
+        self.answer |= !self.told || !hello.acknowledged;
         self.mode()
     }
 
@@ -170,8 +229,12 @@ impl Negotiation {
     /// session exists) and reports it with [`Negotiation::sent`].
     pub(crate) fn due(&self, now: Instant) -> Option<Hello> {
         let retry = !self.acknowledged && self.sent < TRIES && self.next.is_none_or(|at| now >= at);
-        (self.enabled && (self.answer || retry))
-            .then_some(Hello { mode: self.configured, heard: self.peer.is_some() })
+        (self.enabled && (self.answer || retry)).then_some(Hello {
+            mode: self.configured,
+            instance: self.instance,
+            heard: self.peer.map(|(_, instance)| instance),
+            acknowledged: self.acknowledged,
+        })
     }
 
     pub(crate) fn sent(&mut self, now: Instant) {
@@ -202,46 +265,54 @@ mod tests {
     const FEC: UltraMode = UltraMode::Fec { group: 8, parity: 2 };
     const RS: UltraMode = UltraMode::Rs { group: 4, parity: 4 };
 
+    fn addresses() -> (IpAddr, IpAddr) {
+        (IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)))
+    }
+
     #[test]
     fn a_hello_round_trips_through_its_packet() {
-        let (a, b) =
-            (IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
+        let (a, b) = addresses();
         for mode in [UltraMode::Off, UltraMode::Duplicate { copies: 3 }, FEC, RS] {
-            for heard in [false, true] {
-                let hello = Hello { mode, heard };
-                assert_eq!(decode(&packet(a, b, hello)), Some(hello));
+            for heard in [None, Some(0), Some(u64::MAX)] {
+                for acknowledged in [false, true] {
+                    let instance = 0x0123_4567_89ab_cdef;
+                    let hello = Hello { mode, instance, heard, acknowledged };
+                    assert_eq!(decode(&packet(a, b, hello)), Some(hello));
+                }
             }
         }
         let probe = udp::packet(SocketAddr::new(a, 4102), SocketAddr::new(b, 4102), &[0; 15]);
         assert_eq!(decode(&probe), None, "a probe is not a hello");
-        let mut wrong = Hello { mode: FEC, heard: false }.encode();
+        let mut wrong = Hello { mode: FEC, instance: 1, heard: None, acknowledged: false }.encode();
         wrong[0] ^= 1;
         assert_eq!(Hello::decode(&wrong), None, "the magic is checked");
     }
 
     /// The hello rides the probe port, which no build lets a service bind,
-    /// and a build that knows only probes refuses it as one; the same bytes
-    /// on remote desktop's port 4103 are application data.
+    /// and a build that knows only probes refuses it as one; the 9-byte
+    /// version-1 hello on remote desktop's port 4103 is application data.
     #[test]
     fn a_hello_is_never_application_data() {
-        let (a, b) =
-            (IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
-        let hello = Hello { mode: RS, heard: true };
+        let (a, b) = addresses();
+        let hello = Hello { mode: RS, instance: 7, heard: Some(9), acknowledged: true };
         let bytes = packet(a, b, hello);
         let (_, destination, payload) = udp::parse(&bytes).unwrap();
         assert_eq!(destination.port(), cmux_transport::probe::PROBE_PORT);
         assert_ne!(payload.len(), PROBE_LEN);
         assert!(Probe::decode(payload).is_err(), "an older build's probe parser drops it");
-        let media =
-            udp::packet(SocketAddr::new(a, 4103), SocketAddr::new(b, 4103), &hello.encode());
+        let old = [b'C', b'M', b'X', b'U', 1, 0, 3, 4, 4];
+        let media = udp::packet(SocketAddr::new(a, 4103), SocketAddr::new(b, 4103), &old);
         assert_eq!(decode(&media), None, "remote desktop's payload is its own");
     }
 
     #[test]
     fn an_unknown_kind_reads_as_off() {
-        let mut bytes = Hello { mode: FEC, heard: true }.encode();
+        let mut bytes =
+            Hello { mode: FEC, instance: 3, heard: Some(4), acknowledged: true }.encode();
         bytes[6] = 0xEE;
-        assert_eq!(Hello::decode(&bytes), Some(Hello { mode: UltraMode::Off, heard: true }));
+        let expected =
+            Hello { mode: UltraMode::Off, instance: 3, heard: Some(4), acknowledged: true };
+        assert_eq!(Hello::decode(&bytes), Some(expected));
     }
 
     #[test]
@@ -259,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn a_peer_cannot_ask_for_more_than_four_times_the_bytes() {
+    fn a_peer_cannot_ask_for_more_than_four_times_the_datagrams() {
         let costly = UltraMode::Rs { group: 1, parity: 15 };
         assert_eq!(UltraMode::agree(FEC, costly), FEC, "16x is refused");
         assert_eq!(UltraMode::agree(costly, FEC), costly, "this side's own mode stays");
@@ -315,16 +386,111 @@ mod tests {
     /// answered even after this side's own retries ended.
     #[test]
     fn a_restarted_peer_is_answered() {
-        let mut side = Negotiation::new(UltraMode::Off);
+        let mut side = Negotiation::with_instance(UltraMode::Off, 1);
         let now = Instant::now();
-        side.receive(Hello { mode: FEC, heard: true });
-        assert_eq!(side.due(now), Some(Hello { mode: UltraMode::Off, heard: true }));
+        side.receive(Hello { mode: FEC, instance: 10, heard: Some(1), acknowledged: false });
+        let answer =
+            Hello { mode: UltraMode::Off, instance: 1, heard: Some(10), acknowledged: true };
+        assert_eq!(side.due(now), Some(answer));
         side.sent(now);
         assert!(side.due(now).is_none(), "acknowledged both ways");
-        side.receive(Hello { mode: RS, heard: false });
-        assert_eq!(side.due(now), Some(Hello { mode: UltraMode::Off, heard: true }));
+        side.receive(Hello { mode: RS, instance: 11, heard: None, acknowledged: false });
+        let answer =
+            Hello { mode: UltraMode::Off, instance: 1, heard: Some(11), acknowledged: false };
+        assert_eq!(side.due(now), Some(answer), "it starts over with the new instance");
         side.sent(now);
-        assert!(side.due(now).is_none());
         assert_eq!(side.mode(), RS);
+        side.receive(Hello { mode: RS, instance: 11, heard: Some(1), acknowledged: true });
+        assert!(side.due(now).is_none(), "the new instance acknowledged this side");
+    }
+
+    /// Hellos between two sides over a link that loses the ones `lost`
+    /// picks (by the order they were sent, from 0), for `steps` ticks of
+    /// 50 ms. Returns how many were sent.
+    fn exchange(
+        a: &mut Negotiation,
+        b: &mut Negotiation,
+        start: Instant,
+        steps: u32,
+        lost: &dyn Fn(usize) -> bool,
+    ) -> usize {
+        let mut sent = 0;
+        for step in 0..steps {
+            let now = start + Duration::from_millis(50) * step;
+            for forward in [true, false] {
+                let (from, to) = if forward { (&mut *a, &mut *b) } else { (&mut *b, &mut *a) };
+                if let Some(hello) = from.due(now) {
+                    from.sent(now);
+                    if !lost(sent) {
+                        to.receive(hello);
+                    }
+                    sent += 1;
+                }
+            }
+        }
+        sent
+    }
+
+    /// The case the instance numbers exist for. The surviving side heard the
+    /// peer's old instance but not yet been acknowledged, so its retries say
+    /// it heard the peer. The peer restarts in another mode, and its first
+    /// hello and its answer to the survivor's retry are both lost. Before,
+    /// the restarted side took that retry as an acknowledgement and went
+    /// quiet, and the two sides kept different modes; now the retry
+    /// acknowledges no one, the restarted side keeps trying, and both land
+    /// on the same mode.
+    #[test]
+    fn a_stale_acknowledgement_does_not_end_a_restarted_peers_hellos() {
+        let start = Instant::now();
+        let mut survivor = Negotiation::with_instance(UltraMode::Off, 1);
+        let old = Negotiation::with_instance(UltraMode::Off, 2);
+        // The old instance's hello arrived; the survivor's own was lost, so
+        // it is still retrying, now saying it heard instance 2.
+        survivor.receive(old.due(start).unwrap());
+        survivor.sent(start);
+        let retry = survivor.due(start + Duration::from_secs(1)).unwrap();
+        assert_eq!(retry.heard, Some(2));
+
+        let mut restarted = Negotiation::with_instance(FEC, 3);
+        // Its first hello is lost.
+        restarted.sent(start);
+        // The survivor's retry arrives; the answer to it is lost.
+        restarted.receive(retry);
+        assert!(!restarted.acknowledged, "an acknowledgement of instance 2 is not one of 3");
+        assert!(restarted.due(start).is_some(), "it answers");
+        restarted.sent(start);
+
+        let later = start + Duration::from_millis(100);
+        exchange(&mut survivor, &mut restarted, later, 200, &|_| false);
+        assert_eq!(survivor.mode(), FEC);
+        assert_eq!(restarted.mode(), FEC);
+        assert!(survivor.acknowledged && restarted.acknowledged);
+        let quiet = later + Duration::from_secs(60);
+        assert!(survivor.due(quiet).is_none() && restarted.due(quiet).is_none());
+    }
+
+    /// A peer that restarts after the two sides went quiet: the survivor
+    /// starts over with the new instance (even after its own retries ran
+    /// out), and both send in the new agreement and go quiet, whichever four
+    /// of the first ten hellos after the restart are lost.
+    #[test]
+    fn a_peer_restart_resets_the_negotiation_through_loss() {
+        let start = Instant::now();
+        for lost in (0u32..1 << 10).filter(|mask| mask.count_ones() <= 4) {
+            let mut survivor = Negotiation::with_instance(UltraMode::Off, 1);
+            let mut old = Negotiation::with_instance(RS, 2);
+            exchange(&mut survivor, &mut old, start, 200, &|_| false);
+            assert_eq!(survivor.mode(), RS);
+            assert!(survivor.due(start + Duration::from_secs(60)).is_none());
+
+            let mut restarted = Negotiation::with_instance(FEC, 3);
+            let later = start + Duration::from_secs(60);
+            let lose = |n: usize| n < 10 && lost & (1 << n) != 0;
+            exchange(&mut survivor, &mut restarted, later, 400, &lose);
+            assert_eq!((survivor.mode(), restarted.mode()), (FEC, FEC), "lost {lost:010b}");
+            assert!(survivor.acknowledged && restarted.acknowledged, "lost {lost:010b}");
+            let quiet = later + Duration::from_secs(120);
+            assert!(survivor.due(quiet).is_none() && restarted.due(quiet).is_none());
+        }
     }
 }
