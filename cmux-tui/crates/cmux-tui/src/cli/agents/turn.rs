@@ -489,13 +489,18 @@ fn newest_prompt_back(chat: &str, socket: Option<&Path>) -> Result<u64, Value> {
     for _ in 0..MAX_BACK_PAGES {
         let page =
             chat::acp::events_before(chat, before, BACK_PAGE, socket).map_err(unavailable(chat))?;
-        let events = page.get("events").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let events =
+            page.get("events").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
         if let Some(seq) = newest_prompt(events) {
             return Ok(seq);
         }
         let oldest = events.iter().filter_map(|event| event["seq"].as_u64()).min();
         match oldest {
-            Some(oldest) if page.get("hasMore").and_then(Value::as_bool) == Some(true) && oldest > 1 => before = oldest,
+            Some(oldest)
+                if page.get("hasMore").and_then(Value::as_bool) == Some(true) && oldest > 1 =>
+            {
+                before = oldest
+            }
             _ => return Ok(0),
         }
     }
