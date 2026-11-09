@@ -177,14 +177,33 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
                 }
               }
           }
-          // The placeholder owns its line, above +, with the reference's clear separation. The
-          // lower controls have equal 8px edge insets, while the text starts 16px into the box.
+          // The placeholder owns its line, above +. Leo 2026-11-08: "we need to not have our thing
+          // be so tall maybe but also ... have more padding on the bottom": the text starts 12px
+          // under the box's top and 16px in, the row stands 16px under it and 12px over the box's
+          // bottom (was 16, 24 and 8: 98.75px empty, now 90.75px), + and Send 8px from the sides.
           const plus = codex.controls[".acpmux-composer-plus .acpmux-picker-button"]!;
           expect(codex.prompt).not.toBeNull();
-          expect(Math.abs(codex.prompt!.top - 16)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(codex.prompt!.top - 12)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(codex.prompt!.left - 16)).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(plus.top - codex.prompt!.bottom - 24)).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(codex.box.height - plus.bottom - 8)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(plus.top - codex.prompt!.bottom - 16)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(codex.box.height - plus.bottom - 12)).toBeLessThanOrEqual(0.5);
+          expect(codex.box.height).toBeLessThan(98.75 - 7.5);
+          // Leo 2026-11-08: "put the context ring to the left of the model picker". The right of
+          // the row reads ring, model, mic, Send; Claude's quiet row still ends on the ring.
+          const at = (geometry: typeof codex, selector: string) => geometry.controls[selector];
+          const ring = at(codex, ".acpmux-context-ring");
+          const model = at(codex, ".acpmux-model .acpmux-picker-button")!;
+          const codexMic = at(codex, ".acpmux-mic");
+          const codexSend = at(codex, ".acpmux-send")!;
+          expect(ring).toBeDefined();
+          expect(ring!.right).toBeLessThanOrEqual(model.left);
+          if (codexMic) {
+            expect(model.right).toBeLessThanOrEqual(codexMic.left);
+            expect(codexMic.right).toBeLessThanOrEqual(codexSend.left);
+          } else expect(model.right).toBeLessThanOrEqual(codexSend.left);
+          const claudeRing = at(claude, ".acpmux-context-ring");
+          if (claudeRing)
+            expect(claudeRing.left).toBeGreaterThanOrEqual(at(claude, ".acpmux-model .acpmux-picker-button")!.right);
           console.log(`COMPOSER_PROMPT_CONTROL_GAP ${theme}-${width} ${plus.top - codex.prompt!.bottom}`);
           // The switch keeps every control and both horizontal edge insets.
           expect(codex.box.height).toBeGreaterThan(claude.box.height + 20);

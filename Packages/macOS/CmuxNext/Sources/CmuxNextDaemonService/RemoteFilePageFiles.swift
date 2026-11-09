@@ -31,11 +31,45 @@ extension AgentPaneGitLink: RemoteFileClient {
     }
 }
 
+extension RemoteFileClient {
+    /// Whether `path` (absolute, on the machine) or a folder above it is a symlink there, or that
+    /// is not known, by each prefix's `fs.stat`, which answers a link's own kind. A path a chat's
+    /// reply names is checked against the deny list by its spelling only, so a link in it could
+    /// name a secret (`notes.md -> ~/.ssh/config`): such a path opens nothing. It fails closed: a
+    /// stat that fails counts as a link, except `fs.permission_denied` (a folder above the
+    /// machine's roots, which the daemon never reads through) and `fs.not_found` (nothing there to
+    /// read). A path deeper than ``RemoteFilePageFiles/linkCheckDepth`` folders counts as one.
+    ///
+    /// What this guards is the reply's text, not the machine: a link made on the machine between
+    /// this check and the page's read needs a process there, which can read the file itself, as
+    /// the chat's agent can and then show it in the reply.
+    public func reachesThroughLink(_ path: String) async -> Bool {
+        let parts = path.split(separator: "/")
+        guard parts.count <= RemoteFilePageFiles.linkCheckDepth else { return true }
+        var prefix = ""
+        for part in parts {
+            prefix += "/" + part
+            do {
+                if try await stat(prefix).kind == "symlink" { return true }
+            } catch {
+                switch RemoteFilePageFiles.code(of: error) {
+                case "fs.permission_denied": continue
+                case "fs.not_found": return false
+                default: return true
+                }
+            }
+        }
+        return false
+    }
+}
+
 /// A file page's file on another machine (#25581): read, saved and watched through that machine's
 /// daemon (`fs-v1`, served by Cloud VMs over their home folder), so a tab in a Cloud workspace
 /// shows the VM's file. A save replaces the file only at the revision the page's text was read
 /// at; the watch polls the file's revision (the daemon has no file events).
 public final class RemoteFilePageFiles: FilePageFiles {
+    /// The deepest path ``RemoteFileClient/reachesThroughLink(_:)`` checks, one stat per folder.
+    public static let linkCheckDepth = 64
     /// The largest file a page opens from a machine: the daemon's single-read cap.
     public static let maximumBytes = FileSystemReadRequest.maximumBytes
     /// Reads of a file that changes during each one before its revision counts as unknown.

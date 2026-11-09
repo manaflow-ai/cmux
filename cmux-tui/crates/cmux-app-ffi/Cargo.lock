@@ -100,6 +100,7 @@ dependencies = [
  "cmux-palette-ranker",
  "cmux-rd-ffi",
  "cmux-sdk-ffi",
+ "cmux-terminal-prediction",
 ]
 
 [[package]]
@@ -314,6 +315,10 @@ dependencies = [
  "serde_json",
  "sha2",
 ]
+
+[[package]]
+name = "cmux-terminal-prediction"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-window-rules"

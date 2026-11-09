@@ -31,7 +31,6 @@ public final class RemoteDesktopPaneView: NSView {
             addSubview(view)
         }
         toolbar.alphaValue = 0
-        toolbar.isHidden = true
         banner.isHidden = true
         card.isHidden = true
         upstreamIndicator.isHidden = true
@@ -112,18 +111,17 @@ public final class RemoteDesktopPaneView: NSView {
     private func updateToolbarVisibility(animated: Bool) {
         let visible = isHovering || (state?.pinsToolbar ?? true)
         let target: CGFloat = visible ? 1 : 0
-        guard toolbar.alphaValue != target || toolbar.isHidden == visible else { return }
-        // A transparent toolbar must not take clicks meant for the host.
-        if visible { toolbar.isHidden = false }
+        // A transparent toolbar must not take clicks meant for the host, but it is never hidden:
+        // a hidden view leaves the Accessibility tree, and VoiceOver could not reach Take over.
+        // A faded toolbar's controls refuse focus; one that holds it (a Take over click) hands it to the capture view.
+        if !visible, toolbar.holdsFocus { window?.makeFirstResponder(capture) }
+        toolbar.isRevealed = visible
+        guard toolbar.alphaValue != target else { return }
         guard animated else {
             toolbar.alphaValue = target
-            toolbar.isHidden = !visible
             return
         }
-        Motion.overlays.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target }, completion: { [weak self] in
-            guard let self, !self.isHovering, self.state?.pinsToolbar == false else { return }
-            self.toolbar.isHidden = true
-        })
+        Motion.overlays.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target })
     }
 
     // MARK: Layout

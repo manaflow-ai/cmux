@@ -7,9 +7,8 @@
 // when the list or the sort changes.
 import { memo, useMemo, useState } from "react";
 import { useT, type Translate } from "../i18n";
-import { AgentMark } from "../../shared/AgentMark";
 import { agentTone } from "../subagents/agentTones";
-import { TonedIcon } from "../subagents/TonedIcon";
+import { SenderIcon } from "../subagents/SenderIcon";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { UsageEntry } from "./usageEntries";
@@ -241,15 +240,12 @@ export const UsageSection = memo(function UsageSection({
                   entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
                 const mark = (
                   <span className="acpmux-lineage__icon">
-                    {entry.harness ? (
-                      <AgentMark
-                        agent={entry.harness}
-                        size={ROW_ICON}
-                        fallback={<TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(entry.sessionId)} row />}
-                      />
-                    ) : (
-                      <TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(entry.sessionId)} row />
-                    )}
+                    <SenderIcon
+                      harness={entry.harness}
+                      tone={agentTone(entry.sessionId)}
+                      size={ROW_ICON}
+                      fallback="agent.chat"
+                    />
                   </span>
                 );
                 const body = (

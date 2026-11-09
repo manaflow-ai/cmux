@@ -36,4 +36,29 @@ enum SidebarLaneFixture {
                                   state: pick.0, since: since, error: pick.0 == .failed ? pick.step : nil, step: pick.step,
                                   unread: pick.unread, usageWarnings: pick.0 == .working ? usageWarnings : [])]
     }
+    /// Sample agent chats for `agent_chat.list` in captures: three folders, every state a thread
+    /// list draws (needs you, working, done unseen, failed, idle), at fixed ages before `now`.
+    static func chats(now: Date) -> [AgentActivityLane] {
+        typealias Sample = (title: String, project: String, harness: String, state: AgentActivityLane.State, unread: Bool,
+                            step: String?, minutes: Double, pulls: Int)
+        let samples: [Sample] = [
+            ("Approve the schema migration", "api", "claude", .input, false, "Asking to run the migration", 2, 0),
+            ("Move the sidebar renderer to AppKit", "desktop", "codex", .working, false, "Running the test suite", 4, 0),
+            ("Fix the flaky upload test", "desktop", "claude", .idle, true, "Opened the pull request", 7, 1),
+            ("Bump the toolchain to 0.17", "terminal", "codex", .failed, false, "Build failed in build.zig", 26, 0),
+            ("Index the docs for search", "api", "claude", .working, false, "Embedding 1,204 pages", 1, 0),
+            ("Font fallback for CJK glyphs", "terminal", "claude", .idle, false, nil, 130, 1),
+            ("Rate limits on the public API", "api", "codex", .idle, false, nil, 300, 0),
+            ("Release notes for 1.4", "desktop", "claude", .idle, false, nil, 60 * 26, 1),
+        ]
+        return samples.enumerated().map { index, sample in
+            let at = now.addingTimeInterval(-sample.minutes * 60)
+            return AgentActivityLane(id: "fixture-chat-\(index)", name: sample.title, title: sample.title, peer: nil, parent: nil,
+                                     state: sample.state, since: at, error: sample.state == .failed ? sample.step : nil,
+                                     harness: sample.harness, step: sample.step, unread: sample.unread, project: sample.project,
+                                     cwd: "/Users/you/src/\(sample.project)",
+                                     pullRequests: (0..<sample.pulls).map { "https://github.com/you/\(sample.project)/pull/\(40 + index + $0)" },
+                                     updatedAt: at, createdAt: at.addingTimeInterval(-15 * 60))
+        }
+    }
 }

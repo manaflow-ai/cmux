@@ -394,7 +394,11 @@
    "name": "browser",
    "meaning": "Browser / web page / site",
    "sf": "globe",
-   "family": "browser"
+   "family": "browser",
+   "overrides": [
+    "globe",
+    "globe.badge.chevron.backward"
+   ]
   },
   {
    "name": "browser.extensions.manage",
@@ -1013,6 +1017,24 @@
    "meaning": "Session is on a git branch.",
    "sf": "questionmark.square.dashed",
    "family": "git"
+  },
+  {
+   "name": "git.issue",
+   "meaning": "Open issue (a GitHub issue link's card and chip).",
+   "sf": "questionmark.square.dashed",
+   "family": "git"
+  },
+  {
+   "name": "git.issue.closed",
+   "meaning": "Issue closed as completed.",
+   "sf": "questionmark.square.dashed",
+   "family": "git.issue"
+  },
+  {
+   "name": "git.issue.notplanned",
+   "meaning": "Issue closed as not planned.",
+   "sf": "questionmark.square.dashed",
+   "family": "git.issue"
   },
   {
    "name": "git.pullrequest",
@@ -1918,7 +1940,10 @@
    "name": "terminal",
    "meaning": "Terminal",
    "sf": "terminal",
-   "family": "terminal"
+   "family": "terminal",
+   "overrides": [
+    "terminal"
+   ]
   },
   {
    "name": "terminal.copymode",

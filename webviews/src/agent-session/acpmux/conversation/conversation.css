@@ -7,10 +7,14 @@
    their own cast. Percentages are measured against #f8f8f3 on #272823. */
 
 :root {
-  /* The fold: a collapsible's body opening or closing, and its chevron turning (fold.ts). The host's
-     move duration (--agent-motion-move, AgentPaneTheme.swift: the motion scale's standard 180ms, 0 under Reduce Motion or with
-     animation off), the token the newtab-resize-anim lane's resizes share; 180ms without a host. */
-  --cv-fold-duration: var(--agent-motion-move, 180ms);
+  /* The fold: a collapsible's body opening or closing, and its chevron turning (fold.ts), on the one fold
+     curve every web fold shares, the settle (--cmux-ease-settle over --cmux-motion-settle, schemas/motion-scale):
+     a strong ease-out that starts at full speed and decelerates into its end, never past it (Leo,
+     2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").
+     A host move duration of 0 (--agent-motion-move under Reduce Motion or with animation off) still
+     makes it instant (fold.ts foldMotion.duration). */
+  --cv-fold-duration: var(--cmux-motion-settle, 265ms);
+  --cv-fold-ease: var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
   --cv-text-dim: var(--agent-soft); /* progress rows */
@@ -31,15 +35,15 @@
   --cv-link: color-mix(in srgb, var(--cv-fg) 79%, transparent); /* #cccabe */
   /* Type and column: system-ui at 14px on 22.75px lines, 13px code (reference
      shell/tokens.css and conversation.css). The transcript, the composer and everything between
-     them share one column: 720px, widening with a wide pane to an 800px cap as Codex and Claude
-     desktop do, centered, never nearer the pane's sides than the page edge (--page-edge, #20121).
-     model.ts transcriptColumn mirrors it. */
+     them share one column: Chat Text Width (800px by default; chatDisplay.ts sets another width or
+     Full Width), capped only by the pane, centered, never nearer the pane's sides than the page edge
+     (--page-edge, #20121). model.ts transcriptColumn mirrors it. */
   --cv-font-size: 14px;
   --cv-line-height: 22.75px;
   /* CSS px grow with the page zoom. Divide the caps by the effective zoom so the column's
      on-screen measure remains the same when Interface Scale or Agent Chat Zoom changes. */
   --cv-ui-scale: var(--cmux-ui-scale, 1);
-  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 62.5%, calc(800px / var(--cv-ui-scale)));
+  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(800px / var(--cv-ui-scale)));
   --cv-edge: var(--grid-icon-box);
   /* Resolved where it is used: 100% is the pane's width there. Rounded to a whole pixel only, so the
      default column stays --cv-column's width. */
@@ -68,11 +72,24 @@
   --cv-glyph-slot: var(--grid-transcript-icon-box);
   --cv-glyph-line: var(--grid-transcript-icon-box);
   --cv-disclosure-slot: var(--grid-transcript-icon-box);
-  --cv-footer-control-slot: var(--grid-transcript-action-control);
+  /* One icon button for every message action row: a prompt's, another agent's message's, a sent
+     line's and a reply footer's, Claude Code desktop's 24 square around a 16 glyph, 4 of room on
+     each side (Leo, 2026-11-08: "the symbols for yours and the symbols for mine, the sizes are
+     different. Like mine are a bit bigger than yours. I feel like mine are too big"). Retry's model
+     chevron is a 12 glyph `--cv-action-chevron-gap` after Retry's, its box ending the same 4 past it,
+     so Retry's one hover box has even room at both ends ("on the left side, it's too tucked in, and
+     on the right side, it's too far away. We need the Goldilocks here";
+     MessageActionRows.gallery.tsx tries 2, 4, 6 and 12). The rows' line (--cv-meta-row) keeps its
+     height, so nothing in the transcript moves. */
+  --cv-action-button: calc(24px * var(--cmux-interface-scale, 1));
+  --cv-action-glyph: var(--grid-transcript-icon-box);
+  --cv-action-inset: calc((var(--cv-action-button) - var(--cv-action-glyph)) / 2);
+  --cv-action-chevron-glyph: calc(12px * var(--cmux-interface-scale, 1));
+  --cv-action-chevron-gap: calc(4px * var(--cmux-interface-scale, 1));
+  --cv-footer-control-slot: var(--cv-action-button);
   /* #28629's message indent on the grid: a message card's content starts on the text column. */
   --cv-message-inline-gap: var(--grid-gap);
   --cv-message-indent: var(--grid-transcript-text-gap);
-  --cv-footer-chevron-slot: var(--cv-footer-control-slot);
   --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 0px;
   --cv-tool-run-top-gap: 0px;
@@ -85,12 +102,12 @@
   --cv-footer-row: var(--grid-transcript-footer-control);
   /* Claude Code desktop's 24 buttons, touching, pitch 24 (Leo, 2026-11-04, beside Claude's: "spaing
      bad"): the row action box's 28 spread Copy, Read aloud and More a sixth wider than Claude's. */
-  --cv-footer-button: calc(24px * var(--cmux-interface-scale, 1));
-  --cv-footer-glyph: var(--grid-transcript-icon-box);
+  --cv-footer-button: var(--cv-action-button);
+  --cv-footer-glyph: var(--cv-action-glyph);
   /* Their ink at rest, a step under the muted text, full ink under the pointer (Leo, 2026-11-02:
      "AND THEY'RE REDUCED OPACITY A BIT TOO"). */
   --cv-footer-ink: color-mix(in srgb, var(--cv-text-muted) 72%, transparent);
-  --cv-footer-overhang: calc((var(--cv-footer-button) - var(--cv-footer-glyph)) / 2);
+  --cv-footer-overhang: var(--cv-action-inset);
   /* Base's names for the lines below, on the grid (grid.md 5.5): the gap is the stack's, so a line
      adds none of its own. */
   /* Another agent's message line, an inbox line and the heads of a report batch or the waiting
@@ -155,22 +172,6 @@
 :root[data-transcript-activity-tone="readable"] {
   --cv-activity-text: color-mix(in srgb, var(--cv-fg) 64%, transparent);
 }
-/* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
-   everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
-   prose keeps the standard 800px measure (--cv-prose) at the column's left edge. */
-:root[data-chat-width="wide"] {
-  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 62.5%, calc(960px / var(--cv-ui-scale)));
-}
-:root[data-chat-width="wideBlocks"] {
-  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 70%, calc(1120px / var(--cv-ui-scale)));
-  --cv-prose: calc(800px / var(--cv-ui-scale));
-}
-.cv-md > .cv-p,
-.cv-md > .cv-h,
-.cv-md > .cv-list,
-.cv-md > .cv-quote {
-  max-width: var(--cv-prose, none);
-}
 
 /* ---------- User bubble ---------- */
 
@@ -182,7 +183,7 @@
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: 20px;
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -199,6 +200,24 @@
 .cv-user__body {
   display: contents;
 }
+/* An attachment-only prompt has no text bubble. Keep a small positioned status anchor so its
+   delivery clock can sit beside the attachment row without inventing an empty glass surface. */
+.cv-user__bubble-wrap {
+  position: relative;
+}
+/* An attachment-only prompt's sending clock sits beside its last attachment band (UserBubble.tsx):
+   the band shrinks to its thumbnails and chips, so the clock is next to them. */
+.cv-user__images,
+.cv-user__files {
+  position: relative;
+}
+.cv-user__bubble-wrap.is-empty {
+  /* Attachment-only delivery has no bubble width to anchor against. Match the attachment band so
+     the clock sits beside its thumbnails instead of at the transcript edge. */
+  align-self: flex-end;
+  width: 70%;
+  min-height: var(--cv-line-height);
+}
 /* A prompt's bubble, as ChatGPT and Claude draw it (leo-workspace design/transcript-spacing.md
    "Prompt bubble"; transcriptSpacing.ts BUBBLE): one line is 44 tall (chatgpt.com 44, claude.ai 45),
    so the block padding is what the line leaves, (44 - line) / 2, at least the 4 base; 16 at the
@@ -214,7 +233,7 @@
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text);
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -532,7 +551,7 @@
   color: var(--agent-text);
 }
 
-/* A long prompt (PromptText.tsx, promptCollapse.ts): its first ten lines, the last one fading out
+/* A long prompt (PromptText.tsx, promptCollapse.ts): its first twenty lines, the last one fading out
    under a mask (the bubble's glass shows through, never a cover), with Show more under them: a plain
    text button whose hover brightens its text. model.ts estimates the same heights: change them together. */
 /* Drawn whole, the text is no box of its own: the bubble's padding alone insets it, as before. */
@@ -560,7 +579,7 @@
 }
 .cv-user__text.is-clamped {
   display: block;
-  max-height: calc(var(--cv-line-height) * 10);
+  max-height: calc(var(--cv-line-height) * 20);
   overflow: hidden;
 }
 .cv-user__text.is-faded {
@@ -583,118 +602,29 @@
   margin: 0 calc(-1 * var(--cv-bubble-pad-inline)) calc(-1 * var(--cv-bubble-pad-block));
   padding: 4px var(--cv-bubble-pad-inline) var(--cv-bubble-pad-block);
 }
-/* A pasted block: one card of the paste's own text, no outline, a quiet tint of the bubble's ink.
-   Closed, its first PASTE_PREVIEW_LINES lines wrap in the prompt's font, the last fading out, over
-   the composer's label; open, the same text runs whole above that label. Closed it is
-   pasteChipHeight (promptCollapse.ts): 4px around the card, 8px and 4px inside, a 20px label 4px
-   under the lines. */
-.cv-user__paste-block {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  padding: 4px 0;
-}
-.cv-user__paste-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 8px 12px 4px;
-  border-radius: 8px;
-  background: color-mix(in srgb, currentColor 6%, transparent);
-}
-.cv-user__paste-card:not([data-open]):hover {
-  background: color-mix(in srgb, currentColor 9%, transparent);
-}
-.cv-user__paste-text {
-  align-self: stretch;
+/* A paste another agent wrote, or a text file's body, apart from the message's one text body
+   (PromptText.tsx PastedText): its own lines in the bubble's ink, literal, with no card, border,
+   tint or fold of its own (ask-14d16a6247). Another agent's paste has a muted "Pasted from" line
+   over it, PASTE_FROM_HEIGHT (promptCollapse.ts): a 20px line 4px over the text. The person's own
+   pastes are the body's text (promptCollapse.ts oneBody) and draw nothing of their own. */
+.cv-user__pasted {
+  display: block;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.cv-user__paste-card:not([data-open]) .cv-user__paste-text {
-  max-height: calc(var(--cv-line-height) * 3);
-  overflow: hidden;
-  color: color-mix(in srgb, currentColor 82%, transparent);
-  user-select: none;
-  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
-  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
-}
-/* While the card slides shut (fold.ts playResize marks it data-fold-clip), its preview fills the
-   height the card has left, so the label rides the card's bottom edge up instead of jumping to its
-   closed place over empty space. */
-.cv-user__paste-card[data-fold-clip] {
-  box-sizing: border-box;
-}
-.cv-user__paste-card[data-fold-clip]:not([data-open]) .cv-user__paste-text {
-  flex: 1 1 0;
-  max-height: none;
-}
-.cv-user__paste {
+.cv-user__pasted-from {
   display: flex;
-  flex: none;
   align-items: center;
   gap: 4px;
-  max-width: 100%;
   height: 20px;
-  margin: 4px 0 0;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: none;
+  margin-bottom: 4px;
   color: var(--cv-text-muted);
-  font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: 20px;
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
   user-select: none;
 }
-.cv-user__paste:hover {
-  color: var(--cv-text);
-}
-.cv-user__paste:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
-  outline-offset: 1px;
-}
-.cv-user__paste-name,
-.cv-user__paste-lines {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cv-user__paste-name::after {
-  content: " · ";
-}
-.cv-user__paste-chevron {
-  flex: none;
-}
-.cv-user__paste-card[data-open] .cv-user__paste-chevron {
-  transform: rotate(180deg);
-}
-/* A paste that reads as another agent's output (PromptText.tsx PasteChip, pastedAgentLook): its
-   label names the agent. The rule arm adds an accent rule down the card's left edge, inside its
-   padding, so the card keeps its height and width. */
-.cv-user__paste-card[data-agent="rule"] {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--agent-accent) 70%, transparent);
-  background: color-mix(in srgb, var(--agent-accent) 7%, transparent);
-}
-.cv-user__paste-card[data-agent="rule"]:not([data-open]):hover {
-  background: color-mix(in srgb, var(--agent-accent) 11%, transparent);
-}
-.cv-user__paste-glyph {
-  flex: none;
-}
-.cv-user__paste-agent {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-  padding: 0 var(--ds-space-2);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
-  color: var(--cv-text);
-}
-
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
 .cv-user__status {
   display: flex;
@@ -779,6 +709,7 @@
    pane's right edge, its own width (data-enter, ui/presence.ts). */
 .acpmux-artifact {
   --ui-enter-distance: 100%;
+  position: relative;
   flex: 0 0 var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
   min-width: 0;
   display: flex;
@@ -788,8 +719,11 @@
   color: var(--agent-text);
   font-family: var(--cv-font);
 }
+/* Its width: a share of the pane, the default one until its left edge is dragged (SplitEdge sets
+   --acpmux-artifact-share on the shell). Never under 320px, and the chat beside it keeps 400px. */
 .acpmux-shell {
   --acpmux-artifact-push: 0px;
+  --acpmux-artifact-width: clamp(320px, var(--acpmux-artifact-share, min(46vw, 760px)), max(320px, 100vw - 400px));
 }
 /* A shell sibling must leave the offered native tab row clear, including when the narrow
    preview covers the chat. Its background belongs below the row, never in its tools hole. */
@@ -800,7 +734,7 @@
 /* The header lives in the chat column while Preview is a shell sibling. Keep its tools at the
    pane edge, across the Preview column, just as the inline Summary does. */
 .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) {
-  --acpmux-artifact-push: var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
+  --acpmux-artifact-push: var(--acpmux-artifact-width);
 }
 @media (max-width: 720px) {
   .acpmux-artifact {
@@ -808,6 +742,10 @@
     inset: 0;
     z-index: var(--layer-overlay);
     box-shadow: none;
+  }
+  /* Covering the pane, it splits nothing: no edge to drag. */
+  .acpmux-artifact > .ui-split-edge {
+    display: none;
   }
   .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) {
     --acpmux-artifact-push: 0px;
@@ -953,13 +891,13 @@
   line-height: normal;
 }
 .cv-message-footer-row .cv-iconbtn {
-  width: var(--cv-footer-control-slot);
-  height: var(--cv-footer-control-slot);
+  width: var(--cv-action-button);
+  height: var(--cv-action-button);
 }
-.cv-message-footer-row .cv-iconbtn > svg {
+.cv-message-footer-row .cv-iconbtn:not(.cv-turn-retry-menu) > svg {
   flex-shrink: 0;
-  width: var(--cv-glyph-slot);
-  height: var(--cv-glyph-slot);
+  width: var(--cv-action-glyph);
+  height: var(--cv-action-glyph);
 }
 /* Hover ramps need a fine pointer; keyboard focus shows them at full at once. */
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
@@ -976,6 +914,8 @@
   .cv-received:hover .cv-received-actions,
   .cv-received > .cv-disclosure__line:hover .cv-received__hover,
   .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
+  .cv-received > .cv-agentmsg__line:hover .cv-received__hover,
+  .cv-received > .cv-agentmsg__line:has([data-popup-open]) .cv-received__hover,
   .acpmux-assistant:hover .cv-reply-actions,
   .acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
@@ -1004,10 +944,10 @@
 .cv-user__actions--versions {
   opacity: 1;
 }
-/* The rows' icon buttons are Claude's 24px squares (the meta row's line), not the 20px compact ones. */
+/* The rows' icon buttons are Claude's 24px squares (--cv-action-button), not the 20px compact ones. */
 :is(.cv-user__actions, .cv-received-actions) .cv-iconbtn--compact:not(.cv-turn-retry-menu) {
-  width: var(--cv-meta-row);
-  height: var(--cv-meta-row);
+  width: var(--cv-action-button);
+  height: var(--cv-action-button);
 }
 /* At the end of another agent's message line (MessageActions.tsx ReceivedActions): the same row,
    on hover or focus only, no box. */
@@ -1050,9 +990,32 @@
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* A prompt's age keeps one width while it ticks ("just now", "1 minute ago", "59 minutes ago"),
+   its words set against Copy: the minute's new words replace the old in place, so the row, the
+   age's hover box and its tooltip never move (Leo, 2026-11-08: "sometimes the just now and whatever,
+   it becomes a bit weird ... Sometimes that one, like, flashes or flickers a bit"). Before, the box
+   grew by a word's width when "just now" turned into "1 minute ago", and the tooltip over it jumped.
+   The width it keeps is its first hour's widest words ("59 minutes ago", MessageTime's
+   data-age-widest) laid out in the row's own font as a hidden zero-height line, never a guessed
+   em count: a fixed 8em fit one machine's font and was 2.75 short on another's, so the box still
+   grew at "59 minutes ago". A longer age (a day's, another language's) still takes its own width. */
+.cv-user__actions .cv-message-footer-row > .cv-user__time {
+  display: inline-block;
+  /* 6 from its words to Copy's glyph, as before Copy's box became the 24 square. */
+  padding-inline-end: var(--grid-half-step);
+  line-height: var(--cv-footer-control-slot);
+  text-align: end;
+}
+.cv-user__actions .cv-message-footer-row > .cv-user__time::before {
+  display: block;
+  overflow: hidden;
+  height: 0;
+  visibility: hidden;
+  content: attr(data-age-widest);
+}
 /* At the end of another agent's message line its age comes straight before Copy. */
 .cv-received-actions .cv-user__time {
-  padding-inline-end: calc(var(--ds-space-3) - var(--cv-action-overhang));
+  padding-inline-end: calc(var(--ds-space-3) - var(--cv-action-inset));
 }
 .cv-user__dot {
   padding-inline: 4px;
@@ -1065,8 +1028,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--cv-meta-row);
-  height: var(--cv-meta-row);
+  width: var(--cv-action-button);
+  height: var(--cv-action-button);
   color: var(--cv-text-dim);
 }
 .cv-user__read.is-unread {
@@ -1160,7 +1123,7 @@
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text);
   -webkit-font-smoothing: antialiased;
 }
@@ -1455,8 +1418,33 @@
   overflow-x: auto;
   overflow-y: hidden;
 }
+/* The edge with more table past it fades out (sideways.ts marks it): the right edge, and the left
+   once scrolled (user 2026-11-07: "markdown missing fade now"). A mask, so the fade takes the
+   bubble's or the transcript's own background in light and dark; eased stops, so it never bands. */
+.cv-table-wrap {
+  --cv-table-fade-left: 0px;
+  --cv-table-fade-right: 0px;
+}
+.cv-table-wrap[data-more-left] {
+  --cv-table-fade-left: var(--cv-table-fade, 24px);
+}
 .cv-table-wrap[data-more-right] {
-  mask-image: linear-gradient(to left, transparent, #000 32px);
+  --cv-table-fade-right: var(--cv-table-fade, 24px);
+}
+.cv-table-wrap:is([data-more-left], [data-more-right]) {
+  --cv-table-mask: linear-gradient(
+    to right,
+    rgb(0 0 0 / 0) 0,
+    rgb(0 0 0 / 0.45) calc(var(--cv-table-fade-left) * 0.3),
+    rgb(0 0 0 / 0.8) calc(var(--cv-table-fade-left) * 0.6),
+    #000 var(--cv-table-fade-left),
+    #000 calc(100% - var(--cv-table-fade-right)),
+    rgb(0 0 0 / 0.8) calc(100% - var(--cv-table-fade-right) * 0.6),
+    rgb(0 0 0 / 0.45) calc(100% - var(--cv-table-fade-right) * 0.3),
+    rgb(0 0 0 / 0) 100%
+  );
+  -webkit-mask-image: var(--cv-table-mask);
+  mask-image: var(--cv-table-mask);
 }
 /* Columns fit their text (Leo, 2026-10-20: stretching the table to the column left a wide gap
    between a label and its value): the table is no wider than its text, and no wider than the
@@ -1988,7 +1976,7 @@ pre.cv-math-source {
   scroll-padding-bottom: var(--acpmux-dock-space, 0px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
   /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
      each streamed token compete with that correction and produces the one-pixel shake at rest. */
@@ -2291,7 +2279,7 @@ pre.cv-math-source {
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: 20px;
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-activity-text);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
@@ -2783,7 +2771,7 @@ pre.cv-math-source {
   margin: 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
 /* Tool work ends closer to the following reply than a full message does. The row's own min-height
@@ -2978,6 +2966,21 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
   /* The agent's words read in the transcript's ink, the calls around them grey (Lucas, 2026-11-06). */
   color: var(--cv-text);
 }
+/* The turn's two levels, compared in the gallery only (TurnLevels.gallery.ts): the shipped look is
+   the outer "Worked for … · N tool calls" line over inner run lines at their own weight, each run
+   between the agent's asides counting its own calls. `indented` sets the inner lines in by one icon
+   box and in the dim ink under the opened outer line; `guide` hangs them on a rule from the outer
+   line's glyph. Neither ships. */
+:root[data-turn-levels-look="indented"] :is(.cv-tools, .cv-tool-note) {
+  margin-inline-start: var(--grid-icon-box);
+}
+:root[data-turn-levels-look="indented"] .cv-tool.is-run {
+  color: var(--cv-text-dim);
+}
+:root[data-turn-levels-look="guide"] :is(.cv-tools, .cv-tool-note) {
+  padding-inline-start: var(--grid-icon-box);
+  box-shadow: inset 1px 0 var(--cv-rule);
+}
 .cv-tool__detail {
   color: var(--cv-text-dim);
 }
@@ -3123,8 +3126,13 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
 /* With Reduce Motion on, the chevron snaps to its new angle. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-rotor {
-    transition: transform var(--cv-fold-duration) var(--agent-ease-out, ease-out);
+    transition: transform var(--cv-fold-duration) var(--cv-fold-ease, var(--agent-ease-out, ease-out));
   }
+}
+/* The host's Reduce Motion or animation off (a move duration of 0, theme.ts) snaps it too, as the
+   fold's body does (fold.ts foldMotion.duration). */
+:root:is([data-agent-move="instant"], [data-agent-motion="off"]) .cv-rotor {
+  transition: none;
 }
 /* A collapsible's body (fold.ts sizes it while it opens or closes): its own block, so the body's
    margins stay inside the height the fold animates instead of popping in at its ends. */
@@ -3181,7 +3189,7 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
   display: contents;
 }
 .acpmux-row .cv-sent > .cv-sent__actions,
-.acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-sent-actions {
+.acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence > :is(.cv-sent-actions, .cv-received__hover) {
   order: 4;
 }
 .acpmux-row .cv-tool > .cv-tool__trail {
@@ -3977,6 +3985,31 @@ button.cv-video-frames__frame:focus-visible {
     transition: none;
   }
 }
+/* A running background command's page (PreviewChip.tsx): the globe and its address in the accent,
+   as the running line's parts read, at the edge where a running row has no mark. Never wraps; a long
+   address gives way first. */
+.cv-preview-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 24ch;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: default;
+}
+.cv-preview-chip__address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-preview-chip:hover .cv-preview-chip__address {
+  text-decoration: underline;
+}
+.cv-preview-chip:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {
   margin-left: auto;
@@ -4112,7 +4145,7 @@ button.cv-video-frames__frame:focus-visible {
 .cv-received {
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
   /* The transcript's text tone, as every message row between agents (AgentMessageRow.css "One line,
      inline"; Leo, 2026-11-03: "idk why everything is grey other than the recieving message bubble"). */
@@ -4134,7 +4167,7 @@ button.cv-video-frames__frame:focus-visible {
    the chevron ends at its right edge, as every tool row's do (design/chat-transcript.md "One icon
    column"; Leo, 2026-10-31: "the alignment i feel like we might as well"). The hover plate is the
    row's own box (the transcript row clips paint, so it can't bleed past the column). */
-.cv-received > .cv-disclosure__line {
+.cv-received > :is(.cv-disclosure__line, .cv-agentmsg__line) {
   position: relative;
   height: var(--cv-message-line);
   min-height: 0;
@@ -4149,7 +4182,7 @@ button.cv-video-frames__frame:focus-visible {
 /* No plate under the line on hover, as a sent message's and a tool's line have none (cmux#28113
    gave received lines one): pointing at it reveals its actions only, and pointing at the sender's
    name lights only the name (its own pill below). Keyboard focus keeps the plate, so focus shows. */
-.cv-received > .cv-disclosure__line:has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
+.cv-received > :is(.cv-disclosure__line, .cv-agentmsg__line):has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
@@ -4195,13 +4228,17 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-received > .cv-disclosure__line:hover .cv-received__hover,
 .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
+.cv-received > .cv-agentmsg__line:hover .cv-received__hover,
+.cv-received > .cv-agentmsg__line:has([data-popup-open]) .cv-received__hover,
 .cv-received__hover:focus-within,
 .cv-received__hover:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   opacity: 1;
   pointer-events: auto;
 }
 /* Pointing at the sender's open chip is not pointing at the line: its actions stay hidden. */
-.cv-received > .cv-disclosure__line:has(.cv-agent-tag.is-open:hover):not(:has([data-popup-open])) .cv-received__hover {
+.cv-received
+  > :is(.cv-disclosure__line, .cv-agentmsg__line):has(.cv-agent-tag.is-open:hover):not(:has([data-popup-open]))
+  .cv-received__hover {
   opacity: 0;
   pointer-events: none;
 }
@@ -4921,13 +4958,13 @@ a.cv-sha:focus-visible {
   justify-content: flex-end;
   padding-inline: 0 2px;
 }
-/* An empty footer's hover buttons fit the gap they lie in, with the controls' radius. */
+/* An empty footer's hover buttons are every action row's (--cv-action-button), with the controls' radius. */
 .cv-turn-actions .cv-iconbtn {
-  height: var(--cv-meta-row);
+  height: var(--cv-action-button);
   border-radius: var(--ds-radius-control);
 }
 .cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
-  width: var(--cv-meta-row);
+  width: var(--cv-action-button);
 }
 /* A reply's footer buttons: Claude's 24 squares (their radius on the grid's 6), each around a 16 glyph, in the
    muted footer ink until pointed at (--cv-footer-ink). */
@@ -4942,7 +4979,7 @@ a.cv-sha:focus-visible {
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu, .cv-turn-continue, .cv-turn-try-another) {
   width: var(--cv-footer-button);
 }
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn:not(.cv-turn-continue) > svg {
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn:not(.cv-turn-continue, .cv-turn-retry-menu) > svg {
   width: var(--cv-footer-glyph);
   height: var(--cv-footer-glyph);
 }
@@ -4969,7 +5006,7 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-actions--empty .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
 .cv-turn-actions--empty .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-turn-retry:first-child {
-  margin-inline-start: calc((var(--cv-glyph-slot) - var(--cv-meta-row)) / 2);
+  margin-inline-start: calc(-1 * var(--cv-action-inset));
 }
 /* That button's hover pill overhangs its row, which paint containment (styles.css .acpmux-row) would
    cut flat: the rows that hold an action row keep layout containment alone. */
@@ -5052,37 +5089,42 @@ a.cv-sha:focus-visible {
   padding: 0;
   margin-left: -3px;
 }
-.cv-message-footer-row .cv-iconbtn.cv-turn-retry-menu {
-  width: var(--cv-footer-chevron-slot);
-  min-width: var(--cv-footer-chevron-slot);
-  margin-left: 0;
-}
-/* A reply footer's Retry and its model switch are one split control, as Claude's and ChatGPT's
-   retry is one control: Retry's 28 square, then a 16 chevron slot tight against it with a 12 glyph,
-   under one hover pill that stays lit while the model menu is open (design/menus.md). Each half
-   takes full ink only under the pointer, the menu's chevron while it is open. */
+/* Retry and its model switch are one split control in every action row, a reply footer's and a
+   prompt's alike, as Claude's and ChatGPT's retry is one control: Retry's square, then the 12
+   chevron --cv-action-chevron-gap after Retry's glyph, its box ending --cv-action-inset past the
+   chevron as Retry's begins before its glyph, under one hover pill that stays lit while the model
+   menu is open (design/menus.md). Each half takes full ink only under the pointer, the menu's
+   chevron while it is open. Before, the footer tucked the chevron 2 from Retry and the prompt row
+   set it 12 away in a box of its own (Leo, 2026-11-08: "on the left side, it's too tucked in, and
+   on the right side, it's too far away"). */
 .cv-turn-retry {
   display: inline-flex;
   align-items: center;
+}
+.cv-turn-retry,
+.cv-message-retry {
   border-radius: var(--ds-radius-control);
 }
-.cv-turn-retry:has(> .cv-iconbtn:hover),
-.cv-turn-retry:has(> .cv-iconbtn[data-popup-open]) {
+:is(.cv-turn-retry, .cv-message-retry):has(> .cv-iconbtn:hover),
+:is(.cv-turn-retry, .cv-message-retry):has(> .cv-iconbtn[data-popup-open]) {
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }
-.cv-turn-retry > .cv-iconbtn:hover,
-.cv-turn-retry > .cv-iconbtn[data-popup-open] {
+:is(.cv-turn-retry, .cv-message-retry) > .cv-iconbtn:hover,
+:is(.cv-turn-retry, .cv-message-retry) > .cv-iconbtn[data-popup-open] {
   background: none;
 }
-.cv-turn-actions .cv-turn-retry > .cv-iconbtn.cv-turn-retry-menu {
-  width: var(--grid-transcript-icon-box);
-  min-width: var(--grid-transcript-icon-box);
-  margin-inline: calc(-1 * var(--cv-footer-overhang)) var(--grid-half-step);
+:is(.cv-turn-retry, .cv-message-retry) > .cv-iconbtn.cv-turn-retry-menu {
+  justify-content: flex-start;
+  width: calc(var(--cv-action-chevron-glyph) + var(--cv-action-inset));
+  min-width: calc(var(--cv-action-chevron-glyph) + var(--cv-action-inset));
+  height: var(--cv-action-button);
+  margin-inline: calc(var(--cv-action-chevron-gap) - var(--cv-action-inset)) 0;
+  padding: 0;
 }
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-turn-retry > .cv-iconbtn.cv-turn-retry-menu > svg,
-.cv-turn-actions--empty .cv-turn-retry > .cv-iconbtn.cv-turn-retry-menu > svg {
-  width: calc(12px * var(--cmux-interface-scale, 1));
-  height: calc(12px * var(--cmux-interface-scale, 1));
+:is(.cv-turn-retry, .cv-message-retry) > .cv-iconbtn.cv-turn-retry-menu > svg {
+  flex-shrink: 0;
+  width: var(--cv-action-chevron-glyph);
+  height: var(--cv-action-chevron-glyph);
 }
 .cv-turn-retry > .cv-iconbtn:disabled {
   opacity: 0.5;
@@ -5194,9 +5236,14 @@ a.cv-sha:focus-visible {
   color: var(--agent-accent, var(--cv-text));
   background: color-mix(in srgb, var(--agent-accent, currentColor) 14%, transparent);
 }
+/* Every reply's age in a prompt's age's type, its own row's too (MessageActions.tsx ReplyActions,
+   which has no footer rail), so the two ages read as one label (Leo, 2026-11-08: "they need to be
+   congruent"). */
 .cv-turn-time {
   flex: none;
   white-space: nowrap;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* Its Details fold: the chat's chevron after the label, no browser triangle. */
 .cv-turn-note__summary {
@@ -5249,6 +5296,7 @@ a.cv-sha:focus-visible {
   margin-top: calc((18px - var(--grid-icon-box)) / 2);
 }
 .cv-turn-error__actions {
+  --cv-fold-duration: var(--cmux-motion-micro);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -5289,7 +5337,7 @@ a.cv-sha:focus-visible {
   opacity: 0.6;
 }
 /* A Cloud chat's sign-in on its machine (CloudSignIn.tsx): a step takes its own line in the card's
-   actions, with no animation on open; only its controls highlight. */
+   actions. Controls change immediately; the action row resizes over the shared micro duration. */
 .cv-turn-signin {
   display: flex;
   flex-direction: column;
@@ -5395,8 +5443,88 @@ a.cv-sha:focus-visible {
 }
 @media (prefers-reduced-motion: reduce) {
   .cv-enter,
-  .acpmux-row--enter {
+  .acpmux-row--enter,
+  /* An arriving prompt or reply (acpmux-row--message-enter) fades too, with no reveal or rise. */
+  .acpmux-row--message-enter .acpmux-row__message-presentation {
     animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+
+/* SEND-ENTRANCE (Leo 2026-11-07, ask-bc3f176943: "there's space that's given to the user's message,
+ * and then the user's prompt, like, fades in from the right and, like, grows to the left ... and the
+ * push-up and the prompt. Like, it's all just one unified motion"). A prompt that arrives (the one the
+ * reader sent, or one sent from another device) comes in on the send motion (--agent-motion-send,
+ * --agent-ease-send): its row's room is laid out at once and the thread rises into it on the same
+ * clock (followGlide.ts `sent`), its bubble fades in anchored at its right edge and opens leftward to
+ * its width, and the thinking row that came with it fades in on the same clock. Only the bubble's
+ * clip and the ink move, never layout, so nothing reflows and the text never scales (an agent
+ * message keeps its plain fade: #34751). Reduce Motion keeps the fade: the system setting through the
+ * media query, the app's (move step 0, fades on) through --agent-motion-send-fade on the fade
+ * setting while the edge and the rise take the 0 move step. Motion off makes both tokens 0.
+ * The gallery's agent-pane.send-entrance compares the bubble's other entrances (`data-send-entrance`
+ * on an ancestor); the product's is `reveal`. */
+@keyframes cv-send-reveal {
+  from {
+    clip-path: inset(0 0 0 var(--cv-send-reveal-from, 45%) round var(--grid-cards-radius));
+  }
+  to {
+    clip-path: inset(0 0 0 0 round var(--grid-cards-radius));
+  }
+}
+@keyframes cv-send-grow {
+  from {
+    scale: 0.94;
+  }
+  to {
+    scale: 1;
+  }
+}
+@keyframes cv-send-slide {
+  from {
+    translate: 16px 0;
+  }
+  to {
+    translate: 0 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-user.acpmux-row--message-enter .acpmux-row__message-presentation,
+  .acpmux-user.acpmux-row--message-enter ~ .acpmux-thinking.acpmux-row--enter {
+    animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 265ms));
+    animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+  /* A sent picture or video appears in its slot, at its size, with the prompt: it only fades, on the
+     same clock, never rising or flying from the composer (Leo 2026-11-08, ask-104c134b68: "some
+     sort of, like, fly-in animation ... I feel like that's kind of weird"). One whose bytes come
+     later still fades in where it is, and so does one in a new chat's first prompt. */
+  .cv-user .cv-enter {
+    animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
+      both;
+  }
+  /* Backwards fill only: the clip is the entrance's, and once it ends the bubble draws unclipped, so
+     the "Sending" mark just outside its left edge (`.cv-user__delivery`) shows on a slow send. */
+  .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
+    animation: cv-send-reveal var(--agent-motion-send, 265ms) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
+      backwards;
+  }
+  /* The text comes in a beat behind the bubble's edge, so no letter shows cut at the edge. */
+  .acpmux-user.acpmux-row--message-enter .cv-user__bubble > * {
+    animation: cv-message-enter calc(var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) * 0.7)
+      var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--agent-motion-send, 265ms) * 0.3) both;
+  }
+  [data-send-entrance="grow"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
+    transform-origin: right bottom;
+    animation-name: cv-send-grow;
+  }
+  [data-send-entrance="slide"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
+    animation-name: cv-send-slide;
+  }
+  [data-send-entrance="fade"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble,
+  :is([data-send-entrance="grow"], [data-send-entrance="slide"], [data-send-entrance="fade"])
+    .acpmux-user.acpmux-row--message-enter
+    .cv-user__bubble
+    > * {
+    animation: none;
   }
 }
 
@@ -6051,9 +6179,16 @@ a.cv-sha:focus-visible {
     color-mix(in srgb, var(--agent-text) 6%, transparent)
   );
 }
-.acpmux-jump-latest:focus-visible {
-  outline: 2px solid var(--agent-accent);
-  outline-offset: 2px;
+/* Keyboard focus: the pane's focus pill (agent-session/shared/styles.css) laid over the glass, with
+   the glass's rim and shadow kept. The button opts out of the shared rule (data-focus-ring="none"),
+   whose `box-shadow: none` stripped the rim, so the focused disc read as a flat blot with no ring
+   (#38090's capture after #38126). The Needs you pill keeps the shared rule. */
+.acpmux-jump-latest[data-focus-ring="none"]:focus-visible {
+  outline: none;
+  background-image: linear-gradient(
+    var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent))),
+    var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent)))
+  );
 }
 .acpmux-inspecting > .acpmux-jump-latest {
   visibility: hidden;
@@ -6646,7 +6781,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   position: absolute;
   /* Starts on the prose's left edge, as .cv-reply-actions: the first button's margin alone moves its
      glyph's ink onto col-left. */
-  inset-inline: 0 calc(-1 * var(--cv-action-overhang));
+  inset-inline: 0 calc(-1 * var(--cv-action-inset));
   top: calc((var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
 /* One over a prompt sits in the middle of the turn gap under its reply (#29860). One over more of the
@@ -6675,7 +6810,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user__send-now {
   border: 0;
   padding: 0;
-  padding-inline: calc((var(--cv-footer-control-slot) - var(--cv-glyph-slot)) / 2);
+  padding-inline: var(--cv-action-inset);
   background: none;
   font: inherit;
   color: inherit;
@@ -6720,8 +6855,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--cv-meta-row);
-  height: var(--cv-meta-row);
+  width: var(--cv-action-button);
+  height: var(--cv-action-button);
   border: 0;
   padding: 0;
   background: none;
@@ -6733,7 +6868,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 /* What an X acpmux refused adds after it (PendingSteer.tsx): quiet text, spaced from the X and Copy
    as a glyph sits in its slot. */
 .cv-user__kept {
-  padding-inline: calc((var(--cv-footer-control-slot) - var(--cv-glyph-slot)) / 2);
+  padding-inline: var(--cv-action-inset);
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */
@@ -6881,6 +7016,32 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 :root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-glyph.is-answered {
   display: none;
 }
+/* An ask that opens under a line already drawn: the dot grows in from nothing, its room opening with
+   it (the 8px gap too), so the pill's words slide over in the same motion rather than jump (Leo,
+   2026-11-08: "I mostly just meant the yellow circle thing"). The house settle curve and step
+   (265 ms); with motion off or reduced the dot is simply there. */
+.cv-needs-input-glyph.is-asked {
+  animation: cv-needs-input-asked var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle) both;
+}
+@keyframes cv-needs-input-asked {
+  from {
+    width: 0;
+    margin-inline-end: -8px;
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-needs-input-glyph.is-asked {
+    animation: none;
+  }
+}
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-glyph.is-asked {
+  animation: none;
+}
 
 /* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`):
    the cause in the line's text color, the count and error muted, the error the part that gives way. */
@@ -6924,6 +7085,26 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   border-radius: var(--acpmux-file-chip-radius, 6px);
   background: var(--agent-control);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+}
+/* A text file's chip with no file behind it opens in place to the body it went as
+   (InlinePromptContent.tsx PromptTextFile): the same chip, a button with no look of its own. */
+button.cv-user__file-open {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: default;
+}
+button.cv-user__file-open:hover > .acpmux-file-chip {
+  background: var(--agent-control-hover, var(--agent-control));
+}
+button.cv-user__file-open:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 2px;
+  border-radius: var(--acpmux-file-chip-radius, 6px);
 }
 /* Markdown is one block stack. Text metrics stay independent of the spacing grid. */
 .cv-md > :is(.cv-p, .cv-h, .cv-list, .cv-quote, .cv-code, .cv-pre, .cv-table-wrap, .cv-math-display, hr),
@@ -6969,7 +7150,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
 .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
   position: absolute;
-  right: calc(-1 * var(--cv-action-overhang));
+  right: calc(-1 * var(--cv-action-inset));
   top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
   margin: 0;
   padding: 0;
@@ -7133,4 +7314,134 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
    "verbs-command"): what ran, under what it did. */
 .cv-command__dim {
   color: var(--cv-text-dim);
+}
+
+/* Where a prompt was sent from (SentFromLine.tsx): the sender chip, then "self-reported" when acpmux
+   could not confirm it. */
+.cv-user__sent-from {
+  align-items: center;
+  min-width: 0;
+}
+.cv-user__sent-from-note {
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
+
+/* "New since you looked" (SinceDivider.tsx): an accent hairline with its label and turn count, the
+   unread blue every status dot uses. 28px tall (model.ts), its recap's card under it. Placed when the
+   chat opens and kept until another one is, so nothing animates in or out. */
+.cv-since {
+  display: grid;
+  gap: var(--ds-space-2);
+  --cv-since-tint: var(--cmux-status-unread, #3982f5);
+}
+.cv-since__line {
+  display: flex;
+  margin: 0;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: 28px;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+.cv-since__line::before,
+.cv-since__line::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid color-mix(in srgb, var(--cv-since-tint) 55%, transparent);
+}
+.cv-since__label {
+  color: var(--cv-since-tint);
+  font-weight: var(--weight-emphasis);
+}
+.cv-since__count {
+  color: var(--cv-text-dim);
+}
+.cv-since__count::before {
+  content: "· ";
+}
+/* Lead (shipped): the words start where the transcript's text does, the hairline runs on. */
+.cv-since[data-look="lead"] .cv-since__line::before {
+  display: none;
+}
+/* Center: the words sit on the middle of the hairline. */
+/* End: the hairline runs from the text column and the words close it. */
+.cv-since[data-look="end"] .cv-since__line::after {
+  display: none;
+}
+
+/* Jump to new (SinceDivider.tsx SinceJump): a small glass button centered over the transcript's top,
+   the same glass and fade as Jump to latest. Mounted with the mark and only faded, so it never pops
+   in; Reduce Motion shows and hides it at once. Its arrow points to where the line is. */
+.acpmux-over-top {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: var(--layer-sticky, 10);
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+  pointer-events: none;
+}
+.acpmux-since-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-3);
+  border: 0;
+  /* A small-radius rect, as every agent pane control (test/agent-pane-no-capsules.test.ts). */
+  border-radius: var(--ds-radius-control);
+  --glass-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  --glass-elevation: var(--elevation-2);
+  color: var(--cmux-status-unread, #3982f5);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-since-jump {
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+}
+.acpmux-since-jump[data-shown] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.acpmux-since-jump:hover {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--agent-text) 6%, transparent),
+    color-mix(in srgb, var(--agent-text) 6%, transparent)
+  );
+}
+.acpmux-since-jump__arrow {
+  display: inline-grid;
+  place-items: center;
+}
+.acpmux-since-jump[data-side="above"] .acpmux-since-jump__arrow {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-since-jump {
+    transition: opacity var(--agent-motion-out) var(--agent-ease-out);
+  }
+  .acpmux-since-jump[data-shown] {
+    transition-duration: var(--agent-motion-in);
+  }
+}
+
+/* The `rule` look of a turn the agent ran on its own (gallery agent-pane.turn-after-subagent,
+   `data-turn-boundary`): a hairline centred in the turn gap over its first row
+   (VirtualTranscript.tsx `data-opens-turn`). Drawn in the gap the stack already places, so it adds no
+   height and moves no row. The shipped look is the gap and the turn's own footer alone. */
+:root[data-turn-boundary="rule"] .acpmux-row[data-opens-turn]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--grid-gap-turn) / -2);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--cv-rule);
+  pointer-events: none;
 }
