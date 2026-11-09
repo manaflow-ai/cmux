@@ -351,10 +351,11 @@ impl X11Desktop {
         let result = f(self, route);
         if lend_focus {
             let _ = self.send_focus(c.win, false);
-            // The person moved the real focus to the target meanwhile: it holds
-            // it, so it hears that again after the FocusOut above.
-            if self.focus_in(c).is_some() {
-                let _ = self.send_focus(c.win, true);
+            // The person moved the real focus into the target's app meanwhile
+            // (the target or another of its windows): that window holds it, so
+            // it hears that again after the FocusOut above.
+            if let Some(win) = self.real_focus_in_connection_of(c) {
+                let _ = self.send_focus(win, true);
             }
         }
         self.restore_keymap();
@@ -643,16 +644,19 @@ impl X11Desktop {
     }
 
     /// Whether keys for `c` (which does not hold the keyboard focus) need a
-    /// lent FocusIn. Only when it is safe for the person:
+    /// lent FocusIn. Only when it is safe for the person, and every read that
+    /// fails means no:
     /// - the client tracks focus from events (its `WM_PROTOCOLS` read worked
     ///   and has neither `WM_TAKE_FOCUS` nor `_NET_WM_PING`: Tk, Xt/Motif,
     ///   plain Xlib), and is not xterm (it ignores synthetic keys anyway);
-    /// - no input method server runs (`XIM_SERVERS`): XIM clients move the
-    ///   one focused input context on FocusIn, away from the person's app;
-    /// - the window that really gets the person's keys (the focus owner, or
-    ///   with PointerRoot or root focus the window under the pointer) is not
-    ///   of the same process: Tk keeps one focus record per application, so
-    ///   a lend would send the person's keys to the target or drop them.
+    /// - no input method server runs (`XIM_SERVERS` read and empty): XIM
+    ///   clients move the one focused input context on FocusIn, away from
+    ///   the person's app;
+    /// - the window that really gets the person's keys (the focus window, or
+    ///   with PointerRoot or root focus the window under the pointer) was not
+    ///   made by the target's X connection: Tk keeps one focus record per
+    ///   connection, so a lend would send the person's keys to the target or
+    ///   drop them. Menus and dropdowns (override-redirect) count too.
     fn needs_lent_focus(&self, c: &Client) -> bool {
         let a = &self.atoms;
         let Some(protocols) = super::read_protocols(&self.conn, c.win, a.wm_protocols) else {
@@ -663,8 +667,11 @@ impl X11Desktop {
         {
             return false;
         }
-        if !self.prop32(self.root, a.xim_servers, xproto::AtomEnum::ATOM).is_empty() {
-            return false;
+        let xim =
+            self.conn.get_property(false, self.root, a.xim_servers, xproto::AtomEnum::ATOM, 0, 1);
+        match xim.ok().and_then(|r| r.reply().ok()) {
+            Some(r) if r.value_len == 0 && r.bytes_after == 0 => {}
+            _ => return false,
         }
         let Some(focus) = self.conn.get_input_focus().ok().and_then(|r| r.reply().ok()) else {
             return false;
@@ -675,21 +682,37 @@ impl X11Desktop {
                 return false;
             };
             match self.top_at(Point { x: f64::from(p.root_x), y: f64::from(p.root_y) }) {
-                Some(frame) => frame,
+                // A window manager frame belongs to the window manager: use the
+                // client window inside it. Anything else is its own window.
+                Some(top) => match self.clients() {
+                    Ok(clients) => {
+                        clients.iter().find(|o| o.frame_win == top).map_or(top, |o| o.win)
+                    }
+                    Err(_) => return false,
+                },
+                // Nothing under the pointer: the keys go to the root window.
                 None => return true,
             }
         } else {
-            self.top_of(focus.focus)
+            focus.focus
         };
-        if receiver == c.frame_win {
-            return false;
+        !super::same_connection(receiver, c.win, self.conn.setup().resource_id_mask)
+    }
+
+    /// After a lend: the window that really holds the keyboard focus when it
+    /// was made by the target's connection (the person focused the target or
+    /// another window of its app meanwhile), as the top-level window that
+    /// hears focus events; `None` otherwise.
+    fn real_focus_in_connection_of(&self, c: &Client) -> Option<XWindow> {
+        let focus = self.conn.get_input_focus().ok()?.reply().ok()?.focus;
+        if focus <= 1 || focus == self.root {
+            return None;
         }
-        let Ok(clients) = self.clients() else { return false };
-        match clients.iter().find(|o| o.frame_win == receiver) {
-            Some(owner) => owner.pid == 0 || owner.pid != c.pid,
-            // Not a managed client (a panel, our overlay): no app focus record to break.
-            None => true,
+        if !super::same_connection(focus, c.win, self.conn.setup().resource_id_mask) {
+            return None;
         }
+        let top = self.top_of(focus);
+        Some(self.clients().ok()?.into_iter().find(|o| o.frame_win == top).map_or(focus, |o| o.win))
     }
 
     /// A synthetic FocusIn (or FocusOut) to one window only.

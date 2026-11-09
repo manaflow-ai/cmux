@@ -281,3 +281,15 @@ fn only_old_protocol_clients_get_a_lent_focus() {
     // Chromium: _NET_WM_PING without WM_TAKE_FOCUS.
     assert!(!x11::tracks_focus_from_events(&[delete, ping], take_focus, ping));
 }
+
+#[test]
+fn windows_compare_by_the_connection_that_made_them() {
+    // The usual mask: each client gets 0x1fffff resource ids.
+    let mask = 0x001f_ffff;
+    // The same Tk app: two top-levels, and a combobox dropdown it made.
+    assert!(x11::same_connection(0x0140_0003, 0x0140_00a1, mask));
+    assert!(x11::same_connection(0x0140_0003, 0x015f_ff2b, mask));
+    // Another app, and the window manager's frame around the first app.
+    assert!(!x11::same_connection(0x0140_0003, 0x0160_0003, mask));
+    assert!(!x11::same_connection(0x0140_0003, 0x0020_0011, mask));
+}

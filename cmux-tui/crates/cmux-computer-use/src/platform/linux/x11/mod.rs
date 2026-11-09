@@ -116,10 +116,20 @@ pub(crate) fn read_protocols(
 ) -> Option<Vec<Atom>> {
     let r =
         conn.get_property(false, win, wm_protocols, AtomEnum::ATOM, 0, 256).ok()?.reply().ok()?;
-    if r.format == 0 {
+    if r.format == 0 && r.type_ == u32::from(AtomEnum::NONE) {
         return Some(Vec::new());
     }
+    if r.type_ != u32::from(AtomEnum::ATOM) {
+        return None;
+    }
     Some(r.value32()?.collect())
+}
+
+/// Whether two windows were created by the same X connection (the client
+/// part of a resource id: the bits outside the server's `resource_id_mask`).
+/// Tk, Xt and Xlib apps keep their focus state per connection.
+pub(crate) fn same_connection(a: XWindow, b: XWindow, resource_id_mask: u32) -> bool {
+    a & !resource_id_mask == b & !resource_id_mask
 }
 
 /// One client window as X11 describes it.
