@@ -3845,6 +3845,46 @@ jobs:
           rm -rf "$dir/binaries"
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
 
+  # The signed Linux release files (cmuxterm-hq docs/design/linux-signed-packages.md): for every
+  # published build, cmux-tui/<sha>/release.json (written once) and the channel pointer
+  # cmux-tui/channels/linux-<channel>.json, both the same envelope and key as the Cloud machine
+  # channel, with purpose cmux-linux-release so neither file stands in for the other. The payload
+  # names the URL, sha256 and size of cmux-tui and cmux-tui-hook for every Linux target the manifest
+  # publishes, each checked against a download (scripts/ci/cmux-machine-channel.py --purpose
+  # linux-release), and a version that sorts by commit time. The pointer only moves forward
+  # (web-ota-pointer.py newer). A delivery step for the installers, not a gate: nothing needs it.
+  sign-linux-release:
+    environment: artifacts
+    name: sign the Linux release file of this commit
+    needs: [publish, verify-publish]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Sign and upload the release file and the channel pointer
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/linux-release"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          curl -fsS --retry 3 --max-time 60 -o "$dir/manifest.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?linux-release=$GITHUB_RUN_ID"
+          python3 scripts/ci/cmux-machine-channel.py payload --purpose linux-release --channel feat-cmux-next \
+            --manifest "$dir/manifest.json" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
+            --download-dir "$dir/binaries" --out "$dir/payload.json"
+          rm -rf "$dir/binaries"
+          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
+
   # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
   # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
   # build changes what the image carries; its concurrency keeps one roll running and replaces a waiting one.

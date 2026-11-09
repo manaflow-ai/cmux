@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Make the payload of the Cloud machine channel (cmux-tui/channels/cloud-machine.json).
+"""Make the payload of the Cloud machine channel or of a Linux release file, both signed by CI.
 
 Cloud machines update their cmux-tui and cmux-tui-hook from this channel by themselves
 (`cmux host update`, cmux-tui/crates/cmux-host/src/updater). CI points it at every
@@ -22,9 +22,24 @@ scripts/cmux-next/web-ota-pointer.py signs, verifies and orders it: the same env
 ed25519 key as the web update pointers. The machine checks `purpose` and `channel`, and the
 app's web updater refuses any channel but its own, so neither file stands in for the other.
 
+With --purpose linux-release it makes the payload of the Linux release files instead
+(cmuxterm-hq docs/design/linux-signed-packages.md): cmux-tui/<commit>/release.json, written once,
+and the channel pointer cmux-tui/channels/linux-<channel>.json, both the same signed payload
+(scripts/ci/cmux-machine-channel-point.sh). It names every Linux binary the build publishes (musl,
+and the glibc-named copies of the same binaries) and a version that sorts by commit time:
+
+  {"schema": 1, "purpose": "cmux-linux-release", "channel": "feat-cmux-next",
+   "version": "<cmux-tui Cargo version>+<committed_at UTC YYYYMMDDHHMMSS>.<commit[:12]>",
+   "commit": "<sha>", "committed_at": T, "published_at": T, "expires_at": T,
+   "targets": {"x86_64-unknown-linux-gnu": {"cmux-tui": {"url", "sha256", "size"},
+                                             "cmux-tui-hook": {...}}, ...}}
+
+An installer holds the channel pointer to expires_at; the per-commit file carries the same field,
+but an installer that asks for a version by name does not enforce it.
+
 Usage:
   cmux-machine-channel.py payload (--manifest M | --binaries-dir B) --commit SHA --committed-at T
-      --download-dir D --out P
+      --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V]]
 """
 import argparse
 import hashlib
@@ -35,6 +50,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import nightly_version  # noqa: E402
+
 SCHEMA = 1
 PURPOSE = "cmux-cloud-machine-update"
 CHANNEL = "cloud-machine"
@@ -43,6 +61,15 @@ TARGETS = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
 NAMES = ("cmux-tui", "cmux-tui-hook")
 # A machine refuses a channel file older than this: CI re-signs on every push that builds.
 LIFETIME = 30 * 24 * 3600
+ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+LINUX_RELEASE_PURPOSE = "cmux-linux-release"
+# The channels a Linux release pointer may name (cmux-tui/channels/linux-<channel>.json).
+LINUX_RELEASE_CHANNELS = ("stable", "nightly", "feat-cmux-next")
+# Every Linux target a cmux-tui build publishes: the musl builds and their glibc-named copies
+# (compatibility_target in .github/workflows/cmux-tui-build-package.yml).
+LINUX_RELEASE_TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
+                         "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
 
 
 def fail(message):
@@ -66,7 +93,7 @@ def expected_sha256(args):
             fail(f"{args.manifest} is the manifest of {manifest.get('commit')!r}, not {args.commit}")
         return manifest.get("binaries") or {}
     binaries = {}
-    for target in TARGETS:
+    for target in args.targets:
         for name in NAMES:
             path = os.path.join(args.binaries_dir, f"{name}-{target}")
             if os.path.isfile(path):
@@ -74,14 +101,28 @@ def expected_sha256(args):
     return binaries
 
 
+def release_version(cargo_version, commit, committed_at):
+    """`<cargo version>+<committed_at UTC YYYYMMDDHHMMSS>.<commit[:12]>`: dpkg and rpm compare the part
+    after `+` digit run by digit run, so builds sort by commit time and two never tie."""
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", cargo_version):
+        fail(f"cargo version {cargo_version!r} is not MAJOR.MINOR.PATCH")
+    return f"{cargo_version}+{time.strftime('%Y%m%d%H%M%S', time.gmtime(committed_at))}.{commit[:12]}"
+
+
 def payload(args):
     if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         fail(f"bad commit {args.commit!r}")
+    release = args.purpose == "linux-release"
+    if release and args.channel not in LINUX_RELEASE_CHANNELS:
+        fail(f"--purpose linux-release needs --channel, one of {', '.join(LINUX_RELEASE_CHANNELS)}")
+    if not release and (args.channel or args.cargo_version):
+        fail("--channel and --cargo-version are for --purpose linux-release")
+    args.targets = LINUX_RELEASE_TARGETS if release else TARGETS
     binaries = expected_sha256(args)
     os.makedirs(args.download_dir, exist_ok=True)
     targets = {}
     lines = []
-    for target in TARGETS:
+    for target in args.targets:
         for name in NAMES:
             published = f"{name}-{target}"
             sha = binaries.get(published)
@@ -94,14 +135,28 @@ def payload(args):
             if sha256_file(path) != sha:
                 fail(f"{url} does not have the expected sha256 {sha}")
             targets.setdefault(target, {})[name] = {"url": url, "sha256": sha, "size": os.path.getsize(path)}
+            os.remove(path)  # one binary on disk at a time
             lines.append(f"{published}:{sha}")
     now = int(time.time())
-    value = {
-        "schema": SCHEMA, "purpose": PURPOSE, "channel": CHANNEL,
-        "key": hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest(),
-        "commit": args.commit, "committed_at": int(args.committed_at),
-        "published_at": now, "expires_at": now + LIFETIME, "targets": targets,
-    }
+    committed_at = int(args.committed_at)
+    if release:
+        try:
+            cargo_version = args.cargo_version or nightly_version.next_base(ROOT)
+        except nightly_version.Refused as error:
+            fail(str(error))
+        value = {
+            "schema": SCHEMA, "purpose": LINUX_RELEASE_PURPOSE, "channel": args.channel,
+            "version": release_version(cargo_version, args.commit, committed_at),
+            "commit": args.commit, "committed_at": committed_at,
+            "published_at": now, "expires_at": now + LIFETIME, "targets": targets,
+        }
+    else:
+        value = {
+            "schema": SCHEMA, "purpose": PURPOSE, "channel": CHANNEL,
+            "key": hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest(),
+            "commit": args.commit, "committed_at": committed_at,
+            "published_at": now, "expires_at": now + LIFETIME, "targets": targets,
+        }
     with open(args.out, "wb") as out:
         out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
 
@@ -115,6 +170,9 @@ def main(argv):
     source.add_argument("--binaries-dir")
     for name in ("--commit", "--committed-at", "--download-dir", "--out"):
         p.add_argument(name, required=True)
+    p.add_argument("--purpose", choices=("cloud-machine", "linux-release"), default="cloud-machine")
+    p.add_argument("--channel", help="--purpose linux-release: the channel this build publishes to")
+    p.add_argument("--cargo-version", help="--purpose linux-release: default cmux-tui/Cargo.toml's version")
     args = parser.parse_args(argv[1:])
     payload(args)
     return 0
