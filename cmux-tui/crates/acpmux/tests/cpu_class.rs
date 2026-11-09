@@ -42,6 +42,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude_auto.py");
 /// The scheduler's base priority of a darwinbg process (`MAXPRI_THROTTLE`).
 const BACKGROUND_PRI: u32 = 4;
 /// The in-process daemon's person key (`hub/person.rs`), as a daemon the app started holds one.
@@ -391,80 +392,34 @@ async fn cpu_class_a_hosted_harness_starts_at_normal_under_a_background_host_the
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A launcher started with its stdin piped, with a real child that runs as `child_name` and has
-/// said it is up (its program name is set by then). Returns the launcher.
-fn launcher_with_child(dir: &Path, child_name: &str) -> std::process::Child {
-    use std::io::BufRead as _;
-    let child = dir.join(child_name);
-    std::fs::copy("/bin/bash", &child).unwrap();
-    let mut launcher = std::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg(r#""$0" -c 'echo up; read -r _'; true"#)
-        .arg(&child)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut line = String::new();
-    std::io::BufReader::new(launcher.stdout.take().unwrap()).read_line(&mut line).unwrap();
-    assert_eq!(line.trim(), "up");
-    launcher
-}
-
-/// A launcher's agent keeps its class and the launcher can carry its stream (`sr2 claude`,
-/// 2026-11-08): lowering the launcher alone starved that stream and reached no tool.
-#[test]
-fn cpu_class_a_launcher_of_an_agent_stays_above_background() {
-    runs_above_background();
-    let dir = scratch("launcher");
-    let mut launcher = launcher_with_child(&dir, "claude");
-    let pid = launcher.id();
-    let entered = CpuClass::Background.enter(pid);
-    let pri = class_priority(pid as i32);
-    let _ = launcher.kill();
-    let _ = launcher.wait();
-    let _ = std::fs::remove_dir_all(&dir);
-    assert!(!entered, "the launcher of an agent was lowered");
-    assert!(pri > BACKGROUND_PRI, "the launcher runs at background class (pri {pri})");
-}
-
-/// The same process with a child that is no agent is a harness, and goes to its class.
-#[test]
-fn cpu_class_a_harness_whose_child_is_no_agent_is_lowered() {
-    runs_above_background();
-    let dir = scratch("not-launcher");
-    let mut harness = launcher_with_child(&dir, "helper");
-    let pid = harness.id();
-    let entered = CpuClass::Background.enter(pid);
-    let pri = class_priority(pid as i32);
-    let _ = harness.kill();
-    let _ = harness.wait();
-    let _ = std::fs::remove_dir_all(&dir);
-    assert!(entered, "the harness was not lowered");
-    assert_eq!(pri, BACKGROUND_PRI, "the harness did not go to background class");
-}
-
 /// A real daemon (`acpmux daemon run`, agent hosts on, a store on disk) whose one harness is the
 /// stand-in agent with `env`.
 struct RealDaemon {
     root: PathBuf,
     child: Option<std::process::Child>,
+    /// The class the daemon's env names; None leaves it to what the harness defaults to.
+    class: Option<&'static str>,
 }
 
 impl RealDaemon {
     fn start(tag: &str, env: &BTreeMap<String, String>) -> Self {
+        let harness = json!({"argv": ["python3", FAKE], "env": env});
+        Self::start_with(tag, &harness, Some("background"))
+    }
+
+    fn start_with(tag: &str, harness: &Value, class: Option<&'static str>) -> Self {
         runs_above_background();
         let root = scratch(tag);
         for sub in ["home", "amx", "work"] {
             std::fs::create_dir_all(root.join(sub)).unwrap();
         }
         let config = json!({
-            "harnesses": {"fake": {"argv": ["python3", FAKE], "env": env}},
+            "harnesses": {"fake": harness},
             "defaultHarness": "fake",
             "permissionPolicy": "approve-all",
         });
         std::fs::write(root.join("amx").join("config.json"), config.to_string()).unwrap();
-        let mut daemon = Self { root, child: None };
+        let mut daemon = Self { root, child: None, class };
         let mut child = daemon
             .cmd()
             .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
@@ -497,9 +452,12 @@ impl RealDaemon {
             .env("ACPMUX_HEALTH_FETCH", "0")
             .env("ACPMUX_CATALOG_FETCH", "0")
             .env("ACPMUX_PROBE_HARNESSES", "fake")
-            .env(acpmux::cpu_class::ENV, "background")
             .env_remove("ACPMUX_SESSION_ID")
             .stdin(std::process::Stdio::null());
+        match self.class {
+            Some(class) => cmd.env(acpmux::cpu_class::ENV, class),
+            None => cmd.env_remove(acpmux::cpu_class::ENV),
+        };
         cmd
     }
 }
@@ -543,4 +501,41 @@ fn cpu_class_a_daemon_runs_a_hosted_harness_at_background_once_its_start_is_over
     assert_eq!(running, BACKGROUND_PRI, "the started hosted harness runs at the GUI's class");
     assert_eq!(tool_pri, BACKGROUND_PRI, "a tool its turn started runs at the GUI's class");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The priority a Claude Code harness whose program is named `name` runs a turn at, through the
+/// real daemon with no class named anywhere: what the product does by default.
+fn default_class_of_claude_harness_named(tag: &str, name: &str) -> u32 {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch(tag);
+    let program = dir.join(name);
+    std::fs::copy(FAKE_CLAUDE, &program).unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let harness = json!({"argv": [program], "kind": "claude-stdio"});
+    let daemon = RealDaemon::start_with(&format!("{tag}d"), &harness, None);
+    let out = dir.join("harness.pid");
+    let calls = json!([["Bash", {"command": format!("echo $PPID > {}", out.display())}]]);
+    let prompt = format!("auto-tools: {calls}");
+    let ran = daemon.cmd().args(["run", "--timeout", "60", &prompt]).output().expect("run acpmux");
+    assert!(ran.status.success(), "acpmux run failed: {}", String::from_utf8_lossy(&ran.stderr));
+    let pid = std::fs::read_to_string(&out).unwrap();
+    let priority = class_priority(pid.trim().parse().unwrap());
+    drop(daemon);
+    let _ = std::fs::remove_dir_all(&dir);
+    priority
+}
+
+/// `sr2 claude` relays Claude Code's stream (`cpu_class.rs`, item 2): at background class on a busy
+/// Mac the stream fell minutes behind, and tool calls were refused when their hook timed out.
+#[test]
+fn cpu_class_a_claude_launcher_stays_above_background_by_default() {
+    let priority = default_class_of_claude_harness_named("sr2", "sr2");
+    assert!(priority > BACKGROUND_PRI, "the launcher runs at background class (pri {priority})");
+}
+
+/// Claude Code itself still runs below the GUI, with the tools its turns start.
+#[test]
+fn cpu_class_claude_itself_runs_at_background_by_default() {
+    let priority = default_class_of_claude_harness_named("cl", "claude");
+    assert_eq!(priority, BACKGROUND_PRI, "Claude Code is not at background class");
 }

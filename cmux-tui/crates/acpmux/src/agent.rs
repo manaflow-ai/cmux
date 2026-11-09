@@ -707,6 +707,8 @@ impl Spawned {
         // profile's value as resolved), is set once its session's start is over (`cpu_class.rs`).
         let env = command_env(&cmd);
         let run_class = crate::cpu_class::CpuClass::for_session(
+            profile.kind,
+            cmd.as_std().get_program(),
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         crate::cpu_class::start_at_normal(&mut cmd);
