@@ -86,9 +86,8 @@ pub(crate) async fn publications(
     let client = client(request)?;
     match call {
         "vm.domains" => {
-            let sent = async {
-                client.cloud_publications_domains().await.map(|r| json!(r.into_inner()))
-            };
+            let sent =
+                async { client.cloud_publications_domains().await.map(|r| json!(r.into_inner())) };
             let list = answered(request, PREVIEW_TIMEOUT, "Cloud domains".into(), sent).await?;
             super::classic::field(list, "domains", "Cloud domains")
         }

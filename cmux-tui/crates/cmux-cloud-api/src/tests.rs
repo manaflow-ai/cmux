@@ -258,15 +258,21 @@ const KEY: &str = r#"{"id":"key_0123456789abcdefghij","publicationId":"vm_abc:30
 #[test]
 fn provision_and_the_api_key_routes_go_to_the_platforms_previews() {
     let (origin, seen) = fake(|s| {
-        let revoked = KEY.replace(r#""revokedAt":null"#, r#""revokedAt":"2026-11-08T12:05:00.000Z""#);
+        let revoked =
+            KEY.replace(r#""revokedAt":null"#, r#""revokedAt":"2026-11-08T12:05:00.000Z""#);
         if s.line.starts_with("POST") {
-            Some((201, format!(
-                r#"{{"url":"https://p3000-abc.preview.test","publication":{PUBLICATION},"apiKey":{KEY},"token":"k1.secret","cookieName":"__Host-cmux-preview","cookie":"__Host-cmux-preview=k1.secret"}}"#
-            )))
+            Some((
+                201,
+                format!(
+                    r#"{{"url":"https://p3000-abc.preview.test","publication":{PUBLICATION},"apiKey":{KEY},"token":"k1.secret","cookieName":"__Host-cmux-preview","cookie":"__Host-cmux-preview=k1.secret"}}"#
+                ),
+            ))
         } else if s.line.starts_with("GET /v1/cloud/previews") {
             ok(&format!(r#"{{"previews":[{PUBLICATION}]}}"#))
         } else if s.line.starts_with("GET /v1/cloud/domains") {
-            ok(r#"{"domains":[{"id":"preview.test","hostname":"preview.test","kind":"managed","verificationState":"verified","certificateState":"managed","publications":[]}]}"#)
+            ok(
+                r#"{"domains":[{"id":"preview.test","hostname":"preview.test","kind":"managed","verificationState":"verified","certificateState":"managed","publications":[]}]}"#,
+            )
         } else if s.line.starts_with("GET") {
             ok(&format!(r#"{{"apiKeys":[{KEY}]}}"#))
         } else {
