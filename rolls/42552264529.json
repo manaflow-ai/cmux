@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42552264529",
+  "recorded_at": "2026-11-09T02:48:14Z",
+  "reason": "cmux-tui d5f44ed22824 changes the image's cmux-tui (pinned 3368f259fa02)",
+  "dry_run": false,
+  "cmux_tui": "d5f44ed22824c35e0aa7c22e7264439ae9f7d717",
+  "fixes": [
+    {
+      "sha": "d5f44ed22824c35e0aa7c22e7264439ae9f7d717",
+      "mergedAt": "2026-11-08T18:27:24-08:00",
+      "subject": "cmux-tui: log the cause of indeterminate topology, creation and session.open effects (port of #39021) (#39053)"
+    },
+    {
+      "sha": "9c342bf8056f7162282baf802cb076f6768cb22f",
+      "mergedAt": "2026-11-08T18:26:00-08:00",
+      "subject": "agent text: the browser footer check reads every script as acpmux does; the queued test needs its provenance (#39066)"
+    },
+    {
+      "sha": "b8bff700bc3f4e53d1ad8577019c1e6e07dd125d",
+      "mergedAt": "2026-11-08T18:25:36-08:00",
+      "subject": "cmux-wg bench: rd-link path, Cloud desktop media as rd datagrams on the link, against wg-tcp (#39004)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T02:48:14Z",
+    "snapshot_id": "sh-8ff5d0126a85435e8509acbee676f161",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42552264529): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ab231fab83ab450cfeccfb5a202f6bb930be913d",
+    "image": "cloud-native-auto-d5f44ed2-42552264529-1",
+    "revision": "ci-42552264529-1",
+    "at": "2026-11-09T02:48:14Z"
+  },
+  "rolled_back": false
+}
