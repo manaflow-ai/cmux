@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::{Mutex, watch};
 
@@ -20,6 +20,16 @@ use crate::provider::{
 use crate::ssh_args::background_ssh_arguments;
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+/// ssh's ConnectTimeout for a redial (any open after the first). Short, so a
+/// redial sent into a dead network gives up within a few seconds and the next
+/// one starts on the network that came back, instead of waiting out TCP's SYN
+/// backoff (the probe's 10 s drops: about 1.8 s of that per reconnect, with
+/// the caller's 15 s). The redialer's budget, not ssh, decides how often.
+/// acpmux's peer redial uses the same 3 s (`SSH_CONNECT_SECS`).
+const SSH_REDIAL_CONNECT_SECS: u64 = 3;
+/// What ssh says when the host answered TCP but not with its banner in time:
+/// a slow host, not a dead network. Later redials keep the caller's timeout.
+const SSH_BANNER_TIMEOUT: &str = "timed out during banner exchange";
 /// How much of a captured ssh's stderr a link keeps: its last bytes.
 const STDERR_TAIL_BYTES: usize = 2048;
 /// How long a link that ended waits for ssh's last stderr words.
@@ -152,6 +162,8 @@ impl TransportProvider for SshProvider {
             config: self.config.clone(),
             evidence: CarrierEvidence::Ssh { destination: description },
             closed: AtomicBool::new(false),
+            slow_banner: AtomicBool::new(false),
+            last_stderr: StdMutex::new(None),
         }))
     }
 }
@@ -193,6 +205,57 @@ struct SshLinkGroup {
     config: SshProviderConfig,
     evidence: CarrierEvidence,
     closed: AtomicBool,
+    /// Set once an ssh run of this group timed out on the host's banner:
+    /// redials then keep the caller's ConnectTimeout.
+    slow_banner: AtomicBool,
+    /// The newest run's stderr, read by the next open for a banner timeout.
+    last_stderr: StdMutex<Option<Arc<StderrTail>>>,
+}
+
+impl SshLinkGroup {
+    /// The ssh options this open adds before the caller's: a short
+    /// ConnectTimeout on a redial (generation past the first connect's 0),
+    /// unless the host was slow to send its banner or the caller already
+    /// asked for a shorter one. OpenSSH keeps the first value it reads.
+    fn connect_timeout_args(&self, generation: u64) -> Vec<String> {
+        if generation == 0 {
+            return Vec::new();
+        }
+        let previous = self.last_stderr.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if previous.is_some_and(|tail| tail.said(SSH_BANNER_TIMEOUT)) {
+            self.slow_banner.store(true, Ordering::Release);
+        }
+        if self.slow_banner.load(Ordering::Acquire)
+            || caller_connect_timeout(&self.config.extra_args)
+                .is_some_and(|seconds| seconds <= SSH_REDIAL_CONNECT_SECS)
+        {
+            return Vec::new();
+        }
+        vec!["-o".into(), format!("ConnectTimeout={SSH_REDIAL_CONNECT_SECS}")]
+    }
+}
+
+/// The ConnectTimeout the caller's ssh arguments set (`-oConnectTimeout=N`
+/// or `-o ConnectTimeout=N`), the first one, as ssh reads it.
+fn caller_connect_timeout(extra_args: &[String]) -> Option<u64> {
+    let mut arguments = extra_args.iter();
+    while let Some(argument) = arguments.next() {
+        if argument == "--" {
+            return None;
+        }
+        let option = match argument.strip_prefix("-o") {
+            Some("") => arguments.next().map(String::as_str),
+            Some(attached) => Some(attached),
+            None => None,
+        };
+        let Some((key, value)) = option.and_then(|option| option.split_once(['=', ' '])) else {
+            continue;
+        };
+        if key.trim().eq_ignore_ascii_case("ConnectTimeout") {
+            return value.trim().parse().ok();
+        }
+    }
+    None
 }
 
 #[async_trait]
@@ -221,21 +284,25 @@ impl LinkGroup for SshLinkGroup {
         }
     }
 
-    async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+    async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
+        let mut ssh_args = self.connect_timeout_args(request.generation);
+        ssh_args.extend(self.config.extra_args.iter().cloned());
         let mut command = Command::new(&self.config.ssh_binary);
         // Forwarding stays as configured unless `extra_args` pin
         // `ControlMaster=no`: otherwise this run can become the shared master
         // that interactive sessions reuse.
         command
-            .args(background_ssh_arguments(self.port, &self.config.extra_args, &self.destination))
+            .args(background_ssh_arguments(self.port, &ssh_args, &self.destination))
             .args(remote_link_command(&self.config));
+        // stderr is always read, for the banner timeout; uncaptured, every
+        // byte still goes on to this process's stderr as ssh wrote it.
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(if self.config.capture_stderr { Stdio::piped() } else { Stdio::inherit() })
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
         let mut child = command
             .spawn()
@@ -248,7 +315,12 @@ impl LinkGroup for SshLinkGroup {
             .stdout
             .take()
             .ok_or_else(|| ProviderError::Transport("ssh stdout was not piped".into()))?;
-        let stderr = child.stderr.take().map(StderrTail::spawn);
+        let tail = child
+            .stderr
+            .take()
+            .map(|stderr| StderrTail::spawn(stderr, !self.config.capture_stderr));
+        *self.last_stderr.lock().unwrap_or_else(PoisonError::into_inner) = tail.clone();
+        let stderr = tail.filter(|_| self.config.capture_stderr);
         let inner = LengthDelimitedLink::new(
             self.description.clone(),
             self.config.maximum_frame_bytes,
@@ -281,23 +353,40 @@ struct StderrTail {
 }
 
 impl StderrTail {
-    fn spawn(mut stderr: ChildStderr) -> Arc<Self> {
+    /// Reads `stderr` to its end; with `forward`, every chunk also goes on
+    /// to this process's stderr.
+    fn spawn(mut stderr: ChildStderr, forward: bool) -> Arc<Self> {
         let tail = Arc::new(Self {
             bytes: StdMutex::new(std::collections::VecDeque::with_capacity(STDERR_TAIL_BYTES)),
             done: watch::channel(false).0,
         });
         let writer = tail.clone();
         tokio::spawn(async move {
+            let mut own = forward.then(tokio::io::stderr);
             let mut chunk = [0_u8; 512];
             loop {
                 match stderr.read(&mut chunk).await {
                     Ok(0) | Err(_) => break,
-                    Ok(read) => writer.keep(chunk.get(..read).unwrap_or_default()),
+                    Ok(read) => {
+                        let read = chunk.get(..read).unwrap_or_default();
+                        writer.keep(read);
+                        if let Some(own) = own.as_mut() {
+                            // A closed stderr of ours never stops the reading.
+                            let _ = own.write_all(read).await;
+                        }
+                    }
                 }
             }
             writer.done.send_replace(true);
         });
         tail
+    }
+
+    /// True when the tail so far holds `words`, compared case-insensitively.
+    fn said(&self, words: &str) -> bool {
+        let bytes: Vec<u8> =
+            self.bytes.lock().unwrap_or_else(PoisonError::into_inner).iter().copied().collect();
+        String::from_utf8_lossy(&bytes).to_ascii_lowercase().contains(&words.to_ascii_lowercase())
     }
 
     fn keep(&self, read: &[u8]) {
@@ -608,5 +697,13 @@ mod tests {
             connect_timeouts(&args),
             ["ConnectTimeout=3", "-oConnectTimeout=15", "-oConnectTimeout=15"]
         );
+    }
+
+    #[test]
+    fn a_callers_shorter_connect_timeout_stays() {
+        assert_eq!(caller_connect_timeout(&["-oConnectTimeout=2".into()]), Some(2));
+        assert_eq!(caller_connect_timeout(&["-o".into(), "connecttimeout=7".into()]), Some(7));
+        assert_eq!(caller_connect_timeout(&["-oBatchMode=yes".into()]), None);
+        assert_eq!(caller_connect_timeout(&["--".into(), "-oConnectTimeout=2".into()]), None);
     }
 }
