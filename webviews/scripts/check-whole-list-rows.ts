@@ -98,7 +98,7 @@ function listName(node: ts.Expression): string | undefined {
 function isListRead(node: ts.PropertyAccessExpression): boolean {
   const name = node.name.text;
   if (WHOLE_LISTS.has(name)) return true;
-  let receiver = node.expression;
+  let receiver: ts.Expression = node.expression;
   while (ts.isNonNullExpression(receiver) || ts.isParenthesizedExpression(receiver)) receiver = receiver.expression;
   const host = ts.isIdentifier(receiver)
     ? receiver.text
@@ -200,13 +200,13 @@ export function findWholeListRows(file: string, text: string): string[] {
 }
 
 export function readBaseline(
-  text = existsSync(baselinePath) ? readFileSync(baselinePath, "utf8") : "",
+  text: string = existsSync(baselinePath) ? readFileSync(baselinePath, "utf8") : "",
 ): Map<string, number> {
   return new Map(
     text
       .split("\n")
-      .filter((row) => row && !row.startsWith("#"))
-      .map((row) => {
+      .filter((row: string) => row && !row.startsWith("#"))
+      .map((row: string) => {
         const [file, count] = row.split("\t");
         if (!file || !/^\d+$/.test(count ?? "")) throw new Error(`whole-list-rows-baseline.tsv: bad row "${row}"`);
         return [file, Number(count)] as const;
