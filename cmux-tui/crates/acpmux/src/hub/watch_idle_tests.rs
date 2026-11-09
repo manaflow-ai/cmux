@@ -119,3 +119,65 @@ async fn quiet_watches_cost_the_same_for_1_and_100() {
          {hundred:?} (wakeups, blocking hops)"
     );
 }
+
+/// Review F1 of #39357: a watch that starts while the check waits its slow 2 s (every other
+/// watch quiet for a while) shows its transcript's next line within 400 ms, as any new watch.
+#[tokio::test(start_paused = true)]
+async fn a_watch_started_during_a_slow_wait_shows_lines_within_400_ms() {
+    let home = home("late");
+    let hub = hub(&home, 2);
+    let line = "{\"type\":\"event_msg\",\"payload\":{\"type\":\"noop\"}}\n";
+    let start = |i: usize| {
+        let file = home.join(format!("rollout-{i}.jsonl"));
+        std::fs::write(&file, line).unwrap();
+        let session = hub.resolve(&format!("w{i}")).unwrap();
+        session.meta.lock().unwrap().watching = Some(Watching {
+            family: "codex".to_owned(),
+            file: file.clone(),
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+        hub.start_watch(&session);
+        file
+    };
+    start(0);
+    // Quiet for longer than QUIET_AFTER: the check is at its slow pace.
+    tokio::time::sleep(Duration::from_secs(45)).await;
+    // Just after a check, so the next slow one is almost 2 s away.
+    idle_cost::take();
+    while idle_cost::take().0 == 0 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let file = start(1);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while offset(&hub, "w1") < line.len() as u64 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the new watch reads its transcript");
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&file)
+        .unwrap()
+        .write_all(line.as_bytes())
+        .unwrap();
+    let len = std::fs::metadata(&file).unwrap().len();
+    let appended = tokio::time::Instant::now();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while offset(&hub, "w1") < len {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("the new watch's line shows");
+    let took = appended.elapsed();
+    eprintln!("a watch started during a slow wait: its next line shown after {took:?}");
+    for i in 0..2 {
+        hub.resolve(&format!("w{i}")).unwrap().meta.lock().unwrap().watching = None;
+    }
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let _ = std::fs::remove_dir_all(home);
+    assert!(took <= Duration::from_millis(400), "a new watch's line took {took:?}, over 400 ms");
+}

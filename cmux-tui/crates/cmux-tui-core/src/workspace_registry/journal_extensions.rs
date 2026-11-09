@@ -333,6 +333,9 @@ struct PreparedJournalSegment {
     compressed: Vec<u8>,
     digest: [u8; 32],
     kinds: Vec<String>,
+    /// Its records of the kinds a journal reducer folds
+    /// (`session_journal::reducer_records`).
+    reducer_records: Vec<session_journal::reducer_records::ReducerRecordRow>,
 }
 
 pub(super) fn create_journal_extensions_schema(
