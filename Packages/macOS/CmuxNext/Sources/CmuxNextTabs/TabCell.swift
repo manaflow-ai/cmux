@@ -167,6 +167,8 @@ final class TabCell {
     var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
     var audioBackgroundLayer: CALayer? // the speaker button's hover and press fill
+    var pinLayer: CALayer? // a pinned tab's pin (TabCell+PinMark)
+    var pinDiscLayer: CALayer? // the pin's disc on an icon-only pinned tab's icon corner
     var hibernationRingLayer: CAShapeLayer? // dotted ring of a hibernated tab (TabCell+HibernationRing)
 
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
@@ -250,6 +252,7 @@ final class TabCell {
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         if previous?.presence != item.presence { updatePresenceDot() }
         if previous?.audio != item.audio { updateAudioBadge() }
+        updatePinMark()
         // Animated only for a tab that hibernates or wakes while it is in the strip.
         if (previous?.isDormant ?? false) != item.isDormant { updateHibernationRing(animated: previous != nil) }
         updateColors(animated: false)
@@ -360,6 +363,7 @@ final class TabCell {
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
+            applyPinIcon(tint: text)
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
@@ -514,6 +518,7 @@ final class TabCell {
                 }
             }
             layoutStateMark(iconFrame: iconFrame, visible: marksPlaced, onPath: onPath)
+            layoutCornerPin(iconFrame: iconFrame, visible: showsIconArt)
             if visibility.closeReplacesStatus || fadesStatus {
                 for (layer, was) in zip(iconMarks, before) {
                     setStatusMark(layer, shown: visibility.showsIcon, was: was, animated: fadesStatus)
@@ -559,8 +564,8 @@ final class TabCell {
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
             // Leo 2026-11-05: "the button replaces the spinner on the top when you hover over it". A closable tab's
             // status holds the x's slot at rest, so the hovered x takes it with nothing else moving; an x shown at
-            // rest (a narrow selected tab) keeps the status beside it.
-            let statusSlot = hasStatusMark && item.isClosable && (closeRect == nil || visibility.closeReplacesStatus)
+            // rest (a narrow selected tab) keeps the status beside it. A pinned tab never shows an x, so it keeps no slot.
+            let statusSlot = hasStatusMark && item.isClosable && !item.isPinned && (closeRect == nil || visibility.closeReplacesStatus)
                 ? CGRect(x: pixel(bounds.width - m.contentTrailingInset - m.closeButtonSize), y: pixel(midY - m.closeButtonSize / 2),
                          width: m.closeButtonSize, height: m.closeButtonSize)
                 : nil

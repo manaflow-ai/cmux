@@ -108,6 +108,13 @@ public nonisolated enum TabTunables {
         "tabs.pinnedDivider", .tabs, "Pinned group divider",
         help: "A short line between the pinned tabs and the other tabs.",
         default: true, code: "TabTunables.pinnedDivider")
+    // @intent Aziz 2026-11-09 ("The horizontal tab width shrinks when I pin and it lacks a pin indicator"):
+    // a pinned tab keeps its width and title and shows a pin where the x would be. Off gives Chrome's
+    // icon-only pinned tab (Lawrence 2026-10-23, `appearance.metrics.tabPinnedWidth`) with a pin on its icon.
+    public static let pinnedKeepsTitle = Tunable<Bool>.toggle(
+        "tabs.pinnedKeepsTitle", .tabs, "Pinned tabs keep their title",
+        help: "A pinned tab stays as wide as the other tabs and shows its title and a pin. Off: icon-only pinned tabs.",
+        default: true, code: "TabTunables.pinnedKeepsTitle")
     public static let separatorOpacity = Tunable<CGFloat>.number(
         "tabs.separatorOpacity", .tabs, "Separator strength", help: "Opacity of the theme's separator tone in the line between tabs.",
         default: 0.2, range: 0...1, step: 0.02, unit: .fraction, code: "TabTunables.separatorOpacity")
@@ -184,7 +191,7 @@ public nonisolated enum TabTunables {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
-            + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
+            + [separators.descriptor, pinnedDivider.descriptor, pinnedKeepsTitle.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
                hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor] + VerticalTabTunables.all
     }

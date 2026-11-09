@@ -14,7 +14,11 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var minActiveTabWidth: CGFloat
     /// `tabs.overflow`: with `.scroll` both minimums are `scrollTabMinWidth`.
     public var overflow: TabOverflow
+    /// Width of an icon-only pinned tab (``pinnedKeepsTitle`` off).
     public var pinnedTabWidth: CGFloat
+    /// `tabs.pinnedKeepsTitle`: a pinned tab shares the row like any other tab and shows its title and a
+    /// pin; off, it is ``pinnedTabWidth`` wide and icon-only, with the pin on its icon.
+    public var pinnedKeepsTitle: Bool
     /// Chrome's strip geometry (design-tokens.json `motion.tabStrip`, at the UI scale): open and
     /// close widths, the minimum widths above, the reorder threshold, closing mode.
     public var chrome: MotionTabStrip
@@ -198,6 +202,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
+        pinnedKeepsTitle = TabTunables.pinnedKeepsTitle.value
     }
 
     /// Token-derived metrics for the current density.

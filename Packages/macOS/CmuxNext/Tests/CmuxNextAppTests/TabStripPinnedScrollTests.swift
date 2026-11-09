@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextTabs
 import CmuxNextTestSupport
 import Testing
@@ -63,6 +64,9 @@ import Testing
     func pinnedTabsStayAtTheLeadingEdgeWhileTheStripScrolls(overflow: TabOverflow) throws {
         DesignSettings.shared.tabOverflow = overflow
         defer { DesignSettings.shared.tabOverflow = .shrink }
+        // The icon-only pinned form (`tabs.pinnedKeepsTitle` off): its fixed width is what these cases measure.
+        _ = TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, .bool(false))
+        defer { _ = TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, nil) }
         let harness = Harness(pinned: 2, unpinned: 40, width: 1000)
         defer { harness.window.closeAfterTest() }
         harness.strip.applyTokens(animated: false)
@@ -110,6 +114,9 @@ import Testing
     /// ebadb28722f, 36 pt since), so the case holds whatever the width is.
     @Test func pinnedTabsWiderThanTheStripScrollWithTheRest() throws {
         DesignSettings.shared.tabOverflow = .shrink
+        // The icon-only pinned form (`tabs.pinnedKeepsTitle` off): its fixed width is what these cases measure.
+        _ = TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, .bool(false))
+        defer { _ = TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, nil) }
         let pinnedCount = 12
         let width = (CGFloat(pinnedCount) * Metrics.tabPinnedWidth * 0.8).rounded()
         let harness = Harness(pinned: pinnedCount, unpinned: 6, width: width)
