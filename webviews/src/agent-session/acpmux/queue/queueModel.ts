@@ -65,7 +65,18 @@ export function readQueue(value: unknown, fallbackNow = Date.now()): QueueReply 
     return name ? [name] : [];
   });
   const total = Math.max(num(body?.total) ?? 0, items.length);
-  return { items: sortQueue(items), peersOmitted, now, total };
+  return { items: sortQueue(distinctIds(items)), peersOmitted, now, total };
+}
+
+/// acpmux names a pull request `pr:{url}` in every chat and on every machine that has it, so two
+/// rows can share an id. Those rows are told apart by machine and chat, so answering one hides only
+/// that one; an id no other row shares stays as acpmux sent it.
+function distinctIds(items: QueueItem[]): QueueItem[] {
+  const seen = new Map<string, number>();
+  for (const item of items) seen.set(item.id, (seen.get(item.id) ?? 0) + 1);
+  return items.map((item) =>
+    (seen.get(item.id) ?? 0) > 1 ? { ...item, id: `${item.id}@${item.host ?? ""}/${item.sessionId}` } : item,
+  );
 }
 
 function readItem(raw: unknown, now: number): QueueItem | undefined {

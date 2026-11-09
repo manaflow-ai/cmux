@@ -416,3 +416,21 @@ test("a Request changes comment an older acpmux dropped opens the chat to say it
   await pages.queue.verdict(pr, "changes");
   expect(selected).toEqual(["s1"]);
 });
+
+test("one pull request listed in two chats is two rows, each answered on its own", () => {
+  const pr = { id: "pr:https://example.com/pull/1", kind: "pr", prUrl: "https://example.com/pull/1", at: 1 };
+  const reply = readQueue({
+    items: [
+      { ...pr, sessionId: "s1" },
+      { ...pr, sessionId: "s2", host: "studio" },
+      { id: "acpmux:p1", kind: "approval", sessionId: "s3", at: 2 },
+    ],
+    now: 10,
+  });
+  const ids = reply.items.map((each) => each.id);
+  expect(new Set(ids).size).toBe(3);
+  expect(ids).toContain("pr:https://example.com/pull/1@/s1");
+  expect(ids).toContain("pr:https://example.com/pull/1@studio/s2");
+  // An id no other row shares stays as acpmux sent it.
+  expect(ids).toContain("acpmux:p1");
+});
