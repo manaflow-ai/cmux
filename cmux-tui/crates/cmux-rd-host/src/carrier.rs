@@ -212,7 +212,9 @@ impl<S: Read + Write + AsRawFd> Carrier for HybridCarrier<'_, S> {
                     eprintln!("cmux-rd host: datagram link quiet; datagrams on the stream")
                 }
                 LinkOut::State(LinkState::Failed(reason)) => {
-                    eprintln!("cmux-rd host: datagram link ended ({reason}); datagrams on the stream")
+                    eprintln!(
+                        "cmux-rd host: datagram link ended ({reason}); datagrams on the stream"
+                    )
                 }
             }
         }
@@ -258,4 +260,97 @@ pub fn turn_servers(setups: &[TurnSetup]) -> Vec<cmux_rd_link::net::TurnServer> 
             })
         })
         .collect()
+}
+
+#[cfg(all(test, feature = "link"))]
+mod hybrid_tests {
+    use super::*;
+    use cmux_rd_link::dlink::{DatagramLink, LinkOut, ViewerOffer};
+    use std::os::unix::net::UnixStream;
+    use std::time::{Duration, Instant};
+
+    /// The viewer's end of the stream: frames it reads.
+    fn read_frames(viewer: &mut UnixStream, reader: &mut FrameReader) -> Vec<(u8, Vec<u8>)> {
+        let _ = reader.fill(viewer);
+        let mut frames = Vec::new();
+        while let Ok(Some(frame)) = reader.next() {
+            frames.push(frame);
+        }
+        frames
+    }
+
+    #[test]
+    fn the_hybrid_carrier_moves_datagrams_to_the_link_once_it_is_up_and_keeps_control_on_the_stream(
+    ) {
+        let (mut host_end, mut viewer_end) = UnixStream::pair().unwrap();
+        host_end.set_nonblocking(true).unwrap();
+        viewer_end.set_nonblocking(true).unwrap();
+        let bind: SocketAddr = "0.0.0.0:0".parse().unwrap();
+        let offer = ViewerOffer::new(Vec::new()).unwrap();
+        let (host_link, answer) = DatagramLink::accept(&offer.offer, bind).unwrap();
+        let mut viewer_link = offer.start(&answer, bind).unwrap();
+        let mut reader = FrameReader::default();
+        let mut carrier = HybridCarrier {
+            inner: SocketCarrier::new(&mut host_end, &mut reader, None, DatagramOut::Stream),
+            link: host_link,
+        };
+        // Before the link is up: datagrams on the stream.
+        carrier.send_datagram(b"early").unwrap();
+        let mut viewer_reader = FrameReader::default();
+        let early = read_frames(&mut viewer_end, &mut viewer_reader);
+        assert!(early.contains(&(FRAME_DATAGRAM, b"early".to_vec())), "{early:?}");
+        // Routes cross on the stream, as the dial would carry them.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut incoming = Vec::new();
+        while Instant::now() < deadline && !(carrier.link.is_up() && viewer_link.is_up()) {
+            carrier.receive(&mut incoming).unwrap();
+            for (ty, payload) in read_frames(&mut viewer_end, &mut viewer_reader) {
+                if ty == FRAME_CONTROL {
+                    if let Ok(Control::LinkCandidate { candidate }) =
+                        serde_json::from_slice(&payload)
+                    {
+                        viewer_link.add_remote_candidate(&candidate);
+                    }
+                }
+            }
+            let mut produced = Vec::new();
+            viewer_link.poll(&mut produced);
+            for item in produced {
+                if let LinkOut::Candidate(candidate) = item {
+                    write_control(&mut viewer_end, &Control::LinkCandidate { candidate }).unwrap();
+                }
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(carrier.link.is_up(), "host side up");
+        // The routes never reach the media session.
+        assert!(
+            !incoming.iter().any(|i| matches!(i, Incoming::Control(Control::LinkCandidate { .. }))),
+            "link_candidate is the carrier's"
+        );
+        // Once up: datagrams on the link, none on the stream; control still on the stream.
+        carrier.send_datagram(b"frame").unwrap();
+        carrier.send_control(&Control::Stop).unwrap();
+        viewer_link.send_datagram(b"input");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let (mut on_link, mut input) = (false, false);
+        let mut on_stream = Vec::new();
+        while Instant::now() < deadline && !(on_link && input) {
+            let mut produced = Vec::new();
+            viewer_link.poll(&mut produced);
+            on_link |= produced.contains(&LinkOut::Datagram(b"frame".to_vec()));
+            let mut incoming = Vec::new();
+            carrier.receive(&mut incoming).unwrap();
+            input |= incoming.iter().any(|i| matches!(i, Incoming::Datagram(d) if d == b"input"));
+            on_stream.extend(read_frames(&mut viewer_end, &mut viewer_reader));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(on_link, "the frame took the link");
+        assert!(input, "the viewer's datagram reached the session");
+        assert!(!on_stream.iter().any(|(ty, _)| *ty == FRAME_DATAGRAM), "{on_stream:?}");
+        assert!(
+            on_stream.iter().any(|(ty, _)| *ty == FRAME_CONTROL),
+            "control stays on the stream"
+        );
+    }
 }

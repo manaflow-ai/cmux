@@ -37,7 +37,7 @@ pub enum Control {
         /// this stream ([`LinkOffer`]). A host that does not know the field
         /// ignores it and keeps every datagram on the stream.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        link_offer: Option<LinkOffer>,
+        link_offer: Option<Box<LinkOffer>>,
     },
     Start {
         key: String,

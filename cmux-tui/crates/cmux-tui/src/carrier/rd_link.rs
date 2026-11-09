@@ -202,11 +202,24 @@ impl Splice {
     }
 }
 
-struct Fd(RawFd);
+/// The link's event descriptor, duplicated: the reactor watches a descriptor
+/// this bridge owns, so the link may close its own at any time.
+struct Fd {
+    of: RawFd,
+    owned: std::os::fd::OwnedFd,
+}
+
+impl Fd {
+    fn dup(of: RawFd) -> Option<Self> {
+        // SAFETY: `of` is the link's open event descriptor; the borrow ends here.
+        let borrowed = unsafe { std::os::fd::BorrowedFd::borrow_raw(of) };
+        Some(Self { of, owned: borrowed.try_clone_to_owned().ok()? })
+    }
+}
 
 impl AsRawFd for Fd {
     fn as_raw_fd(&self) -> RawFd {
-        self.0
+        self.owned.as_raw_fd()
     }
 }
 
@@ -296,8 +309,8 @@ where
         writer.flush().await?;
         // The link starts after a welcome and ends on failure: follow its descriptor.
         let fd = splice.link_fd();
-        if fd != link_fd.as_ref().map(|f| f.get_ref().0) {
-            link_fd = fd.and_then(|fd| AsyncFd::new(Fd(fd)).ok());
+        if fd != link_fd.as_ref().map(|f| f.get_ref().of) {
+            link_fd = fd.and_then(Fd::dup).and_then(|fd| AsyncFd::new(fd).ok());
         }
         if finished {
             break;
@@ -313,8 +326,9 @@ mod tests {
     use cmux_rd_link::dlink::DatagramLink;
     use std::time::{Duration, Instant};
 
+    /// Every interface: the link's host routes are this machine's non-loopback addresses.
     fn bind() -> SocketAddr {
-        "127.0.0.1:0".parse().unwrap()
+        "0.0.0.0:0".parse().unwrap()
     }
 
     fn hello() -> Vec<u8> {
@@ -384,7 +398,8 @@ mod tests {
 
     #[test]
     fn the_hello_gains_an_offer_and_keeps_every_other_field() {
-        let mut splice = Splice::new(Some(ViewerOffer::new(vec!["stun.example:3478".into()]).unwrap()), bind());
+        let mut splice =
+            Splice::new(Some(ViewerOffer::new(vec!["stun.example:3478".into()]).unwrap()), bind());
         let mut out = Vec::new();
         splice.from_viewer(FRAME_CONTROL, hello(), &mut out);
         let sent = host_bytes(&out);
@@ -394,7 +409,8 @@ mod tests {
         assert_eq!(hello["link_offer"]["v"], 1);
         assert_eq!(hello["link_offer"]["stun"][0], "stun.example:3478");
         // The rd host's own parser reads it.
-        let parsed: cmux_rd_proto::control::Control = serde_json::from_value(hello.clone()).unwrap();
+        let parsed: cmux_rd_proto::control::Control =
+            serde_json::from_value(hello.clone()).unwrap();
         assert!(matches!(
             parsed,
             cmux_rd_proto::control::Control::Hello { link_offer: Some(_), .. }
@@ -438,7 +454,9 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut host_out = Vec::new();
         let mut pending = out;
-        while Instant::now() < deadline && !(host.is_up() && splice.link.as_ref().is_some_and(DatagramLink::is_up)) {
+        while Instant::now() < deadline
+            && !(host.is_up() && splice.link.as_ref().is_some_and(DatagramLink::is_up))
+        {
             for (ty, c) in host_bytes(&pending) {
                 if ty == FRAME_CONTROL && c["t"] == "link_candidate" {
                     host.add_remote_candidate(c["candidate"].as_str().unwrap());
@@ -449,10 +467,16 @@ mod tests {
             host.poll(&mut host_out);
             for item in host_out.drain(..) {
                 if let LinkOut::Candidate(c) = item {
-                    let msg = serde_json::to_vec(&serde_json::json!({"t":"link_candidate","candidate":c})).unwrap();
+                    let msg = serde_json::to_vec(
+                        &serde_json::json!({"t":"link_candidate","candidate":c}),
+                    )
+                    .unwrap();
                     let mut ignored = Vec::new();
                     splice.from_host(FRAME_CONTROL, msg, &mut ignored);
-                    assert!(viewer_frames(&ignored).is_empty(), "link_candidate never reaches the viewer");
+                    assert!(
+                        viewer_frames(&ignored).is_empty(),
+                        "link_candidate never reaches the viewer"
+                    );
                 }
             }
             std::thread::sleep(Duration::from_millis(5));

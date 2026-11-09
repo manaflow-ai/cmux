@@ -30,7 +30,7 @@
 
 use crate::net::{Candidate, Net, NetConfig, NetEvent};
 use crate::{EndpointEvent, Event, KeyPair, Role};
-use cmux_rd_proto::control::{LinkAnswer, LinkOffer, LINK_VERSION};
+use cmux_rd_proto::control::{LINK_VERSION, LinkAnswer, LinkOffer};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::os::fd::RawFd;
 
@@ -263,8 +263,9 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
+    /// Every interface: the host routes are this machine's non-loopback addresses.
     fn loopback() -> SocketAddr {
-        "127.0.0.1:0".parse().unwrap()
+        "0.0.0.0:0".parse().unwrap()
     }
 
     /// Pumps both sides until `done` or 5 s; candidates cross as the stream would carry them.
@@ -336,7 +337,7 @@ mod tests {
         for bad in [
             LinkOffer { v: LINK_VERSION + 1, ..good.clone() },
             LinkOffer { id: "zz".into(), ..good.clone() },
-            LinkOffer { key: "00".into(), ..good.clone() },
+            LinkOffer { key: "00".into(), ..good },
         ] {
             assert!(DatagramLink::accept(&bad, loopback()).is_err(), "{bad:?}");
         }
