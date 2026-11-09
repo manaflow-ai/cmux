@@ -41,9 +41,7 @@ class FakeHost {
   }
 
   ops(name: string) {
-    return this.calls
-      .filter((call) => call.op === `cmux.addMachine.${name}`)
-      .map((call) => call.params);
+    return this.calls.filter((call) => call.op === `cmux.addMachine.${name}`).map((call) => call.params);
   }
 }
 
@@ -172,11 +170,7 @@ describe("Add Machine store", () => {
     const view = viewOf(store.getSnapshot());
     expect(view.phase).toBe("failed");
     expect(view.checklist.failing?.fix).toBe("Check the host name.");
-    expect(view.buttons.map((each) => each.action)).toEqual([
-      "copyDetails",
-      "changeHost",
-      "tryAgain",
-    ]);
+    expect(view.buttons.map((each) => each.action)).toEqual(["copyDetails", "changeHost", "tryAgain"]);
     await store.perform("copyDetails");
     expect(host.ops("copy")).toEqual([
       {
@@ -247,9 +241,7 @@ describe("Add Machine store", () => {
     host.held.shift()!();
     await press;
     await settle();
-    expect(
-      viewOf(store.getSnapshot()).buttons.find((each) => each.action === "add")?.enabled ?? false,
-    ).toBe(false);
+    expect(viewOf(store.getSnapshot()).buttons.find((each) => each.action === "add")?.enabled ?? false).toBe(false);
     await store.submit();
     expect(host.ops("add").length).toBe(1);
     host.held.shift()!();
@@ -307,9 +299,7 @@ describe("Add Machine store", () => {
     };
     const second = await opened(peer);
     await second.store.perform("tryAgain");
-    expect(peer.ops("add")).toEqual([
-      { destination: "huge-blue.tail1.ts.net", name: "hb", peer: "hb" },
-    ]);
+    expect(peer.ops("add")).toEqual([{ destination: "huge-blue.tail1.ts.net", name: "hb", peer: "hb" }]);
   });
 
   test("Escape cancels a run and closes; with no Escape button the card just closes", async () => {

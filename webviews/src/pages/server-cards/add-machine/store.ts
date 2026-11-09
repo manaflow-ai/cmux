@@ -144,8 +144,7 @@ export class AddMachineStore {
     try {
       status = await this.client.call<AddMachineStatus>(AddMachineOps.status, {});
     } catch {
-      if (id === this.request)
-        this.set({ ...this.snapshot, failed: true, busy: this.stillBusy(id) });
+      if (id === this.request) this.set({ ...this.snapshot, failed: true, busy: this.stillBusy(id) });
       return;
     }
     if (id !== this.request) return;
@@ -298,14 +297,11 @@ export class AddMachineStore {
     let parsed: HostDestination | null = null;
     try {
       parsed =
-        text.trim() === ""
-          ? null
-          : await this.client.call<HostDestination | null>(AddMachineOps.parse, { text });
+        text.trim() === "" ? null : await this.client.call<HostDestination | null>(AddMachineOps.parse, { text });
     } catch {
       parsed = null;
     }
-    if (id === this.parseRequest && this.snapshot.destination === text)
-      this.set({ ...this.snapshot, parsed });
+    if (id === this.parseRequest && this.snapshot.destination === text) this.set({ ...this.snapshot, parsed });
   }
 
   /** The plain list first (one local tailscale call), then the ssh probe of the person's own
