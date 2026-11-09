@@ -23,6 +23,7 @@ export function installChipHost(fixture: ChipHostFixture | undefined): void {
     return { ...(icon ? { src: icon } : {}), ...(glyph ? { glyph } : {}) };
   });
   setChipHost(async (method, params) => {
+    if (fixture.refused?.includes(method)) return { ok: false, error: { code: "refused", message: "refused" } };
     if (method === "link.inspect") {
       const paths = (params.paths as string[] | undefined) ?? [];
       const urls = (params.urls as string[] | undefined) ?? [];

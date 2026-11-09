@@ -498,6 +498,9 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
 
     public func children() async throws -> Data { try await call { try await $0.children() } }
     public func media(path: String) async throws -> Data { try await call { try await $0.media(path: path) } }
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        try await call { try await $0.mediaRange(path: path, offset: offset, length: length, handle: handle) }
+    }
     public func typing(_ on: Bool) async throws { try await call { try await $0.typing(on) } }
     public func view(_ visible: Bool) async throws { try await call { try await $0.view(visible) } }
     public func setModel(_ modelId: String) async throws -> Data { try await call { try await $0.setModel(modelId) } }

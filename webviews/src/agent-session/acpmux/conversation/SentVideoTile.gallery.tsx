@@ -121,6 +121,26 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
       },
     },
+    "video-unplayable": {
+      note: 'Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop up anymore :(". A chat on another machine whose host will not stream the recording (an older daemon there, a file outside the chat\'s folders) and Quick Look refuses too: the click says so on the tile instead of doing nothing.',
+      props: { typed: "Why does the sidebar jump when I open this?", screenshot: true },
+      chipHost: { refused: ["media.load", "video.quickLook"] },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__video img"));
+        await ctx.click({ selector: ".cv-user__video" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__video-unplayable"));
+      },
+    },
+    "video-unplayable-alone": {
+      note: "The same refusal for a recording sent alone, its note over the poster in the play glyph's place.",
+      props: { typed: "", screenshot: false },
+      chipHost: { refused: ["media.load", "video.quickLook"] },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__video img"));
+        await ctx.click({ selector: ".cv-user__video" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__video-unplayable"));
+      },
+    },
     "video-only": {
       note: "A recording sent alone: no empty bubble under it.",
       props: { typed: "", screenshot: false },
