@@ -50,7 +50,7 @@ public final class SettingsConnectors: PageProvider {
             guard connection.range(of: #"^conn_[a-z0-9]{20}$"#, options: .regularExpression) != nil else {
                 throw PageError.invalidParams("connection")
             }
-            return try await answer(post(path: "v1/connectors/\(provider)/connections/\(connection)/revoke" + query([:])))
+            return try await answer(post(path: "v1/connectors/\(provider)/connections/\(connection)/revoke"))
         default:
             throw PageError.unknownOp(op)
         }
@@ -61,7 +61,7 @@ public final class SettingsConnectors: PageProvider {
         guard !preview else { return .object(["available": .bool(false)]) }
         guard auth.isSignedIn else { return .object(["available": .bool(true), "signedIn": .bool(false)]) }
         do {
-            let reply = try answer(await get(path: "v1/connectors/" + query([:])))
+            let reply = try answer(await get(path: "v1/connectors/"))
             guard case .object(var fields) = reply else { throw PageError.invalidParams("connectors reply") }
             fields["available"] = .bool(true)
             fields["signedIn"] = .bool(true)
@@ -89,21 +89,25 @@ public final class SettingsConnectors: PageProvider {
         GitHubConnections.backendTeam(project: auth.configuration.stackProjectID, stackTeam: auth.teamID)
     }
 
+    /// EXTRA as a query string. The team goes in the `x-cmux-team` header (``headers``), never here: the
+    /// transport keeps a query only on GET, and a POST's would be escaped into its path.
     private func query(_ extra: [String: String]) -> String {
-        var items = extra.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
-        if let team { items.insert(URLQueryItem(name: "team", value: team), at: 0) }
+        let items = extra.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
         guard !items.isEmpty else { return "" }
         var components = URLComponents()
         components.queryItems = items
         return "?" + (components.percentEncodedQuery ?? "")
     }
 
+    /// The selected team, when there is one; none: the platform uses the person's own.
+    private var headers: [String: String] { team.map { ["x-cmux-team": $0] } ?? [:] }
+
     private func get(path: String) async throws -> (status: Int, body: Data) {
-        try await InstallHTTPTransport(baseURL: platform).get(path, bearer: auth.tokens().access, headers: [:])
+        try await InstallHTTPTransport(baseURL: platform).get(path, bearer: auth.tokens().access, headers: headers)
     }
 
     private func post(path: String) async throws -> (status: Int, body: Data) {
-        try await InstallHTTPTransport(baseURL: platform).post(path, json: Data("{}".utf8), bearer: auth.tokens().access, headers: [:])
+        try await InstallHTTPTransport(baseURL: platform).post(path, json: Data("{}".utf8), bearer: auth.tokens().access, headers: headers)
     }
 
     /// The platform's JSON on 2xx; its own `message` (fixed text, never a provider body) otherwise.

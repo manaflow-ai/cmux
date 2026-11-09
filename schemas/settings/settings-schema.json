@@ -1808,6 +1808,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "connectors",
+        "lead" : [
+          "connectors"
+        ],
+        "symbol" : "link",
+        "title" : {
+          "key" : "settings.category.connectors",
+          "text" : "Connectors"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.mobile",
             "rows" : [
@@ -2151,6 +2174,7 @@
       {
         "categories" : [
           "accounts",
+          "connectors",
           "mobile",
           "devices",
           "server"
