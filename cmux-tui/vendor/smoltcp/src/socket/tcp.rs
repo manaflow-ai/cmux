@@ -3485,13 +3485,14 @@ impl<'a> Socket<'a> {
             self.sack_high_rxt = self.sack_high_rxt.max(repr.seq_number + repr.payload.len());
             // Karn: no RTT sample from a retransmitted segment.
             self.rtte.on_retransmit();
-            // Resending the head restarts the RTO, as the duplicate-ACK fast
-            // retransmit does. Its ACK is due a round trip from now, and the
-            // timer armed at the last new ACK would otherwise fire first on a
-            // long path, collapse the window and discard the scoreboard.
+            // Resending the head restarts the retransmit timer, probe
+            // included, as the duplicate-ACK fast retransmit does. Its ACK is
+            // due a round trip from now, and the timer armed at the last new
+            // ACK would otherwise fire first on a long path, collapse the
+            // window and discard the scoreboard. If the repair is lost too,
+            // the probe resends it before the RTO.
             if repr.seq_number == self.local_seq_no {
-                self.timer
-                    .set_for_retransmit(cx.now(), self.rtte.retransmission_timeout());
+                self.arm_retransmit_timer(cx.now());
             }
         }
 
@@ -11006,6 +11007,29 @@ mod test {
                 expires_at: Instant::from_millis(400) + rto
             }
         );
+    }
+
+    #[test]
+    fn test_sack_lost_repair_of_the_head_is_probed_before_the_rto() {
+        let mut s = socket_sacking();
+        s.set_tail_loss_probe(Some(Duration::from_millis(10)));
+        send!(s, time 50, sack_ack(6, [None, None, None]));
+        send!(s, time 400, sack_ack(6, [sack_block(12, 36), None, None]));
+        recv!(s, time 400, sack_resent(6));
+        let probe = s.probe_timeout().unwrap();
+        let rto = s.rtte.retransmission_timeout();
+        assert!(probe < rto);
+        assert_eq!(
+            s.timer,
+            Timer::TailLossProbe {
+                expires_at: Instant::from_millis(400) + probe,
+                rto_at: Instant::from_millis(400) + rto,
+            }
+        );
+        // The repair was lost: the probe resends it, well before the RTO.
+        let at = (Instant::from_millis(400) + probe).total_millis();
+        recv_nothing!(s, time at - 1);
+        recv!(s, time at, sack_resent(6));
     }
 
     #[test]
