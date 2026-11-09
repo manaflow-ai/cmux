@@ -65,7 +65,14 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
 
   /// The pane's dev entry with its mock agent and three earlier turns, so the chat overflows and a
   /// send rises from the latest row; the agent then answers late, as a real one does.
-  const openChat = async (page: Page, turns = ["first question", "second question", "third question"]) => {
+  const openChat = async (
+    page: Page,
+    turns = ["first question", "second question", "third question"],
+    arm?: "send" | "blocks",
+  ) => {
+    // The follow-motion arm (followMotion.experiment.ts): the product's `send` caps the send step at
+    // 120 ms (composerStates.css SEND-SLIM); `blocks` keeps the scale's full send step.
+    if (arm) await page.addInitScript((arm) => Object.assign(window, { cmuxExperiments: { "follow-motion": arm } }), arm);
     await page.addInitScript(() => {
       Object.assign(window, {
         webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
@@ -190,10 +197,15 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
   };
   const ghost = (frame: Frame, kind: string) => frame.ghosts.find((entry) => entry.kind === kind);
 
-  test("at the bottom, the composer's words and screenshot become the sent message on the send motion", async () => {
+  /// The send step each arm runs: the slim arm's is capped at 120 ms (Leo, 2026-11-09: "the scroll up
+  /// is extremely sluggish ... it doesn't look great when it's so slow").
+  const SEND_STEP = { blocks: MOTION_SEND_MS, send: Math.min(MOTION_SEND_MS, 120) } as const;
+  test.each(["blocks", "send"] as const)(
+    "at the bottom, the composer's words and screenshot become the sent message on the send motion (%s arm)",
+    async (arm) => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {
-      await openChat(page);
+      await openChat(page, undefined, arm);
       const from = await compose(page);
       await watch(page);
       await page.keyboard.press("Enter");
@@ -233,8 +245,8 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       expect(mounted, "the sent row never drew").toBeGreaterThanOrEqual(0);
       expect(landed, "the copies never landed").toBeGreaterThan(mounted);
       const flight = seen[landed]!.at - seen[mounted]!.at;
-      expect(flight, "the flight's length").toBeGreaterThanOrEqual(MOTION_SEND_MS - 15);
-      expect(flight, "the flight's length").toBeLessThan(MOTION_SEND_MS + 70);
+      expect(flight, "the flight's length").toBeGreaterThanOrEqual(SEND_STEP[arm] - 15);
+      expect(flight, "the flight's length").toBeLessThan(SEND_STEP[arm] + 70);
       const last = seen[landed - 1]!;
       near(ghost(last, "bubble"), last.bubble, "the bubble's copy lands on the bubble");
       near(ghost(last, "attachment"), last.preview, "the screenshot's copy lands on its thumbnail");
@@ -243,7 +255,10 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
         expect(frame.preview!.ink, `the screenshot is whole once landed, at ${frame.at} ms`).toBeGreaterThan(0.99);
         near(frame.bubble, seen[landed]!.bubble, `the bubble stays where it landed at ${frame.at} ms`, 60);
       }
-      // The copy's way is continuous: the bubble's shell never jumps more than a quarter of the way.
+      // The copy's way is continuous: the bubble's shell never jumps more than half of the way. The
+      // slim arm's 120 ms flight is a handful of frames, each a larger share of the way: only the
+      // full step is held to it.
+      if (arm === "blocks")
       for (let index = 1; index < landed; index += 1) {
         const [a, b] = [ghost(seen[index - 1]!, "bubble"), ghost(seen[index]!, "bubble")];
         if (a && b)
@@ -254,7 +269,8 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
     } finally {
       await page.close();
     }
-  });
+  },
+  );
 
   // The host's echo of the prompt can come inside the flight: it gives the screenshot its lasting id,
   // and the thumbnail drawn under the old one is replaced. The copy follows the new thumbnail.

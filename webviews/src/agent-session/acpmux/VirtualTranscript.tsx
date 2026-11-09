@@ -4133,8 +4133,9 @@ function TranscriptView({
     // Sent while scrolled up: the view glides down to the latest message on Jump to latest's ride
     // (one viewport at most, its curve and duration) instead of cutting there in one frame, and the
     // prompt's row and reply land on the moving end. Reduce Motion and motion off still cut.
-    // The slim arm cuts there too: the send's view is the latest message in the frame after Return.
-    if (!fromLatest && !reduce && !slimFollow) {
+    // Under the slim arm the ride runs the capped send step (composerStates.css SEND-SLIM, 120 ms at
+    // most), and the prompt still tucks under the composer as it goes (sendTuck.ts).
+    if (!fromLatest && !reduce) {
       rideToLatest(node, latest, false, false, true);
       followRequest.current = userScrollIntent(node).request();
       follow(true, "send");
