@@ -122,6 +122,13 @@ DAEMON_DONE = [job("cmux-next path routing", "completed", "success"),
                job("cmux-next generated files", "completed", "failure"),
                job("cmux app scheme compile (Debug)", "queued")]
 RUNNING_MAC = [job("cmux-next daemon tests", "in_progress")] + QUEUED_MAC[2:]
+# Every Mac job done, the Linux tail (the crash gate, push attribution) still to run: it holds no Mac queue slot,
+# and its scheme compile verdict (which base_red_excuse.py never reads from a cancelled run) must stay.
+LINUX_TAIL = [job("cmux-next path routing", "completed", "success"),
+              job("cmux-next daemon tests", "completed", "success"),
+              job("cmux-next generated files", "completed", "success"),
+              job("cmux app scheme compile (Debug)", "completed", "success"),
+              job("cmux-next crash ends the app", "queued")]
 
 
 class CancelSuperseded(unittest.TestCase):
@@ -190,6 +197,35 @@ class CancelSuperseded(unittest.TestCase):
         self.assertIsNone(kick(api, clock))
         self.assertEqual(api.dispatched, [])
         self.assertEqual(api.cancelled, [11])
+
+    def test_a_run_whose_mac_jobs_all_finished_is_left_alone(self):
+        # Review on #39631: run 11 waits only for its Linux tail. Cancelling it would drop its scheme compile and
+        # crash gate verdicts, the newest ones, so an older red could excuse a new red. Run 10 is kept, the newest too.
+        api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(10, OLDEST, T0 - 120, "in_progress", DAEMON_DONE)
+        api.open_run(11, OLD, T0 - 60, "in_progress", LINUX_TAIL)
+        api.open_run(12, TIP, T0, "queued", QUEUED_MAC)
+        self.assertIsNone(kick(api, clock))
+        self.assertEqual(api.cancelled, [])
+
+    def test_a_run_whose_scheme_compile_finished_is_left_alone(self):
+        # Its daemon tests still queue for a Mac, but its scheme compile verdict would be lost with it.
+        finished = [job("cmux app scheme compile (Debug)", "completed", "failure"),
+                    job("cmux-next daemon tests", "queued"), job("cmux-next generated files", "queued")]
+        api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(10, OLDEST, T0 - 120, "queued", QUEUED_MAC)
+        api.open_run(11, OLD, T0 - 60, "in_progress", finished)
+        self.assertIsNone(kick(api, clock))
+        self.assertEqual(api.cancelled, [])
+
+    def test_a_run_in_its_linux_tail_never_takes_the_kept_slot(self):
+        # The oldest run waiting for a Mac is kept, not an older run that holds no Mac queue slot.
+        api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(10, OLDEST, T0 - 180, "in_progress", LINUX_TAIL)
+        api.open_run(11, OLD, T0 - 120, "in_progress", DAEMON_DONE)
+        api.open_run(12, MID, T0 - 60, "queued", QUEUED_MAC)
+        self.assertIsNone(kick(api, clock))
+        self.assertEqual(api.cancelled, [12])
 
     def test_a_run_with_a_mac_job_in_progress_is_left_alone(self):
         # It is never cancelled, and it is not the oldest waiting run either: the oldest of the others is kept.
