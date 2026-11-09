@@ -104,6 +104,7 @@ mod rd_link;
 mod route_log;
 mod secrets;
 mod serve;
+mod source;
 
 use std::io::Write as _;
 use std::path::PathBuf;

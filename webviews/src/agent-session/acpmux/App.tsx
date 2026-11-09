@@ -630,6 +630,7 @@ import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
 import type { PermissionDecision } from "./permissions/protocol";
+import { planBuildTarget } from "./permissions/planBuild";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
@@ -7556,6 +7557,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // The Needs you list answers asks of other chats too.
               typeof sessionId === "string" && sessionId ? sessionId : undefined,
               annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
+            ),
+          "chat.plan.build": ({ permissionId, target, sessionId }) =>
+            client.planBuild(
+              String(permissionId),
+              planBuildTarget(target),
+              typeof sessionId === "string" && sessionId ? sessionId : undefined,
+            ),
+          "chat.plan.compare": ({ buildId, sessionId }) =>
+            client.planCompare(String(buildId), typeof sessionId === "string" && sessionId ? sessionId : undefined),
+          "chat.plan.keep": ({ buildId, keep, sessionId }) =>
+            client.planKeep(
+              String(buildId),
+              String(keep),
+              typeof sessionId === "string" && sessionId ? sessionId : undefined,
             ),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),

@@ -61,7 +61,7 @@ extension AgentTabStore {
             return self.moveAgentToMachine(AgentTabKey(machine: scoped.machine, key: tab), machine)
         }, showsChat: { [weak self] session in
             guard let self else { return false }
-            return AgentPaneMoveTarget.tabStillShows(self.session(of: self.resolve(provisional, machine: scoped.machine)), requested: session)
+            return AgentPaneMoveTarget.tabStillShows(self.session(of: self.resolve(provisional, machine: scoped.machine), machine: scoped.machine), requested: session)
         }) // an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown only beside the chat (its pane or right column), never in another workspace; a chat opens only its family (startedBy)
         // Changes with the chat's turn (D1, D2), or the turn's own patch where no git source holds it:
         // the diff beside the chat offers the turn as Last turn, or shows only the patch.

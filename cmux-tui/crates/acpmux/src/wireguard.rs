@@ -59,7 +59,7 @@ pub struct Transport {
     bridge: Mutex<Option<JoinHandle<()>>>,
     local: SocketAddr,
     /// This machine's WireGuard key lock, released when the transport stops.
-    key: Mutex<Option<KeyHolder>>,
+    key: Mutex<Option<Arc<KeyHolder>>>,
 }
 
 /// Where acpmux takes the lock for its node key, beside the cmux link whose state directory is
@@ -247,8 +247,15 @@ impl Transport {
             stop,
             bridge: Mutex::new(Some(bridge)),
             local,
-            key: Mutex::new(Some(key)),
+            key: Mutex::new(Some(Arc::new(key))),
         }))
+    }
+
+    /// This machine's WireGuard key lock while the transport runs: the daemon's other user of
+    /// the node key (the hub carrier) shares it, since a second lock in one process is refused.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) fn key_holder(&self) -> Option<Arc<KeyHolder>> {
+        self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -327,7 +334,7 @@ fn public_key(text: &str) -> Result<[u8; 32]> {
     Ok(key)
 }
 
-fn local_websocket(mut address: SocketAddr) -> Result<SocketAddr> {
+pub(crate) fn local_websocket(mut address: SocketAddr) -> Result<SocketAddr> {
     if address.ip().is_unspecified() {
         address.set_ip(if address.is_ipv4() {
             IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
