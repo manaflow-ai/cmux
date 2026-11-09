@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42624157701",
+  "recorded_at": "2026-11-09T13:25:50Z",
+  "reason": "cmux-tui 42496e69528f changes the image's cmux-tui (pinned 1a02d48b6f72)",
+  "dry_run": false,
+  "cmux_tui": "42496e69528fd47ee89e0cfbe7016663aa90a022",
+  "fixes": [
+    {
+      "sha": "42496e69528fd47ee89e0cfbe7016663aa90a022",
+      "mergedAt": "2026-11-09T04:54:35-08:00",
+      "subject": "optchat-chief: an ACPMUX_BIN wrapper names the daemon's binary for the peer check (F3 of #39020) (#39552)"
+    },
+    {
+      "sha": "244235badf0c0d7cc17744971c099f9c7cbafa08",
+      "mergedAt": "2026-11-09T04:53:57-08:00",
+      "subject": "fix(tui): Kitty quota adoption ends cleanly when the host closed its link after its ack (#39477) (#39583)"
+    },
+    {
+      "sha": "f2531de7d168621b99d98f2fc15f09182fbea05c",
+      "mergedAt": "2026-11-09T12:47:08Z",
+      "subject": "chore(next): base autofix at 67a2d65bd828"
+    },
+    {
+      "sha": "67a2d65bd828e9d17e537e4e3087f9da21bfa6fb",
+      "mergedAt": "2026-11-09T04:45:50-08:00",
+      "subject": "acpmux CLI: true policy note, quieter host warning, null for missing fields, private-daemon recipe (#39057)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T13:25:50Z",
+    "snapshot_id": "sh-dd7bbca59448497992d82b85201a2b62",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42624157701): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c794455f4fbe67742e2306b2dc67198989df82cb",
+    "image": "cloud-native-auto-42496e69-42624157701-1",
+    "revision": "ci-42624157701-1",
+    "at": "2026-11-09T13:25:50Z"
+  },
+  "rolled_back": false
+}
