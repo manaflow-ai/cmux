@@ -240,11 +240,11 @@ fn a_worker_refusal_names_its_nested_code_and_the_header_code_wins() {
 
 #[test]
 fn classic_calls_send_the_stack_session_and_the_team() {
-    let (origin, seen) = fake(|_| ok(r#"{"domains":[{"id":"dom-1"}]}"#));
-    let answer = go(&request(&origin, Auth::Stack, "vm.domains", json!({}))).unwrap();
-    assert_eq!(answer, json!([{ "id": "dom-1" }]));
+    let (origin, seen) = fake(|_| ok(r#"{"rules":[{"id":"rule-1"}]}"#));
+    let answer = go(&request(&origin, Auth::Stack, "vm.firewall_list", json!({}))).unwrap();
+    assert_eq!(answer, json!([{ "id": "rule-1" }]));
     let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "GET /api/vm/domains");
+    assert_eq!(seen[0].target(), "GET /api/vm/firewall");
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team-1"));
@@ -1010,7 +1010,7 @@ fn a_base_path_is_kept() {
 fn a_local_backend_that_is_not_running_is_no_backend() {
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let mut call =
-        request(&format!("http://127.0.0.1:{port}"), Auth::Stack, "vm.networks", json!({}));
+        request(&format!("http://127.0.0.1:{port}"), Auth::Stack, "vm.firewall_list", json!({}));
     call.local_only = true;
     assert_eq!(go(&call), Err(Failure::NoBackend));
     call.local_only = false;
@@ -1269,9 +1269,9 @@ fn a_keyed_start_refusal_that_echoes_the_key_carries_no_service_text() {
 
 #[test]
 fn an_answer_over_the_limit_is_refused_while_it_is_read() {
-    let big = format!(r#"{{"networks":"{}"}}"#, "x".repeat(MAX_ANSWER_BYTES));
+    let big = format!(r#"{{"rules":"{}"}}"#, "x".repeat(MAX_ANSWER_BYTES));
     let (origin, _seen) = fake(move |_| ok(&big));
-    let failure = go(&request(&origin, Auth::Stack, "vm.networks", json!({}))).unwrap_err();
+    let failure = go(&request(&origin, Auth::Stack, "vm.firewall_list", json!({}))).unwrap_err();
     assert!(
         matches!(&failure, Failure::Transport(message) if message.contains("larger than")),
         "{failure:?}"
