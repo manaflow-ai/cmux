@@ -8,7 +8,7 @@ packetizer, reassembly, frame gate, congestion control, input, sessions and acce
 policy): `cmux-rd-core`.
 
 ```
-cmux-rd host    --listen-systemd --peer-uid 1000 [--display :99] [--xauthority PATH] [--idle-exit-s 120]   (Cloud machines; below)
+cmux-rd host    --listen-systemd --peer-uid 1000 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--no-udp-link] [--link-stun HOST:PORT,...]   (Cloud machines; below)
 cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264] [--upstream-record DIR [--upstream-record-max-mb 1024]]
 cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
@@ -136,7 +136,17 @@ it only on the owner's grant for service `desktop`. Only then does the server co
   button. The root property `_CMUX_RD_PERSON` exists exactly while the master does and names the
   window under the person's pointer, so an agent can wait while it exists before typing into
   Chromium (see `src/inject.rs`).
-- The stream carrier only. A hello that asks for UDP is refused (`StreamCarrierOnly`).
+- No UDP port in the hello. A hello that asks for one is refused (`StreamCarrierOnly`).
+- Media may move to a UDP link (cap `link.udp`, `src/hybrid.rs`). When the hello offers the cap,
+  the welcome lists it and caps `max_datagram` so a sealed datagram fits the link. The viewer
+  then sends `link_offer` (its cmux-rd-link key, a prologue and candidates) on the stream. The
+  host starts a Noise_XX link (one UDP socket, port picked by the kernel, reflexive candidate
+  from `--link-stun HOST:PORT,...`), answers `link_answer` with its own key, and sends its
+  candidates as `link_candidate`. Both keys cross the carrier's admitted stream, so the link
+  trusts only what the carrier trusts. A packet that is not that peer's Noise traffic is dropped.
+  Media datagrams use the link while one of its paths answers (`link_state up`). Before that,
+  and whenever no path answers, they stay on the stream (`link_state` down with a reason).
+  Control never leaves the stream. `--no-udp-link` turns the cap off.
 - The service runs as its own system user (`cmux-agent-rd.service`, `User=cmux-rd`, not in group
   `cmux`), reads the X cookie from `--xauthority` (set as `XAUTHORITY`), and exits after
   `--idle-exit-s` seconds (default 120) with no connection; the socket unit starts it again on the

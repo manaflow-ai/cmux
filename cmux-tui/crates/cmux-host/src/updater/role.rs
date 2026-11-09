@@ -36,7 +36,6 @@ const BOOT_DELAY: Duration = Duration::from_secs(30);
 const INTERVAL: Duration = Duration::from_secs(60);
 /// An update waiting for a turn to end looks again this soon.
 const BUSY_RETRY: Duration = Duration::from_secs(60);
-#[cfg(test)]
 pub(super) use super::gate::CONNECT_HOLD;
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
@@ -140,6 +139,52 @@ fn hold_after_restore(paths: &Paths) {
             log("a snapshot restore: no flip during the connect hold");
         }
     }
+}
+
+/// Slack past a step's own bound before the worker counts the overrun as a stop.
+pub(super) const STOP_SLACK: Duration = Duration::from_secs(30);
+/// The most wall time one check spends before its flip without counting as a
+/// stop. A slower one (a slow download) only waits one connect hold more: its
+/// binaries are staged, so the next check is quick.
+pub(super) const CHECK_BOUND: Duration = CONNECT_HOLD;
+
+/// Starts the connect hold at `now_ms` when more wall time passed since
+/// `started_ms` than a step bounded by `allowed` takes: the machine was
+/// stopped (paused, restored or forked) in between.
+///
+/// The restore look ([`hold_after_restore`]) and the supervisor's `Resumed`
+/// count on `realtime - boottime` jumping, but a Freestyle machine's boot
+/// clock runs through a pause: a claimed spare (a paused machine resumed)
+/// moved neither, its 60 s wait ended at once and it flipped 1 to 184 s
+/// after its create (production chat probe, 17 of 45 runs, 2026-11-07 to
+/// 11-08). Wall time against the worker's own steps sees every stop.
+pub(super) fn hold_if_stopped(
+    paths: &Paths,
+    started_ms: u64,
+    now_ms: u64,
+    allowed: Duration,
+) -> bool {
+    let bound = allowed.saturating_add(STOP_SLACK);
+    if now_ms.saturating_sub(started_ms) <= u64::try_from(bound.as_millis()).unwrap_or(u64::MAX) {
+        return false;
+    }
+    super::gate::hold_connects(paths, now_ms);
+    log(&format!(
+        "the machine was stopped for {} s (a pause or restore): no flip during the connect hold",
+        now_ms.saturating_sub(started_ms).saturating_sub(allowed.as_millis() as u64) / 1000
+    ));
+    true
+}
+
+/// [`wait`], and a wait that comes back later than it could have (the machine
+/// was stopped during it) starts the connect hold ([`hold_if_stopped`]).
+fn wait_watching(paths: &Paths, rx: &Receiver<Msg>, d: Duration) -> bool {
+    let started = wall_ms();
+    let go_on = wait(rx, d);
+    if go_on {
+        hold_if_stopped(paths, started, wall_ms(), d);
+    }
+    go_on
 }
 
 /// How much of the connect hold is left now.
@@ -278,7 +323,7 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
     {
         return;
     }
-    if !wait(rx, BOOT_DELAY) {
+    if !wait_watching(paths, rx, BOOT_DELAY) {
         return;
     }
     loop {
@@ -286,14 +331,14 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
         // to look again).
         hold_after_restore(paths);
         if let Some(left) = held_for(paths) {
-            if !wait(rx, left) {
+            if !wait_watching(paths, rx, left) {
                 return;
             }
             continue;
         }
         let outcome = check(paths);
         let next = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
-        if !wait(rx, next) {
+        if !wait_watching(paths, rx, next) {
             return;
         }
     }
@@ -381,6 +426,7 @@ pub fn check(paths: &Paths) -> Outcome {
 }
 
 fn check_inner(paths: &Paths) -> Outcome {
+    let started = wall_ms();
     if let Some(why) = off_reason(paths) {
         return Outcome::Off(why);
     }
@@ -443,6 +489,8 @@ fn check_inner(paths: &Paths) -> Outcome {
     };
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
     hold_after_restore(paths);
+    // A stop during this check (its download, its busy look) holds its flip.
+    hold_if_stopped(paths, started, wall_ms(), CHECK_BOUND);
     let last =
         last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
     if let Some(outcome) = last {

@@ -902,7 +902,20 @@ pub(crate) fn mark_pasted(msg: &mut Value, blocks: &[Value]) {
     // Only the person's own prompt: another agent's carries its sender (an agent kind of
     // `_meta.provenance`, `fromAgent`). A client draws `agentText` only on the person's bubble.
     // A person's own prompt with provenance (`person_message`, multiplayer) is still theirs.
-    let agents = super::digest::agent_sender(msg.pointer("/_meta/provenance"), None).is_some();
+    // A prompt the daemon made from no person (an unverified client's, a suggested task's
+    // result, a fan-in or inbox digest) already names where it came from: no note either.
+    let provenance = msg.pointer("/_meta/provenance");
+    let synthetic =
+        provenance.and_then(|p| p.get("kind")).and_then(Value::as_str).is_some_and(|kind| {
+            [
+                crate::prompt_provenance::UNVERIFIED_KIND,
+                "offer_result",
+                super::digest::DIGEST_KIND,
+                super::digest::inbox_digest::KIND,
+            ]
+            .contains(&kind)
+        });
+    let agents = synthetic || super::digest::agent_sender(provenance, None).is_some();
     if !agents
         && msg.get("fromAgent").is_none()
         && let Some(agent) = typed_agent_text(blocks)

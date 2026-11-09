@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSidebar
+import CmuxNextTabs
 
 /// The New Tab page's chats. The cards read the app's one Chats feed (acpmux's device chat index,
 /// newest few). The All chats list (cx-n0i9; the sidebar has no All chats since 2026-10-10) pages
@@ -45,7 +46,7 @@ final class AgentPageChats {
     var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
     /// The chats Cloud starts opened, by their tab's key, for this run of the App: a repick moves only one
     /// of these. A relaunched App has none, and a pick there does what it did before.
-    var cloudStarted: [String: AgentPaneCloudStarted] = [:]
+    var cloudStarted: AgentTabMap<AgentPaneCloudStarted> = .init()
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
     private(set) var runNotices: SandboxRunNotices?
     /// A Cloud chat's hand-off turn (``CloudHandoffTurnOpener``), one runner for every page, given the pane that asked.
