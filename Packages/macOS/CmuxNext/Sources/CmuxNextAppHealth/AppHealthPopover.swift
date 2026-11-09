@@ -1,7 +1,7 @@
-import AppKit
-import CmuxNextControl
+public import AppKit
+public import CmuxNextControl
 import CmuxNextDaemonService
-import CmuxNextPages
+public import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSettings
 import Foundation

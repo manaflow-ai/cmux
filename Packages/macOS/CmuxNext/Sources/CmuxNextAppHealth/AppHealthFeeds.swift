@@ -1,11 +1,11 @@
 import CmuxNextCompat
-import CmuxNextControl
+public import CmuxNextControl
 import CmuxNextDaemon
-import CmuxNextDaemonService
-import CmuxNextPages
-import CmuxNextWakeups
+public import CmuxNextDaemonService
+public import CmuxNextPages
+public import CmuxNextWakeups
 import Darwin
-import Foundation
+public import Foundation
 
 /// App health's feeds (the shared health contract; Leo, 2026-11-09: "displaying a tiny situation
 /// somewhere in the app that lets the user know... or better yet, figure out how to auto repair that
