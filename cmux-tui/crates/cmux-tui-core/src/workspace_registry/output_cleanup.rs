@@ -115,19 +115,41 @@ const REBUILT_TABLES: [&str; 6] = [
 ];
 
 /// Bytes the swap copies unchanged from `source` (every table and index
-/// outside the rebuilt journal tables), bounded by the file's used pages:
-/// three header reads. Counting each b-tree's pages (`dbstat`) read every
-/// page of the file, minutes on a large registry, in a read that kept the
-/// WAL from being checkpointed.
+/// outside the rebuilt journal tables): their pages, counted per b-tree with
+/// `dbstat`, which reads only those b-trees. Without `dbstat`, the whole
+/// file's used pages, an upper bound.
 fn copied_bytes(source: &Connection) -> anyhow::Result<u64> {
-    let (pages, free, size): (i64, i64, i64) = source.query_row(
-        "SELECT (SELECT page_count FROM pragma_page_count()),
-                (SELECT freelist_count FROM pragma_freelist_count()),
-                (SELECT page_size FROM pragma_page_size())",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    )?;
-    Ok(u64::try_from((pages - free).max(0).saturating_mul(size)).unwrap_or(u64::MAX))
+    let names = {
+        let rebuilt = REBUILT_TABLES.iter().map(|name| format!("'{name}'")).collect::<Vec<_>>();
+        let mut statement = source.prepare(&format!(
+            "SELECT name FROM sqlite_master
+             WHERE type IN ('table', 'index') AND tbl_name NOT IN ({})",
+            rebuilt.join(", ")
+        ))?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    let mut total = 0_u64;
+    for name in &names {
+        let bytes = source.query_row(
+            "SELECT COALESCE(SUM(pgsize), 0) FROM dbstat WHERE name = ?1 AND aggregate = TRUE",
+            [name],
+            |row| row.get::<_, i64>(0),
+        );
+        match bytes {
+            Ok(bytes) => total = total.saturating_add(u64::try_from(bytes).unwrap_or(0)),
+            Err(_) => {
+                let (pages, free, size): (i64, i64, i64) = source.query_row(
+                    "SELECT (SELECT page_count FROM pragma_page_count()),
+                            (SELECT freelist_count FROM pragma_freelist_count()),
+                            (SELECT page_size FROM pragma_page_size())",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+                return Ok(u64::try_from((pages - free).max(0) * size).unwrap_or(u64::MAX));
+            }
+        }
+    }
+    Ok(total)
 }
 
 /// `Some(reason)` when a cleanup that keeps `kept` of `total` journal
