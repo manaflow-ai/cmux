@@ -468,7 +468,8 @@ impl GitSeedService {
         let (job, owner) = self.running_hold(params)?;
         let (reply, ended) = mpsc::channel();
         owner.send(hold::Op::End(ok, reply)).map_err(|_| hold_ended())?;
-        ended.recv().map_err(|_| hold_ended())?;
+        // A copy that could not finish is the job's own failed status, answered below.
+        let _finished: Result<(), Failed> = ended.recv().map_err(|_| hold_ended())?;
         let job = self.jobs().by_id.get(&job).cloned().ok_or_else(hold_ended)?;
         Ok(job.answer())
     }
