@@ -181,9 +181,9 @@ fn injected_fault_a_frozen_owner_is_replaced_with_its_state() {
 /// read (`list-workspaces`) still answer within 2 s: no request that does
 /// not write waits for a commit.
 ///
-/// Known red at 7af9d379567 (feat-cmux-next 92671556d50 and these seams;
-/// macOS, aws-m4pro-3): identify waited 4.9-5.0 s and list-workspaces up to
-/// 5.0 s, two commits. `workspace.create` (empty) holds the mux state lock
+/// Known red at 7af9d379567 (feat-cmux-next 92671556d50 and these seams, on
+/// a fleet Mac): identify waited 4.9-5.0 s and list-workspaces up to 5.0 s,
+/// two commits. `workspace.create` (empty) holds the mux state lock
 /// (`lock_state_pinned` in `resource_create_empty_workspace_selected`) across
 /// both of its registry commits (`prepare_resource_creation_for`, then
 /// `commit_resource_creation_patch`), and identify reads `workspace_revision`
