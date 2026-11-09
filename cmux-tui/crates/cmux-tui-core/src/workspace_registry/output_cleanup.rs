@@ -168,16 +168,26 @@ fn kept_refusal(kept: u64, total: u64) -> Option<String> {
     }
 }
 
-/// `Some(reason)` when the staging file is over [`MAX_STAGED_BYTES`].
-fn staged_bytes_refusal(db_path: &Path) -> Option<String> {
-    let staged = file_len(&staging_path(db_path));
-    (staged > MAX_STAGED_BYTES).then(|| {
-        format!(
-            "the staging file is {}, over the bound of {}",
-            mebibytes(staged),
-            mebibytes(MAX_STAGED_BYTES)
-        )
-    })
+/// `Some(reason)` when the staging database is over [`MAX_STAGED_BYTES`].
+fn staged_bytes_refusal(staging: &Connection) -> anyhow::Result<Option<String>> {
+    staged_bytes_over(staging, MAX_STAGED_BYTES)
+}
+
+/// The staging database's logical size (its pages, read through
+/// `staging`) against `limit`. Not the file's length: pages a transaction
+/// wrote are in the WAL until a checkpoint, and the close copies them into
+/// the file.
+fn staged_bytes_over(staging: &Connection, limit: u64) -> anyhow::Result<Option<String>> {
+    let (pages, size): (i64, i64) = staging.query_row(
+        "SELECT (SELECT page_count FROM pragma_page_count()),
+                (SELECT page_size FROM pragma_page_size())",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let staged = u64::try_from(pages.max(0).saturating_mul(size)).unwrap_or(u64::MAX);
+    Ok((staged > limit).then(|| {
+        format!("the staging file is {}, over the bound of {}", mebibytes(staged), mebibytes(limit))
+    }))
 }
 
 /// (non-output, all) live journal rows after the sealed segments. The
