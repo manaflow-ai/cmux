@@ -14,7 +14,9 @@
 //           window, and the body's edge fade switched only where the scroll crossed an edge;
 //   pixels  Chromium's delivered frames (CDP screencast) of the panel's box: a frame whose drawn
 //           content drops to under half of its neighbours' and comes back is a blank, a flash.
-// SESSION-INFO-SCROLL-FLICKER lines print the counts, the bench's before/after numbers.
+// SESSION-INFO-SCROLL-FLICKER lines print the counts. #37197 (Leo, 2026-11-06: "I think we should have it
+// be, like, the same for the session info") and the steady foot (session-info-stream-scroll-steady)
+// made every count 0; this file holds them there in both engines and on the App's see-through glass.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -414,12 +416,12 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
           }
           await sample(page);
           const stopCast = chromiumPage ? await screencast(page) : async () => [];
-          await page.evaluate((target) => {
-            void import(/* @vite-ignore */ "/mock.ts").then(({ MockAcpmuxSocket }) => {
-              const mock = MockAcpmuxSocket.live as any;
-              mock.emit(target, { mux: "user_message", msg: { text: "Fix the flaky check" } });
-              mock.emit(target, { mux: "turn_started" });
-            });
+          await page.evaluate(async (target) => {
+            // The pane's dev server serves src/agent-session/acpmux at its root.
+            const mockUrl = "/mock.ts";
+            const mock = (await import(/* @vite-ignore */ mockUrl)).MockAcpmuxSocket.live as any;
+            mock.emit(target, { mux: "user_message", msg: { text: "Fix the flaky check" } });
+            mock.emit(target, { mux: "turn_started" });
           }, target);
           let streamed = false;
           const streaming = stream(page, target, 4).then(() => (streamed = true));
