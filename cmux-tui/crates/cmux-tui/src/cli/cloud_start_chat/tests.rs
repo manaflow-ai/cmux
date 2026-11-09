@@ -919,15 +919,27 @@ fn reads_unanswered_read_tries_times_in_a_row_are_chat_unreachable() {
 }
 
 /// A read refused because the machine stopped, is gone or is not the caller's, or for its length, fails at once:
-/// another read would be refused the same way.
+/// another read would be refused the same way. The app reports these as `daemon_error` with the server's text, so
+/// both envelopes are refused without a second read.
 #[test]
 fn a_read_refused_for_the_machine_fails_at_once() {
-    for code in ["vm_not_running", "vm_not_found", "vm_forbidden", "vm_command_too_large"] {
-        let refused = Ran {
-            code: 1,
-            stdout: String::new(),
-            stderr: json!({"code": code, "message": "no"}).to_string(),
-        };
+    let app = |message: &str| {
+        json!({"code": "daemon_error", "data": {"action": "cloudExec"},
+               "message": format!("exec on Cloud machine: {message}")})
+    };
+    let refusals = [
+        json!({"code": "vm_not_running", "message": "no"}),
+        json!({"code": "vm_not_found", "message": "no"}),
+        json!({"code": "vm_forbidden", "message": "no"}),
+        json!({"code": "vm_command_too_large", "message": "no"}),
+        app("This machine is stopped. Start it, then try again. (trace t-1)"),
+        app("No Cloud machine vm_1 on this account. (trace t-2)"),
+        app("You can't use this machine. (trace t-3)"),
+        app("The command is too long (413). (trace t-4)"),
+    ];
+    for refusal in refusals {
+        let code = refusal.to_string();
+        let refused = Ran { code: 1, stdout: String::new(), stderr: refusal.to_string() };
         let mut fake = Fake::new(vec![signed_in(), started(), exec_out(SENT), refused]);
         let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
         else {
@@ -1997,4 +2009,23 @@ fn a_late_creation_timeout_names_the_machine_to_ask_again_by() {
         error["details"]["again"].as_str().unwrap_or_default().contains("--name chat-fresh"),
         "{error}"
     );
+}
+
+/// A read the app could not get to the Cloud API at all is asked again, like one it did not answer in time.
+#[test]
+fn an_unreachable_read_of_the_turn_is_asked_again() {
+    let unreachable = Ran {
+        code: 1,
+        stdout: String::new(),
+        stderr: json!({"code": "daemon_error", "data": {"action": "cloudExec"},
+                       "message": "exec on Cloud machine: Couldn't reach cmux Cloud (The network connection was \
+                                   lost.). Check your network, then try again."})
+        .to_string(),
+    };
+    let mut fake =
+        Fake::new(vec![signed_in(), started(), exec_out(SENT), unreachable, exec_out(REPLIED)]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["unanswered_reads"], 1);
 }

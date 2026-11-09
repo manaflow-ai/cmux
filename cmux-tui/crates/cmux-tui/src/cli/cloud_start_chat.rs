@@ -1638,12 +1638,24 @@ fn prompt_file(name: &str) -> String {
 /// didn't answer in time" on the first read, the machine `connected` and `ready`, the prompt queued).
 const READ_TRIES: u32 = 3;
 
-/// Whether a read of a running turn that failed with `error` may be asked again: not when the machine is gone,
-/// stopped or not the caller's, nor when the command was too long (another read would be refused the same way).
+/// Whether a read of a running turn that failed with `error` may be asked again: only when nothing answered it
+/// (the Cloud API timed out or could not be reached). Every other failure fails at once, because another read would
+/// be refused the same way. The app reports each Cloud API error as `daemon_error` with the person's text
+/// (`CloudStrings.apiErrorText`), so a stopped, missing or forbidden machine has no `vm_*` code to read. The match
+/// is on the no-answer codes and the app's English no-answer text. In another locale the read is not asked again,
+/// and the chat fails as it did before.
 fn read_again(error: &Value) -> bool {
-    let code = at(error, "code").as_str().unwrap_or_default();
-    !matches!(code, "vm_not_running" | "vm_not_found" | "vm_forbidden") && !command_too_long(error)
+    let code = at(error, "code").as_str().unwrap_or_default().to_lowercase();
+    let message = at(error, "message").as_str().unwrap_or_default().to_lowercase();
+    if command_too_long(error) {
+        return false;
+    }
+    matches!(code.as_str(), "timeout" | "timed_out" | "vm_timeout" | "unreachable")
+        || UNANSWERED_TEXT.iter().any(|text| message.contains(text))
 }
+
+/// The app's text for a Cloud API call nothing answered (`CloudStrings.apiTimedOut`, `apiUnreachable`).
+const UNANSWERED_TEXT: [&str; 2] = ["didn't answer in time", "couldn't reach cmux cloud"];
 
 /// Whether a `cloud exec` was refused before its command started: the machine busy, stopped or
 /// gone, the caller not allowed, or the command too long.
