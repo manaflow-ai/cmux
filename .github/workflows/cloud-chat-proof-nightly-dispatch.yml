@@ -43,34 +43,39 @@ jobs:
             const agent = process.env.AGENT;
             const workflow = 'cloud-chat-proof.yml';
             const source = 'feat-cmux-next';
-            const requestId = `nightly-${context.runId}-${context.runAttempt}-${agent}`;
+            // GITHUB_RUN_ATTEMPT, not context: a rerun must never find the run an earlier attempt started.
+            const requestId = `nightly-${context.runId}-${process.env.GITHUB_RUN_ATTEMPT}-${agent}`;
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             const since = new Date(Date.now() - 60_000).toISOString();
-            await github.rest.actions.createWorkflowDispatch({
-              owner, repo, workflow_id: workflow,
-              // Fully qualified: a tag named feat-cmux-next must never be picked.
-              ref: `refs/heads/${source}`,
-              inputs: { build: 'published', agent, from_folder: 'true', request_id: requestId },
-            });
-            // The run-name ends with request_id (cloud-chat-proof.yml run-name), so this finds its own run.
-            let run;
-            for (let tries = 0; !run && tries < 60; tries++) {
-              await sleep(10_000);
-              const { data } = await github.rest.actions.listWorkflowRuns({
-                owner, repo, workflow_id: workflow, branch: source, event: 'workflow_dispatch',
-                created: `>=${since}`, per_page: 50,
+            // A dispatch or read that throws is a red verdict too, reported through the issue below.
+            let run, error;
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner, repo, workflow_id: workflow,
+                // Fully qualified: a tag named feat-cmux-next must never be picked.
+                ref: `refs/heads/${source}`,
+                inputs: { build: 'published', agent, from_folder: 'true', request_id: requestId },
               });
-              run = data.workflow_runs.find((r) => (r.display_title || '').endsWith(` ${requestId}`));
-            }
-            if (!run) core.setFailed(`The dispatched proof (${requestId}) never appeared`);
-            const deadline = Date.now() + 160 * 60_000;
-            while (run && run.status !== 'completed' && Date.now() < deadline) {
-              await sleep(60_000);
-              run = (await github.rest.actions.getWorkflowRun({ owner, repo, run_id: run.id })).data;
+              // The run-name ends with request_id (cloud-chat-proof.yml run-name), so this finds its own run.
+              for (let tries = 0; !run && tries < 60; tries++) {
+                await sleep(10_000);
+                const { data } = await github.rest.actions.listWorkflowRuns({
+                  owner, repo, workflow_id: workflow, branch: source, event: 'workflow_dispatch',
+                  created: `>=${since}`, per_page: 50,
+                });
+                run = data.workflow_runs.find((r) => (r.display_title || '').endsWith(` ${requestId}`));
+              }
+              const deadline = Date.now() + 160 * 60_000;
+              while (run && run.status !== 'completed' && Date.now() < deadline) {
+                await sleep(60_000);
+                run = (await github.rest.actions.getWorkflowRun({ owner, repo, run_id: run.id })).data;
+              }
+            } catch (e) {
+              error = e;
             }
             const green = run?.status === 'completed' && run.conclusion === 'success';
             const where = run ? run.html_url : `(no run found for ${requestId})`;
-            const verdict = !run ? 'never started' : run.status !== 'completed' ? 'still running past 160 min' : run.conclusion;
+            const verdict = error ? `not read (${error.message})` : !run ? 'never started' : run.status !== 'completed' ? 'still running past 160 min' : run.conclusion;
             core.notice(`Cloud chat proof, ${agent} from a folder on the published app: ${verdict} ${where}`);
 
             const title = `Cloud chat proof red: ${agent} from a folder on the published NEXT DEV app`;
