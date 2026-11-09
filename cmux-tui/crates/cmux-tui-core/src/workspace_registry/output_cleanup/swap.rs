@@ -460,7 +460,7 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         source.busy_timeout(Duration::from_secs(5))?;
         (sealed_records(&source, state_u64(&staged, "staged_through")?)?, live_records(&source)?)
     };
-    if let Some(reason) = staged_bytes_refusal(db_path).or_else(|| {
+    if let Some(reason) = staged_bytes_refusal(&staged)?.or_else(|| {
         kept_refusal(
             staged_kept + tail.kept_at_most + live_kept,
             staged_total + tail.total + live_total,
@@ -676,6 +676,9 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
         tx.query_row("SELECT COUNT(*) FROM main.output_cleanup_records", [], |row| row.get(0))?;
     anyhow::ensure!(kept > 0, "the journal holds no record other than terminal output");
     let (segments, pruned_ranges) = pack_segments(tx, lo, head)?;
+    // The new segments have no kept reducer records (their table is
+    // rebuilt empty); the journal maintenance backfill fills them again.
+    super::super::session_journal::reducer_records::forget_backfill(tx)?;
     steps.mark("pack segments");
 
     copy_index_rows(tx)?;

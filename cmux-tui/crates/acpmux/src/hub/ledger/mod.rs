@@ -57,6 +57,9 @@ pub struct Totals {
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
+    /// What cache reads saved against the input price, at the bundled table
+    /// (`PriceTable::cache_savings`), whoever priced the turn; 0 for a model the table lacks.
+    pub cache_saved_usd: f64,
     pub turns: u64,
     pub tool_calls: u64,
     pub wall_ms: u64,
@@ -74,6 +77,7 @@ impl Totals {
         self.output_tokens += o.output_tokens;
         self.cache_read_tokens += o.cache_read_tokens;
         self.cache_write_tokens += o.cache_write_tokens;
+        self.cache_saved_usd += o.cache_saved_usd;
         self.turns += o.turns;
         self.tool_calls += o.tool_calls;
         self.wall_ms += o.wall_ms;
@@ -98,6 +102,7 @@ impl Totals {
             t.unpriced_turns = turns;
         }
         t.cost_usd = t.harness_cost_usd + t.table_cost_usd;
+        t.cache_saved_usd = crate::pricing::table().cache_savings(model, usage).unwrap_or(0.0);
         t
     }
 }
