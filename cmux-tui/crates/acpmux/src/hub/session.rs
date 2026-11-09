@@ -253,8 +253,9 @@ pub struct Session {
     /// (`start_defaults.rs`).
     pub(super) applied: StdMutex<Applied>,
     /// Set once the session is purged, so late events do not recreate its
-    /// files while the directory is being removed.
-    pub(super) purged: AtomicBool,
+    /// files while the directory is being removed. Shared with the audit writer, which drops an
+    /// entry of this copy that reaches it after the purge, even once a new chat took the id.
+    pub(super) purged: Arc<AtomicBool>,
     /// Set before a purge when the same chat, brought back under this id, replaces this copy
     /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
     /// purge record says `replaced` so the app keeps what it holds for the chat too.
@@ -373,6 +374,9 @@ pub struct Session {
     /// Bounded completed tool attempts used to identify a repeated failing call
     /// (`loop_detector.rs`).
     pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
+    /// When its harness first refused a command because its own sandbox did not start
+    /// (`harness_sandbox.rs`): set once, so the refusal is recorded once.
+    pub(super) harness_sandbox_failed: std::sync::OnceLock<u64>,
     /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
     /// before that, so a turn whose prompt has not reached its agent is never stalled.
     pub(super) stalled_counted: StdMutex<Option<String>>,

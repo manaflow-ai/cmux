@@ -134,6 +134,14 @@ pub struct ForkRequest {
     pub child_id: String,
 }
 
+/// A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when
+/// they left, and how many turns ended while nobody showed it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+pub struct LastReturn {
+    pub since: u64,
+    pub turns: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -324,6 +332,19 @@ pub struct SessionMeta {
     /// A turn ended while no client was attached.
     #[serde(default)]
     pub unread: bool,
+    /// The log seq the person had seen when they last stopped showing the chat (`hub/seen.rs`):
+    /// where "New since you looked" goes when they come back. Set once per hide, never per
+    /// record; None until a person has shown and left it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_seq: Option<u64>,
+    /// Turns that ended unseen since the person last showed the chat (the sidebar's count).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unread_turns: u64,
+    /// The person's return to the chat after turns ended unseen, kept while they stay on it: a
+    /// client that opens it then draws "New since you looked" at `since`, however its attach and
+    /// its list read race. Cleared when the last client showing it stops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_return: Option<LastReturn>,
     /// The Claude conversation acpmux started with a fresh id has not
     /// finished a turn, so Claude may never have stored it (a launcher that
     /// died before the prompt reached Claude stores nothing). A respawn (a

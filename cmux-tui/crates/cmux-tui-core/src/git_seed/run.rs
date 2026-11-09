@@ -2,13 +2,27 @@
 //! bundle, check out HEAD, stage INDEX, restore WORK and the stash, then
 //! submodules and LFS. Every network step tries the machine's GitHub paths
 //! in order; a later step keeps the path that worked.
+//!
+//! A head-first seed ([`HeadFirst`], a fresh clone only) checks WORK out through
+//! non-cone sparse patterns first ([`head_patterns`]): the root's files, the harness
+//! folders and each folder on the chat's subpath. Its index is WORK, so those files carry
+//! the person's uncommitted edits and untracked files. It marks the head on the sync
+//! barrier ([`cmux_git::harness_head::head_allowed`]), then fills under the same barrier:
+//! the patterns go to `/*` while the index is still WORK, so every new path is WORK's,
+//! and only then does the index become INDEX. Until the fill's record is written, a file
+//! in the git dir ([`FILLING`]) says the tree is not whole: a delta seed or an export of
+//! it is refused (`seed.filling`), since a sparse tree read back would drop the person's
+//! files on the Mac.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use cmux_git::sync_barrier::Sync as Barrier;
 
 use super::git::{Credential, Failure, Git};
 use super::job::{Failed, Job, Phase};
-use super::params::StartParams;
+use super::params::{HeadFirst, StartParams};
 use super::snapshot::Snapshot;
 use super::{SeedRefusal, place, worktree};
 use crate::fs_ops::Roots;
@@ -17,6 +31,41 @@ use crate::fs_ops::Roots;
 /// (`refs/cmux-seed/*`), which moves only once the checkout succeeded, so a
 /// failed delta can be retried with the same `since`.
 const SEED_REFSPEC: &str = "+refs/cmux-seed/*:refs/cmux-seed-incoming/*";
+
+/// In the git dir from a head-first seed's head until its fill's record is written.
+const FILLING: &str = "cmux-seed-filling";
+
+/// How long a step that takes the index lock waits for a reader to let go of it: once the
+/// head is marked, a started harness may run `git status`, which holds the lock a moment.
+const INDEX_LOCK_WAIT: Duration =
+    if cfg!(test) { Duration::from_secs(1) } else { Duration::from_secs(10) };
+
+/// Whether `folder`'s last head-first seed never finished its fill.
+pub(super) fn fill_unfinished(folder: &Path) -> bool {
+    std::fs::symlink_metadata(folder.join(".git").join(FILLING)).is_ok()
+}
+
+/// The head's non-cone patterns, in the order sparse-checkout's cone mode writes them: the
+/// root's files, its harness folders whole, then each subpath folder's own files and its
+/// harness folders (a later pattern wins, so each folder re-includes what its parent's
+/// `!.../*/` left out).
+pub(super) fn head_patterns(head: &HeadFirst) -> String {
+    let mut patterns = String::from("/*\n!/*/\n");
+    let mut at = String::new();
+    let harness = |patterns: &mut String, at: &str| {
+        for dir in cmux_git::harness_head::HEAD_DIRS {
+            patterns.push_str(&format!("{at}/{dir}/\n"));
+        }
+    };
+    harness(&mut patterns, &at);
+    for part in &head.subpath {
+        at.push('/');
+        at.push_str(part);
+        patterns.push_str(&format!("{at}/\n!{at}/*/\n"));
+        harness(&mut patterns, &at);
+    }
+    patterns
+}
 
 /// Refuses a folder that holds something other than this repository: a
 /// non-empty folder without `.git`, or a clone of another remote.
@@ -90,8 +139,9 @@ impl Seed {
         Self { job, params, folder, bundle, roots, git, credentials, chosen, reached: None }
     }
 
-    pub fn run(mut self) -> Result<(), Failed> {
-        self.steps()?;
+    /// `barrier`: the sync this seed holds; a head-first seed marks its head on it.
+    pub fn run(mut self, barrier: &mut Barrier) -> Result<(), Failed> {
+        self.steps(barrier)?;
         self.keep_credential();
         self.report_head();
         Ok(())
@@ -123,7 +173,7 @@ impl Seed {
         }
     }
 
-    fn steps(&mut self) -> Result<(), Failed> {
+    fn steps(&mut self, barrier: &mut Barrier) -> Result<(), Failed> {
         if let Some(git_ref) = self.params.clone_only.clone() {
             self.clone_new()?;
             self.checkout_ref(git_ref.as_deref())?;
@@ -131,10 +181,21 @@ impl Seed {
             return self.lfs(None);
         }
         let Some(since) = self.params.since.clone() else {
+            // Only a fresh clone opens at its head: an existing checkout holds files of
+            // the person's that a sparse head would take out of the tree for a while.
+            let fresh = std::fs::symlink_metadata(self.folder.join(".git")).is_err();
+            let head_first = self.params.head_first.clone().filter(|_| fresh);
             self.clone_or_fetch()?;
             self.base()?;
             self.apply_bundle()?;
-            self.checkout()?;
+            match head_first {
+                Some(head) => {
+                    self.checkout_head(&head)?;
+                    self.mark_head(&head, barrier);
+                    self.fill()?;
+                }
+                None => self.checkout()?,
+            }
             self.submodules(None)?;
             self.lfs(None)?;
             self.remove_bundle();
@@ -329,6 +390,12 @@ impl Seed {
     /// record's).
     fn check_delta(&self, since: &str) -> Result<(), Failed> {
         self.recheck()?;
+        if fill_unfinished(&self.folder) {
+            return Err(failed(
+                "seed.filling",
+                "the folder's last seed never finished filling it; seed it whole again",
+            ));
+        }
         let mismatch = |error: &str| failed("seed.since_mismatch", error);
         let is_clone =
             std::fs::symlink_metadata(self.folder.join(".git")).is_ok_and(|meta| meta.is_dir());
@@ -500,11 +567,31 @@ impl Seed {
     }
 
     fn checkout(&mut self) -> Result<(), Failed> {
+        let sparse = self.params.sparse.clone();
+        self.check_out_work(sparse.as_deref())?;
+        self.finish_checkout()
+    }
+
+    /// The head: WORK through [`head_patterns`], the index left at WORK for the fill.
+    fn checkout_head(&mut self, head: &HeadFirst) -> Result<(), Failed> {
+        let marker = self.folder.join(".git").join(FILLING);
+        std::fs::write(&marker, b"")
+            .map_err(|error| failed("seed.checkout_failed", format!("fatal: {error}")))?;
+        self.check_out_work(Some(&head_patterns(head)))
+    }
+
+    /// HEAD checked out under `patterns` (none: the whole tree), then the working tree and
+    /// the index become WORK.
+    fn check_out_work(&mut self, patterns: Option<&str>) -> Result<(), Failed> {
         self.recheck()?;
         self.job.enter(Phase::Checkout);
         let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
-        worktree::configure(&self.git, &self.chosen, &self.folder, self.params.sparse.as_deref())
-            .map_err(wrap)?;
+        // An index an earlier head (or the Mac's patterns) left sparse keeps its
+        // skip-worktree bits through a checkout with sparse off: those files would stay out
+        // of the tree while `git status` reads clean. `/*` clears them; then sparse goes off.
+        let whole_again = patterns.is_none() && self.has_skipped_paths().map_err(wrap)?;
+        let patterns = if whole_again { Some("/*") } else { patterns };
+        worktree::configure(&self.git, &self.chosen, &self.folder, patterns).map_err(wrap)?;
         let head = self.params.head.clone();
         match self.params.branch.clone() {
             Some(branch) => {
@@ -523,7 +610,64 @@ impl Seed {
         // The working tree becomes WORK (tracked files WORK lacks go).
         let work = self.params.work.clone();
         self.git(&["read-tree", "--reset", "-u", &work]).map_err(wrap)?;
+        if whole_again {
+            worktree::configure(&self.git, &self.chosen, &self.folder, None).map_err(wrap)?;
+        }
+        Ok(())
+    }
+
+    /// Whether the index marks a path skip-worktree (none in a clone not checked out yet).
+    fn has_skipped_paths(&self) -> Result<bool, Failure> {
+        if std::fs::symlink_metadata(self.folder.join(".git/index")).is_err() {
+            return Ok(false);
+        }
+        let listing = self.git(&["ls-files", "-t", "-z"])?;
+        Ok(listing.split(|byte| *byte == 0).any(|entry| entry.starts_with(b"S ")))
+    }
+
+    /// Marks the head on the barrier unless a start there would run a command or miss its
+    /// instructions ([`cmux_git::harness_head::head_allowed`]); the job's status says so.
+    fn mark_head(&self, head: &HeadFirst, barrier: &mut Barrier) {
+        let folders = head.folders();
+        let folders: Vec<&Path> = folders.iter().map(Path::new).collect();
+        if cmux_git::harness_head::head_allowed(&self.folder, &folders) {
+            barrier.head_ready();
+            self.job.reached_head();
+        }
+        #[cfg(test)]
+        hold::at_head(&self.folder);
+    }
+
+    /// The rest of the checkout, under the barrier the head was marked on. The index is
+    /// still WORK, so `/*` brings every other path in as WORK has it (the person's
+    /// edits, deletes and untracked files); only then does the index become INDEX.
+    fn fill(&mut self) -> Result<(), Failed> {
+        self.recheck()?;
+        let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
+        worktree::configure(&self.git, &self.chosen, &self.folder, Some("/*")).map_err(wrap)?;
+        self.git_index(&["sparse-checkout", "reapply"]).map_err(wrap)?;
+        worktree::configure(&self.git, &self.chosen, &self.folder, None).map_err(wrap)?;
+        let (index, work) = (self.params.index.clone(), self.params.work.clone());
+        worktree::restore_untracked(&self.git, &self.chosen, &self.folder, &index, &work)
+            .map_err(wrap)?;
         self.finish_checkout()
+    }
+
+    /// [`Self::git`] for a step that takes the index lock, retried while another git holds
+    /// it, for at most [`INDEX_LOCK_WAIT`].
+    fn git_index(&self, args: &[&str]) -> Result<Vec<u8>, Failure> {
+        let deadline = Instant::now() + INDEX_LOCK_WAIT;
+        loop {
+            match self.git(args) {
+                Err(failure)
+                    if failure.lines.iter().any(|line| line.contains("index.lock"))
+                        && Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                result => return result,
+            }
+        }
     }
 
     /// A delta seed: the working tree moves from `since` to WORK (edits,
@@ -575,7 +719,7 @@ impl Seed {
         let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
         let work = self.params.work.clone();
         let index = self.params.index.clone();
-        self.git(&["read-tree", "--reset", &index]).map_err(wrap)?;
+        self.git_index(&["read-tree", "--reset", &index]).map_err(wrap)?;
         if self.params.sparse.is_some() {
             self.git(&["sparse-checkout", "reapply"]).map_err(wrap)?;
             worktree::restore_untracked(&self.git, &self.chosen, &self.folder, &index, &work)
@@ -599,7 +743,13 @@ impl Seed {
                 }
             }
         }
-        self.record_seed().map_err(wrap)
+        self.record_seed().map_err(wrap)?;
+        // The tree is whole, and its record says what it is.
+        match std::fs::remove_file(self.folder.join(".git").join(FILLING)) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(failed("seed.checkout_failed", format!("fatal: {error}"))),
+        }
     }
 
     /// `changed`: a delta seed's `diff-tree -z` of the two WORK trees; it
@@ -750,6 +900,42 @@ fn clean_folder(folder: &Path, existed: bool) {
             } else {
                 std::fs::remove_file(&path)
             };
+        }
+    }
+}
+
+/// A test's hold of a seed at its head ([`Seed::mark_head`]), so it can read the
+/// checkout and the barrier there.
+#[cfg(test)]
+pub(super) mod hold {
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+    use std::sync::mpsc::{Receiver, Sender};
+
+    struct Hold {
+        folder: PathBuf,
+        reached: Sender<()>,
+        release: Receiver<()>,
+    }
+
+    static HOLDS: Mutex<Vec<Hold>> = Mutex::new(Vec::new());
+
+    /// The seed of `folder` stops at its head until `release` sends or drops; `reached`
+    /// hears when it gets there.
+    pub(in super::super) fn at(folder: &Path, reached: Sender<()>, release: Receiver<()>) {
+        let hold = Hold { folder: folder.to_path_buf(), reached, release };
+        HOLDS.lock().unwrap().push(hold);
+    }
+
+    pub(super) fn at_head(folder: &Path) {
+        let hold = {
+            let mut holds = HOLDS.lock().unwrap();
+            let at = holds.iter().position(|hold| hold.folder == folder);
+            at.map(|at| holds.remove(at))
+        };
+        if let Some(hold) = hold {
+            let _ = hold.reached.send(());
+            let _ = hold.release.recv();
         }
     }
 }

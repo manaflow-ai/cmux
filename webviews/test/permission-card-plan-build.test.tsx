@@ -150,3 +150,34 @@ test("the chevron's menu offers the three builds, and a pick builds once", async
   expect(answered).toEqual([]);
   act(() => root.unmount());
 });
+
+test("a build refused before anything started says acpmux's reason on the card", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const host = dom.window.document.getElementById("root")!;
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <PermissionCard
+        permission={plan}
+        harness="claude"
+        onAnswer={() => undefined}
+        onBuildPlan={async () => {
+          throw new Error("this chat already runs 8 sub-sessions");
+        }}
+      />,
+    );
+  });
+  const chevron = host.querySelector<HTMLButtonElement>('button[data-menu="plan-build"]')!;
+  await act(async () => {
+    chevron.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  const worktree = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.dataset.value === "worktree",
+  )!;
+  await act(async () => {
+    worktree.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  const alert = host.querySelector('[role="alert"]');
+  expect(alert?.textContent).toBe("The plan was not built: this chat already runs 8 sub-sessions");
+  act(() => root.unmount());
+});
