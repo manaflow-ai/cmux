@@ -675,7 +675,7 @@ mod tests {
 
         assert_eq!(
             connect_timeouts(&args),
-            ["-oConnectTimeout=15", "ConnectTimeout=3", "ConnectTimeout=3"]
+            ["ConnectTimeout=15", "ConnectTimeout=3", "ConnectTimeout=3"]
         );
     }
 
@@ -695,7 +695,7 @@ mod tests {
 
         assert_eq!(
             connect_timeouts(&args),
-            ["ConnectTimeout=3", "-oConnectTimeout=15", "-oConnectTimeout=15"]
+            ["ConnectTimeout=3", "ConnectTimeout=15", "ConnectTimeout=15"]
         );
     }
 
