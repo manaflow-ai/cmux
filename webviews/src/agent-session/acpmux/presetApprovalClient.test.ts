@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 type Daemon = { record: (target: string, step: unknown, at?: number) => unknown };
-type Row = { id: string; kind: string; presetApproval?: PresetApproval };
+type Row = { id: string; kind: string; text?: string; presetApproval?: PresetApproval };
 
 const ASK = { preset: "lane", digest: "d1", harness: "claude", model: "opus", policy: "approve-all", host: "linux-3" };
 
@@ -63,7 +63,7 @@ async function open(extra: unknown[] = []) {
   const until = async (ready: () => boolean) => {
     while (!ready()) await new Promise<void>((resolve) => wakes.push(resolve));
   };
-  return { client, cards, until, snapshot: () => last };
+  return { client, cards, until, snapshot: () => last, rows: () => rows };
 }
 
 test("a request draws one card; a retry joins it and a decision closes it", async () => {
@@ -122,6 +122,59 @@ test("a card older than the open's page comes with the older page that holds it"
     for (let pages = 0; snapshot()?.canLoadOlder && pages < 20; pages += 1) await client.loadOlder();
     expect(cards()).toHaveLength(1);
     expect(cards()[0].presetApproval?.ask.digest).toBe("d1");
+  } finally {
+    client.close();
+  }
+});
+
+const TURNS = Array.from({ length: 300 }, (_, turn) => [
+  { mux: "user_message", msg: { text: `Turn ${turn}` } },
+  { mux: "turn_started", msg: {} },
+  { mux: "turn_result", msg: { status: "completed" } },
+]).flat();
+
+test("a card an older request merges away stays gone, so one Approve closes the only card", async () => {
+  // The first request is far older than the open's page; the agent's retry is in it.
+  const { client, cards, until, snapshot } = await open([...TURNS, { mux: "preset_approval_request", msg: ASK }]);
+  try {
+    await until(() => cards().length === 1 && snapshot()?.canLoadOlder === true);
+    const retry = cards()[0].id;
+    for (let pages = 0; snapshot()?.canLoadOlder && pages < 20; pages += 1) await client.loadOlder();
+    // The retry joined the first request's card, which the page drew; the retry's row did not come back.
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0].id).not.toBe(retry);
+    await client.answerPresetApproval(cards()[0].id, true);
+    await until(() => cards()[0]?.presetApproval?.outcome === "approved");
+    expect(cards()).toHaveLength(1);
+  } finally {
+    client.close();
+  }
+});
+
+test("a card a late decision splits off sorts at its own request", async () => {
+  // A request and its decline in one older turn (so one page folds both); the retry after the
+  // decline is in the open's page, below the prompt before it. The page's request joins the retry's
+  // card first, then its decline splits them again.
+  const { client, cards, until, snapshot, rows } = await open([
+    { mux: "user_message", msg: { text: "Try again" } },
+    { mux: "turn_started", msg: {} },
+    { mux: "preset_approval_request", msg: ASK },
+    { mux: "preset_approval_decision", msg: { preset: "lane", digest: "d1", outcome: "declined" } },
+    { mux: "turn_result", msg: { status: "completed" } },
+    ...TURNS,
+    { mux: "user_message", msg: { text: "Before the retry" } },
+    { mux: "turn_started", msg: {} },
+    { mux: "preset_approval_request", msg: ASK },
+    { mux: "turn_result", msg: { status: "completed" } },
+  ]);
+  try {
+    await until(() => cards().length === 1 && snapshot()?.canLoadOlder === true);
+    for (let pages = 0; snapshot()?.canLoadOlder && pages < 20; pages += 1) await client.loadOlder();
+    expect(cards().map((row) => row.presetApproval?.outcome)).toEqual(["declined", undefined]);
+    const order = rows().map((row) => row.id);
+    const prompt = rows().find((row) => row.kind === "user" && row.text === "Before the retry")!;
+    expect(order.indexOf(cards()[1].id)).toBeGreaterThan(order.indexOf(prompt.id));
+    expect(order.indexOf(cards()[0].id)).toBeLessThan(order.indexOf(prompt.id));
   } finally {
     client.close();
   }

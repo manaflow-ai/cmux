@@ -29,7 +29,7 @@ test("a request record opens a card; one the card cannot answer is skipped", () 
   expect(presetApprovalDecision({ preset: "lane", digest: "d1", outcome: "maybe" })).toBeUndefined();
   const fold = new PresetApprovalFold();
   const opened = fold.request(4, 40, ask());
-  expect(opened).toEqual({ removed: [], cards: [{ rowId: "preset-approval-4", ask: ask(), at: 40 }] });
+  expect(opened).toEqual({ removed: [], cards: [{ rowId: "preset-approval-4", ask: ask(), seq: 4, at: 40 }] });
   expect(fold.outcome("preset-approval-4")).toBeUndefined();
 });
 
@@ -89,8 +89,8 @@ test("request 12, then request 4, then a decline at 9: a declined card at 4 and 
   const split = fold.decide(9, { preset: "lane", digest: "d1", outcome: "declined" });
   expect(split.removed).toEqual([]);
   expect(split.cards).toEqual([
-    { rowId: "preset-approval-4", ask: ask(), at: 40, outcome: "declined" },
-    { rowId: "preset-approval-12", ask: ask(), at: 120 },
+    { rowId: "preset-approval-4", ask: ask(), seq: 4, at: 40, outcome: "declined" },
+    { rowId: "preset-approval-12", ask: ask(), seq: 12, at: 120 },
   ]);
   expect(fold.outcome("preset-approval-4")).toBe("declined");
   expect(fold.outcome("preset-approval-12")).toBeUndefined();

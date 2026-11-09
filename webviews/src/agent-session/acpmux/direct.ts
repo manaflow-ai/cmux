@@ -3341,6 +3341,7 @@ export class AcpmuxDirectClient {
     this.planBuilds.clear();
     this.memoryEarly.clear();
     this.presetApprovals.clear();
+    this.presetApprovalRemoved.clear();
     this.queueAuthors.clear();
     this.queueEdited.clear();
     // A held prompt's text read for the chat before is not this one's (`fetchHeldText`).
@@ -6340,6 +6341,7 @@ export class AcpmuxDirectClient {
     this.offerRows.clear();
     this.receivedOffers.clear();
     this.presetApprovals.clear();
+    this.presetApprovalRemoved.clear();
     this.compactionHeardAt.clear();
     this.toolRows.clear();
     this.reactions.clear();
@@ -11281,11 +11283,18 @@ export class AcpmuxDirectClient {
   }
   /// The chat's preset approval cards, folded from their records (conversation/presetApproval.ts).
   private readonly presetApprovals = new PresetApprovalFold();
+  /// Preset approval rows the fold took away (merged into an older card) since an older page's fold
+  /// began: that fold does not put them back from the rows it held (`foldOlder`).
+  private readonly presetApprovalRemoved = new Set<string>();
   /// A preset approval record's change to its preset and digest's cards: rows that no longer
   /// stand for a card go, and each card's row takes its ask and outcome. A row the person answered
   /// here keeps that outcome until the decision record comes, and an open one its busy or error.
   private applyPresetApprovals(change: PresetApprovalChange): void {
-    for (const id of change.removed) this.rows.delete(id);
+    for (const id of change.removed) {
+      this.rows.delete(id);
+      // An older page's fold puts back the rows it held unless they are named here.
+      this.presetApprovalRemoved.add(id);
+    }
     for (const card of change.cards) {
       const row = this.rows.get(card.rowId);
       const earlier = row?.presetApproval;
@@ -11303,6 +11312,11 @@ export class AcpmuxDirectClient {
         this.endAssistantSegment();
         this.streamingActivity = undefined;
       }
+      this.presetApprovalRemoved.delete(card.rowId);
+      // A new row sorts at its first request, not at the record being reduced: a card a late
+      // decision split off goes where its request was (rows.current is the decision's seq then).
+      const current = this.rows.current;
+      if (!row) this.rows.current = card.seq;
       this.rows.set(card.rowId, {
         id: card.rowId,
         version: (row?.version ?? 0) + 1,
@@ -11310,6 +11324,7 @@ export class AcpmuxDirectClient {
         kind: PRESET_APPROVAL,
         presetApproval: approval,
       });
+      this.rows.current = current;
     }
   }
   private updatePresetApproval(rowId: string, change: (approval: PresetApproval) => PresetApproval): boolean {
@@ -12211,6 +12226,7 @@ export class AcpmuxDirectClient {
     this.interrupting = undefined;
     this.awaiting = undefined;
     this.foldingBelow = this.firstSeq ?? Infinity;
+    this.presetApprovalRemoved.clear();
     try {
       for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
         this.firstSeq = Math.min(this.firstSeq ?? event.seq, event.seq);
@@ -12317,8 +12333,15 @@ export class AcpmuxDirectClient {
     Object.assign(this, live, { forkedAtSeq, messageRows, progressRow, progressSuperseded });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     // A model change line the page moved back (`drawRunChanges` dropped it) stays gone.
+    // A preset approval card the page merged into an older one stays gone.
     for (const [id, row] of held)
-      if (!this.rows.has(id) && (row.kind !== "sessionStart" || this.runChangeRows.has(id))) this.rows.set(id, row);
+      if (
+        !this.rows.has(id) &&
+        !this.presetApprovalRemoved.has(id) &&
+        (row.kind !== "sessionStart" || this.runChangeRows.has(id))
+      )
+        this.rows.set(id, row);
+    this.presetApprovalRemoved.clear();
     // A held page can start at a prompt sent now whose cancel only this page holds: its row,
     // drawn before, goes on with that turn now, so the turn never reads as stopped.
     for (const event of this.events) {

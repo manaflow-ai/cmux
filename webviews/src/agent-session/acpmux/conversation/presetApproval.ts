@@ -93,11 +93,12 @@ export function presetApprovalDecision(
 
 const keyOf = (ask: { preset: string; digest: string }) => JSON.stringify([ask.preset, ask.digest]);
 
-/// A card as the fold draws it now: its row, the newest request's ask, when its first request came
-/// and its outcome.
+/// A card as the fold draws it now: its row, the newest request's ask, its first request's seq
+/// (where its row sorts) and time, and its outcome.
 export type PresetApprovalCardState = {
   rowId: string;
   ask: PresetApprovalAsk;
+  seq: number;
   at: number;
   outcome?: PresetApprovalOutcome;
 };
@@ -178,6 +179,7 @@ export class PresetApprovalFold {
       return {
         rowId: `preset-approval-${group[0].seq}`,
         ask: last.ask,
+        seq: group[0].seq,
         at: group[0].at,
         ...(outcome ? { outcome } : {}),
       };
