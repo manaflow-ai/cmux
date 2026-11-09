@@ -792,7 +792,7 @@ mod tests {
                 tokio::time::sleep(wait).await;
             }
             self.redeems.lock().unwrap().push((name.to_owned(), replace));
-            let key = crate::cli::mesh_node_key::load_or_create_at(&self.home)?.public_key_b64();
+            let key = leave::node_key_for_join_at(&self.home)?.public_key_b64();
             save_at(
                 &self.home,
                 &MachineCredential {
@@ -1426,6 +1426,34 @@ mod tests {
         relay_for_join_at(&home.path().join("config.json"), HUB, true).unwrap();
         assert!(sign_out(home.path(), leave::HubAnswer::Revoked).await.left);
         assert_eq!(relay_config(home.path()), None);
+    }
+
+    #[tokio::test]
+    async fn a_node_key_from_before_sign_in_survives_sign_out_and_a_restart() {
+        let key = |home: &Path| std::fs::read(home.join("node.wg.key")).ok();
+        let home = tempfile::tempdir().unwrap();
+        crate::cli::mesh_node_key::load_or_create_at(home.path()).unwrap();
+        let before = key(home.path());
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+        assert_eq!(key(home.path()), before, "the join redeems with the key that was there");
+        assert!(sign_out(home.path(), leave::HubAnswer::Revoked).await.left);
+        assert_eq!(key(home.path()), before);
+        // A restart: the start's leave, then a sign-in that joins again with the same key.
+        leave_marked(home.path(), Some("box-a"), true, |_| async { leave::HubAnswer::Revoked })
+            .await;
+        assert_eq!(key(home.path()), before);
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+        assert!(sign_out(home.path(), leave::HubAnswer::Revoked).await.left);
+        assert_eq!(key(home.path()), before);
+
+        // A key the sign-in's join made goes with its sign-out.
+        let home = tempfile::tempdir().unwrap();
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+        assert!(key(home.path()).is_some());
+        assert!(sign_out(home.path(), leave::HubAnswer::Revoked).await.left);
+        assert_eq!(key(home.path()), None);
     }
 
     #[tokio::test]
