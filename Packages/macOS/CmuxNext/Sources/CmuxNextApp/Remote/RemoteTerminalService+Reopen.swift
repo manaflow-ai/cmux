@@ -12,9 +12,7 @@ extension RemoteTerminalService {
         let browserTabs = services.cache.browserTabs, handle = pane.handle, route = tab.pageRoute
         if tab.kind == .browser, tab.appTab == nil {
             switch browserTabs.resolve(requested: nil, inherited: tab.browserEngine) {
-            case .refuse(let reason):
-                services.registry.refuse(BrowserTabService.message(reason))
-                completion(false)
+            case .refuse(let reason): services.registry.refuse(BrowserTabService.message(reason)); completion(false)
             case .open(let choice):
                 let (url, profile) = (services.browserProfiles.currentURL(of: tab), tab.browserProfileID)
                 land(tab, closingOn: source, on: destination, completion: completion) { try await browserTabs.open(choice, in: pane, url: url, profile: profile) }
@@ -41,7 +39,8 @@ extension RemoteTerminalService {
                 let created = try await open()
                 if let name { try? await destination.renameTab(created, to: name) }
                 if pinned { _ = try? await destination.setTabPinned(created, true) }
-                try await source.closeTab(surface)
+                // The tab is there now: an original that cannot close (a pinned column's tab) stays beside it, said once.
+                do { try await source.closeTab(surface) } catch { completion(true); return ActionWorkFailure(log: "close moved tab: \(error)", reason: RemoteStrings.originalTabStayed) }
                 self?.forget(tabID: id)
                 if !terminal { self?.services.cache.release(id) } // its page closes with it
                 completion(true)

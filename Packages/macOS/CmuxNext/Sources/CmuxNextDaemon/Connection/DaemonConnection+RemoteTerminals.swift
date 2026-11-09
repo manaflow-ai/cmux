@@ -80,4 +80,30 @@ extension DaemonConnection {
         guard identity?.supports(DaemonCapability.terminalReap.rawValue) == true else { return nil }
         return try await keepTerminal(terminal)
     }
+
+    /// Opens a remote-terminal tab for `ref` in `pane` here, then keeps the terminal on its own daemon.
+    ///
+    /// The tab comes first, so a tab that fails to open leaves no keep behind (a kept terminal is
+    /// never reaped, so a stray keep would leave the shell running after its last tab closes). A
+    /// keep that fails closes the new tab again (best effort) and throws, so the caller keeps the
+    /// terminal's old tab: a daemon that reaps tabless terminals would end the shell after its grace.
+    ///
+    /// - Parameters:
+    ///   - ref: The terminal the tab shows.
+    ///   - pane: The pane here that takes the tab; nil for the daemon's choice.
+    ///   - title: The tab's placeholder title.
+    ///   - terminalConnection: The terminal's own daemon (``keepTerminalIfReaping(_:)``); nil when it
+    ///     is not connected, and then no keep is asked.
+    /// - Returns: The new tab's surface, and the terminal's public id when its daemon names it.
+    /// - Throws: The tab's or the keep's failure.
+    public func newKeptRemoteTerminalTab(_ ref: RemoteTerminalRef, in pane: PaneID?, title: String?,
+                                         keepingOn terminalConnection: DaemonConnection?) async throws -> (surface: SurfaceID, terminalResourceID: ResourceID?) {
+        let surface = try await newRemoteTerminalTab(ref, in: pane, title: title).surface
+        do {
+            return (surface, try await terminalConnection?.keepTerminalIfReaping(ref.terminalID))
+        } catch {
+            try? await closeTab(surface)
+            throw error
+        }
+    }
 }

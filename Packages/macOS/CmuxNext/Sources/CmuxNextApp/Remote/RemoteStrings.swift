@@ -22,6 +22,7 @@ enum RemoteStrings {
     static func openRemoteBadRatio(_ text: String) -> String { String(format: String(localized: "remote.openRemote.badRatio", defaultValue: "The ratio %@ must be a number between 0 and 1.", table: "Remote", bundle: .module), text) }
     static var splitRightOrDown: String { String(localized: "remote.terminal.splitRightOrDown", defaultValue: "A terminal from another machine can split right or down only.", table: "Remote", bundle: .module) }
     static var needsRemoteTerminalTabs: String { String(localized: "remote.terminal.needsCapability", defaultValue: "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first.", table: "Remote", bundle: .module) }
+    static var originalTabStayed: String { String(localized: "remote.tab.originalStayed", defaultValue: "The tab opened on the other machine, but its original tab here could not close.", table: "Remote", bundle: .module) }
     static var machineHasNoTerminal: String { String(localized: "remote.terminal.noResource", defaultValue: "That machine's cmux-tui cannot name the terminal. Update it first.", table: "Remote", bundle: .module) }
     static var signInToCheck: String { String(localized: "remote.joined.signInToCheck", defaultValue: "Sign in to cmux to check this machine.", table: "Remote", bundle: .module) }
     static var checkStopped: String { String(localized: "remote.joined.checkStopped", defaultValue: "The check stopped before it finished. Try again.", table: "Remote", bundle: .module) }
