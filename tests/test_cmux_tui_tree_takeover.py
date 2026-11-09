@@ -104,7 +104,7 @@ def notify_run(repo: Repo, state: str, exclude_run: int = 0) -> int:
     return notify.notify(repo, repo=REPO, key=KEY, state=state,
                          reason=f"the cmux-tui artifacts run 42673437035 ended without publishing tree {KEY}",
                          log=lambda _line: None, fetch_completion=lambda _key: completion,
-                         exclude_run=exclude_run)
+                         **({"exclude_run": exclude_run} if exclude_run else {}))
 
 
 def tip_run(attempt: int = 1, status: str = "completed") -> dict:
