@@ -191,11 +191,13 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
         if (Option.isNone(raw)) return Option.none<CreatedTunnel>();
         const body = yield* decodeAs(TunnelBody, "findDeviceTunnel")(raw.value);
         const id = tunnelIdOf(body);
-        // Only this device's create could have made a tunnel with this slug and name, on this mesh's network; anything
-        // else at the slug is never touched.
-        const vpcs = (body.attachments ?? []).map((attachment) => attachment.vpcId ?? null).filter((vpc) => vpc !== null);
+        // Only this device's create could have made a tunnel with this slug and name, attached to exactly this mesh's
+        // network (a create sends one network, and nothing attaches more to a device tunnel). No attachment, a missing
+        // network id, or any second attachment is ambiguous: fail closed, and the caller deletes nothing.
+        const attachments = body.attachments ?? [];
+        const onlyThisMesh = attachments.length === 1 && attachments[0]?.vpcId === upstreamIdOf(owns);
         if (id === null || body.slug !== slug || body.displayName !== upstreamName(config.environment, options.tenantId, device.value)
-          || vpcs.some((vpc) => vpc !== upstreamIdOf(owns))) {
+          || !onlyThisMesh) {
           return yield* Effect.fail(new UpstreamError({ operation: "findDeviceTunnel", status: null }));
         }
         const created: CreatedTunnel = Object.freeze({ upstreamId: UpstreamId.make(id), info: infoOf(body) });
