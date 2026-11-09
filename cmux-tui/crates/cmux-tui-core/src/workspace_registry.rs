@@ -830,6 +830,9 @@ pub struct WorkspaceRegistry {
     resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
+    /// How many next topology snapshot reads fail (tests).
+    #[cfg(test)]
+    topology_snapshot_failures_remaining: Cell<u64>,
     pub(crate) lease: Option<SessionLease>,
     pub(crate) session_guard: Option<SessionLease>,
     /// This open swapped in a registry without stored output.
@@ -3067,6 +3070,8 @@ impl WorkspaceRegistry {
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
+            #[cfg(test)]
+            topology_snapshot_failures_remaining: Cell::new(0),
             session_guard: session_guard.take(),
             lease: lease.take(),
             output_cleanup_swapped: false,
@@ -3938,7 +3943,7 @@ fn migrate_resource_api_frontend_projection_envelopes(
 /// with every terminal output chunk (millions of rows, gigabytes on a
 /// long-lived machine) and are append-only or sealed archives whose records
 /// are validated when they are read, so the open-time check skips them.
-const JOURNAL_HISTORY_TABLES: [&str; 7] = [
+const JOURNAL_HISTORY_TABLES: [&str; 8] = [
     "session_journal",
     "journal_subject_index",
     "journal_event_index",
@@ -3946,6 +3951,7 @@ const JOURNAL_HISTORY_TABLES: [&str; 7] = [
     "journal_checkpoints",
     "journal_content_blobs",
     "journal_segment_kinds",
+    "journal_segment_reducer_records",
 ];
 
 /// Idempotency ledgers: one row per committed mutation, holding its result

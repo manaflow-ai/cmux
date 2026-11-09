@@ -457,6 +457,7 @@ test, fmt and clippy on rbx.
 | "Switch to split diff" / "Switch to unified diff", "Word wrap" | **Diff options**: Unified / Split, Wrap, Hide Whitespace | works (fixed) | Word-level marks on both (`intraline.ts`, `WordDiff.mark`). Fixed: Hide Whitespace after Expand could index past the end. code-checked; live pending |
 | "New" / "Deleted" badges, renames, "Binary file not shown", untracked skipped | A / M badges | partial | ACP diffs carry no delete, rename or binary; those come with git scopes. |
 | "Stage", "Unstage", "Create PR", "Undo", "Open in editor" | Copy Path, Copy Line, Copy with Line Number | not from a phone | Read-only on the phone. |
+| Review brief: a row under the toolbar of a chat's diff naming its goal and unsure count, opening a panel of the goal, unsure spots (each opens its hunk), approaches dropped and plan (`cmux.diff.brief` relaying acpmux `_acpmux/review_brief`, webviews/src/review-brief) | — | missing | Read only, from the chat's own log; no new trust or policy. `_acpmux/review_brief` answers the local socket and the app only, so a phone needs it served over the link like the transcript (or folded on the phone from the records it already loads); `ReviewBriefBody` is the shared React part. Follow-up. |
 
 ### 3. Chief
 
