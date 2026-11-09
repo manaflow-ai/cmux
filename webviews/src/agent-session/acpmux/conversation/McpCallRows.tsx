@@ -63,7 +63,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
   const names = useContext(McpNamesContext);
   // The Verbose transcript view opens the calls; a call the reader opened before it was grouped too.
   const members = useMemo(() => callDisclosureKeys(items), [items]);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true, undefined, false, members);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true, { members });
   const pin = useFoldPin(disclosureKey);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });

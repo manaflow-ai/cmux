@@ -12,6 +12,10 @@ public final class MockAgentSignInSource: AgentSignInSource {
     public private(set) var installsRun: [String] = []
     public private(set) var reads: [Bool] = []
     public private(set) var signIns: [String] = []
+    /// The next read waits until ``heldRead`` is resumed (tests that race two reads); it answers the agents as
+    /// they are then.
+    public var holdNextRead = false
+    public private(set) var heldRead: CheckedContinuation<Void, Never>?
 
     public init(agents: [OnboardingAgent] = []) {
         self.agents = agents
@@ -19,6 +23,10 @@ public final class MockAgentSignInSource: AgentSignInSource {
 
     public func agentSignIns(recheck: Bool) async -> [OnboardingAgent] {
         reads.append(recheck)
+        if holdNextRead {
+            holdNextRead = false
+            await withCheckedContinuation { heldRead = $0 }
+        }
         return agents
     }
 

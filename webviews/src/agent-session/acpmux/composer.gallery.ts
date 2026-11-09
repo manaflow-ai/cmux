@@ -368,8 +368,10 @@ const steerThenQueued = (sentNow: boolean) => {
         newestOwnSteer: "user-steer-now",
       })
     : chat(rows, { isWorking: true, queue: [{ id: "p-queued-now", prompt: queued }] });
+  // Its own chat: what its Send now covers is kept per chat for the page's life (cmux#32846).
   return {
     ...running,
+    sessionId: "steer-send-now-queued",
     summary: {
       ...running.summary!,
       harness: "claude-sr2",
@@ -2125,6 +2127,9 @@ export default agentPaneEntry({
         await ctx.waitFor(() =>
           [...ctx.document.querySelectorAll(".cv-user")].some((n) => n.textContent?.includes("Then add a test")),
         );
+        // Neither steer offers Send now or the X again: the earlier one goes in with it.
+        if (ctx.document.querySelector(".cv-user__send-now, .cv-user__take-back"))
+          throw new Error("a steer sent now still shows Send now or the X");
       },
     },
     "steer-marks": {

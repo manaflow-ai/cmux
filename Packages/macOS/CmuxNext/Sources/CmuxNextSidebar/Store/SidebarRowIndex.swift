@@ -47,14 +47,34 @@ nonisolated struct SidebarRowIndex: Sendable {
     }
 
     static func set(_ row: SidebarWorkspace, at path: Path, in sections: inout [SidebarSection]) {
-        switch sections[path.section].nodes[path.node] {
+        // The node is swapped out in place first: a `switch` over `sections[s].nodes[n]` holds a copy of the section
+        // while its cases write, so every write copied the section's whole node list (O(rows) per row patch).
+        var node = SidebarNode.workspace(row)
+        swap(&node, &sections[path.section].nodes[path.node])
+        switch node {
         case .workspace:
-            sections[path.section].nodes[path.node] = .workspace(row)
+            return
         case var .group(group):
+            node = .workspace(row) // the group's members are held by `group` alone: the write below is in place
             group.workspaces[path.member ?? 0] = row
             sections[path.section].nodes[path.node] = .group(group)
         case .item:
-            break
+            sections[path.section].nodes[path.node] = node
+        }
+    }
+
+    /// Writes each of `rows` over its listed rows in `sections` in place, through the paths this index holds for
+    /// them (each copy keeps its row state and machine, as `patching` does): a row change visits that row's paths
+    /// only, the same at 3,000 rows as at 10.
+    func patch(_ rows: [SidebarWorkspace], in sections: inout [SidebarSection]) {
+        for row in rows {
+            for path in paths(of: row.id) {
+                let old = Self.workspace(at: path, in: sections)
+                var copy = row
+                copy.rowState = old.rowState
+                copy.machineID = old.machineID
+                Self.set(copy, at: path, in: &sections)
+            }
         }
     }
 
@@ -201,5 +221,22 @@ nonisolated extension SidebarSection {
     /// copy of the rows (`SidebarModel.patchWorkspaces` updates the model's).
     public static func patching(_ rows: [SidebarWorkspace], in sections: [SidebarSection]) -> [SidebarSection] {
         SidebarRowIndex.patching(rows, in: sections)
+    }
+
+    /// Where each row of a copy of the rows sits (one walk per structural change), so a row content update writes
+    /// its rows in place instead of walking and copying every section (`SidebarRows.patch` under 3,000 workspaces).
+    public struct RowPlaces: Sendable {
+        private var index: SidebarRowIndex?
+        /// No places yet: the first patch finds them in the sections it patches.
+        public init() {}
+
+        /// `patching`'s result, written into `sections`, which must be the rows of the first patch since this was made
+        /// (rows patched since included: a patch moves no row). Make a new one when the sections change otherwise.
+        public mutating func patch(_ rows: [SidebarWorkspace], in sections: inout [SidebarSection]) {
+            guard !rows.isEmpty else { return }
+            let index = index ?? SidebarRowIndex(sections)
+            self.index = index
+            index.patch(rows, in: &sections)
+        }
     }
 }

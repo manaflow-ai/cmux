@@ -674,3 +674,13 @@ pub const BROWSER_2: Argument = Argument { name: "browser", title: t("ImportActi
 pub const SITE: Argument = Argument { name: "site", title: t("ImportActions", "argument.import.suggest.site", "Site"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const REASON_2: Argument = Argument { name: "reason", title: t("ImportActions", "argument.import.suggest.reason", "Reason"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
+pub const HARNESS_PROFILE: Argument = Argument { name: "id", title: t("ActionCatalog", "argument.agent.harness.id", "Agent"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "agentHarnessProfiles", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
+pub const HARNESS_ICON: Argument = Argument { name: "icon", title: t("ActionCatalog", "argument.agent.harness.icon", "Icon"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
+pub const WORKTREE_NAME: Argument = Argument { name: "name", title: t("ActionCatalog", "argument.git.worktree.name", "Worktree Name"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
+pub const WORKTREE_BASE: Argument = Argument { name: "base", title: t("ActionCatalog", "argument.git.worktree.base", "Base Revision"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
+pub const WORKTREE_DISCARD: Argument = Argument { name: "discard", title: t("ActionCatalog", "argument.git.worktree.discard", "Discard Unsaved Work"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };

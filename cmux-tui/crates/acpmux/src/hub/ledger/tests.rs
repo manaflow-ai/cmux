@@ -225,6 +225,7 @@ fn group_by_names_the_rollups_and_rejects_unknown_ones() {
         "outputTokens",
         "cacheReadTokens",
         "cacheWriteTokens",
+        "cacheWrite1hTokens",
         "cacheSavedUsd",
         "turns",
         "toolCalls",
@@ -559,6 +560,42 @@ fn a_line_from_before_cache_savings_gets_them_on_fold() {
 }
 
 #[test]
+fn a_recorded_zero_cache_saving_stays_zero_on_fold() {
+    // A turn priced when the table lacked its model recorded no saving; a later table that
+    // lists the model does not rewrite it. A recorded saving is kept as written, and a
+    // compacted file writes each field once.
+    let dir = scratch("cache-saved-zero");
+    std::fs::create_dir_all(&dir).unwrap();
+    let line = |sid: &str, saved: f64| {
+        format!(
+            r#"{{"t":"u","sid":"{sid}","at":{D0},"model":"claude-opus-5-5","pv":"v","costUsd":1.0,"cacheReadTokens":1000000,"cacheSavedUsd":{saved},"turns":1}}"#
+        )
+    };
+    std::fs::write(dir.join(store::FILE), format!("{}\n{}\n", line("x", 0.0), line("y", 1.5)))
+        .unwrap();
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    let reply = l.query(&all(D0, D0));
+    let saved =
+        |id: &str| reply.rows.iter().find(|r| r.session_id == id).unwrap().totals.cache_saved_usd;
+    assert_eq!(saved("x"), 0.0);
+    assert!((saved("y") - 1.5).abs() < 1e-9, "{}", saved("y"));
+    // The read-only copy is never written: the line carries the field once, from its totals.
+    let totals = Totals { cache_saved_usd: 2.0, ..Default::default() };
+    let spend = Line::Spend {
+        sid: "z".into(),
+        at: D0,
+        model: "m".into(),
+        pv: "v".into(),
+        totals,
+        saved: Some(9.0),
+    };
+    let written = serde_json::to_string(&spend).unwrap();
+    assert_eq!(written.matches("cacheSavedUsd").count(), 1, "{written}");
+    assert!(written.contains(r#""cacheSavedUsd":2.0"#), "{written}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_torn_last_line_is_cut_so_later_turns_survive_restarts() {
     let dir = scratch("torn");
     let path = dir.join(store::FILE);
@@ -597,6 +634,51 @@ fn a_turn_with_a_model_and_no_counts_is_unpriced_not_free() {
     let reply = l.query(&all(D0, D0));
     assert_eq!(reply.totals.unpriced_turns, 1);
     assert_eq!(reply.totals.table_cost_usd, 0.0);
+}
+
+#[test]
+fn hour_long_cache_writes_are_kept_and_priced_at_their_tier() {
+    let dir = scratch("cache-1h");
+    std::fs::create_dir_all(&dir).unwrap();
+    // A line an older acpmux wrote: no hour-long count, its writes priced at the 5-minute rate.
+    std::fs::write(
+        dir.join(store::FILE),
+        format!(
+            "{}\n",
+            json!({"t": "u", "sid": "old", "at": D0, "model": "claude-opus-5-5", "pv": "2026-11-08",
+                "costUsd": 5.0, "tableCostUsd": 5.0, "cacheWriteTokens": 1_000_000, "turns": 1})
+        ),
+    )
+    .unwrap();
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    // 1M writes, a quarter of them hour-long: 0.75 * $5 + 0.25 * $8 (twice the $4 input).
+    turn(
+        &l,
+        "a",
+        D0 + 1_000,
+        0,
+        json!({"model": "claude-opus-5-5", "cacheWriteTokens": 1_000_000,
+            "cacheWrite1hTokens": 250_000}),
+        "claude",
+        "claude",
+    );
+    l.flush();
+    let before = l.query(&all(D0, D0));
+    let a = before.rows.iter().find(|r| r.session_id == "a").unwrap();
+    assert!((a.totals.table_cost_usd - 5.75).abs() < 1e-9, "{}", a.totals.table_cost_usd);
+    assert_eq!(a.totals.cache_write_1h_tokens, 250_000);
+    let old = before.rows.iter().find(|r| r.session_id == "old").unwrap();
+    assert_eq!(old.totals.cache_write_1h_tokens, 0);
+    assert_eq!(old.totals.cost_usd, 5.0);
+    assert_eq!(before.totals.cache_write_1h_tokens, 250_000);
+    assert_eq!(before.totals.cache_write_tokens, 2_000_000);
+    drop(l);
+    // The count survives the file.
+    let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert_eq!(after.query(&all(D0, D0)), before);
+    let line = serde_json::to_value(&before.totals).unwrap();
+    assert_eq!(line["cacheWrite1hTokens"], 250_000);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

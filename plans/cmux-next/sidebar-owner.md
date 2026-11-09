@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: a multi-selection drags as one stack of its rows, as a browser's vertical tabs do. Leo,
+  verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside a browser's): "ours vs edge's group moving i
+  think we need to make ours more like edge and chrome". The card carried only the pressed row and a count badge
+  while the list opened a gap for every selected row, so the card rode over rows that had not made way and the gap
+  stood empty below it. The card now carries every selected row in drop order (`SidebarListLift.stack`), closed up
+  at the row spacing with the pressed row under the pointer; the gap is the card's height; its drops resolve
+  against the whole card. The badge and stacked backs stay only when a selected row has no row in the list (a
+  collapsed group). Regression: `SidebarMultiDragStackTests`.
 - 2026-11-08: a renamed workspace's name rolls as the agent chat's live line rolls a new tool call. Leo, verbatim: "i
   feel like when workspaces get renamed (esp by agents) it should have that same fade in animation that the tool call
   situation has...". `sidebar.workspaceTitleMotion` gains `roll`, its default: the old name rises 0.6 em, blurs and
@@ -27,7 +35,7 @@
   into opaque when it does get hovered. I feel like we should be able to keep it as glass though, right?" A native
   glass behind the card's page (`SidebarUpdatedCardHost.glass`), the card and its open preview, frosts the rows under
   it, so the page keeps its tint open, at rest and dragged (takes back the solid fill of a72c0fd5c542, f1d36c5f77e3,
-  9205005b4340). The preview and the glass move on cubic-bezier(0.16, 1, 0.3, 1) over 265 ms on `Motion.web`. The rows
+  9205005b4340). The preview and the glass move on cubic-bezier(0.16, 1, 0.3, 1) over 180 ms on `Motion.web`. The rows
   under the open card neither light nor open hover cards (`SidebarListView.hoverOccluded`), and the grown view takes
   clicks only on the glass. Regression: `UpdatedCardHoverPreviewTests`, webviews `updated-card-hover-preview.test.tsx`,
   `updated-card-native-glass.test.ts`.
