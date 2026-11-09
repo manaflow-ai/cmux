@@ -91,17 +91,15 @@ async fn run(
         cmd
     };
     // As `agent.rs` spawns: the login values its final env plan takes (`login_env::ChildEnv`).
-    let mut cmd = build();
-    let plan = crate::login_env::ChildEnv {
-        family,
-        profile: Some(env),
-        remote: false,
-        explicit: Some(crate::agent::explicit_env(&cmd)),
-    };
-    let deadline = tokio::time::Instant::now() + crate::login_env::TIMEOUT;
-    if crate::login_env::await_child_env(&plan, deadline).await.map_err(RpcError::internal)? {
-        cmd = build();
-    }
+    let mut plan =
+        crate::login_env::ChildEnv { family, profile: Some(env), remote: false, explicit: None };
+    let mut cmd = crate::login_env::build_ready(
+        &mut plan,
+        || Ok(build()),
+        crate::agent::explicit_env,
+        RpcError::internal,
+    )
+    .await?;
     // As `agent.rs` spawns: never the daemon's OOM protection (`oom_rank.rs`).
     crate::oom_rank::agent_at_exec(&mut cmd);
     let mut child =

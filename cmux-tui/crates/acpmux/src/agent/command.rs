@@ -44,7 +44,9 @@ fn claude_name_args(
 /// wait for the shell (at most `login_env::TIMEOUT`) and build it again with
 /// the read's values; a base URL or `${env:X}` it still lacks refuses the
 /// start (`login_env::ChildEnv`). A name the plan sets, unsets or never
-/// inherits (a route's unset, a remote-origin launch) never waits.
+/// inherits (a route's unset, a remote-origin launch) never waits; one a
+/// scrub removes and the login import restores does. A read that ends while
+/// the command is built builds it again (`login_env::build_ready`).
 pub(crate) async fn harness_command_ready(
     name: &str,
     profile: &HarnessProfile,
@@ -59,17 +61,13 @@ pub(crate) async fn harness_command_ready(
         remote: profile.env.get(REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1"),
         explicit: None,
     };
-    let deadline = tokio::time::Instant::now() + crate::login_env::TIMEOUT;
-    // Twice at most: a build that failed on a missing reference has no plan
-    // until the reference is here.
-    for _ in 0..2 {
-        let built = harness_command(name, profile, cwd, command_line.clone(), session);
-        plan.explicit = built.as_ref().ok().map(explicit_env);
-        if !crate::login_env::await_child_env(&plan, deadline).await.map_err(|e| anyhow!(e))? {
-            return built;
-        }
-    }
-    harness_command(name, profile, cwd, command_line, session)
+    crate::login_env::build_ready(
+        &mut plan,
+        || harness_command(name, profile, cwd, command_line.clone(), session),
+        explicit_env,
+        |e| anyhow!(e),
+    )
+    .await
 }
 
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).

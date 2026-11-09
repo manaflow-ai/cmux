@@ -408,16 +408,27 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
 /// harness must not get: every `ANTHROPIC_*` and Claude provider switch that
 /// `env` (what the profile sets) does not set itself.
 pub(crate) fn clear_inherited(cmd: &mut tokio::process::Command, env: &BTreeMap<String, String>) {
-    let mut drop: Vec<String> = crate::agent::command_env(cmd)
-        .into_iter()
-        .map(|(k, _)| k)
-        .filter(|k| k.starts_with("ANTHROPIC_") || CLAUDE_PROVIDER_KEYS.contains(&k.as_str()))
-        .collect();
+    let mut drop: Vec<String> =
+        crate::agent::command_env(cmd).into_iter().map(|(k, _)| k).filter(|k| cleared(k)).collect();
     drop.extend(ANTHROPIC_KEYS.iter().chain(CLAUDE_PROVIDER_KEYS).map(|k| (*k).to_owned()));
     drop.retain(|k| !env.contains_key(k));
     for k in drop {
         cmd.env_remove(k);
     }
+}
+
+/// A name `clear_inherited` removes unless the harness sets it itself.
+fn cleared(name: &str) -> bool {
+    name.starts_with("ANTHROPIC_") || CLAUDE_PROVIDER_KEYS.contains(&name)
+}
+
+/// The harness of `profile_env` (its unresolved env, the endpoint marker
+/// still in it) never takes `name` from the login env: an Anthropic endpoint
+/// harness's `clear_inherited` removes it (`login_env::ChildEnv`).
+pub(crate) fn clears(name: &str, profile_env: &BTreeMap<String, String>) -> bool {
+    Kind::of_env(profile_env) == Some(Kind::Anthropic)
+        && cleared(name)
+        && !profile_env.contains_key(name)
 }
 
 #[cfg(all(test, unix))]

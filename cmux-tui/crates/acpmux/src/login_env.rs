@@ -32,7 +32,7 @@ use std::ffi::OsString;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::RwLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -208,6 +208,9 @@ fn now_secs() -> u64 {
 static IMPORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// Told when a login shell read ends, done or failed (`await_child_env`).
 static READ_ENDED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+/// Login shell reads ended, done or failed: a command built before a read
+/// ended and checked after it is built again (`build_ready`).
+static READS: AtomicU64 = AtomicU64::new(0);
 /// Reads in a row when the startup files change during a read: one more
 /// read catches an edit made during the first.
 const MAX_ROUNDS: usize = 2;
@@ -240,6 +243,7 @@ pub async fn import() -> bool {
             tracing::info!("shell startup files changed during the read; reading them again");
         }
     }
+    READS.fetch_add(1, Ordering::SeqCst);
     READ_ENDED.notify_waiters();
     changed
 }
@@ -258,8 +262,10 @@ pub(crate) struct ChildEnv<'a> {
     /// (`apply_remote_tokio`): a remote-origin launch.
     pub remote: bool,
     /// The command's explicit env changes as built: a name it sets (a
-    /// profile value) or removes (a route's `ACPMUX_ROUTE_UNSET`, another
-    /// harness's login) is never the login env's. `None` until it is built.
+    /// profile value) is never the login env's. A name it removes may be: the
+    /// nested-session scrub removes an inherited `ANTHROPIC_BASE_URL` that the
+    /// login import puts back. Only `never` names one the child never gets.
+    /// `None` until it is built.
     pub explicit: Option<Vec<(String, Option<String>)>>,
 }
 
@@ -289,9 +295,20 @@ impl ChildEnv<'_> {
         let Some(explicit) = &self.explicit else { return false };
         !self.remote
             && !explicit.iter().any(|(k, _)| k == name)
+            && !self.never(name)
             && PROVIDER_KEYS.contains(&name)
             && allowed_with(name, "", Some(self.family), self.profile)
             && (PROVIDER_FAMILIES.contains(&self.family) || endpoint(name))
+    }
+
+    /// The child never gets `name`, whatever the login env holds: a bound
+    /// route unsets it (`routes::UNSET_KEY`), or an Anthropic endpoint
+    /// harness clears it (`byo_endpoint::clears`). Unlike a scrub, which the
+    /// login import undoes, this removal is the plan's.
+    fn never(&self, name: &str) -> bool {
+        let Some(env) = self.profile else { return false };
+        env.get(crate::routes::UNSET_KEY).is_some_and(|l| l.split(',').any(|k| k == name))
+            || crate::byo_endpoint::clears(name, env)
     }
 
     /// The blocking names a start cannot go without: a base URL (else the
@@ -327,6 +344,31 @@ pub(crate) async fn await_child_env(
         missing.join(", "),
         TIMEOUT.as_secs()
     ))
+}
+
+/// Build a spawn's command on `plan`, ready to start: `build` it, take its
+/// env changes (`explicit`) into the plan and `await_child_env`. Built again
+/// when the plan waited for the shell, or when a read ended while it was
+/// built (it took the values from before the read). A refusal is `refuse`d.
+pub(crate) async fn build_ready<T, E>(
+    plan: &mut ChildEnv<'_>,
+    mut build: impl FnMut() -> Result<T, E>,
+    explicit: impl Fn(&T) -> Vec<(String, Option<String>)>,
+    refuse: impl Fn(String) -> E,
+) -> Result<T, E> {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    // Twice at most: a build that failed on a missing reference has no plan
+    // until the reference is here.
+    for _ in 0..2 {
+        let reads = READS.load(Ordering::SeqCst);
+        let built = build();
+        plan.explicit = built.as_ref().ok().map(&explicit);
+        let waited = await_child_env(plan, deadline).await.map_err(&refuse)?;
+        if !waited && reads == reads {
+            return built;
+        }
+    }
+    build()
 }
 
 /// A provider base URL (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`): the
@@ -1669,8 +1711,24 @@ mod machine_file_tests {
             assert!(!takes(&plan(family, None, false, &[]), key), "{family} never waits for {key}");
         }
         // A route that unsets it (codex-login), or a profile that sets it: never.
-        let unset = plan("codex", None, false, &[("OPENAI_BASE_URL", None)]);
+        let route: BTreeMap<String, String> =
+            [(crate::routes::UNSET_KEY.to_owned(), "OPENAI_API_KEY,OPENAI_BASE_URL".to_owned())]
+                .into();
+        let unset = plan("codex", Some(&route), false, &[("OPENAI_BASE_URL", None)]);
         assert!(!takes(&unset, "OPENAI_BASE_URL"));
+        // An Anthropic endpoint harness clears the Claude provider env it does not set.
+        let own: BTreeMap<String, String> =
+            [(crate::byo_endpoint::OWN_ENDPOINT_KEY.to_owned(), "anthropic".to_owned())].into();
+        let cleared = plan("claude", Some(&own), false, &[("ANTHROPIC_BASE_URL", None)]);
+        assert!(!takes(&cleared, "ANTHROPIC_BASE_URL"));
+        // A scrub is not an unset: the nested-session scrub (a daemon started
+        // inside a Claude Code turn) removes the inherited ANTHROPIC_BASE_URL,
+        // and the login import puts the person's own back, so a cached start
+        // still waits for it.
+        let scrubbed = plan("claude", None, false, &[("ANTHROPIC_BASE_URL", None)]);
+        assert!(takes(&scrubbed, "ANTHROPIC_BASE_URL"));
+        let scrubbed = plan("pi", None, false, &[("OPENROUTER_API_KEY", None)]);
+        assert!(takes(&scrubbed, "OPENROUTER_API_KEY"));
         let set = plan("claude", None, false, &[("ANTHROPIC_BASE_URL", Some("https://r.invalid"))]);
         assert!(!takes(&set, "ANTHROPIC_BASE_URL"));
         // A remote-origin plan takes no login value.
@@ -1690,6 +1748,33 @@ mod machine_file_tests {
         let unbuilt = ChildEnv { explicit: None, ..plan("claude", Some(&refs), false, &[]) };
         assert!(takes(&unbuilt, "TEAM_GATEWAY_TOKEN"));
         assert!(!takes(&plan("pi", None, false, &[]), "GITHUB_TOKEN"));
+    }
+
+    /// A read that ends between building a command and checking its plan
+    /// left the command with the values from before it: it is built again.
+    #[tokio::test]
+    async fn a_command_built_while_a_read_ended_is_built_again() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let builds = AtomicUsize::new(0);
+        let mut plan =
+            super::ChildEnv { family: "pi", profile: None, remote: false, explicit: None };
+        let built = super::build_ready(
+            &mut plan,
+            || {
+                let n = builds.fetch_add(1, Ordering::SeqCst);
+                if n == 0 {
+                    // The shell read ends after this build took its values.
+                    super::READS.fetch_add(1, Ordering::SeqCst);
+                    super::READ_ENDED.notify_waiters();
+                }
+                Ok::<_, String>(n)
+            },
+            |_| Vec::new(),
+            |e| e,
+        )
+        .await
+        .unwrap();
+        assert_ne!(built, 0, "the command built before the read ended is not the one started");
     }
 
     /// A plain base URL is cached by value; one with a credential in its

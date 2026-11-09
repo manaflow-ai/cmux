@@ -5,6 +5,7 @@
 //! refuses rather than start on its default endpoint.
 //!
 //! One test: the login environment is process-wide (ACPMUX_HOME, HOME, SHELL).
+#![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
