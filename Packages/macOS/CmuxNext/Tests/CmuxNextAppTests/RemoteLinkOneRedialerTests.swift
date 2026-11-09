@@ -220,6 +220,56 @@ private nonisolated final class RemoteLinkCalls: Sendable {
         #expect(Self.identifies(log) == 3, "Reconnect made one new attempt")
     }
 
+    /// Review of 146f273, F2: the explicit-Reconnect count was taken once per connection, so a Reconnect
+    /// that recovered an earlier drop also retried a later incompatible daemon with no new request. Each
+    /// attempt now consumes the requests made before it.
+    @Test func aReconnectThatRecoveredADropDoesNotAlsoRetryALaterIncompatibleDaemon() async throws {
+        let log = "/private/tmp/cn-reconnect-consumed-\(UUID().uuidString.prefix(8)).log"
+        defer { try? FileManager.default.removeItem(atPath: log) }
+        // Connections 0 and 1 serve and drop 0.3 s after their handshake, 2 answers an unsupported
+        // protocol, later ones serve and stay.
+        let script = #"""
+        import json, os, sys, time
+        print('{"ok":true}', file=sys.stderr, flush=True)
+        log = sys.argv[1]
+        nth = None
+        for line in sys.stdin:
+            frame = json.loads(line)
+            data = {}
+            if frame.get('cmd') == 'identify':
+                nth = len(open(log).read().splitlines()) if os.path.exists(log) else 0
+                with open(log, 'a') as out:
+                    out.write('identify\n')
+                data = {'app': 'cmux-tui', 'protocol': 99 if nth == 2 else 12, 'generation': 'consumed-%d' % nth,
+                        'pid': 4242, 'capabilities': []}
+            print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
+            if frame.get('cmd') == 'subscribe' and nth in (0, 1):
+                time.sleep(0.3)
+                sys.exit(0)
+        """#
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, log])
+        let socket = "/tmp/cn-reconnect-consumed-\(UUID().uuidString.prefix(8)).sock"
+        let calls = Mutex(0)
+        let daemon = DaemonService(machineID: "ssh:reconnect-consumed-\(UUID().uuidString)")
+        defer { daemon.shutdownConnection() }
+        daemon.start(remote: {
+            // The drop's attempt fails (call 2), so the connection parks until a Reconnect.
+            if calls.withLock({ $0 += 1; return $0 }) == 2 { throw DaemonError.notConnected }
+            return socket
+        }, bridge: bridge, requiredCapabilities: [], followsLink: true)
+        try await Self.waitUntil { calls.withLock { $0 } == 2 && daemon.store.retriesSpent }
+        // A person's Reconnect recovers the drop (connection 1), which drops again; its reconnect meets
+        // an unsupported protocol (connection 2) and the connection ends for good.
+        daemon.reconnectNow()
+        try await Self.waitUntil { Self.identifies(log) == 3 && { if case .failed = daemon.store.connectionState { true } else { false } }() }
+        daemon.retryWake.fire()
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(calls.withLock { $0 } == 4, "the earlier Reconnect retried the incompatible daemon with no new request")
+        daemon.reconnectNow()
+        try await Self.waitUntil { if case .connected = daemon.store.connectionState { true } else { false } }
+        #expect(Self.identifies(log) == 4)
+    }
+
     /// Review of 8cbf436, F1: the explicit-Reconnect gate also held a blocked endpoint (SSH auth, host key,
     /// install). After the person fixed their agent or known_hosts, app activation opened the SSH gate and
     /// fired the retry wake, and the wait ignored it. Only an incompatible daemon needs a Reconnect.

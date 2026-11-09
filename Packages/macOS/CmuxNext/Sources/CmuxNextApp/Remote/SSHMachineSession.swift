@@ -65,12 +65,11 @@ final class SSHMachineSession {
     @ObservationIgnored var connectingWindow: String?
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
-    /// In use by another cmux daemon: only a person's Reconnect takes it over (G5).
+    /// In use by another cmux daemon: only a person's Reconnect takes it over (G5). Retries spent: Offline (G4).
     var waitsForUser: Bool { link.waitsForUser }
+    var retriesSpent: Bool { daemon.store.retriesSpent }
     /// The daemon connection dropped (waits for the link's state) or ended for good (an incompatible daemon).
-    var daemonDown: Bool {
-        switch daemon.store.connectionState { case .disconnected, .failed: true; case .connecting, .connected: false }
-    }
+    var daemonDown: Bool { switch daemon.store.connectionState { case .disconnected, .failed: true; case .connecting, .connected: false } }
     /// Changes at the start of every user or automatic connection attempt, even when the
     /// transport and daemon report the same failure again.
     private(set) var connectionAttemptID: UInt64 = 0
@@ -198,6 +197,7 @@ final class SSHMachineSession {
         // mirror moves now, so the new attempt never shows the old failure. The link
         // then reports `.connecting` (already mirrored) and the retry's own result.
         if linkStatus.needsRecovery { linkStatusChanged(.connecting) }
+        daemon.store.noteRetriesSpent(false)
         daemon.beginAttempt()
     }
 

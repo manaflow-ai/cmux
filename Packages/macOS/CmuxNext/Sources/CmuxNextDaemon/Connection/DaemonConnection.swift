@@ -398,6 +398,15 @@ public actor DaemonConnection {
         pacer.refillDropBudget()
     }
 
+    /// Told each time a reconnect fails with the timed retries spent; see ``observeRetriesSpent(_:)``.
+    private var retriesSpentObserver: (@Sendable () -> Void)?
+
+    /// Called each time a reconnect parks: its last attempt failed and the next waits for an event
+    /// only (a remote machine's header then reads offline, and using it reconnects; HQ #4877 G4).
+    public func observeRetriesSpent(_ observer: (@Sendable () -> Void)?) {
+        retriesSpentObserver = observer
+    }
+
     /// Why the reconnect ended for good (an incompatible daemon), or nil.
     public private(set) var endedBy: DaemonError?
 
@@ -416,6 +425,7 @@ public actor DaemonConnection {
             if pacer.socketFailures == pacer.policy.socketRetries {
                 logger.error("cmux-tui reconnect: \(self.pacer.socketFailures) new daemon sockets failed; waiting for app activation or a reconnect")
             }
+            if delay == nil, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?() }
             if pacer.waitsForToken, let delay {
                 logger.info("cmux-tui reconnect: drop budget spent; next attempt in \(String(describing: delay), privacy: .public) or on an event")
             }

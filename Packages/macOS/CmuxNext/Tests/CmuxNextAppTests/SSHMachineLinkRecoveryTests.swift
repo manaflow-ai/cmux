@@ -35,15 +35,30 @@ import Testing
 
     // MARK: G4
 
-    /// The link is the only layer that redials (cmuxterm-hq#7766): a later drop reads as the link
-    /// says, and Reconnect retries the daemon connection over the same link client instead of
-    /// killing and restarting it.
-    @Test func aLaterDropReadsAsTheLinkSays() {
-        #expect(SSHConnectionMachine.Status.reconnecting.sidebarStatus(startupFailed: false, daemonConnected: false, compatibility: nil) == .reconnecting)
+    /// A later reconnect that parked (its attempt failed and it waits for an event) reads offline, so using
+    /// the machine reconnects it (HQ #4877 G4); Reconnect wakes it over the same link client (cmuxterm-hq#7766).
+    @Test func aSpentReconnectReadsOfflineNotConnecting() {
+        for link: SSHConnectionMachine.Status in [.connecting, .connected, .reconnecting] {
+            #expect(link.sidebarStatus(startupFailed: false, daemonConnected: false, compatibility: nil,
+                                            retriesSpent: true) == .offline, "\(link)")
+            #expect(link.sidebarStatus(startupFailed: false, daemonConnected: true, compatibility: nil,
+                                            retriesSpent: true) == (link == .reconnecting ? .reconnecting : .connected))
+        }
         #expect(SSHConnectionMachine.Status.connecting.sidebarStatus(startupFailed: false, daemonConnected: false, compatibility: nil) == .connecting)
-        #expect(SSHConnectionMachine.Status.connected.sidebarStatus(startupFailed: true, daemonConnected: false, compatibility: nil) == .failed,
-                "A startup failure keeps its own word")
+        #expect(SSHConnectionMachine.Status.connected.sidebarStatus(startupFailed: true, daemonConnected: false, compatibility: nil,
+                                        retriesSpent: true) == .failed, "A startup failure keeps its own word")
         #expect(MachineLinkState.reconnectsOnUse(.offline), "Using the machine reconnects it")
+    }
+
+    @Test func theStoreMarksSpentRetriesUntilTheNextConnect() throws {
+        let store = DaemonStore()
+        store.connectionState = .disconnected("link lost")
+        store.noteRetriesSpent(true)
+        #expect(store.retriesSpent)
+        _ = DaemonConnectionChange.connected(try Self.identity(), nil).apply(to: store)
+        #expect(!store.retriesSpent, "A reconnect clears it")
+        store.noteRetriesSpent(true)
+        #expect(!store.retriesSpent, "A hop that lands after the link came back changes nothing")
     }
 
     /// Review F2 (fc883e4): a new startup attempt armed the startup deadline, which a recovery inside the
@@ -121,6 +136,60 @@ import Testing
         try await Task.sleep(for: .milliseconds(1500))
         #expect(!session.daemon.startup.isUnavailable, "the recovered machine read as failed to start")
         #expect(session.daemonFailure == nil)
+    }
+
+    /// Review of 146f273, F1: a parked daemon (link connected, its reconnect failed and waits for an event)
+    /// read as connecting, so a pane waited 45 s instead of reconnecting. It reads offline as on the base:
+    /// using the machine reconnects it, and Reconnect wakes the parked connection.
+    @Test(.timeLimit(.minutes(1))) func aParkedDaemonReadsOfflineAndUsingItReconnects() async throws {
+        let log = "/private/tmp/cn-parked-\(UUID().uuidString.prefix(8)).log"
+        defer { try? FileManager.default.removeItem(atPath: log) }
+        let script = #"""
+        import json, os, sys, time
+        print('{"ok":true}', file=sys.stderr, flush=True)
+        log = sys.argv[1]
+        nth = None
+        for line in sys.stdin:
+            frame = json.loads(line)
+            data = {}
+            if frame.get('cmd') == 'identify':
+                nth = len(open(log).read().splitlines()) if os.path.exists(log) else 0
+                with open(log, 'a') as out:
+                    out.write('identify\n')
+                data = {'app': 'cmux-tui', 'protocol': 12, 'generation': 'parked-%d' % nth, 'pid': 4242, 'capabilities': []}
+            print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
+            if frame.get('cmd') == 'subscribe' and nth == 0:
+                time.sleep(0.3)
+                sys.exit(0)
+        """#
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, log])
+        let socket = "/tmp/cn-parked-\(UUID().uuidString.prefix(8)).sock"
+        let calls = Mutex(0), reachable = Mutex(true)
+        let session = try Self.session()
+        let service = Self.service(with: session)
+        defer { session.close() }
+        session.linkStatus = .connected
+        session.daemon.start(remote: {
+            calls.withLock { $0 += 1 }
+            guard reachable.withLock({ $0 }) else { throw DaemonError.notConnected }
+            return socket
+        }, bridge: bridge, requiredCapabilities: [], followsLink: true)
+        let deadline = ContinuousClock.now + .seconds(15)
+        while session.daemon.startup != .connected, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        // The daemon side stops answering: the drop's attempt fails and the connection parks.
+        reachable.withLock { $0 = false }
+        while !session.retriesSpent, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        try #require(session.retriesSpent, "the reconnect parked")
+        #expect(SidebarBridge.sshStatus(session, compatibility: nil) == .offline)
+        #expect(SidebarBridge.paneUse(session.machineID, in: service.machines) == .down, "using the machine must reconnect it")
+        let parkedAt = calls.withLock { $0 }
+        reachable.withLock { $0 = true }
+        service.reconnect(session)
+        while !Self.recovered(session, log: log), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        try #require(Self.recovered(session, log: log), "Reconnect woke the parked connection")
+        #expect(calls.withLock { $0 } == parkedAt + 1)
+        #expect(!session.retriesSpent)
+        #expect(session.connectionAttemptID == 0, "no new startup attempt on an established machine")
     }
 
     @Test func anEstablishedMachinesReconnectOnlyWakesWhateverTheLinksStatus() {

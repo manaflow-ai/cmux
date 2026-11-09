@@ -60,7 +60,7 @@ extension SidebarBridge {
     /// The link's status, except a connected machine offered a newer cmux-tui says Update Available (`SidebarBridgeRules.sshStatus`).
     private static func sshHeader(_ session: SSHMachineSession, compatibility: DaemonCompatibility?) -> (status: SidebarMachine.Status, compatibilityDetail: Bool)? {
         let connected = if case .connected = session.daemon.store.connectionState { true } else { false }
-        let link = session.linkStatus.sidebarStatus(startupFailed: session.daemonFailure != nil, daemonConnected: connected, compatibility: compatibility)
+        let link = session.linkStatus.sidebarStatus(startupFailed: session.daemonFailure != nil, daemonConnected: connected, compatibility: compatibility, retriesSpent: session.retriesSpent)
         return SidebarBridgeRules().sshStatus(link: link, updateOffered: session.updateOffered, compatibilityKnown: compatibility != nil)
     }
 }
