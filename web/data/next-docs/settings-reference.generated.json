@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 617,
+  "count": 618,
   "sections": [
     {
       "id": "general",
@@ -1228,6 +1228,14 @@
             "pluggedIn",
             "always"
           ]
+        },
+        {
+          "key": "sessions.keepAwakeForCommands",
+          "title": "Also While Terminal Commands Run",
+          "help": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Sessions"
         },
         {
           "key": "sessions.promptSuggestions",
