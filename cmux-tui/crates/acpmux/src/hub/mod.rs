@@ -238,6 +238,7 @@ mod stream;
 mod tags;
 mod tailnet_controller;
 mod tap;
+pub(crate) mod time_breakdown;
 mod titles;
 mod tool_paths;
 mod tool_read_images;
@@ -1522,6 +1523,7 @@ impl Hub {
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
+            time_breakdown: StdMutex::new(Default::default()),
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),
@@ -2224,6 +2226,13 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
+            {
+                let mut breakdown =
+                    session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                if breakdown.initialized {
+                    breakdown.record(&record);
+                }
+            }
             // The review queue's index and the audit trail: O(1), never blocking on a write.
             self.observe_for_review(session, &record);
         }

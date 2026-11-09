@@ -8406,6 +8406,13 @@ export class AcpmuxDirectClient {
           usage: this.usage,
           contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
           usageStats: (this.summaryUsage = sameUsageStats(summary.usageStats, this.summaryUsage)),
+          timeBreakdown:
+            summary.timeBreakdown &&
+            typeof summary.timeBreakdown === "object" &&
+            Array.isArray(summary.timeBreakdown.categories) &&
+            Array.isArray(summary.timeBreakdown.spans)
+              ? summary.timeBreakdown
+              : undefined,
           host: text(summary.host),
           machine: text(summary.machine),
           peer: text(summary.peer),
