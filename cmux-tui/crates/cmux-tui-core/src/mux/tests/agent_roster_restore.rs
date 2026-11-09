@@ -330,3 +330,89 @@ fn the_start_roster_cost_stays_flat_as_the_journal_grows() {
         );
     }
 }
+
+/// #39096 review (salvage bound): the replay's salvaging read (the fallback when the
+/// kind-scoped read fails) reads the journal as it is now, past the start's
+/// head. Its records apply no deltas, so one committed after the start (a
+/// plugin's exit) must be left for the live fold, which applies its delta:
+/// the replay applies and moves its cursor through `through` only.
+#[test]
+fn the_replays_salvaging_read_stops_at_the_starts_head() {
+    use crate::mux::agent_roster_restore::{
+        AgentRosterReplay, ReplayProgress, RosterFoldLimits, RosterJournal,
+    };
+    use crate::workspace_registry::SessionJournalRecord;
+    use crate::workspace_registry::session_journal::salvage::{
+        SalvagedJournalPage, SkippedJournalRange,
+    };
+    use crate::workspace_registry::session_journal::{
+        JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, SessionJournalPage,
+    };
+    /// A journal whose kind-scoped read always fails and whose salvaging
+    /// read returns the whole journal as one page.
+    struct Salvaging(Vec<SessionJournalRecord>, bool);
+    impl RosterJournal for Salvaging {
+        fn kinds_after(
+            &self,
+            _: u64,
+            _: u64,
+            _: usize,
+        ) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
+            anyhow::bail!("the kind-scoped read fails")
+        }
+        fn after_salvaging(&self, cursor: u64, _: usize) -> anyhow::Result<SalvagedJournalPage> {
+            if self.1 {
+                return Ok(SalvagedJournalPage::Skipped(SkippedJournalRange {
+                    start_sequence: cursor + 1,
+                    end_sequence: self.0.last().map_or(0, |record| record.sequence),
+                    segment_id: None,
+                    reason: "test",
+                }));
+            }
+            Ok(SalvagedJournalPage::Page(SessionJournalPage {
+                head_sequence: self.0.last().map_or(0, |record| record.sequence),
+                records: self.0.iter().filter(|r| r.sequence > cursor).cloned().collect(),
+            }))
+        }
+        fn subject_ids_in_range(&self, _: &str, _: u64, _: u64) -> anyhow::Result<Vec<String>> {
+            Ok(Vec::new())
+        }
+        fn save(&self, _: u64, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+    let records = (1..=10)
+        .map(|sequence| SessionJournalRecord {
+            sequence,
+            event_id: format!("event_{sequence}"),
+            schema_version: 1,
+            kind: "workspace.focus".into(),
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            occurred_at_ms: sequence,
+            committed_at_ms: sequence,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: Vec::new(),
+            sensitivity: JournalSensitivity::Metadata,
+            payload: serde_json::json!({}),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: None,
+        })
+        .collect::<Vec<_>>();
+    let limits = RosterFoldLimits { page: 512, save_every_pages: 64, stop_after_pages: None };
+    // A page that decodes, then a range that does not: both end at the
+    // start's head.
+    for skipped in [false, true] {
+        let mut replay = AgentRosterReplay::for_test(6, limits);
+        let mut host = AgentRosterHost::default();
+        let journal = Salvaging(records.clone(), skipped);
+        let done = replay.fold(&journal, &mut &mut host, None).unwrap();
+        assert!(matches!(done, ReplayProgress::Done { .. }));
+        assert_eq!(host.cursor, 6, "skipped {skipped}: the replay stops at the start's head");
+    }
+}

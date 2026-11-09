@@ -403,7 +403,8 @@ mod replay_for_test {
                         "",
                     )
                     .unwrap();
-                let limits = RosterFoldLimits { page, save_every_pages: 64, stop_after_pages: None };
+                let limits =
+                    RosterFoldLimits { page, save_every_pages: 64, stop_after_pages: None };
                 restore_agent_roster_within(&registry, limits, Some(Duration::ZERO)).unwrap()
             };
             *self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner) = restored.host;

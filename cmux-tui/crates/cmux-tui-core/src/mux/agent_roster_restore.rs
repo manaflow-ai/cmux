@@ -434,3 +434,23 @@ fn skipped_ranges_problem(skipped: &[SkippedJournalRange]) -> String {
         listed.join(", ")
     )
 }
+
+#[cfg(test)]
+mod test_support {
+    use super::{AgentRosterReplay, RosterFoldLimits};
+
+    impl AgentRosterReplay {
+        /// Test seam: a replay through `through` from no saved state.
+        pub(in crate::mux) fn for_test(through: u64, limits: RosterFoldLimits) -> Self {
+            Self {
+                through,
+                saved_at: 0,
+                pages: 0,
+                needs_repair: false,
+                skipped: Vec::new(),
+                problems: Vec::new(),
+                limits,
+            }
+        }
+    }
+}
