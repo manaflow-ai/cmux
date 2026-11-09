@@ -227,6 +227,14 @@ test("with its room kept at the column's end, the strip is its full width in eve
   ).text();
   expect(css).toContain(`--cv-inset-end: max(var(--cv-inset), ${MINIMAP_RESERVE}px);`);
   expect(css).toContain(`--cv-inset-end: max(var(--cv-inset), ${COMPUTER_USE_PREVIEW_RESERVE}px);`);
+  // The strip steps aside for the computer use preview card at the same corner.
+  expect(css).toMatch(/\.acpmux-main\[data-cu-preview\] \.acpmux-chat-minimap \{\s*visibility: hidden;/);
+  // The bands in the column above the composer end where the column does, so the strip lies over none.
+  const styles = await Bun.file(new URL("../src/agent-session/acpmux/styles.css", import.meta.url)).text();
+  for (const band of [".acpmux-open-app-cards{", ".acpmux-dictation-notice{", ".acpmux-composer-remote-note {"]) {
+    const rule = styles.slice(styles.indexOf(band), styles.indexOf("}", styles.indexOf(band)));
+    expect(rule).toContain("var(--cv-inset-end");
+  }
 });
 
 test("a reply draws as 2 px text lines every 4 px, as VS Code's minimap at scale 2", () => {
