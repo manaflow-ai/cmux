@@ -1481,6 +1481,10 @@ async fn dispatch_request_with_identity(
                     hub.unattended_preset_holds(name, digest).await?;
                 }
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
+                if let Some(approved) = &unattended {
+                    let id = result.get("sessionId").and_then(Value::as_str);
+                    hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
+                }
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);

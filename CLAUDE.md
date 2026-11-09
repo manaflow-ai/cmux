@@ -55,19 +55,6 @@ too): a few seconds of static checks, no build, refusing only violations your co
 Swift/Rust builds and tests stay on the fleet. What it runs and how the hooks install:
 [hooks and lints](skills/cmux-dev-workflow/references/hooks-and-lints.md).
 
-Retry a failed push. Push with `git push -q`: without `-q`, git spends 4-14 s printing a status for
-all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. The hook ends with
-`pre-push: hook times: <each phase> Ns; total Ns`, which shows where a slow push spent its time.
-- `pre-push: refused in <phase>` with a check's findings: fix them and push again. Do not retry unchanged.
-- The gate's `ran past its 600s limit`, a failure after `pre-push: passed`
-  (`[remote rejected] ... (failed)`, `RPC failed`, `remote end hung up`, a timeout), or a
-  `timeout 1500` kill: retry at most 3 times. Wait 30 s before the first retry, 60 s before
-  the second and 120 s before the third.
-- After each try, `git ls-remote origin refs/heads/<branch>` must equal `git rev-parse HEAD`.
-  If it does, the push landed: stop.
-- Never `--no-verify`, and never the git data API, to get past a failed push. After 3 failed retries,
-  report the hook-times line and the last error.
-
 - Never `--no-verify` and never `CMUX_NEXT_CHECKS_SKIP_REASON`, unless the failure is
   in files you did not touch. Then say so in your report, naming the check and the base sha.
   CI step "Pushed commits add no violations" names every commit that adds one.
@@ -100,6 +87,21 @@ all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. Th
   waiting lock or a whole-session walk on its turn (< 10 ms to the commit; guardrail
   `action-wait`). Effect kinds and monitors: [zero-latency.md](plans/cmux-next/zero-latency.md),
   "Native actions: the budget contract".
+
+### Retry a failed push
+
+Push with `git push -q`: without `-q`, git spends 4-14 s printing a status for
+all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. The hook ends with
+`pre-push: hook times: <each phase> Ns; total Ns`, which shows where a slow push spent its time.
+- `pre-push: refused in <phase>` with a check's findings: fix them and push again. Do not retry unchanged.
+- The gate's `ran past its 600s limit`, a failure after `pre-push: passed`
+  (`[remote rejected] ... (failed)`, `RPC failed`, `remote end hung up`, a timeout), or a
+  `timeout 1500` kill: retry at most 3 times. Wait 30 s before the first retry, 60 s before
+  the second and 120 s before the third.
+- After each try, `git ls-remote origin refs/heads/<branch>` must equal `git rev-parse HEAD`.
+  If it does, the push landed: stop.
+- A failed push is never a reason for `--no-verify` or the git data API. After 3 failed retries,
+  report the hook-times line and the last error.
 
 ## Before you touch hot paths
 

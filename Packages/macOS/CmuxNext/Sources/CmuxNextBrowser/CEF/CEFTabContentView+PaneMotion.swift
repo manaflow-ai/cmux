@@ -50,6 +50,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
             }
             return
         }
+        endRestHold()
         if pageMotionHold == nil {
             // S5: no hold. The page lays out at the page area in every frame (no main-thread wait for its frame).
             beginPageSync(.keyResize)
@@ -87,6 +88,20 @@ extension CEFTabContentView {
             hosting.resizeMotion(active: false)
         }
     }
+
+    /// The shown page holds the keys (its window is key, or a focus ask waits for it).
+    var pageHoldsKeys: Bool {
+        guard let tab, tab.host.hostView.superview === self else { return false }
+        return tab.host.hostView.layerHosting.holdsFocus()
+    }
+
+    /// A drag or a key resize caught a spring whose page waits at its rest: it follows its pane from now on, and that
+    /// motion's end lands it.
+    func endRestHold() {
+        guard pageRestHold else { return }
+        pageRestHold = false
+        dropHold()
+    }
 }
 
 /// A split's, close's or zoom's spring resizes the pane in every frame, as a key resize does: the spring's start
@@ -97,10 +112,33 @@ extension CEFTabContentView {
 /// ask-1cbd6386ac, softened: "the upwards thing ... shit doesn't look right, shit is not smooth, shit lags"; the same
 /// 25-frame stale page RESIZE P0 5 filmed for detached key resizes). The main thread never waits for a page frame (the
 /// page sync's deadline stays 0).
+///
+/// A page that holds the keys does not follow each frame's size (Leo 2026-11-07, ask-14c328cf18, softened: a close beside
+/// a page "first shifts over to the left ... And then after the shift, then it expands. It's not, like, expanding as it
+/// goes"). A close hands the keys to the page beside the closing pane in the close's own turn, before the spring's first
+/// frame (#37755), and that page's window, resized in every frame, is the shift-then-expand: Chromium's frames at the new
+/// sizes come after the pane has moved. So that page lays out once, at the size it rests at, when the spring starts, and
+/// keeps that size to the landing (``holdPageAtRest(_:)``): its pixels, in the window's own layers, ride the pane's
+/// top-left corner, clipped by the pane, beside the page's own backdrop while the pane is larger. Its window takes one
+/// size in the motion and its keys, first responder and focus ask stay as they were. A retarget (a key press during the
+/// spring, or a second close) ends the hold, and the page follows its pane for the rest of the motion.
 extension CEFTabContentView: PaneMotionTargeting {
     func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
         // A drag (its release spring included) and a key resize run their own motion, begun before the spring's rest.
         guard window != nil, pageSyncReasons.isDisjoint(with: [.drag, .keyResize]), pageMotionHold == nil else { return .top }
+        if pageRestHold {
+            // A retarget: a key press that caught the spring (its pane's host starts no key resize on a running spring,
+            // so ``holdPage(for:)`` never comes) or another close. The page follows its pane from here, as any page does.
+            endRestHold()
+        } else if !pageSyncReasons.contains(.paneSpring), pageHoldsKeys {
+            // Decided at the spring's start: the page that holds the keys waits at its rest.
+            let rest = CGSize(width: bounds.width + sizeChange.width, height: bounds.height + sizeChange.height)
+            if holdPageAtRest(rest) {
+                pageRestHold = true
+                return .top
+            }
+            // It cannot hold (DevTools docked, a side panel, a fit): it follows its pane, as before.
+        }
         beginPageSync(.paneSpring)
         return .top
     }
@@ -108,6 +146,12 @@ extension CEFTabContentView: PaneMotionTargeting {
     /// The spring landed: the page lays out at the final size, once. A drag or key resize that caught the spring ends the
     /// motion itself.
     func endPaneSpring() {
+        if pageRestHold {
+            // The page is at its rest size already: the landing's layout places it on the page area, with no resize.
+            endRestHold()
+            layoutContent()
+            return
+        }
         guard pageSyncReasons.contains(.paneSpring) else { return }
         endPageSync(.paneSpring)
         guard pageSyncReasons.isEmpty, pageMotionHold == nil else { return }

@@ -184,6 +184,17 @@ reset_cdn; publish_tree "$own"; publish_manifest "$own"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output"' "a published tip leaves it to the resolver"
 reset_cdn; mkdir -p "$TMP/cdn/tree/$key"; echo garbage > "$TMP/cdn/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output"' "an unverifiable tree is not taken as pending"
+# Nothing will publish the tip's tree (its publisher ended without it, no same-key run is active):
+# the resolver picks the newest published tree instead of a build that fails 45 min in (2026-11-09).
+ended_run="{\"total_count\":1,\"workflow_runs\":[{\"id\":3,\"status\":\"completed\",\"conclusion\":\"failure\",\"head_sha\":\"$own\",\"html_url\":\"u3\"}]}"
+reset_cdn; set_runs "$no_runs"; printf '%s\n' "$ended_run" > "$runs_dir/runs-$own"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "nothing will publish" "$TMP/summary"' \
+  "a tree whose publisher ended unpublished leaves it to the resolver"
+printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":4,\"status\":\"queued\",\"head_sha\":\"$app\"}]}" > "$runs_dir/runs-$app"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a candidate's active run keeps the tip pending"
+rm -f "$runs_dir/runs-$app"; set_runs "$active_run"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "an active same-key run keeps the tip pending"
+rm -f "$runs_dir/runs-$own"; set_runs "$no_runs"
 
 # Recovery: a run's await-nightly-tree-marker must have passed (or not exist).
 mkdir -p "$TMP/ghbin"

@@ -1034,6 +1034,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/hunk_summary",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/wait",
       "params": true,
       "result": true
