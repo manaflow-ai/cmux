@@ -1246,6 +1246,42 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, r"no generated files verdict.*re-run its prerequisite and this dependent"):
             self.judge()
 
+    def test_a_summary_with_no_verdict_is_refused_with_rerun(self):
+        """A summary gate (scripts/ci/needs_verdict.py) whose dependency was abandoned judged nothing.
+
+        It ends red so no merger reads it as green; its `no verdict: ` annotation must make this refuse with
+        "re-run it", never excuse it as the base's red. The runner's echo of the step script does not count.
+        """
+        name, step = "rust workspaces", "Every planned workspace passed"
+        no_verdict = "no verdict: rust workspaces: plan abandoned, workspace skipped; nothing it summarizes was judged: re-run the run"
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name, step=step)
+        echoed = [
+            "##[group]Run needs_verdict() {",
+            'echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3',
+            "shell: /usr/bin/bash -e {0}",
+            "##[endgroup]",
+        ]
+        self.gh.logs[1] = log(name, step, *echoed, "##[error]" + no_verdict, "##[error]Process completed with exit code 3.")
+        self.gh.logs[2] = log(name, step, "##[error]" + no_verdict, "##[error]Process completed with exit code 3.")
+        with self.assertRaisesRegex(excuse.Refused, r"gave no verdict.*re-run it"):
+            self.judge()
+
+    def test_a_summary_echoing_the_rule_without_no_verdict_is_still_compared(self):
+        name, step = "rust workspaces", "Every planned workspace passed"
+        red = "rust workspaces: workspace: failure"
+        echoed = [
+            "##[group]Run needs_verdict() {",
+            'echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3',
+            "shell: /usr/bin/bash -e {0}",
+            "##[endgroup]",
+        ]
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name, step=step)
+        self.gh.logs[1] = log(name, step, *echoed, "##[error]" + red, "##[error]Process completed with exit code 1.")
+        self.gh.logs[2] = log(name, step, *echoed, "##[error]" + red, "##[error]Process completed with exit code 1.")
+        self.assertTrue(self.judge())
+
     def test_generated_shared_build_real_stale_error_is_still_compared(self):
         name = excuse.GENERATED_VERDICT_JOB
         step = "Read the generated files verdict of the shared build"

@@ -936,6 +936,19 @@ jobs:
           import os
           import sys
 
+          def exit_with_verdict(bad, what):
+              """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
+              failed = {n: r for n, r in bad.items() if (r or "").split(" ", 1)[0] in ("failure", "invalid")}
+              for n, r in (failed or bad).items():
+                  print(f"{n}: {r or 'none'}", file=sys.stderr)
+              if failed:
+                  print(f"::error::{what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  sys.exit(1)
+              named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
+              print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
+              sys.exit(3)
+
+
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
           required = inputs["web"] == "true" and needs["web-subarea-scope"]["outputs"].get("react_apps") == "true"
@@ -949,9 +962,7 @@ jobs:
               if needs[name]["result"] not in allowed
           }
           if bad:
-              for name, result in bad.items():
-                  print(f"{name}: {result}", file=sys.stderr)
-              sys.exit(1)
+              exit_with_verdict(bad, "react-apps-check")
           for name in required_jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
@@ -1234,6 +1245,19 @@ jobs:
           import os
           import sys
 
+          def exit_with_verdict(bad, what):
+              """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
+              failed = {n: r for n, r in bad.items() if (r or "").split(" ", 1)[0] in ("failure", "invalid")}
+              for n, r in (failed or bad).items():
+                  print(f"{n}: {r or 'none'}", file=sys.stderr)
+              if failed:
+                  print(f"::error::{what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  sys.exit(1)
+              named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
+              print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
+              sys.exit(3)
+
+
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
           for route in ("web", "macos", "agent_session_web"):
@@ -1245,8 +1269,7 @@ jobs:
           scope_required = inputs["web"] == "true" or inputs["macos"] == "true"
           if scope_required:
               if scope["result"] != "success":
-                  print(f"web-subarea-scope: {scope['result']}", file=sys.stderr)
-                  sys.exit(1)
+                  exit_with_verdict({"web-subarea-scope": scope["result"]}, "Web status")
               subareas = scope.get("outputs", {})
               for name in ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests"):
                   if subareas.get(name) not in {"true", "false"}:
@@ -1282,9 +1305,7 @@ jobs:
               elif result not in {"success", "skipped"}:
                   bad[job] = result
           if bad:
-              for job, result in bad.items():
-                  print(f"{job}: {result}", file=sys.stderr)
-              sys.exit(1)
+              exit_with_verdict(bad, "Web status")
           for job, is_required in sorted(required.items()):
               print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")
           PY

@@ -2303,6 +2303,19 @@ jobs:
           import os
           import sys
 
+          def exit_with_verdict(bad, what):
+              """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
+              failed = {n: r for n, r in bad.items() if (r or "").split(" ", 1)[0] in ("failure", "invalid")}
+              for n, r in (failed or bad).items():
+                  print(f"{n}: {r or 'none'}", file=sys.stderr)
+              if failed:
+                  print(f"::error::{what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  sys.exit(1)
+              named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
+              print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
+              sys.exit(3)
+
+
           inputs = json.loads(os.environ["GUARD_INPUTS"])
           needs = json.loads(os.environ["GUARD_NEEDS"])
           route_jobs = {
@@ -2348,9 +2361,7 @@ jobs:
                   bad[job] = result
 
           if bad:
-              for name, result in bad.items():
-                  print(f"{name}: {result}", file=sys.stderr)
-              sys.exit(1)
+              exit_with_verdict(bad, "Guard status")
 
           for route, job in sorted(route_jobs.items()):
               print(f"{route}={inputs.get(route)} {job}={needs[job]['result']}")

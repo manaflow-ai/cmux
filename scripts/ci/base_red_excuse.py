@@ -612,6 +612,13 @@ GENERATED_VERDICT_JOB = "cmux-next generated files (shared build)"
 GENERATED_NO_VERDICT = re.compile(
     r"^##\[error\]\s*(?:swift-test|daemon-test) \(cancelled\) gave no generated files verdict:"
 )
+# A summary gate whose dependencies judged nothing (cancelled, abandoned, skipped though required, an empty result)
+# says so in one annotation that starts "no verdict: " (scripts/ci/needs_verdict.py, NO_VERDICT_PREFIX). It ends red
+# so it never reads as a pass, but it is never the pull request's own red and never a base red: it gets re-run.
+# 2026-11-09: #39791's `rust workspaces` summary read `plan: abandoned` as a red, compared it with a green base and
+# refused the merge as the pull request's own. Only the live annotation counts (test_reds.lines_of drops the echoed
+# script, which spells the same words).
+SUMMARY_NO_VERDICT = re.compile(r"^##\[error\]\s*no verdict: ")
 # A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
@@ -889,6 +896,11 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
 def no_verdict(log: str) -> str | None:
     """The line where a compile check says it gave no verdict, if it does."""
     return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
+
+
+def summary_no_verdict(log: str) -> str | None:
+    """The line where a summary gate says nothing it summarizes was judged (SUMMARY_NO_VERDICT), if it does."""
+    return next((text for text in test_reds.lines_of(log) if SUMMARY_NO_VERDICT.match(text)), None)
 
 
 def generated_no_verdict(log: str) -> str | None:
@@ -3254,6 +3266,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
             raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                           "re-run its prerequisite and this dependent job together")
+        if (said := summary_no_verdict(head_log)) is not None:
+            raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                          "neither a pass nor this PR's own red; re-run it")
         if name in NO_VERDICT_JOBS and (said := no_verdict(head_log)) is not None:
             proof = compile_pass_at(repo, sha, github)
             if proof is None:
