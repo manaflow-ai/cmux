@@ -73,6 +73,37 @@ import Testing
         rig.page.computer.close()
     }
 
+    /// A background provision that failed says so, with the app's own sentence and not the Cloud service's
+    /// words, and Set Up Computer tries again; asking again takes the failure away at once.
+    @Test func aFailedBackgroundProvisionSaysSoAndOffersARetry() async {
+        let rig = Rig(status: .init(used: false, computer: nil, provisionError: "Freestyle did not make the VM (500)"))
+        var asks = 0
+        rig.page.onProvision = { asks += 1 }
+        rig.page.computer.open()
+        await until { rig.feed.statuses >= 1 }
+        await settle()
+        #expect(rig.page.shownGate == .notSetUp)
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisionFailed("mario"))
+        #expect(!rig.page.gateButton.isHidden)
+
+        rig.feed.status = .init(used: false, computer: nil, provisioning: true)
+        rig.page.provision()
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisioning("mario"))
+        await until { asks == 1 }
+        await until { rig.feed.statuses >= 2 }
+        await settle()
+        #expect(!rig.page.computer.provisionFailed)
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisioning("mario"))
+
+        // A status with no failure and nothing being made: the offer again.
+        rig.feed.status = .init(used: false, computer: nil)
+        rig.page.computer.open()
+        await until { rig.feed.statuses >= 3 }
+        await settle()
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisionNote("mario"))
+        rig.page.computer.close()
+    }
+
     @Test func thePopupShowsOnlyWhileTheChiefActsDuringATurn() async {
         let feed = Feed(status: .init(used: true, computer: ("vm", "running"), acting: true))
         let popup = Self.popup(feed)

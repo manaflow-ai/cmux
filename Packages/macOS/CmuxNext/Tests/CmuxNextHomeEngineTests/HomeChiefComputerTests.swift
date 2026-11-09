@@ -42,6 +42,9 @@ import Testing
         // The Cloud service's plan answer and a computer being made (Set Up Computer).
         let making = Data(#"{"ok":true,"value":{"used":false,"entitled":true,"provisioning":true,"computer":null}}"#.utf8)
         #expect(HomeChiefComputer.Status(json: making) == .init(used: false, computer: nil, entitled: true, provisioning: true))
+        // A background provision that failed.
+        let failed = Data(#"{"ok":true,"value":{"used":false,"entitled":true,"provision_error":"the desktop did not install","computer":null}}"#.utf8)
+        #expect(HomeChiefComputer.Status(json: failed) == .init(used: false, computer: nil, entitled: true, provisionError: "the desktop did not install"))
     }
 
     @Test func aRunningComputerRefreshesOnlyWhileTheCardIsOpen() async throws {

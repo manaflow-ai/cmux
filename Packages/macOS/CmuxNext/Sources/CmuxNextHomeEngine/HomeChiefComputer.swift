@@ -29,18 +29,23 @@ public struct HomeChiefComputer: Equatable, Sendable {
         public var entitled: Bool?
         /// A computer the owner asked for is being made (Set Up Computer).
         public var provisioning: Bool
+        /// Why the last computer the owner asked for was not made, in the Cloud service's own words. They
+        /// can name its vendors, so the tab shows its own sentence, never these. Nil when none failed.
+        public var provisionError: String?
 
-        public init(used: Bool, computer: (id: String, state: String)?, acting: Bool = false, entitled: Bool? = nil, provisioning: Bool = false) {
+        public init(used: Bool, computer: (id: String, state: String)?, acting: Bool = false, entitled: Bool? = nil, provisioning: Bool = false,
+                    provisionError: String? = nil) {
             self.used = used
             self.computer = computer
             self.acting = acting
             self.entitled = entitled
             self.provisioning = provisioning
+            self.provisionError = provisionError
         }
 
         public static func == (a: Status, b: Status) -> Bool {
             a.used == b.used && a.acting == b.acting && a.computer?.id == b.computer?.id && a.computer?.state == b.computer?.state
-                && a.entitled == b.entitled && a.provisioning == b.provisioning
+                && a.entitled == b.entitled && a.provisioning == b.provisioning && a.provisionError == b.provisionError
         }
 
         /// The route's JSON (`{ok, value: {used, computer: {id, state} | null}}`); nil for anything else.
@@ -50,7 +55,8 @@ public struct HomeChiefComputer: Equatable, Sendable {
             let computer = value["computer"] as? [String: Any]
             let id = computer?["id"] as? String
             self.init(used: used, computer: id.map { ($0, computer?["state"] as? String ?? "unknown") }, acting: value["acting"] as? Bool ?? false,
-                      entitled: value["entitled"] as? Bool, provisioning: value["provisioning"] as? Bool ?? false)
+                      entitled: value["entitled"] as? Bool, provisioning: value["provisioning"] as? Bool ?? false,
+                      provisionError: value["provision_error"] as? String)
         }
     }
 

@@ -76,6 +76,8 @@ public final class HomeChiefComputerSection: NSStackView {
     public private(set) var entitled = false
     /// The last status said a computer the owner asked for is being made.
     public private(set) var provisioning = false
+    /// The last status said the computer the owner asked for was not made.
+    public private(set) var provisionFailed = false
     /// Frames shown since the card opened (tests).
     private(set) var frames = 0
     public private(set) var isOpen = false
@@ -151,6 +153,9 @@ public final class HomeChiefComputerSection: NSStackView {
         read(source, timer, sinceStatus: nil)
     }
 
+    /// The owner asks again: the last failure no longer stands, whatever the next status read says.
+    func forgetProvisionFailure() { provisionFailed = false }
+
     /// The card closed: the screen stops refreshing, so nothing reads the computer.
     public func close() {
         isOpen = false
@@ -200,6 +205,7 @@ public final class HomeChiefComputerSection: NSStackView {
                 if let status {
                     self.entitled = status.entitled ?? self.entitled
                     self.provisioning = status.provisioning
+                    self.provisionFailed = status.provisionError != nil
                 }
                 self.show(self.section(for: status, source))
                 since = .zero

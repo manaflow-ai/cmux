@@ -20,7 +20,7 @@ extension HomeChiefProfileView {
             // The person gives the Chief its computer; it takes a few minutes, and the status says when it is there.
             let making = provisionAsk == .asking || computer.provisioning
             gateLabel.stringValue = making ? HomeEngineStrings.computerProvisioning(name())
-                : provisionAsk == .failed ? HomeEngineStrings.computerProvisionFailed(name()) : HomeEngineStrings.computerProvisionNote(name())
+                : provisionAsk == .failed || computer.provisionFailed ? HomeEngineStrings.computerProvisionFailed(name()) : HomeEngineStrings.computerProvisionNote(name())
             gateButton.title = HomeEngineStrings.computerProvision
             gateButton.isHidden = making
         case .notSetUp:
@@ -71,6 +71,7 @@ extension HomeChiefProfileView {
     func provision() {
         guard let onProvision, provisionAsk != .asking else { return }
         provisionAsk = .asking
+        computer.forgetProvisionFailure()
         refresh()
         // task-owner: one Set Up Computer ask; the Cloud service makes the computer in the background
         Task { [weak self] in
