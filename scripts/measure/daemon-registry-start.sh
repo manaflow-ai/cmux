@@ -3,7 +3,7 @@
 # reducer version bump (2026-11-09: a 59 GB registry took 26 min to restore after a bump).
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/daemon-registry-start.sh \
 #     --ref SHA --os macos [--arg=size_gb=10] [--arg=bump=1] [--arg=seal=1] [--arg=output_gb=0] \
-#     [--arg=rounds=1] [--arg=warm_exec=0] --artifact .build/daemon-registry-start/report.json --timeout 7200
+#     [--arg=rounds=1] --artifact .build/daemon-registry-start/report.json --timeout 7200
 # It builds release `cmux-tui` and cmux-tui-core's `synth_registry` example, writes a registry of
 # about size_gb (96% personal.session.put rows of ~6 KiB, agent hook events, legacy output, sealed
 # segments: cmux_tui_core::synth_registry), then starts `cmux-tui --headless` on it with its own
@@ -30,7 +30,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 session=drs
-size_gb=2 bump=1 seal=1 output_gb=0 rounds=1 ready_timeout=3600 registry= pepper= warm_exec=0
+size_gb=2 bump=1 seal=1 output_gb=0 rounds=1 ready_timeout=3600 registry= pepper=
 for kv in "$@"; do
   case "$kv" in
     size_gb=*) size_gb="${kv#*=}" ;;
@@ -39,7 +39,6 @@ for kv in "$@"; do
     output_gb=*) output_gb="${kv#*=}" ;;
     rounds=*) rounds="${kv#*=}" ;;
     ready_timeout=*) ready_timeout="${kv#*=}" ;;
-    warm_exec=*) warm_exec="${kv#*=}" ;;
     registry=*) registry="${kv#*=}" ;;
     pepper=*) pepper="${kv#*=}" ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
@@ -168,5 +167,4 @@ fi
 python3 "$root/scripts/measure/daemon-registry-start.py" \
   --bin "$bin" --state "$scratch/state" --home "$scratch/home" --session "$session" \
   --socket "$socket_dir/mux.sock" --generate "$out/generate.json" \
-  --rounds "$rounds" --bump "$bump" --ready-timeout "$ready_timeout" --warm-exec "$warm_exec" \
-  --report "$out/report.json"
+  --rounds "$rounds" --bump "$bump" --ready-timeout "$ready_timeout" --report "$out/report.json"

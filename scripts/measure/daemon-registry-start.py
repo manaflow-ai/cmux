@@ -164,13 +164,13 @@ def main():
     parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument("--bump", type=int, default=1)
     parser.add_argument("--ready-timeout", type=float, default=3600)
-    parser.add_argument("--warm-exec", type=int, default=0)
     args = parser.parse_args()
     generated = json.loads(Path(args.generate).read_text())
     # The first exec of a binary just linked pays for macOS's check of it (no registry is
-    # opened). warm_exec=1 pays it before the timed starts, with `--version`, and reports it.
+    # opened). CMUX_DRS_WARM_EXEC=1 pays it before the timed starts, with `--version`, and
+    # reports it.
     first_exec_ms = None
-    if args.warm_exec:
+    if os.environ.get("CMUX_DRS_WARM_EXEC") == "1":
         exec_started = time.monotonic()
         subprocess.run([args.bin, "--version"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, timeout=600, check=False)
