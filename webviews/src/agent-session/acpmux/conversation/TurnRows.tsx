@@ -668,6 +668,8 @@ function TurnFailure({
       "subscription-login",
       "auth",
       "needs-credits",
+      "no-credit",
+      "cloud-auth-expired",
     ].includes(kind);
   // The cmux model router refused the turn: no paid plan and no credits, or credits that do not cover
   // the call (accessOffer.ts; Leo 2026-10-26: "we offer them to add credits or add their own api key").
