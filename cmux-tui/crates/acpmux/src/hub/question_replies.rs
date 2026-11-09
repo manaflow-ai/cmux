@@ -150,3 +150,7 @@ impl Hub {
         self.lane_report_to_parent(p, from, report).await
     }
 }
+
+#[cfg(test)]
+#[path = "question_replies_tests.rs"]
+mod question_replies_tests;
