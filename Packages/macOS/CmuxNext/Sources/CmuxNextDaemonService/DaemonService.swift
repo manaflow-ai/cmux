@@ -45,6 +45,8 @@ public final class DaemonService {
     #endif
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
     public let recovery = DaemonRecovery()
+    /// The person's reads of this daemon's tabs, sent until answered (DaemonService+TabReads).
+    public let reads = TabReads()
     public private(set) var connection: DaemonConnection?
     /// The app's `client-hello` proof, as the control connection sends it: a side connection that
     /// carries only the person's own actions proves itself with it (`AgentPaneGitLink.userMutate`).

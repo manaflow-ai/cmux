@@ -21,8 +21,9 @@ mod leader_exit;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
 pub(crate) use command::{
-    REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
-    host_environment, pinned_preview_format, preview_format, resolved_profile_env,
+    REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, explicit_env,
+    harness_command, harness_command_ready, host_environment, pinned_preview_format,
+    preview_format, resolved_profile_env,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -716,7 +717,7 @@ impl Spawned {
         command_line: Option<(String, Vec<String>)>,
         session: Option<(&str, &str)>,
     ) -> Result<Self> {
-        let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
+        let mut cmd = harness_command_ready(name, profile, cwd, command_line, session).await?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::hub::LaunchServers::read(
             &Launch::of(&cmd, cwd),
