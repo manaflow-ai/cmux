@@ -2449,6 +2449,10 @@ export class AcpmuxDirectClient {
   /// Counts the attaches of the copy on screen: one that a newer one (a reconnect's) took over
   /// leaves the copy to it when it fails.
   private copyAttaches = 0;
+  /// The chat whose attach failed: acpmux subscribed this connection before it read the page, so
+  /// records of it can still come live on a socket that stays open. None of them is read until the
+  /// next attach of it asks again; every read of the chat goes through that attach (`apply`).
+  private unreadAttach?: string;
   /// The chat whose rows the last snapshot drew (the tab's chat while it is missing), those rows,
   /// and the machine and session (`createdAt`) they were proven of.
   private drawn?: ShownRows;
@@ -3214,18 +3218,22 @@ export class AcpmuxDirectClient {
             const kept = await this.keepPeerCopy(sessionId, generation, error);
             // The chat could not be read: a tail drawn from the host must not stay on screen as if
             // this page had read the chat, here as in `select` — and the pane has to be told, or it
-            // keeps drawing the snapshot that carried those rows.
-            if (!kept && !superseded && keptThrough > 0) {
-              forgetTail(sessionId);
-              this.peerCopy = undefined;
-              this.copyLive = undefined;
-              this.events = [];
-              this.queue = [];
-              // Those rows are off screen again, so the frame the host shows is the failure, not a
-              // chat: it fades in as any first draw of a chat does.
-              this.drewKeptTail = false;
-              this.rebuild();
-              this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+            // keeps drawing the snapshot that carried those rows. A cold open drew none, but the
+            // records that came live before its attach failed are not read either (`dropUnread`).
+            const owns = !kept && !superseded;
+            if (owns && (keptThrough > 0 || (resumeAfter === 0 && this.lastSeq > 0)))
+              this.dropUnread(sessionId, keptThrough > 0);
+            else if (owns && resumeAfter > 0) {
+              // A reconnect keeps the rows it read before, but not the records the failed attach
+              // streamed past them: the next one resumes from what was read, so a gap the chat ran
+              // on past while the socket was down is still read (`fetchMissedEvents`).
+              if (this.lastSeq > resumeAfter) {
+                this.events = this.events.filter((event) => event.seq <= resumeAfter);
+                this.rebuildKeepingLiveState();
+              }
+              // The open closes the socket next and reconnects: the pane is not connected meanwhile,
+              // whatever else drew while its attach was out.
+              this.emit("disconnected");
             }
             if (!kept) throw error;
           }
@@ -3705,10 +3713,33 @@ export class AcpmuxDirectClient {
       if (mine !== this.copyAttaches) return;
       if (await this.keepPeerCopy(sessionId, generation, error)) return;
       if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-        this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+        this.dropUnread(sessionId, false);
     } finally {
       this.releaseSnapshots(hold);
     }
+  }
+
+  /// The chat's attach failed: nothing on screen was read from it, so nothing stays. A tail drawn
+  /// from the host or the Mac's copy goes (`drewTail`), and so do the live records the attach
+  /// streamed before it failed (`eventStream`): `apply` took them and moved `lastSeq` past them,
+  /// and the next attach would resume after them, as if the history before them had been read.
+  /// The cursors go with them (`rebuild`), so that attach reads the chat from nothing; the pane
+  /// says it could not. A cold attach drew no tail, so the host's (another tab's) is kept.
+  private dropUnread(sessionId: string, drewTail: boolean): void {
+    if (drewTail) forgetTail(sessionId);
+    this.peerCopy = undefined;
+    this.copyLive = undefined;
+    this.events = [];
+    this.queue = [];
+    this.commands = [];
+    this.commandsApplied = false;
+    knownCommands.delete(sessionId);
+    // Those rows are off screen again, so the frame the host shows is the failure, not a chat: it
+    // fades in as any first draw of a chat does.
+    this.drewKeptTail = false;
+    this.unreadAttach = sessionId;
+    this.rebuild();
+    this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
   }
 
   /// After a copy was marked offline: its row said the machine was back while the copy's attach
@@ -3779,7 +3810,9 @@ export class AcpmuxDirectClient {
           // Mac's copy is drawn if it has one.
           const mine = ++this.copyAttaches;
           void this.attach(sessionId, generation, 0).catch(async (error: unknown) => {
-            if (mine === this.copyAttaches) await this.keepPeerCopy(sessionId, generation, error);
+            if (mine !== this.copyAttaches || (await this.keepPeerCopy(sessionId, generation, error))) return;
+            if (generation === this.selectionGeneration && this.selectedSessionId === sessionId && this.lastSeq > 0)
+              this.dropUnread(sessionId, false);
           });
         }
         return;
@@ -5354,6 +5387,7 @@ export class AcpmuxDirectClient {
   /// `reads`, the reads the chat draws with (`startAttachReads`) in the same round trip.
   private sendAttach(sessionId: string, generation: number, reads: boolean): SentAttach {
     const visible = pageShown();
+    this.unreadAttach = undefined;
     const attaching = this.typed("_acpmux/attach", {
       sessionId,
       // The visible page must not wait for the daemon's restart-time full-log restoration. The
@@ -5514,16 +5548,15 @@ export class AcpmuxDirectClient {
     try {
       return await this.attachWatched(watch, sessionId, generation, keptThrough, tries, early);
     } catch (error) {
+      const current =
+        token === this.copyAttaches && generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+      // acpmux may have subscribed the socket whatever failed, its reply or a retry that ran out:
+      // nothing comes live of the chat until it is attached again, streamed before or not.
+      if (current) this.unreadAttach = sessionId;
       // Failed after the row named another session or machine: what came live meanwhile may be
       // that one's, so nothing drawn stays as this chat's. The failure's handling reads the Mac's
       // copy of the session listed now (`keepPeerCopy`), or fails the open.
-      if (
-        token === this.copyAttaches &&
-        generation === this.selectionGeneration &&
-        this.selectedSessionId === sessionId &&
-        strayedFrom(watch)
-      )
-        this.resetSessionState("attach strayed");
+      if (current && strayedFrom(watch)) this.resetSessionState("attach strayed");
       throw error;
     } finally {
       if (this.attachWatch === watch) this.attachWatch = undefined;
@@ -6009,6 +6042,8 @@ export class AcpmuxDirectClient {
 
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
+    // Late records of an attach that failed: the pane says it could not read the chat.
+    if (event.sessionId === this.unreadAttach) return;
     // Came before the open took the attach asked with the list: applied when it does (`takeEarly`).
     const early = this.earlyAttach;
     if (early && early.sessionId === event.sessionId) {
@@ -10332,16 +10367,13 @@ export class AcpmuxDirectClient {
       if (await this.keepPeerCopy(sessionId, generation, error)) return sessionId;
       // The chat could not be read: a tail drawn from this page's own memory must not stay on
       // screen as if it were the chat, so the pane drops it and says it could not read the chat.
-      if (keptThrough > 0 && generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
-        forgetTail(sessionId);
-        this.peerCopy = undefined;
-        this.copyLive = undefined;
-        this.events = [];
-        this.queue = [];
-        this.drewKeptTail = false;
-        this.rebuild();
-        this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
-      }
+      // With no tail drawn, the records that came live before the attach failed go the same way.
+      if (
+        (keptThrough > 0 || this.lastSeq > 0) &&
+        generation === this.selectionGeneration &&
+        this.selectedSessionId === sessionId
+      )
+        this.dropUnread(sessionId, keptThrough > 0);
       throw error;
     } finally {
       this.releaseSnapshots(hold);
