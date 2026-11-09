@@ -591,6 +591,41 @@ fn a_three_minute_pause_during_a_check_holds_its_flip() {
     assert!(gate.run(at(182).1, true, |_| ()).is_err(), "the flip ran under the hold");
 }
 
+/// Review F2 of #39049: a pause the watch found after the previous wait's
+/// last look and before the next step began is still held.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pause_found_between_two_steps_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = watch_at_b0();
+    // The wait's last look at 60 s found nothing.
+    watch.looked(at(60).0, false);
+    assert!(!role::hold_if_paused(&paths, &watch, B0, at(60)));
+    // Between the wait and the check: a 3-minute pause, which the watch found.
+    watch.looked(at(250).0, true);
+    // The check starts after that and returns early; its look must still hold.
+    let clock = || at(255);
+    role::check_step(&paths, &watch, &clock, |_| role::Outcome::Current("abc".to_owned()));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(255).1), Some(role::CONNECT_HOLD));
+}
+
+/// Review F1 of #39049: where a restore stops the boot clock, the pause watch
+/// stays fresh and the supervisor counts the restore only when its clock-set
+/// dispatch runs. A flip that looks before that dispatch must still be held.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restore_the_supervisor_has_not_dispatched_holds_the_flip() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = watch_at_b0();
+    // The watch looked a moment ago and recorded nothing: no found() yet.
+    watch.looked(at(5).0, false);
+    // realtime - boottime moved by an hour (the restore); the flip's look, as
+    // check_inner makes it at a79660bd, reads only the watch.
+    assert!(role::hold_if_paused(&paths, &watch, at(1).0, at(7)), "the restore was let through");
+}
+
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
 /// sessions are attached, looking again every minute, and stops waiting when
 /// the role stops.
