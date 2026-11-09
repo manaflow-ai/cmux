@@ -62,6 +62,17 @@ export function navItemContentLocale(item: NavLink, locale: string): Locale {
   return item.contentLocales[0];
 }
 
+/**
+ * The language of a docs page's body when the reader's locale is `locale`. A page listed only
+ * for some locales (the English-only cmux-next and Base pages) serves its own text under any
+ * other locale that negotiation picks, so its body is in its first listed locale.
+ */
+export function docsContentLang(path: string, locale: string): Locale {
+  const item = flatNavItems(navItems).find((each) => each.href === path);
+  if (item?.locales && !item.locales.includes(locale as Locale)) return item.locales[0]!;
+  return locale as Locale;
+}
+
 export function hasNavItemContent(item: NavLink, locale: string): boolean {
   return navItemContentLocale(item, locale) === locale;
 }

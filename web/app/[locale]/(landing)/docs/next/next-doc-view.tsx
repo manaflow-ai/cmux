@@ -154,12 +154,13 @@ function SettingsTables() {
  * A cmux-next page. The pages are English only, but a reader whose NEXT_LOCALE cookie or
  * Accept-Language picks another locale is sent to /<locale>/docs/next/... by locale negotiation,
  * and that route used to 404. A redirect back to the unprefixed URL would only be negotiated to
- * the locale again, so every locale serves the English page, marked `lang="en"`, with the English
- * URL as canonical (`nextDocMetadata`).
+ * the locale again, so every locale serves the English page, with the English URL as canonical
+ * (`nextDocMetadata`). The docs layout marks the body `lang="en"` on its `.docs-content`
+ * (`docsContentLang`): the blocks below stay its direct children, which globals.css styles.
  */
 export function NextDocView({ page }: { page: NextDocPage }) {
   return (
-    <div lang="en">
+    <>
       <DocsSchema title={page.title} path={nextDocChannelPath(page.slug)} />
       <DocsHeading level={1} id="title">{page.title}</DocsHeading>
       {page.slug === "getting-started" ? null : <p><em>{page.description}</em></p>}
@@ -176,6 +177,6 @@ export function NextDocView({ page }: { page: NextDocPage }) {
       {page.generated === "settings" ? <SettingsTables /> : null}
       {page.generated === "palette" ? <PaletteTables shortcutsOnly={false} /> : null}
       {page.generated === "shortcuts" ? <PaletteTables shortcutsOnly /> : null}
-    </div>
+    </>
   );
 }
