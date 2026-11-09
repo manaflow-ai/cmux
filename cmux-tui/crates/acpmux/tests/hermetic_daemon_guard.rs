@@ -56,11 +56,6 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         ("linux_sandbox_keeper.rs", "Command::new(daemon_env::bin())"),
         ("linux_sandbox_init.rs", "Command::new(daemon_env::bin())"),
         ("remote_sandbox_linux.rs", "PathBuf::from(daemon_env::bin())"),
-        // The background-task runner the in-process hub starts; it inherits this process's
-        // hermetic environment.
-        ("hub_integration/bg_tasks.rs", "crate::daemon_env::bin().into()"),
-        // The same runner for a subagent's MCP bg_start; `lane_reports.rs` sets `HERMETIC`.
-        ("lane_reports/subagent_mcp.rs", "hub.set_bg_runner(daemon_env::bin().into()"),
         // The binary `Daemon::start` runs after `apply`, and the copy of it a test replaces.
         ("durable_agents.rs", "let exe = daemon_env::bin().to_path_buf();"),
         ("durable_agents/bg_replaced_binary.rs", "std::fs::copy(daemon_env::bin(), &copy)"),

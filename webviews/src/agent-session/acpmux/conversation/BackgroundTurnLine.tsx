@@ -1,6 +1,8 @@
 // The one muted line of a turn the agent ran on its own (backgroundTurns.ts): "Background task
 // finished", "Scheduled check" or "Background update". While the turn runs it leads with the working
-// spinner; once it ended quiet it leads with the clock. A click opens the turn's rows under it, which
+// spinner and its words shimmer as a running tool row's do (ShimmerText.tsx RowShimmer; Leo,
+// 2026-11-09: "this scheduled check thing isn't highlighted all the way through like other tool
+// calls are"); once it ended quiet it leads with the clock. A click opens the turn's rows under it, which
 // the transcript draws as its own rows (turns.ts), so the open state is the transcript's fold set,
 // kept per chat like a "Worked for" fold, and survives virtualization. One with no row of its own
 // yet has nothing to open, so it has no chevron and is no button. A run of
@@ -13,6 +15,7 @@ import type { AcpmuxRow } from "../model";
 import { backgroundRunLabel } from "./backgroundRuns";
 import { backgroundTurnLabel, foldsBackground } from "./backgroundTurns";
 import { Clock, Spinner } from "./icons";
+import { RowShimmer } from "./ShimmerText";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { SubagentReportLine } from "../subagents/SubagentReportLine";
 import { isSubagentReport, useReportRowLook } from "../subagents/subagentReportLineModel";
@@ -59,8 +62,9 @@ export function BackgroundTurnLine({
   return (
     <TranscriptActivityRow
       icon={turn.running ? <Spinner /> : <Clock />}
-      before={label}
-      className="cv-background-turn"
+      before={<span className="cv-background-turn__label">{label}</span>}
+      after={turn.running ? <RowShimmer>{label}</RowShimmer> : undefined}
+      className={`cv-background-turn${turn.running ? " is-live" : ""}`}
       ariaLabel={label}
       expanded={opens && expanded}
       chevron={opens}

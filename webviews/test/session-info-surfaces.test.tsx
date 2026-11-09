@@ -306,13 +306,12 @@ test("the side panel's covering follows the pane's width as it crosses the query
   expect(listeners.size).toBe(0);
 });
 
-// A wide pane pushes the chat left by the whole panel, so the chat is centered beside it (Lucas,
-// 2026-11-06: "we need to make sure that the chat is centered when the session info is open"); it
-// floated in the free gutter before. A handoff review's wider form still floats (Leo, 2026-10-24: "it
-// was never supposed to be a sidebar").
-test("in a wide pane it pushes the chat, centered beside the panel", async () => {
+// A wide pane floats the panel in the free gutter and moves nothing (Leo, 2026-11-09: "if it has enough
+// space, then don't push the layout. Don't make it affect the layout"). A handoff review's wider form
+// floats too (Leo, 2026-10-24: "it was never supposed to be a sidebar").
+test("in a wide pane it floats in the gutter and does not move the chat", async () => {
   const container = installDom();
-  // A 1600px pane: the pinned column fits beside the whole panel.
+  // A 1600px pane: its 400px gutter holds the panel and its margins.
   Object.defineProperty(dom!.window.HTMLElement.prototype, "clientWidth", {
     configurable: true,
     get(this: HTMLElement) {
@@ -324,7 +323,11 @@ test("in a wide pane it pushes the chat, centered beside the panel", async () =>
     root = createRoot(container);
     root.render(<Pane initiallyCovered={false} />);
   });
-  expect(panel(container)?.getAttribute("data-placement")).toBe("push");
+  expect(panel(container)?.getAttribute("data-placement")).toBe("overlay");
+  expect(panel(container)?.hasAttribute("data-over-chat")).toBe(false);
+  const shell = container.querySelector<HTMLElement>(".acpmux-shell")!;
+  expect(shell.dataset.sessionInfoChatPlacement).toBe("overlay");
+  expect(shell.style.getPropertyValue("--acpmux-session-info-column")).toBe("");
 });
 
 // Leo, 2026-10-27: "why am i sent to a whole new thing instead of a tab opening on the right?" The
@@ -523,10 +526,10 @@ for (const width of [370, 528, 740, 1100, 1200, 1420]) {
       expect(parseFloat(room!.style.width) + parseFloat(room!.style.marginRight)).toBe(taken);
       expect(posted.at(-1)).toMatchObject({ open: true, width: expected, side: 0 });
       // The column keeps its whole-pane width, pinned (sessionInfo.css): it fits in the chat with its two
-      // page edges and only moves left. Where it fits beside the whole panel, the page keeps the whole
-      // room, so the chat is centered beside the native panel too (Lucas, 2026-11-06).
+      // page edges and only moves left. Where the gutter lacks only a little, the page keeps only that
+      // (Leo, 2026-11-09: "You only push when you don't have any space left").
       expect(width - taken).toBeGreaterThanOrEqual(transcriptColumn(width).width + 2 * transcriptColumn(0).inset);
-      if (width === 1420) expect(taken).toBe(expected + FLOAT_MARGIN);
+      if (width === 1420) expect(taken).toBeLessThan(expected + FLOAT_MARGIN);
     } finally {
       setNativeSessionInfoHost(false);
       setNativeHost(undefined);

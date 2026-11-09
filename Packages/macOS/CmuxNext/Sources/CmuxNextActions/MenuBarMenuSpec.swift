@@ -17,6 +17,8 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         case info(String, symbol: String?, avatar: Bool)
         /// A registry row: `title` nil keeps the action's own title.
         case action(ActionID, title: String?, symbol: String)
+        /// A line that opens Settings at the row `key` names (`openSettings setting:`).
+        case setting(String, key: String, symbol: String)
         /// A divider between two sections.
         case separator
         /// A section's title (Unread, Running), a native section header.
@@ -70,6 +72,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         for row in rows {
             switch row {
             case .action(let id, _, _) where !isBound(id): continue
+            case .setting where !isBound("openSettings"): continue
             case .computerUse(let app, let bundleID, let items):
                 out.append(.computerUse(app: app, bundleID: bundleID, items: bound(items, isBound: isBound)))
             case .separator where out.last == nil || out.last == .separator: continue
@@ -95,6 +98,13 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
                                    symbol: "person.crop.circle"))
         }
         var agents: [Item] = []
+        if let awake = state.keepingAwake {
+            // A click opens the setting behind the hold (user 2026-11-09, on the defaults: "nor sure").
+            let title = Self.text("menu.menuBar.keepingAwake", "Keeping Mac awake")
+            agents.append(awake.setting.map { .setting(title, key: $0, symbol: "cup.and.saucer") }
+                ?? .info(title, symbol: "cup.and.saucer", avatar: false))
+            if awake.commands > 0 { agents.append(.info(Self.commandsRunning(awake.commands), symbol: "terminal", avatar: false)) }
+        }
         if state.agentsWorking > 0 {
             agents.append(.info(Self.agentsWorking(state.agentsWorking), symbol: "circle.dotted", avatar: false))
         }
@@ -168,6 +178,10 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
 
     static func agentsWorking(_ count: Int) -> String {
         String(localized: "menu.menuBar.agentsWorking", defaultValue: "Agents working: \(count)", table: "ProfileActions", bundle: .module)
+    }
+
+    static func commandsRunning(_ count: Int) -> String {
+        String(localized: "menu.menuBar.commandsRunning", defaultValue: "Commands running: \(count)", table: "ProfileActions", bundle: .module)
     }
 
     static func needsInput(_ count: Int) -> String {

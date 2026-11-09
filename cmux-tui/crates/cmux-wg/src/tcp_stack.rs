@@ -212,6 +212,14 @@ impl TcpStack {
         self.iface.poll(now, &mut self.device, &mut self.sockets);
     }
 
+    /// The tunnel moved to another route: every connection with data in
+    /// flight resends it at once, with its RTO back at the RTT estimate.
+    pub(crate) fn path_changed(&mut self) {
+        for conn in &self.conns {
+            self.sockets.get_mut::<tcp::Socket>(conn.handle).path_changed();
+        }
+    }
+
     /// When smoltcp next wants a poll, or `None` to wait for an event.
     pub(crate) fn poll_delay(&mut self) -> Option<Duration> {
         let now = self.now();
@@ -299,6 +307,9 @@ impl TcpStack {
         socket.set_tail_loss_probe(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_PROBE_ACK_DELAY.as_micros()).unwrap_or(u64::MAX),
         )));
+        // Under repeated loss, resend only the holes the peer's SACK blocks
+        // show, several per round trip, with one window cut per episode.
+        socket.set_sack_recovery(true);
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(timeout.as_micros()).unwrap_or(u64::MAX),
         )));

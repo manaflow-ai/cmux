@@ -28,6 +28,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 #[cfg(windows)]
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
+pub(crate) mod dual_requests;
 mod ws_peek;
 mod ws_shutdown;
 pub(crate) use ws_shutdown::DRAIN_BUDGET as WS_DRAIN_BUDGET;
@@ -243,6 +244,10 @@ pub struct Conn {
     /// A WebSocket's compression, which its `initialize` turns on (`frame_compress.rs`); None
     /// on a transport whose writer does not compress.
     wire: Option<Arc<crate::frame_compress::Wire>>,
+    /// Who it is to the book of requests sent on two paths (`dual_requests.rs`): only a peer
+    /// daemon's own link over the WebSocket listener (its peer token proven at the upgrade) has
+    /// one. Every other connection's `dualId` is ignored.
+    pub(crate) dual_principal: Option<&'static str>,
 }
 
 /// The only authority a trigger connection carries after platform admission.
@@ -1541,6 +1546,10 @@ async fn serve_connection_from(
     let client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
     let (out, gate) = durable_gate::install(hub.store.durability(), out);
+    // The listener's own peer link: the only transport with a writer that compresses (`wire`)
+    // and a peer token checked at its upgrade; not a paired machine, nor an in-process carrier.
+    let dual_principal = (wire.is_some() && auth == ConnAuth::PeerToken && device.is_none())
+        .then_some(dual_requests::PEER_LINK);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
         origin,
@@ -1591,6 +1600,7 @@ async fn serve_connection_from(
         chat_windows: Default::default(),
         cancel_refusals: Default::default(),
         wire,
+        dual_principal,
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1682,10 +1692,25 @@ async fn serve_connection_from(
                 {
                     wire.enable();
                 }
+                // A peer link sent this request on two paths (`dual_requests.rs`): in order, so
+                // the copy read first runs it and the other answers with its answer.
+                let dual = dual_requests::key_for(conn.dual_principal, &m, params.as_ref())
+                    .and_then(dual_requests::admit);
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
                     let _slot = slot;
+                    let first = match dual_requests::before_run(dual).await {
+                        Ok(first) => first,
+                        Err(answer) => {
+                            // A cancel's part on this connection is its own (`dual_requests.rs`).
+                            if m == method::SESSION_CANCEL {
+                                requests::cancel_on_connection(&hub, &conn, params.as_ref());
+                            }
+                            conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                            return;
+                        }
+                    };
                     let route = || chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
                     let (result, sent) = list_reply::scope(id.clone(), &m, route).await;
                     // Its answer went whole into an open queue: one sent as its too-large error, or
@@ -1693,15 +1718,15 @@ async fn serve_connection_from(
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
                     // A shared session list, sent already as the bytes it was serialized to.
                     if !(sent.is_some() && result.is_ok()) {
-                        let reply = match result {
-                            Ok(v) => Message::ok(id, v),
-                            Err(mut e) => {
-                                // What kind of failure, and what to do (`recovery.rs`).
-                                crate::recovery::annotate(&mut e, None);
-                                Message::err(id, e)
-                            }
-                        };
-                        conn.send_replying(&reply, Some(&m));
+                        let answer = result.map_err(|mut e| {
+                            // What kind of failure, and what to do (`recovery.rs`).
+                            crate::recovery::annotate(&mut e, None);
+                            e
+                        });
+                        dual_requests::finish(first, Some(&answer));
+                        conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                    } else {
+                        dual_requests::finish(first, None);
                     }
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.
@@ -1720,6 +1745,15 @@ async fn serve_connection_from(
                 if !carrier::takes_notification(&hub, &conn, &m, params.as_ref()) => {}
             Message::Notification { method: m, params: _ } if conn.is_trigger() => {
                 tracing::debug!(conn = %conn.id, method = %m, "ignoring notification on trigger connection");
+            }
+            // The second copy of a notification a peer link sent on two paths.
+            Message::Notification { method: m, params }
+                if dual_requests::key_for(conn.dual_principal, m.as_str(), params.as_ref())
+                    .is_some_and(|seen| !dual_requests::first_notification(seen)) =>
+            {
+                if m == method::SESSION_CANCEL {
+                    requests::cancel_on_connection(&hub, &conn, params.as_ref());
+                }
             }
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);

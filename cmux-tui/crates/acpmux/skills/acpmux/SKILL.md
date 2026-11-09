@@ -150,6 +150,12 @@ output says `queued behind …`.
 
 ### Messages between agents
 
+In a chat with acpmux's MCP tools, message with the `send` tool
+(`mcp__acpmux__send`; `cmux.acpmux_send` in a cmux_exec script), not
+`acpmux send` in Bash: one call, or `messages` for several, with `file`,
+`attach`, `class`, `pr`, `notice` and `supersede`, through the same outbox as
+`send --no-wait`. The CLI is for shells and scripts.
+
 From inside a session (`ACPMUX_ENV=1`) your send is your session's message, not
 the person's prompt. What the receiver gets depends on who you are to it:
 
@@ -176,9 +182,10 @@ the person's prompt. What the receiver gets depends on who you are to it:
   next Bash command or one of those MCP calls: a subagent that makes no such
   call any more does not get it. Once it has ended, the report goes to the
   lead, saying `This report is for your TYPE subagent ID`. If it ended with no
-  `SubagentStop` hook, its reports wait until no subagent of the lead runs. A
-  background task a subagent starts (`bg_start`) still sends its end message
-  to the lead's chat: a subagent passes `notify: false` and reads the task
+  `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
+  end message of a background task it started (`bg_start`, `run_wait`) takes
+  the same rule. On a path that names no subagent (a cmux workflow script), a
+  subagent passes `notify: false` and reads the task
   with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
   subagent ID)` and ends its turn with its answer; it does not send it to the
   lead.
@@ -190,8 +197,8 @@ the person's prompt. What the receiver gets depends on who you are to it:
   daemon keeps digests of its caller tokens, so `no proven session` after a
   restart is a bug, not a step to fix by hand.
 - An inbox notice ends with how to reply. Answer in your turn, with
-  `inbox_reply`, or with `acpmux send NAME`; never with your harness's own
-  SendMessage, which reaches no acpmux session.
+  `inbox_reply` or the `send` tool (`acpmux send NAME` without them); never
+  with your harness's own SendMessage, which reaches no acpmux session.
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
 

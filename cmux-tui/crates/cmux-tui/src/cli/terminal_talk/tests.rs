@@ -59,8 +59,8 @@ fn agent_rows_name_harness_state_title_and_workspace_and_skip_plain_shells() {
     assert_eq!(
         summary,
         [
-            ("term_c0dec000000000000000000000000004", "codex", "waiting-for-input", None),
-            ("term_0005e000000000000000000000000002", "muse", "busy", None),
+            ("term_c0dec000000000000000000000000004", "codex", "blocked", None),
+            ("term_0005e000000000000000000000000002", "muse", "working", None),
             ("term_c1a0de00000000000000000000000001", "claude", "idle", Some("sr2 costs")),
         ]
     );
@@ -104,11 +104,11 @@ fn agent_rows_carry_the_shared_status_and_done_until_seen() {
     assert_eq!(
         summary,
         [
-            ("codex", "blocked", "waiting-for-input"),
+            ("codex", "blocked", "blocked"),
             ("claude", "done", "idle"),
-            ("muse", "working", "busy")
+            ("muse", "working", "working")
         ],
-        "the old state word stays for compatibility"
+        "the send wait's state uses the shared words"
     );
     let table = roster::table(&rows, 1_000);
     assert!(table.lines().nth(2).is_some_and(|line| line.contains(" done ")), "{table}");
@@ -133,8 +133,8 @@ fn agent_table_has_one_header_and_one_line_per_agent() {
 
 #[test]
 fn agent_states_map_records_and_program_status_words() {
-    assert_eq!(AgentState::from_record("working"), Some(AgentState::Busy));
-    assert_eq!(AgentState::from_record("blocked"), Some(AgentState::WaitingForInput));
+    assert_eq!(AgentState::from_record("working"), Some(AgentState::Working));
+    assert_eq!(AgentState::from_record("blocked"), Some(AgentState::Blocked));
     assert_eq!(AgentState::from_record("done"), Some(AgentState::Idle));
     assert_eq!(AgentState::from_record("ended"), Some(AgentState::Ended));
     assert_eq!(AgentState::from_record("nonsense"), None);
@@ -251,7 +251,7 @@ fn settle_ends_on_a_dialog_and_on_exit() {
     let later = start + Duration::from_millis(200);
     let mut settle = Settle::new(Wait::Idle, Duration::from_millis(100), start);
     let dialog = Sample { waiting_for_input: true, busy: true, ..idle_sample("1") };
-    assert_eq!(settle.observe(&dialog, later), Verdict::Done(AgentState::WaitingForInput));
+    assert_eq!(settle.observe(&dialog, later), Verdict::Done(AgentState::Blocked));
     let mut settle = Settle::new(Wait::Prompt, Duration::from_millis(100), start);
     assert_eq!(settle.observe(&idle_sample("1"), later), Verdict::Pending);
     let prompt = Sample { prompt: true, ..idle_sample("1") };
@@ -518,7 +518,7 @@ fn send_stopped_at_a_dialog_anchors_a_message_with_inline_code() {
     let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
     let message = "Run the shell command `touch /tmp/w4i-perm` now.";
     let receipt = send::run(&daemon, None, &quick(message)).expect("sent");
-    assert_eq!(receipt["state"], "waiting-for-input");
+    assert_eq!(receipt["state"], "blocked");
     assert_eq!(receipt["anchored"], true, "{receipt}");
     let output = receipt["output"].as_str().unwrap_or_default();
     assert!(output.starts_with("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
@@ -536,7 +536,7 @@ fn send_stopped_at_a_dialog_without_an_echo_answers_only_what_came_after_the_sen
  Do you want to proceed?\n ❯ 1. Yes\n   2. No";
     let daemon = dialog_daemon(&[(1, before), (2, after)]);
     let receipt = send::run(&daemon, None, &quick("never echoed as typed")).expect("sent");
-    assert_eq!(receipt["state"], "waiting-for-input");
+    assert_eq!(receipt["state"], "blocked");
     assert_eq!(receipt["anchored"], false, "{receipt}");
     let output = receipt["output"].as_str().unwrap_or_default();
     assert!(output.contains("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
@@ -973,4 +973,101 @@ fn w4j_send_pattern_anchors_match_at_each_line() {
     let receipt = send::run(&daemon, None, &request).expect("sent");
     assert_eq!(receipt["matched"], true, "{receipt}");
     assert_eq!(super::send_exit_code(&receipt, false), 0);
+}
+
+/// W5-Q (bench r4 #7): a list row says one word for the agent. `state` is
+/// the shared status word (`ended` for a session that ended), never the
+/// older `busy` or `waiting-for-input`.
+#[test]
+fn w5q_terminal_list_agents_state_is_the_shared_status_word() {
+    let rows = roster::agent_rows(&snapshot());
+    for row in &rows {
+        let shown = row.to_json(0);
+        assert_eq!(shown["state"].as_str(), Some(row.status_word()), "{shown}");
+    }
+    let words: Vec<String> =
+        rows.iter().map(|row| row.to_json(0)["state"].as_str().unwrap_or("").to_owned()).collect();
+    assert_eq!(words, ["blocked", "working", "idle"]);
+    let mut ended = snapshot();
+    ended["agents"][0]["state"] = json!("done");
+    let ended = roster::agent_rows(&ended);
+    assert_eq!(ended.last().map(|row| row.to_json(0)["state"].clone()), Some(json!("ended")));
+}
+
+/// W5-Q: a send that stops at a dialog and a send refused at a dialog say
+/// `blocked`, the word every list shows for that agent.
+#[test]
+fn w5q_send_at_a_dialog_says_blocked() {
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let receipt =
+        send::run(&daemon, None, &quick("Run the shell command `touch /tmp/w4i-perm` now."))
+            .expect("sent");
+    assert_eq!(receipt["state"], "blocked", "{receipt}");
+    let daemon = FakeDaemon::new(snapshot(), &[(1, "")]);
+    let request =
+        SendRequest { target: "term_c0dec000000000000000000000000004".into(), ..quick("yes") };
+    let failure = send::run(&daemon, None, &request).expect_err("refused");
+    assert_eq!(failure.failure.error["details"]["state"], "blocked");
+}
+
+/// W5-Q: a send whose wait timed out says the agent still works.
+#[test]
+fn w5q_send_timeout_says_working() {
+    let screens: Vec<(u64, String)> =
+        (1..400).map(|n| (n, format!("> q\n\nworking {n}"))).collect();
+    let screens: Vec<(u64, &str)> = screens.iter().map(|(n, text)| (*n, text.as_str())).collect();
+    let daemon = FakeDaemon::new(snapshot(), &screens);
+    let request = SendRequest { timeout: Duration::from_millis(100), ..quick("q") };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["timed_out"], true);
+    assert_eq!(receipt["state"], "working");
+}
+
+/// W5-Q (lead decision on PR A findings 6-7): the send receipt's `status`
+/// is the word `terminal list --agents` shows for the same turn: `done`
+/// while nobody viewed the finished turn (an unread notification), `idle`
+/// once somebody did, `blocked` at a dialog, `working` after a timeout.
+/// `state` stays as it was.
+#[test]
+fn w5q_send_receipt_status_is_the_lists_word_for_the_turn() {
+    let answer = "> what is 2+2\n\n⏺ 4\n\n──────────────────────\n> \n──────────────────────";
+    let screens = [(1, "> what is 2+2\n\n✻ Thinking"), (2, answer)];
+    let receipt = send::run(&FakeDaemon::new(snapshot(), &screens), None, &quick("what is 2+2"))
+        .expect("sent");
+    assert_eq!(
+        (receipt["state"].as_str(), receipt["status"].as_str()),
+        (Some("idle"), Some("idle"))
+    );
+
+    let mut unseen = snapshot();
+    unseen["notifications"] = json!([
+        {"id": "notification_1", "terminal_id": "term_c1a0de00000000000000000000000001",
+         "unread": true, "title": "Claude finished"},
+    ]);
+    let listed = roster::agent_rows(&unseen);
+    let row = listed
+        .iter()
+        .find(|row| row.terminal == "term_c1a0de00000000000000000000000001")
+        .expect("the claude row");
+    assert_eq!(row.status_word(), "done");
+    let receipt =
+        send::run(&FakeDaemon::new(unseen, &screens), None, &quick("what is 2+2")).expect("sent");
+    assert_eq!(receipt["state"], "idle", "{receipt}");
+    assert_eq!(receipt["status"], row.status_word(), "{receipt}");
+
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let receipt =
+        send::run(&daemon, None, &quick("Run the shell command `touch /tmp/w4i-perm` now."))
+            .expect("sent");
+    assert_eq!(receipt["status"], "blocked", "{receipt}");
+
+    let screens: Vec<(u64, String)> =
+        (1..400).map(|n| (n, format!("> q\n\nworking {n}"))).collect();
+    let screens: Vec<(u64, &str)> = screens.iter().map(|(n, text)| (*n, text.as_str())).collect();
+    let daemon = FakeDaemon::new(snapshot(), &screens);
+    let request = SendRequest { timeout: Duration::from_millis(100), ..quick("q") };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["status"], "working", "{receipt}");
 }
