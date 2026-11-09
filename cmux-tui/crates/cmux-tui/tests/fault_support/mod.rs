@@ -400,3 +400,40 @@ pub fn running(pid: i32) -> bool {
     }
     true
 }
+
+/// The owner's threads and where they wait: macOS `sample` (1 s), on Linux
+/// gdb's backtraces when gdb is installed, else each thread's kernel wait
+/// channel. Lines of other libraries are dropped.
+pub fn thread_stacks(pid: i32) -> String {
+    let pid = pid.to_string();
+    #[cfg(target_os = "macos")]
+    let output = Command::new("/usr/bin/sample").args([pid.as_str(), "1"]).output();
+    #[cfg(not(target_os = "macos"))]
+    let output = Command::new("gdb")
+        .args(["-batch", "-p", pid.as_str(), "-ex", "thread apply all bt 30"])
+        .output();
+    if let Ok(output) = output
+        && output.status.success()
+    {
+        let text = String::from_utf8_lossy(&output.stdout);
+        return text
+            .lines()
+            .filter(|line| {
+                line.contains("Thread")
+                    || line.contains("cmux")
+                    || line.contains("lock")
+                    || line.contains("sqlite")
+                    || line.contains("sleep")
+            })
+            .take(400)
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    let mut threads = Vec::new();
+    for task in fs::read_dir(format!("/proc/{pid}/task")).into_iter().flatten().flatten() {
+        let comm = fs::read_to_string(task.path().join("comm")).unwrap_or_default();
+        let wchan = fs::read_to_string(task.path().join("wchan")).unwrap_or_default();
+        threads.push(format!("{} {}", comm.trim(), wchan.trim()));
+    }
+    threads.join("\n")
+}

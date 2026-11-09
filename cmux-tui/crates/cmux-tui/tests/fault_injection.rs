@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use cmux_tui_core::synth_registry::{SynthOptions, generate};
 use fault_support::{
     FaultDir, NO_MAINTENANCE, Owner, create_workspace, journal_rows, lap_ms, last_startup,
-    registry_sizes, request, roster_meta, running,
+    registry_sizes, request, roster_meta, thread_stacks,
 };
 use serde_json::{Value, json};
 
@@ -66,7 +66,7 @@ fn populated(dir: &FaultDir, session: &str, bump: bool) -> Value {
 /// ready with the same workspaces and every journal row, and nothing was
 /// moved to `registry-recovery/`.
 #[test]
-fn fault_sigkill_during_restore_keeps_every_row() {
+fn injected_fault_sigkill_during_restore_keeps_every_row() {
     let dir = FaultDir::new("restore-kill");
     let session = "fi-restore-kill";
     populated(&dir, session, false);
@@ -102,7 +102,7 @@ fn fault_sigkill_during_restore_keeps_every_row() {
 
 /// Every write the owner acknowledged survives a SIGKILL right after it.
 #[test]
-fn fault_sigkill_after_a_burst_keeps_every_acknowledged_write() {
+fn injected_fault_sigkill_after_a_burst_keeps_every_acknowledged_write() {
     let dir = FaultDir::new("burst-kill");
     let session = "fi-burst-kill";
     let owner = Owner::start(&dir, session, &[NO_MAINTENANCE], READY_BOUND);
@@ -131,7 +131,7 @@ fn fault_sigkill_after_a_burst_keeps_every_acknowledged_write() {
 /// (replace_unresponsive_owner.rs covers the replace itself; this adds the
 /// bound and the state.)
 #[test]
-fn fault_a_frozen_owner_is_replaced_with_its_state() {
+fn injected_fault_a_frozen_owner_is_replaced_with_its_state() {
     let dir = FaultDir::new("frozen");
     let session = "fi-frozen";
     let owner = Owner::start(&dir, session, &[], READY_BOUND);
@@ -152,7 +152,13 @@ fn fault_a_frozen_owner_is_replaced_with_its_state() {
     assert_eq!(value["status"], "replaced", "{value}");
     assert_eq!(value["replaced_pid"], old, "{value}");
     assert!(took < Duration::from_secs(30), "the replace took {took:?}");
-    assert!(!running(old), "the frozen owner {old} still runs");
+    // The frozen owner is this test's child: it is gone once it can be reaped.
+    let mut owner = owner;
+    let reaped = Instant::now() + Duration::from_secs(5);
+    while owner.child.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < reaped, "the frozen owner {old} still runs");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     drop(owner);
 
     // The new owner was started by `ensure`, not by this test.
@@ -175,7 +181,7 @@ fn fault_a_frozen_owner_is_replaced_with_its_state() {
 /// read (`list-workspaces`) still answer within 2 s: no request that does
 /// not write waits for a commit.
 #[test]
-fn fault_reads_answer_while_registry_commits_are_slow() {
+fn injected_fault_reads_answer_while_registry_commits_are_slow() {
     const COMMIT_DELAY_MS: &str = "2500";
     let dir = FaultDir::new("slow-commit");
     let session = "fi-slow-commit";
@@ -202,11 +208,29 @@ fn fault_reads_answer_while_registry_commits_are_slow() {
     // Let the first slow commit begin.
     std::thread::sleep(Duration::from_millis(300));
     let mut slowest = (Duration::ZERO, Duration::ZERO);
+    let mut sampled = false;
     let until = Instant::now() + Duration::from_secs(8);
     while Instant::now() < until {
         for (command, slot) in [("identify", 0), ("list-workspaces", 1)] {
             let started = Instant::now();
-            let reply = request(&dir.socket(), json!({"cmd": command}), Duration::from_secs(10));
+            let probe = {
+                let socket = dir.socket();
+                std::thread::spawn(move || {
+                    request(&socket, json!({"cmd": command}), Duration::from_secs(10))
+                })
+            };
+            // A read that waits: where the owner's threads are, once per test.
+            while !probe.is_finished() {
+                if started.elapsed() > Duration::from_millis(1500) && !sampled {
+                    sampled = true;
+                    eprintln!(
+                        "fault: {command} waits; owner threads:\n{}",
+                        thread_stacks(owner.pid())
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let reply = probe.join().unwrap();
             let took = started.elapsed();
             assert_eq!(
                 reply.as_ref().map(|reply| reply["ok"] == true),
@@ -240,7 +264,7 @@ fn fault_reads_answer_while_registry_commits_are_slow() {
 /// ready, and saves a snapshot of the current version equal to the fold of
 /// the same records.
 #[test]
-fn fault_a_roster_version_bump_refolds_and_starts() {
+fn injected_fault_a_roster_version_bump_refolds_and_starts() {
     let dir = FaultDir::new("roster-bump");
     let session = "fi-roster-bump";
     let generated = populated(&dir, session, true);
