@@ -55,6 +55,24 @@ pub fn store_command(os: &str, id: &str, key: &str, value: &str) -> Result<Store
     store_item(os, SERVICE, &format!("{id}/{key}"), &format!("cmux harness {id} {key}"), value)
 }
 
+/// The command that deletes harness `id`'s `key` item (`cmux-harness/<id>/<key>`): no value, so
+/// `stdin` is empty. Run it with [`run_store`].
+pub fn delete_command(os: &str, id: &str, key: &str) -> StoreCommand {
+    let account = format!("{id}/{key}");
+    let argv: Vec<String> = if os == "macos" {
+        ["/usr/bin/security", "delete-generic-password", "-s", SERVICE, "-a", &account]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect()
+    } else {
+        ["secret-tool", "clear", "service", SERVICE, "account", &account]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect()
+    };
+    StoreCommand { argv, stdin: Zeroizing::new(String::new()) }
+}
+
 /// The store command for one secret store item (`service`, `account`, `label`); the value only
 /// ever goes to the command's stdin. Also `cmux cloud secret set` (service `cmux-cloud-secret`).
 pub fn store_item(

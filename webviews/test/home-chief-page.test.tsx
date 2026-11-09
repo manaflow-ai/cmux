@@ -167,6 +167,9 @@ function fakeService(grants = true) {
         calls.push({ op: "checkBackend", args: [id] });
         checks.push({ id, answer: resolve });
       }),
+    removeBackend: async (id: string) => {
+      calls.push({ op: "removeBackend", args: [id] });
+    },
   };
   return { service, calls, checks };
 }
@@ -387,6 +390,70 @@ test("a failed check shows the failing step and its fix, and the backend is not 
   await save(container);
   expect(lastSave(calls)?.engine).toBeUndefined();
   expect(keyAnywhere(container)).toBe(false);
+});
+
+const removed = (calls: Call[]) => calls.filter((call) => call.op === "removeBackend").map((call) => call.args[0]);
+const failCheck = (answer: (result: HomeChiefDoctor) => void) =>
+  act(async () => answer({ ok: false, steps: [{ name: "prompt", ok: false, detail: "401 Unauthorized" }] }));
+
+test("Bring your own: another kind or URL after a failed check starts over, never writing over the first add", async () => {
+  const container = installDom();
+  const { service, calls, checks } = fakeService();
+  await mount(container, service, CHIEF);
+  await openBringYourOwn(container);
+  await failCheck(checks[0]!.answer);
+  await flush();
+  const within = "[data-chief-byo]";
+  // Another kind: the first add (a gateway with its key) is removed, and the next add is a new one
+  // that asks for this kind's key again.
+  await click(byLabel(container, t("chief.byo.kind.openai"), within));
+  await flush();
+  expect(removed(calls)).toEqual(["acme"]);
+  await type(byLabel(container, t("chief.byo.baseUrl"), within), "https://api.other.dev/v1");
+  expect(button(container, t("chief.byo.add")).disabled).toBe(true);
+  await type(byLabel(container, t("chief.byo.apiKey"), within), "sk-other-456");
+  await click(button(container, t("chief.byo.add")));
+  const second = calls.filter((call) => call.op === "addBackend").at(-1)!.args[0] as HomeChiefByoBackend;
+  expect(second).toMatchObject({
+    kind: "openai-endpoint",
+    baseUrl: "https://api.other.dev/v1",
+    apiKey: "sk-other-456",
+  });
+  expect("replace" in second).toBe(false);
+  // A URL change after its failed check starts over too.
+  await failCheck(checks[1]!.answer);
+  await flush();
+  await type(byLabel(container, t("chief.byo.baseUrl"), within), "https://api.third.dev/v1");
+  await flush();
+  expect(removed(calls)).toEqual(["acme", "acme"]);
+});
+
+test("Bring your own: Cancel after a failed check, or closing during a held check, removes the add", async () => {
+  const container = installDom();
+  const { service, calls, checks } = fakeService();
+  await mount(container, service, CHIEF);
+  await openBringYourOwn(container);
+  await failCheck(checks[0]!.answer);
+  await flush();
+  await click(button(container.querySelector<HTMLElement>("[data-chief-byo]")!, t("edit.cancel")));
+  await flush();
+  expect(removed(calls)).toEqual(["acme"]);
+
+  // The editor closes while the check is held: removed at once, and a pass afterwards keeps nothing.
+  const again = installDom();
+  const second = fakeService();
+  act(() => root!.unmount());
+  root = undefined;
+  await mount(again, second.service, CHIEF);
+  await openBringYourOwn(again);
+  expect(second.checks).toHaveLength(1);
+  act(() => root!.unmount());
+  root = undefined;
+  expect(removed(second.calls)).toEqual(["acme"]);
+  await act(async () => second.checks[0]!.answer({ ok: true, steps: [{ name: "prompt", ok: true }] }));
+  await flush();
+  expect(removed(second.calls)).toEqual(["acme"]);
+  expect(second.calls.some((call) => call.op === "update" || call.op === "create")).toBe(false);
 });
 
 test("the lock switch sends locked, and only when it changed", async () => {

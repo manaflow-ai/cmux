@@ -985,15 +985,84 @@ async fn byo_endpoint_a_keyless_endpoint_names_no_key_and_its_env_resolves() {
     opts.lookup_keychain = Box::new(|_, _| Err("no Keychain".into()));
     let report = doctor(&cfg, "local", &opts).await;
     assert_eq!(step(&report, "env").status, StepStatus::Pass, "{}", report.text());
-    // A key stored before the add (the CLI's `stored`): the profile names that default item.
-    let stored = |item: &str| item == "cmux-harness/pre/CMUX_BYO_API_KEY";
-    let p = params("openai-endpoint", "pre", "http://127.0.0.1:11434/v1", "qwen3", None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn byo_endpoint_a_removed_endpoints_key_is_deleted_and_never_reused_by_a_fresh_add() {
+    let root = scratch("stale");
+    let src = sources(&root);
+    let home = root.join("home");
+    let (log, store) = recording(false);
+    let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
     let added = admin::add_endpoint_keyed(
         &p,
         &src,
-        &admin::EndpointKey { stored: &stored, ..admin::EndpointKey::NONE },
+        &admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE },
     )
     .unwrap();
-    let (profile, _) = load(&added.path, "pre");
-    assert_eq!(profile.env[OPENAI_KEY_ENV], "${keychain:cmux-harness/pre/CMUX_BYO_API_KEY}");
+    let (profile, meta) = load(&added.path, "team");
+    let cfg = config("team", profile, meta);
+    // Remove (Settings' Remove, or a form's cleanup): the key in this id's own item goes too.
+    let forgot = std::sync::Mutex::new(Vec::<Vec<String>>::new());
+    let forget = |c: &StoreCommand| -> anyhow::Result<()> {
+        assert!(c.stdin.is_empty());
+        forgot.lock().unwrap().push(c.argv.clone());
+        Ok(())
+    };
+    admin::remove("team", &cfg, &src, &home, &forget).unwrap();
+    let forgot = forgot.into_inner().unwrap();
+    assert_eq!(forgot.len(), 1, "{forgot:?}");
+    assert!(forgot[0].iter().any(|a| a == "team/CMUX_BYO_API_KEY"), "{forgot:?}");
+    assert!(forgot[0].iter().all(|a| !a.contains(GOOD_KEY)));
+    // A fresh add of the same id without a key (another URL) names no item, even if one were left,
+    // and its `*` is asked for without any key: no lookup at all.
+    let mut fresh = params("openai-endpoint", "team", "http://127.0.0.1:9/v1", "m2", None);
+    let added = admin::add_endpoint_keyed(&fresh, &src, &admin::EndpointKey::NONE).unwrap();
+    let (profile, _) = load(&added.path, "team");
+    assert!(!profile.env.contains_key(OPENAI_KEY_ENV), "{:?}", profile.env);
+    let open = fake_models(true, Arc::new(std::sync::Mutex::new(Vec::new())));
+    fresh.base_url = Some(format!("http://127.0.0.1:{open}/v1"));
+    fresh.models = vec!["*".into()];
+    admin::fetch_endpoint_models(&mut fresh, None, &src, |_, _| panic!("a fresh add read a key"))
+        .await
+        .unwrap();
+    assert_eq!(fresh.models, ["served-a", "served-b"]);
+    assert_eq!(log.lock().unwrap().len(), 1);
+    // A profile that is not an endpoint, or an item outside this id's space: nothing deleted.
+    let other =
+        "schema = 1\nid = \"x\"\ncommand = \"x\"\n[env]\nK = { keychain = \"cmux-harness/x/K\" }\n";
+    std::fs::write(root.join("harnesses").join("x.toml"), other).unwrap();
+    let none = |_: &StoreCommand| -> anyhow::Result<()> { panic!("deleted a key it does not own") };
+    admin::remove("x", &Config::default(), &src, &home, &none).unwrap();
+}
+
+#[test]
+fn byo_endpoint_adds_wait_on_an_os_lock_other_processes_share() {
+    let root = scratch("flock");
+    let src = sources(&root);
+    let dir = root.join("harnesses");
+    std::fs::create_dir_all(&dir).unwrap();
+    // Another process (here: another open file) holds the add lock.
+    let held = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(".endpoint-add.lock"))
+        .unwrap();
+    held.lock().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let src2 = src.clone();
+    let worker = std::thread::spawn(move || {
+        let p = params("openai-endpoint", "locked", "https://api.example.com/v1", "m", None);
+        let r = admin::add_endpoint_keyed(&p, &src2, &admin::EndpointKey::NONE).map(|a| a.id);
+        tx.send(r).unwrap();
+    });
+    assert!(
+        rx.recv_timeout(Duration::from_millis(300)).is_err(),
+        "the add did not wait for the lock"
+    );
+    assert!(!dir.join("locked.toml").exists());
+    held.unlock().unwrap();
+    assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap(), "locked");
+    worker.join().unwrap();
 }

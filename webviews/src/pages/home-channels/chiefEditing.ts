@@ -47,6 +47,9 @@ export interface ChiefEditorService {
   addBackend(backend: HomeChiefByoBackend): Promise<string>;
   /** A real hello turn on the harness (`doctor {id, prompt: true}`). */
   checkBackend(id: string): Promise<HomeChiefDoctor>;
+  /** Removes a backend this editor added whose check never passed (the form closed or started
+   * over); the host removes only one it added. */
+  removeBackend?(id: string): Promise<void>;
 }
 
 const SELECTORS = { machine: "current", session: "current" };
@@ -277,6 +280,10 @@ export class ChiefHost {
   async checkBackend(id: string): Promise<HomeChiefDoctor> {
     return parseDoctor(await this.host.call("cmux.chief.backend.doctor", { id, prompt: true }));
   }
+
+  async removeBackend(id: string): Promise<void> {
+    await this.host.call("cmux.chief.backend.remove", { id });
+  }
 }
 
 /** The Settings Chiefs card's editor service: every call through the host. */
@@ -343,5 +350,9 @@ export class HostChiefEditor implements ChiefEditorService {
 
   checkBackend(id: string): Promise<HomeChiefDoctor> {
     return this.host.checkBackend(id);
+  }
+
+  removeBackend(id: string): Promise<void> {
+    return this.host.removeBackend(id);
   }
 }

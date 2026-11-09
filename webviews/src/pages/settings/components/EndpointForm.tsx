@@ -5,7 +5,7 @@
 // once that answered (the new harness is then in the model picker). The fields and the add-then-check
 // sequence are the Chief editor's (shared/byoEndpoint.ts, shared/EndpointFields.tsx), through the
 // same host calls (`cmux.chief.backend.add|doctor|list`, the app's AgentHarnessCenter).
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { StableLabel } from "../../../ui/StableLabel";
@@ -29,6 +29,7 @@ import {
   type EndpointService,
   type EndpointStatus,
 } from "../../shared/byoEndpoint";
+import { useOwnedEndpoint } from "../../shared/useOwnedEndpoint";
 import { useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -85,33 +86,28 @@ export function EndpointForm({ done }: { done: () => void }) {
   const [status, setStatus] = useState<EndpointStatus>({ state: "editing" });
   const [fetched, setFetched] = useState<{ count: number } | { error: string } | null>(null);
   // The harness this form added (Fetch Models, or a Check and Add whose check failed): every later
-  // add writes it again, never another one; closed without a passing check, it is removed. Owned
-  // the moment an add answers (before its check), and an add that answers after the form closed
-  // (Cancel stays live during the add and the check) is removed then.
+  // add writes it again, never another one (`target`); closed without a passing check, it is removed
+  // (`owned`, shared/useOwnedEndpoint.ts). A change of preset or URL starts over.
   const [target, setTarget] = useState<AddTarget | null>(null);
-  const own = useRef<{ id: string | null; saved: boolean; closed: boolean }>({ id: null, saved: false, closed: false });
-  useEffect(() => {
-    const mine = own.current;
-    mine.closed = false;
-    return () => {
-      mine.closed = true;
-      if (mine.id && !mine.saved) void store.runAgents({ action: "remove", id: mine.id });
-    };
-  }, [store]);
-  const claim = (id: string) => {
-    own.current.id = id;
-    if (own.current.closed) void store.runAgents({ action: "remove", id });
-  };
+  const owned = useOwnedEndpoint((id) => void store.runAgents({ action: "remove", id }));
   const preset = endpointPreset(presetId);
   const busy = endpointBusy(status);
   const problem = endpointProblemAt(draft, preset.key, target);
   const targetFor = async () => target ?? (await newTarget(service, draft, preset.idBase));
-  const owned = (next: AddTarget) => {
-    own.current.id = next.id;
-    setTarget(next);
+  // Another endpoint: the earlier add (another preset's, or another URL's) is removed, and the next
+  // add is a new id that asks for this one's key.
+  const startOver = () => {
+    owned.discard();
+    setTarget(null);
+    setFetched(null);
+    setStatus({ state: "editing" });
   };
-  const change = (patch: Partial<EndpointDraft>) => setDraft((before) => ({ ...before, ...patch }));
+  const change = (patch: Partial<EndpointDraft>) => {
+    if (patch.baseUrl !== undefined && patch.baseUrl !== draft.baseUrl) startOver();
+    setDraft((before) => ({ ...before, ...patch }));
+  };
   const pick = (id: EndpointPresetId) => {
+    startOver();
     // The typed name and models stay unless they were the last preset's; the key never carries over.
     setDraft((before) => {
       const next = presetDraft(id);
@@ -119,16 +115,14 @@ export function EndpointForm({ done }: { done: () => void }) {
       return { ...next, name: ownName ? before.name : next.name, models: before.models };
     });
     setPresetId(id);
-    setFetched(null);
-    setStatus({ state: "editing" });
   };
   const fetchModels = async () => {
     if (busy || !canFetchModels(draft, preset.key, target)) return;
     setStatus({ state: "fetching" });
     setFetched(null);
     try {
-      const answer = await fetchEndpointModels(service, draft, await targetFor(), claim);
-      owned(answer.target);
+      const answer = await fetchEndpointModels(service, draft, await targetFor(), owned.claim);
+      setTarget(answer.target);
       // The key is stored now: the field empties, and a save keeps what was stored.
       change({ apiKey: "" });
       const models = answer.models;
@@ -151,10 +145,10 @@ export function EndpointForm({ done }: { done: () => void }) {
     const backend = endpointBackend(draft, at);
     // The key leaves the page's state now: only the host's add call carries it.
     change({ apiKey: "" });
-    const result = await bringEndpoint(service, backend, setStatus, claim);
-    if (result.state !== "failed" || result.harness) owned(addedTarget(at, backend));
-    if (result.state === "passed" && !own.current.closed) {
-      own.current.saved = true;
+    const result = await bringEndpoint(service, backend, setStatus, owned.claim);
+    if (result.state !== "failed" || result.harness) setTarget(addedTarget(at, backend));
+    if (result.state === "passed" && !owned.closed) {
+      owned.keep();
       done();
     }
   };

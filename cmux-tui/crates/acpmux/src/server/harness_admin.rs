@@ -213,7 +213,6 @@ pub(super) async fn handle(
                         &sources,
                         &admin::EndpointKey {
                             value: key.as_deref().map(String::as_str),
-                            stored: &|_| false,
                             store: &crate::cli::harness_secret::run_store,
                             taken: &|id| cfg.profile(id).is_some(),
                         },
@@ -256,11 +255,12 @@ pub(super) async fn handle(
             let id =
                 text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
             let cfg = hub.config.read().await.clone();
-            let removed =
-                tokio::task::spawn_blocking(move || admin::remove(&id, &cfg, &sources, &home))
-                    .await
-                    .map_err(joined)?
-                    .map_err(rpc_error)?;
+            let removed = tokio::task::spawn_blocking(move || {
+                admin::remove(&id, &cfg, &sources, &home, &crate::cli::harness_secret::run_store)
+            })
+            .await
+            .map_err(joined)?
+            .map_err(rpc_error)?;
             hub.reload_and_announce().await;
             json!({"id": removed.id, "backup": removed.backup})
         }

@@ -452,12 +452,10 @@ pub fn add(
 }
 
 /// An endpoint add's key: the one to store (the app's add sends it with the
-/// profile, one call), whether an item already holds one (the CLI, for a key
-/// stored before the add), the store command's runner, and the ids another
-/// source already has (a built-in, a managed profile).
+/// profile, one call), the store command's runner, and the ids another source
+/// already has (a built-in, a managed profile).
 pub struct EndpointKey<'a> {
     pub value: Option<&'a str>,
-    pub stored: &'a dyn Fn(&str) -> bool,
     pub store: &'a dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>,
     pub taken: &'a dyn Fn(&str) -> bool,
 }
@@ -471,14 +469,26 @@ fn no_store(_: &crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()> 
 }
 
 impl EndpointKey<'static> {
-    /// No key, none stored, no other source: `add`'s endpoint path.
-    pub const NONE: Self = Self { value: None, stored: &never, store: &no_store, taken: &never };
+    /// No key and no other source: `add`'s endpoint path.
+    pub const NONE: Self = Self { value: None, store: &no_store, taken: &never };
 }
 
-/// Every endpoint add, one at a time: the id check, the profile and its key
-/// are one step, so two adds of one id never both pass the check and the
-/// later key never lands under the earlier profile.
-static ENDPOINT_ADDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// Every endpoint add, one at a time across processes (the daemon and the
+/// CLI): an OS lock on `.endpoint-add.lock` in the harness folder, held from
+/// the id check through the profile and its key, so two adds of one id never
+/// both pass the check and a later key never lands under another profile.
+/// Released when the file closes.
+fn lock_endpoint_adds(dir: &Path) -> Result<std::fs::File, AdminError> {
+    ensure_dir(dir)?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(".endpoint-add.lock"))
+        .map_err(failed)?;
+    file.lock().map_err(failed)?;
+    Ok(file)
+}
 
 /// `add` for an endpoint example with its key (the daemon's add with `apiKey`,
 /// the CLI). See [`add_endpoint`].
@@ -509,8 +519,9 @@ fn existing_item(path: &Path, kind: byo_endpoint::Kind) -> Option<String> {
 /// profile is written, under [`ENDPOINT_ADDS`]; a failed store puts the old
 /// profile back (or removes the new one). Without a key the profile names the
 /// item `keychainItem` gives, else (with `replace`) the one the profile it
-/// replaces names, else the default item when one is stored there, else none:
-/// a keyless endpoint has no key reference that would fail to resolve.
+/// replaces names, else none: a fresh add never picks up a key some earlier
+/// profile of this id left (it would go to a new URL), and a keyless endpoint
+/// has no key reference that would fail to resolve.
 fn add_endpoint(
     kind: byo_endpoint::Kind,
     p: &AddParams,
@@ -561,7 +572,7 @@ fn add_endpoint(
     }
     let path = dir.join(format!("{id}.toml"));
     let default = byo_endpoint::default_item(kind, &id);
-    let _one = ENDPOINT_ADDS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _one = lock_endpoint_adds(dir)?;
     if (path.exists() || (key.taken)(&id)) && !p.replace {
         return Err(AdminError::Exists(format!(
             "{} already has a profile; pass replace to write it again",
@@ -571,9 +582,7 @@ fn add_endpoint(
     let item = match (given, key.value) {
         (Some(item), _) => Some(item),
         (None, Some(_)) => Some(default.clone()),
-        (None, None) => existing_item(&path, kind)
-            .filter(|_| p.replace)
-            .or_else(|| (key.stored)(&default).then(|| default.clone())),
+        (None, None) => existing_item(&path, kind).filter(|_| p.replace),
     };
     let text = byo_endpoint::profile_text(&byo_endpoint::Endpoint {
         kind,
@@ -621,8 +630,9 @@ fn add_endpoint(
 /// Fills in `*` of an endpoint add's models with what the endpoint lists
 /// (`byo_endpoint::fetch_models`), after the models typed before it. The key
 /// is `key` (the one the add brings), else read from the Keychain item the
-/// add names, else the one the profile it replaces names, else the default
-/// item; without one the list is asked for without a key (a local server).
+/// add names, else (with `replace`) the one the profile it replaces names;
+/// otherwise the list is asked for without a key (a local server), never with
+/// a key an earlier profile of this id left.
 /// Nothing to do for any other add.
 pub async fn fetch_endpoint_models(
     p: &mut AddParams,
@@ -640,18 +650,18 @@ pub async fn fetch_endpoint_models(
     let base_url = p.base_url.clone().unwrap_or_default();
     let id = p.id.clone().unwrap_or_else(|| kind.example().to_owned());
     let item = match &p.keychain_item {
-        Some(item) => byo_endpoint::check_keychain_item(item).map_err(|(secret, m)| {
+        Some(item) => Some(byo_endpoint::check_keychain_item(item).map_err(|(secret, m)| {
             if secret { AdminError::SecretInline(m) } else { AdminError::Invalid(m) }
-        })?,
+        })?),
         None => user_dir(sources)
             .ok()
             .filter(|_| p.replace)
-            .and_then(|dir| existing_item(&dir.join(format!("{id}.toml")), kind))
-            .unwrap_or_else(|| byo_endpoint::default_item(kind, &id)),
+            .and_then(|dir| existing_item(&dir.join(format!("{id}.toml")), kind)),
     };
-    let key = match key {
-        Some(key) => Some(zeroize::Zeroizing::new(key.to_owned())),
-        None => tokio::task::spawn_blocking(move || {
+    let key = match (key, item) {
+        (Some(key), _) => Some(zeroize::Zeroizing::new(key.to_owned())),
+        (None, None) => None,
+        (None, Some(item)) => tokio::task::spawn_blocking(move || {
             let (service, account) = match item.split_once('/') {
                 Some((s, a)) => (s.to_owned(), Some(a.to_owned())),
                 None => (item.clone(), None),
@@ -717,6 +727,7 @@ pub fn remove(
     cfg: &Config,
     sources: &ProfileSources,
     acpmux_home: &Path,
+    forget: &dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>,
 ) -> Result<Removed, AdminError> {
     if !profiles::valid_id(id) {
         return Err(AdminError::Invalid(format!("{id:?} is not a harness id")));
@@ -741,8 +752,32 @@ pub fn remove(
     let dir = backup_dir(acpmux_home);
     ensure_dir(&dir)?;
     let backup = format!("{id}-{}.toml", unix_millis());
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
     move_file(&path, &dir.join(&backup))?;
+    // An endpoint's key goes with it: the items in this id's own Keychain space
+    // (`cmux-harness/<id>/...`) are deleted, so no later endpoint of this id
+    // can send it to another URL. Best effort: an item already gone is fine.
+    for key in endpoint_own_keys(&text, id) {
+        let _ = forget(&crate::cli::harness_secret::delete_command(std::env::consts::OS, id, &key));
+    }
     Ok(Removed { id: id.to_owned(), backup })
+}
+
+/// The env keys of endpoint profile `text` whose Keychain item is this id's own
+/// (`cmux-harness/<id>/<KEY>`, any KEY: an older app named `API_KEY`); none for
+/// any other profile.
+fn endpoint_own_keys(text: &str, id: &str) -> Vec<String> {
+    let Ok(value) = toml::from_str::<toml::Value>(text) else { return Vec::new() };
+    let Some(env) = value.get("env").and_then(toml::Value::as_table) else { return Vec::new() };
+    if env.get(byo_endpoint::OWN_ENDPOINT_KEY).and_then(toml::Value::as_str).is_none() {
+        return Vec::new();
+    }
+    let own = format!("{}/{id}/", crate::cli::harness_secret::SERVICE);
+    env.values()
+        .filter_map(|v| v.get("keychain").and_then(toml::Value::as_str))
+        .filter_map(|item| item.strip_prefix(&own).map(str::to_owned))
+        .filter(|key| profiles::valid_env_key(key))
+        .collect()
 }
 
 #[derive(Debug, Serialize)]

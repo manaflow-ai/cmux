@@ -229,6 +229,7 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
                 &cfg,
                 &ProfileSources::current(),
                 &crate::config::home(),
+                &super::harness_secret::run_store,
             )?;
             let reloaded = reload_daemon().await;
             if json_out {
@@ -290,19 +291,12 @@ async fn add_endpoint_cmd(
         .await
         .map_err(|e| anyhow!("{e}"))?;
     let p = &p;
-    // No key here (`cmux harness secret set` stores it): the profile names the default item only
-    // when a key is already stored there, so a keyless endpoint never fails on a missing item.
-    let stored = |item: &str| {
-        let (service, account) = item.split_once('/').map_or((item, None), |(s, a)| (s, Some(a)));
-        profiles::keychain_lookup(service, account).is_ok()
-    };
+    // No key here (`cmux harness secret set` stores it and points the profile at it): without
+    // `--keychain-item` the profile names no item, so a keyless endpoint never fails on one.
     let added = crate::harness_admin::add_endpoint_keyed(
         p,
         &sources,
-        &crate::harness_admin::EndpointKey {
-            stored: &stored,
-            ..crate::harness_admin::EndpointKey::NONE
-        },
+        &crate::harness_admin::EndpointKey::NONE,
     )
     .map_err(|e| anyhow!("{e}"))?;
     if let Some(icon) = icon {

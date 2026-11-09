@@ -358,3 +358,44 @@ test("Endpoint: an add that answers after the form closed is removed when it ans
   expect(harness(page.container, "local-models")).toBeNull();
   page.unmount();
 });
+
+test("Endpoint: another preset or URL after Fetch Models starts over: the fetched endpoint goes, the new one asks for its key", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  const fetchButton = () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!;
+  await act(async () => fetchButton().click());
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  expect(form().querySelector("[data-endpoint-fetched]")).not.toBeNull();
+  // A hosted provider: the local fetch is removed, its count goes, and the key is required again.
+  await changeValue(form().querySelector("select")!, "hosted");
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(form().querySelector("[data-endpoint-fetched]")).toBeNull();
+  await changeValue(endpointInput(form(), "baseUrl")!, "https://api.example.com/v1");
+  await changeValue(endpointInput(form(), "models")!, "m");
+  expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(true);
+  await changeValue(endpointInput(form(), "apiKey")!, "hosted-key");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  const add = ops(page.provider, "cmux.chief.backend.add").at(-1) as Record<string, unknown>;
+  expect(add).toMatchObject({ id: "hosted-models", apiKey: "hosted-key" });
+  expect("replace" in add).toBe(false);
+  page.unmount();
+});
+
+test("Endpoint: a URL change after a failed check removes that add before the next one", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  page.provider.agents.endpoint.doctor = { ok: false, steps: [{ name: "prompt", ok: false, detail: "no" }] };
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  await changeValue(endpointInput(form(), "baseUrl")!, "http://127.0.0.1:8080/v1");
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(form().querySelector('[data-endpoint-status="failed"]')).toBeNull();
+  page.unmount();
+});
