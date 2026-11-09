@@ -100,7 +100,7 @@ import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writ
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chaosProbeRow, runChaos } from "./cloud-chaos.ts";
+import { chaosProbeRow, countingTurnScript, runChaos } from "./cloud-chaos.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -927,9 +927,15 @@ export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: 
 };
 /**
  * The journey's stub script: one Bash call whose output (printf joins it, so neither the command nor an error that
- * quotes it carries it) the reply then repeats, so the reply shows the tool round trip.
+ * quotes it carries it) the reply then repeats, so the reply shows the tool round trip. A prompt with the chaos leg's
+ * counting marker gets the counting turn instead.
  */
-export const JOURNEY_STUB_SCRIPT = { version: 1, steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }] };
+export const JOURNEY_STUB_SCRIPT = {
+  version: 1,
+  steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
+  // The chaos leg's counting turn (cloud-chaos.ts), played only for a prompt that carries its marker.
+  turns: [countingTurnScript()],
+};
 
 /** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
 export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift", import.meta.url));
@@ -2397,7 +2403,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       else {
         const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
         const results = await runChaos({
-          cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag,
+          cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
           env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
           log: (line) => console.log(scrub(line, J.secrets)),
         }).catch((e: Error) => [{ fault: "chaos leg", outcome: "fail" as const, recover_ms: null, carrier: "", turn: "", detail: e.message }]);
