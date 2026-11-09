@@ -90,7 +90,7 @@ struct AgentDriveIndicatorTests {
 
     /// The row's Stop on an agent chat that drives a browser stops that chat's turn though no window shows its
     /// workspace: the indicator sits on sidebar rows, mostly of workspaces in the background (review of #39609).
-    @Test func stopOnABrowsingChatStopsItsTurnInAWorkspaceNoWindowShows() async throws {
+    @Test(.timeLimit(.minutes(1))) func stopOnABrowsingChatStopsItsTurnInAWorkspaceNoWindowShows() async throws {
         let services = ForkConversationTests.services()
         AppActions.bind(services)
         let store = services.machines.local.store
@@ -110,19 +110,21 @@ struct AgentDriveIndicatorTests {
         defer { chat.close() }
         services.agentTabs.views[tab] = chat
         defer { services.agentTabs.views[tab] = nil }
-        final class Sent { var kinds: [String] = [] }
-        let sent = Sent()
+        // A new subscriber's events arrive on a later main-actor turn (the provider's replay flush): read them as a stream.
+        let (kinds, sink) = AsyncStream.makeStream(of: String.self)
         let provider = try #require(chat.pageEvents)
         let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
                                                          context: PageCallContext(page: PageDescriptor.agent.id)) { event in
-            if case .string(let kind)? = event["kind"] { sent.kinds.append(kind) }
+            if case .string(let kind)? = event["kind"] { sink.yield(kind) }
         }
-        defer { subscription.cancel() }
+        defer { subscription.cancel(); sink.finish() }
         let item = try #require(SidebarBridge.driveMenuItem(services)(WorkspaceID("away"), .stop(tab: TabID(tab), drive: .browser),
                                                                       Strings.driveStop(.browser)))
         let refusal = services.registry.capturingRefusal { _ = item.target?.perform(item.action, with: item) }
-        #expect(refusal == nil)
-        #expect(sent.kinds.contains("stopTurn"), "the chat's turn did not stop")
+        try #require(refusal == nil, "the row's Stop was refused")
+        // The page gets the stop as an event; the test's time limit ends the wait when it never comes.
+        for await kind in kinds where kind == "stopTurn" { return }
+        Issue.record("the chat's turn did not stop")
     }
 
     @Test(arguments: SidebarDriveIndicatorVariant.allCases)
