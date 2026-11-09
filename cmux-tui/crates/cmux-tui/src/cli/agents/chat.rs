@@ -429,12 +429,12 @@ pub(in crate::cli) fn turn_items(
         let page = acp::events(chat, cursor, EVENT_PAGE, found.socket()).map_err(|error| {
             not_run("chat.unavailable", format!("cannot read chat {chat}: {error}"), json!({}))
         })?;
-        let events = page["events"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let events = page.get("events").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
         for event in events {
             transcript.apply(event);
             cursor = cursor.max(event["seq"].as_u64().unwrap_or(cursor));
         }
-        if page["hasMore"] != true || events.is_empty() {
+        if page.get("hasMore").and_then(Value::as_bool) != Some(true) || events.is_empty() {
             read_all = true;
             break;
         }

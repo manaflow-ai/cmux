@@ -135,9 +135,10 @@ pub(super) fn is_session_id(word: &str) -> bool {
 /// `chat read SESSION …` or `chat wait SESSION …`: the verb and the words after it, from the
 /// session on.
 pub(super) fn session_verb(command: &[String]) -> Option<(&str, &[String])> {
-    let [scope, verb, first, ..] = command else { return None };
+    let [scope, verb, rest @ ..] = command else { return None };
+    let first = rest.first()?;
     let ours = scope == "chat" && matches!(verb.as_str(), "read" | "wait") && is_session_id(first);
-    ours.then(|| (verb.as_str(), &command[2..]))
+    ours.then_some((verb.as_str(), rest))
 }
 
 /// `chat wait SESSION [--timeout S]`: the session and the timeout.

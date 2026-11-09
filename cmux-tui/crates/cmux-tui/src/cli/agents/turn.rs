@@ -122,7 +122,7 @@ pub(in crate::cli) fn newest_prompt(events: &[Value]) -> Option<u64> {
     events
         .iter()
         .filter(|event| event["dir"] == "mux" && event["kind"] == "user_message")
-        .filter(|event| event["msg"]["steer"] != true)
+        .filter(|event| event.pointer("/msg/steer").and_then(Value::as_bool) != Some(true))
         .filter_map(|event| event["seq"].as_u64())
         .max()
 }
@@ -438,7 +438,7 @@ impl<B: Backend> Port for Live<'_, B> {
     fn last_seq(&mut self, target: &str) -> Result<(String, u64), Value> {
         let (chat, socket) = self.socket(target)?;
         let page = chat::acp::events(&chat, 0, 1, socket.as_deref()).map_err(unavailable(&chat))?;
-        Ok((chat, page["lastSeq"].as_u64().unwrap_or(0)))
+        Ok((chat, page.get("lastSeq").and_then(Value::as_u64).unwrap_or(0)))
     }
 
     fn wait_idle(&mut self, chat: &str, slice: Duration) -> Result<Option<Value>, Value> {
@@ -452,7 +452,8 @@ impl<B: Backend> Port for Live<'_, B> {
         let receipt =
             super::execute(&self.backend, None, &AgentCommand::Wait(request), None, "agents")
                 .map_err(owner_error)?;
-        Ok((receipt["matched"] == true).then(|| receipt["match"].clone()))
+        let matched = receipt.get("matched").and_then(Value::as_bool) == Some(true);
+        Ok(matched.then(|| receipt.get("match").cloned().unwrap_or(Value::Null)))
     }
 
     fn turn_start(&mut self, chat: &str) -> Result<u64, Value> {
@@ -488,13 +489,13 @@ fn newest_prompt_back(chat: &str, socket: Option<&Path>) -> Result<u64, Value> {
     for _ in 0..MAX_BACK_PAGES {
         let page =
             chat::acp::events_before(chat, before, BACK_PAGE, socket).map_err(unavailable(chat))?;
-        let events = page["events"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let events = page.get("events").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
         if let Some(seq) = newest_prompt(events) {
             return Ok(seq);
         }
         let oldest = events.iter().filter_map(|event| event["seq"].as_u64()).min();
         match oldest {
-            Some(oldest) if page["hasMore"] == true && oldest > 1 => before = oldest,
+            Some(oldest) if page.get("hasMore").and_then(Value::as_bool) == Some(true) && oldest > 1 => before = oldest,
             _ => return Ok(0),
         }
     }
