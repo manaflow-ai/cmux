@@ -101,7 +101,7 @@
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-left","values":{"5px":1,"6px":3}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-right","values":{"calc(2px * var(--cmux-interface-scale, 1))":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-top","values":{"1px":1,"2px":1,"9px":1,"20px":1,"18px":1}}
-{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding","values":{"0 var(--acpmux-strip-inset, 3px)":1,"0 6px":2,"0 3px":1,"5px 4px":1,"4px 4px 2px":1,"0 5px":1,"0 calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset) - 6px) var(--acpmux-tray-tuck)":1,"0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset))":1,"6px 8px":1,"1px 4px":1}}
+{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding","values":{"0 var(--acpmux-strip-inset, 3px)":1,"0 6px":1,"0 3px":1,"5px 4px":1,"4px 4px 2px":1,"0 5px":1,"0 calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset) - 6px) var(--acpmux-tray-tuck)":1,"0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset))":1,"6px 8px":1,"1px 4px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-block","values":{"6px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-inline","values":{"calc(var(--acpmux-top-strip-edge) - 6px)":1}}
@@ -385,7 +385,7 @@
 {"file":"agent-session/acpmux/subagents/AgentCard.css","kind":"color","property":"box-shadow","values":{"inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-accent) 22%, var(--acpmux-composer-edge, transparent)), inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent)":1}}
 {"file":"agent-session/acpmux/subagents/DisclosureRow.css","kind":"radius","property":"border-radius","values":{"5px":1}}
 {"file":"agent-session/acpmux/subagents/DisclosureRow.css","kind":"spacing","property":"margin-inline-end","values":{"calc(var(--ds-space-1) + 1px)":1}}
-{"file":"agent-session/acpmux/subagents/subagents.css","kind":"height","property":"height","values":{"48px":2,"26px":1,"44px":2,"1px":1,"30px":1,"9px":1}}
+{"file":"agent-session/acpmux/subagents/subagents.css","kind":"height","property":"height","values":{"48px":2,"26px":1,"44px":1,"1px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"radius","property":"border-radius","values":{"var(--acpmux-composer-radius, 11px)":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"gap","values":{"2px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"margin-left","values":{"calc(14px + var(--acpmux-line-icon-gap, 8px) + var(--acpmux-tray-indent, 0px))":1,"-2px":1}}
@@ -504,8 +504,8 @@
 {"file":"pages/changelog/updateSurfaces.css","kind":"radius","property":"border-radius","values":{"var(--cmux-sidebar-card-radius, 10px)":1,"9px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"top","values":{"7px":1}}
 {"file":"pages/changelog/updateSurfaces.gallery.tsx","kind":"spacing","property":"padding","values":{"10px":1}}
-{"file":"pages/chief-usage/styles.css","kind":"height","property":"height","values":{"8px":1,"2px":2,"3px":1,"4px":1}}
-{"file":"pages/chief-usage/styles.css","kind":"radius","property":"border-radius","values":{"2px":4}}
+{"file":"pages/chief-usage/styles.css","kind":"height","property":"height","values":{"8px":1,"2px":2,"3px":1}}
+{"file":"pages/chief-usage/styles.css","kind":"radius","property":"border-radius","values":{"2px":2}}
 {"file":"pages/chief-views/styles.css","kind":"radius","property":"border-radius","values":{"2px":1}}
 {"file":"pages/cloud/environment.css","kind":"radius","property":"border-radius","values":{"10px":1}}
 {"file":"pages/cloud/styles.css","kind":"duration","property":"animation","values":{"cloud-store-packet 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite":1}}

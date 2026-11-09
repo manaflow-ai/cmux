@@ -142,7 +142,6 @@ ${tooltips}
 <div class="acpmux-shell"><div class="ui-glass ui-glass-floats acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-needs-you" id="needs-you">Needs you</div></div>
-<div class="acpmux-shell"><dialog open class="ui-popup ui-glass acpmux-agents-list" id="agents-list">Agents</dialog></div>
 <dialog open class="ui-dialog ui-glass ui-glass-floats acpmux-add-project-dialog" id="add-project">Add project</dialog>
 <div class="ui-dialog ui-glass ui-glass-floats share-dialog-popup" id="share">Share</div>
 ${tooltips}`,
@@ -161,7 +160,6 @@ ${tooltips}`,
       "pr-status",
       "new-tab-suggestions",
       "needs-you",
-      "agents-list",
       // The Summary popover (Outputs, Subagents, Sources, Background tasks) floats over the chat
       // (Leo 2026-10-30: "I don't like the non-glassness").
       "summary",
@@ -185,7 +183,6 @@ ${tooltips}`,
       // Leo 10-13: the New Tab suggestions showed the page's rows through them on a wallpaper theme.
       "new-tab-suggestions",
       "needs-you",
-      "agents-list",
     ],
   };
 

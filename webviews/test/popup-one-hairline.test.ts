@@ -170,7 +170,6 @@ describe("web popups draw one hairline edge", () => {
     ".nt-popover",
     ".acpmux-file-menu-list",
     ".acpmux-needs-you",
-    ".acpmux-agents-list",
     ".md-link-popover",
     ".acpmux-omni",
   ];
