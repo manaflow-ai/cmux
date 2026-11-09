@@ -50,7 +50,7 @@ await requireBrowserLane("thread-rail-rest-tick-gallery.test.ts", async () => {
         try {
           const port = (vite!.httpServer!.address() as { port: number }).port;
           await page.goto(
-            `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, arm, width, reducedMotion: "true" })}`,
+            `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, exp: "thread-minimap-rest-tick", arm, width, reducedMotion: "true" })}`,
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
             timeout: 120_000,
@@ -78,6 +78,10 @@ await requireBrowserLane("thread-rail-rest-tick-gallery.test.ts", async () => {
           }
           expect(read.lengths.length).toBeGreaterThan(0);
           if (arm !== "squeeze") expect(read.lengths).toEqual([rest]);
+          // The compare shows the difference: the earlier box shortens the left rail's ticks where its
+          // gutter runs short, and leaves the right rail beside a push alone.
+          else if (variant === "right-pushed") expect(read.lengths).toEqual([rest]);
+          else expect(Math.max(...read.lengths)).toBeLessThan(rest);
         } finally {
           await page.close();
         }
