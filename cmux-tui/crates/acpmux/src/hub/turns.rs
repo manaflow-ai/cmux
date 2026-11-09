@@ -589,7 +589,7 @@ impl Hub {
                 .filter(|s| s.is_object())
                 .cloned();
             let reads = opts.reply_reader.is_some() || opts.wake_or_fail;
-            (super::inbox::sender_session(provenance), subagent, reads)
+            (super::question_replies::asker_of(provenance), subagent, reads)
         };
         if steer_now {
             if cloud_turn.is_some() {

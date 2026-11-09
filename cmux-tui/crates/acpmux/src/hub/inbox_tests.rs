@@ -17,6 +17,7 @@ fn item(
         thread: thread.to_owned(),
         from: from.to_owned(),
         from_session: None,
+        asker: None,
         sender: Value::Null,
         class,
         report: false,
