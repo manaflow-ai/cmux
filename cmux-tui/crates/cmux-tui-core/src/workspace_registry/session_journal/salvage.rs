@@ -49,6 +49,19 @@ impl WorkspaceRegistry {
     }
 }
 
+impl SessionJournalReader {
+    /// [`WorkspaceRegistry::session_journal_after_salvaging`] on the
+    /// read-only connection, in one read snapshot.
+    pub(crate) fn after_salvaging(
+        &self,
+        sequence: u64,
+        limit: usize,
+    ) -> anyhow::Result<SalvagedJournalPage> {
+        let snapshot = self.connection.unchecked_transaction()?;
+        salvage_session_journal_after(&snapshot, sequence, limit)
+    }
+}
+
 impl WorkspaceRegistry {
     /// Distinct subject ids of one kind that records in `start..=end` name.
     /// It reads the append-only subject index, so it works for a range whose

@@ -50,6 +50,15 @@ pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
 /// restart, and the first ensure failed).
 pub(crate) const RESTORE_DEADLINE: Duration = Duration::from_secs(120);
 
+/// `RESTORE_DEADLINE`; `CMUX_TUI_DEBUG_RESTORE_DEADLINE_MS` shortens it for
+/// tests.
+fn restore_bound() -> Duration {
+    std::env::var("CMUX_TUI_DEBUG_RESTORE_DEADLINE_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map_or(RESTORE_DEADLINE, Duration::from_millis)
+}
+
 /// How often a waiting ensure reports that the owner is still restoring
 /// (`RestoreProgress`). A client that watches these reports (the app runs
 /// `server ensure --restore-progress`) bounds its wait by their absence, not by a
@@ -374,7 +383,7 @@ pub(crate) fn ensure_owner(
 ) -> Result<Ensured, EnsureError> {
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
         .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
-    let restore_deadline = deadline.max(Instant::now() + RESTORE_DEADLINE);
+    let restore_deadline = deadline.max(Instant::now() + restore_bound());
     let requested_backend = requested_cloud_backend();
     let owner = loop {
         if let Some(ready) =
@@ -506,6 +515,12 @@ pub(crate) fn ensure_owner(
             owner.terminate();
             Err(EnsureError::NotReady)
         }
+        // Leo 2026-11-09: each ensure killed its owner at the restore bound,
+        // and the next one started the same restore over, so a long restore
+        // never finished. A live owner keeps its socket and its restore: the
+        // next ensure finds it restoring and waits again, and only
+        // `--replace-unresponsive` stops one, never while its restore makes
+        // progress (`restore_progress`).
         Err(error) => {
             owner.terminate();
             Err(error)

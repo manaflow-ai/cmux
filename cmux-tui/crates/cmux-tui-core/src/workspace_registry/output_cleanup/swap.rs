@@ -609,6 +609,8 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
             ),
             [],
         )?;
+        // The swap runs inside a start's restore (restore_progress.rs).
+        crate::restore_progress::note();
     }
 
     let mut sizes = Vec::with_capacity(copied.len());
@@ -832,6 +834,7 @@ fn stage_live_rows(tx: &Transaction<'_>) -> anyhow::Result<()> {
         let record = decode_record(stored)?;
         let json = serde_json::to_vec(&journal_record_for_archive(&record))?;
         insert.execute(params![i64::try_from(record.sequence)?, record.kind, json, actor])?;
+        crate::restore_progress::note();
     }
     Ok(())
 }
@@ -870,6 +873,7 @@ fn pack_segments(tx: &Transaction<'_>, lo: u64, head: u64) -> anyhow::Result<(u6
     let mut segments = 0_u64;
     let mut pruned = 0_u64;
     while let Some(row) = rows.next()? {
+        crate::restore_progress::note();
         let sequence = u64::try_from(row.get::<_, i64>(0)?)?;
         let kind = row.get::<_, String>(1)?;
         let json = row.get::<_, Vec<u8>>(2)?;
@@ -1004,6 +1008,7 @@ fn verify(
     let mut read = 0_u64;
     loop {
         let page = query_session_journal_after(staged, cursor, 1024)?;
+        crate::restore_progress::note();
         anyhow::ensure!(page.head_sequence == built.head, "the new journal head moved");
         let Some(last) = page.records.last() else { break };
         cursor = last.sequence;

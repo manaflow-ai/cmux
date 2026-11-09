@@ -109,6 +109,9 @@ impl BoundSocket {
             cleanup(&path);
             return Err(error.into());
         }
+        // Until attach (or a failed restore drops this server), each finished
+        // restore step tells a supervisor this owner is not stuck.
+        crate::restore_progress::begin(&path);
         Ok(RestoringServer { path, attached: false, slot, shutdown })
     }
 }
@@ -123,6 +126,7 @@ impl RestoringServer {
         mux.start_default_settings_owner();
         mux.start_default_keybindings_owner();
         mux.connection_stats().note_socket(&self.path);
+        crate::restore_progress::end();
         // Publish the actual endpoint before any parked request is served.
         // A Cloud daemon may have been started with a custom --socket.
         let _ = mux.bound_socket_path.set(self.path.clone());
@@ -141,6 +145,7 @@ impl Drop for RestoringServer {
         if self.attached {
             return;
         }
+        crate::restore_progress::end();
         self.shutdown.store(true, Ordering::Release);
         // Wake the blocked accept so the loop sees the shutdown flag.
         let _ = transport::connect(&self.path);

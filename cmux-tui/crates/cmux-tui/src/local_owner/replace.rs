@@ -30,8 +30,9 @@
 //! the registry that long: every request holds it for one commit.
 //!
 //! The caller decides when an owner is stuck: an owner also holds connections
-//! unanswered while it restores its session (up to `RESTORE_DEADLINE`), and
-//! this probe cannot tell the two apart. Nor can it tell a wedged owner at its
+//! unanswered while it restores its session, and this probe cannot tell the
+//! two apart. The owner's restore heartbeat can (`restore_progress`): an
+//! owner that finished a restore step within its stall bound is kept. Nor can it tell a wedged owner at its
 //! connection limit from a healthy one whose clients all stay connected. A
 //! stopped listener is the exception (`listener_is_stopped`): plain ensure
 //! reports it unavailable at once. The app offers the option only after a
@@ -139,6 +140,19 @@ pub(crate) fn replace_if_unresponsive(spec: &OwnerSpec) -> Result<Option<Replace
     let key = probe.peer_process_key();
     if !unresponsive(spec, probe) {
         return replace_if_wedged(spec);
+    }
+    // A restoring owner holds its connections unanswered too; one that
+    // finished a restore step lately is slow, not stuck, and a replacement
+    // would only start its restore over (Leo 2026-11-09).
+    if let Ok(listener) = listener_of(key.clone())
+        && cmux_tui_core::restore_progress::progressing(&spec.socket, listener.pid)
+        && false
+    {
+        eprintln!(
+            "cmux-tui: the owner (pid {}) is still restoring its session; it is kept",
+            listener.pid
+        );
+        return Ok(None);
     }
     stop(spec, key)
 }

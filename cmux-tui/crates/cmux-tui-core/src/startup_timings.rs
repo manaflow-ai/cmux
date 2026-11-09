@@ -51,6 +51,8 @@ impl StartupTimings {
         let now = Instant::now();
         self.steps.push((step, now.saturating_duration_since(self.mark)));
         self.mark = now;
+        // A finished step is restore progress for a supervisor (restore_progress.rs).
+        crate::restore_progress::note();
     }
 
     /// Takes `inner`'s laps, which ran since this clock's previous lap, and

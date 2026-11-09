@@ -394,6 +394,18 @@ impl Mux {
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
         };
         let mut fold = self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner);
+        // A start's backlog goes first, one bounded pass at a time: the later
+        // records' deltas must apply on a roster that has folded what came
+        // before them. Until it is folded, the requests wait for later passes.
+        let backlog_done = match self.fold_roster_backlog(&mut fold) {
+            Some(true) => true,
+            Some(false) => {
+                drop(fold);
+                self.agent_roster_worker.requeue(pass.head);
+                return pass.retire;
+            }
+            None => false,
+        };
         let mut target = pass.wanted;
         // The head a retirement waits for. It is read after the close
         // recorded the retirement, so every event of the closed terminal is at
@@ -504,6 +516,10 @@ impl Mux {
             }
         }
         drop(fold);
+        if backlog_done {
+            // As a start does after its replay (construct.rs).
+            self.reconcile_agent_roster_projections();
+        }
         for (delta, kind) in deltas {
             self.apply_roster_delta(delta, &kind);
         }
@@ -513,6 +529,100 @@ impl Mux {
             self.activity.note_roster_changed();
         }
         left
+    }
+
+    /// One bounded pass over a start's backlog (`AgentRosterHost::
+    /// backlog_through`): fold it as the start's replay does (no deltas,
+    /// undecodable ranges skipped) and save the snapshot with its cursor.
+    /// `None`: no backlog. `Some(done)`: whether the backlog is folded now.
+    fn fold_roster_backlog(&self, fold: &mut AgentRosterFold) -> Option<bool> {
+        use super::agent_roster_restore::{
+            BACKLOG_PASS, ReplaySource, neutralize_live_claims, replay_roster,
+            skipped_ranges_problem,
+        };
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
+        };
+        let (cursor, through) = {
+            let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+            (host.cursor, host.backlog_through)
+        };
+        if through == 0 {
+            return None;
+        }
+        #[cfg(test)]
+        fold.note_io_for_test();
+        let reader = fold.reader(&self.journal_kernel);
+        // The read takes no lock a request takes; an in-memory registry is
+        // read one page at a time under its lock, released before the apply.
+        let without_output = |cursor, through, limit| match reader {
+            Some(reader) => reader.without_output_after(cursor, through, limit),
+            None => self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .session_journal_without_output_after(cursor, through, limit),
+        };
+        let salvaging = |cursor, limit| match reader {
+            Some(reader) => reader.after_salvaging(cursor, limit),
+            None => self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .session_journal_after_salvaging(cursor, limit),
+        };
+        let source = ReplaySource { without_output: &without_output, salvaging: &salvaging };
+        let replayed =
+            replay_roster(cursor, through, BACKLOG_PASS, &source, &mut |records, reached| {
+                let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+                for record in records {
+                    host.roster.apply(&RosterEvent::from_record(record));
+                }
+                host.cursor = reached;
+            });
+        let skipped = match replayed {
+            Ok((_, skipped)) => skipped,
+            Err(error) => {
+                // A store error, not a bad range: the next pass reads again.
+                eprintln!("cmux-tui: reading the agent roster backlog failed: {error}");
+                Vec::new()
+            }
+        };
+        let mut problem = None;
+        if !skipped.is_empty() {
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+            neutralize_live_claims(&registry, &mut host, &skipped);
+            problem = Some(skipped_ranges_problem(&skipped));
+        }
+        let (done, saved) = {
+            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+            let done = host.cursor >= through;
+            if done {
+                host.backlog_through = 0;
+            }
+            let saved = (host.cursor != cursor || !skipped.is_empty())
+                .then(|| (host.cursor, host.roster.snapshot().to_string()));
+            (done, saved)
+        };
+        if let Some((cursor, snapshot)) = saved {
+            #[cfg(test)]
+            fold.note_io_for_test();
+            if let Err(error) = self.registry_connection.put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                cursor,
+                &snapshot,
+            ) {
+                eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+            }
+        }
+        if let Some(problem) = problem {
+            self.report_internal_diagnostic(format!(
+                "agent roster restored with problems: {problem}"
+            ));
+        }
+        Some(done)
     }
 
     /// Repair public projections whose plugin or program-status roster event

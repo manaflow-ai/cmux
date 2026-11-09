@@ -94,6 +94,21 @@ impl RosterControl {
         self.wake.notify_one();
     }
 
+    /// Asks the owner for another pass without waiting: a pass that folded
+    /// one bounded piece of a start's backlog leaves the rest, and the head a
+    /// catch-up asked for, to the next one.
+    fn requeue(&self, head: bool) {
+        let mut requests = self.lock();
+        // A stopping owner ends after the recorded work; the backlog's cursor
+        // is saved, so the next start goes on from it.
+        if requests.stopping {
+            return;
+        }
+        requests.head |= head;
+        requests.pending = true;
+        self.wake.notify_one();
+    }
+
     /// Asks the owner for a pass (through the journal head when `head`) and
     /// waits until the pass that took this request finished, or until `limit`
     /// passed. False when no owner runs or the limit came first.
@@ -160,6 +175,12 @@ pub(in crate::mux) struct AgentRosterWorker {
     pub(in crate::mux) fold: Mutex<AgentRosterFold>,
     control: Arc<RosterControl>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+}
+
+impl AgentRosterWorker {
+    pub(in crate::mux) fn requeue(&self, head: bool) {
+        self.control.requeue(head);
+    }
 }
 
 impl Drop for AgentRosterWorker {

@@ -679,3 +679,73 @@ fn w5o_an_owner_a_client_starts_reaps_a_terminal_whose_tab_closed() {
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
 }
+
+/// Leo 2026-11-09: "i cant click into other workspaces and hvae them show
+/// stuff". The nightly's owner restored for minutes; each `server ensure`
+/// killed it at the restore bound and the next one started the same restore
+/// over, so no start finished. An ensure whose restore bound passes now
+/// reports the timeout and leaves the live owner restoring; the next ensure
+/// gets that same owner once its restore ends.
+#[test]
+fn an_ensure_past_its_restore_bound_keeps_the_restoring_owner() {
+    let fixture = EnsureFixture::new("restorebound");
+    let restore = SlowRestore::hold(&fixture);
+    let mut command = fixture.command("ensure");
+    command.env("CMUX_TUI_DEBUG_RESTORE_DEADLINE_MS", "2000");
+    command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    let ensure = ServerRun(Some(command.spawn().unwrap()));
+    let _held = held_while_restoring(&fixture)
+        .expect("the owner did not hold its socket while it restored");
+    let pid = owner_pid(&fixture).expect("restoring owner pid");
+
+    let output = ensure.output();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert_eq!(owner_pid(&fixture), Some(pid), "the ensure killed its restoring owner");
+
+    drop(restore);
+    let ensured = fixture.run("ensure");
+    assert_eq!(ensured["pid"].as_u64(), Some(u64::from(pid)), "{ensured}");
+    fixture.run("stop");
+}
+
+/// `--replace-unresponsive` (the app's restart of a stuck owner) keeps an
+/// owner whose restore heartbeat is fresh: it is slow, not stuck, and a
+/// replacement would only start its restore over (Leo 2026-11-09).
+#[test]
+fn replace_unresponsive_keeps_an_owner_whose_restore_progresses() {
+    let fixture = EnsureFixture::new("replaceprogress");
+    let restore = SlowRestore::hold(&fixture);
+    let ensure = spawn_ensure(&fixture);
+    let _held = held_while_restoring(&fixture)
+        .expect("the owner did not hold its socket while it restored");
+    let pid = owner_pid(&fixture).expect("restoring owner pid");
+    let beat = {
+        let mut name = fixture.socket.as_os_str().to_owned();
+        name.push(".restore-progress");
+        PathBuf::from(name)
+    };
+    assert!(beat.exists(), "a restoring owner writes its heartbeat");
+
+    let mut command = fixture.command("ensure");
+    command.arg("--replace-unresponsive").env("CMUX_TUI_DEBUG_RESTORE_DEADLINE_MS", "2000");
+    let output = command.output().unwrap();
+    assert_eq!(
+        owner_pid(&fixture),
+        Some(pid),
+        "a progressing restore was replaced; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    drop(restore);
+    let ensured = parse_success("ensure", &ensure.output());
+    assert_eq!(ensured["pid"].as_u64(), Some(u64::from(pid)), "{ensured}");
+    assert!(!beat.exists(), "the heartbeat outlived the restore");
+    fixture.run("stop");
+}

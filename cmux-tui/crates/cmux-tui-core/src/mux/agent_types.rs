@@ -118,6 +118,12 @@ pub(super) fn parse_projection_agent_state(value: &str) -> AgentState {
 pub(super) struct AgentRosterHost {
     pub(super) roster: crate::journal_reducers::AgentRoster,
     pub(super) cursor: u64,
+    /// The journal head a start's replay stopped short of
+    /// (`agent_roster_restore::STARTUP_REPLAY`), 0 once folded. The roster's
+    /// owner folds the records through it as the start would have: no deltas
+    /// (they applied when the records first committed) and salvaging
+    /// undecodable ranges.
+    pub(super) backlog_through: u64,
 }
 
 pub(super) fn agent_provider_identity(ingress: &crate::JournalIngress) -> Option<String> {

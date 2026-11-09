@@ -197,3 +197,92 @@ fn an_agent_with_events_in_a_skipped_range_is_not_reported_working() {
     drop(reopened);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// Leo 2026-11-09: "i cant click into other workspaces and hvae them show
+/// stuff nor click on links". A reducer version change made each start of
+/// his nightly replay the whole journal of a 59 GB registry before its
+/// socket answered, and the cursor was saved only at the end, so a start
+/// killed partway began again at zero. A start now folds at most its budget
+/// and saves that progress; the roster's owner folds the rest after the
+/// start, and the roster ends as a full replay leaves it.
+#[test]
+fn a_start_folds_at_most_its_budget_of_a_stale_roster_and_the_owner_folds_the_rest() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-startup-budget-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "roster-startup-budget";
+    let mux = open_persistent_test_mux(session, &root);
+    let mut terminals = Vec::new();
+    for step in 0..6 {
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        append_journal_hook(&mux, &terminal_id, "SessionStart", Some(&format!("budget-{step}")));
+        assert_eq!(roster_agent_state(&mux, &terminal_id).as_deref(), Some("idle"));
+        terminals.push(terminal_id);
+    }
+    mux.shutdown();
+    drop(mux);
+
+    // A snapshot of another reducer version: the start replays from zero.
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    registry
+        .put_journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID, 0, 0, "")
+        .unwrap();
+    let head = registry.session_journal_head().unwrap();
+    drop(registry);
+
+    // Two pages of four records before the start answers.
+    crate::mux::agent_roster_restore::set_startup_replay_for_test(2, 4);
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let restored = crate::mux::agent_roster_restore::restore_agent_roster(&registry).unwrap();
+    assert!(
+        restored.host.cursor > 0 && restored.host.cursor < head,
+        "the start folded through {} of {head} journal records before it could answer",
+        restored.host.cursor
+    );
+    assert_eq!(restored.host.backlog_through, head, "the rest is left to the roster's owner");
+    let saved = registry
+        .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+        .unwrap()
+        .map(|(version, cursor, _)| (version, cursor));
+    assert_eq!(
+        saved,
+        Some((crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION, restored.host.cursor)),
+        "a start killed after its replay must not begin again at zero"
+    );
+    drop(restored);
+
+    // The whole start: it answers with part of the roster, and the owner
+    // folds the backlog in bounded passes.
+    crate::mux::agent_roster_restore::set_startup_replay_for_test(2, 4);
+    let reopened = Mux::from_workspace_registry(
+        session.to_owned(),
+        SurfaceOptions::default(),
+        registry,
+        ProviderWorkspaceState::default(),
+        true,
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while reopened.agent_roster.lock().unwrap().backlog_through != 0 {
+        assert!(Instant::now() < deadline, "the roster's owner did not fold the backlog");
+        assert!(reopened.settle_agent_roster_for_test());
+    }
+    for (step, terminal_id) in terminals.iter().enumerate() {
+        assert_eq!(
+            roster_agent_state(&reopened, terminal_id).as_deref(),
+            Some("idle"),
+            "roster entry of step {step} after the backlog"
+        );
+    }
+    let saved_cursor = reopened
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+        .unwrap()
+        .map_or(0, |(_, cursor, _)| cursor);
+    assert!(saved_cursor >= head, "the owner saved the folded backlog ({saved_cursor} of {head})");
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(root);
+}
