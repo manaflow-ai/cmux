@@ -32,6 +32,25 @@ it("fails on an oversized item, a missing field, an item that is not an object, 
   expect(() => read(JSON.stringify({ tunnels: [{ id: "x" }] }).slice(0, -2), 10)).toThrow(JsonItemsError);
 });
 
+it("with onOversized, skips an item over the bound, names its size and head, and reads the items after it", () => {
+  const big = { id: "big", text: "x".repeat(2_000) };
+  const doc = JSON.stringify({ tunnels: [{ id: "a" }, big, { id: "b" }] });
+  for (const chunk of [1, 64, doc.length]) {
+    const items: unknown[] = [];
+    const oversized: Array<{ chars: number; head: string }> = [];
+    const scanner = jsonItemsScanner("tunnels", 1_000, (item) => items.push(item), (item) => oversized.push(item));
+    for (let i = 0; i < doc.length; i += chunk) scanner.feed(doc.slice(i, i + chunk));
+    scanner.end();
+    expect(items).toEqual([{ id: "a" }, { id: "b" }]);
+    expect(oversized.map((item) => item.chars)).toEqual([JSON.stringify(big).length]);
+    expect(oversized[0]!.head.startsWith('{"id":"big"')).toBe(true);
+  }
+  // The grammar is still checked inside a skipped item.
+  const broken = `{"tunnels":[{"id":"big","text":"${"x".repeat(2_000)}",}]}`;
+  const scanner = jsonItemsScanner("tunnels", 1_000, () => undefined, () => undefined);
+  expect(() => { scanner.feed(broken); scanner.end(); }).toThrow(JsonItemsError);
+});
+
 it("checks the whole document's grammar, so a malformed listing hands over nothing the caller acts on", () => {
   const bad = [
     '{"tunnels":[{"id":"x"}]]}', // an extra closer

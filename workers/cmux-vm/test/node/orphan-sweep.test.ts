@@ -236,6 +236,33 @@ it("reads a tunnel listing far over the 1 MiB reply cap as it streams, and still
   expect(deletes).toEqual(["tun-3999"]);
 });
 
+it("skips one tunnel whose data is over the item bound, names it with its size, and sweeps the others", async () => {
+  // tun-2's entry is past 64 KiB: before, it failed the whole listing and no orphan tunnel was ever deleted.
+  const listing = [
+    deviceTunnel(1),
+    { ...deviceTunnel(2), clientConfig: "#".repeat(70 * 1024) },
+    deviceTunnel(3),
+  ];
+  const text = JSON.stringify({ tunnels: listing });
+  const deletes: string[] = [];
+  const fetch = async (request: Request) => {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/v5/tunnels") return new Response(text);
+    if (request.method === "DELETE") {
+      deletes.push(decodeURIComponent(url.pathname.replace("/v5/tunnels/", "")));
+      return Response.json({});
+    }
+    return new Response(null, { status: 500 });
+  };
+  const report = await Effect.runPromise(sweepOrphanTunnels(
+    { baseUrl: "https://provider.test", apiKey: Redacted.make("key"), environment: "production", fetch },
+    { dryRun: false, sweepable: naming([device(1), device(2), device(3)]) },
+  ));
+  expect(report.deleted).toEqual(["tun-1", "tun-3"]);
+  expect(deletes).toEqual(["tun-1", "tun-3"]);
+  expect(report.oversized).toEqual([{ upstreamId: "tun-2", chars: JSON.stringify(listing[1]).length }]);
+});
+
 it("deletes nothing when the listing is cut off", async () => {
   const fetch = async (request: Request) =>
     new URL(request.url).pathname === "/v5/tunnels" && request.method === "GET"
