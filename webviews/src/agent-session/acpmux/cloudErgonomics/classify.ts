@@ -57,7 +57,11 @@ export function visibleText(node: Element, drop: readonly string[] = []): string
     ", ",
   );
   for (const hidden of copy.querySelectorAll(selector)) hidden.remove();
-  return (copy.textContent ?? "").replace(/\s+/g, " ").trim();
+  // Each text node as its own word run: elements side by side read as separate words, not run together.
+  const words: string[] = [];
+  const walker = copy.ownerDocument.createTreeWalker(copy, 4 /* NodeFilter.SHOW_TEXT */);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) words.push(node.nodeValue ?? "");
+  return words.join(" ").replace(/\s+/g, " ").trim();
 }
 
 /// Words that send the person outside the pane to go on: a command to type (in backticks, or `cmux …`), a
@@ -65,8 +69,7 @@ export function visibleText(node: Element, drop: readonly string[] = []): string
 const OUT_OF_APP_WORDS: readonly RegExp[] = [
   /`[^`]{2,}`/,
   /\bcmux [a-z][a-z-]+/,
-  /\b(?:a|the|your) (?:terminal|browser)\b/i,
-  /\bTerminal\b/,
+  /\b(?:terminal|browser)\b/i,
   /\b(?:System )?Settings\b/,
   /\bcommand palette\b/i,
 ];
