@@ -22,6 +22,24 @@ from pathlib import Path
 REGISTRY = "workspace-registry.sqlite3"
 
 
+# Variables that point an owner at the caller's acpmux daemon (daemon_socket_path); an owner the
+# harness starts gets its own under its HOME instead.
+ACPMUX_ENV = ("ACPMUX_HOME", "ACPMUX_SOCKET")
+
+
+def owner_env(home, **values):
+    """The environment of an owner the harness starts: the caller's, with its own HOME and
+    acpmux daemon (never the caller's) and `values`."""
+    env = dict(os.environ)
+    for name in ACPMUX_ENV:
+        env.pop(name, None)
+    env["HOME"] = str(home)
+    env["ACPMUX_HOME"] = str(Path(home) / ".acpmux")
+    env.update({name: str(value) for name, value in values.items()})
+    env.pop("CMUX_TUI_SOCKET", None)
+    return env
+
+
 def identify(path, timeout):
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
@@ -73,16 +91,12 @@ def file_size(path):
 def start(args, label, bumped):
     sdir = session_dir(args.state)
     registry = sdir / REGISTRY
-    env = dict(os.environ)
-    env.update(
-        {
-            "HOME": args.home,
-            "CMUX_TUI_STATE_DIR": args.state,
-            "CMUX_TUI_CONFIG": os.path.join(args.home, "config.json"),
-            "CMUX_TUI_LOG_FILE": os.path.join(args.home, "client.log"),
-        }
+    env = owner_env(
+        args.home,
+        CMUX_TUI_STATE_DIR=args.state,
+        CMUX_TUI_CONFIG=os.path.join(args.home, "config.json"),
+        CMUX_TUI_LOG_FILE=os.path.join(args.home, "client.log"),
     )
-    env.pop("CMUX_TUI_SOCKET", None)
     if os.path.exists(args.socket):
         os.unlink(args.socket)
     log = open(os.path.join(args.home, f"owner-{label}.log"), "wb")
@@ -186,18 +200,16 @@ def warm_start(args):
     file creations beside it (2026-11-09: 0.8-2.3 s on fleet Macs, anywhere in the start),
     which later starts of the same binary never pay. It runs under its own HOME and data home,
     so the timed starts still write their own build helpers. Returns (ms to ready or None,
-    the warm owner's last log line).
+    the warm owner's last log line, the warm owner's XDG_DATA_HOME).
     """
     warm_root = Path(args.home).parent / "warm"
-    warm_env = dict(os.environ)
-    warm_env.update({
-        "HOME": str(warm_root / "home"),
-        "XDG_DATA_HOME": str(warm_root / "home" / ".local" / "share"),
-        "CMUX_TUI_STATE_DIR": str(warm_root / "state"),
-        "CMUX_TUI_CONFIG": str(warm_root / "home" / "config.json"),
-        "CMUX_TUI_LOG_FILE": str(warm_root / "home" / "client.log"),
-    })
-    warm_env.pop("CMUX_TUI_SOCKET", None)
+    warm_env = owner_env(
+        warm_root / "home",
+        XDG_DATA_HOME=warm_root / "home" / ".local" / "share",
+        CMUX_TUI_STATE_DIR=warm_root / "state",
+        CMUX_TUI_CONFIG=warm_root / "home" / "config.json",
+        CMUX_TUI_LOG_FILE=warm_root / "home" / "client.log",
+    )
     for folder in ("home", "state"):
         (warm_root / folder).mkdir(parents=True, exist_ok=True, mode=0o700)
     warm_socket = str(Path(args.socket).with_name("warm.sock"))
@@ -223,7 +235,7 @@ def warm_start(args):
             warm.kill()
             warm.wait()
     lines = warm_log_path.read_text(errors="replace").splitlines()
-    return warm_ready, (lines[-1] if lines else "")
+    return warm_ready, (lines[-1] if lines else ""), warm_env.get("XDG_DATA_HOME")
 
 
 def main():
@@ -246,9 +258,9 @@ def main():
                        stderr=subprocess.DEVNULL, timeout=600, check=False)
         execs.append(round((time.monotonic() - exec_started) * 1000, 1))
     print("DRS-EXEC " + json.dumps({"first_exec_ms": execs[0], "second_exec_ms": execs[1]}), flush=True)
-    warm_ready, warm_last_line = warm_start(args)
+    warm_ready, warm_last_line, warm_data_home = warm_start(args)
     print("DRS-WARM " + json.dumps({"warm_ready_ms": warm_ready,
-                                    "xdg_data_home_set": bool(os.environ.get("XDG_DATA_HOME"))}), flush=True)
+                                    "xdg_data_home_set": bool(warm_data_home)}), flush=True)
     if warm_ready is None:
         # Without it the first timed start pays the binary's first-start cost again: no results.
         print(f"error: the warm start did not get ready: {warm_last_line or '(no output)'}",
