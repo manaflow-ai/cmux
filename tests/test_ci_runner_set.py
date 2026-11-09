@@ -137,15 +137,18 @@ class RunnerSetTests(unittest.TestCase):
             return seen
 
         # Every Mac job (a runs-on that can name a macOS label, or a build-fleet client on the gateway runner
-        # that a Mac job's placement judged) waits for it. app-compile-fleet's runner only hands the head to
-        # the build fleet's Linux compile, on a gateway runner judged at once (app-compile-placement), and a
-        # push-only DEV landing compile never runs on a pull request.
+        # that a Mac job's placement judged, its own runs-on or the runner it hands a reusable workflow) waits
+        # for it. app-compile-fleet's runner only hands the head to the build fleet's Linux compile, on a
+        # gateway runner judged at once (app-compile-placement), and a push-only DEV landing compile never
+        # runs on a pull request.
         starts_at_once = {"app-compile-fleet", "dev-landing-compile"}
         mac = {name for name, job in jobs.items()
-               if ("macos" in str(job.get("runs-on", "")) or "gateway_runner" in str(job.get("runs-on", "")))
+               if ("macos" in str(job.get("runs-on", ""))
+                   or "gateway_runner" in str(job.get("runs-on", "")) + str(job.get("with", "")))
                and name not in starts_at_once}
         self.assertTrue({"fast-tier", "swift-canary", "swift-test", "daemon-test", "generated-files", "release-compile",
-                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet"} <= mac, sorted(mac))
+                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet", "generated-files-fleet"} <= mac,
+                        sorted(mac))
         for name in sorted(mac):
             with self.subTest(job=name):
                 self.assertIn("pr-quiet-period", ancestors(name), f"{name} takes a Mac before the quiet period ends")

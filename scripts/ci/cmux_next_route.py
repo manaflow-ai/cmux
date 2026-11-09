@@ -834,6 +834,8 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "swift-test": ("swift", "generated"),
     "daemon-test": ("daemon", "generated"),
     "generated-files": ("generated",),
+    # Its build-fleet client, which runs exactly where generated-files has its own job.
+    "generated-files-fleet": ("generated",),
     "release-compile": ("native", "mac_release"),
     "app-compile-fleet": ("native",),
     "cmux-scheme-compile": ("native", "scheme"),

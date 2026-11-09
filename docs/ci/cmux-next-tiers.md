@@ -268,6 +268,25 @@ regenerates them and uploads the patch. On a same-repository PR,
 
 The new commit starts a fresh run. Pull before your next push.
 
+On a same-repository PR whose generated files have their own job
+(`generated_host` is `generated-files`), the check first goes to the build
+fleet. `cmux-next generated files (build fleet)` calls
+`.github/workflows/cmux-next-generated-files-fleet.yml`. It runs only on an
+idle gateway runner (`GATEWAY_JOBS`) and runs only the `cmux-ci` client. It
+sends two fleet steps at the merge commit:
+
+- `scripts/cmux-next/check-action-surfaces.sh`;
+- `scripts/cmux-next/regenerate-settings-exports.sh`.
+
+When both pass and no settings export is regenerated, the verdict is `fresh`,
+and `cmux-next generated files` is skipped (a skipped check passes, as the
+Release compile after a fleet compile pass). Any other verdict (`stale`,
+`queued` or `unavailable`), or no idle gateway runner, runs `cmux-next
+generated files` in full on its Mac route as before. The Mac run judges base
+drift, uploads the patch, records its pass and fails on a stale file. The
+fleet job always passes. Pushes, dispatches and fork PRs always use the Mac
+run.
+
 The settings exports (`schemas/settings/settings-schema.json`, `docs/mdm/*`)
 come from Swift tests. When an event changes the `CmuxNextSettings` sources or
 the export tests (their source stamp, `defaults_guard.py source-stamp --ref REF`,

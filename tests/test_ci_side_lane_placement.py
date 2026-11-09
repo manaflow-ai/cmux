@@ -1007,6 +1007,21 @@ class GatewayRoute(unittest.TestCase):
         self.assertEqual(placement.gateway_taken({**values, "CASCADE_RUNS": " swift-canary "}, runners), {})
         self.assertEqual(placement.gateway_taken({**values, "CASCADE_RUNS": ""}, runners, FAST), {FAST: 1})
 
+    def test_generated_files_take_no_gateway_runner_from_their_fleet_client(self):
+        # generated-files-fleet (cmux-next.yml) checks a same-repository pull request's generated files on the
+        # build fleet; generated-files needs a Mac only without a fresh verdict, so with the client in
+        # GATEWAY_JOBS it does not race the run's side jobs for the gateway's idle runners.
+        runners = self.light(True) + self.std(False, False)
+        values = env(SIDE_LABEL=LIGHT_SIDE, GATEWAY_JOBS="generated-files-fleet",
+                     CASCADE_RUNS=" generated-files cmux-scheme-compile ")
+        self.assertEqual(placement.GATEWAY_FALLBACKS["generated-files-fleet"], "generated-files")
+        self.assertEqual(placement.gateway_taken(values, runners), {SIDE: 1})
+        self.assertEqual(placement.gateway_taken({**values, "GATEWAY_JOBS": ""}, runners), {SIDE: 2})
+        # The client needs an idle runner of its own beside swift-canary-fleet's: two jobs, two runners.
+        both = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet  generated-files-fleet"}
+        self.assertEqual(placement.gateway_route(both, self.light(False) + self.std(False, False)), SIDE)
+        self.assertEqual(placement.gateway_route(both, self.light(False) + self.std(False, True)), "")
+
     def test_a_running_fleet_fast_check_keeps_its_mac_fallback_out_of_the_cascade(self):
         values = {"CASCADE_RUNS": " fast-tier release-compile ", "FIRST_JOBS": "release-compile"}
         trimmed = placement.without_cascade(values, "release-compile")

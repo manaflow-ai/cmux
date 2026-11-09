@@ -1047,6 +1047,15 @@ class WorkflowRoute(unittest.TestCase):
                 self.assertEqual({tier for tier in run | skip if result[tier] == "true"}, run)
                 self.assertEqual((result["full"], result["swift_targets"]), ("false", ""))
 
+    def test_a_change_to_the_generated_files_fleet_call_runs_only_generated_files(self):
+        # generated-files-fleet calls cmux-next-generated-files-fleet.yml, so it has no timeout-minutes to edit:
+        # a base whose call differs only in its runner hand-off. Its callee runs on a Mac gateway runner.
+        old = "      runner: ${{ needs.macos-placement.outputs.gateway_runner }}\n    permissions: {}\n"
+        result = self.route_with_base(self.base_without(old, old.replace("gateway_runner }}", "gateway_runner || '' }}")))
+        self.assertEqual({tier for tier in ("generated", "swift", "daemon", "native", "scheme", "mac_release")
+                          if result[tier] == "true"}, {"generated"})
+        self.assertEqual((result["full"], result["swift_targets"]), ("false", ""))
+
     def test_a_job_no_pull_request_runs_adds_no_tier(self):
         """#26896 changed only the DEV landing compile, which runs on feat-cmux-next pushes: its pull request
         ran every tier and still never ran that job. The base push runs it."""

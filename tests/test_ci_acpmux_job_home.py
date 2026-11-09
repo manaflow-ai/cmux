@@ -89,7 +89,20 @@ def runs_before_every_launch(start: dict, launching: list[dict]) -> bool:
     return not gate or all(gate in condition(step) for step in launching)
 
 
+def fleet_client_job(job: dict) -> bool:
+    """A build-fleet gateway job: it runs on a placement's gateway_runner (or, as
+    cmux-next-generated-files-fleet.yml's client, on the runner its caller hands it, `inputs.runner`) with no
+    token, checks nothing out and runs only the cmux-ci client. The scripts it names are handed to a fleet worker
+    with `cmux-ci run --script`, so none of them runs, or starts acpmux, on the job's own runner."""
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+    runs_on = str(job.get("runs-on") or "")
+    return (("outputs.gateway_runner" in runs_on or runs_on == "${{ inputs.runner }}") and job.get("permissions") == {}
+            and bool(steps) and all("uses" not in step and "cmux-ci" in str(step.get("run") or "") for step in steps))
+
+
 def job_failures(where: str, job: dict) -> list[str]:
+    if fleet_client_job(job):
+        return []
     steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
     launching = [index for index, step in enumerate(steps) if launches(step)]
     if not launching:
@@ -179,6 +192,24 @@ class AcpmuxJobHomeTests(unittest.TestCase):
         self.assertIn("trap 'status=$?; end_own_acpmux_home; exit \"$status\"' EXIT", setup)
         self.assertIn(f'env -u ACPMUX_SOCKET ACPMUX_HOME="$own_acpmux_home" "$acpmux" {SHUTDOWN}', setup)
         self.assertIn('rm -rf "$own_acpmux_home"', setup)
+
+    def test_a_build_fleet_client_starts_nothing_on_its_own_runner(self) -> None:
+        submit = {"name": "Check on the build fleet",
+                  "run": 'client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"\n'
+                         '"$client" run --class light --script scripts/cmux-next/check-action-surfaces.sh --ref "$REF"\n'}
+        gateway = {"runs-on": "${{ needs.macos-placement.outputs.gateway_runner }}", "permissions": {},
+                   "steps": [submit]}
+        self.assertTrue(launches(submit))
+        self.assertEqual(job_failures("w:j", gateway), [])
+        # The same step on a Mac label, with a token, or beside a checkout is not a gateway client.
+        self.assertEqual(len(job_failures("w:j", {**gateway, "runs-on": "glaeda-side-std-xcode-26.6"})), 2)
+        self.assertEqual(len(job_failures("w:j", {**gateway, "permissions": {"contents": "read"}})), 2)
+        checkout = {"uses": "actions/checkout@v6", "run": "cmux-ci"}
+        self.assertEqual(len(job_failures("w:j", {**gateway, "steps": [checkout, submit]})), 2)
+        # A reusable workflow's client, on the runner its caller hands it, is one too.
+        self.assertEqual(job_failures("w:j", {**gateway, "runs-on": "${{ inputs.runner }}"}), [])
+        clients = {where for where, job in workflow_jobs() if fleet_client_job(job)}
+        self.assertIn("cmux-next-generated-files-fleet.yml:client", clients)
 
     def test_other_swift_packages_are_not_acpmux(self) -> None:
         self.assertFalse(launches({"run": "swift test --package-path Packages/Shared/CmuxVNC"}))
