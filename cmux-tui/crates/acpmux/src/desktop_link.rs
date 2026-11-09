@@ -597,14 +597,14 @@ fn claude_cli(env: &Env, args: &[&str]) -> Result<()> {
     if let Some(path) = crate::login_env::path() {
         command.env("PATH", path);
     }
-    let deadline = tokio::time::Instant::now() + CLAUDE_CLI_WAIT;
-    let done =
-        crate::cli::bounded_child::wait(command.spawn()?, None, Some(deadline), "claude mcp")?;
+    let deadline = tokio::time::Instant::now().checked_add(CLAUDE_CLI_WAIT);
+    let done = crate::cli::bounded_child::wait(command.spawn()?, None, deadline, "claude mcp")?;
     if !done.status.success() {
         let err = String::from_utf8_lossy(&done.stderr);
         let out = String::from_utf8_lossy(&done.stdout);
         let why = err.lines().chain(out.lines()).rfind(|l| !l.trim().is_empty()).unwrap_or("");
-        bail!("claude {} failed ({}): {why}", args[..2].join(" "), done.status);
+        let verb = args.get(..2).unwrap_or(args).join(" ");
+        bail!("claude {verb} failed ({}): {why}", done.status);
     }
     Ok(())
 }

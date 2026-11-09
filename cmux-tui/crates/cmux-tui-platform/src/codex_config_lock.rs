@@ -36,11 +36,11 @@ pub fn lock(lock_path: &Path) -> Option<fs::File> {
         .custom_flags(libc::O_CLOEXEC)
         .open(lock_path)
         .ok()?;
-    let deadline = Instant::now() + LOCK_WAIT;
+    let deadline = Instant::now().checked_add(LOCK_WAIT);
     loop {
         match file.try_lock() {
             Ok(()) => return Some(file),
-            Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+            Err(fs::TryLockError::WouldBlock) if deadline.is_some_and(|d| Instant::now() < d) => {
                 // Lock contention, not synchronization: flock has no
                 // wait-with-timeout, so poll at a short interval to a deadline.
                 std::thread::sleep(Duration::from_millis(25));

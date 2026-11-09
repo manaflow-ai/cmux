@@ -129,7 +129,10 @@ pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, 
     };
     let name = match arg(args, "name").map(session_name).filter(|n| !n.is_empty()) {
         Some(name) => name,
-        None => format!("{app}-{}", &uuid::Uuid::now_v7().simple().to_string()[24..]),
+        None => {
+            let id = uuid::Uuid::now_v7().simple().to_string();
+            format!("{app}-{}", id.get(24..).unwrap_or_default())
+        }
     };
     if name.starts_with('-') {
         return Err("name may not start with -".to_owned());
@@ -313,7 +316,8 @@ async fn run_cli(argv: &[String], stdin: Option<&str>, wait: Duration) -> Result
         Ok(Ok(out)) => {
             let err = String::from_utf8_lossy(&out.stderr);
             let why = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").to_owned();
-            Err(CliError::Failed(format!("acpmux {} failed ({}): {why}", argv[1], out.status)))
+            let verb = argv.get(1).map_or("", String::as_str);
+            Err(CliError::Failed(format!("acpmux {verb} failed ({}): {why}", out.status)))
         }
     }
 }
