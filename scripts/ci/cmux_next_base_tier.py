@@ -23,14 +23,18 @@ The kick runs serialized (its workflow's concurrency group, cancel-in-progress f
 the window and the newest pending one replaces older pending ones, which never started. It waits once
 (one sleep, never a polling loop), reads the tip, and dispatches.
 
-Once the tip has a base tier run, an older base tier run none of whose Mac jobs (MAC_JOBS) has started
-and created before the newest base tier run is superseded and the kick cancels it (first attempts
-only): the tip's run covers every landing it would have, and
-base_red_excuse.py reads the newest base verdict, not a given commit's. With the Mac pools saturated
-(2026-10-31) base tier runs waited up to two hours and 682 of their 826 Mac minutes in a day started
-after a newer base tier run had been dispatched. A run whose Mac job had started when read is never
-cancelled, nor is anything that is not a base tier run (a nightly, DEV or promote build above all).
-Needs GH_TOKEN with actions: write and contents: read.
+Once the tip has a base tier run, the open first-attempt base tier runs created before the newest one
+are superseded: the tip's run covers every landing they would have, and base_red_excuse.py reads the
+newest base verdict, not a given commit's. Of those with no Mac job (MAC_JOBS) in progress, the kick
+keeps the oldest and cancels the rest. A finished Mac job does not protect a run: on 2026-11-09 eleven
+open base tier runs had finished their daemon tests and each held a queued scheme compile in the Mac
+pool for hours. The oldest is kept because its queued job is the nearest to a runner: with a Mac queue
+wait longer than WINDOW, cancelling every older run would cancel each before a runner took it and the
+tier would never give a verdict (a concurrency group starved the DEV publisher that way on 2026-10-26).
+With the Mac pools saturated (2026-10-31) base tier runs waited up to two hours and 682 of their 826
+Mac minutes in a day started after a newer base tier run had been dispatched. A run with a Mac job in
+progress when read is never cancelled, nor is anything that is not a base tier run (a nightly, DEV or
+promote build above all). Needs GH_TOKEN with actions: write and contents: read.
 """
 
 from __future__ import annotations
@@ -61,7 +65,7 @@ SETTLE_S = 20
 # The compare API lists at most this many files; a longer diff counts as relevant.
 COMPARE_FILES_MAX = 300
 # The base tier's Mac jobs (cmux-next.yml's daemon-test, generated-files and cmux-scheme-compile names).
-# A base tier run where one of these has started (or finished) is never cancelled.
+# A base tier run where one of these is in progress is never cancelled; a finished one protects nothing.
 MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)")
 # A run in one of these states has not finished.
 OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
@@ -157,31 +161,29 @@ def base_tier_runs(api: Api, repo: str) -> dict[str, float]:
     return firsts
 
 
-def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
-    """Whether a Mac job of the base tier run has started. Anything unreadable counts as started."""
+def mac_job_running(api: Api, repo: str, run_id: int) -> bool:
+    """Whether a Mac job of the base tier run is in progress. Anything unreadable counts as running."""
     try:
         listed = api.get(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
     except RuntimeError:
         return True
-    for job in listed.get("jobs") or []:
-        if job.get("name") not in MAC_JOBS:
-            continue
-        if job.get("status") == "in_progress":
-            return True
-        if job.get("status") == "completed" and job.get("conclusion") not in ("skipped", "cancelled"):
-            return True
-    return False
+    return any(job.get("name") in MAC_JOBS and job.get("status") == "in_progress"
+               for job in listed.get("jobs") or [])
 
 
 def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], None] = print) -> list[int]:
-    """Cancel the open base tier runs that a newer base tier run supersedes and whose Mac jobs have not
-    started; returns their ids. A run is superseded only when it was created before the newest listed
-    base tier run and names another commit than that run and than NEWEST (the tip read before the
-    dispatch): a run the dispatch titled with a commit that landed after that read is the newest listed,
-    so it is kept. First attempts only (a re-run may have finished its Mac jobs in an earlier attempt).
-    Finished runs, runs whose Mac job started and every other workflow's or title's runs are left alone.
-    Each run's jobs are read just before its cancel; a Mac job that starts in the instant between that
-    read and the cancel loses seconds of superseded work, never a verdict anything waits on."""
+    """Cancel the open base tier runs that a newer base tier run supersedes, but the oldest of those with
+    no Mac job in progress; returns their ids. A run is superseded only when it was created before the
+    newest listed base tier run and names another commit than that run and than NEWEST (the tip read
+    before the dispatch): a run the dispatch titled with a commit that landed after that read is the
+    newest listed, so it is kept. First attempts only (a re-run may have finished its Mac jobs in an
+    earlier attempt). A superseded run with no Mac job in progress is a candidate, even when its daemon
+    tests finished (its queued scheme compile still holds a Mac queue slot). The oldest candidate is
+    kept: its queued job is the nearest to a runner, so the tier makes progress even when the Mac queue
+    wait is longer than WINDOW. Finished runs, runs with a Mac job in progress (or an unreadable job
+    list) and every other workflow's or title's runs are left alone. Runs are read oldest first, each
+    one's jobs just before its cancel; a Mac job that starts in the instant between that read and the
+    cancel loses seconds of superseded work, never a verdict anything waits on."""
     listed = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={BRANCH}"
                      f"&event=workflow_dispatch&per_page=100")
     tier_runs = []
@@ -195,18 +197,25 @@ def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], Non
     latest_at, latest_sha, _ = max(tier_runs, key=lambda item: item[0])
     keep = {newest, latest_sha}
     cancelled: list[int] = []
-    for at, sha, run in tier_runs:
+    kept_oldest = False
+    for at, sha, run in sorted(tier_runs, key=lambda item: item[0]):
         run_id = run.get("id")
         if (sha in keep or at >= latest_at or not isinstance(run_id, int) or run.get("status") not in OPEN
                 or run.get("run_attempt", 1) != 1):
             continue
-        if mac_job_started(api, repo, run_id):
-            log(f"base tier run {run_id} ({sha[:12]}) has a Mac job running or done; left alone")
+        if mac_job_running(api, repo, run_id):
+            log(f"base tier run {run_id} ({sha[:12]}) has a Mac job in progress; left alone")
+            continue
+        if not kept_oldest:
+            kept_oldest = True
+            log(f"base tier run {run_id} ({sha[:12]}) is the oldest superseded run with no Mac job in progress; "
+                "kept so the tier makes progress")
             continue
         status = api.post(f"repos/{repo}/actions/runs/{run_id}/cancel", {})
         if status in (202, 204):
             cancelled.append(run_id)
-            log(f"cancelled base tier run {run_id} ({sha[:12]}): superseded by {latest_sha[:12]}, no Mac job started")
+            log(f"cancelled base tier run {run_id} ({sha[:12]}): superseded by {latest_sha[:12]}, "
+                "no Mac job in progress")
         else:
             log(f"could not cancel base tier run {run_id} ({sha[:12]}): HTTP {status}")
     return cancelled
