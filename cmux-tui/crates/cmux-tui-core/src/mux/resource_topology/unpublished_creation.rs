@@ -41,8 +41,10 @@ impl Mux {
             {
                 eprintln!("cmux-tui: a failed creation's terminal could not be closed: {error:#}");
             }
-            self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-            return Ok(ResourceCreationSettlement::Indeterminate);
+            return self.indeterminate_creation(
+                recovery,
+                &format!("the created resource's outcome commit failed: {projection_error:#}"),
+            );
         }
         // The terminal ends first: if that fails (or the daemon stops here),
         // the receipt's evidence is a closed terminal, whose settlement
@@ -67,8 +69,13 @@ impl Mux {
         let rolled_back = terminal_closed.and(workspace_rolled_back);
         if let Err(error) = rolled_back {
             eprintln!("cmux-tui: a failed creation could not be rolled back: {error:#}");
-            self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-            return Ok(ResourceCreationSettlement::Indeterminate);
+            return self.indeterminate_creation(
+                recovery,
+                &format!(
+                    "the created resource's outcome commit failed ({projection_error:#}) and its \
+                     rollback failed: {error:#}"
+                ),
+            );
         }
         let error = failure.unwrap_or_else(|| {
             ResourceError::operation_failed(
@@ -89,10 +96,13 @@ impl Mux {
             None,
         ) {
             Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-            Err(_) => {
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
-            }
+            Err(commit_error) => self.indeterminate_creation(
+                recovery,
+                &format!(
+                    "the created resource's outcome commit failed ({projection_error:#}) and its \
+                     failure outcome commit failed: {commit_error:#}"
+                ),
+            ),
         }
     }
 

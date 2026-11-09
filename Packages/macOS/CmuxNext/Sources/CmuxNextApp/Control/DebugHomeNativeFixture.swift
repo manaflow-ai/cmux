@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextHomeModel
 import CmuxNextSettings
 
@@ -19,10 +20,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     private var fixtures: [String: HomeNativeFixture] = [:]
     /// The app's made-ahead file picker, for each fixture's "+".
     private let openPanel: MadeAheadOpenPanel
+    private weak var homes: HomeChiefHomes? // registers each shown transcript's Start now row (startsOwnAgents)
 
-    init(openPanel: MadeAheadOpenPanel) {
-        self.openPanel = openPanel
-    }
+    init(openPanel: MadeAheadOpenPanel, homes: HomeChiefHomes?) { (self.openPanel, self.homes) = (openPanel, homes) }
     /// The open fixture whose transcript is `view`.
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
     /// The next page shows the attachment fixture (`{"attachments": true}`), under the chat column's compose button (`{"compose": true}`).
@@ -35,6 +35,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let fixture = HomeNativeFixture(attachments: next.attachments, openPanel: openPanel, compose: next.compose)
         next = (false, false)
+        fixture.onShow = { [weak homes = self.homes] in homes?.startsOwnAgents($0) }
         fixtures[key] = fixture
         return fixture.container
     }
@@ -168,9 +169,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             guard let fixture = shownFixture else { return .object(["error": .string("stream needs the Home fixture (debug.home_native_fixture.open)")]) }
             ok = fixture.debugStream(params["text"]?.stringValue ?? "", done: params["done"]?.boolValue ?? false)
         case "agent_messages":
-            // The fixture's Chief run with messages to five agents and one report; `pill` opens one, `say` writes it.
+            // The fixture's Chief run with messages to five agents and one report; `pill` clicks its pill (its workspace opens; Home never splits).
             guard let fixture = shownFixture else { return .object(["error": .string("agent_messages needs the native Home fixture (debug.home_native_fixture.open)")]) }
-            ok = fixture.debugAgentMessages(notes: params["notes"]?.boolValue ?? false, open: params["open"]?.boolValue ?? false, group: params["group"]?.boolValue ?? false, step: params["step"]?.intValue ?? 0, pill: params["pill"]?.stringValue, say: params["say"]?.stringValue)
+            ok = fixture.debugAgentMessages(notes: params["notes"]?.boolValue ?? false, open: params["open"]?.boolValue ?? false, group: params["group"]?.boolValue ?? false, step: params["step"]?.intValue ?? 0, pill: params["pill"]?.stringValue, queued: params["queued"]?.boolValue ?? false)
         case "live":
             // The fixture's Chief works: its typing bubble and the status line above it, one frame per
             // step of `steps` (default "Reading", "Starting agents"), the last begun `elapsed` s ago.
@@ -237,10 +238,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     static func open(services: AppServices, attachments: Bool = false, compose: Bool = false, fresh: Bool = false) -> JSONValue {
-        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel)) }
+        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes)) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.next = (attachments, compose)
-        let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
-            : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
+        let window = services.windows.active, view = fresh ? services.pages.openNew(.homeNativeFixture, in: window, focus: true) : services.pages.show(.homeNativeFixture, in: window, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
     }
 }

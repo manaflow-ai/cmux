@@ -613,6 +613,9 @@ impl Store for JournalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         self.inner.list_metas()
     }
+    fn unlisted(&self) -> Vec<String> {
+        Store::unlisted(&self.inner.local)
+    }
     /// The overlay's image first ([`meta`]), then `session.json`: a checkpoint drops an image
     /// only after its file holds it.
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
@@ -640,6 +643,7 @@ impl Store for JournalStore {
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
+        super::note_write_budget(record, line.len());
         let kind = record_class(record);
         let class = if kind == RecordClass::Acked { Class::Ack } else { Class::Stream };
         let payload = encode_log(id, line.as_bytes());
@@ -771,9 +775,24 @@ impl Store for JournalStore {
             durable: self.inner.durable.clone(),
             kept: Arc::clone(&self.inner.kept),
             written: self.inner.written.clone(),
-            stalled: Arc::new(move |why: String| {
-                if let Some(inner) = inner.upgrade() {
-                    inner.ask_to_stop(why);
+            stalled: Arc::new(move |waited: Duration| {
+                let Some(inner) = inner.upgrade() else { return false };
+                let stats = inner.journal.stats();
+                match stats.failing {
+                    Some(failing) => {
+                        inner.ask_to_stop(format!(
+                            "a reply waited {waited:.0?} for the event journal, whose writer is failing ({failing})"
+                        ));
+                        true
+                    }
+                    None => {
+                        tracing::warn!(
+                            waited = ?waited,
+                            durable_lsn = stats.durable_lsn,
+                            "a reply waits for the event journal on a slow disk; it keeps waiting (no restart)"
+                        );
+                        false
+                    }
                 }
             }),
         })
@@ -912,6 +931,17 @@ impl Store for JournalStore {
     fn session_path(&self, id: &str) -> Option<PathBuf> {
         Store::session_dir(&self.inner.local, id)
     }
+    /// The log's own segment `000000` (`LocalStore::history_writer`): synced and renamed in whole
+    /// at its commit, so it needs no record of its own. Its lines are all below the fork's first
+    /// own `seq`, where a replay's repair of the fork's log starts (`journal_store/repair.rs`
+    /// `read_from`). Without it every fork on this store, the only disk store since #37118,
+    /// copied its history again (review of #37020, F2).
+    fn writes_history(&self) -> bool {
+        Store::writes_history(&self.inner.local)
+    }
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        Store::history_writer(&self.inner.local, id)
+    }
     fn handoff_dir(&self) -> Option<PathBuf> {
         Store::handoff_dir(&self.inner.local)
     }
@@ -920,6 +950,9 @@ impl Store for JournalStore {
     }
     fn briefs_path(&self) -> Option<PathBuf> {
         Store::briefs_path(&self.inner.local)
+    }
+    fn audit_dir(&self) -> Option<PathBuf> {
+        Store::audit_dir(&self.inner.local)
     }
 }
 

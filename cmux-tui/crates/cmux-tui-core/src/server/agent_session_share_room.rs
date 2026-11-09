@@ -456,9 +456,7 @@ pub(super) fn provision(
             }
             let secret =
                 created.get("secret").and_then(Value::as_str).unwrap_or_default().to_owned();
-            let app =
-                shares(mux).bridge.app_scheme.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            let app = app.map(|scheme| format!("?app={scheme}")).unwrap_or_default();
+            let app = shares(mux).bridge.app_query();
             created.set("url", json!(format!("{url_base}{app}#{secret}")));
             created.set("room", json!(room.url));
             host(mux, &share_id);
@@ -1253,6 +1251,31 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
 /// `DELETE` would need, is not kept).
 /// Names this build's URL scheme for the links it makes (`?app=<scheme>`), unless it is the default a guest
 /// page asks ([`DEFAULT_APP_SCHEME`]) or not a cmux build's scheme. Call before [`start_link_share_bridge`].
+impl Bridge {
+    /// `?app=<scheme>` naming the build that makes a link or invite (`set_link_share_app_scheme`), or nothing.
+    pub(super) fn app_query(&self) -> String {
+        let app = self.app_scheme.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        app.map(|scheme| format!("?app={scheme}")).unwrap_or_default()
+    }
+}
+
+/// Names the build in every `invite_url` of an answer (an invite's, and each listed share's), the way a link's
+/// `url` does, so an invite made by a DEV, tagged or RC build opens in that build.
+pub(super) fn name_app_in_invites(answer: &mut Value, app_query: &str) {
+    if app_query.is_empty() {
+        return;
+    }
+    let name = |value: &mut Value| {
+        if let Some(Value::String(url)) = value.get_mut("invite_url") {
+            url.push_str(app_query);
+        }
+    };
+    name(answer);
+    if let Some(Value::Array(shares)) = answer.get_mut("shares") {
+        shares.iter_mut().for_each(name);
+    }
+}
+
 pub fn set_link_share_app_scheme(mux: &Arc<Mux>, scheme: Option<&str>) {
     let scheme = scheme.filter(|s| *s != DEFAULT_APP_SCHEME && super::link::is_cmux_scheme(s));
     *shares(mux).bridge.app_scheme.lock().unwrap_or_else(|e| e.into_inner()) =

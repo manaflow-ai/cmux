@@ -61,7 +61,8 @@ extension NativePopupContent {
         case #selector(NSResponder.moveUp(_:)): return handleKey(126)
         case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveRight(_:)):
             // On an empty search field Left and Right step the rail; with text they move the caret.
-            guard control === search, search?.stringValue.isEmpty == true, model?.rail?.isEmpty == false else { return false }
+            guard control === search, search?.stringValue.isEmpty == true,
+                  model?.rail?.isEmpty == false || model?.hasColumns == true else { return false }
             return handleKey(commandSelector == #selector(NSResponder.moveLeft(_:)) ? 123 : 124)
         case #selector(NSResponder.insertTab(_:)):
             guard control === search, let search, search.isEnabled,
@@ -110,9 +111,7 @@ extension NativePopupContent {
                     if row.id == id, row.kind == .textField { row.value = value }
                     return row
                 }
-                pending.rows = pending.rows.map(preserveCommit)
-                pending.rail = pending.rail?.map(preserveCommit)
-                pending.footer = pending.footer?.map(preserveCommit)
+                pending = pending.mappingRows { $0.map(preserveCommit) }
             }
             update(pending)
         }

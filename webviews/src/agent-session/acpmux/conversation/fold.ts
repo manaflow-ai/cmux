@@ -1,6 +1,6 @@
 // The transcript's collapsibles (tool groups, tool and command rows, MCP calls, a folded thought, a
 // settled run) open and close in one motion: the body's height and opacity, over the shared fold
-// duration, easing out, while the chevron turns with it (conversation.css `.cv-rotor`). Reduce
+// duration on the settle curve (--cmux-ease-settle), while the chevron turns with it (conversation.css `.cv-rotor`). Reduce
 // Motion, the host's animation switches (`data-agent-motion="off"`, a 0 ms token) and a page with no
 // Web Animations open and close at once. Away from the bottom, VirtualTranscript holds the clicked
 // line. At the very bottom the body's height plays here too, and VirtualTranscript moves the offset
@@ -9,14 +9,16 @@
 // adds or removes whole rows there ("Worked for") marks its row `data-bottom-fold` and slides the
 // thread instead.
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
 
-/// The fold's duration token. conversation.css sets it from the host's move duration
-/// (`--agent-motion-move`: about 190 ms, 0 under Reduce Motion or with animation off), so the
-/// transcript paces with the chrome's resizes and moves, and the chevron reads the same token.
+/// The fold's duration token. conversation.css sets it from the settle (`--cmux-motion-settle`, the
+/// one fold length every web fold shares, schemas/motion-scale), and the chevron reads the same token.
 export const FOLD_DURATION_VAR = "--cv-fold-duration";
+/// The fold's curve token (`--cmux-ease-settle`), beside it.
+export const FOLD_EASE_VAR = "--cv-fold-ease";
 /// The token's value when the page has none (a test DOM, a stylesheet that failed to load).
-export const FOLD_FALLBACK_MS = 180;
+export const FOLD_FALLBACK_MS = MOTION_SETTLE_MS;
 
 /// A CSS time ("190ms", ".19s") in milliseconds; undefined when it is not one.
 export function cssTimeMs(value: string): number | undefined {
@@ -36,11 +38,13 @@ function styleOf(node: Element): CSSStyleDeclaration | undefined {
 export const foldMotion = {
   /// The fold's duration on `node`, in ms.
   duration: (node: Element): number => {
-    const value = styleOf(node)?.getPropertyValue(FOLD_DURATION_VAR) ?? "";
-    return cssTimeMs(value) ?? FOLD_FALLBACK_MS;
+    const style = styleOf(node);
+    // The host's move duration at 0 (Reduce Motion, animation off) still folds at once.
+    if (cssTimeMs(style?.getPropertyValue("--agent-motion-move") ?? "") === 0) return 0;
+    return cssTimeMs(style?.getPropertyValue(FOLD_DURATION_VAR) ?? "") ?? FOLD_FALLBACK_MS;
   },
-  /// The pane's ease-out curve (`--agent-ease-out`), as the rest of the transcript's motion uses.
-  easing: (node: Element): string => styleOf(node)?.getPropertyValue("--agent-ease-out").trim() || "ease-out",
+  /// The settle curve (`--cv-fold-ease`, the page's `--cmux-ease-settle`), or its generated copy.
+  easing: (node: Element): string => styleOf(node)?.getPropertyValue(FOLD_EASE_VAR).trim() || MOTION_SETTLE,
   reducedMotion: (): boolean =>
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
 };

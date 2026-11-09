@@ -13,7 +13,8 @@
 //!
 //! `machine.io` is a machine's exec or file operation (its `args` are [`machine_io::Request`]'s
 //! fields: `op`, `machine`, `path`, …): a Worker machine's runs [`machine_io`]'s logic, a classic
-//! one `/api/vm/{id}/exec` and `/fs/*`.
+//! one `/api/vm/{id}/exec` and `/fs/*`. `vm.scp_endpoint` is cmux-platform's
+//! `/v1/cloud/machines/{id}/ssh-endpoint` (a `stack` call is refused before any request).
 //!
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
@@ -28,8 +29,10 @@
 //! bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
 //! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only (the Worker's
 //! invocation log records every other header and the URL, so nothing else may carry a key).
-//! `worker` is the platform's machine routes through the generated client. No redirect is
-//! followed and nothing is cached.
+//! `worker` is the platform's machine routes through the generated client, `previews.*` and the
+//! publication calls (`vm.domains`, `vm.publications`, `vm.provision_api`,
+//! `vm.publication_api_keys`, `vm.revoke_publication_api_key`) among them. No redirect is followed
+//! and nothing is cached.
 
 #![cfg(unix)]
 
@@ -98,6 +101,10 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => machine::classic(&http, args).await,
         "machine.io" => machine::worker(request).await,
+        "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
+        call if previews::PUBLICATION_CALLS.contains(&call) => {
+            previews::publications(request, call, args).await
+        }
         call if call.starts_with("vm.") => classic::run(&http, call, args).await,
         "runs.create" => runs::create(&http, args).await,
         "runs.start" => runs::start(&http, args).await,
@@ -120,13 +127,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 40] = [
-    "vm.resize",
-    "vm.snapshot",
-    "vm.snapshots",
-    "vm.delete_snapshot",
-    "vm.restore",
-    "vm.fork",
+pub const CALLS: [&str; 34] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -163,7 +164,8 @@ pub const CALLS: [&str; 40] = [
     "machine.io",
 ];
 
-/// The longest fixed deadline of a call (`vm.delete_snapshot`'s).
+/// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about
+/// 330 s; this was classic's snapshot delete, 960 s, and stays as the margin a waiting caller has).
 const LONGEST_FIXED_MS: u64 = 960_000;
 
 /// The longest `request` can take before its own deadlines answer it: the bound for a caller that

@@ -65,8 +65,8 @@ public struct CmuxNextApp {
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work, mark: { DebugTimings.markLaunch($0) }, markAt: { DebugTimings.markLaunch($0, at: $1) })
         relaunchWake.begin(on: work)
-        // The daemon starts after the bundled CLI resolves this launch's Cloud environment,
-        // so its share room and credential-bearing services agree with the native app.
+        // The bundled CLI's Cloud environment read, off the main thread while AppKit starts; the daemon starts after it.
+        let cloudEnvironment = CloudEnvironmentBootstrap.startAtLaunch(work: work)
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
@@ -74,7 +74,7 @@ public struct CmuxNextApp {
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
         let delegate = AppDelegate(environment: environment, daemonPrestart: nil,
-                                   launchReads: (work, launchImages, relaunchWake))
+                                   launchReads: (work, launchImages, relaunchWake), cloudEnvironment: cloudEnvironment)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")
