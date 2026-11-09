@@ -2,14 +2,15 @@ import React, { memo, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
-import type { NextStepAsk } from "./nextStepAsk";
+import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
 import { answerState, claimAnswer, setAnswerState, subscribeAnswers, type AnswerState } from "./waitingAskStore";
 import "./NextStepCard.css";
 
 /// A tagged ask at the end of a turn (nextStepAsk.ts) as Claude desktop's next-step box draws it
 /// (Leo's 2026-11-03 reference): the question, a muted line of what the agent added after it, and
 /// its answers as buttons in one row, the first filled with ⌘↩ on it (Yes and Not now for a yes-or-no ask). A click sends that answer as
-/// the person's reply through the composer's send path, so it shows as their prompt and starts the
+/// the person's reply through the composer's send path, under a quote of the ask that names who
+/// asked (nextStepAsk.ts `answerPrompt`), so it shows as their reply to the ask and starts the
 /// next turn. Another prompt the person sends leaves the card answerable: it folds to the question
 /// and the answer in grey, as an answered AskUserQuestion does (QuestionCard.tsx AnsweredQuestion),
 /// only once a prompt picks one of its answers or a later turn ends on a card of its own
@@ -26,6 +27,7 @@ export const NextStepCard = memo(function NextStepCard({
   onAnswer,
   registerKey,
   answerKey,
+  asker,
 }: {
   ask: NextStepAsk;
   /// The answer a later prompt picked, or once `superseded`, what the person said after the card.
@@ -39,6 +41,8 @@ export const NextStepCard = memo(function NextStepCard({
   /// The card's key (waitingAskStore.ts `askKey`): its copies share one answer on its way, and the
   /// answer it sends settles this card, not a newer one with the same answers.
   answerKey?: string;
+  /// Who asked (the chat's agent, `agentName`): the sent answer quotes the ask under this name.
+  asker?: string;
 }) {
   const t = useT();
   // The answer on its way and whether the last one failed: the card says so and keeps its
@@ -82,7 +86,9 @@ export const NextStepCard = memo(function NextStepCard({
     if (!onAnswer || sending !== undefined) return;
     if (answerKey) claimAnswer(answerKey, label);
     update({ sending: label });
-    void onAnswer(label).then(
+    // The answer goes as a reply to the ask: the question quoted with who asked, then the answer
+    // (nextStepAsk.ts `answerPrompt`), so the bubble shows what it answers.
+    void onAnswer(answerPrompt(ask.question, label, asker)).then(
       () => update({}),
       () => update({ failed: true }),
     );

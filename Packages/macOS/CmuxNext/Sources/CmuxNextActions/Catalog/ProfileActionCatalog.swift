@@ -204,7 +204,7 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 id: "space.next",
                 title: String(localized: "action.space.next", defaultValue: "Next Space", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "space", "switch"],
-                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .option, .command]),
+                defaultShortcut: Shortcut("l", modifiers: [.control, .option, .command]),
                 category: .workspace, symbol: "chevron.right.circle", surfaces: [.palette, .keyboard, .menu], cliName: "space next",
                 mainMenu: .window
             ),
@@ -212,7 +212,7 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 id: "space.previous",
                 title: String(localized: "action.space.previous", defaultValue: "Previous Space", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "space", "switch"],
-                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .option, .command]),
+                defaultShortcut: Shortcut("h", modifiers: [.control, .option, .command]),
                 category: .workspace, symbol: "chevron.left.circle", surfaces: [.palette, .keyboard, .menu], cliName: "space previous",
                 mainMenu: .window
             ),

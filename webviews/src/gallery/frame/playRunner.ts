@@ -19,7 +19,7 @@ import {
   type StepReport,
 } from "../play";
 import { createMotionController } from "../motionEvidence";
-import { startBoxTracker } from "../shift";
+import { isExpansionShift, startBoxTracker } from "../shift";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
@@ -108,6 +108,16 @@ export async function selectTextWithDriver(element: Element, driver?: InputDrive
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
 let actionSequence = 0;
+
+/** What the play clicked itself (a plain `element.click()` on a toggle, not `ctx.click`) since the
+ *  last step started: those folds play inside the next measured step, often a `waitFor` with no
+ *  target of its own, so they are its targets as well, and the rows they push down are theirs (the
+ *  rules of shift.ts). A step that starts takes them, and what is clicked while it runs joins it. */
+let clicked: Element[] = [];
+const noteClick = (event: Event) => {
+  const element = event.composedPath()[0];
+  if (element instanceof Element) clicked.push(element);
+};
 
 /** Two frames, then every running animation and transition finished: the step has settled. */
 async function settle(): Promise<void> {
@@ -375,12 +385,14 @@ async function measured(
   if (window.top?.cmuxGalleryBeforeStep) await window.top.cmuxGalleryBeforeStep({ step });
   const resolve = () => anchors.map(({ label, target }) => ({ label, element: resolveTarget(document, target) }));
   const before = resolve().map(({ label, element }) => ({ label, element, rect: rectOf(element) }));
+  const targets = targeted ? [targeted, ...clicked] : clicked;
+  clicked = targets;
   // A scroll moves every row on purpose; its box shift is not measured.
   const boxes =
     action === "scroll"
       ? undefined
       : startBoxTracker(document, {
-          target: targeted,
+          target: targets,
           extra: () => resolve().flatMap(({ element }) => (element ? [element] : [])),
           firstMoveFree: action === "resize",
           restedAtStart: true,
@@ -406,6 +418,9 @@ async function measured(
         // ignore it only when every reported source moved by less than half a CSS pixel. Real
         // shifts (including the composer's one-slot Send change) retain their normal CLS value.
         if (isSubpixelLayoutShift(sources)) continue;
+        // What the step opened pushing the rows under it is the step's transition, not a shift
+        // (shift.ts `isExpansionShift`, the rules the box shift below keeps too).
+        if (isExpansionShift(sources, targets)) continue;
         shifts.push({
           value: entry.value,
           sources: sources.map((source) => {
@@ -449,6 +464,7 @@ async function measured(
   await run();
   await settle();
   performance.mark(endMark);
+  clicked = [];
   const timing = performance.measure(mark, startMark, endMark);
   const settleMs = Math.round(timing.duration * 10) / 10;
   performance.clearMarks(startMark);
@@ -496,6 +512,8 @@ export async function runPlay(
 ): Promise<PlayReport> {
   // A play starts with the pointer up, whatever the last one left.
   pointerHeld = false;
+  clicked = [];
+  document.addEventListener("click", noteClick, true);
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
@@ -661,5 +679,8 @@ export async function runPlay(
       motion: motion.stop(),
       error: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    document.removeEventListener("click", noteClick, true);
+    clicked = [];
   }
 }

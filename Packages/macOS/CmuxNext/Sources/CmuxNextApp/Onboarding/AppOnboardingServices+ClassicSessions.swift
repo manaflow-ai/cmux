@@ -268,7 +268,7 @@ extension AppOnboardingServices {
             guard let title = tab.title, !title.isEmpty else { continue }
             // A page whose tab takes no name keeps the page's title.
             if tab.url != nil { try? await connection.renameTab(placed[index].surface, to: title) }
-            else { try await connection.renameTab(placed[index].surface, to: title) }
+            else { try await daemon.renameTab(placed[index].surface, to: title, in: WorkspaceKey(rawValue: workspaceID), on: connection) }
         }
         return placed
     }

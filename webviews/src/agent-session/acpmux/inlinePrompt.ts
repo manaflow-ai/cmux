@@ -13,6 +13,7 @@ import { translate } from "./i18n";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
 import { frameTextOf, isFramesNote, isVideoFrameName, rowImageNames, videoFromFrames } from "./composer/videoPrompt";
+import { knownImageSize, matchSentImages } from "./conversation/imageEntries";
 /// `placed`: the composer put the prompt's attachments in its text (`inlinePrompt`), so this part
 /// sits in the composer's order; acpmux keeps it (hub/prompt_images.rs) and the sent bubble draws
 /// only such a prompt in its recorded order (conversation/UserBubble.tsx). A prompt sent in the
@@ -159,6 +160,12 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
     const normalized = normalizePromptContentPart(part);
     return normalized ? [normalized] : [];
   });
+  // Each echoed image's own part in the pane's row, by its identity (imageEntries.ts
+  // matchSentImages): never by position, since the echo adds a video's note and frames.
+  const knownImages = (known ?? []).filter(isImagePart);
+  const echoedImages = parts.filter(isImagePart);
+  const imageMatches = knownImages.length ? matchSentImages(echoedImages, knownImages) : [];
+  let imageAt = 0;
   return parts.map((part, index) => {
     const old = known?.[index];
     // This pane placed the prompt it sent; an acpmux from before the marker records none.
@@ -177,13 +184,20 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
           : {}),
       };
     }
-    return part.kind === "image" && old?.kind === "image"
-      ? {
-          ...part,
-          attachmentId: old.attachmentId,
-          ...(part.blockIndex === undefined && old.blockIndex !== undefined ? { blockIndex: old.blockIndex } : {}),
-        }
-      : part;
+    if (part.kind !== "image") return part;
+    // The pane's own bytes and their size, so the echo draws the image at the shape it landed with;
+    // only for the part that is surely this image, else it is read by its id.
+    const match = imageMatches[imageAt++];
+    const own = match?.sent === undefined ? undefined : knownImages[match.sent];
+    const size = match && !(part.width && part.height) ? knownImageSize(match.src) : undefined;
+    const shaped = match ? { ...part, src: match.src, ...(size && { width: size.width, height: size.height }) } : part;
+    const ids = own?.kind === "image" ? own : old?.kind === "image" ? old : undefined;
+    if (!ids) return shaped;
+    return {
+      ...shaped,
+      attachmentId: ids.attachmentId,
+      ...(part.blockIndex === undefined && ids.blockIndex !== undefined ? { blockIndex: ids.blockIndex } : {}),
+    };
   });
 }
 /// Move complete attachment tokens across a plain-text edit. Literal U+FFFC stays ordinary text.
@@ -220,6 +234,38 @@ export function carryInline(input: string, text: string, attachments: ComposerAt
     from = at;
   }
   return out + text.slice(from);
+}
+/** Whether Retry can send a prompt's attachments again without dropping one (`resendPrompt`): the
+ * ones this page sent and kept, else every recorded part `restoreInline` rebuilds (an image read
+ * back by id, a linked or inline-text file, a paste), else its `images` read back by id. A recorded
+ * document or audio block, or a file with neither a path nor its text, cannot be rebuilt once the
+ * kept attachments are gone (a reload, a reconnect), so an attachment-only prompt offers no Retry. */
+export function canResendAttachments(row: Pick<AcpmuxRow, "retryAttachments" | "inlineParts" | "images">): boolean {
+  if (row.retryAttachments?.length) return true;
+  const parts = row.inlineParts;
+  if (!parts?.length) return true;
+  return parts.every(
+    (part) =>
+      part.kind === "text" ||
+      part.kind === "image" ||
+      (part.kind === "pasted" && Boolean(part.text)) ||
+      (part.kind === "file" &&
+        Boolean(
+          part.uri ||
+          part.text ||
+          (part.companionOf !== undefined &&
+            parts.some((image) => image.kind === "image" && image.blockIndex === part.companionOf)),
+        )),
+  );
+}
+/// A prompt with attachments that Retry can all send again (``canResendAttachments``): what an
+/// attachment-only prompt resends, so it keeps Retry under the prompt (UserBubble) and on its turn's
+/// footer (turns.ts isRetryablePrompt) only when this holds.
+export function resendsAttachments(row: Pick<AcpmuxRow, "retryAttachments" | "inlineParts" | "images">): boolean {
+  const has = Boolean(
+    row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"),
+  );
+  return has && canResendAttachments(row);
 }
 export async function restoreInline(
   row: AcpmuxRow,
@@ -416,4 +462,7 @@ export function stripFileDisplay(
         ]
       : [];
   });
+}
+function isImagePart(part: PromptContentPart): part is Extract<PromptContentPart, { kind: "image" }> {
+  return part.kind === "image";
 }

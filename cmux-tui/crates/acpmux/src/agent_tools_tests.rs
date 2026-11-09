@@ -285,20 +285,68 @@ fn a_hook_binary_that_does_not_know_the_hook_lets_the_call_run() {
         child.wait_with_output().unwrap()
     };
     let words = |exe: String| vec![exe, crate::bg_hook::HOOK_ARG.to_owned(), "/h".to_owned()];
+    // Whatever the patterns, a started binary never blocks: here every call starts it.
+    let every = ["*".to_owned()];
     let old =
         words(script("cmux", r#"echo 'cmux: unknown resource scope "__bg-hook".' >&2; exit 2"#));
     let bare: Vec<String> = old.iter().map(|w| format!("'{w}'")).collect();
     assert_eq!(run(&bare.join(" ")).status.code(), Some(2), "the skew this guards against");
-    let out = run(&super::hook_command(&old));
+    let out = run(&super::hook_command(&old, &every));
     assert!(out.status.success(), "a refusing hook binary blocked the call: {out:?}");
     // A binary that is gone does not block either.
     let gone = words(root.join("gone").to_string_lossy().into_owned());
-    assert!(run(&super::hook_command(&gone)).status.success());
+    assert!(run(&super::hook_command(&gone, &every)).status.success());
     // The hook's own answer still gets through.
     let deny = words(script("acpmux", r#"echo '{"deny":true}'"#));
-    let out = run(&super::hook_command(&deny));
+    let out = run(&super::hook_command(&deny, &every));
     assert!(out.status.success());
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), r#"{"deny":true}"#);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The hook of a subagent's calls (`PostToolUse`, `SubagentStop`, the acpmux MCP calls) starts
+/// the binary only when Claude Code's input names an `agent_id`, which it does only for a
+/// subagent's call: the lead's calls never start it, and a subagent's input reaches it whole. A
+/// binary that refuses blocks no call.
+#[test]
+fn the_subagent_hook_starts_the_binary_only_for_a_subagents_call() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-hook-sub-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let seen = root.join("seen");
+    let script = |name: &str, body: &str| {
+        let path = root.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let words = [path.to_string_lossy().into_owned(), crate::bg_hook::HOOK_ARG.to_owned()];
+        super::hook_command(&words, &[crate::bg_hook::SUBAGENT_PATTERN.to_owned()])
+    };
+    let run = |command: &str, input: &str| {
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        child.wait_with_output().unwrap()
+    };
+    let hook = script("acpmux", &format!("cat > '{}'\necho answer", seen.display()));
+    // The lead's call: its input names `agent_id` only inside a command's own text.
+    let lead = r#"{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"echo agent_id"}}"#;
+    let out = run(&hook, lead);
+    assert!(out.status.success() && out.stdout.is_empty(), "{out:?}");
+    assert!(!seen.exists(), "the lead's call started the binary");
+    let subagent = r#"{"hook_event_name":"PostToolUse","tool_name":"Bash","agent_id":"a0","agent_type":"Explore"}"#;
+    let out = run(&hook, subagent);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "answer");
+    assert_eq!(std::fs::read_to_string(&seen).unwrap(), subagent);
+    let refusing = script("refusing", "cat >/dev/null; exit 2");
+    assert!(run(&refusing, subagent).status.success(), "a refusing binary blocked the call");
     let _ = std::fs::remove_dir_all(&root);
 }
 

@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { LaneNoticeBatch } from "./LaneNoticeBatch";
-import { incomingPrompt, type IncomingMessage } from "./incomingMessage";
+import { incomingPrompt, messagePreview, type IncomingMessage } from "./incomingMessage";
 import { projectInboxRows } from "./laneNoticeBatches";
 import { LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
 import { findSkipped } from "./chatFind";
@@ -172,4 +172,166 @@ test("acpmux's own who-else notice (kind who_else) reads as a notice, not the pe
   if (read?.kind !== "message") throw new Error("not a message");
   expect(read.message.notice?.title).toBe(title);
   expect(read.message.name).toBe("acpmux who-else");
+});
+
+// acpmux's own end of a background command (hub/bg_notify.rs): sender `acpmux`, severity from the
+// exit status alone (`info` for exit 0, `warn` for any other end), title `Background command
+// finished: COMMAND (exit N)` with the command cut to 120 characters. Leo, 2026-11-08: "why was
+// there a yellow warning symbol? ... why is there only ACPMux as a bare thing".
+function bgEnd(task: string, command: string, exit: number, output: string) {
+  const severity = exit === 0 ? "info" : "warn";
+  const title = `Background command finished: ${command} (exit ${exit})`;
+  const notice = { sender: "acpmux", severity, title };
+  const text = `[notice from acpmux${exit === 0 ? "" : " · WARN"}] ${title}\nTask ${task}: ${command}\nLast 3 lines of its output:\n${output}\n(bg_output reads all of it.)`;
+  const provenance = { kind: "notice", from: "fromAgent", fromName: "acpmux", to: "s-1", notice, bgTaskId: task };
+  return { text, provenance };
+}
+const LONG = `wt new manaflow-ai/cmux lane/summary-sources-screenshot-labels --topic 'summary card Sources screenshot labels' --files…`;
+const REMOTE =
+  "remote:\nremote: Create a pull request for 'fast-checks/5023' on GitHub by visiting:\nwarning: redirecting to https://github.com/x";
+
+test("a command that exited 0 reads as info whatever its output looks like, and its line keeps the exit", async () => {
+  const end = bgEnd("bg-1", "cmux-ci test --committed -- 'cd tools && python3 -m unittest'", 0, REMOTE);
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice?.severity).toBe("info");
+  const container = await render(<IncomingMessageLine id="n-1" message={read.message} onOpen={() => undefined} />);
+  const line = container.querySelector(".cv-received.cv-notice")!;
+  expect(line.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("info");
+  // The outcome is its own slot that never shrinks, so a long command never cuts it off.
+  expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 0)");
+  expect(line.querySelector(".cv-notice__lead")?.textContent).toBe(
+    "Background command finished: cmux-ci test --committed -- 'cd tools && python3 -m unittest'",
+  );
+});
+
+test("a failed command's warning shows its exit on the line", async () => {
+  const end = bgEnd("bg-2", LONG, 2, REMOTE);
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  const container = await render(<IncomingMessageLine id="n-2" message={read.message} onOpen={() => undefined} />);
+  const line = container.querySelector(".cv-received.cv-notice")!;
+  expect(line.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("warn");
+  expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 2)");
+});
+
+/// Notices that waited behind a busy turn go in as one (acpmux hub/digest.rs `digest_blocks`).
+function digest(...ends: { text: string; provenance: Record<string, unknown> }[]) {
+  const parts = ends.map(
+    (end, i) => `${i ? "\n\n" : ""}[agent message ${i + 1} of ${ends.length}] from acpmux\n${end.text}`,
+  );
+  const text = `${ends.length} messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.\n\n${parts.join("")}`;
+  const messages = ends.map((end, i) => ({ promptId: `bg-done-${i}`, from: "acpmux", provenance: end.provenance }));
+  return incomingPrompt(text, { _meta: { provenance: { kind: "agent_digest", messages } } });
+}
+
+test("background command ends that went in together read as their notice, never acpmux twice", async () => {
+  const read = digest(bgEnd("bg-3", LONG, 0, "note: one"), bgEnd("bg-4", "cargo fmt --check", 0, "ok"));
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.name).toBe("acpmux");
+  expect(read.message.notice?.title).toBe(`Background command finished: ${LONG} (exit 0)`);
+  expect(read.message.notice?.more).toBe(1);
+  const container = await render(<IncomingMessageLine id="n-3" message={read.message} onOpen={() => undefined} />);
+  const line = container.querySelector(".cv-received.cv-notice")!;
+  expect(line.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("info");
+  expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 0)");
+  expect(line.querySelector(".cv-notice__title")?.textContent).not.toBe("acpmux");
+  await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
+  const text = container.querySelector(".cv-received__text")!.textContent ?? "";
+  // Opened: each notice's own title, then its body, never the rendered head.
+  expect(text).toContain("Background command finished: cargo fmt --check (exit 0)");
+  expect(text).toContain("Task bg-4: cargo fmt --check");
+  expect(text).not.toContain("[notice from");
+});
+
+test("one notice that went in as a digest reads as that notice", () => {
+  const read = digest(bgEnd("bg-5", "make", 3, "boom"));
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice).toMatchObject({ severity: "warn", title: "Background command finished: make (exit 3)" });
+  expect(read.message.notice?.more).toBeUndefined();
+  expect(read.message.text.startsWith("Task bg-5: make")).toBe(true);
+});
+
+test("the most severe notice of a digest names its line", () => {
+  const read = digest(bgEnd("bg-6", "ls", 0, "a"), bgEnd("bg-7", "make", 2, "b"), bgEnd("bg-8", "pwd", 0, "c"));
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice).toMatchObject({
+    severity: "warn",
+    title: "Background command finished: make (exit 2)",
+    more: 2,
+  });
+});
+
+test("a digest of a notice and an agent's message shows the first message's words, not its sender's name", () => {
+  const end = bgEnd("bg-9", LONG, 0, "x");
+  const text = `2 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.\n\n[agent message 1 of 2] from acpmux\n${end.text}\n\n[agent message 2 of 2] from lane-a\nShipped the fix.`;
+  const messages = [
+    { promptId: "bg-done-9", from: "acpmux", provenance: end.provenance },
+    { promptId: "p2", from: "lane-a" },
+  ];
+  const read = incomingPrompt(text, { _meta: { provenance: { kind: "agent_digest", messages } } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.name).toBe("acpmux, lane-a");
+  expect(read.message.preview).toBe(`Background command finished: ${LONG} (exit 0)`);
+  expect(messagePreview(read.message.text)).not.toBe(`Background command finished: ${LONG} (exit 0)`);
+  expect(read.message.text).not.toContain("[notice from");
+});
+
+test("a notice whose title is longer than a line allows still reads as a notice, its title cut", () => {
+  const end = bgEnd("bg-10", "x".repeat(260), 0, "y");
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice?.severity).toBe("info");
+  expect(read.message.notice?.title.length).toBeLessThanOrEqual(200);
+  expect(read.message.notice?.title.endsWith("(exit 0)")).toBe(true);
+  expect(read.message.text).not.toContain("[notice from");
+});
+
+// Review follow-ups on #38226 (F1-F3).
+test("each notice of a digest keeps its own links, a fire's after many others' too", () => {
+  const PR_LINK = (n: number) => ({ url: `https://github.com/manaflow-ai/cmux/pull/${n}` });
+  const info = (i: number) => ({
+    text: `[notice from lander] Landed #${i}\nok`,
+    provenance: {
+      kind: "notice",
+      from: "fromAgent",
+      fromName: "lander",
+      notice: { sender: "lander", severity: "info", title: `Landed #${i}`, links: [PR_LINK(i)] },
+    },
+  });
+  const ends = Array.from({ length: 17 }, (_, i) => info(i + 1));
+  ends.push({
+    text: "[notice from watch · FIRE] fast tier red\nlook",
+    provenance: {
+      kind: "notice",
+      from: "fromAgent",
+      fromName: "watch",
+      notice: { sender: "watch", severity: "fire", title: "fast tier red", links: [PR_LINK(99999)] },
+    },
+  });
+  const read = digest(...ends);
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice?.severity).toBe("fire");
+  expect(read.message.text).toContain("pull/99999");
+  expect(read.message.text).toContain("pull/1)");
+});
+
+test("a rendered notice sent at a shell keeps its severity inside a digest", () => {
+  const text =
+    "1 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.\n\n[agent message 1 of 1] from base-red-watch\n[notice from base-red-watch on ci-mini-3 · FIRE] fast tier failed\nboom";
+  const messages = [{ promptId: "p", from: "base-red-watch" }];
+  const read = incomingPrompt(text, { _meta: { provenance: { kind: "agent_digest", messages } } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice).toMatchObject({ severity: "fire", title: "fast tier failed", host: "ci-mini-3" });
+  expect(read.message.text).toBe("boom");
+});
+
+test("Find matches across a notice title's command and its exit", async () => {
+  const end = bgEnd("bg-11", "make", 0, "ok");
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  const container = await render(<IncomingMessageLine id="n-11" message={read.message} onOpen={() => undefined} />);
+  const title = container.querySelector(".cv-notice__title")!;
+  expect(title.hasAttribute("data-find-join")).toBe(true);
+  expect(title.textContent).toBe("Background command finished: make (exit 0)");
 });

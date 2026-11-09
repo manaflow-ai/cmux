@@ -34,14 +34,15 @@ struct BookmarkFiles {
         }
     }
 
-    /// Reads an HTML file into one "Imported" folder at the end of the bar.
+    /// Reads an HTML file into one "Imported" folder at the end of the bar (the home daemon
+    /// parses it: cmux-bookmarks-ops `netscape`).
     func importFile(_ url: URL, profile: String) {
         let service = services.bookmarks
         let registry = services.registry
         registry.track(Task { @MainActor in
             do {
                 let html = try await Task.detached { try Self.read(url) }.value
-                return Self.importHTML(html, into: service, profile: profile)
+                return await Self.importHTML(html, into: service, profile: profile)
             } catch {
                 return ActionWorkFailure(BookmarkAppStrings.failure(error))
             }
@@ -50,27 +51,28 @@ struct BookmarkFiles {
 
     /// Netscape HTML already in memory (an export archive's Bookmarks.html) into one
     /// "Imported" folder at the end of the bar; the failure, if any.
-    func importHTML(_ html: String, profile: String) -> ActionWorkFailure? {
-        Self.importHTML(html, into: services.bookmarks, profile: profile)
+    func importHTML(_ html: String, profile: String) async -> ActionWorkFailure? {
+        await Self.importHTML(html, into: services.bookmarks, profile: profile)
     }
 
-    private static func importHTML(_ html: String, into service: BookmarkService, profile: String) -> ActionWorkFailure? {
-        let document = NetscapeBookmarkReader.read(html)
-        guard document.count > 0 else { return ActionWorkFailure(BookmarkAppStrings.importEmpty) }
+    private static func importHTML(_ html: String, into service: BookmarkService, profile: String) async -> ActionWorkFailure? {
         do {
-            try service.apply(BookmarkImportPlan.file(document, title: BookmarkAppStrings.importedFolder,
-                                                      barTitle: BookmarkStrings.barTitle), profile: profile)
+            try await service.routed.importHTML(html, folderTitle: BookmarkAppStrings.importedFolder, profile: profile)
             return nil
+        } catch is BookmarkRoutedClient.FileEmpty {
+            return ActionWorkFailure(BookmarkAppStrings.importEmpty)
         } catch {
             return ActionWorkFailure(BookmarkAppStrings.failure(error))
         }
     }
 
+    /// Writes the daemon's Netscape file of `profile`'s tree to `url`.
     func exportFile(_ url: URL, profile: String) {
-        let html = NetscapeBookmarkWriter.write(services.bookmarks.tree(profile), barTitle: BookmarkStrings.barTitle)
+        let service = services.bookmarks
         let work = services.work
         services.registry.track(Task { @MainActor in
             do {
+                let html = try await service.routed.exportHTML(profile: profile)
                 // The person waits for the export they asked for: the files lane at userBlocking.
                 try await work.run(.userBlocking, mayBlock: .files) { try Data(html.utf8).blockingWrite(to: url, options: .atomic) }
                 return nil
