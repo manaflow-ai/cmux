@@ -728,7 +728,7 @@ mod tests {
         // The viewer's output pipe holds 64 bytes and nobody reads it.
         let (viewer_out, _never_read) = tokio::io::duplex(64);
         let (mut viewer_in, bridge_in) = tokio::io::duplex(64 * 1024);
-        let bridge = super::bridge(remote, bridge_in, viewer_out, None, |_| {});
+        let bridge = bridge(remote, bridge_in, viewer_out, None, |_| {});
         tokio::pin!(bridge);
         let test = async {
             // The host sends more than the pipe holds: the write to the viewer blocks.
