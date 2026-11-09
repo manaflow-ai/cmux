@@ -1048,15 +1048,20 @@ class GateBudget(unittest.TestCase):
     def test_a_gate_past_the_budget_is_stopped_with_its_children(self):
         module = load(SCRIPT)
         with tempfile.TemporaryDirectory() as tmp:
-            marker = Path(tmp) / "child-alive"
-            # The gate starts a child (as web lint starts bun install) that would outlive a kill of the gate alone.
-            child = f"import time, pathlib; time.sleep(3); pathlib.Path({str(marker)!r}).write_text('x')"
-            gate = f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(60)"
-            started = time.monotonic()
-            self.assertIsNone(module.run_gate([sys.executable, "-c", gate], Path(tmp), 1))
-            self.assertLess(time.monotonic() - started, 30)
-            time.sleep(4)
-            self.assertFalse(marker.exists(), "the gate's child kept running after the gate was stopped")
+            pid_file = Path(tmp) / "child.pid"
+            # The gate starts a child (as web lint starts bun install) that would outlive a kill of the gate alone;
+            # both block on signal.pause(), so only the stop ends them.
+            gate = ("import pathlib, signal, subprocess, sys; "
+                    "child = subprocess.Popen([sys.executable, '-c', 'import signal; signal.pause()']); "
+                    f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid)); signal.pause()")
+            self.assertIsNone(module.run_gate([sys.executable, "-c", gate], Path(tmp), 5))
+            child = int(pid_file.read_text(encoding="utf-8"))
+            stat = Path(f"/proc/{child}/stat")
+            if stat.exists():  # Linux: a stopped child may linger only as a zombie until it is reaped
+                self.assertEqual(stat.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0], "Z")
+            else:
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(child, 0)
 
     def test_a_gate_inside_the_budget_keeps_its_exit_code(self):
         module = load(SCRIPT)
