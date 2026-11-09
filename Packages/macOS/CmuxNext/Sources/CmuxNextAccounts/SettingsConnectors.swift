@@ -16,16 +16,53 @@ public import Foundation
 public final class SettingsConnectors: PageProvider {
     public nonisolated static let prefix = "cmux.settings.connectors."
 
-    private let auth: CloudAuth
-    private let platform: URL
+    /// The account and team a request acts for (``GitHubConnections/Scope``), bound once per call.
+    public typealias Scope = GitHubConnections.Scope
+    /// The platform's answer to METHOD at PATH with QUERY (GET only) for SCOPE (team in the `x-cmux-team` header).
+    public typealias Send = @MainActor (_ method: String, _ path: String, _ query: [String: String], _ scope: Scope) async throws
+        -> (status: Int, body: Data)
+
+    private let scope: @MainActor () -> Scope?
+    private let send: Send
+    private let open: @MainActor (URL) -> Void
     private let preview: Bool
 
-    /// AUTH's sign-in at PLATFORM (the selected backend's cmux-platform origin); PREVIEW (showcase or
-    /// fixture launches) lists nothing.
-    public init(auth: CloudAuth, platform: URL, preview: Bool) {
-        self.auth = auth
-        self.platform = platform
+    /// SCOPE answers the signed-in person and selected team now, or nil (signed out, or a managed team other
+    /// than the selected one is enforced); SEND reaches the platform; OPEN shows the provider's approval page.
+    public init(scope: @escaping @MainActor () -> Scope?, send: @escaping Send,
+                open: @escaping @MainActor (URL) -> Void, preview: Bool) {
+        self.scope = scope
+        self.send = send
+        self.open = open
         self.preview = preview
+    }
+
+    /// AUTH's sign-in at PLATFORM (the selected backend's cmux-platform origin); PREVIEW (showcase or
+    /// fixture launches) lists nothing. The scope is ``GitHubConnections/signedInScope``'s, so a device
+    /// restricted to a managed team never falls back to the person's own connectors.
+    public convenience init(auth: CloudAuth, platform: URL, preview: Bool) {
+        let project = auth.configuration.stackProjectID
+        let scope: @MainActor () -> Scope? = {
+            guard auth.isSignedIn, let user = auth.user?.id else { return nil }
+            return GitHubConnections.signedInScope(project: project, user: user, team: auth.teamID, managedTeam: auth.managedTeamID)
+        }
+        self.init(scope: scope, send: { method, path, query, bound in
+            let access = try await auth.tokens().access
+            // The token resolved after a switch: refuse rather than act for the new account or team.
+            guard scope() == bound else { throw Self.changed }
+            let team = GitHubConnections.backendTeam(project: project, stackTeam: bound.team)
+            let headers = team.map { ["x-cmux-team": $0] } ?? [:]
+            let transport = InstallHTTPTransport(baseURL: platform)
+            guard method == "GET" else { return try await transport.post(path, json: Data("{}".utf8), bearer: access, headers: headers) }
+            // A GET also names the team in its query: a platform without connector management (production
+            // before it is switched on) reads it only there. A POST's query would be escaped into its path.
+            var items = query
+            if let team { items["team"] = team }
+            var components = URLComponents()
+            components.queryItems = items.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+            let suffix = items.isEmpty ? "" : "?" + (components.percentEncodedQuery ?? "")
+            return try await transport.get(path + suffix, bearer: access, headers: headers)
+        }, open: { LinkRouter.shared.open($0) }, preview: preview)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -41,37 +78,40 @@ public final class SettingsConnectors: PageProvider {
             guard provider.range(of: #"^[a-z][a-z-]{0,31}$"#, options: .regularExpression) != nil else {
                 throw PageError.invalidParams("provider")
             }
+            // The click acts for the account and team shown when it was made, never one switched to meanwhile.
+            guard let bound = scope() else { throw Self.signedOut }
             if verb == "connect" {
                 let sharing = params["sharing"]?.stringValue ?? "private"
                 guard sharing == "private" || sharing == "team" else { throw PageError.invalidParams("sharing") }
-                return try await connect(provider: provider, sharing: sharing)
+                return try await connect(provider: provider, sharing: sharing, scope: bound)
             }
             let connection = params["connection"]?.stringValue ?? ""
             guard connection.range(of: #"^conn_[a-z0-9]{20}$"#, options: .regularExpression) != nil else {
                 throw PageError.invalidParams("connection")
             }
-            return try await answer(post(path: "v1/connectors/\(provider)/connections/\(connection)/revoke"))
+            return try answer(await request("POST", "v1/connectors/\(provider)/connections/\(connection)/revoke", [:], scope: bound))
         default:
             throw PageError.unknownOp(op)
         }
     }
 
+    private static let signedOut = PageError(code: "cmux.settings.connectors.signed_out", message: "not signed in")
+
     /// `{available, signedIn, team, connectors?, error?, status?}`: `available` false only in a preview;
     /// `status` is the platform's HTTP status when it refused (the page reads 400/404 as "not offered here").
     private func list() async -> JSONValue {
         guard !preview else { return .object(["available": .bool(false)]) }
-        guard auth.isSignedIn else { return .object(["available": .bool(true), "signedIn": .bool(false)]) }
+        // Signed out, or a managed team that is not the selected one: nothing is read for anyone.
+        guard let bound = scope() else { return .object(["available": .bool(true), "signedIn": .bool(false)]) }
         var status: Int?
         do {
-            // The team also rides the query on this GET: a platform without connector management (production
-            // before it is switched on) reads it only there, and answers the list the page shows as not offered.
-            let response = try await get(path: "v1/connectors/" + query(team.map { ["team": $0] } ?? [:]))
+            let response = try await request("GET", "v1/connectors/", [:], scope: bound)
             status = response.status
             let reply = try answer(response)
             guard case .object(var fields) = reply else { throw PageError.invalidParams("connectors reply") }
             fields["available"] = .bool(true)
             fields["signedIn"] = .bool(true)
-            fields["team"] = team.map(JSONValue.string) ?? .null
+            fields["team"] = bound.team.map(JSONValue.string) ?? .null
             return .object(fields)
         } catch {
             let message = (error as? PageError)?.message ?? error.localizedDescription
@@ -83,40 +123,27 @@ public final class SettingsConnectors: PageProvider {
 
     /// Asks for the provider's approval URL and opens it in the browser; the connection becomes active
     /// when the person approves there, and the page reads the list again when it comes back to the front.
-    private func connect(provider: String, sharing: String) async throws -> JSONValue {
-        let reply = try answer(await get(path: "v1/connectors/\(provider)/install" + query(["sharing": sharing])))
+    private func connect(provider: String, sharing: String, scope bound: Scope) async throws -> JSONValue {
+        let reply = try answer(await request("GET", "v1/connectors/\(provider)/install", ["sharing": sharing], scope: bound))
         guard let raw = reply["url"]?.stringValue, let url = URL(string: raw), url.scheme == "https", url.host != nil else {
             throw PageError(code: "cmux.settings.connectors.invalid_reply", message: "no approval page")
         }
-        LinkRouter.shared.open(url)
+        open(url)
         return .object(["opened": .bool(true)])
     }
 
-    /// The selected team as the backend names it (``GitHubConnections/backendTeam``); nil: the person's own.
-    private var team: String? {
-        GitHubConnections.backendTeam(project: auth.configuration.stackProjectID, stackTeam: auth.teamID)
+    /// SEND for BOUND, refused when the account or team changed before it went out or before its answer is
+    /// used: an approval page or a revoke never acts for a team other than the one the person clicked in.
+    private func request(_ method: String, _ path: String, _ query: [String: String], scope bound: Scope) async throws
+        -> (status: Int, body: Data) {
+        guard !preview else { throw Self.signedOut }
+        guard scope() == bound else { throw Self.changed }
+        let response = try await send(method, path, query, bound)
+        guard scope() == bound else { throw Self.changed }
+        return response
     }
 
-    /// EXTRA as a query string. The team goes in the `x-cmux-team` header (``headers``); only a GET may also
-    /// carry it here: the transport keeps a query only on GET, and a POST's would be escaped into its path.
-    private func query(_ extra: [String: String]) -> String {
-        let items = extra.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
-        guard !items.isEmpty else { return "" }
-        var components = URLComponents()
-        components.queryItems = items
-        return "?" + (components.percentEncodedQuery ?? "")
-    }
-
-    /// The selected team, when there is one; none: the platform uses the person's own.
-    private var headers: [String: String] { team.map { ["x-cmux-team": $0] } ?? [:] }
-
-    private func get(path: String) async throws -> (status: Int, body: Data) {
-        try await InstallHTTPTransport(baseURL: platform).get(path, bearer: auth.tokens().access, headers: headers)
-    }
-
-    private func post(path: String) async throws -> (status: Int, body: Data) {
-        try await InstallHTTPTransport(baseURL: platform).post(path, json: Data("{}".utf8), bearer: auth.tokens().access, headers: headers)
-    }
+    private static let changed = PageError(code: "cmux.settings.connectors.changed", message: "account or team changed")
 
     /// The platform's JSON on 2xx; its own `message` (fixed text, never a provider body) otherwise.
     private func answer(_ response: (status: Int, body: Data)) throws -> JSONValue {
