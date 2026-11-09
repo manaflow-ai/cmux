@@ -190,8 +190,7 @@ export function LedgerScreen({
   const saveFile =
     save && state.phase === "ready" && reply && lines.length > 0
       ? async (kind: LedgerExportKind) => {
-          const done = (outcome: SaveWord | undefined) =>
-            setLastSave(outcome ? { range, group, outcome } : undefined);
+          const done = (outcome: SaveWord | undefined) => setLastSave(outcome ? { range, group, outcome } : undefined);
           try {
             // The page holds the top sessions only: the file reads them all, for the same range.
             const data =
