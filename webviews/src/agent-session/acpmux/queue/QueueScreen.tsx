@@ -141,9 +141,17 @@ export function QueueScreen({
       // The box closes with the row; a refused verdict brings both back with what was typed, so
       // the person never writes the request again.
       setComment(undefined);
+      setNotice(undefined);
       settle(
         item,
-        () => verdict(item, kind, text),
+        async () => {
+          const reply = await verdict(item, kind, text);
+          // The chat did not get the words: say where they went (historyPages.ts `verdict`).
+          const copied = (reply as { commentCopied?: unknown } | null)?.commentCopied;
+          if (copied === true) setNotice({ tone: "ok", text: t("waiting.commentCopied") });
+          else if (copied === false) setNotice({ tone: "error", text: t("waiting.commentNotCopied") });
+          return reply;
+        },
         t("waiting.answerFailed"),
         text === undefined ? undefined : () => setComment({ id: item.id, text }),
       );
@@ -421,7 +429,11 @@ const Row = memo(function Row({
       data-enters={enters || undefined}
       data-kind={item.kind}
       onClick={() => onSelect(item.id)}
-      onDoubleClick={() => onOpen(item)}
+      onDoubleClick={(event) => {
+        // A double click in the comment box selects a word; only the row's own text opens the chat.
+        if ((event.target as Element).closest?.("textarea, input, button, a")) return;
+        onOpen(item);
+      }}
     >
       <div className="wq-row-inner">
         <span className="wq-mark" aria-hidden="true">

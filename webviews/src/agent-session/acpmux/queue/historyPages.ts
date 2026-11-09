@@ -110,9 +110,14 @@ export function historyPages({
         const params = verdictParams(item, verdict, comment);
         if (!params) throw new Error("unanswerable");
         const reply = await connected().reviewVerdict(params);
-        // An acpmux that predates the comment records the verdict and drops the words: the chat
-        // opens, so the person can say there what should change.
-        if (params.comment && (reply as { commentDelivered?: unknown } | null)?.commentDelivered !== true) open(item);
+        // An acpmux that predates the comment (or a chat that did not take it) records the verdict
+        // without the words reaching the chat: they go to the clipboard and the chat opens, so
+        // the person pastes what should change rather than writing it again.
+        if (params.comment && (reply as { commentDelivered?: unknown } | null)?.commentDelivered !== true) {
+          const copied = await copy(params.comment);
+          open(item);
+          return { ...(reply as object | null), commentCopied: copied };
+        }
         return reply;
       },
       open,

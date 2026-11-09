@@ -405,6 +405,7 @@ test("a Request changes comment an older acpmux dropped opens the chat to say it
     callNative: async <T>() => undefined as T,
     selectSession: (sessionId) => selected.push(sessionId),
     asks: [],
+    copy: async () => true,
   });
   const pr = item({ kind: "pr", prUrl: "https://example.com/pull/1" });
   await pages.queue.verdict(pr, "changes", "Split the commit");
@@ -441,4 +442,31 @@ test("a pull request's chat finishing its turn reads the queue again", () => {
   expect(queueKey([], [{ ...chat, status: "idle" }])).not.toBe(queueKey([], [{ ...chat, status: "running" }]));
   const urls = { sessionId: "s6", pullRequestUrls: ["https://example.com/pull/3"] };
   expect(queueKey([], [{ ...urls, status: "idle" }])).not.toBe(queueKey([], [{ ...urls, status: "running" }]));
+});
+
+test("a comment the chat did not get goes to the clipboard, and the chat opens to paste it", async () => {
+  const selected: string[] = [];
+  const copied: string[] = [];
+  let copies = true;
+  const pages = historyPages({
+    client: () => ({
+      ledger: async () => ({}),
+      reviewQueue: async () => ({}),
+      reviewVerdict: async () => ({ recorded: true }),
+      audit: async () => ({ entries: [] }),
+    }),
+    callNative: async <T>() => undefined as T,
+    selectSession: (sessionId) => selected.push(sessionId),
+    asks: [],
+    copy: async (text) => {
+      copied.push(text);
+      return copies;
+    },
+  });
+  const pr = item({ kind: "pr", prUrl: "https://example.com/pull/1" });
+  expect(await pages.queue.verdict(pr, "changes", "Split the commit")).toMatchObject({ commentCopied: true });
+  expect(copied).toEqual(["Split the commit"]);
+  expect(selected).toEqual(["s1"]);
+  copies = false;
+  expect(await pages.queue.verdict(pr, "changes", "Split it")).toMatchObject({ commentCopied: false });
 });

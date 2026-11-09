@@ -292,3 +292,21 @@ test("a list cut at the read limit says how many there were", async () => {
   await render();
   expect(host.querySelector(".wq-status")?.textContent).not.toContain(translate("waiting.more", { shown: 3, total: 3 }));
 });
+
+test("leaving the tab while an answer's refresh is under way reads again on the return", async () => {
+  const cache = createQueueCache();
+  let reads = 0;
+  // The first read lands; every later one is still under way when the tab goes.
+  const load = () => {
+    reads++;
+    return reads === 1 ? Promise.resolve({ items, now: 10 }) : new Promise(() => {});
+  };
+  await render(load, false, { cache, refreshKey: "k" });
+  await shortcut("AllowOnce");
+  expect(reads).toBe(2);
+  act(() => root?.unmount());
+  // The same asks, but the answer's read never landed: the answered row must not come back
+  // from the kept copy without a read.
+  await render(load, false, { cache, refreshKey: "k" });
+  expect(reads).toBe(3);
+});

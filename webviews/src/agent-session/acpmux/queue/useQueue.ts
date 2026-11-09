@@ -25,7 +25,9 @@ export type QueueCache = {
   state(): QueueState | undefined;
   key(): string | undefined;
   keep(state: QueueState): void;
-  readAt(key: string): void;
+  /// The key a finished read was asked at; `undefined` while one is under way, so a page that
+  /// leaves before it lands (an answer's refresh) reads again on its return.
+  readAt(key: string | undefined): void;
 };
 
 export function createQueueCache(): QueueCache {
@@ -58,6 +60,7 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string, cache
   const read = useCallback(() => {
     const id = ++request.current;
     const key = keyRef.current;
+    cache?.readAt(undefined);
     setState((previous) =>
       previous.phase === "ready"
         ? previous
