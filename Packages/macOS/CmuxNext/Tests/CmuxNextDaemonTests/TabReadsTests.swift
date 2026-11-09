@@ -223,4 +223,20 @@ struct TabReadsTests {
         }.value
         #expect(tab.markedUnread, "a mark clear cut off by a teardown stayed cleared")
     }
+
+    /// Review of #39311 at 05a6b54 (F1): the old daemon answered, but the daemon came back as another generation
+    /// while the answer was on its way: the answer settles nothing on the new record, so the read rolls back.
+    @Test func anAnswerFromAGoneDaemonRollsTheReadBack() async throws {
+        let (_, tab, reads) = try Self.unreadTab()
+        var generation = "g1"
+        let sent = try #require(reads.readNotification(of: tab, current: { generation == "g1" }) { (_: SurfaceID) in
+            generation = "g2"
+        })
+        await sent.value
+        #expect(tab.showsUnread, "an answer from a gone daemon kept the read hidden on the new one")
+        tab.applyState(SessionStateMirror.TabRecord(markedUnread: true), progress: nil)
+        generation = "g1"
+        await reads.clearMarkedUnread(of: tab, current: { generation == "g1" }) { generation = "g2" }.value
+        #expect(tab.markedUnread, "an answer from a gone daemon kept the mark cleared on the new one")
+    }
 }
