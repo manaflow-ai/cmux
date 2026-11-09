@@ -300,6 +300,10 @@ path = "tests/test_cmux_next_tree_notify.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_tree_takeover.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_update_dev_daily.py"
 lane = "linux-guard"
 

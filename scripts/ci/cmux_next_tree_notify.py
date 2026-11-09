@@ -30,6 +30,13 @@ notify) is the record, and a marker whose run name already has a dispatch
 created after the marker was uploaded is not dispatched again. A ready
 state always dispatches.
 
+A failed state is first taken over (cmux_tui_tree_takeover.py): a waiting
+feat-cmux-next commit re-runs its own artifacts run through
+cmux-tui-tree-request.yml, which builds and publishes the key; its publish
+then starts every marker's tree jobs. Only when no waiter can take it over
+are the markers reported in red. One run that died (or whose jobs GitHub
+never created) no longer turns every commit waiting on its tree red.
+
 Usage: cmux_next_tree_notify.py --repo OWNER/NAME --key KEY --state ready|failed
        [--reason TEXT]
 Needs GH_TOKEN with actions: write (dispatch, delete markers), contents: read
@@ -259,6 +266,20 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     dispatched = 0
     # The failed report goes out once per marker (module docstring): read the run history once.
     history: dict[str, list[str]] | None = None
+    # A failed state: the first waiting feat-cmux-next commit that can take the publish over does, and no
+    # marker is reported red (cmux_tui_tree_takeover.py). Each commit is tried once per notify.
+    markers = {id(artifact): read_marker(api, artifact, key) for artifact in artifacts[:MAX_MARKERS]}
+    taken_over = False
+    if state == "failed":
+        # Imported here: the base-tier kick sparse-checks out this file alone for run_name and never fails a tree.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import cmux_tui_tree_takeover as takeover
+
+        taken_over = takeover.take_over_any(
+            api, repo=repo, key=key, log=log,
+            commits=[marker["sha"] for marker in markers.values()
+                     if marker is not None and marker.get("origin") in ("push", "dispatch")
+                     and marker.get("branch") == takeover.BRANCH and marker.get("ref_kind", "heads") == "heads"])
     stamps = [str(artifact.get("created_at", "")) for artifact in artifacts[:MAX_MARKERS]]
     stamps = [stamp for stamp in stamps if ISO_TIME.match(stamp)]
     if state == "failed" and stamps:
@@ -269,7 +290,7 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
                 f"failed markers are reported again")
     for artifact in artifacts[:MAX_MARKERS]:
         run_id = artifact.get("workflow_run", {}).get("id")
-        marker = read_marker(api, artifact, key)
+        marker = markers[id(artifact)]
         if marker is None:
             log(f"marker {artifact.get('id')} (run {run_id}) is not a valid tree marker; ignored")
             continue
@@ -285,6 +306,10 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         if marker["origin"] == "pull_request" and state == "failed":
             log(f"::notice title=same-tree cmux-tui skipped::run {run_id} ({marker['status_sha'][:12]}): "
                 f"tree {key} is unavailable; no pin ref is created. Re-run after a trusted publication.")
+            continue
+        if state == "failed" and taken_over:
+            log(f"run {run_id}: tree {key} was taken over by a waiting feat-cmux-next commit; not reported red "
+                f"(its marker stays, so the publication starts its tree jobs)")
             continue
         uploaded = str(artifact.get("created_at", ""))
         if state == "failed" and history is not None and ISO_TIME.match(uploaded) and any(
