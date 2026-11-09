@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42720237066",
+  "recorded_at": "2026-11-09T23:35:19Z",
+  "reason": "cmux-tui 49235606dd58 changes the image's cmux-tui (pinned 082effe4a744)",
+  "dry_run": false,
+  "cmux_tui": "49235606dd5858ea095ff40f9c9894d05e1a7b9b",
+  "fixes": [
+    {
+      "sha": "49235606dd5858ea095ff40f9c9894d05e1a7b9b",
+      "mergedAt": "2026-11-09T23:09:31Z",
+      "subject": "/btw works on a Cloud chat (#39210)"
+    },
+    {
+      "sha": "76a2576d6b293ac36499afff81dd0d521e3446a5",
+      "mergedAt": "2026-11-09T23:08:59Z",
+      "subject": "cmux chat: send the first prompt while the app opens the tab (#39899)"
+    },
+    {
+      "sha": "52270f3d1df1dfc8612baf54c4abc5f3b8fe7639",
+      "mergedAt": "2026-11-09T23:08:30Z",
+      "subject": "cmux-remote: a link redial gives up on a dead network within 3 s (#39886)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T23:35:19Z",
+    "snapshot_id": "sh-0dc6de28303f4895a1b05f7ce2fe51c6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42720237066): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fa16911a4dfbadee8a6e9e4eb00b984e049cc4da",
+    "image": "cloud-native-auto-49235606-42720237066-1",
+    "revision": "ci-42720237066-1",
+    "at": "2026-11-09T23:35:19Z"
+  },
+  "rolled_back": false
+}
