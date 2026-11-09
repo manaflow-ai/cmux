@@ -291,6 +291,8 @@ final class CloudPlanCardView: NSView {
         stack.spacing = Metrics.space3
         stack.setCustomSpacing(Metrics.space1, after: price)
         stack.translatesAutoresizingMaskIntoConstraints = false
+        // A shorter card keeps its content at the top: the stack hugs it rather than stretch to the card.
+        stack.setHuggingPriority(.defaultHigh, for: .vertical)
         addSubview(stack)
         let inset = Metrics.space4
         NSLayoutConstraint.activate([
