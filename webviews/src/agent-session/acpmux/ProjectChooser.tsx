@@ -50,6 +50,7 @@ export function ProjectChooser({
   noProject = false,
   side = "top",
   inline = false,
+  pathLook = "text",
 }: {
   projects: Project[];
   current?: string;
@@ -65,6 +66,8 @@ export function ProjectChooser({
   /// Where the menu opens: above the composer's tray, below a picker at the top of a page.
   side?: "top" | "bottom";
   inline?: boolean;
+  /// Gallery seam: how a folder's path draws under its name (`text` ships; FOLDER_PATH_LOOKS).
+  pathLook?: FolderPathLook;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -72,6 +75,7 @@ export function ProjectChooser({
   const [browseError, setBrowseError] = useState<string>();
   // Counts picks: a folder panel's late answer (or failure) after one is dropped.
   const picks = useRef(0);
+  const browsing = useRef(false);
   // A folder panel's late answer after the chooser is gone picks nothing.
   useEffect(
     () => () => {
@@ -154,7 +158,10 @@ export function ProjectChooser({
   // The host's folder panel only answers (deferPick) and the pick commits here, as Add project's
   // dialog did: a folder picked while the panel was open wins over its late answer. A refused or
   // failed panel says why beside a Retry.
+  // One panel at a time: a second Add folder… (or Retry) while the panel is open opens no other.
   const browse = () => {
+    if (browsing.current) return;
+    browsing.current = true;
     const before = picks.current;
     setBrowseError(undefined);
     void Promise.resolve()
@@ -164,6 +171,9 @@ export function ProjectChooser({
       })
       .catch((error: unknown) => {
         if (before === picks.current) setBrowseError(browseFailureMessage(error));
+      })
+      .finally(() => {
+        browsing.current = false;
       });
   };
   const label = currentLabel ?? t("composer.chooseFolder");
@@ -259,8 +269,12 @@ export function ProjectChooser({
                   )}
                   <span className="acpmux-menu-text">
                     <span className="acpmux-menu-label">{name}</span>
-                    {project && !titledByPath(project) && (
-                      <span className="acpmux-menu-description" data-path={project.cwd} />
+                    {project && pathLook !== "name" && !titledByPath(project) && (
+                      // The path is the row's own text, not a CSS `content`, so the menu's width is
+                      // the width its rows draw (design/menus.md menu-fit), and find and selection see it.
+                      <span className="acpmux-menu-description" data-path={project.cwd}>
+                        {pathLook === "home" ? homeRelative(project.cwd) : project.cwd}
+                      </span>
                     )}
                   </span>
                   {project?.host && (
@@ -290,6 +304,17 @@ export function ProjectChooser({
       )}
     </span>
   );
+}
+
+/// How the chooser draws a folder's path under its name. `text` ships: the whole path, which tells
+/// two folders of one name apart (two lanes' `cmux` worktrees). `home` shortens a home folder's
+/// paths to `~/…`, and `name` shows no path (it stays in the row's accessible name).
+export type FolderPathLook = "text" | "home" | "name";
+export const FOLDER_PATH_LOOKS: readonly FolderPathLook[] = ["text", "home", "name"];
+
+/// `/Users/you/src/cmux` as `~/src/cmux` (and `/home/you/…` on Linux); any other path as it is.
+export function homeRelative(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
 }
 
 /// A folder the host names by its own path (a home folder has no project name): its title is

@@ -1,7 +1,7 @@
 // The chat menu's Edit CLAUDE.md row (cx-ncc.65, Claude desktop's project instructions): the app
 // opens the chat folder's instructions file in a file tab, made empty first when the folder has
 // none (`project.instructions`). Claude reads CLAUDE.md; Codex and the other harnesses read AGENTS.md.
-// Add Files to Project (cx-ncc.67, Claude desktop's project knowledge): the app copies the files the
+// Add Files to Folder (formerly Add Files to Project; cx-ncc.67, Claude desktop's project knowledge): the app copies the files the
 // user picks into the folder's .cmux/context/ and names them in that file (`project.addFiles`).
 import { type Translate, translate } from "../i18n";
 import { isAgentHome } from "../sessionList";

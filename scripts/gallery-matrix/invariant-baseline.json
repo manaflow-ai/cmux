@@ -971,15 +971,9 @@
     "agent-pane.effort-track#picked-max": [],
     "agent-pane.effort-track#picked-medium": [],
     "agent-pane.empty-state#closed": [],
-    "agent-pane.empty-state#no-project": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.empty-state#open": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.empty-state#search": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
+    "agent-pane.empty-state#no-project": [],
+    "agent-pane.empty-state#open": [],
+    "agent-pane.empty-state#search": [],
     "agent-pane.environment-save#granted": [],
     "agent-pane.environment-save#granted-hover": [],
     "agent-pane.environment-save#refused": [],
@@ -1740,9 +1734,7 @@
     "agent-pane.new-tab-headline#machine": [],
     "agent-pane.new-tab-headline#on": [],
     "agent-pane.new-tab-headline#picked": [],
-    "agent-pane.new-tab-headline#picker-open": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
+    "agent-pane.new-tab-headline#picker-open": [],
     "agent-pane.new-tab-page#escape-clear": [],
     "agent-pane.new-tab-page#folder-chooser": [],
     "agent-pane.new-tab-page#idle": [],
@@ -2016,29 +2008,18 @@
     "agent-pane.preview-card#not-loaded": [],
     "agent-pane.preview-card#open-in-menu": [],
     "agent-pane.project-chooser#closed": [],
-    "agent-pane.project-chooser#lane-worktrees": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.project-chooser#lane-worktrees-search": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
+    "agent-pane.project-chooser#lane-worktrees": [],
+    "agent-pane.project-chooser#lane-worktrees-search": [],
     "agent-pane.project-chooser#long-names": [],
-    "agent-pane.project-chooser#long-no-actions": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.project-chooser#machine-tags": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
+    "agent-pane.project-chooser#long-no-actions": [],
+    "agent-pane.project-chooser#machine-tags": [],
     "agent-pane.project-chooser#no-matches": [],
-    "agent-pane.project-chooser#open-app-icons": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.project-chooser#open-current": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.project-chooser#open-path-titled": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
+    "agent-pane.project-chooser#open-app-icons": [],
+    "agent-pane.project-chooser#open-current": [],
+    "agent-pane.project-chooser#open-path-titled": [],
+    "agent-pane.project-chooser#path-home": [],
+    "agent-pane.project-chooser#path-name": [],
+    "agent-pane.project-chooser#path-text": [],
     "agent-pane.project-chooser#press-drag-release": [],
     "agent-pane.project-chooser#remote-completion": [],
     "agent-pane.project-chooser#typed-path": [],

@@ -283,7 +283,7 @@ test("path locality is hover text, with no persistent lock; open and text-only p
     );
     const chip = rootElement.querySelector<HTMLButtonElement>("button.is-path")!;
     expect(chip.textContent).toBe("cmux.json");
-    expect(chip.getAttribute("title")).toBe(`Outside this project\n${outside}`);
+    expect(chip.getAttribute("title")).toBe(`Outside this folder\n${outside}`);
     expect(rootElement.querySelector(".cv-chip__lock")).toBeNull();
     expect(rootElement.querySelector(".is-elsewhere")?.getAttribute("title")).toBe(`On example-host: ${outside}`);
     expect(rootElement.querySelector(".is-elsewhere")?.tagName).toBe("SPAN");
