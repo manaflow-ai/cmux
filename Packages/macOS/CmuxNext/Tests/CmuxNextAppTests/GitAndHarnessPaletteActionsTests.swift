@@ -85,6 +85,12 @@ struct GitAndHarnessPaletteActionsTests {
         let reason = registry.capturingRefusal { _ = registry.perform("git.worktree.remove", invocation: invocation) }
         #expect(reason == GitRepositoryStrings.folderChanged)
 
+        // Review (codex) at d86de003: an in-app remove that pinned nothing (its tab had no folder at the
+        // press) runs unasked; a folder that turned up before it runs must not be removed. A script's
+        // run, which passes confirm itself, resolves its tab when it runs and is not refused this way.
+        let unpinned = registry.capturingRefusal { _ = registry.perform("git.worktree.remove", invocation: ActionInvocation().confirmed()) }
+        #expect(unpinned == GitRepositoryStrings.noFolder)
+
         // The pin names the tab and machine too, so the confirmed run resolves that tab, not the selected one.
         let tab = ActionTargetRef(kind: .tab, id: "tab-a")
         let place = GitRepositoryActions.Place(link: link, cwd: "/repo/worktree-a", tab: tab, machineID: "local")

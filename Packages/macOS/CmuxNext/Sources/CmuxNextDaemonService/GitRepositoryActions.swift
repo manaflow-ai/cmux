@@ -93,6 +93,11 @@ public struct GitRepositoryActions {
         for id in Self.actionIDs {
             registry.bindEffect(id, effect: { invocation in
                 guard let request = Request.make(id, arguments: invocation.arguments) else { return .done }
+                // An in-app remove ran through the question, which pins the folder it asked about; one
+                // without a pin had no folder at the press, and must not take one that turned up since.
+                if id == "git.worktree.remove", !invocation.viaControlSocket, invocation[Self.pinnedPathName] == nil {
+                    return .refused(GitRepositoryStrings.noFolder)
+                }
                 guard let found = place(invocation), found.cwd.hasPrefix("/") else { return .refused(GitRepositoryStrings.noFolder) }
                 // A run that asked first carries the folder it asked about; the tab has moved on since.
                 if let pinned = invocation[Self.pinnedPathName]?.stringValue, pinned != found.cwd {
