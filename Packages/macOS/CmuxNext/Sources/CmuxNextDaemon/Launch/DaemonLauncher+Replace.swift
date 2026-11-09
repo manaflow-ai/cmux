@@ -34,24 +34,34 @@ extension DaemonLauncher {
         // The new owner's restore shows as an ensure's does (``EnsureOutcome/restoring``).
         let reports = progress ? ensureOutcome.restoreReporter() : nil
         defer { reports?.end() }
-        // No progress line while the old owner is probed and stopped: the
-        // silence bound covers that, then restore progress bounds the rest.
-        let result = try await ProcessRunner.run(
-            executable: configuration.binary,
-            arguments: arguments,
-            environment: environment,
-            stdin: configuration.installKey?.payload,
-            timeout: progress ? nil : Self.ensureRestoreCap + Self.replaceSilence,
-            progressIdle: progress ? Self.replaceSilence : nil,
-            stdoutLine: reports?.line,
-            clock: clock
-        )
-        if result.status != 0, let failure = Self.ensureFailure(result), failure.code.hasPrefix("server.replace_") {
-            throw ReplaceRefusal(code: failure.code, message: failure.message)
+        // App health reads a replace as it reads an ensure (Codex's review of #39247 at 2903cec): the new
+        // owner's restore progress holds the automatic replace, and its ready or failure ends the hold.
+        let note = health.map(EnsureProgressNote.init)
+        do {
+            // No progress line while the old owner is probed and stopped: the
+            // silence bound covers that, then restore progress bounds the rest.
+            let result = try await ProcessRunner.run(
+                executable: configuration.binary,
+                arguments: arguments,
+                environment: environment,
+                stdin: configuration.installKey?.payload,
+                timeout: progress ? nil : Self.ensureRestoreCap + Self.replaceSilence,
+                progressIdle: progress ? Self.replaceSilence : nil,
+                progressed: note.map { note in { @Sendable in note.progressed() } },
+                stdoutLine: reports?.line,
+                clock: clock
+            )
+            if result.status != 0, let failure = Self.ensureFailure(result), failure.code.hasPrefix("server.replace_") {
+                throw ReplaceRefusal(code: failure.code, message: failure.message)
+            }
+            let ensured = try Self.parseEnsure(result)
+            health?.note(.ready(pid: ensured.pid))
+            ensureOutcome.note(nil, pid: ensured.pid)
+            return ensured
+        } catch {
+            health?.note(.exited)
+            throw error
         }
-        let ensured = try Self.parseEnsure(result)
-        ensureOutcome.note(nil, pid: ensured.pid)
-        return ensured
     }
 
     /// ``ensure()`` for the endpoint provider, recording how it ended in ``ensureOutcome``.
