@@ -543,6 +543,7 @@ fn a_refusal_with_no_lost_answer_of_this_token_is_final() {
 /// call `bind_now` makes) takes the updater's connect hold, so the bound
 /// machine's first link is held from any update's restart. Driven through
 /// the real path to `BindResult::Bound`, under a temporary root.
+#[cfg(unix)]
 #[test]
 fn a_bind_that_lands_holds_the_updaters_flip() {
     use crate::updater::gate::{CONNECT_HOLD, Gate};
@@ -575,6 +576,7 @@ fn a_bind_that_lands_holds_the_updaters_flip() {
 
 /// With a restart of the service pending (queued by any process), the bind
 /// does not go out: no request, and bind.json stays for the restarted service.
+#[cfg(unix)]
 #[test]
 fn a_bind_with_a_restart_pending_waits_for_the_restarted_service() {
     use crate::updater::gate::Gate;
@@ -603,11 +605,13 @@ fn a_bind_with_a_restart_pending_waits_for_the_restarted_service() {
 
 /// A transport that runs `during` as the bind request goes out, then answers
 /// as [`Fake`].
+#[cfg(unix)]
 struct DuringBind<F: Fn()> {
     fake: Fake,
     during: F,
 }
 
+#[cfg(unix)]
 impl<F: Fn()> Http for DuringBind<F> {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
         if url.ends_with("/v1/cloud/bind") {
@@ -617,6 +621,7 @@ impl<F: Fn()> Http for DuringBind<F> {
     }
 }
 
+#[cfg(unix)]
 fn hold_then_bind_with(
     paths: &crate::config::Paths,
     http: &dyn Http,
@@ -634,6 +639,7 @@ fn hold_then_bind_with(
 /// bind's request goes out after the bind leaves the gate. A rollback that
 /// reaches its flip and restart while the request is in flight would cut the
 /// machine's first link, so the gate refuses it until the bind is done.
+#[cfg(unix)]
 #[test]
 fn a_rollback_waits_for_a_bind_in_flight() {
     use std::cell::Cell;
@@ -665,6 +671,7 @@ fn a_rollback_waits_for_a_bind_in_flight() {
 
 /// Review F2 of #38483: a gate whose lock can't be taken fails closed. The
 /// bind doesn't go out (it retries, bind.json kept) and no update flips.
+#[cfg(unix)]
 #[test]
 fn a_gate_lock_that_cannot_be_taken_fails_closed() {
     use crate::updater::gate::{GATE_LOCK, Gate};
@@ -685,6 +692,7 @@ fn a_gate_lock_that_cannot_be_taken_fails_closed() {
 
 /// Review F2 of #38483: a hold that can't be written fails closed: the flip
 /// in another process would never see it, so the bind retries.
+#[cfg(unix)]
 #[test]
 fn a_hold_that_cannot_be_written_fails_closed() {
     use crate::updater::gate::GATE_FILE;

@@ -828,6 +828,7 @@ fn an_unreadable_gate_state_fails_closed_then_recovers() {
 /// Review F1 of #38483: a rollback refused by a bind in flight looks at
 /// carrier sessions again (the bound machine's first link may be one) and
 /// retries; it rolls back once the bind is done and no session holds it.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_rollback_refused_by_a_bind_in_flight_looks_again_and_retries() {
     use std::time::Duration;
