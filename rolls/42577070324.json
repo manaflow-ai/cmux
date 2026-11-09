@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42577070324",
+  "recorded_at": "2026-11-09T07:14:41Z",
+  "reason": "cmux-tui 92e171019c07 changes the image's cmux-tui (pinned 527c69fdd937)",
+  "dry_run": false,
+  "cmux_tui": "92e171019c0703b296e6d4d9e2bb4c8839094cee",
+  "fixes": [
+    {
+      "sha": "dd3bd7ed2ce6475d31c673637fc45ab8182cc7cb",
+      "mergedAt": "2026-11-08T22:50:37-08:00",
+      "subject": "cmux mcp: say each rule once, list only cmux_exec, name the folded side-session tools (#39279)"
+    },
+    {
+      "sha": "f53a01f2ebafb428e6ebe9fc68cd5227496a0108",
+      "mergedAt": "2026-11-08T22:48:12-08:00",
+      "subject": "cmux-next: floating sidebar tests and plumbing (red)"
+    },
+    {
+      "sha": "a819c168e64a01a22def6f010dd77eed412a2d1e",
+      "mergedAt": "2026-11-08T22:47:26-08:00",
+      "subject": "cmux-tui: restore_bound declares mach_timebase_info itself (macOS clippy red on tip) (#39289)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T07:14:41Z",
+    "snapshot_id": "sh-1e890340fe9e40d381a3dbf1d7ab9fac",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42577070324): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f6080ec85314dbbee769c021c6b7b05d18720026",
+    "image": "cloud-native-auto-92e17101-42577070324-1",
+    "revision": "ci-42577070324-1",
+    "at": "2026-11-09T07:14:41Z"
+  },
+  "rolled_back": false
+}
