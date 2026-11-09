@@ -13,7 +13,9 @@ import { cardCost, MODELS, modelById, routeCost, type ModelEntry, type ProviderI
 import { providerTarget } from "./providers.ts"
 import { callUpstream } from "./upstream.ts"
 import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
-import { includedMicrosFor, includedReached } from "./included-stop.ts"
+import { includedMicrosFor, includedModeFor, includedReached } from "./included-stop.ts"
+import { poolsMachineTime } from "../billing-catalog.ts"
+import { usagePriceSet } from "../billing-usage-sync.ts"
 import { creditsMargin, creditsMinReserveUsd } from "../credits.ts"
 import { Effect, Result } from "effect"
 import { allowedModels, validateChat } from "./chat-request.ts"
@@ -223,7 +225,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     // The member's own monthly limit (usage-user.ts): reserved before the global lines, released at once if they refuse.
     // A team whose usage above the plan's included amount cannot be billed stops at that amount, checked in the
     // reservation's own transaction (cx-y79zh S5).
-    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros, includedMicrosFor(env, caller))
+    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros, includedMicrosFor(env, caller), includedModeFor(env, caller), poolsMachineTime(usagePriceSet(env)))
     if (!held.ok && held.included) return includedReached(held.spent_usd, held.limit_usd)
     if (!held.ok) {
       return err(402, "usage.user_limit_reached", "You reached your monthly AI spending limit for this team. A team admin can raise it.", { details: { limit_usd: held.limit_usd, spent_usd: held.spent_usd, resets_at: nextMonthStart(Date.now()) } })

@@ -19,6 +19,7 @@ pub mod question_reply;
 mod reducer;
 mod search;
 mod types;
+mod widget;
 
 pub use attachments::{
     AttachmentClass, AttachmentReject, DerivedVariant, GENERIC_FILE_TYPE,
@@ -58,6 +59,10 @@ pub use types::{
     AgentClass, Change, ConversationHead, DerivedImage, Message, Op, Origin, Part, PartRef,
     Participant, ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun,
     ThreadResolution, ThreadState, ThreadStatus, WorkStatus,
+};
+pub use widget::{
+    MAX_WIDGET_FALLBACK_CHARS, MAX_WIDGET_NAME_BYTES, MAX_WIDGET_PROPS_BYTES, Widget, valid_widget,
+    valid_widget_app,
 };
 
 /// `Summary.owner` for conversations owned by a local daemon.

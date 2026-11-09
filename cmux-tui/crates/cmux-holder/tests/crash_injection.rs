@@ -1173,10 +1173,10 @@ fn an_idle_holder_exits_and_a_scripts_sigterm_does_not_end_one_with_terminals() 
 
 /// Holder item 5 (parity with terminal hosts before the holder is the
 /// default): a holder started with an orphan grace (`CMUX_HOLDER_ORPHAN_GRACE_MS`,
-/// the grace a DEV or test daemon gives its hosts) ends its terminals once no
-/// daemon was linked for that long, then exits idle, so throwaway daemons do
-/// not keep shells and PTYs for ever. A daemon that comes back in time keeps
-/// them.
+/// the grace a DEV or test daemon gives its hosts; every other holder takes
+/// `ABANDONED_GRACE`, a week) ends its terminals once no daemon was linked
+/// for that long, then exits idle, so throwaway daemons do not keep shells
+/// and PTYs for ever. A daemon that comes back in time keeps them.
 #[test]
 fn an_orphan_grace_ends_the_terminals_of_a_holder_no_daemon_came_back_to() {
     let dir = temp_dir();
