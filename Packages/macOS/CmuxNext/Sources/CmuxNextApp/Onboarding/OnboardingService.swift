@@ -188,9 +188,19 @@ final class OnboardingService {
         return await services.openLocalProviderLogin(line)
     }
 
-    /// Agents, then Bring your history (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
+    /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
+    private(set) lazy var setup = FirstRunSetup()
+
+    /// A first run starts Home's Set Up cmux card, which offers the agents, the account and the command line in
+    /// one place: the Agents window, Bring your history over Home and the CLI toast each count as shown (the
+    /// memory offer stays on Home's first-run panel). Otherwise Agents, then Bring your history
+    /// (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
     func showFirstRunSteps(isFirstRun: Bool) async {
         guard !services.environment.skipsOnboarding else { return }
+        if setup.begin(isFirstRun: isFirstRun, replacedKeys: [OnboardingWindowPresenter.historyShownKey, CLIInstallHandlers.offeredAtLaunchKey]) {
+            DebugTimings.markLaunch("first_run.setup_card_shown")
+            return
+        }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 

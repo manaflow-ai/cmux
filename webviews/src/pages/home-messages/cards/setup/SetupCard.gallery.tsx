@@ -98,7 +98,7 @@ export default componentEntry<Props>({
   variants: {
     ...variants("next", {
       fresh:
-        "Recommended: progress and only the next row's action, as a getting-started card. One ask at a time over the composer; Home stays the first screen, with no window.",
+        "Progress and only the next row's action, as a getting-started card: one ask at a time, but the later rows stay hidden until the earlier ones are done.",
       classic: "Classic's workspaces come first: the answer decides what Home holds.",
       mostlyDone: "One row left; the ring says how far.",
     }),
@@ -107,7 +107,8 @@ export default componentEntry<Props>({
       props: { look: "next", fixture: "installing" },
     },
     ...variants("rows", {
-      fresh: "Every row in one compact card, a Settings list: all of setup visible, more to read.",
+      fresh:
+        "Recommended (ships): every row in one card, a Settings list. Everything visible at once, one card, nothing hidden behind earlier steps.",
     }),
     ...variants("checklist", {
       fresh: "A checklist on the chat column over the composer, no card: readiness before the first prompt.",

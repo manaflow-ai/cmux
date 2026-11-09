@@ -1,6 +1,6 @@
 // "Set Up cmux" on Home (goal next-first-run-setup): what this Mac still lacks for a first run,
 // drawn in Home's chat column above Chief's composer, with no window of its own. Three looks the
-// gallery compares (`next` ships): only the progress and the next row's action (`next`), every row
+// gallery compares (`rows` ships): only the progress and the next row's action (`next`), every row
 // in one compact card (`rows`), or a checklist over the composer (`checklist`). `window` draws the
 // same rows as the first-run window would, for comparison only. Each row's trailing control keeps
 // one slot, so a button, the spinner and the done mark swap in place and nothing moves. The model is
@@ -13,7 +13,7 @@ import { nextStep, setupProgress, setupSteps, type SetupAction, type SetupState,
 import "../cards.css";
 
 export type SetupLook = "next" | "rows" | "checklist" | "window";
-export const DEFAULT_SETUP_LOOK: SetupLook = "next";
+export const DEFAULT_SETUP_LOOK: SetupLook = "rows";
 
 export interface SetupCardProps {
   strings: Strings;

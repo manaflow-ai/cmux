@@ -1,0 +1,11 @@
+/* The card floats on Home's chat column: the page itself draws nothing around it. */
+html,
+body {
+  background: transparent;
+  margin: 0;
+  overflow: hidden;
+}
+.setup-card-frame {
+  display: flex;
+  justify-content: center;
+}
