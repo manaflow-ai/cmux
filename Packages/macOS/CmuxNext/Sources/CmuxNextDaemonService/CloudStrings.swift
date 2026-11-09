@@ -156,7 +156,6 @@ public enum CloudStrings {
     public static var fileContentsTitle: String { String(localized: "cloud.result.fileContentsTitle", defaultValue: "Cloud File Contents", table: "Cloud", bundle: .module) }
     public static var fileStatTitle: String { String(localized: "cloud.result.fileStatTitle", defaultValue: "Cloud File Details", table: "Cloud", bundle: .module) }
     public static var scpTitle: String { String(localized: "cloud.result.scpTitle", defaultValue: "Cloud File Transfer", table: "Cloud", bundle: .module) }
-    public static var firewallTitle: String { String(localized: "cloud.result.firewallTitle", defaultValue: "Cloud Firewall Rules", table: "Cloud", bundle: .module) }
     public static var networkTitle: String { String(localized: "cloud.result.networkTitle", defaultValue: "Cloud Networks", table: "Cloud", bundle: .module) }
     public static var removeFileTitle: String { String(localized: "cloud.prompt.removeFile", defaultValue: "Remove this Cloud file?", table: "Cloud", bundle: .module) }
     public static var removeFileBody: String { String(localized: "cloud.prompt.removeFileBody", defaultValue: "The selected file or directory is permanently removed.", table: "Cloud", bundle: .module) }

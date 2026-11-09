@@ -80,6 +80,7 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
     let state_filter = state.map(AgentState::as_str);
     // The kept replies are memory only, read before the projection lock.
     let replies = mux.agent_list_replies(terminal.as_ref());
+    let last_sessions = mux.agent_last_sessions();
     // Public agents are durable terminal projections. They remain listable
     // after process exit detaches the runtime and every tab view.
     let values = mux
@@ -89,6 +90,7 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
                 .into_iter()
                 .map(|agent| agent.into_public_snapshot(&session_id))
                 .map(|agent| crate::mux::with_agent_list_replies(agent, &replies))
+                .map(|agent| crate::mux::with_kept_session(agent, &last_sessions))
                 .collect::<Vec<_>>())
         })
         .map_err(resource_operation_error)?;
