@@ -204,8 +204,18 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         Some("input") => "question".into(),
         // Every command it runs is refused now: its harness's own sandbox did not start
         // (`harnessSandboxFailing`). A past refusal it recovered from says nothing here.
-        _ if row["harnessSandboxFailing"] == true => "harness sandbox".into(),
+        _ if harness_sandbox_failing(row) => "harness sandbox".into(),
         _ => String::new(),
+    }
+}
+
+/// Whether the row's harness refuses commands now: `harnessSandboxFailing`, or, from an older
+/// daemon or a peer that sends only `harnessSandboxFailed`, that timestamp (it then meant the
+/// failure lasted). An explicit false is a recovery.
+fn harness_sandbox_failing(row: &Value) -> bool {
+    match row.get("harnessSandboxFailing").and_then(Value::as_bool) {
+        Some(failing) => failing,
+        None => row.get("harnessSandboxFailed").and_then(Value::as_u64).is_some(),
     }
 }
 
