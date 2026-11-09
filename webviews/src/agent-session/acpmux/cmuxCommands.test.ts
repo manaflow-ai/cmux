@@ -48,6 +48,12 @@ test("/cd reads an absolute path as typed and a relative one against the chat's 
   expect(cdFolder("../../../..", "/work")).toBe("/");
   // The host's home is not the pane's to spell; a relative path needs a chat folder.
   expect(cdFolder("~/src", "/work")).toBeUndefined();
+  // A folderless Cloud chat runs in its machine's fresh folder (`<home>/chats/<chat>`), which names
+  // the machine's home: `~` goes there, as `cmux chat cd SESSION ~/PATH` does (folderlessCloud.ts).
+  expect(cdFolder("~/work/api", "/home/cmux/chats/peer-12")).toBe("/home/cmux/work/api");
+  expect(cdFolder("~", "/home/cmux/chats/peer-12")).toBe("/home/cmux");
+  expect(cdFolder("api", "/home/cmux/chats/peer-12")).toBe("/home/cmux/chats/peer-12/api");
+  expect(cdFolder("~other/x", "/home/cmux/chats/peer-12")).toBeUndefined();
   expect(cdFolder("src", undefined)).toBeUndefined();
   expect(cdFolder("", "/work")).toBeUndefined();
 });

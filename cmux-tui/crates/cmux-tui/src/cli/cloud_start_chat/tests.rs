@@ -2031,3 +2031,56 @@ fn an_unreachable_read_of_the_turn_is_asked_again() {
     };
     assert_eq!(answer["unanswered_reads"], 1);
 }
+
+/// Leo (2026-11-09): "this no folder selected should be, like, good as well". A start with no
+/// `--cwd` and no `--from-folder` is a first-class one: the answer says the chat runs in a fresh
+/// folder of its own (`folder: fresh`), names that folder as the machine reports it (`cwd`, read in
+/// the send's own exec, so no extra round trip), and gives the way to a repository later
+/// (`follow_up.cd`). Nothing waits on a folder: the same steps as any start.
+#[test]
+fn a_folderless_start_is_fresh_and_reports_the_folder_the_machine_made() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out(
+            "@@cwd\n{\"sessions\":[{\"sessionId\":\"other\",\"cwd\":\"/home/cmux/work/api\"},\
+             {\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n\
+             @@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n",
+        ),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["folder"], "fresh");
+    assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
+    assert_eq!(answer["follow_up"]["cd"], "cmux chat cd sess-1 DIR|--repo OWNER/NAME");
+    // start-session gets no folder, and the send reads where the chat runs in the same exec.
+    assert_eq!(
+        fake.ran[1],
+        strings(&["cloud", "start-session", "--name", "chat-fresh", "--agent", "claude", "--json"])
+    );
+    assert_eq!(fake.ran.len(), 3, "no step waits on a folder: {:?}", fake.ran);
+    assert!(fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd"));
+}
+
+#[test]
+fn the_folder_kind_and_the_session_folder_read() {
+    assert_eq!(support::folder_kind(None, None), "fresh");
+    assert_eq!(support::folder_kind(Some("/home/cmux/work/api"), None), "given");
+    assert_eq!(support::folder_kind(None, Some("/Users/you/src/cmux")), "copied");
+    let rows = "[{\"id\":\"s-2\",\"cwd\":\"/root/chats/s-2\"}]".to_owned();
+    assert_eq!(support::session_cwd(Some(&rows), "s-2").as_deref(), Some("/root/chats/s-2"));
+    assert_eq!(support::session_cwd(Some(&rows), "s-3"), None);
+    assert_eq!(support::session_cwd(Some(&"not json".to_owned()), "s-2"), None);
+    assert_eq!(support::session_cwd(None, "s-2"), None);
+    // A start with no read (an older machine's ls) still answers: given keeps its --cwd.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let given = request(&["--prompt", "hi", "--cwd", "/home/cmux/work/api"]);
+    let Outcome::Done(answer) = run(&mut fake, &given) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["folder"], "given");
+    assert_eq!(answer["cwd"], "/home/cmux/work/api");
+}
