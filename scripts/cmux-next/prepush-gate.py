@@ -72,6 +72,10 @@ it after the merge: digest.parse, then digest.entry_problems (scripts/whats-new/
 link, at most 2 sentences, 240 characters, no internal names). Unchanged highlights are never read. The hook runs
 the validator of this clone's origin/feat-cmux-next, never the pushed one (a plain run: the head's). 2026-11-01:
 #30774, #31156 and #31140 each landed a highlight that turned that check red on every pull request.
+Also on every local run, the same way: "What's New pictures": each New or Improved highlight the push adds names
+where its picture comes from: a `gallery:` or `clip:` line, a clip spec (release-notes/next/clips/<id>.json), or a
+webview *.gallery.ts(x) change on the branch (whats-new-gallery.yml picks the state). On 2026-11-08, 61 of the 166
+New or Improved highlights of 21 days changed only Swift and went out with no picture (goal whats-new-pretty).
 Also on every local run, the same way: "Workflow YAML parses": each .github/workflows/*.yml (and composite
 action.yml) the push changes must parse at the pushed head (PyYAML, else Ruby's Psych; plus the local actionlint's
 new [syntax-check] findings when it is on PATH), for a push to any branch, main and feat-cmux-next included.
@@ -288,6 +292,14 @@ HIGHLIGHTS_DIR = "release-notes/next/highlights/"
 HIGHLIGHTS_CODE = ("scripts/whats-new/digest.py", "scripts/whats-new/validate.py")
 HIGHLIGHTS_HINT = ("Fix the highlight: add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, "
                    "240 characters (release-notes/next/WRITING.md).")
+# A New or Improved highlight the push adds names where its picture comes from (goal whats-new-pretty; Leo, 2026-10-20:
+# "tho i think vids and before/afters for our techincal stuff is p important... we want things to be PRETTY!!!!").
+PICTURES_CHECK = "What's New pictures (release-notes/next/WRITING.md, \"A gallery picture\" and \"A clip\")"
+PICTURES_GALLERY_FILE = re.compile(r"webviews/.+\.gallery\.tsx?")
+PICTURES_CLIPS_DIR = "release-notes/next/clips/"
+PICTURES_HINT = ("Give each one a picture: change the webview *.gallery.ts(x) state that shows it on this branch "
+                 "(whats-new-gallery.yml picks it), or add a line such as `gallery: agent-pane.composer-send-menu/idle`, "
+                 "or, for a native change, write release-notes/next/clips/<id>.json (a clip spec).")
 # Run in its own interpreter: argv[1] holds digest.py and validate.py, argv[2] is the result file, then pairs of
 # (file name, path to its text). Each file is judged alone, as test_the_repository_highlights_validate judges it: read
 # as strict UTF-8 like the test's open() (a file it cannot decode is a test error there, so a finding here), and a file
@@ -1357,6 +1369,51 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
     return found
 
 
+def picture_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
+    """`<highlight file>: ...` for each New or Improved What's New highlight BASE..HEAD adds with no picture source.
+
+    NOW's whats_new line counts the New and Improved highlights of the last ten nightlies that went out with no
+    picture; on 2026-11-08, 61 of the 166 in 21 days changed only Swift, where whats-new-gallery.yml finds no state,
+    and none named one. A highlight passes with a `clip:` or `gallery:` line, with a clip spec
+    (release-notes/next/clips/<id>.json) at HEAD, or when the branch changes a webview *.gallery.ts(x) file since it
+    left origin/feat-cmux-next (a gallery change pushed before the highlight counts). Fixed and Security entries need
+    no picture; a highlight already on the base is never judged. It fails open, with a warning."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=A", "-z", base, head, "--",
+                HIGHLIGHTS_DIR).decode()
+    files = sorted(n for n in names.split("\0") if n.endswith(".md") and "/" not in n[len(HIGHLIGHTS_DIR):]
+                   and (restrict is None or n in restrict))
+    if not files:
+        return []
+    try:
+        since = base
+        for ref in DEFAULT_BASE_REFS:
+            if rev_ok(repo, ref):
+                since = git(repo, "merge-base", ref, head).decode().strip() or base
+                break
+        changed = git(repo, "diff", "--name-only", "--no-renames", "-z", since, head).decode().split("\0")
+        if any(PICTURES_GALLERY_FILE.fullmatch(p) for p in changed):
+            return []
+        clips = set(git(repo, "ls-tree", "--name-only", "-z", head, "--", PICTURES_CLIPS_DIR).decode().split("\0"))
+        blobs = git_batch.cat_file(repo, [f"{head}:{p}" for p in files])
+        found = []
+        for p in files:
+            meta = {}
+            for line in (blobs[f"{head}:{p}"] or b"").decode("utf-8", "replace").partition("\n\n")[0].splitlines():
+                key, sep, value = line.partition(":")
+                if sep:
+                    meta[key.strip().lower()] = value.strip()
+            highlight_id = Path(p).stem
+            if ((meta.get("category") or "new").lower() not in ("new", "improved") or meta.get("clip")
+                    or meta.get("gallery") or f"{PICTURES_CLIPS_DIR}{highlight_id}.json" in clips):
+                continue
+            category = (meta.get("category") or "new").lower()
+            found.append(f"{p}: a {category} highlight with no picture source")
+        return found
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - fail open: the NOW count still shows a miss
+        log(f"prepush-gate: WARNING: the What's New pictures were not checked ({type(error).__name__}: {error}).")
+        return []
+
+
 def window_freezes(repo: Path, base: str, head: str, window: Path | None = None) -> list[str]:
     """Each pushed commit that changes a path a WINDOW FREEZE line holds without that line's token.
 
@@ -1480,6 +1537,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             log(f"  {time.monotonic() - t0:5.2f}s  {HIGHLIGHTS_CHECK}")
         if bad:
             reserved.append((HIGHLIGHTS_CHECK, bad))
+    # Local only, like the highlights (CLAUDE.md: no new CI gates): NOW's whats_new count is the backstop.
+    if highlights_layer if only is None else "pictures" in only:
+        missing = picture_problems(repo, base, head, restrict)
+        if missing:
+            reserved.append((PICTURES_CHECK, missing))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
     if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt"}:
         return reserved
@@ -1893,7 +1955,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,freeze,highlights,workflows")
+                                       "cargo-lock,sidebar,crash-allow,freeze,highlights,pictures,workflows")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
@@ -2034,6 +2096,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if any(name == HIGHLIGHTS_CHECK for name, _ in found_any):
         print(HIGHLIGHTS_HINT)
+    if any(name == PICTURES_CHECK for name, _ in found_any):
+        print(PICTURES_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):

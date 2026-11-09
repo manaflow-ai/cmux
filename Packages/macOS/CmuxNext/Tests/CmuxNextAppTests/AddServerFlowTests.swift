@@ -95,6 +95,18 @@ import Testing
         #expect(model.addServerStep == .enterCode)
     }
 
+    /// The menu bar item hidden and shown again with a lookup in flight: that lookup's refusal is
+    /// the stopped session's and never shows on the new one.
+    @Test func aRefusalForAnIntentNoLongerPendingIsIgnored() throws {
+        model.setApprovalCode(MockServerScenario.offerCode)
+        let key = try #require(model.pending.last?.key)
+        model.stop()
+        model.start()
+        model.handle(.settled(key: key, reject: "Could not reach cmux."))
+        #expect(model.lastReject == nil)
+        #expect(model.addServerStep == .enterCode)
+    }
+
     // MARK: - Opening
 
     @Test func reopeningAfterAnAddStartsClean() throws {
