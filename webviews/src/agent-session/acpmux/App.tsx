@@ -6322,7 +6322,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const snapshotSession = showsWhatItIs && newTab === undefined && hostError === undefined ? shownSessionId : undefined;
   useEffect(() => {
     if (!snapshotSession || !pageHostClient()) return;
-    return watchChatSnapshot(snapshotSession, (params) => callNative("chat.snapshot.put", params));
+    return watchChatSnapshot(snapshotSession, (params) => {
+      // The chat's records go with its drawn copy: a quit can end the page without a `pagehide`,
+      // and the tail the host held then was the one kept when the chat was last left, which the
+      // relaunch's attach no longer meets (Leo, 2026-11-08: "what you saw when you clicked the
+      // restart button ... here's literally what you just had").
+      directClient.current?.handOverCurrentTail();
+      return callNative("chat.snapshot.put", params);
+    });
   }, [snapshotSession]);
   const summary = snapshot.summary;
   const localCwd =

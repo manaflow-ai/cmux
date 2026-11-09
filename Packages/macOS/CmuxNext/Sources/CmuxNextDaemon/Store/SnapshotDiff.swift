@@ -10,25 +10,35 @@ nonisolated struct SnapshotDiff: Sendable {
     let changed: [String: WorkspaceSnapshot]
     /// Identities the memo holds that the snapshot no longer has.
     let removed: Set<String>
+    /// The snapshot's workspace identities in its order (the memo's order after it applies).
+    let order: [String]
+    /// The snapshot lists the memo's workspaces in the memo's order: none new, none gone, none moved.
+    let sameOrder: Bool
 
     /// Compares `tree` with `applied`, off the caller's actor.
     @concurrent
-    static func computed(_ tree: DaemonTree, against applied: [String: WorkspaceSnapshot], revision: UInt64) async -> SnapshotDiff {
-        compute(tree, against: applied, revision: revision)
+    static func computed(_ tree: DaemonTree, against applied: [String: WorkspaceSnapshot], order: [String],
+                         revision: UInt64) async -> SnapshotDiff {
+        compute(tree, against: applied, order: order, revision: revision)
     }
 
     /// Compares `tree` with `applied` on the calling thread.
-    static func compute(_ tree: DaemonTree, against applied: [String: WorkspaceSnapshot], revision: UInt64) -> SnapshotDiff {
+    static func compute(_ tree: DaemonTree, against applied: [String: WorkspaceSnapshot], order memoOrder: [String],
+                        revision: UInt64) -> SnapshotDiff {
         var changed: [String: WorkspaceSnapshot] = [:]
         var present = Set<String>()
         present.reserveCapacity(tree.workspaces.count)
+        var order: [String] = []
+        order.reserveCapacity(tree.workspaces.count)
         for workspace in tree.workspaces {
             let id = WorkspaceModel.identity(workspace)
             present.insert(id)
+            order.append(id)
             // The last of a repeated identity wins, as in the memo a full apply builds.
             if applied[id] != workspace { changed[id] = workspace } else { changed[id] = nil }
         }
         let removed = Set(applied.keys.filter { !present.contains($0) })
-        return SnapshotDiff(revision: revision, changed: changed, removed: removed)
+        return SnapshotDiff(revision: revision, changed: changed, removed: removed, order: order,
+                            sameOrder: removed.isEmpty && order == memoOrder)
     }
 }
