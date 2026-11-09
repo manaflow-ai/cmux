@@ -607,7 +607,9 @@ def reusable_build(root, tree):
     previous change". The watcher already patches a pull in while live mode is on; this does the
     same across starts. (entry, commit, patchable files) when the tag's live derived data still holds
     that build's intermediates and every file that differs from what it compiled patches in (an
-    existing CmuxNextApp file); None when there is no such build or a file would wait for a build."""
+    existing CmuxNextApp file); None when there is no such build or a file would wait for a build.
+    Every other input of the build counts too (shared packages, resources, webviews, manifests): git
+    must show nothing changed since that build's commit but CmuxNextApp Swift."""
     holds = root / "derived-data.commit"
     current = holds.read_text().strip() if holds.is_file() else ""
     if not re.fullmatch(r"[0-9a-f]{7,40}", current):
@@ -616,10 +618,26 @@ def reusable_build(root, tree):
     built_from = entry / "sources.json"
     if not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file() and built_from.is_file()):
         return None
+    if not only_app_swift_changed(tree, current):
+        return None
     patchable, waiting = changed_sources(load_sources(built_from), swift_sources(tree))
     if waiting:
         return None
     return entry, current, patchable
+
+
+def only_app_swift_changed(tree, commit):
+    """Whether every tracked file that differs from `commit` (committed since or edited) is a
+    CmuxNextApp Swift file, and no untracked file is there. False when git cannot tell."""
+    diff = subprocess.run(["git", "-C", str(tree), "diff", "--name-only", commit, "--"],
+                          capture_output=True, text=True)
+    untracked = subprocess.run(["git", "-C", str(tree), "ls-files", "--others", "--exclude-standard"],
+                               capture_output=True, text=True)
+    if diff.returncode != 0 or untracked.returncode != 0:
+        return False
+    app = f"{SOURCES}/{PATCHED_MODULE}/"
+    changed = [f for f in diff.stdout.splitlines() if f]
+    return not untracked.stdout.strip() and all(f.startswith(app) and f.endswith(".swift") for f in changed)
 
 
 def start_locked(args, path, ident, tag, root):

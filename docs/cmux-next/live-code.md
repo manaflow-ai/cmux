@@ -134,8 +134,9 @@ Leo then: "For the swift bit why can't we simply apply after switching the build
   live code build when everything that differs from what it compiled patches in (only existing
   CmuxNextApp files changed): it restarts into that build and patches the difference in, with no
   build, as the watcher already does for a pull while live mode is on. Status and the start line say
-  `the live code build of OLD, patched up to NEW`. A new file, a file of another module or a deleted
-  one builds HEAD as before; so does `--fresh` (`cmux live start --swift --fresh`). A difference the
+  `the live code build of OLD, patched up to NEW`. Any other change since that build (a new or
+  deleted file, another module or shared package, a resource, `webviews/`, a manifest, an untracked
+  file; git decides) builds HEAD as before; so does `--fresh` (`cmux live start --swift --fresh`). A difference the
   app refuses (a type's layout changed) waits for the stop build, and the start line names `--fresh`.
 - **While on**, a watcher (`live-mode.py watch`, in the background) patches each saved CmuxNextApp
   file in, and once saves stop for 20 s it makes the optimized build of the edited checkout

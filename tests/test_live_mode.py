@@ -388,26 +388,60 @@ class LiveModeTests(unittest.TestCase):
         return entry
 
     def app_tree(self):
+        """A git checkout with one CmuxNextApp file and one shared-package file, committed."""
         tree = Path(self.dir) / "tree"
         source = tree / live_mode.SOURCES / "CmuxNextApp/A.swift"
         source.parent.mkdir(parents=True)
         source.write_text("one")
+        shared = tree / "Packages/Shared/Kit/Sources/Kit/K.swift"
+        shared.parent.mkdir(parents=True)
+        shared.write_text("k")
+        run = lambda *a: subprocess.run(["git", "-C", str(tree), *a], check=True, capture_output=True)  # noqa: E731
+        run("init", "-q")
+        run("add", "-A")
+        run("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "base")
         return tree, source
+
+    def commit_of(self, tree):
+        return subprocess.run(["git", "-C", str(tree), "rev-parse", "HEAD"], capture_output=True,
+                              text=True, check=True).stdout.strip()
 
     def test_the_last_live_build_is_reused_when_everything_since_patches_in(self):
         tree, source = self.app_tree()
         root = live_mode.cache_root("t")
-        entry = self.live_build(root, "1111111111111111111111111111111111111111", tree)
+        built = self.commit_of(tree)
+        entry = self.live_build(root, built, tree)
         source.write_text("two")  # a pull or an edit inside an existing CmuxNextApp file
         reused = live_mode.reusable_build(root, tree)
-        self.assertEqual(reused, (entry, "1111111111111111111111111111111111111111",
-                                  [str(source.relative_to(tree))]))
+        self.assertEqual(reused, (entry, built, [str(source.relative_to(tree))]))
+
+    def test_any_other_build_input_that_changed_builds_instead(self):
+        tree, source = self.app_tree()
+        root = live_mode.cache_root("t")
+        self.live_build(root, self.commit_of(tree), tree)
+        source.write_text("two")
+        for other, text in [("Packages/Shared/Kit/Sources/Kit/K.swift", "k2"),  # a shared package
+                            ("webviews/src/x.ts", "x"),  # untracked: a new file anywhere
+                            (f"{live_mode.SOURCES}/CmuxNextApp/Resources/en.xcstrings", "{}")]:
+            path = tree / other
+            path.parent.mkdir(parents=True, exist_ok=True)
+            before = path.read_text() if path.exists() else None
+            path.write_text(text)
+            self.assertIsNone(live_mode.reusable_build(root, tree), other)
+            path.write_text(before) if before is not None else path.unlink()
+        self.assertIsNotNone(live_mode.reusable_build(root, tree))
+        (root / "derived-data.commit").write_text("f" * 40 + "\n")  # a commit git does not know
+        (root / ("f" * 12) / "live.app").mkdir(parents=True)
+        (root / ("f" * 12) / "build").mkdir()
+        (root / ("f" * 12) / "build/xcodebuild.log").write_text("")
+        live_mode.save_sources(root / ("f" * 12) / "sources.json", live_mode.swift_sources(tree))
+        self.assertIsNone(live_mode.reusable_build(root, tree))
 
     def test_a_change_that_cannot_patch_in_builds_instead(self):
         tree, _ = self.app_tree()
         root = live_mode.cache_root("t")
         self.assertIsNone(live_mode.reusable_build(root, tree))  # no live build yet
-        entry = self.live_build(root, "1111111111111111111111111111111111111111", tree)
+        entry = self.live_build(root, self.commit_of(tree), tree)
         new = tree / live_mode.SOURCES / "CmuxNextApp/New.swift"
         new.write_text("new")  # a new file waits for a build, so the build is not reused
         self.assertIsNone(live_mode.reusable_build(root, tree))
@@ -446,22 +480,23 @@ class LiveModeTests(unittest.TestCase):
     def test_start_reuses_the_last_live_build_with_no_build_and_patches_the_difference(self):
         tree, source = self.app_tree()
         root = live_mode.cache_root("t")
-        entry = self.live_build(root, "1111111111111111111111111111111111111111", tree)
+        built_commit = self.commit_of(tree)
+        entry = self.live_build(root, built_commit, tree)
         source.write_text("two")
         result, built, applied = self.start_with(tree, fresh=False)
         self.assertEqual(built, [])  # no build: the app at abcdef12 need not be HEAD 22222222
         self.assertEqual(result["into_was"], str(entry / "live.app"))
         self.assertEqual(applied, [[str(source.relative_to(tree))]])
-        self.assertEqual((result["built_commit"][:4], result["commit"][:4]), ("1111", "2222"))
+        self.assertEqual((result["built_commit"], result["commit"][:4]), (built_commit, "2222"))
         self.assertIsNone(result["built_s"])
         text = live_mode.summary("start", result)
-        self.assertIn("live code build of 111111111111, patched up to 222222222222", text)
+        self.assertIn(f"live code build of {built_commit[:12]}, patched up to 222222222222", text)
         self.assertIn("no build", text)
-        self.assertEqual(live_mode.read_state(root)["built_commit"][:4], "1111")
+        self.assertEqual(live_mode.read_state(root)["built_commit"], built_commit)
 
     def test_start_fresh_keeps_the_commit_check_and_builds(self):
         tree, _ = self.app_tree()
-        self.live_build(live_mode.cache_root("t"), "1111111111111111111111111111111111111111", tree)
+        self.live_build(live_mode.cache_root("t"), self.commit_of(tree), tree)
         with self.assertRaises(live_mode.Refused) as refused:
             self.start_with(tree, fresh=True)  # building HEAD: the app must be at HEAD, as before
         self.assertIn("check that commit out", str(refused.exception))
